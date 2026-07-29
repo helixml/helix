@@ -110,6 +110,7 @@ type ProjectService interface {
 	// GetAppConfig returns the typed config for an App. Used to round-
 	// trip the helix.assistants[0] MCP list for MCP attachment.
 	GetAppConfig(ctx context.Context, id string) (types.AppConfig, error)
+	GetApp(ctx context.Context, id string) (*types.App, error)
 
 	// UpdateAppConfig persists a mutated app config. WorkerProject
 	// uses this to attach helix-org's MCP server to the auto-provisioned
@@ -187,7 +188,7 @@ type WorkerProject struct {
 // inside the activation path (project.go:156 in the original
 // crash); now they're checked up front so the failure is a
 // clear error message instead of a panic.
-func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgchart.BotID) (projectID, agentAppID, repoID string, err error) {
+func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgchart.NodeID) (projectID, agentAppID, repoID string, err error) {
 	if a == nil {
 		return "", "", "", errors.New("worker project applier is nil")
 	}
@@ -200,7 +201,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	projectEnsureMu.Lock()
 	defer projectEnsureMu.Unlock()
 
-	bot, err := a.Store.Bots.Get(ctx, orgID, workerID)
+	bot, err := a.Store.Nodes.Get(ctx, orgID, workerID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("get bot: %w", err)
 	}
@@ -208,10 +209,58 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	if err != nil {
 		return "", "", "", err
 	}
-	// The Bot IS the role: its Content is the prompt that lands in
-	// role.md, and its ID names the agent app.
+	var existingProject types.Project
+	var existingProjectErr error
+	if state.ProjectID != "" {
+		existingProject, existingProjectErr = a.Service.GetProject(ctx, state.ProjectID)
+		if existingProjectErr == nil && existingProject.DefaultHelixAppID != "" && existingProject.DefaultHelixAppID != bot.AgentID {
+			defaultApp, appErr := a.Service.GetApp(ctx, existingProject.DefaultHelixAppID)
+			if appErr != nil {
+				return "", "", "", fmt.Errorf("get project default agent app %s for %s: %w", existingProject.DefaultHelixAppID, workerID, appErr)
+			}
+			if defaultApp.OrganizationID == orgID && len(defaultApp.Config.Helix.Assistants) == 1 {
+				allBots, err := a.Store.Nodes.List(ctx, orgID)
+				if err != nil {
+					return "", "", "", fmt.Errorf("check project default agent app claims for %s: %w", workerID, err)
+				}
+				claimed := false
+				for _, other := range allBots {
+					if other.ID != workerID && other.AgentID == defaultApp.ID {
+						claimed = true
+						break
+					}
+				}
+				if !claimed {
+					bot = bot.WithAgentID(defaultApp.ID)
+					if err := a.Store.Nodes.Update(ctx, bot); err != nil {
+						return "", "", "", fmt.Errorf("link project default agent app %s to bot %s: %w", defaultApp.ID, workerID, err)
+					}
+					state.AgentID = defaultApp.ID
+					if err := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, state.AgentID, state.RepoID); err != nil {
+						return "", "", "", fmt.Errorf("persist project default agent app for %s: %w", workerID, err)
+					}
+				}
+			}
+		}
+	}
 	roleContent := bot.Content
 	roleName := string(bot.ID)
+	botLabel := bot.Name
+	if bot.AgentID != "" {
+		cfg, err := a.Service.GetAppConfig(ctx, bot.AgentID)
+		if err != nil {
+			return "", "", "", fmt.Errorf("get linked agent %s: %w", bot.AgentID, err)
+		}
+		if len(cfg.Helix.Assistants) != 1 {
+			return "", "", "", fmt.Errorf("linked agent %s must contain exactly one assistant", bot.AgentID)
+		}
+		roleName = cfg.Helix.Assistants[0].Name
+		if roleName == "" {
+			roleName = cfg.Helix.Name
+		}
+		roleContent = cfg.Helix.Assistants[0].SystemPrompt
+		botLabel = roleName
+	}
 	runtime := a.Runtime
 	if runtime == "" {
 		runtime = Runtime
@@ -220,7 +269,6 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	// rather than the bare slug. bot.Name may be empty (fall back to the
 	// ID); OrgDisplayName may be empty in bare/test wirings (fall back to
 	// just the bot label). Deterministic so upsert-by-name stays idempotent.
-	botLabel := bot.Name
 	if botLabel == "" {
 		botLabel = string(bot.ID)
 	}
@@ -236,8 +284,9 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		// into another — the org parameter is the authority here.
 		OrganizationID: orgID,
 		Name:           projectName,
+		AgentAppID:     bot.AgentID,
 		Spec: types.ProjectSpec{
-			Description: bot.Content,
+			Description: roleContent,
 			Agent: &types.ProjectAgentSpec{
 				Name:        roleName,
 				Runtime:     runtime,
@@ -248,7 +297,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		},
 	}
 	if state.ProjectID != "" {
-		existing, err := a.Service.GetProject(ctx, state.ProjectID)
+		existing, err := existingProject, existingProjectErr
 		if err != nil {
 			if errors.Is(err, ErrProjectNotFound) {
 				if clearErr := ClearProject(ctx, a.Store, orgID, workerID); clearErr != nil {
@@ -262,6 +311,23 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				return "", "", "", fmt.Errorf("verify project %s for %s: %w", state.ProjectID, workerID, err)
 			}
 		} else {
+			if bot.AgentID != "" && existing.DefaultHelixAppID != bot.AgentID {
+				linkedAppID := bot.AgentID
+				updatedProject, err := a.Service.UpdateProject(ctx, state.ProjectID, types.ProjectUpdateRequest{DefaultHelixAppID: &linkedAppID})
+				if err != nil {
+					return "", "", "", fmt.Errorf("link canonical agent app %s to project %s: %w", linkedAppID, state.ProjectID, err)
+				}
+				existing = updatedProject
+				state.AgentID = linkedAppID
+				if err := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, linkedAppID, state.RepoID); err != nil {
+					return "", "", "", fmt.Errorf("persist canonical agent app for %s: %w", workerID, err)
+				}
+			} else if bot.AgentID != "" && state.AgentID != bot.AgentID {
+				state.AgentID = bot.AgentID
+				if err := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, state.AgentID, state.RepoID); err != nil {
+					return "", "", "", fmt.Errorf("repair runtime agent app for %s: %w", workerID, err)
+				}
+			}
 			// Project already exists — fast path.
 			//
 			// The project is tracked by ID (state.ProjectID) but ApplyProject
@@ -281,7 +347,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 						a.Logger.Warn("project applier: rename to display name failed, skipping refresh to avoid orphan", "worker", workerID, "project", state.ProjectID, "want_name", projectName, "err", err)
 					}
 					a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent)
-					return state.ProjectID, state.AgentAppID, state.RepoID, nil
+					return state.ProjectID, state.AgentID, state.RepoID, nil
 				}
 			}
 			if !existing.Metadata.OrgMembersAccess {
@@ -311,7 +377,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 						return "", "", "", fmt.Errorf("re-provision missing repo for %s: %w", workerID, rerr)
 					}
 					repoID = newRepoID
-					if serr := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, state.AgentAppID, repoID); serr != nil {
+					if serr := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, state.AgentID, repoID); serr != nil {
 						return "", "", "", fmt.Errorf("persist re-provisioned repo for %s: %w", workerID, serr)
 					}
 				} else if gerr != nil && a.Logger != nil {
@@ -322,7 +388,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			// workflows that use the helix-specs branch. Activation prompts
 			// read Bot.Content directly. The writes are idempotent.
 			a.republishWorkerFiles(ctx, workerID, repoID, roleContent)
-			return state.ProjectID, state.AgentAppID, repoID, nil
+			return state.ProjectID, state.AgentID, repoID, nil
 		}
 	}
 	resp, err := a.Service.ApplyProject(ctx, applyReq)
@@ -391,7 +457,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		a.Logger.Info("helix project applied",
 			"worker", workerID,
 			"project", resp.ProjectID,
-			"agent_app", resp.AgentAppID,
+			"agent", resp.AgentAppID,
 			"repo", repoID,
 			"created", resp.Created,
 		)
@@ -404,7 +470,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 // re-checks GetProject inside the lock, so two concurrent activations for the
 // same bot cannot each create a duplicate same-named repo (which the desktop
 // workspace setup would then clone into the same path and fail on).
-func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID string, workerID orgchart.BotID) (string, error) {
+func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID string, workerID orgchart.NodeID) (string, error) {
 	repoEnsureMu.Lock()
 	defer repoEnsureMu.Unlock()
 	// A concurrent activation may have created+attached the repo since the
@@ -472,7 +538,7 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 // separate identity — its Content IS its prompt, written to role.md.
 // Best-effort: errors are logged, not returned — a single failed file
 // shouldn't block the rest of the apply.
-func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.BotID, repoID, roleContent string) {
+func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.NodeID, repoID, roleContent string) {
 	if repoID == "" || a.Workspace == nil {
 		return
 	}

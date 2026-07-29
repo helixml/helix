@@ -13,23 +13,9 @@ export interface ApiAddBotParentRequest {
   parent_id?: string;
 }
 
-export interface ApiBotActivateDTO {
-  activation_id?: string;
+export interface ApiAgentDetailDTO {
   agent_app_id?: string;
-  project_id?: string;
-  session_id?: string;
-}
-
-export interface ApiBotBadge {
-  id?: string;
-}
-
-export interface ApiBotChatDTO {
-  agent_app_id?: string;
-  project_id?: string;
-}
-
-export interface ApiBotDTO {
+  agent_id?: string;
   agent_model?: string;
   agent_runtime?: string;
   /**
@@ -38,6 +24,8 @@ export interface ApiBotDTO {
    * the green/grey presence dot on the org chart.
    */
   agent_status?: string;
+  code_agent_credential_type?: TypesCodeAgentCredentialType;
+  code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
   created_at?: string;
   helix_user_id?: string;
@@ -50,6 +38,72 @@ export interface ApiBotDTO {
    * omitted for agent bots.
    */
   kind?: string;
+  model?: string;
+  /**
+   * Name is the human-readable display label; empty means the UI falls
+   * back to ID. Distinct from ID, which is the immutable handle.
+   */
+  name?: string;
+  organization_id?: string;
+  parent_ids?: string[];
+  /**
+   * PreserveContext, when true, stops the runtime from wiping this
+   * Bot's chat session before each re-activation, so it accumulates
+   * context across triggers (e.g. Slack). Defaults to false.
+   */
+  preserve_context?: boolean;
+  project_id?: string;
+  project_ids?: string[];
+  provider?: string;
+  reasoning_effort?: string;
+  tools?: string[];
+  updated_at?: string;
+}
+
+export interface ApiBotActivateDTO {
+  activation_id?: string;
+  agent_app_id?: string;
+  agent_id?: string;
+  project_id?: string;
+  session_id?: string;
+}
+
+export interface ApiBotBadge {
+  id?: string;
+}
+
+export interface ApiBotChatDTO {
+  agent_app_id?: string;
+  agent_id?: string;
+  project_id?: string;
+}
+
+export interface ApiBotDTO {
+  agent_app_id?: string;
+  agent_id?: string;
+  agent_model?: string;
+  agent_runtime?: string;
+  /**
+   * AgentStatus is "running" when the bot's desktop sandbox is online,
+   * "stopped" otherwise (no session, paused, never activated). Drives
+   * the green/grey presence dot on the org chart.
+   */
+  agent_status?: string;
+  code_agent_credential_type?: TypesCodeAgentCredentialType;
+  code_agent_runtime?: TypesCodeAgentRuntime;
+  content?: string;
+  created_at?: string;
+  helix_user_id?: string;
+  id?: string;
+  identity?: Record<string, string>;
+  /**
+   * Kind is "" (agent) or "human". A human node is a person placeholder,
+   * never activated; Identity holds their cross-system handles and
+   * HelixUserID optionally links them to a Helix org member. Identity is
+   * omitted for agent bots.
+   */
+  kind?: string;
+  model?: string;
   /**
    * Name is the human-readable display label; empty means the UI falls
    * back to ID. Distinct from ID, which is the immutable handle.
@@ -64,13 +118,16 @@ export interface ApiBotDTO {
    */
   preserve_context?: boolean;
   project_ids?: string[];
+  provider?: string;
+  reasoning_effort?: string;
   tools?: string[];
   updated_at?: string;
 }
 
 export interface ApiBotDetailDTO {
-  /** AgentAppID + ProjectID — see BotChatDTO comments. */
   agent_app_id?: string;
+  /** AgentID + ProjectID — see BotChatDTO comments. */
+  agent_id?: string;
   bot?: ApiBotDTO;
   project_id?: string;
 }
@@ -109,7 +166,7 @@ export interface ApiCreateBotRequest {
    * Owner makes this a manager Bot: it receives the canonical owner
    * tool set (every org-graph mutation - create_bot, delete_bot,
    * set_bot_content, subscribe, ... - plus the read baseline) so it can
-   * hire and manage other Bots. When true, Tools is ignored in favour
+   * hire and manage other Nodes. When true, Tools is ignored in favour
    * of that set. Used to seed a starter/root Bot for a new org.
    */
   owner?: boolean;
@@ -387,6 +444,8 @@ export interface ApiTransportRequestField {
 }
 
 export interface ApiUpdateBotRequest {
+  code_agent_credential_type?: TypesCodeAgentCredentialType;
+  code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
   /**
    * Identity is the per-channel handle map for a human node (slack/github/
@@ -394,9 +453,12 @@ export interface ApiUpdateBotRequest {
    * unchanged. Only meaningful for kind=human bots.
    */
   identity?: Record<string, string>;
+  model?: string;
   name?: string;
   preserve_context?: boolean;
   project_ids?: string[];
+  provider?: string;
+  reasoning_effort?: string;
   tools?: string[];
 }
 
@@ -1007,6 +1069,28 @@ export interface ServerAgentConfigAppliedResponse {
   status?: string;
 }
 
+export interface ServerAgentCreateResponse {
+  config?: TypesAgentConfig;
+  created?: string;
+  global?: boolean;
+  id?: string;
+  /**
+   * IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
+   * (see api/pkg/org). Computed at list time, not persisted, so the frontend
+   * can hide org-chart agents from the spec-task agent switchers.
+   */
+  is_helix_org_agent?: boolean;
+  model_substitutions?: ServerModelSubstitution[];
+  organization_id?: string;
+  /** uuid of user ID */
+  owner?: string;
+  /** e.g. user, system, org */
+  owner_type?: TypesOwnerType;
+  updated?: string;
+  /** Owner user struct, populated by the server for organization views */
+  user?: TypesUser;
+}
+
 export interface ServerAgentSandboxesDebugResponse {
   dev_containers?: ServerDevContainerWithClients[];
   gpus?: ServerGPUInfoWithSandbox[];
@@ -1030,28 +1114,6 @@ export interface ServerAppClaudeSubscriptionStatus {
   subscription_owner_type?: string;
   /** that subscription passed its last liveness probe */
   valid?: boolean;
-}
-
-export interface ServerAppCreateResponse {
-  config?: TypesAppConfig;
-  created?: string;
-  global?: boolean;
-  id?: string;
-  /**
-   * IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
-   * (see api/pkg/org). Computed at list time, not persisted, so the frontend
-   * can hide org-chart agents from the spec-task agent switchers.
-   */
-  is_helix_org_agent?: boolean;
-  model_substitutions?: ServerModelSubstitution[];
-  organization_id?: string;
-  /** uuid of user ID */
-  owner?: string;
-  /** e.g. user, system, org */
-  owner_type?: TypesOwnerType;
-  updated?: string;
-  /** Owner user struct, populated by the server for organization views */
-  user?: TypesUser;
 }
 
 export interface ServerBatchTaskProgressResponse {
@@ -2120,6 +2182,48 @@ export interface TypesAffectedProjectInfo {
   name?: string;
 }
 
+export interface TypesAgent {
+  config?: TypesAgentConfig;
+  created?: string;
+  global?: boolean;
+  id?: string;
+  /**
+   * IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
+   * (see api/pkg/org). Computed at list time, not persisted, so the frontend
+   * can hide org-chart agents from the spec-task agent switchers.
+   */
+  is_helix_org_agent?: boolean;
+  organization_id?: string;
+  /** uuid of user ID */
+  owner?: string;
+  /** e.g. user, system, org */
+  owner_type?: TypesOwnerType;
+  updated?: string;
+  /** Owner user struct, populated by the server for organization views */
+  user?: TypesUser;
+}
+
+export interface TypesAgentConfig {
+  allowed_domains?: string[];
+  helix?: TypesAgentHelixConfig;
+  secrets?: Record<string, string>;
+}
+
+export interface TypesAgentHelixConfig {
+  assistants?: TypesAssistantConfig[];
+  avatar?: string;
+  avatar_content_type?: string;
+  /** Agent configuration */
+  default_agent_type?: TypesAgentType;
+  description?: string;
+  external_agent_config?: TypesExternalAgentConfig;
+  external_agent_enabled?: boolean;
+  external_url?: string;
+  image?: string;
+  name?: string;
+  triggers?: TypesTrigger[];
+}
+
 export enum TypesAgentType {
   AgentTypeHelixBasic = "helix_basic",
   AgentTypeHelixAgent = "helix_agent",
@@ -2169,48 +2273,6 @@ export interface TypesApiKey {
   /** Used for isolation and metrics tracking */
   spec_task_id?: string;
   type?: TypesAPIKeyType;
-}
-
-export interface TypesApp {
-  config?: TypesAppConfig;
-  created?: string;
-  global?: boolean;
-  id?: string;
-  /**
-   * IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
-   * (see api/pkg/org). Computed at list time, not persisted, so the frontend
-   * can hide org-chart agents from the spec-task agent switchers.
-   */
-  is_helix_org_agent?: boolean;
-  organization_id?: string;
-  /** uuid of user ID */
-  owner?: string;
-  /** e.g. user, system, org */
-  owner_type?: TypesOwnerType;
-  updated?: string;
-  /** Owner user struct, populated by the server for organization views */
-  user?: TypesUser;
-}
-
-export interface TypesAppConfig {
-  allowed_domains?: string[];
-  helix?: TypesAppHelixConfig;
-  secrets?: Record<string, string>;
-}
-
-export interface TypesAppHelixConfig {
-  assistants?: TypesAssistantConfig[];
-  avatar?: string;
-  avatar_content_type?: string;
-  /** Agent configuration */
-  default_agent_type?: TypesAgentType;
-  description?: string;
-  external_agent_config?: TypesExternalAgentConfig;
-  external_agent_enabled?: boolean;
-  external_url?: string;
-  image?: string;
-  name?: string;
-  triggers?: TypesTrigger[];
 }
 
 export interface TypesAssistantAPI {
@@ -2276,8 +2338,9 @@ export interface TypesAssistantConfig {
    * "claude_code" and CodeAgentCredentialType is "subscription". It flows through
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
-   * model — otherwise Claude Code defaults to Sonnet. Empty means "opus"
-   * (resolveModelPreference resolves this to the latest Opus version).
+   * model — otherwise Claude Code defaults to Sonnet. Empty means "opus[1m]"
+   * (the 1M-context Opus; resolveModelPreference resolves the "[1m]" hint to the
+   * 1M row, while a bare "opus" resolves to the 200k sibling).
    */
   claude_subscription_model?: string;
   /**
@@ -3297,7 +3360,7 @@ export interface TypesEvaluationQuestionResult {
 }
 
 export interface TypesEvaluationRun {
-  app_config_snapshot?: TypesAppConfig;
+  app_config_snapshot?: TypesAgentConfig;
   app_id?: string;
   created?: string;
   error?: string;
@@ -4682,6 +4745,7 @@ export interface TypesProjectAgentTools {
 }
 
 export interface TypesProjectApplyRequest {
+  agent_app_id?: string;
   name?: string;
   organization_id?: string;
   spec?: TypesProjectSpec;
@@ -8284,6 +8348,677 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List agents for the user. Agents are pre-configured to spawn sessions with specific tools and config.
+     *
+     * @tags agents
+     * @name V1AgentsList
+     * @summary List agents
+     * @request GET:/api/v1/agents
+     * @secure
+     */
+    v1AgentsList: (
+      query?: {
+        /** Organization ID */
+        organization_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAgent[], any>({
+        path: `/api/v1/agents`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1AgentsCreate
+     * @request POST:/api/v1/agents
+     * @secure
+     */
+    v1AgentsCreate: (request: TypesAgent, params: RequestParams = {}) =>
+      this.request<ServerAgentCreateResponse, any>({
+        path: `/api/v1/agents`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete an evaluation run
+     *
+     * @tags evaluations
+     * @name V1AgentsEvaluationRunsDelete
+     * @summary Delete an evaluation run
+     * @request DELETE:/api/v1/agents/{agent_id}/evaluation-runs/{run_id}
+     * @secure
+     */
+    v1AgentsEvaluationRunsDelete: (agentId: string, runId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/agents/${agentId}/evaluation-runs/${runId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get evaluation run details
+     *
+     * @tags evaluations
+     * @name V1AgentsEvaluationRunsDetail
+     * @summary Get an evaluation run
+     * @request GET:/api/v1/agents/{agent_id}/evaluation-runs/{run_id}
+     * @secure
+     */
+    v1AgentsEvaluationRunsDetail: (agentId: string, runId: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationRun, SystemHTTPError>({
+        path: `/api/v1/agents/${agentId}/evaluation-runs/${runId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all evaluation suites for an agent
+     *
+     * @tags evaluations
+     * @name V1AgentsEvaluationSuitesDetail
+     * @summary List evaluation suites for an agent
+     * @request GET:/api/v1/agents/{agent_id}/evaluation-suites
+     * @secure
+     */
+    v1AgentsEvaluationSuitesDetail: (agentId: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationSuite[], SystemHTTPError>({
+        path: `/api/v1/agents/${agentId}/evaluation-suites`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new evaluation suite for an agent
+     *
+     * @tags evaluations
+     * @name V1AgentsEvaluationSuitesCreate
+     * @summary Create an evaluation suite
+     * @request POST:/api/v1/agents/{agent_id}/evaluation-suites
+     * @secure
+     */
+    v1AgentsEvaluationSuitesCreate: (agentId: string, suite: TypesEvaluationSuite, params: RequestParams = {}) =>
+      this.request<TypesEvaluationSuite, SystemHTTPError>({
+        path: `/api/v1/agents/${agentId}/evaluation-suites`,
+        method: "POST",
+        body: suite,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete an evaluation suite
+     *
+     * @tags evaluations
+     * @name V1AgentsEvaluationSuitesDelete
+     * @summary Delete an evaluation suite
+     * @request DELETE:/api/v1/agents/{agent_id}/evaluation-suites/{id}
+     * @secure
+     */
+    v1AgentsEvaluationSuitesDelete: (agentId: string, id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/agents/${agentId}/evaluation-suites/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get an evaluation suite by ID
+     *
+     * @tags evaluations
+     * @name V1AgentsEvaluationSuitesDetail2
+     * @summary Get an evaluation suite
+     * @request GET:/api/v1/agents/{agent_id}/evaluation-suites/{id}
+     * @originalName v1AgentsEvaluationSuitesDetail
+     * @duplicate
+     * @secure
+     */
+    v1AgentsEvaluationSuitesDetail2: (agentId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationSuite, SystemHTTPError>({
+        path: `/api/v1/agents/${agentId}/evaluation-suites/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update an evaluation suite
+     *
+     * @tags evaluations
+     * @name V1AgentsEvaluationSuitesUpdate
+     * @summary Update an evaluation suite
+     * @request PUT:/api/v1/agents/{agent_id}/evaluation-suites/{id}
+     * @secure
+     */
+    v1AgentsEvaluationSuitesUpdate: (
+      agentId: string,
+      id: string,
+      suite: TypesEvaluationSuite,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesEvaluationSuite, SystemHTTPError>({
+        path: `/api/v1/agents/${agentId}/evaluation-suites/${id}`,
+        method: "PUT",
+        body: suite,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List evaluation runs for a suite
+     *
+     * @tags evaluations
+     * @name V1AgentsEvaluationSuitesRunsDetail
+     * @summary List evaluation runs
+     * @request GET:/api/v1/agents/{agent_id}/evaluation-suites/{id}/runs
+     * @secure
+     */
+    v1AgentsEvaluationSuitesRunsDetail: (agentId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationRun[], SystemHTTPError>({
+        path: `/api/v1/agents/${agentId}/evaluation-suites/${id}/runs`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Start running an evaluation suite against an agent
+     *
+     * @tags evaluations
+     * @name V1AgentsEvaluationSuitesRunsCreate
+     * @summary Start an evaluation run
+     * @request POST:/api/v1/agents/{agent_id}/evaluation-suites/{id}/runs
+     * @secure
+     */
+    v1AgentsEvaluationSuitesRunsCreate: (agentId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationRun, SystemHTTPError>({
+        path: `/api/v1/agents/${agentId}/evaluation-suites/${id}/runs`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List triggers for the agent
+     *
+     * @tags agents
+     * @name V1AgentsTriggersDetail
+     * @summary List agent triggers
+     * @request GET:/api/v1/agents/{agent_id}/triggers
+     * @secure
+     */
+    v1AgentsTriggersDetail: (agentId: string, params: RequestParams = {}) =>
+      this.request<TypesTriggerConfiguration[], any>({
+        path: `/api/v1/agents/${agentId}/triggers`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1AgentsDelete
+     * @request DELETE:/api/v1/agents/{id}
+     * @secure
+     */
+    v1AgentsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/agents/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1AgentsDetail
+     * @request GET:/api/v1/agents/{id}
+     * @secure
+     */
+    v1AgentsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAgent, any>({
+        path: `/api/v1/agents/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1AgentsUpdate
+     * @request PUT:/api/v1/agents/{id}
+     * @secure
+     */
+    v1AgentsUpdate: (id: string, request: TypesAgent, params: RequestParams = {}) =>
+      this.request<TypesAgent, any>({
+        path: `/api/v1/agents/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List access grants for an agent (organization owners and members can list access grants)
+     *
+     * @tags agents
+     * @name V1AgentsAccessGrantsDetail
+     * @summary List agent access grants
+     * @request GET:/api/v1/agents/{id}/access-grants
+     * @secure
+     */
+    v1AgentsAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAccessGrant[], any>({
+        path: `/api/v1/agents/${id}/access-grants`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)
+     *
+     * @tags agents
+     * @name V1AgentsAccessGrantsCreate
+     * @summary Grant access to an agent to a team or organization member
+     * @request POST:/api/v1/agents/{id}/access-grants
+     * @secure
+     */
+    v1AgentsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
+      this.request<TypesAccessGrant, any>({
+        path: `/api/v1/agents/${id}/access-grants`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Runs an API action for an agent
+     *
+     * @name V1AgentsApiActionsCreate
+     * @summary Run an API action
+     * @request POST:/api/v1/agents/{id}/api-actions
+     * @secure
+     */
+    v1AgentsApiActionsCreate: (id: string, request: TypesRunAPIActionRequest, params: RequestParams = {}) =>
+      this.request<TypesRunAPIActionResponse, SystemHTTPError>({
+        path: `/api/v1/agents/${id}/api-actions`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete the agent's avatar image
+     *
+     * @tags agents
+     * @name V1AgentsAvatarDelete
+     * @summary Delete agent avatar
+     * @request DELETE:/api/v1/agents/{id}/avatar
+     * @secure
+     */
+    v1AgentsAvatarDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/agents/${id}/avatar`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get the agent's avatar image
+     *
+     * @tags agents
+     * @name V1AgentsAvatarDetail
+     * @summary Get agent avatar
+     * @request GET:/api/v1/agents/{id}/avatar
+     * @secure
+     */
+    v1AgentsAvatarDetail: (id: string, params: RequestParams = {}) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/agents/${id}/avatar`,
+        method: "GET",
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
+     * @description Upload a base64 encoded image as the agent's avatar
+     *
+     * @tags agents
+     * @name V1AgentsAvatarCreate
+     * @summary Upload agent avatar
+     * @request POST:/api/v1/agents/{id}/avatar
+     * @secure
+     */
+    v1AgentsAvatarCreate: (id: string, image: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/agents/${id}/avatar`,
+        method: "POST",
+        body: image,
+        secure: true,
+        type: ContentType.Text,
+        ...params,
+      }),
+
+    /**
+     * @description Reports whether the agent owner (whose subscription authenticates the agent's sessions) has a working Claude subscription
+     *
+     * @tags Claude
+     * @name V1AgentsClaudeSubscriptionStatusDetail
+     * @summary Get the Claude subscription status for an agent's owner
+     * @request GET:/api/v1/agents/{id}/claude-subscription-status
+     * @secure
+     */
+    v1AgentsClaudeSubscriptionStatusDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerAppClaudeSubscriptionStatus, SystemHTTPError>({
+        path: `/api/v1/agents/${id}/claude-subscription-status`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get agent daily usage
+     *
+     * @tags agents
+     * @name V1AgentsDailyUsageDetail
+     * @summary Get agent usage
+     * @request GET:/api/v1/agents/{id}/daily-usage
+     * @secure
+     */
+    v1AgentsDailyUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/agents/${id}/daily-usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1AgentsDuplicateCreate
+     * @request POST:/api/v1/agents/{id}/duplicate
+     * @secure
+     */
+    v1AgentsDuplicateCreate: (
+      id: string,
+      query?: {
+        /** Optional new name for the agent */
+        name?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/agents/${id}/duplicate`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List interactions with pagination and optional session filtering for a specific agent
+     *
+     * @tags interactions
+     * @name V1AgentsInteractionsDetail
+     * @summary List interactions
+     * @request GET:/api/v1/agents/{id}/interactions
+     * @secure
+     */
+    v1AgentsInteractionsDetail: (
+      id: string,
+      query?: {
+        /** Page number */
+        page?: number;
+        /** Page size */
+        pageSize?: number;
+        /** Filter by session ID */
+        session?: string;
+        /** Filter by interaction ID */
+        interaction?: string;
+        /** Query by like/dislike */
+        feedback?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPaginatedInteractions, any>({
+        path: `/api/v1/agents/${id}/interactions`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List user's LLM calls with pagination and optional session filtering for a specific agent
+     *
+     * @tags llm_calls
+     * @name V1AgentsLlmCallsDetail
+     * @summary List LLM calls
+     * @request GET:/api/v1/agents/{id}/llm-calls
+     * @secure
+     */
+    v1AgentsLlmCallsDetail: (
+      id: string,
+      query?: {
+        /** Page number */
+        page?: number;
+        /** Page size */
+        pageSize?: number;
+        /** Filter by session ID */
+        session?: string;
+        /** Filter by interaction ID */
+        interaction?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPaginatedLLMCalls, any>({
+        path: `/api/v1/agents/${id}/llm-calls`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List memories for a specific agent and user
+     *
+     * @tags memories
+     * @name V1AgentsMemoriesDetail
+     * @summary List agent memories
+     * @request GET:/api/v1/agents/{id}/memories
+     * @secure
+     */
+    v1AgentsMemoriesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesMemory[], any>({
+        path: `/api/v1/agents/${id}/memories`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a specific memory for an agent and user
+     *
+     * @tags memories
+     * @name V1AgentsMemoriesDelete
+     * @summary Delete agent memory
+     * @request DELETE:/api/v1/agents/{id}/memories/{memory_id}
+     * @secure
+     */
+    v1AgentsMemoriesDelete: (id: string, memoryId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/agents/${id}/memories/${memoryId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Enable a marketplace skill on an agent. For autoProvision MCP skills the server generates URL and auth automatically.
+     *
+     * @tags skills
+     * @name V1AgentsSkillsEnableCreate
+     * @summary Enable a marketplace skill on an agent
+     * @request POST:/api/v1/agents/{id}/skills/{skill}/enable
+     * @secure
+     */
+    v1AgentsSkillsEnableCreate: (id: string, skill: string, params: RequestParams = {}) =>
+      this.request<TypesAgent, any>({
+        path: `/api/v1/agents/${id}/skills/${skill}/enable`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List step info for a specific agent and interaction ID, used to build the timeline of events
+     *
+     * @tags step_info
+     * @name V1AgentsStepInfoDetail
+     * @summary List step info
+     * @request GET:/api/v1/agents/{id}/step-info
+     * @secure
+     */
+    v1AgentsStepInfoDetail: (
+      id: string,
+      query?: {
+        /** Interaction ID */
+        interactionId?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesStepInfo[], any>({
+        path: `/api/v1/agents/${id}/step-info`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the status of a specific trigger type for an agent
+     *
+     * @tags agents
+     * @name V1AgentsTriggerStatusDetail
+     * @summary Get agent trigger status
+     * @request GET:/api/v1/agents/{id}/trigger-status
+     * @secure
+     */
+    v1AgentsTriggerStatusDetail: (
+      id: string,
+      query: {
+        /** Trigger type (e.g., slack) */
+        trigger_type: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesTriggerStatus, any>({
+        path: `/api/v1/agents/${id}/trigger-status`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns the access rights the current user has for this agent
+     *
+     * @tags agents
+     * @name V1AgentsUserAccessDetail
+     * @summary Get current user's access level for an agent
+     * @request GET:/api/v1/agents/{id}/user-access
+     * @secure
+     */
+    v1AgentsUserAccessDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUserAppAccessResponse, any>({
+        path: `/api/v1/agents/${id}/user-access`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get agent users daily usage
+     *
+     * @tags agents
+     * @name V1AgentsUsersDailyUsageDetail
+     * @summary Get agent users daily usage
+     * @request GET:/api/v1/agents/{id}/users-daily-usage
+     * @secure
+     */
+    v1AgentsUsersDailyUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/agents/${id}/users-daily-usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Delete an API key
      *
      * @tags api-keys
@@ -8345,677 +9080,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "POST",
         body: request,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
-     *
-     * @tags apps
-     * @name V1AppsList
-     * @summary List apps
-     * @request GET:/api/v1/apps
-     * @secure
-     */
-    v1AppsList: (
-      query?: {
-        /** Organization ID */
-        organization_id?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesApp[], any>({
-        path: `/api/v1/apps`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1AppsCreate
-     * @request POST:/api/v1/apps
-     * @secure
-     */
-    v1AppsCreate: (request: TypesApp, params: RequestParams = {}) =>
-      this.request<ServerAppCreateResponse, any>({
-        path: `/api/v1/apps`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Delete an evaluation run
-     *
-     * @tags evaluations
-     * @name V1AppsEvaluationRunsDelete
-     * @summary Delete an evaluation run
-     * @request DELETE:/api/v1/apps/{app_id}/evaluation-runs/{run_id}
-     * @secure
-     */
-    v1AppsEvaluationRunsDelete: (appId: string, runId: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/apps/${appId}/evaluation-runs/${runId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get evaluation run details
-     *
-     * @tags evaluations
-     * @name V1AppsEvaluationRunsDetail
-     * @summary Get an evaluation run
-     * @request GET:/api/v1/apps/{app_id}/evaluation-runs/{run_id}
-     * @secure
-     */
-    v1AppsEvaluationRunsDetail: (appId: string, runId: string, params: RequestParams = {}) =>
-      this.request<TypesEvaluationRun, SystemHTTPError>({
-        path: `/api/v1/apps/${appId}/evaluation-runs/${runId}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description List all evaluation suites for an app
-     *
-     * @tags evaluations
-     * @name V1AppsEvaluationSuitesDetail
-     * @summary List evaluation suites for an app
-     * @request GET:/api/v1/apps/{app_id}/evaluation-suites
-     * @secure
-     */
-    v1AppsEvaluationSuitesDetail: (appId: string, params: RequestParams = {}) =>
-      this.request<TypesEvaluationSuite[], SystemHTTPError>({
-        path: `/api/v1/apps/${appId}/evaluation-suites`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new evaluation suite for an agent
-     *
-     * @tags evaluations
-     * @name V1AppsEvaluationSuitesCreate
-     * @summary Create an evaluation suite
-     * @request POST:/api/v1/apps/{app_id}/evaluation-suites
-     * @secure
-     */
-    v1AppsEvaluationSuitesCreate: (appId: string, suite: TypesEvaluationSuite, params: RequestParams = {}) =>
-      this.request<TypesEvaluationSuite, SystemHTTPError>({
-        path: `/api/v1/apps/${appId}/evaluation-suites`,
-        method: "POST",
-        body: suite,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete an evaluation suite
-     *
-     * @tags evaluations
-     * @name V1AppsEvaluationSuitesDelete
-     * @summary Delete an evaluation suite
-     * @request DELETE:/api/v1/apps/{app_id}/evaluation-suites/{id}
-     * @secure
-     */
-    v1AppsEvaluationSuitesDelete: (appId: string, id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/apps/${appId}/evaluation-suites/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get an evaluation suite by ID
-     *
-     * @tags evaluations
-     * @name V1AppsEvaluationSuitesDetail2
-     * @summary Get an evaluation suite
-     * @request GET:/api/v1/apps/{app_id}/evaluation-suites/{id}
-     * @originalName v1AppsEvaluationSuitesDetail
-     * @duplicate
-     * @secure
-     */
-    v1AppsEvaluationSuitesDetail2: (appId: string, id: string, params: RequestParams = {}) =>
-      this.request<TypesEvaluationSuite, SystemHTTPError>({
-        path: `/api/v1/apps/${appId}/evaluation-suites/${id}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update an evaluation suite
-     *
-     * @tags evaluations
-     * @name V1AppsEvaluationSuitesUpdate
-     * @summary Update an evaluation suite
-     * @request PUT:/api/v1/apps/{app_id}/evaluation-suites/{id}
-     * @secure
-     */
-    v1AppsEvaluationSuitesUpdate: (
-      appId: string,
-      id: string,
-      suite: TypesEvaluationSuite,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesEvaluationSuite, SystemHTTPError>({
-        path: `/api/v1/apps/${appId}/evaluation-suites/${id}`,
-        method: "PUT",
-        body: suite,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description List evaluation runs for a suite
-     *
-     * @tags evaluations
-     * @name V1AppsEvaluationSuitesRunsDetail
-     * @summary List evaluation runs
-     * @request GET:/api/v1/apps/{app_id}/evaluation-suites/{id}/runs
-     * @secure
-     */
-    v1AppsEvaluationSuitesRunsDetail: (appId: string, id: string, params: RequestParams = {}) =>
-      this.request<TypesEvaluationRun[], SystemHTTPError>({
-        path: `/api/v1/apps/${appId}/evaluation-suites/${id}/runs`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Start running an evaluation suite against an agent
-     *
-     * @tags evaluations
-     * @name V1AppsEvaluationSuitesRunsCreate
-     * @summary Start an evaluation run
-     * @request POST:/api/v1/apps/{app_id}/evaluation-suites/{id}/runs
-     * @secure
-     */
-    v1AppsEvaluationSuitesRunsCreate: (appId: string, id: string, params: RequestParams = {}) =>
-      this.request<TypesEvaluationRun, SystemHTTPError>({
-        path: `/api/v1/apps/${appId}/evaluation-suites/${id}/runs`,
-        method: "POST",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description List triggers for the app
-     *
-     * @tags apps
-     * @name V1AppsTriggersDetail
-     * @summary List app triggers
-     * @request GET:/api/v1/apps/{app_id}/triggers
-     * @secure
-     */
-    v1AppsTriggersDetail: (appId: string, params: RequestParams = {}) =>
-      this.request<TypesTriggerConfiguration[], any>({
-        path: `/api/v1/apps/${appId}/triggers`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1AppsDelete
-     * @request DELETE:/api/v1/apps/{id}
-     * @secure
-     */
-    v1AppsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/apps/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1AppsDetail
-     * @request GET:/api/v1/apps/{id}
-     * @secure
-     */
-    v1AppsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesApp, any>({
-        path: `/api/v1/apps/${id}`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1AppsUpdate
-     * @request PUT:/api/v1/apps/{id}
-     * @secure
-     */
-    v1AppsUpdate: (id: string, request: TypesApp, params: RequestParams = {}) =>
-      this.request<TypesApp, any>({
-        path: `/api/v1/apps/${id}`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description List access grants for an app (organization owners and members can list access grants)
-     *
-     * @tags apps
-     * @name V1AppsAccessGrantsDetail
-     * @summary List app access grants
-     * @request GET:/api/v1/apps/{id}/access-grants
-     * @secure
-     */
-    v1AppsAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesAccessGrant[], any>({
-        path: `/api/v1/apps/${id}/access-grants`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)
-     *
-     * @tags apps
-     * @name V1AppsAccessGrantsCreate
-     * @summary Grant access to an agent to a team or organization member
-     * @request POST:/api/v1/apps/{id}/access-grants
-     * @secure
-     */
-    v1AppsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
-      this.request<TypesAccessGrant, any>({
-        path: `/api/v1/apps/${id}/access-grants`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Runs an API action for an app
-     *
-     * @name V1AppsApiActionsCreate
-     * @summary Run an API action
-     * @request POST:/api/v1/apps/{id}/api-actions
-     * @secure
-     */
-    v1AppsApiActionsCreate: (id: string, request: TypesRunAPIActionRequest, params: RequestParams = {}) =>
-      this.request<TypesRunAPIActionResponse, SystemHTTPError>({
-        path: `/api/v1/apps/${id}/api-actions`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete the app's avatar image
-     *
-     * @tags apps
-     * @name V1AppsAvatarDelete
-     * @summary Delete app avatar
-     * @request DELETE:/api/v1/apps/{id}/avatar
-     * @secure
-     */
-    v1AppsAvatarDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
-        path: `/api/v1/apps/${id}/avatar`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get the app's avatar image
-     *
-     * @tags apps
-     * @name V1AppsAvatarDetail
-     * @summary Get app avatar
-     * @request GET:/api/v1/apps/{id}/avatar
-     * @secure
-     */
-    v1AppsAvatarDetail: (id: string, params: RequestParams = {}) =>
-      this.request<File, SystemHTTPError>({
-        path: `/api/v1/apps/${id}/avatar`,
-        method: "GET",
-        secure: true,
-        format: "blob",
-        ...params,
-      }),
-
-    /**
-     * @description Upload a base64 encoded image as the app's avatar
-     *
-     * @tags apps
-     * @name V1AppsAvatarCreate
-     * @summary Upload app avatar
-     * @request POST:/api/v1/apps/{id}/avatar
-     * @secure
-     */
-    v1AppsAvatarCreate: (id: string, image: string, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
-        path: `/api/v1/apps/${id}/avatar`,
-        method: "POST",
-        body: image,
-        secure: true,
-        type: ContentType.Text,
-        ...params,
-      }),
-
-    /**
-     * @description Reports whether the app owner (whose subscription authenticates the app's sessions) has a working Claude subscription
-     *
-     * @tags Claude
-     * @name V1AppsClaudeSubscriptionStatusDetail
-     * @summary Get the Claude subscription status for an app's owner
-     * @request GET:/api/v1/apps/{id}/claude-subscription-status
-     * @secure
-     */
-    v1AppsClaudeSubscriptionStatusDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerAppClaudeSubscriptionStatus, SystemHTTPError>({
-        path: `/api/v1/apps/${id}/claude-subscription-status`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get app daily usage
-     *
-     * @tags apps
-     * @name V1AppsDailyUsageDetail
-     * @summary Get app usage
-     * @request GET:/api/v1/apps/{id}/daily-usage
-     * @secure
-     */
-    v1AppsDailyUsageDetail: (
-      id: string,
-      query?: {
-        /** Start date */
-        from?: string;
-        /** End date */
-        to?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
-        path: `/api/v1/apps/${id}/daily-usage`,
-        method: "GET",
-        query: query,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1AppsDuplicateCreate
-     * @request POST:/api/v1/apps/{id}/duplicate
-     * @secure
-     */
-    v1AppsDuplicateCreate: (
-      id: string,
-      query?: {
-        /** Optional new name for the app */
-        name?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<void, any>({
-        path: `/api/v1/apps/${id}/duplicate`,
-        method: "POST",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description List interactions with pagination and optional session filtering for a specific app
-     *
-     * @tags interactions
-     * @name V1AppsInteractionsDetail
-     * @summary List interactions
-     * @request GET:/api/v1/apps/{id}/interactions
-     * @secure
-     */
-    v1AppsInteractionsDetail: (
-      id: string,
-      query?: {
-        /** Page number */
-        page?: number;
-        /** Page size */
-        pageSize?: number;
-        /** Filter by session ID */
-        session?: string;
-        /** Filter by interaction ID */
-        interaction?: string;
-        /** Query by like/dislike */
-        feedback?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesPaginatedInteractions, any>({
-        path: `/api/v1/apps/${id}/interactions`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description List user's LLM calls with pagination and optional session filtering for a specific app
-     *
-     * @tags llm_calls
-     * @name V1AppsLlmCallsDetail
-     * @summary List LLM calls
-     * @request GET:/api/v1/apps/{id}/llm-calls
-     * @secure
-     */
-    v1AppsLlmCallsDetail: (
-      id: string,
-      query?: {
-        /** Page number */
-        page?: number;
-        /** Page size */
-        pageSize?: number;
-        /** Filter by session ID */
-        session?: string;
-        /** Filter by interaction ID */
-        interaction?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesPaginatedLLMCalls, any>({
-        path: `/api/v1/apps/${id}/llm-calls`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description List memories for a specific app and user
-     *
-     * @tags memories
-     * @name V1AppsMemoriesDetail
-     * @summary List app memories
-     * @request GET:/api/v1/apps/{id}/memories
-     * @secure
-     */
-    v1AppsMemoriesDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesMemory[], any>({
-        path: `/api/v1/apps/${id}/memories`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete a specific memory for an app and user
-     *
-     * @tags memories
-     * @name V1AppsMemoriesDelete
-     * @summary Delete app memory
-     * @request DELETE:/api/v1/apps/{id}/memories/{memory_id}
-     * @secure
-     */
-    v1AppsMemoriesDelete: (id: string, memoryId: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/apps/${id}/memories/${memoryId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.
-     *
-     * @tags skills
-     * @name V1AppsSkillsEnableCreate
-     * @summary Enable a marketplace skill on an app
-     * @request POST:/api/v1/apps/{id}/skills/{skill}/enable
-     * @secure
-     */
-    v1AppsSkillsEnableCreate: (id: string, skill: string, params: RequestParams = {}) =>
-      this.request<TypesApp, any>({
-        path: `/api/v1/apps/${id}/skills/${skill}/enable`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description List step info for a specific app and interaction ID, used to build the timeline of events
-     *
-     * @tags step_info
-     * @name V1AppsStepInfoDetail
-     * @summary List step info
-     * @request GET:/api/v1/apps/{id}/step-info
-     * @secure
-     */
-    v1AppsStepInfoDetail: (
-      id: string,
-      query?: {
-        /** Interaction ID */
-        interactionId?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesStepInfo[], any>({
-        path: `/api/v1/apps/${id}/step-info`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the status of a specific trigger type for an app
-     *
-     * @tags apps
-     * @name V1AppsTriggerStatusDetail
-     * @summary Get app trigger status
-     * @request GET:/api/v1/apps/{id}/trigger-status
-     * @secure
-     */
-    v1AppsTriggerStatusDetail: (
-      id: string,
-      query: {
-        /** Trigger type (e.g., slack) */
-        trigger_type: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesTriggerStatus, any>({
-        path: `/api/v1/apps/${id}/trigger-status`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Returns the access rights the current user has for this app
-     *
-     * @tags apps
-     * @name V1AppsUserAccessDetail
-     * @summary Get current user's access level for an app
-     * @request GET:/api/v1/apps/{id}/user-access
-     * @secure
-     */
-    v1AppsUserAccessDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesUserAppAccessResponse, any>({
-        path: `/api/v1/apps/${id}/user-access`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get app users daily usage
-     *
-     * @tags apps
-     * @name V1AppsUsersDailyUsageDetail
-     * @summary Get app users daily usage
-     * @request GET:/api/v1/apps/{id}/users-daily-usage
-     * @secure
-     */
-    v1AppsUsersDailyUsageDetail: (
-      id: string,
-      query?: {
-        /** Start date */
-        from?: string;
-        /** End date */
-        to?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
-        path: `/api/v1/apps/${id}/users-daily-usage`,
-        method: "GET",
-        query: query,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
         ...params,
       }),
 
@@ -12445,6 +12509,262 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List the canonical Agents in an organization, including their instructions, tools, runtime, model configuration, and reporting lines.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsDetail
+     * @summary Helix-org: list agents
+     * @request GET:/api/v1/orgs/{org}/agents
+     * @secure
+     */
+    v1OrgsAgentsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiBotDTO[], any>({
+        path: `/api/v1/orgs/${org}/agents`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a canonical Agent with its org-chart position, communication topics, tools, and Agent App configuration.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsCreate
+     * @summary Helix-org: create an agent
+     * @request POST:/api/v1/orgs/{org}/agents
+     * @secure
+     */
+    v1OrgsAgentsCreate: (org: string, payload: ApiCreateBotRequest, params: RequestParams = {}) =>
+      this.request<ApiCreateBotResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete an Agent after stopping its sessions and project, then atomically remove its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsDelete
+     * @summary Helix-org: delete an agent
+     * @request DELETE:/api/v1/orgs/{org}/agents/{id}
+     * @secure
+     */
+    v1OrgsAgentsDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get one canonical Agent with its instructions, tools, runtime, model configuration, project, and reporting lines.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsDetail2
+     * @summary Helix-org: get agent detail
+     * @request GET:/api/v1/orgs/{org}/agents/{id}
+     * @originalName v1OrgsAgentsDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrgsAgentsDetail2: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAgentDetailDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the canonical Agent instructions, tools, project access, runtime, provider, model, or reasoning configuration.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsPartialUpdate
+     * @summary Helix-org: update an agent
+     * @request PATCH:/api/v1/orgs/{org}/agents/{id}
+     * @secure
+     */
+    v1OrgsAgentsPartialUpdate: (org: string, id: string, payload: ApiUpdateBotRequest, params: RequestParams = {}) =>
+      this.request<ApiBotDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}`,
+        method: "PATCH",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsActivateCreate
+     * @summary Helix-org: activate an agent
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/activate
+     * @secure
+     */
+    v1OrgsAgentsActivateCreate: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiBotActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/activate`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsChatCreate
+     * @summary Helix-org: provision an agent chat
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/chat
+     * @secure
+     */
+    v1OrgsAgentsChatCreate: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiBotChatDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/chat`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsParentsCreate
+     * @summary Helix-org: add an agent manager
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/parents
+     * @secure
+     */
+    v1OrgsAgentsParentsCreate: (org: string, id: string, payload: ApiAddBotParentRequest, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/parents`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsParentsDelete
+     * @summary Helix-org: remove an agent manager
+     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/parents/{parent_id}
+     * @secure
+     */
+    v1OrgsAgentsParentsDelete: (org: string, id: string, parentId: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/parents/${parentId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsRestartAgentCreate
+     * @summary Helix-org: restart an agent session
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/restart-agent
+     * @secure
+     */
+    v1OrgsAgentsRestartAgentCreate: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiBotActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/restart-agent`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsStopAgentCreate
+     * @summary Helix-org: stop an agent desktop
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/stop-agent
+     * @secure
+     */
+    v1OrgsAgentsStopAgentCreate: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/stop-agent`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsSubscriptionsDetail
+     * @summary Helix-org: list an agent's subscriptions
+     * @request GET:/api/v1/orgs/{org}/agents/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsAgentsSubscriptionsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiBotSubscriptionsResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsSubscriptionsCreate
+     * @summary Helix-org: subscribe an agent to a topic
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsAgentsSubscriptionsCreate: (
+      org: string,
+      id: string,
+      payload: ApiSubscribeBotRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiBotSubscriptionDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsSubscriptionsDelete
+     * @summary Helix-org: unsubscribe an agent from a topic
+     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/subscriptions/{topic_id}
+     * @secure
+     */
+    v1OrgsAgentsSubscriptionsDelete: (org: string, id: string, topicId: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions/${topicId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @tags HelixOrg
@@ -12828,7 +13148,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns the flat set of Bots in the org for the helix-org React Overview page.
+     * @description Returns the flat set of Nodes in the org for the helix-org React Overview page.
      *
      * @tags HelixOrg
      * @name V1OrgsOverviewDetail
@@ -17083,7 +17403,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     /**
      * @description List all triggers configurations for either user or the org or user within an org
      *
-     * @tags apps
+     * @tags agents
      * @name V1TriggersList
      * @summary List all triggers configurations for either user or the org or user within an org
      * @request GET:/api/v1/triggers
@@ -17107,11 +17427,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create triggers for the app. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the app
+     * @description Create triggers for the agent. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the agent
      *
-     * @tags apps
+     * @tags agents
      * @name V1TriggersCreate
-     * @summary Create app triggers
+     * @summary Create agent triggers
      * @request POST:/api/v1/triggers
      * @secure
      */
@@ -17125,11 +17445,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete triggers for the app
+     * @description Delete triggers for the agent
      *
-     * @tags apps
+     * @tags agents
      * @name V1TriggersDelete
-     * @summary Delete app triggers
+     * @summary Delete agent triggers
      * @request DELETE:/api/v1/triggers/{trigger_id}
      * @secure
      */
@@ -17142,11 +17462,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
+     * @description Update triggers for the agent, for example to change the cron schedule or enable/disable the trigger
      *
-     * @tags apps
+     * @tags agents
      * @name V1TriggersUpdate
-     * @summary Update app triggers
+     * @summary Update agent triggers
      * @request PUT:/api/v1/triggers/{trigger_id}
      * @secure
      */
@@ -17160,11 +17480,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
+     * @description Update triggers for the agent, for example to change the cron schedule or enable/disable the trigger
      *
-     * @tags apps
+     * @tags agents
      * @name V1TriggersExecuteCreate
-     * @summary Execute app trigger
+     * @summary Execute agent trigger
      * @request POST:/api/v1/triggers/{trigger_id}/execute
      * @secure
      */
@@ -17179,7 +17499,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     /**
      * @description List executions for the trigger
      *
-     * @tags apps
+     * @tags agents
      * @name V1TriggersExecutionsDetail
      * @summary List trigger executions
      * @request GET:/api/v1/triggers/{trigger_id}/executions

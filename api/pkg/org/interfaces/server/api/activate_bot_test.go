@@ -21,14 +21,14 @@ type fakeEnsurer struct {
 	mu        sync.Mutex
 	calls     int
 	lastOrgID string
-	lastBid   orgchart.BotID
+	lastBid   orgchart.NodeID
 	projectID string
 	agentApp  string
 	repoID    string
 	err       error
 }
 
-func (f *fakeEnsurer) Ensure(_ context.Context, orgID string, bid orgchart.BotID) (string, string, string, error) {
+func (f *fakeEnsurer) Ensure(_ context.Context, orgID string, bid orgchart.NodeID) (string, string, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -43,7 +43,7 @@ type fakeDispatcher struct {
 	mu              sync.Mutex
 	manualCalls     int
 	lastOrgID       string
-	lastBotID       orgchart.BotID
+	lastBotID       orgchart.NodeID
 	lastActivation  activation.ID
 	dispatchedEvent *streaming.Event
 }
@@ -54,7 +54,7 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, ev streaming.Event) {
 	f.dispatchedEvent = &ev
 }
 
-func (f *fakeDispatcher) DispatchManual(_ context.Context, orgID string, bid orgchart.BotID, actID activation.ID) {
+func (f *fakeDispatcher) DispatchManual(_ context.Context, orgID string, bid orgchart.NodeID, actID activation.ID) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.manualCalls++
@@ -96,7 +96,7 @@ type botRuntimeSessionAdapter struct {
 	rt orgapi.BotRuntime
 }
 
-func (a botRuntimeSessionAdapter) SessionID(ctx context.Context, orgID string, workerID orgchart.BotID) (string, error) {
+func (a botRuntimeSessionAdapter) SessionID(ctx context.Context, orgID string, workerID orgchart.NodeID) (string, error) {
 	info, err := a.rt.State(ctx, orgID, workerID)
 	if err != nil {
 		return "", err
@@ -128,8 +128,8 @@ func TestActivateBot_HappyPath(t *testing.T) {
 
 	var resp orgapi.BotActivateDTO
 	decode(t, rec, &resp)
-	if resp.ProjectID != "prj_alice" || resp.AgentAppID != "app_alice" {
-		t.Errorf("IDs = (%q,%q), want (prj_alice, app_alice)", resp.ProjectID, resp.AgentAppID)
+	if resp.ProjectID != "prj_alice" || resp.AgentID != "app_alice" {
+		t.Errorf("IDs = (%q,%q), want (prj_alice, app_alice)", resp.ProjectID, resp.AgentID)
 	}
 	if resp.ActivationID == "" {
 		t.Errorf("ActivationID must be pre-allocated; got empty")

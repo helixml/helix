@@ -28,7 +28,7 @@ func (a *apiHandler) listBotSubscriptions(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	bid := orgchart.BotID(r.PathValue("id"))
+	bid := orgchart.NodeID(r.PathValue("id"))
 	if bid == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
@@ -42,7 +42,7 @@ func (a *apiHandler) listBotSubscriptions(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list subscriptions: %w", err))
 		return
 	}
-	resp := BotSubscriptionsResponse{BotID: string(bid), Subscriptions: make([]BotSubscriptionDTO, 0, len(subs))}
+	resp := BotSubscriptionsResponse{NodeID: string(bid), Subscriptions: make([]BotSubscriptionDTO, 0, len(subs))}
 	for _, sub := range subs {
 		resp.Subscriptions = append(resp.Subscriptions, BotSubscriptionDTO{
 			TopicID:   string(sub.TopicID),
@@ -72,7 +72,7 @@ func (a *apiHandler) subscribeBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	bid := orgchart.BotID(r.PathValue("id"))
+	bid := orgchart.NodeID(r.PathValue("id"))
 	if bid == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
@@ -119,7 +119,7 @@ func (a *apiHandler) unsubscribeBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	bid := orgchart.BotID(r.PathValue("id"))
+	bid := orgchart.NodeID(r.PathValue("id"))
 	topicID := streaming.TopicID(r.PathValue("topic_id"))
 	if bid == "" || topicID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id and topic id are required"))

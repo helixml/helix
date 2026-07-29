@@ -23,15 +23,15 @@ func TestBotsRoundTripAndUpdate(t *testing.T) {
 	ctx := context.Background()
 
 	created := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	b, err := orgchart.NewBot("b-ceo", "# CEO\nTop of the org.", nil, created, "org-test")
+	b, err := orgchart.NewNode("b-ceo", "# CEO\nTop of the org.", nil, created, "org-test")
 	if err != nil {
-		t.Fatalf("NewBot: %v", err)
+		t.Fatalf("NewNode: %v", err)
 	}
-	if err := s.Bots.Create(ctx, b); err != nil {
+	if err := s.Nodes.Create(ctx, b); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := s.Bots.Get(ctx, "org-test", "b-ceo")
+	got, err := s.Nodes.Get(ctx, "org-test", "b-ceo")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -43,10 +43,10 @@ func TestBotsRoundTripAndUpdate(t *testing.T) {
 	}
 
 	updated := got.WithContent("# CEO\nNow with more verve.").WithUpdatedAt(created.Add(time.Hour))
-	if err := s.Bots.Update(ctx, updated); err != nil {
+	if err := s.Nodes.Update(ctx, updated); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	got, err = s.Bots.Get(ctx, "org-test", "b-ceo")
+	got, err = s.Nodes.Get(ctx, "org-test", "b-ceo")
 	if err != nil {
 		t.Fatalf("Get after update: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestBotsRoundTripAndUpdate(t *testing.T) {
 		t.Fatalf("UpdatedAt = %v, want %v", got.UpdatedAt, created.Add(time.Hour))
 	}
 
-	list, err := s.Bots.List(ctx, "org-test")
+	list, err := s.Nodes.List(ctx, "org-test")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestBotsRoundTripAndUpdate(t *testing.T) {
 func TestBotsNotFound(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
-	_, err := s.Bots.Get(context.Background(), "org-test", "missing")
+	_, err := s.Nodes.Get(context.Background(), "org-test", "missing")
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("error = %v, want ErrNotFound", err)
 	}
@@ -83,18 +83,18 @@ func TestBotReportingHierarchy(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now().UTC()
-	owner, err := orgchart.NewBot("b-owner", "# Owner", nil, now, "org-test")
+	owner, err := orgchart.NewNode("b-owner", "# Owner", nil, now, "org-test")
 	if err != nil {
-		t.Fatalf("NewBot owner: %v", err)
+		t.Fatalf("NewNode owner: %v", err)
 	}
-	if err := s.Bots.Create(ctx, owner); err != nil {
+	if err := s.Nodes.Create(ctx, owner); err != nil {
 		t.Fatalf("Create owner: %v", err)
 	}
-	child, err := orgchart.NewBot("b-ceo", "# CEO", nil, now, "org-test")
+	child, err := orgchart.NewNode("b-ceo", "# CEO", nil, now, "org-test")
 	if err != nil {
-		t.Fatalf("NewBot child: %v", err)
+		t.Fatalf("NewNode child: %v", err)
 	}
-	if err := s.Bots.Create(ctx, child); err != nil {
+	if err := s.Nodes.Create(ctx, child); err != nil {
 		t.Fatalf("Create child: %v", err)
 	}
 	line, err := orgchart.NewReportingLine("org-test", "b-owner", "b-ceo")
@@ -114,7 +114,7 @@ func TestBotReportingHierarchy(t *testing.T) {
 	}
 
 	// Deleting the manager cascades the line away.
-	if err := s.Bots.Delete(ctx, "org-test", "b-owner"); err != nil {
+	if err := s.Nodes.Delete(ctx, "org-test", "b-owner"); err != nil {
 		t.Fatalf("Delete owner: %v", err)
 	}
 	managers, err = s.ReportingLines.ListManagers(ctx, "org-test", "b-ceo")
@@ -134,14 +134,14 @@ func TestBotOrganizationIDRoundTrip(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	scoped, err := orgchart.NewBot("b-acme-bot", "# bot", nil, time.Now().UTC(), "org-acme")
+	scoped, err := orgchart.NewNode("b-acme-bot", "# bot", nil, time.Now().UTC(), "org-acme")
 	if err != nil {
-		t.Fatalf("NewBot: %v", err)
+		t.Fatalf("NewNode: %v", err)
 	}
-	if err := s.Bots.Create(ctx, scoped); err != nil {
+	if err := s.Nodes.Create(ctx, scoped); err != nil {
 		t.Fatalf("Create scoped: %v", err)
 	}
-	got, err := s.Bots.Get(ctx, "org-acme", "b-acme-bot")
+	got, err := s.Nodes.Get(ctx, "org-acme", "b-acme-bot")
 	if err != nil {
 		t.Fatalf("Get scoped: %v", err)
 	}

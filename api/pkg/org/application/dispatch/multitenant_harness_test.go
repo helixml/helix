@@ -57,22 +57,22 @@ import (
 // dispatcher_test.go deliberately drops orgID).
 type orgActivation struct {
 	OrgID    string
-	WorkerID orgchart.BotID
+	WorkerID orgchart.NodeID
 }
 
 // seedTenant provisions one org with a worker + topic + subscription,
 // all using caller-supplied ids. Call it twice with the SAME ids and
 // different orgs to set up a collision.
-func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) {
+func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.NodeID, topicID streaming.TopicID) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	w, err := orgchart.NewBot(workerID, "# "+string(workerID), nil, now, orgID)
+	w, err := orgchart.NewNode(workerID, "# "+string(workerID), nil, now, orgID)
 	if err != nil {
 		t.Fatalf("[%s] new bot: %v", orgID, err)
 	}
-	if err := s.Bots.Create(ctx, w); err != nil {
+	if err := s.Nodes.Create(ctx, w); err != nil {
 		t.Fatalf("[%s] create bot: %v", orgID, err)
 	}
 	// A local topic (no outbound) so Dispatch's only effect is the
@@ -106,14 +106,14 @@ func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 	s := orggorm.GetOrgTestDB(t)
 
 	const (
-		workerID = orgchart.BotID("w-owner")      // identical across orgs
+		workerID = orgchart.NodeID("w-owner")     // identical across orgs
 		topicID  = streaming.TopicID("s-general") // identical across orgs
 	)
 	seedTenant(t, s, "org-a", workerID, topicID)
 	seedTenant(t, s, "org-b", workerID, topicID)
 
 	rec := make(chan orgActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.BotID, _ []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.NodeID, _ []activation.Trigger) error {
 		rec <- orgActivation{OrgID: orgID, WorkerID: wid}
 		return nil
 	})
@@ -184,7 +184,7 @@ func TestDispatch_CollidingIDsActivateConcurrently(t *testing.T) {
 	s := orggorm.GetOrgTestDB(t)
 
 	const (
-		workerID = orgchart.BotID("w-owner")
+		workerID = orgchart.NodeID("w-owner")
 		topicID  = streaming.TopicID("s-general")
 	)
 	seedTenant(t, s, "org-a", workerID, topicID)
@@ -192,7 +192,7 @@ func TestDispatch_CollidingIDsActivateConcurrently(t *testing.T) {
 
 	entered := make(chan string, 2) // orgID of each activation that started
 	release := make(chan struct{})
-	spawner := runtime.Spawner(func(_ context.Context, orgID string, _ orgchart.BotID, _ []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, orgID string, _ orgchart.NodeID, _ []activation.Trigger) error {
 		entered <- orgID
 		<-release
 		return nil

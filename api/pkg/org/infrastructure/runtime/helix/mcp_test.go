@@ -29,7 +29,7 @@ func findMCP(cfg types.AppConfig, name string) *types.AssistantMCP {
 func TestAttachHelixOrgMCPAppends(t *testing.T) {
 	t.Parallel()
 	svc := newFakeProjectService()
-	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.BotID("w-eng"), "k_service")
+	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.NodeID("w-eng"), "k_service")
 	if err != nil {
 		t.Fatalf("AttachHelixOrgMCP: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestAttachHelixOrgMCPUpsertReplacesExisting(t *testing.T) {
 		{Name: HelixOrgMCPName, Transport: "http", URL: "http://old/workers/w-eng/mcp", Headers: map[string]string{"Authorization": "Bearer old"}},
 		{Name: "other", URL: "http://other/mcp"},
 	}
-	if err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.BotID("w-eng"), "k_new"); err != nil {
+	if err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.NodeID("w-eng"), "k_new"); err != nil {
 		t.Fatalf("AttachHelixOrgMCP: %v", err)
 	}
 	svc.mu.Lock()
@@ -90,7 +90,7 @@ func TestAttachHelixOrgMCPIgnoresRequestBearer(t *testing.T) {
 	t.Parallel()
 	svc := newFakeProjectService()
 	ctx := WithBearerToken(context.Background(), "k_user")
-	if err := AttachHelixOrgMCP(ctx, svc, "app_test", "http://helix-org:8081", orgchart.BotID("w-eng"), "k_service"); err != nil {
+	if err := AttachHelixOrgMCP(ctx, svc, "app_test", "http://helix-org:8081", orgchart.NodeID("w-eng"), "k_service"); err != nil {
 		t.Fatalf("AttachHelixOrgMCP: %v", err)
 	}
 	svc.mu.Lock()
@@ -108,7 +108,7 @@ func TestAttachHelixOrgMCPIgnoresRequestBearer(t *testing.T) {
 func TestAttachHelixOrgMCPEmptyBearerOmitsHeader(t *testing.T) {
 	t.Parallel()
 	svc := newFakeProjectService()
-	if err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.BotID("w-eng"), ""); err != nil {
+	if err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.NodeID("w-eng"), ""); err != nil {
 		t.Fatalf("AttachHelixOrgMCP: %v", err)
 	}
 	svc.mu.Lock()
@@ -132,7 +132,7 @@ func TestAttachHelixOrgMCPRejectsMissingInputs(t *testing.T) {
 		svc     ProjectService
 		appID   string
 		url     string
-		worker  orgchart.BotID
+		worker  orgchart.NodeID
 		errFrag string
 	}{
 		{"nil service", nil, "app_test", "http://helix-org", "w-eng", "ProjectService is nil"},
@@ -161,7 +161,7 @@ func TestAttachHelixOrgMCPRequiresAssistant(t *testing.T) {
 	t.Parallel()
 	svc := newFakeProjectService()
 	svc.appConfig = types.AppConfig{} // no assistants
-	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org", orgchart.BotID("w-eng"), "")
+	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org", orgchart.NodeID("w-eng"), "")
 	if err == nil || !strings.Contains(err.Error(), "no assistants") {
 		t.Errorf("expected 'no assistants' error, got %v", err)
 	}
@@ -173,7 +173,7 @@ func TestAttachHelixOrgMCPRequiresAssistant(t *testing.T) {
 func TestAttachHelixOrgMCPPropagatesGetError(t *testing.T) {
 	t.Parallel()
 	svc := &failingProjectService{getErr: errors.New("boom")}
-	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org", orgchart.BotID("w-eng"), "")
+	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org", orgchart.NodeID("w-eng"), "")
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected wrapped GetAppConfig error, got %v", err)
 	}
@@ -223,6 +223,9 @@ func (noopProjectService) AttachRepoToProject(_ context.Context, _, _ string, _ 
 func (noopProjectService) CreateBranch(_ context.Context, _, _, _ string) error { return nil }
 func (noopProjectService) GetAppConfig(_ context.Context, _ string) (types.AppConfig, error) {
 	return types.AppConfig{}, nil
+}
+func (noopProjectService) GetApp(_ context.Context, id string) (*types.App, error) {
+	return &types.App{ID: id}, nil
 }
 func (noopProjectService) UpdateAppConfig(_ context.Context, _ string, _ types.AppConfig) error {
 	return nil

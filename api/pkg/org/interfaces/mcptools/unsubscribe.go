@@ -33,7 +33,7 @@ func (t *Unsubscribe) InputSchema() *jsonschema.Schema {
 }
 
 type unsubscribeArgs struct {
-	BotID    string   `json:"botId"`
+	NodeID   string   `json:"botId"`
 	TopicIDs []string `json:"topicIds"`
 }
 
@@ -42,7 +42,7 @@ func (t *Unsubscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return nil, fmt.Errorf("botId is required")
 	}
 	if len(args.TopicIDs) == 0 {
@@ -52,7 +52,7 @@ func (t *Unsubscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if orgID == "" {
 		return nil, fmt.Errorf("unsubscribe: caller has no OrgID")
 	}
-	botID := orgchart.BotID(args.BotID)
+	botID := orgchart.NodeID(args.NodeID)
 	if err := t.deps.Subscriptions.UnsubscribeTopics(ctx, orgID, botID, args.TopicIDs); err != nil {
 		return nil, err
 	}

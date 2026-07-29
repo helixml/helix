@@ -104,7 +104,7 @@ const EvaluationTab: FC<EvaluationTabProps> = ({ appId }) => {
     const runId = activeRun.runId
     const suiteId = activeRun.suiteId
 
-    const es = new EventSource(`/api/v1/apps/${appId}/evaluation-runs/${runId}/stream`)
+    const es = new EventSource(`/api/v1/agents/${appId}/evaluation-runs/${runId}/stream`)
     eventSourceRef.current = es
 
     es.onmessage = (event) => {

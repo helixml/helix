@@ -44,10 +44,10 @@ const HelixOrgSettings: FC = () => {
   return (
     <Stack spacing={3}>
       <Stack spacing={1}>
-        <Typography variant="h6">Integrations and Bot Settings</Typography>
+        <Typography variant="h6">Integrations and Agent Settings</Typography>
         <Typography variant="body2" color="text.secondary">
-          Connect external services and configure how this org's Bots run.
-          Changes take effect on the next bot activation - no API restart needed.
+          Connect external services and configure how this org's agents run.
+          Changes take effect on the next agent activation - no API restart needed.
         </Typography>
       </Stack>
 

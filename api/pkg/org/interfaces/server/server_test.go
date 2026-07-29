@@ -24,7 +24,7 @@ import (
 // That lets us assert the MCP surface is the intersection of (a)
 // Bot.Tools and (b) tools the server knows. Returns the running
 // httptest.Server and the botID to act as.
-func newTestServer(t *testing.T) (*httptest.Server, orgchart.BotID) {
+func newTestServer(t *testing.T) (*httptest.Server, orgchart.NodeID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
@@ -37,14 +37,14 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.BotID) {
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	bot, _ := orgchart.NewBot(
+	bot, _ := orgchart.NewNode(
 		"b-ceo",
 		"# CEO\nTop of org.",
 		[]tool.Name{mcptools.PingName, "create_bot"},
 		time.Now().UTC(),
 		"org-test",
 	)
-	if err := s.Bots.Create(ctx, bot); err != nil {
+	if err := s.Nodes.Create(ctx, bot); err != nil {
 		t.Fatalf("seed bot: %v", err)
 	}
 	return srv, "b-ceo"
@@ -54,7 +54,7 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.BotID) {
 // endpoint. The URL keeps the `/workers/` path segment for compatibility
 // with the helix MCP backend rewrite; {id} is a Bot ID. The session is
 // closed when the test ends.
-func connectMCP(t *testing.T, baseURL string, botID orgchart.BotID) *mcp.ClientSession {
+func connectMCP(t *testing.T, baseURL string, botID orgchart.NodeID) *mcp.ClientSession {
 	t.Helper()
 	c := mcp.NewClient(&mcp.Implementation{Name: "helix-org-test", Version: "v0.0.0"}, nil)
 	transport := &mcp.StreamableClientTransport{
@@ -73,7 +73,7 @@ func connectMCP(t *testing.T, baseURL string, botID orgchart.BotID) *mcp.ClientS
 // Bot.Tools. The Bot lists ping. Asserting that ping appears on the
 // Bot's MCP endpoint pins the "Bot.Tools is the live source of truth"
 // contract.
-func newTestServerToolDerived(t *testing.T) (*httptest.Server, orgchart.BotID) {
+func newTestServerToolDerived(t *testing.T) (*httptest.Server, orgchart.NodeID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
@@ -86,14 +86,14 @@ func newTestServerToolDerived(t *testing.T) (*httptest.Server, orgchart.BotID) {
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	bot, _ := orgchart.NewBot(
+	bot, _ := orgchart.NewNode(
 		"b-ceo",
 		"# CEO\nTop of org.",
 		[]tool.Name{mcptools.PingName},
 		time.Now().UTC(),
 		"org-test",
 	)
-	if err := s.Bots.Create(ctx, bot); err != nil {
+	if err := s.Nodes.Create(ctx, bot); err != nil {
 		t.Fatalf("seed bot: %v", err)
 	}
 	return srv, "b-ceo"
@@ -209,7 +209,7 @@ func TestMCPToolNotInBotHidden(t *testing.T) {
 // prompts registry containing the role prompt. Whether the bot actually
 // sees the prompt depends on whether their Bot.Tools includes the gating
 // tool (create_bot); callers exercise both branches.
-func newTestServerWithPrompts(t *testing.T, includeCreateBot bool) (*httptest.Server, orgchart.BotID) {
+func newTestServerWithPrompts(t *testing.T, includeCreateBot bool) (*httptest.Server, orgchart.NodeID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
@@ -241,8 +241,8 @@ func newTestServerWithPrompts(t *testing.T, includeCreateBot bool) (*httptest.Se
 	if includeCreateBot {
 		botTools = append(botTools, mcptools.CreateBotName)
 	}
-	bot, _ := orgchart.NewBot("b-ceo", "# CEO", botTools, time.Now().UTC(), "org-test")
-	_ = s.Bots.Create(ctx, bot)
+	bot, _ := orgchart.NewNode("b-ceo", "# CEO", botTools, time.Now().UTC(), "org-test")
+	_ = s.Nodes.Create(ctx, bot)
 	return srv, "b-ceo"
 }
 

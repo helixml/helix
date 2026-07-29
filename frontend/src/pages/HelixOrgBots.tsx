@@ -75,11 +75,11 @@ const HelixOrgBots: FC = () => {
     if (!deleting) return
     try {
       await deleteBot.mutateAsync(deleting.id ?? '')
-      snackbar.success(`deleted bot ${deleting.id}`)
+      snackbar.success(`deleted agent ${deleting.id}`)
     } catch (e: any) {
       const status = e?.response?.status
       if (status === 409) {
-        snackbar.error('owner bot is protected and cannot be deleted')
+        snackbar.error('owner agent is protected and cannot be deleted')
       } else {
         snackbar.error(e?.response?.data?.error ?? e?.message ?? 'delete failed')
       }
@@ -92,20 +92,24 @@ const HelixOrgBots: FC = () => {
     id: b.id,
     _data: b,
     name: (
-      <Typography variant="body1">
+      <Stack>
         <a
           style={{
             textDecoration: 'none',
             fontWeight: 'bold',
             color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-            fontFamily: 'monospace',
           }}
           href="#"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); openBot(b.id ?? '') }}
         >
-          {b.id}
+          {b.name || b.id}
         </a>
-      </Typography>
+        {b.name && (
+          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+            {b.id}
+          </Typography>
+        )}
+      </Stack>
     ),
     contentPreview: (
       <Typography
@@ -148,14 +152,14 @@ const HelixOrgBots: FC = () => {
   }
 
   return (
-    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Bots">
+    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Agents">
       <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
             <Box sx={{ flex: 1 }}>
               <Typography variant="body2" color="text.secondary">
-                Agents in this org. Click a bot to open its detail page — edit instructions,
+                Agents in this org. Click an agent to edit instructions,
                 tools and subscriptions.
               </Typography>
             </Box>
@@ -166,7 +170,7 @@ const HelixOrgBots: FC = () => {
               onClick={() => setNewBotOpen(true)}
               sx={{ flexShrink: 0, mt: 0.5 }}
             >
-              New bot
+              New agent
             </Button>
           </Stack>
 
@@ -175,7 +179,7 @@ const HelixOrgBots: FC = () => {
           ) : bots.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8 }}>
               <Typography variant="body1" color="text.secondary" gutterBottom>
-                No bots defined yet.
+                No agents defined yet.
               </Typography>
               <Button
                 variant="contained"
@@ -184,15 +188,15 @@ const HelixOrgBots: FC = () => {
                 onClick={() => setNewBotOpen(true)}
                 sx={{ mt: 1 }}
               >
-                New bot
+                New agent
               </Button>
             </Box>
           ) : (
             <SimpleTable
               authenticated={true}
               fields={[
-                { name: 'name', title: 'ID' },
-                { name: 'contentPreview', title: 'Content' },
+                { name: 'name', title: 'Agent' },
+                { name: 'contentPreview', title: 'Instructions' },
                 { name: 'tools', title: 'Tools' },
                 { name: 'reportsTo', title: 'Reports to' },
                 { name: 'updated', title: 'Updated' },
@@ -229,15 +233,16 @@ const HelixOrgBots: FC = () => {
 
       {deleting && (
         <DeleteConfirmWindow
-          title="bot"
+          title="agent"
           submitTitle="Delete"
           onSubmit={handleDelete}
           onCancel={() => setDeleting(undefined)}
         >
           <Typography variant="body1">
-            Deleting bot <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> tears down its
-            per-bot Helix project + agent app, drops its subscriptions, and removes it as a
-            manager from its direct reports. This is irreversible.
+            Deleting agent <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> tears down its
+            Helix project, deletes its canonical Agent configuration and knowledge sources,
+            drops its subscriptions, and removes it as a manager from its direct reports.
+            This is irreversible.
           </Typography>
         </DeleteConfirmWindow>
       )}

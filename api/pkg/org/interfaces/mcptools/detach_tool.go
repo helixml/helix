@@ -24,8 +24,8 @@ const DetachToolName tool.Name = "detach_tool"
 var detachToolSchema = mustSchema[detachToolArgs]()
 
 type detachToolArgs struct {
-	BotID string   `json:"botId"`
-	Tools []string `json:"tools"`
+	NodeID string   `json:"botId"`
+	Tools  []string `json:"tools"`
 }
 
 func (t *DetachTool) Name() tool.Name { return DetachToolName }
@@ -44,7 +44,7 @@ func (t *DetachTool) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return nil, fmt.Errorf("botId is required")
 	}
 	if len(args.Tools) == 0 {
@@ -57,7 +57,7 @@ func (t *DetachTool) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if orgID == "" {
 		return nil, fmt.Errorf("detach_tool: caller has no OrgID")
 	}
-	updated, err := t.deps.Bots.DetachTools(ctx, orgID, orgchart.BotID(args.BotID), args.Tools)
+	updated, err := t.deps.Nodes.DetachTools(ctx, orgID, orgchart.NodeID(args.NodeID), args.Tools)
 	if err != nil {
 		return nil, err
 	}

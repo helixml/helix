@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/messages"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
@@ -63,28 +63,28 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 	}
 	hub := wakebus.New(ps)
 	reg := configregistry.New(st.Configs)
-	topo := reconcile.New(reconcile.Deps{Bots: st.Bots, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: clock})
+	topo := reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: clock})
 
-	botsSvc := bots.New(bots.Deps{
-		Bots: st.Bots, Lines: st.ReportingLines, Reconciler: topo,
+	botsSvc := nodes.New(nodes.Deps{
+		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: topo,
 		Now: clock, NewID: newID, BaseTools: mcptools.BaseReadTools,
 	})
 
 	deps := orgapi.Deps{
 		Topics:   topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
 		Messages: messages.New(messages.Deps{Topics: st.Topics, Events: st.Events, Notifier: hub}),
-		Bots:     botsSvc,
-		// Create + Delete live on the lifecycle service. Bots is required
-		// for Create (row creation + base-tool union). BotReconcilers wires
+		Nodes:    botsSvc,
+		// Create + Delete live on the lifecycle service. Nodes is required
+		// for Create (row creation + base-tool union). NodeReconcilers wires
 		// the topology reconcile. Helix/Mirror stay nil — the REST tests
 		// don't exercise the Helix-side teardown.
 		Lifecycle: &lifecycle.Service{
-			Store: st, Bots: botsSvc, BotReconcilers: []lifecycle.BotReconciler{topo},
+			Store: st, Nodes: botsSvc, NodeReconcilers: []lifecycle.NodeReconciler{topo},
 			Now: clock, NewID: newID,
 		},
-		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Bots: st.Bots, Now: clock}),
+		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Nodes: st.Nodes, Now: clock}),
 		Publishing:    publishing.New(publishing.Deps{Topics: st.Topics, Events: st.Events, Hub: hub, Now: clock, NewID: newID}),
-		Queries:       queries.New(queries.Deps{Bots: st.Bots, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
+		Queries:       queries.New(queries.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
 		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: clock, NewID: newID}),
 		Processors: processors.New(processors.Deps{
 			Processors: st.Processors,
@@ -137,11 +137,11 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder, dst any) {
 // cascade — tests that just need a row to read/edit use this.
 func seedBot(t *testing.T, st *store.Store, ctx context.Context, id, content string) {
 	t.Helper()
-	b, err := orgchart.NewBot(orgchart.BotID(id), content, nil, time.Now().UTC(), "org-test")
+	b, err := orgchart.NewNode(orgchart.NodeID(id), content, nil, time.Now().UTC(), "org-test")
 	if err != nil {
-		t.Fatalf("NewBot %s: %v", id, err)
+		t.Fatalf("NewNode %s: %v", id, err)
 	}
-	if err := st.Bots.Create(ctx, b); err != nil {
+	if err := st.Nodes.Create(ctx, b); err != nil {
 		t.Fatalf("create bot %s: %v", id, err)
 	}
 }
@@ -159,8 +159,8 @@ func TestGetOrgOverview_EmptyStore_Returns200WithEmptyBots(t *testing.T) {
 	}
 	var overview orgapi.OrgOverview
 	decode(t, rec, &overview)
-	if len(overview.Bots) != 0 {
-		t.Fatalf("expected empty bots, got %+v", overview.Bots)
+	if len(overview.Nodes) != 0 {
+		t.Fatalf("expected empty bots, got %+v", overview.Nodes)
 	}
 }
 

@@ -15,13 +15,13 @@ import (
 // public Activate command rather than a standalone helper.
 type fakeEnsurer struct{}
 
-func (fakeEnsurer) Ensure(_ context.Context, _ string, _ orgchart.BotID) (string, string, string, error) {
+func (fakeEnsurer) Ensure(_ context.Context, _ string, _ orgchart.NodeID) (string, string, string, error) {
 	return "prj-1", "app-1", "repo-1", nil
 }
 
 type fakeDispatcher struct{ gotID activation.ID }
 
-func (f *fakeDispatcher) DispatchManual(_ context.Context, _ string, _ orgchart.BotID, activationID activation.ID) {
+func (f *fakeDispatcher) DispatchManual(_ context.Context, _ string, _ orgchart.NodeID, activationID activation.ID) {
 	f.gotID = activationID
 }
 
@@ -47,8 +47,8 @@ func TestActivate_PreAllocatesAuditRow(t *testing.T) {
 	if res.ActivationID != "a-fixed" {
 		t.Fatalf("activation id = %q, want a-fixed", res.ActivationID)
 	}
-	if res.ProjectID != "prj-1" || res.AgentAppID != "app-1" {
-		t.Fatalf("project/agent ids = %q/%q, want prj-1/app-1", res.ProjectID, res.AgentAppID)
+	if res.ProjectID != "prj-1" || res.AgentID != "app-1" {
+		t.Fatalf("project/agent ids = %q/%q, want prj-1/app-1", res.ProjectID, res.AgentID)
 	}
 	if disp.gotID != "a-fixed" {
 		t.Fatalf("dispatcher got id %q, want a-fixed", disp.gotID)
@@ -88,7 +88,7 @@ func TestActivate_NoRepoMintsNoRow(t *testing.T) {
 
 type fakeSessions struct{ id string }
 
-func (f fakeSessions) SessionID(_ context.Context, _ string, _ orgchart.BotID) (string, error) {
+func (f fakeSessions) SessionID(_ context.Context, _ string, _ orgchart.NodeID) (string, error) {
 	return f.id, nil
 }
 
@@ -102,10 +102,10 @@ func (f *fakeStopper) StopDesktop(_ context.Context, sessionID string) error {
 type fakeResetter struct {
 	called string
 	org    string
-	bot    orgchart.BotID
+	bot    orgchart.NodeID
 }
 
-func (f *fakeResetter) ResetSession(_ context.Context, orgID string, workerID orgchart.BotID, sessionID string) error {
+func (f *fakeResetter) ResetSession(_ context.Context, orgID string, workerID orgchart.NodeID, sessionID string) error {
 	f.called = sessionID
 	f.org = orgID
 	f.bot = workerID

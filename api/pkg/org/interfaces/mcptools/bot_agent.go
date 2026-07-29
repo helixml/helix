@@ -27,7 +27,7 @@ type StartBot struct{ deps Deps }
 func NewStartBot(deps Deps) *StartBot { return &StartBot{deps: deps} }
 
 type startBotArgs struct {
-	BotID string `json:"bot_id"`
+	NodeID string `json:"bot_id"`
 }
 
 var startBotSchema = mustSchema[startBotArgs]()
@@ -68,7 +68,7 @@ type StopBot struct{ deps Deps }
 func NewStopBot(deps Deps) *StopBot { return &StopBot{deps: deps} }
 
 type stopBotArgs struct {
-	BotID string `json:"bot_id"`
+	NodeID string `json:"bot_id"`
 }
 
 var stopBotSchema = mustSchema[stopBotArgs]()
@@ -108,7 +108,7 @@ type RestartBot struct{ deps Deps }
 func NewRestartBot(deps Deps) *RestartBot { return &RestartBot{deps: deps} }
 
 type restartBotArgs struct {
-	BotID string `json:"bot_id"`
+	NodeID string `json:"bot_id"`
 }
 
 var restartBotSchema = mustSchema[restartBotArgs]()
@@ -143,30 +143,32 @@ func (t *RestartBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 // --- helpers --------------------------------------------------------------
 
 type botActivateView struct {
-	ActivationID string `json:"activation_id,omitempty"`
-	ProjectID    string `json:"project_id,omitempty"`
-	AgentAppID   string `json:"agent_app_id,omitempty"`
-	SessionID    string `json:"session_id,omitempty"`
+	ActivationID  string `json:"activation_id,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
+	AgentID       string `json:"agent_id,omitempty"`
+	LegacyAgentID string `json:"agent_app_id,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
 }
 
 func toBotActivateView(res activations.ActivateResult) botActivateView {
 	return botActivateView{
-		ActivationID: string(res.ActivationID),
-		ProjectID:    res.ProjectID,
-		AgentAppID:   res.AgentAppID,
-		SessionID:    res.SessionID,
+		ActivationID:  string(res.ActivationID),
+		ProjectID:     res.ProjectID,
+		AgentID:       res.AgentID,
+		LegacyAgentID: res.AgentID,
+		SessionID:     res.SessionID,
 	}
 }
 
 // botAgentArgs parses {bot_id} from the invocation and returns bot + org.
-func botAgentArgs(inv tool.Invocation) (orgchart.BotID, string, error) {
+func botAgentArgs(inv tool.Invocation) (orgchart.NodeID, string, error) {
 	var args struct {
-		BotID string `json:"bot_id"`
+		NodeID string `json:"bot_id"`
 	}
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return "", "", fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return "", "", errors.New("bot_id is required")
 	}
 	if inv.Caller == nil {
@@ -176,7 +178,7 @@ func botAgentArgs(inv tool.Invocation) (orgchart.BotID, string, error) {
 	if orgID == "" {
 		return "", "", errors.New("caller has no organization id")
 	}
-	return orgchart.BotID(args.BotID), orgID, nil
+	return orgchart.NodeID(args.NodeID), orgID, nil
 }
 
 func activationsSvc(deps Deps) (*activations.Activations, error) {
@@ -186,7 +188,7 @@ func activationsSvc(deps Deps) (*activations.Activations, error) {
 	return deps.Activations, nil
 }
 
-func ensureBotExists(ctx context.Context, deps Deps, orgID string, botID orgchart.BotID) error {
+func ensureBotExists(ctx context.Context, deps Deps, orgID string, botID orgchart.NodeID) error {
 	if deps.Queries == nil {
 		return nil
 	}

@@ -14,7 +14,7 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 )
 
-// botCaller adapts an orgchart.Bot's identity to the tool.Caller
+// botCaller adapts an orgchart.Node's identity to the tool.Caller
 // interface. The Bot aggregate is a plain struct (no ID()/OrganizationID()
 // methods), so this tiny value carries the two fields a tool invocation
 // needs to attribute the caller.
@@ -75,7 +75,7 @@ func (s *Server) mcpHandler() http.Handler {
 //
 // Returning nil causes the SDK to respond 400 Bad Request.
 func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
-	botID := orgchart.BotID(r.PathValue("id"))
+	botID := orgchart.NodeID(r.PathValue("id"))
 	if botID == "" {
 		return nil
 	}

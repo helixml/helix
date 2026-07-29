@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
@@ -16,8 +16,8 @@ func TestSetHumanContactPatchesIdentity(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
 	cfg := DefaultDeps(st)
-	person, err := cfg.botsService().Create(ctx, "org-test", bots.CreateParams{
-		ID: "h-owner", Kind: orgchart.BotKindHuman, HelixUserID: "usr-owner",
+	person, err := cfg.botsService().Create(ctx, "org-test", nodes.CreateParams{
+		ID: "h-owner", Kind: orgchart.NodeKindHuman, HelixUserID: "usr-owner",
 		Content: "Owner", Identity: map[string]string{"email": "owner@example.com", "github": "owner"},
 	})
 	if err != nil {
@@ -30,7 +30,7 @@ func TestSetHumanContactPatchesIdentity(t *testing.T) {
 	if _, err := target.Invoke(ctx, tool.Invocation{Caller: botCaller{id: "chief-of-staff", orgID: "org-test"}, Args: args}); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := st.Bots.Get(ctx, "org-test", person.ID)
+	updated, err := st.Nodes.Get(ctx, "org-test", person.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestSetHumanContactRejectsAgentAndIncompleteSlack(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
 	cfg := DefaultDeps(st)
-	if _, err := cfg.botsService().Create(ctx, "org-test", bots.CreateParams{ID: "b-agent", Content: "Agent"}); err != nil {
+	if _, err := cfg.botsService().Create(ctx, "org-test", nodes.CreateParams{ID: "b-agent", Content: "Agent"}); err != nil {
 		t.Fatal(err)
 	}
 	target := &SetHumanContact{deps: cfg.Build()}
@@ -69,7 +69,7 @@ func TestSetHumanContactRejectsAgentAndIncompleteSlack(t *testing.T) {
 		{"h-owner", map[string]string{"preferred_contact": "sms"}, "preferred_contact must be helix or slack"},
 	} {
 		if tc.person == "h-owner" {
-			_, _ = cfg.botsService().Create(ctx, "org-test", bots.CreateParams{ID: "h-owner", Kind: orgchart.BotKindHuman, Content: "Owner"})
+			_, _ = cfg.botsService().Create(ctx, "org-test", nodes.CreateParams{ID: "h-owner", Kind: orgchart.NodeKindHuman, Content: "Owner"})
 		}
 		args, _ := json.Marshal(setHumanContactArgs{PersonID: tc.person, Contact: tc.contact})
 		_, err := target.Invoke(ctx, tool.Invocation{Caller: botCaller{id: "chief-of-staff", orgID: "org-test"}, Args: args})

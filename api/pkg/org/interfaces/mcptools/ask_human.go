@@ -14,7 +14,7 @@ import (
 // HumanDelivery delivers a bot's message through the person's configured
 // contact route. The composition root owns the concrete Helix and Slack APIs.
 type HumanDelivery interface {
-	Deliver(ctx context.Context, orgID string, person orgchart.Bot, fromBotID, fromBotName, message string, expectsReply bool) (string, error)
+	Deliver(ctx context.Context, orgID string, person orgchart.Node, fromBotID, fromBotName, message string, expectsReply bool) (string, error)
 }
 
 // AskHuman lets a bot reach a real person directly: it delivers the message to
@@ -64,7 +64,7 @@ func (t *AskHuman) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	if t.deps.HumanDelivery == nil {
 		return nil, fmt.Errorf("ask_human: human delivery is not configured")
 	}
-	person, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.BotID(args.PersonID))
+	person, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.NodeID(args.PersonID))
 	if err != nil {
 		return nil, fmt.Errorf("person %q: %w", args.PersonID, err)
 	}
@@ -74,7 +74,7 @@ func (t *AskHuman) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	// Prefer the sending bot's display name for the notification title (e.g.
 	// "Chief of Staff", not "chief-of-staff"); fall back to its id.
 	fromBotName := inv.Caller.ID()
-	if caller, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.BotID(inv.Caller.ID())); err == nil && caller.Name != "" {
+	if caller, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.NodeID(inv.Caller.ID())); err == nil && caller.Name != "" {
 		fromBotName = caller.Name
 	}
 	expectsReply := args.ExpectsReply == nil || *args.ExpectsReply

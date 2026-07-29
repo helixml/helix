@@ -39,7 +39,7 @@ const HelixOrgHumanDetail: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const botId = router.params.bot_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Bots', routeName: 'helix_org_bots' })
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Agents', routeName: 'helix_org_bots' })
   const { data, isLoading } = useHelixOrgBot(botId)
   const bot = data?.bot
   const updateBot = useUpdateBot()
@@ -123,7 +123,7 @@ const HelixOrgHumanDetail: FC = () => {
             <Paper variant="outlined" sx={{ p: 2.5 }}>
               <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Contact channels</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-                How the org reaches this person. Bots resolve these when they need to message them.
+                How the org reaches this person. Agents resolve these when they need to message them.
               </Typography>
               <Stack spacing={2}>
                 <FormControl size="small" fullWidth>

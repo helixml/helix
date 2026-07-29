@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/projects"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
@@ -34,6 +34,14 @@ type Clock func() time.Time
 // IDGen generates new unique string IDs. Tests override it.
 type IDGen func() string
 
+type AgentContentUpdater interface {
+	UpdateAgentContent(ctx context.Context, appID, content string) error
+}
+
+type AgentProfileReader interface {
+	AgentProfile(ctx context.Context, appID string) (name, instructions string, err error)
+}
+
 // EventDispatcher fans a freshly-published Event out to every subscribed
 // Bot as a separate Spawner activation. Tools call it after persisting
 // an Event. The interface keeps tools.Deps free of a dependency on the
@@ -47,7 +55,7 @@ type EventDispatcher interface {
 	// the existing row instead of writing a sibling. Empty activationID
 	// is allowed for callers that don't pre-allocate (legacy code paths,
 	// tests that don't wire activation.Repository).
-	DispatchHire(ctx context.Context, orgID string, botID orgchart.BotID, activationID activation.ID)
+	DispatchHire(ctx context.Context, orgID string, botID orgchart.NodeID, activationID activation.ID)
 }
 
 // Deps is the MCP tool surface — the pre-built application services and
@@ -60,11 +68,11 @@ type Deps struct {
 	// one the REST read handlers use, so the two surfaces can't drift on
 	// read semantics.
 	Queries *queries.Queries
-	// Bots is the bot-mutation service (the merge of the former roles +
+	// Nodes is the bot-mutation service (the merge of the former roles +
 	// workers services) — set_bot_content and attach_tool/detach_tool
 	// delegate here; create_bot goes through Lifecycle, which itself drives
-	// Bots.
-	Bots          *bots.Bots
+	// Nodes.
+	Nodes         *nodes.Nodes
 	Topics        *topics.Topics
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
@@ -83,7 +91,9 @@ type Deps struct {
 	// Workspace is the per-runtime file-mirror port: set_bot_content calls
 	// MirrorFile after the service persists, so the running session sees
 	// the change before the next activation.
-	Workspace runtime.WorkspaceSync
+	Workspace           runtime.WorkspaceSync
+	AgentContentUpdater AgentContentUpdater
+	AgentProfileReader  AgentProfileReader
 	// ProjectConfig backs get_bot_project + configure_bot_project
 	// (owner-only read/patch of a Bot's helix project config).
 	ProjectConfig runtime.ProjectConfig
@@ -127,15 +137,17 @@ type Deps struct {
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
 // Workspace defaults to a no-op for tests.
 type Config struct {
-	Store         *store.Store
-	Queries       *queries.Queries
-	Now           Clock
-	NewID         IDGen
-	Hub           *wakebus.Bus
-	Dispatcher    EventDispatcher
-	Workspace     runtime.WorkspaceSync
-	HireHook      runtime.HireHook
-	ProjectConfig runtime.ProjectConfig
+	Store               *store.Store
+	Queries             *queries.Queries
+	Now                 Clock
+	NewID               IDGen
+	Hub                 *wakebus.Bus
+	Dispatcher          EventDispatcher
+	Workspace           runtime.WorkspaceSync
+	AgentContentUpdater AgentContentUpdater
+	AgentProfileReader  AgentProfileReader
+	HireHook            runtime.HireHook
+	ProjectConfig       runtime.ProjectConfig
 	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
 	// → Build defaults to runtime.NoopSpecTasks{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
@@ -175,7 +187,7 @@ type Config struct {
 func (c Config) Build() Deps {
 	return Deps{
 		Queries:             c.Queries,
-		Bots:                c.botsService(),
+		Nodes:               c.botsService(),
 		Topics:              c.topicsService(),
 		Subscriptions:       c.subscriptionsService(),
 		Publishing:          c.Publishing,
@@ -183,6 +195,8 @@ func (c Config) Build() Deps {
 		Activations:         c.Activations,
 		Processors:          c.processorsService(),
 		Workspace:           c.Workspace,
+		AgentContentUpdater: c.AgentContentUpdater,
+		AgentProfileReader:  c.AgentProfileReader,
 		ProjectConfig:       c.ProjectConfig,
 		SpecTasks:           c.specTasksService(),
 		Projects:            c.projectsService(),
@@ -261,7 +275,7 @@ func (c Config) subscriptionsService() *subscriptions.Subscriptions {
 	return subscriptions.New(subscriptions.Deps{
 		Subscriptions: c.Store.Subscriptions,
 		Topics:        c.Store.Topics,
-		Bots:          c.Store.Bots,
+		Nodes:         c.Store.Nodes,
 		Now:           c.Now,
 	})
 }
@@ -276,13 +290,13 @@ func (c Config) lifecycleService() *lifecycle.Service {
 		return c.Lifecycle
 	}
 	svc := &lifecycle.Service{
-		Store:          c.Store,
-		Bots:           c.botsService(),
-		Subscriber:     c.subscriptionsService(),
-		BotReconcilers: []lifecycle.BotReconciler{c.Reconciler},
-		HireHook:       c.HireHook,
-		Now:            c.Now,
-		NewID:          c.NewID,
+		Store:           c.Store,
+		Nodes:           c.botsService(),
+		Subscriber:      c.subscriptionsService(),
+		NodeReconcilers: []lifecycle.NodeReconciler{c.Reconciler},
+		HireHook:        c.HireHook,
+		Now:             c.Now,
+		NewID:           c.NewID,
 	}
 	// c.Dispatcher (EventDispatcher) satisfies lifecycle.CreateDispatcher
 	// (DispatchHire); guard the typed-nil-in-interface case.
@@ -295,9 +309,9 @@ func (c Config) lifecycleService() *lifecycle.Service {
 // botsService builds the bot-mutation application service, injecting
 // BaseReadTools as the universal baseline so the MCP create_bot tool and
 // the REST bot handlers union the same set.
-func (c Config) botsService() *bots.Bots {
-	return bots.New(bots.Deps{
-		Bots:       c.Store.Bots,
+func (c Config) botsService() *nodes.Nodes {
+	return nodes.New(nodes.Deps{
+		Nodes:      c.Store.Nodes,
 		Lines:      c.Store.ReportingLines,
 		Reconciler: c.Reconciler,
 		Now:        c.Now,
@@ -334,14 +348,14 @@ func DefaultDeps(s *store.Store) Config {
 		CredentialProviders: map[string]credential.Provider{},
 	}
 	c.Reconciler = reconcile.New(reconcile.Deps{
-		Bots:           s.Bots,
+		Nodes:          s.Nodes,
 		ReportingLines: s.ReportingLines,
 		Topics:         s.Topics,
 		Subscriptions:  s.Subscriptions,
 		Now:            c.Now,
 	})
 	c.Queries = queries.New(queries.Deps{
-		Bots: s.Bots, ReportingLines: s.ReportingLines,
+		Nodes: s.Nodes, ReportingLines: s.ReportingLines,
 		Topics: s.Topics, Subscriptions: s.Subscriptions, Events: s.Events,
 		Activations: s.Activations,
 	})
@@ -446,7 +460,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 	}
 	// Fail fast if BaseReadTools references a name that isn't registered
 	// — a typo in defaults.go would otherwise produce silently-broken
-	// Bots whose reconciled tool list is missing one of the baseline
+	// Nodes whose reconciled tool list is missing one of the baseline
 	// entries.
 	for _, name := range BaseReadTools {
 		if _, err := reg.Get(name); err != nil {

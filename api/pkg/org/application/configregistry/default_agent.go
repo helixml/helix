@@ -26,3 +26,20 @@ func (r *Registry) GetDefaultAgentConfig(ctx context.Context, orgID string) (typ
 func (r *Registry) IsDefaultAgentConfigured(ctx context.Context, orgID string) bool {
 	return r.IsConfigured(ctx, orgID, DefaultAgentConfigKey) || r.IsConfigured(ctx, orgID, "worker.runtime")
 }
+
+func (r *Registry) IsDefaultAgentConfigComplete(ctx context.Context, orgID string) bool {
+	if !r.IsDefaultAgentConfigured(ctx, orgID) {
+		return false
+	}
+	cfg, err := r.GetDefaultAgentConfig(ctx, orgID)
+	if err != nil || cfg.CodeAgentRuntime == "" {
+		return false
+	}
+	credentials := cfg.CodeAgentCredentialType
+	if cfg.CodeAgentRuntime != types.CodeAgentRuntimeClaudeCode && cfg.CodeAgentRuntime != types.CodeAgentRuntimeCodexCLI {
+		credentials = types.CodeAgentCredentialTypeAPIKey
+	} else if credentials == "" {
+		credentials = types.CodeAgentCredentialTypeSubscription
+	}
+	return credentials == types.CodeAgentCredentialTypeSubscription || (cfg.Provider != "" && cfg.Model != "")
+}

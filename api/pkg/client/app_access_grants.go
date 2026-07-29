@@ -17,7 +17,7 @@ type AppAccessGrantsFilter struct {
 func (c *HelixClient) ListAppAccessGrants(ctx context.Context, f *AppAccessGrantsFilter) ([]*types.AccessGrant, error) {
 	var apps []*types.AccessGrant
 
-	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/apps/%s/access-grants", f.AppID), nil, &apps)
+	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/agents/%s/access-grants", f.AppID), nil, &apps)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +31,7 @@ func (c *HelixClient) CreateAppAccessGrant(ctx context.Context, appID string, gr
 	}
 
 	var createdGrant types.AccessGrant
-	err = c.makeRequest(ctx, http.MethodPost, fmt.Sprintf("/apps/%s/access-grants", appID), bytes.NewBuffer(bts), &createdGrant)
+	err = c.makeRequest(ctx, http.MethodPost, fmt.Sprintf("/agents/%s/access-grants", appID), bytes.NewBuffer(bts), &createdGrant)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func (c *HelixClient) CreateAppAccessGrant(ctx context.Context, appID string, gr
 }
 
 func (c *HelixClient) DeleteAppAccessGrant(ctx context.Context, appID string, grantID string) error {
-	err := c.makeRequest(ctx, http.MethodDelete, fmt.Sprintf("/apps/%s/access-grants/%s", appID, grantID), nil, nil)
+	err := c.makeRequest(ctx, http.MethodDelete, fmt.Sprintf("/agents/%s/access-grants/%s", appID, grantID), nil, nil)
 	if err != nil {
 		return err
 	}
@@ -48,7 +48,7 @@ func (c *HelixClient) DeleteAppAccessGrant(ctx context.Context, appID string, gr
 
 func (c *HelixClient) GetAppUserAccess(ctx context.Context, appID string) (*types.UserAppAccessResponse, error) {
 	var response types.UserAppAccessResponse
-	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/apps/%s/user-access", appID), nil, &response)
+	err := c.makeRequest(ctx, http.MethodGet, fmt.Sprintf("/agents/%s/user-access", appID), nil, &response)
 	if err != nil {
 		return nil, err
 	}

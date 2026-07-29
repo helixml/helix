@@ -14,7 +14,7 @@ import (
 // can be asserted without a real runtime.
 type fakePort struct {
 	lastOrg     string
-	lastWorker  orgchart.BotID
+	lastWorker  orgchart.NodeID
 	lastProject string
 	createIn    runtime.CreateSpecTaskInput
 	view        runtime.SpecTaskView
@@ -24,46 +24,46 @@ type fakePort struct {
 	lastComment string
 }
 
-func (f *fakePort) Create(_ context.Context, org string, w orgchart.BotID, projectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
+func (f *fakePort) Create(_ context.Context, org string, w orgchart.NodeID, projectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.createIn = org, w, projectID, in
 	return f.view, f.err
 }
-func (f *fakePort) List(_ context.Context, org string, w orgchart.BotID, projectID string, _ runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
+func (f *fakePort) List(_ context.Context, org string, w orgchart.NodeID, projectID string, _ runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject = org, w, projectID
 	if f.err != nil {
 		return nil, f.err
 	}
 	return []runtime.SpecTaskView{f.view}, nil
 }
-func (f *fakePort) Get(_ context.Context, org string, w orgchart.BotID, projectID, taskID string) (runtime.SpecTaskView, error) {
+func (f *fakePort) Get(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
 }
-func (f *fakePort) Update(_ context.Context, org string, w orgchart.BotID, projectID, taskID string, _ runtime.UpdateSpecTaskInput) (runtime.SpecTaskView, error) {
+func (f *fakePort) Update(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string, _ runtime.UpdateSpecTaskInput) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
 }
-func (f *fakePort) StartPlanning(_ context.Context, org string, w orgchart.BotID, projectID, taskID string) (runtime.SpecTaskView, error) {
+func (f *fakePort) StartPlanning(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
 }
-func (f *fakePort) StopAgent(_ context.Context, org string, w orgchart.BotID, projectID, taskID string) (runtime.SpecTaskView, error) {
+func (f *fakePort) StopAgent(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
 }
-func (f *fakePort) ReviewSpec(_ context.Context, org string, w orgchart.BotID, projectID, taskID string) (runtime.SpecReviewView, error) {
+func (f *fakePort) ReviewSpec(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecReviewView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.review, f.err
 }
-func (f *fakePort) ApproveSpec(_ context.Context, org string, w orgchart.BotID, projectID, taskID string) (runtime.SpecTaskView, error) {
+func (f *fakePort) ApproveSpec(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
 }
-func (f *fakePort) RequestChanges(_ context.Context, org string, w orgchart.BotID, projectID, taskID, comment string) (runtime.SpecTaskView, error) {
+func (f *fakePort) RequestChanges(_ context.Context, org string, w orgchart.NodeID, projectID, taskID, comment string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID, f.lastComment = org, w, projectID, taskID, comment
 	return f.view, f.err
 }
-func (f *fakePort) CreatePullRequests(_ context.Context, org string, w orgchart.BotID, projectID, taskID string) (runtime.SpecTaskView, error) {
+func (f *fakePort) CreatePullRequests(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
 }
@@ -73,15 +73,15 @@ func (f *fakePort) CreatePullRequests(_ context.Context, org string, w orgchart.
 type fakeMembers struct {
 	err        error
 	lastOrg    string
-	lastWorker orgchart.BotID
+	lastWorker orgchart.NodeID
 }
 
-func (m *fakeMembers) GetBot(_ context.Context, org string, id orgchart.BotID) (orgchart.Bot, error) {
+func (m *fakeMembers) GetBot(_ context.Context, org string, id orgchart.NodeID) (orgchart.Node, error) {
 	m.lastOrg, m.lastWorker = org, id
 	if m.err != nil {
-		return orgchart.Bot{}, m.err
+		return orgchart.Node{}, m.err
 	}
-	return orgchart.Bot{ID: id, OrganizationID: org}, nil
+	return orgchart.Node{ID: id, OrganizationID: org}, nil
 }
 
 // fakeCaller satisfies the minimal Worker surface (ID + OrganizationID).

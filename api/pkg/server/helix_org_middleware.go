@@ -2,25 +2,30 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/helixevents"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/server/helixorg"
 	helixstore "github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // helixOrgScope bundles the per-org state the middleware needs to pass
@@ -48,6 +53,7 @@ type helixOrgScope struct {
 	// hooks — see org_graph_seed.go). nil when helix-org / the seeder isn't
 	// wired.
 	humanReconcile func(ctx context.Context, orgID string) error
+	botRepair      func(ctx context.Context, orgID string) error
 
 	mu           sync.Mutex
 	bootstrapped map[string]bool
@@ -75,8 +81,8 @@ func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.
 
 // ensureBootstrap runs the per-org first-request setup: provision the
 // helix.api_key into the org's config registry, converge any existing
-// graph, and start the transcript mirror. No owner is seeded — orgs
-// start empty. Runs once per org per process (guarded by bootstrapped).
+// graph, and start the transcript mirror. Runs once per org per process
+// (guarded by bootstrapped).
 func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error {
 	s.mu.Lock()
 	if s.bootstrapped[orgID] {
@@ -101,14 +107,15 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			return nil, nil
 		}
 
-		// No owner is seeded — orgs start empty. The human creates the
-		// first Role + Worker from the chart UI. This first-request hook
-		// only provisions the per-org service api_key and converges any
-		// graph that already exists (a no-op on a brand-new empty org).
-
 		// Provision a per-org Helix service api_key for the organization owner.
 		if _, err := helixorg.NewHelixAPIKeys(s.helixStore, s.configs).Service(ctx, orgID); err != nil {
-			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org service api key not provisioned")
+			return nil, fmt.Errorf("provision helix-org service api key: %w", err)
+		}
+
+		if s.botRepair != nil {
+			if err := s.botRepair(ctx, orgID); err != nil {
+				return nil, fmt.Errorf("repair never-activated bots: %w", err)
+			}
 		}
 
 		// Converge the full topology for this org. Best-effort: a
@@ -119,7 +126,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// (e.g. orgs upgraded from an older server version that
 		// lacked team-stream auto-creation).
 		rec := reconcile.New(reconcile.Deps{
-			Bots:           s.orgStore.Bots,
+			Nodes:          s.orgStore.Nodes,
 			ReportingLines: s.orgStore.ReportingLines,
 			Topics:         s.orgStore.Topics,
 			Subscriptions:  s.orgStore.Subscriptions,
@@ -153,7 +160,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// `reports` (issue #2546). Best-effort like the topology
 		// reconcile above: a failure logs and continues so a transient
 		// DB error doesn't lock users out of the org.
-		botsSvc := bots.New(bots.Deps{Bots: s.orgStore.Bots, BaseTools: mcptools.BaseReadTools})
+		botsSvc := nodes.New(nodes.Deps{Nodes: s.orgStore.Nodes, BaseTools: mcptools.BaseReadTools})
 		if err := botsSvc.Reconcile(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}
@@ -176,6 +183,57 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		return nil, nil
 	})
 	return err
+}
+
+type repairAgentDefaultApplier interface {
+	ApplyAgentDefaults(ctx context.Context, appID string, defaults types.AssistantConfig) error
+}
+
+func repairNeverActivatedBots(ctx context.Context, orgID string, st *helixorgstore.Store, dispatcher lifecycle.CreateDispatcher, configs *configregistry.Registry, applier repairAgentDefaultApplier) error {
+	if st == nil || dispatcher == nil || configs == nil || !configs.IsDefaultAgentConfigComplete(ctx, orgID) {
+		return nil
+	}
+	defaults, err := configs.GetDefaultAgentConfig(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("read default agent config: %w", err)
+	}
+	bs, err := st.Nodes.List(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	for _, b := range bs {
+		if b.IsHuman() {
+			continue
+		}
+		acts, err := st.Activations.ListForWorker(ctx, orgID, b.ID, 1)
+		if err != nil {
+			return fmt.Errorf("list activations for bot %s: %w", b.ID, err)
+		}
+		if len(acts) > 0 {
+			continue
+		}
+		if b.AgentID != "" {
+			if applier == nil {
+				return fmt.Errorf("apply defaults to never-activated bot %s: applier is not wired", b.ID)
+			}
+			if err := applier.ApplyAgentDefaults(ctx, b.AgentID, defaults); err != nil {
+				return fmt.Errorf("apply defaults to never-activated bot %s: %w", b.ID, err)
+			}
+		}
+		actID := activation.ID("a-repair-" + string(b.ID))
+		act, err := activation.New(actID, b.ID, []activation.Trigger{{Kind: activation.TriggerHire}}, time.Now().UTC(), orgID)
+		if err != nil {
+			return fmt.Errorf("build repair activation for bot %s: %w", b.ID, err)
+		}
+		if err := st.Activations.Create(ctx, act); err != nil {
+			if _, getErr := st.Activations.Get(ctx, orgID, actID); getErr == nil {
+				continue
+			}
+			return fmt.Errorf("persist repair activation for bot %s: %w", b.ID, err)
+		}
+		dispatcher.DispatchHire(ctx, orgID, b.ID, actID)
+	}
+	return nil
 }
 
 // withHelixOrgScope adds org-graph bootstrap to the shared authenticated

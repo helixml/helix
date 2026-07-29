@@ -50,6 +50,7 @@ type fakeProjectService struct {
 	attachRepoErr           error
 	attachRepoCalls         int
 	getAppCalls             int
+	getAppErr               error
 	appConfig               types.AppConfig
 	updateAppCalls          int
 	updateAppLastCfg        types.AppConfig
@@ -104,6 +105,13 @@ func (f *fakeProjectService) GetProject(_ context.Context, _ string) (types.Proj
 	return f.getProjectResp, err
 }
 
+func (f *fakeProjectService) GetApp(_ context.Context, id string) (*types.App, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.getAppCalls++
+	return &types.App{ID: id, OrganizationID: "org-test", Config: f.appConfig}, f.getAppErr
+}
+
 func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch types.ProjectUpdateRequest) (types.Project, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -121,6 +129,9 @@ func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch t
 	}
 	if patch.Metadata != nil {
 		updated.Metadata = *patch.Metadata
+	}
+	if patch.DefaultHelixAppID != nil {
+		updated.DefaultHelixAppID = *patch.DefaultHelixAppID
 	}
 	f.getProjectResp = updated
 	return updated, f.updateProjectErr
@@ -253,18 +264,18 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgchart.BotID) {
+func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgchart.NodeID) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 	// The Bot IS the role: its Content is the prompt that lands in
 	// role.md. Keep the `w-eng` handle so the on-branch path assertions
 	// (workers/w-eng/.context/role.md) stay meaningful.
-	b, err := orgchart.NewBot("w-eng", roleContent, nil, time.Now().UTC(), "org-test")
+	b, err := orgchart.NewNode("w-eng", roleContent, nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}
-	if err := st.Bots.Create(ctx, b); err != nil {
+	if err := st.Nodes.Create(ctx, b); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 	return st, b.ID
@@ -341,7 +352,7 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
-	if state.ProjectID != "prj_test" || state.AgentAppID != "app_test" {
+	if state.ProjectID != "prj_test" || state.AgentID != "app_test" {
 		t.Errorf("state = %+v", state)
 	}
 	// RepoID is part of the contract — without it the desktop bringup
@@ -637,6 +648,172 @@ func TestEnsureFastPathPreservesAgentSpec(t *testing.T) {
 	}
 }
 
+func TestEnsureFastPathPreservesValidProjectDefaultAndConvergesLinks(t *testing.T) {
+	st, wid := newProjectTestStore(t, "# Role")
+	ctx := context.Background()
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-new")); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
+		t.Fatal(err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{
+		ID: "prj_existing", OrganizationID: "org-test",
+		DefaultHelixAppID: "app-explicit", DefaultRepoID: "repo_existing",
+	}
+
+	if _, agentAppID, _, err := newApplierGit(svc, newFakeGitForProject(), st).Ensure(ctx, "org-test", wid); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	} else if agentAppID != "app-explicit" {
+		t.Fatalf("returned app = %q, want app-explicit", agentAppID)
+	}
+	bot, err = st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bot.AgentID != "app-explicit" {
+		t.Fatalf("bot app = %q, want app-explicit", bot.AgentID)
+	}
+	state, err := LoadState(ctx, st, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.AgentID != "app-explicit" {
+		t.Fatalf("runtime app = %q, want app-explicit", state.AgentID)
+	}
+}
+
+func TestEnsureFastPathDoesNotAdoptProjectDefaultClaimedByAnotherBot(t *testing.T) {
+	st, wid := newProjectTestStore(t, "# Role")
+	ctx := context.Background()
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-current")); err != nil {
+		t.Fatal(err)
+	}
+	other, err := orgchart.NewNode("w-other", "# Other", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Create(ctx, other.WithAgentID("app-claimed")); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
+		t.Fatal(err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{
+		ID: "prj_existing", OrganizationID: "org-test",
+		DefaultHelixAppID: "app-claimed", DefaultRepoID: "repo_existing",
+	}
+
+	if _, agentAppID, _, err := newApplierGit(svc, newFakeGitForProject(), st).Ensure(ctx, "org-test", wid); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	} else if agentAppID != "app-current" {
+		t.Fatalf("returned app = %q, want app-current", agentAppID)
+	}
+	bot, err = st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bot.AgentID != "app-current" {
+		t.Fatalf("bot app = %q, want app-current", bot.AgentID)
+	}
+	state, err := LoadState(ctx, st, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.AgentID != "app-current" {
+		t.Fatalf("runtime app = %q, want app-current", state.AgentID)
+	}
+}
+
+func TestEnsureFastPathPreservesLinksWhenProjectDefaultAppReadFails(t *testing.T) {
+	st, wid := newProjectTestStore(t, "# Role")
+	ctx := context.Background()
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-runtime", "repo_existing"); err != nil {
+		t.Fatal(err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{
+		ID: "prj_existing", OrganizationID: "org-test",
+		DefaultHelixAppID: "app-explicit", DefaultRepoID: "repo_existing",
+	}
+	svc.getAppErr = errors.New("database unavailable")
+
+	if _, _, _, err := newApplierGit(svc, newFakeGitForProject(), st).Ensure(ctx, "org-test", wid); err == nil ||
+		!strings.Contains(err.Error(), "get project default agent app app-explicit") {
+		t.Fatalf("Ensure error = %v", err)
+	}
+	bot, err = st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bot.AgentID != "app-current" {
+		t.Fatalf("bot app changed to %q", bot.AgentID)
+	}
+	state, err := LoadState(ctx, st, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.AgentID != "app-runtime" {
+		t.Fatalf("runtime app changed to %q", state.AgentID)
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.updateProjectCalls != 0 {
+		t.Fatalf("project updated %d times", svc.updateProjectCalls)
+	}
+	if svc.getProjectResp.DefaultHelixAppID != "app-explicit" {
+		t.Fatalf("project default changed to %q", svc.getProjectResp.DefaultHelixAppID)
+	}
+}
+
+func TestEnsureFastPathRepairsStaleRuntimeAgentApp(t *testing.T) {
+	st, wid := newProjectTestStore(t, "# Role")
+	ctx := context.Background()
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-canonical")); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
+		t.Fatal(err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{
+		ID: "prj_existing", OrganizationID: "org-test",
+		DefaultHelixAppID: "app-canonical", DefaultRepoID: "repo_existing",
+	}
+
+	if _, _, _, err := newApplierGit(svc, newFakeGitForProject(), st).Ensure(ctx, "org-test", wid); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	state, err := LoadState(ctx, st, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.AgentID != "app-canonical" {
+		t.Fatalf("runtime app = %q, want app-canonical", state.AgentID)
+	}
+}
+
 // TestEnsureFastPathPropagatesRoleEdits pins live-edit propagation: a
 // role.Content mutation made directly in the store (bypassing the
 // update_role MCP tool's MirrorFile push) must reach the helix-specs
@@ -675,12 +852,12 @@ func TestEnsureFastPathPropagatesRoleEdits(t *testing.T) {
 	// that bypasses update_role/MirrorFile (direct DB edit,
 	// RoleReconciler reseed, restore-from-backup, …). The DB is the
 	// source of truth; the branch must reflect it on next activation.
-	existing, err := st.Bots.Get(ctx, "org-test", "w-eng")
+	existing, err := st.Nodes.Get(ctx, "org-test", "w-eng")
 	if err != nil {
 		t.Fatalf("get bot: %v", err)
 	}
 	existing = existing.WithContent("# Role v2").WithUpdatedAt(time.Now().UTC())
-	if err := st.Bots.Update(ctx, existing); err != nil {
+	if err := st.Nodes.Update(ctx, existing); err != nil {
 		t.Fatalf("update bot: %v", err)
 	}
 

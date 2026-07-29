@@ -35,7 +35,7 @@ type storeWrapper struct{ Store store.Store }
 // SaveSession path because tests don't need the full apply flow —
 // they just need the project_id key in WorkerRuntimeState so
 // ProjectConfig's worker→project lookup succeeds.
-func saveAllPointers(t *testing.T, st *store.Store, orgID string, workerID orgchart.BotID, projectID, agentAppID, repoID, sessionID string) {
+func saveAllPointers(t *testing.T, st *store.Store, orgID string, workerID orgchart.NodeID, projectID, agentAppID, repoID, sessionID string) {
 	t.Helper()
 	if err := SaveProject(context.Background(), st, orgID, workerID, projectID, agentAppID, repoID); err != nil {
 		t.Fatalf("SaveProject: %v", err)
@@ -65,7 +65,7 @@ func TestNewProjectConfig_RejectsNilDeps(t *testing.T) {
 func TestGetWorkerProjectConfig_RoundTrips(t *testing.T) {
 	t.Parallel()
 	wrap := newOrgTestStoreForProjectConfig(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_01abc", "app_x", "repo_y", "ses_z")
 
 	svc := newFakeProjectService()
@@ -100,7 +100,7 @@ func TestGetWorkerProjectConfig_NoProjectIDReturnsUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProjectConfig: %v", err)
 	}
-	_, err = pc.GetWorkerProjectConfig(context.Background(), "org-test", orgchart.BotID("w-noproject"))
+	_, err = pc.GetWorkerProjectConfig(context.Background(), "org-test", orgchart.NodeID("w-noproject"))
 	if !errors.Is(err, runtime.ErrProjectConfigUnsupported) {
 		t.Errorf("err = %v, want ErrProjectConfigUnsupported", err)
 	}
@@ -114,7 +114,7 @@ func TestGetWorkerProjectConfig_NoProjectIDReturnsUnsupported(t *testing.T) {
 func TestListWorkerProjectSecrets_ResolvesOwnProject(t *testing.T) {
 	t.Parallel()
 	wrap := newOrgTestStoreForProjectConfig(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_01abc", "app_x", "repo_y", "ses_z")
 
 	svc := newFakeProjectService()
@@ -146,7 +146,7 @@ func TestListWorkerProjectSecrets_NoProjectIDReturnsUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProjectConfig: %v", err)
 	}
-	_, err = pc.ListWorkerProjectSecrets(context.Background(), "org-test", orgchart.BotID("w-noproject"))
+	_, err = pc.ListWorkerProjectSecrets(context.Background(), "org-test", orgchart.NodeID("w-noproject"))
 	if !errors.Is(err, runtime.ErrProjectConfigUnsupported) {
 		t.Errorf("err = %v, want ErrProjectConfigUnsupported", err)
 	}
@@ -159,7 +159,7 @@ func TestListWorkerProjectSecrets_NoProjectIDReturnsUnsupported(t *testing.T) {
 func TestUpdateWorkerProjectConfig_PatchFlowsToHelix(t *testing.T) {
 	t.Parallel()
 	wrap := newOrgTestStoreForProjectConfig(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_01abc", "app_x", "repo_y", "ses_z")
 
 	svc := newFakeProjectService()
@@ -194,7 +194,7 @@ func TestUpdateWorkerProjectConfig_PatchFlowsToHelix(t *testing.T) {
 func TestUpdateWorkerProjectConfig_NilPatchFieldsLeaveAloneInHelix(t *testing.T) {
 	t.Parallel()
 	wrap := newOrgTestStoreForProjectConfig(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_01abc", "app_x", "repo_y", "ses_z")
 
 	svc := newFakeProjectService()

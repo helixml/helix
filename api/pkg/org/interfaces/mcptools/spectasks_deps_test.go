@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	orgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 )
@@ -17,11 +17,11 @@ import (
 // org-membership check (DefaultDeps wires the Queries verifier).
 func seedMemberBot(t *testing.T, s *orgstore.Store, orgID, botID string) {
 	t.Helper()
-	bot, err := orgchart.NewBot(botID, "# bot", nil, time.Now().UTC(), orgID)
+	bot, err := orgchart.NewNode(botID, "# bot", nil, time.Now().UTC(), orgID)
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}
-	if err := s.Bots.Create(context.Background(), bot); err != nil {
+	if err := s.Nodes.Create(context.Background(), bot); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 }

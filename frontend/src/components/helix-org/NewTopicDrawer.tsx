@@ -248,7 +248,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
     <HelixOrgSideDrawer open={open} onClose={resetAndClose} title="New topic" width={480}>
       <Stack spacing={2}>
         <Typography variant="body2" color="text.secondary">
-          Topics are named message buses. Bots subscribe on the chart; transports
+          Topics are named message buses. Agents subscribe on the chart; transports
           (local, webhook, GitHub, …) bring events in.
         </Typography>
         <TextField

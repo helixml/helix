@@ -1,12 +1,22 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
+	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	orgbots "github.com/helixml/helix/api/pkg/org/application/nodes"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	orgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -15,48 +25,160 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// markHelixOrgAgents must be a no-op on a non-Postgres store: no app is
-// flagged and the database is never touched (the mock store does not
-// implement GormDB, so it can't be an org-chart backend). The positive path
-// (flagging an app that backs an org-chart Bot) requires a live Postgres
-// org_bot_runtime_state table and is verified end-to-end, not here.
-func Test_markHelixOrgAgents_NoGormStore_NoOp(t *testing.T) {
+type failingAgentCreator struct{}
+
+func (failingAgentCreator) CreateAgent(context.Context, string, string, string) (string, error) {
+	return "", fmt.Errorf("reconcile failed")
+}
+
+type failingNodes struct {
+	orgstore.Nodes
+}
+
+func (failingNodes) List(context.Context, string) ([]orgchart.Node, error) {
+	return nil, fmt.Errorf("list failed")
+}
+
+func TestUpdateAppRejectsInvalidLinkedOrgAgentShape(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+
+	bot, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), bot.WithAgentID("app-linked")))
+
+	existing := &types.App{
+		ID:             "app-linked",
+		Owner:          "user-test",
+		OrganizationID: "org-test",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: []types.AssistantConfig{{Name: "Linked"}},
+		}},
+	}
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID:         existing.Owner,
+		OrganizationID: existing.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store: orgStore,
+		},
+	}
+	body, err := json.Marshal(types.App{
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: nil,
+		}},
+	})
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/apps/"+existing.ID, bytes.NewReader(body))
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
+
+	updated, httpErr := server.updateAgent(nil, req)
+
+	require.Nil(t, updated)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusBadRequest, httpErr.StatusCode)
+	require.Contains(t, httpErr.Message, "exactly one assistant")
+}
+
+func TestUpdateAppRejectsMismatchedBodyID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	server := &HelixAPIServer{Store: store.NewMockStore(ctrl)}
+	body, err := json.Marshal(types.App{ID: "app-body"})
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/apps/app-path", bytes.NewReader(body))
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": "app-path"})
+
+	updated, httpErr := server.updateAgent(nil, req)
+
+	require.Nil(t, updated)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusBadRequest, httpErr.StatusCode)
+	require.Contains(t, httpErr.Message, "does not match URL")
+}
+
+func Test_markHelixOrgAgents_UsesNodesRepository(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	orgStore := orgmemory.New()
+	node, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org_1")
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), node.WithAgentID("app_1")))
 
 	server := &HelixAPIServer{
 		Store: store.NewMockStore(ctrl),
 		Cfg:   &config.ServerConfig{},
+		helixOrg: &helixOrgHandlers{
+			store: orgStore,
+		},
 	}
 
-	apps := []*types.App{
-		{ID: "app_1"},
-		{ID: "app_2"},
-	}
+	apps := []*types.App{{ID: "app_1"}, {ID: "app_2"}}
 
 	httpErr := server.markHelixOrgAgents(context.Background(), "org_1", apps)
 	require.Nil(t, httpErr)
-	for _, app := range apps {
-		assert.False(t, app.IsHelixOrgAgent, "app %s should not be flagged when feature is off", app.ID)
-	}
+	assert.True(t, apps[0].IsHelixOrgAgent)
+	assert.False(t, apps[1].IsHelixOrgAgent)
 }
 
-// With an empty org id there are no org-chart Workers to consider, so it
-// stays a no-op and never queries the database.
-func Test_markHelixOrgAgents_NoOrg_NoOp(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
+func Test_markHelixOrgAgents_ReportsRepositoryFailure(t *testing.T) {
 	server := &HelixAPIServer{
-		Store: store.NewMockStore(ctrl),
-		Cfg:   &config.ServerConfig{},
+		helixOrg: &helixOrgHandlers{
+			store: &orgstore.Store{Nodes: failingNodes{}},
+		},
 	}
 
-	apps := []*types.App{{ID: "app_1"}}
+	httpErr := server.markHelixOrgAgents(context.Background(), "org_1", []*types.App{{ID: "app_1"}})
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusInternalServerError, httpErr.StatusCode)
+	require.Contains(t, httpErr.Message, "list failed")
+}
 
-	httpErr := server.markHelixOrgAgents(context.Background(), "", apps)
+func TestListOrganizationAppsDoesNotReconcileAgentLinks(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	ctx := context.Background()
+
+	bot, err := orgchart.NewNode("b-legacy", "Legacy instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Nodes.Create(ctx, bot))
+
+	user := &types.User{ID: "user-owner"}
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID: user.ID, OrganizationID: "org-test", Role: types.OrganizationRoleOwner,
+	}, nil)
+	helixStore.EXPECT().ListApps(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, *store.ListAppsQuery) ([]*types.App, error) {
+			linked, err := orgStore.Nodes.Get(ctx, "org-test", bot.ID)
+			require.NoError(t, err)
+			require.Empty(t, linked.AgentID)
+			return []*types.App{{ID: "app-existing", OrganizationID: "org-test"}}, nil
+		},
+	)
+
+	botService := orgbots.New(orgbots.Deps{Nodes: orgStore.Nodes})
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store: orgStore,
+			lifecycle: &lifecycle.Service{
+				Store: orgStore, Nodes: botService, Agents: failingAgentCreator{},
+			},
+		},
+	}
+
+	apps, httpErr := server.listOrganizationApps(ctx, user, "org-test")
 	require.Nil(t, httpErr)
-	assert.False(t, apps[0].IsHelixOrgAgent)
+	require.Len(t, apps, 1)
+	require.Equal(t, "app-existing", apps[0].ID)
 }
 
 func Test_populateAppOwner_PopulateUser(t *testing.T) {
@@ -177,7 +299,7 @@ func Test_handleDuplicateAppNames(t *testing.T) {
 	require.Equal(t, "", app3.Config.Helix.Name)
 }
 
-// Helper function to handle duplicate names (extracted from createApp handler)
+// Helper function to handle duplicate names (extracted from createAgent handler)
 func handleDuplicateAppNames(app *types.App, existingApps []*types.App) {
 	// Handle duplicate names by adding suffixes like (1), (2), etc.
 	if app.Config.Helix.Name != "" {

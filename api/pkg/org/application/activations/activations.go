@@ -21,21 +21,21 @@ import (
 // the response carries the project / agent-app ids and the helix-org MCP
 // is (re)attached before the session starts.
 type ProjectEnsurer interface {
-	Ensure(ctx context.Context, orgID string, workerID orgchart.BotID) (projectID, agentAppID, repoID string, err error)
+	Ensure(ctx context.Context, orgID string, workerID orgchart.NodeID) (projectID, agentAppID, repoID string, err error)
 }
 
 // ManualDispatcher enqueues an operator-driven activation on the
 // per-Worker queue. activationID is the pre-allocated audit-row id;
 // empty means the Spawner mints its own.
 type ManualDispatcher interface {
-	DispatchManual(ctx context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID)
+	DispatchManual(ctx context.Context, orgID string, workerID orgchart.NodeID, activationID activation.ID)
 }
 
 // SessionResolver returns a Worker's current desktop session id (empty
 // before the first activation). Used to populate the Activate response
 // and to resolve the target of Stop / Restart.
 type SessionResolver interface {
-	SessionID(ctx context.Context, orgID string, workerID orgchart.BotID) (string, error)
+	SessionID(ctx context.Context, orgID string, workerID orgchart.NodeID) (string, error)
 }
 
 // DesktopStopper stops a bot's desktop container without deleting the
@@ -48,7 +48,7 @@ type DesktopStopper interface {
 // → delete session row → clear the persisted pointer) so Restart's
 // follow-up Activate provisions a brand-new session.
 type SessionResetter interface {
-	ResetSession(ctx context.Context, orgID string, workerID orgchart.BotID, sessionID string) error
+	ResetSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionID string) error
 }
 
 // ErrActivateUnavailable is returned by Activate when the project
@@ -114,7 +114,7 @@ func New(deps Deps) *Activations {
 type ActivateResult struct {
 	ActivationID activation.ID
 	ProjectID    string
-	AgentAppID   string
+	AgentID      string
 	SessionID    string
 }
 
@@ -133,7 +133,7 @@ type ActivateResult struct {
 // Callers should still confirm the Worker exists (404) before calling —
 // Activate's Ensure will also error on a missing Worker, but a pre-check
 // gives the cleaner status.
-func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgchart.BotID) (ActivateResult, error) {
+func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgchart.NodeID) (ActivateResult, error) {
 	if a.ensurer == nil || a.dispatcher == nil {
 		return ActivateResult{}, ErrActivateUnavailable
 	}
@@ -156,7 +156,7 @@ func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgch
 	return ActivateResult{
 		ActivationID: activationID,
 		ProjectID:    projectID,
-		AgentAppID:   agentAppID,
+		AgentID:      agentAppID,
 		SessionID:    sessionID,
 	}, nil
 }
@@ -172,7 +172,7 @@ type StopResult struct {
 
 // Stop stops the bot's desktop sandbox without deleting the session
 // (transcript stays). No-op when there is no session.
-func (a *Activations) Stop(ctx context.Context, orgID string, workerID orgchart.BotID) (StopResult, error) {
+func (a *Activations) Stop(ctx context.Context, orgID string, workerID orgchart.NodeID) (StopResult, error) {
 	if a.stopper == nil {
 		return StopResult{}, ErrStopUnavailable
 	}
@@ -196,7 +196,7 @@ func (a *Activations) Stop(ctx context.Context, orgID string, workerID orgchart.
 // then Activates, so the bot gets a brand-new session, desktop and
 // thread with its current tools / MCP services. If the bot has never
 // activated, the reset is skipped and Activate alone handles first start.
-func (a *Activations) Restart(ctx context.Context, orgID string, workerID orgchart.BotID) (ActivateResult, error) {
+func (a *Activations) Restart(ctx context.Context, orgID string, workerID orgchart.NodeID) (ActivateResult, error) {
 	if err := orgchart.ValidID(string(workerID)); err != nil {
 		return ActivateResult{}, fmt.Errorf("worker id: %w", err)
 	}
@@ -217,7 +217,7 @@ func (a *Activations) Restart(ctx context.Context, orgID string, workerID orgcha
 // when the repository or id-generator is unwired — Activate then treats
 // that as "no pre-allocation; the Spawner mints its own", matching the
 // previous inline behaviour.
-func (a *Activations) prepareManual(ctx context.Context, orgID string, workerID orgchart.BotID) (activation.ID, error) {
+func (a *Activations) prepareManual(ctx context.Context, orgID string, workerID orgchart.NodeID) (activation.ID, error) {
 	if a.repo == nil || a.newID == nil {
 		return "", nil
 	}

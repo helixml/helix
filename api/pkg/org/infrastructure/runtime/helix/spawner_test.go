@@ -142,12 +142,12 @@ func (f *fakeHelixClient) ServerStatus(_ context.Context) (ServerStatus, error) 
 	return ServerStatus{MaxConcurrentDesktops: 0, ActiveConcurrentDesktops: 0}, nil
 }
 
-func newHelixTestStore(t *testing.T) (*store.Store, orgchart.BotID) {
+func newHelixTestStore(t *testing.T) (*store.Store, orgchart.NodeID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	bot, _ := orgchart.NewBot("w-eng", "# Role: Engineer", nil, time.Now().UTC(), "org-test")
-	if err := s.Bots.Create(ctx, bot); err != nil {
+	bot, _ := orgchart.NewNode("w-eng", "# Role: Engineer", nil, time.Now().UTC(), "org-test")
+	if err := s.Nodes.Create(ctx, bot); err != nil {
 		t.Fatalf("bot: %v", err)
 	}
 	return s, bot.ID
@@ -205,8 +205,8 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	}
 	// The Worker should have its per-project IDs persisted from the
 	// fake's ApplyProject response.
-	if state.ProjectID != "prj_test" || state.AgentAppID != "app_test" {
-		t.Errorf("project IDs not persisted: project=%q agent_app=%q", state.ProjectID, state.AgentAppID)
+	if state.ProjectID != "prj_test" || state.AgentID != "app_test" {
+		t.Errorf("project IDs not persisted: project=%q agent_app=%q", state.ProjectID, state.AgentID)
 	}
 	// StartSession must point at the per-Worker project, not at any
 	// global one.
@@ -250,11 +250,11 @@ func TestSpawnerEmbedsFreshBotContentByDefault(t *testing.T) {
 	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn 1: %v", err)
 	}
-	bot, err := s.Bots.Get(context.Background(), "org-test", wid)
+	bot, err := s.Nodes.Get(context.Background(), "org-test", wid)
 	if err != nil {
 		t.Fatalf("get bot: %v", err)
 	}
-	if err := s.Bots.Update(context.Background(), bot.WithContent("# Role: Principal Engineer")); err != nil {
+	if err := s.Nodes.Update(context.Background(), bot.WithContent("# Role: Principal Engineer")); err != nil {
 		t.Fatalf("update bot: %v", err)
 	}
 	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-role"}}); err != nil {
@@ -270,6 +270,39 @@ func TestSpawnerEmbedsFreshBotContentByDefault(t *testing.T) {
 		if strings.Contains(followUp, staleBootstrap) {
 			t.Errorf("follow-up prompt contains stale bootstrap %q: %q", staleBootstrap, followUp)
 		}
+	}
+}
+
+func TestSpawnerUsesLinkedAgentInstructions(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	bot, err := s.Nodes.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Nodes.Update(context.Background(), bot.WithAgentID("app_test")); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.ProjectService.(*fakeProjectService).appConfig = types.AppConfig{Helix: types.AppHelixConfig{
+		Name: "Engineer",
+		Assistants: []types.AssistantConfig{{
+			Name:         "Engineer",
+			SystemPrompt: "# Canonical agent instructions",
+		}},
+	}}
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if !strings.Contains(fc.lastStartParams.Prompt, "=== Current role ===\n# Canonical agent instructions") {
+		t.Fatalf("prompt did not use linked Agent instructions: %q", fc.lastStartParams.Prompt)
+	}
+	if strings.Contains(fc.lastStartParams.Prompt, "# Role: Engineer") {
+		t.Fatalf("prompt used legacy Bot.Content: %q", fc.lastStartParams.Prompt)
 	}
 }
 
@@ -289,12 +322,12 @@ func TestSpawnerReadsBotAfterProjectEnsure(t *testing.T) {
 		result <- Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	}()
 	<-project.applyStarted
-	bot, err := s.Bots.Get(context.Background(), "org-test", wid)
+	bot, err := s.Nodes.Get(context.Background(), "org-test", wid)
 	if err != nil {
 		close(project.applyContinue)
 		t.Fatalf("get bot: %v", err)
 	}
-	if err := s.Bots.Update(context.Background(), bot.WithContent("# Role: Updated During Ensure")); err != nil {
+	if err := s.Nodes.Update(context.Background(), bot.WithContent("# Role: Updated During Ensure")); err != nil {
 		close(project.applyContinue)
 		t.Fatalf("update bot: %v", err)
 	}
@@ -443,11 +476,11 @@ func TestSpawnerPreservesContextWhenBotOptsIn(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
 	// Flip the bot to preserve context across triggers.
-	bot, err := s.Bots.Get(context.Background(), "org-test", wid)
+	bot, err := s.Nodes.Get(context.Background(), "org-test", wid)
 	if err != nil {
 		t.Fatalf("get bot: %v", err)
 	}
-	if err := s.Bots.Update(context.Background(), bot.WithPreserveContext(true)); err != nil {
+	if err := s.Nodes.Update(context.Background(), bot.WithPreserveContext(true)); err != nil {
 		t.Fatalf("update bot: %v", err)
 	}
 	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {

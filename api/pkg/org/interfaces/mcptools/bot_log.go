@@ -45,7 +45,7 @@ func (t *BotLog) Description() string {
 }
 
 type botLogArgs struct {
-	BotID        string `json:"botId"`
+	NodeID       string `json:"botId"`
 	Limit        int    `json:"limit,omitempty"`
 	Since        string `json:"since,omitempty"`
 	Wait         int    `json:"wait,omitempty"`
@@ -83,7 +83,7 @@ func (t *BotLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return nil, fmt.Errorf("botId is required")
 	}
 
@@ -91,7 +91,7 @@ func (t *BotLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 	if orgID == "" {
 		return nil, fmt.Errorf("bot_log: caller has no OrgID")
 	}
-	target := orgchart.BotID(args.BotID)
+	target := orgchart.NodeID(args.NodeID)
 	if _, err := t.deps.Queries.GetBot(ctx, orgID, target); err != nil {
 		return nil, fmt.Errorf("bot %q: %w", target, err)
 	}

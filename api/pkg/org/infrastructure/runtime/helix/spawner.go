@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/transcript"
@@ -25,7 +26,7 @@ import (
 //
 // In the per-Worker-project model, the spawner does not hold a
 // ProjectID of its own — every AI Worker gets its own Helix project,
-// applied at hire time and persisted in the BotRuntimeState
+// applied at hire time and persisted in the NodeRuntimeState
 // sidecar under the "helix" backend.
 // DefaultMaxInflight bounds concurrent activations when a SpawnerConfig
 // doesn't set MaxInflight. The host also uses it to size the shared
@@ -160,7 +161,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	if sem == nil {
 		sem = make(chan struct{}, cfg.MaxInflight)
 	}
-	return func(ctx context.Context, orgID string, workerID orgchart.BotID, triggers []activation.Trigger) (retErr error) {
+	return func(ctx context.Context, orgID string, workerID orgchart.NodeID, triggers []activation.Trigger) (retErr error) {
 		if len(triggers) == 0 {
 			return errors.New("spawner invoked with no triggers")
 		}
@@ -284,13 +285,27 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			cfg.Mirror.Ensure(orgID, workerID)
 		}
 
-		bot, err := cfg.Store.Bots.Get(startupCtx, orgID, workerID)
+		bot, err := cfg.Store.Nodes.Get(startupCtx, orgID, workerID)
 		if err != nil {
 			return fmt.Errorf("load bot %s for activation: %w", workerID, err)
 		}
 		mandate := cfg.SpecsMandate
 		if mandate == "" {
-			mandate = "=== Current role ===\n" + bot.Content
+			instructions := bot.Content
+			if bot.AgentID != "" {
+				if cfg.ProjectService == nil {
+					return errors.New("load canonical agent instructions: project service is nil")
+				}
+				appConfig, err := cfg.ProjectService.GetAppConfig(startupCtx, bot.AgentID)
+				if err != nil {
+					return fmt.Errorf("load canonical agent instructions: %w", err)
+				}
+				if len(appConfig.Helix.Assistants) != 1 {
+					return fmt.Errorf("linked agent %s must contain exactly one assistant", bot.AgentID)
+				}
+				instructions = appConfig.Helix.Assistants[0].SystemPrompt
+			}
+			mandate = "=== Current role ===\n" + instructions
 		}
 		prompt := briefing.BuildPrompt(workerID, mandate, triggers)
 		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, prompt, bot.PreserveContext, publish)
@@ -326,7 +341,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 // caller (Spawner) skips Create — the row already exists in the
 // store. The Complete path still runs at end-of-activation to set
 // EndedAt/Outcome on the pre-existing row.
-func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.BotID, triggers []activation.Trigger) *activation.Activation {
+func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.NodeID, triggers []activation.Trigger) *activation.Activation {
 	if cfg.NewID == nil || cfg.Now == nil || cfg.Store == nil || cfg.Store.Activations == nil {
 		return nil
 	}
@@ -347,7 +362,7 @@ func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.BotI
 // ensureProject is a thin wrapper around WorkerProject
 // so the activation flow reads naturally. The Service / Git fields
 // must be wired by the embedding host (api/pkg/server/helix_org.go).
-func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID orgchart.BotID) error {
+func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID orgchart.NodeID) error {
 	a := &WorkerProject{
 		Service:        c.ProjectService,
 		Workspace:      c.Workspace,
@@ -377,7 +392,7 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID
 // the agent app already exists, blowing away whatever MCPs were
 // attached on the previous activation. Re-attaching after Ensure
 // returns keeps the MCP present.
-func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, workerID orgchart.BotID) {
+func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, workerID orgchart.NodeID) {
 	if c.ProjectService == nil || c.HelixOrgURL == "" {
 		return
 	}
@@ -388,12 +403,17 @@ func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, work
 		}
 		return
 	}
-	if state.AgentAppID == "" {
+	if state.AgentID == "" {
 		return
 	}
-	if err := AttachHelixOrgMCP(ctx, c.ProjectService, state.AgentAppID, c.HelixOrgURL, workerID, c.MCPAuthBearer); err != nil && c.Logger != nil {
-		c.Logger.Warn("helix spawner: attach helix-org MCP", "worker", workerID, "app", state.AgentAppID, "err", err)
+	if err := AttachHelixOrgMCP(ctx, c.ProjectService, state.AgentID, c.HelixOrgURL, workerID, c.MCPAuthBearer); err != nil && c.Logger != nil {
+		c.Logger.Warn("helix spawner: attach helix-org MCP", "worker", workerID, "agent", state.AgentID, "err", sanitizeLogValue(err.Error()))
 	}
+}
+
+func sanitizeLogValue(value string) string {
+	value = strings.ReplaceAll(value, "\n", "")
+	return strings.ReplaceAll(value, "\r", "")
 }
 
 // ensureSession dispatches the activation prompt to the Worker's
@@ -419,7 +439,7 @@ func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, work
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.BotID, prompt string, preserveContext bool, _ func(string)) (string, string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, prompt string, preserveContext bool, _ func(string)) (string, string, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return "", "", err
@@ -497,7 +517,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 		// gets a 403 loading the worker's chat. The owner-chat bridge path
 		// sets this via EnsureAndSend too; the activation path must match.
 		OrganizationID: orgID,
-		AppID:          state.AgentAppID,
+		AppID:          state.AgentID,
 		AgentType:      AgentType,
 		Prompt:         prompt,
 	})
@@ -640,7 +660,7 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 // shared transcript.Recorder so the helix spawner's call sites stay
 // terse. The owner-chat bridge records through the same recorder — both
 // paths produce identical event shapes on s-transcript-<workerID>.
-func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.BotID, _ streaming.TopicID, body string) {
+func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.NodeID, _ streaming.TopicID, body string) {
 	_, _ = newTranscriptRecorder(cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger).Record(ctx, orgID, workerID, body)
 }
 

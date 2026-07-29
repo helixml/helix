@@ -176,6 +176,27 @@ impl Drop for CUDAContext {
     }
 }
 
+impl CUDAContext {
+    /// Releases the GstCudaStream this wrapper created, but leaves the
+    /// GstCudaContext pointer alone.
+    ///
+    /// `new_from_gstreamer` unconditionally creates a stream, even when
+    /// `gst_cuda_ensure_element_context` did not hand back a new reference —
+    /// which is what happens when the context arrives re-entrantly through
+    /// `set_context` while the ensure call is still running. In that case the
+    /// context pointer is owned by somebody else and must not be unreffed here,
+    /// but the stream is ours: it holds a reference on the context, so simply
+    /// forgetting the whole wrapper pins the context (and its CUDA memory and
+    /// /dev/nvidia0 fds) for the life of the process.
+    pub fn release_stream_only(mut self) {
+        // StreamHandle::drop calls gst_cuda_stream_unref, which drops the
+        // stream's reference on the context.
+        drop(self.stream.take());
+        // Deliberately skip Drop for the context pointer: we never owned it.
+        std::mem::forget(self);
+    }
+}
+
 #[derive(Debug)]
 pub struct StreamHandle {
     stream: ffi::GstCudaStreamHandle,

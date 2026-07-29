@@ -583,14 +583,36 @@ const routes: IApplicationRoute[] = [
   render: () => <HelixOrgChart />,
 }, {
   name: 'helix_org_bots',
-  path: '/orgs/:org_id/helix-org/bots',
-  meta: { drawer: false, title: 'Helix Org · Bots' },
+  path: '/orgs/:org_id/helix-org/agents',
+  meta: { drawer: false, title: 'Helix Org · Agents' },
   render: () => <HelixOrgBots />,
 }, {
   name: 'helix_org_bot_detail',
-  path: '/orgs/:org_id/helix-org/bots/:bot_id',
-  meta: { drawer: false, title: 'Helix Org · Bot' },
+  path: '/orgs/:org_id/helix-org/agents/:bot_id',
+  meta: { drawer: false, title: 'Helix Org · Agent' },
   render: () => <HelixOrgBotDetail />,
+}, {
+  name: 'helix_org_bots_legacy',
+  path: '/orgs/:org_id/helix-org/bots',
+  meta: { drawer: false, title: 'Helix Org · Agents' },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('helix_org_bots', { org_id: params.org_id })
+    }, [params.org_id])
+    return null
+  },
+}, {
+  name: 'helix_org_bot_detail_legacy',
+  path: '/orgs/:org_id/helix-org/bots/:bot_id',
+  meta: { drawer: false, title: 'Helix Org · Agent' },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('helix_org_bot_detail', { org_id: params.org_id, bot_id: params.bot_id })
+    }, [params.org_id, params.bot_id])
+    return null
+  },
 }, {
   name: 'helix_org_human_detail',
   path: '/orgs/:org_id/helix-org/humans/:bot_id',

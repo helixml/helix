@@ -20,7 +20,7 @@ import (
 // A nil Spawn turns Enqueue into a no-op — useful for tests / event-
 // side wirings that exercise transport fan-out without running real
 // activations.
-type Spawn func(ctx context.Context, orgID string, workerID orgchart.BotID, triggers []Trigger) error
+type Spawn func(ctx context.Context, orgID string, workerID orgchart.NodeID, triggers []Trigger) error
 
 // Queue holds the per-Worker pending-trigger lists and the lifecycle
 // state that drains arrivals one at a time into Spawn calls. The
@@ -60,7 +60,7 @@ type Queue struct {
 // composite key keeps each tenant's lane separate.
 type laneKey struct {
 	orgID    string
-	workerID orgchart.BotID
+	workerID orgchart.NodeID
 }
 
 // NewQueue returns a Queue that calls spawn once per trigger. spawn
@@ -89,7 +89,7 @@ type workerLane struct {
 // runner goroutine if one isn't already draining the lane. Returns
 // immediately. The runner uses context.Background internally so it
 // outlives the HTTP request that triggered Enqueue.
-func (q *Queue) Enqueue(orgID string, workerID orgchart.BotID, trigger Trigger) {
+func (q *Queue) Enqueue(orgID string, workerID orgchart.NodeID, trigger Trigger) {
 	if q.spawn == nil {
 		return
 	}
@@ -113,7 +113,7 @@ func (q *Queue) Enqueue(orgID string, workerID orgchart.BotID, trigger Trigger) 
 // more than one trigger's worth of context. Exits when an iteration
 // finds the lane empty under the lock — at which point any later
 // Enqueue will see running == false and start a fresh runner.
-func (q *Queue) run(workerID orgchart.BotID, lane *workerLane) {
+func (q *Queue) run(workerID orgchart.NodeID, lane *workerLane) {
 	for {
 		lane.mu.Lock()
 		if len(lane.pending) == 0 {
@@ -133,7 +133,7 @@ func (q *Queue) run(workerID orgchart.BotID, lane *workerLane) {
 // activate is one synchronous spawn call. The runner serialises
 // these per-Worker so spawn is never invoked concurrently for the
 // same Worker.
-func (q *Queue) activate(ctx context.Context, orgID string, workerID orgchart.BotID, batch []Trigger) {
+func (q *Queue) activate(ctx context.Context, orgID string, workerID orgchart.NodeID, batch []Trigger) {
 	q.logger.Info("activation.start",
 		"worker", workerID,
 		"trigger", batch[0].Kind,
@@ -157,7 +157,7 @@ func (q *Queue) activate(ctx context.Context, orgID string, workerID orgchart.Bo
 	)
 }
 
-func (q *Queue) laneFor(orgID string, workerID orgchart.BotID) *workerLane {
+func (q *Queue) laneFor(orgID string, workerID orgchart.NodeID) *workerLane {
 	got, _ := q.lanes.LoadOrStore(laneKey{orgID: orgID, workerID: workerID}, &workerLane{})
 	return got.(*workerLane)
 }

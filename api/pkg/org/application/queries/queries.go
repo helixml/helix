@@ -24,7 +24,7 @@ import (
 // Queries reads the org graph. Constructed once at the composition root
 // from the narrow read repositories.
 type Queries struct {
-	bots        store.Bots
+	bots        store.Nodes
 	lines       store.ReportingLines
 	topics      store.Topics
 	subs        store.Subscriptions
@@ -37,7 +37,7 @@ type Queries struct {
 // returns an error from the nil repo (callers already tolerate read
 // failures by degrading the projection).
 type Deps struct {
-	Bots           store.Bots
+	Nodes          store.Nodes
 	ReportingLines store.ReportingLines
 	Topics         store.Topics
 	Subscriptions  store.Subscriptions
@@ -48,7 +48,7 @@ type Deps struct {
 // New constructs the read facade.
 func New(deps Deps) *Queries {
 	return &Queries{
-		bots:        deps.Bots,
+		bots:        deps.Nodes,
 		lines:       deps.ReportingLines,
 		topics:      deps.Topics,
 		subs:        deps.Subscriptions,
@@ -57,11 +57,11 @@ func New(deps Deps) *Queries {
 	}
 }
 
-func (q *Queries) ListBots(ctx context.Context, orgID string) ([]orgchart.Bot, error) {
+func (q *Queries) ListBots(ctx context.Context, orgID string) ([]orgchart.Node, error) {
 	return q.bots.List(ctx, orgID)
 }
 
-func (q *Queries) GetBot(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Bot, error) {
+func (q *Queries) GetBot(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error) {
 	return q.bots.Get(ctx, orgID, id)
 }
 
@@ -73,7 +73,7 @@ func (q *Queries) ListReportingLines(ctx context.Context, orgID string) ([]orgch
 	return q.lines.List(ctx, orgID)
 }
 
-func (q *Queries) ListManagers(ctx context.Context, orgID string, reportID orgchart.BotID) ([]orgchart.BotID, error) {
+func (q *Queries) ListManagers(ctx context.Context, orgID string, reportID orgchart.NodeID) ([]orgchart.NodeID, error) {
 	return q.lines.ListManagers(ctx, orgID, reportID)
 }
 
@@ -89,7 +89,7 @@ func (q *Queries) TopicSubscribers(ctx context.Context, orgID string, topicID st
 	return q.subs.ListForTopic(ctx, orgID, topicID)
 }
 
-func (q *Queries) BotSubscriptions(ctx context.Context, orgID string, botID orgchart.BotID) ([]streaming.Subscription, error) {
+func (q *Queries) BotSubscriptions(ctx context.Context, orgID string, botID orgchart.NodeID) ([]streaming.Subscription, error) {
 	return q.subs.ListForBot(ctx, orgID, botID)
 }
 
@@ -113,18 +113,18 @@ func (q *Queries) CountTopicEvents(ctx context.Context, orgID string, topicID st
 	return q.events.CountForTopic(ctx, orgID, topicID)
 }
 
-func (q *Queries) BotEvents(ctx context.Context, orgID string, botID orgchart.BotID, limit int) ([]streaming.Event, error) {
+func (q *Queries) BotEvents(ctx context.Context, orgID string, botID orgchart.NodeID, limit int) ([]streaming.Event, error) {
 	return q.events.ListForBot(ctx, orgID, botID, limit)
 }
 
 // ListReports returns the direct reports of the given manager.
-func (q *Queries) ListReports(ctx context.Context, orgID string, managerID orgchart.BotID) ([]orgchart.BotID, error) {
+func (q *Queries) ListReports(ctx context.Context, orgID string, managerID orgchart.NodeID) ([]orgchart.NodeID, error) {
 	return q.lines.ListReports(ctx, orgID, managerID)
 }
 
 // FindSubscription returns the (bot, topic) subscription row, or
 // store.ErrNotFound (wrapped) when the bot is not subscribed.
-func (q *Queries) FindSubscription(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) (streaming.Subscription, error) {
+func (q *Queries) FindSubscription(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) (streaming.Subscription, error) {
 	return q.subs.Find(ctx, orgID, botID, topicID)
 }
 

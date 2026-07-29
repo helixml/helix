@@ -1114,6 +1114,1465 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/agents": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List agents for the user. Agents are pre-configured to spawn sessions with specific tools and config.",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "List agents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Agent"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with agent configuration. Can be legacy Agent format or structured format with organization_id, global, and yaml_config fields.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Agent"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AgentCreateResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{agent_id}/evaluation-runs/{run_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get evaluation run details",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Get an evaluation run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Run ID",
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationRun"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete an evaluation run",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Delete an evaluation run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Run ID",
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{agent_id}/evaluation-suites": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all evaluation suites for an agent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "List evaluation suites for an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.EvaluationSuite"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new evaluation suite for an agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Create an evaluation suite",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Evaluation suite to create",
+                        "name": "suite",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationSuite"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationSuite"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{agent_id}/evaluation-suites/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get an evaluation suite by ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Get an evaluation suite",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationSuite"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an evaluation suite",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Update an evaluation suite",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Updated suite",
+                        "name": "suite",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationSuite"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationSuite"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete an evaluation suite",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Delete an evaluation suite",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{agent_id}/evaluation-suites/{id}/runs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List evaluation runs for a suite",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "List evaluation runs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.EvaluationRun"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Start running an evaluation suite against an agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Start an evaluation run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationRun"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{agent_id}/triggers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List triggers for the agent",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "List agent triggers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.TriggerConfiguration"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Agent"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with agent configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Agent"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Tool ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Agent"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/access-grants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List access grants for an agent (organization owners and members can list access grants)",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "List agent access grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AccessGrant"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Grant access to an agent to a team or organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with team or organization member ID and role",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AccessGrant"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/api-actions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Runs an API action for an agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Run an API action",
+                "parameters": [
+                    {
+                        "description": "Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.RunAPIActionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunAPIActionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/avatar": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the agent's avatar image",
+                "produces": [
+                    "image/*"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent avatar",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Avatar image data",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload a base64 encoded image as the agent's avatar",
+                "consumes": [
+                    "text/plain"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Upload agent avatar",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Base64 encoded image data",
+                        "name": "image",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete the agent's avatar image",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Delete agent avatar",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/claude-subscription-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reports whether the agent owner (whose subscription authenticates the agent's sessions) has a working Claude subscription",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Get the Claude subscription status for an agent's owner",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AppClaudeSubscriptionStatus"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/daily-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get agent daily usage",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/duplicate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Optional new name for the agent",
+                        "name": "name",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/interactions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List interactions with pagination and optional session filtering for a specific agent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "List interactions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session ID",
+                        "name": "session",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by interaction ID",
+                        "name": "interaction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Query by like/dislike",
+                        "name": "feedback",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PaginatedInteractions"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/llm-calls": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List user's LLM calls with pagination and optional session filtering for a specific agent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "llm_calls"
+                ],
+                "summary": "List LLM calls",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session ID",
+                        "name": "session",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by interaction ID",
+                        "name": "interaction",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PaginatedLLMCalls"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/memories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List memories for a specific agent and user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "memories"
+                ],
+                "summary": "List agent memories",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Memory"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/memories/{memory_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a specific memory for an agent and user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "memories"
+                ],
+                "summary": "Delete agent memory",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Memory ID",
+                        "name": "memory_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/skills/{skill}/enable": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Enable a marketplace skill on an agent. For autoProvision MCP skills the server generates URL and auth automatically.",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Enable a marketplace skill on an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Skill name (e.g. code-intelligence)",
+                        "name": "skill",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Agent"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/step-info": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List step info for a specific agent and interaction ID, used to build the timeline of events",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "step_info"
+                ],
+                "summary": "List step info",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interactionId",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.StepInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/trigger-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the status of a specific trigger type for an agent",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent trigger status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Trigger type (e.g., slack)",
+                        "name": "trigger_type",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.TriggerStatus"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/user-access": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the access rights the current user has for this agent",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get current user's access level for an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserAppAccessResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/users-daily-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get agent users daily usage",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent users daily usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/api_keys": {
             "get": {
                 "security": [
@@ -1199,1465 +2658,6 @@ const docTemplate = `{
                         "description": "API key",
                         "schema": {
                             "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "List apps",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization ID",
-                        "name": "organization_id",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.App"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "description": "Request body with app configuration. Can be legacy App format or structured format with organization_id, global, and yaml_config fields.",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.AppCreateResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/evaluation-runs/{run_id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get evaluation run details",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Get an evaluation run",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Run ID",
-                        "name": "run_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationRun"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete an evaluation run",
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Delete an evaluation run",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Run ID",
-                        "name": "run_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/evaluation-suites": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List all evaluation suites for an app",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "List evaluation suites for an app",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.EvaluationSuite"
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new evaluation suite for an agent",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Create an evaluation suite",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Evaluation suite to create",
-                        "name": "suite",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationSuite"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationSuite"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/evaluation-suites/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get an evaluation suite by ID",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Get an evaluation suite",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Suite ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationSuite"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update an evaluation suite",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Update an evaluation suite",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Suite ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Updated suite",
-                        "name": "suite",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationSuite"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationSuite"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete an evaluation suite",
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Delete an evaluation suite",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Suite ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/evaluation-suites/{id}/runs": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List evaluation runs for a suite",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "List evaluation runs",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Suite ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.EvaluationRun"
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Start running an evaluation suite against an agent",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Start an evaluation run",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Suite ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationRun"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/triggers": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List triggers for the app",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "List app triggers",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.TriggerConfiguration"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "description": "Request body with app configuration.",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    },
-                    {
-                        "type": "string",
-                        "description": "Tool ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/access-grants": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List access grants for an app (organization owners and members can list access grants)",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "List app access grants",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.AccessGrant"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Grant access to an agent to a team or organization member",
-                "parameters": [
-                    {
-                        "description": "Request body with team or organization member ID and role",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.AccessGrant"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/api-actions": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Runs an API action for an app",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "summary": "Run an API action",
-                "parameters": [
-                    {
-                        "description": "Request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.RunAPIActionRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.RunAPIActionResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/avatar": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get the app's avatar image",
-                "produces": [
-                    "image/*"
-                ],
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Get app avatar",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Avatar image data",
-                        "schema": {
-                            "type": "file"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Upload a base64 encoded image as the app's avatar",
-                "consumes": [
-                    "text/plain"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Upload app avatar",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Base64 encoded image data",
-                        "name": "image",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete the app's avatar image",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Delete app avatar",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/claude-subscription-status": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Reports whether the app owner (whose subscription authenticates the app's sessions) has a working Claude subscription",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Claude"
-                ],
-                "summary": "Get the Claude subscription status for an app's owner",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.AppClaudeSubscriptionStatus"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/daily-usage": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get app daily usage",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Get app usage",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Start date",
-                        "name": "from",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "End date",
-                        "name": "to",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.AggregatedUsageMetric"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/duplicate": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Optional new name for the app",
-                        "name": "name",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/interactions": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List interactions with pagination and optional session filtering for a specific app",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "interactions"
-                ],
-                "summary": "List interactions",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by session ID",
-                        "name": "session",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by interaction ID",
-                        "name": "interaction",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Query by like/dislike",
-                        "name": "feedback",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.PaginatedInteractions"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/llm-calls": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List user's LLM calls with pagination and optional session filtering for a specific app",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "llm_calls"
-                ],
-                "summary": "List LLM calls",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by session ID",
-                        "name": "session",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by interaction ID",
-                        "name": "interaction",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.PaginatedLLMCalls"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/memories": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List memories for a specific app and user",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "memories"
-                ],
-                "summary": "List app memories",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.Memory"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/memories/{memory_id}": {
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete a specific memory for an app and user",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "memories"
-                ],
-                "summary": "Delete app memory",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Memory ID",
-                        "name": "memory_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/skills/{skill}/enable": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.",
-                "tags": [
-                    "skills"
-                ],
-                "summary": "Enable a marketplace skill on an app",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Skill name (e.g. code-intelligence)",
-                        "name": "skill",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/step-info": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List step info for a specific app and interaction ID, used to build the timeline of events",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "step_info"
-                ],
-                "summary": "List step info",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Interaction ID",
-                        "name": "interactionId",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.StepInfo"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/trigger-status": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get the status of a specific trigger type for an app",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Get app trigger status",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Trigger type (e.g., slack)",
-                        "name": "trigger_type",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.TriggerStatus"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/user-access": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns the access rights the current user has for this app",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Get current user's access level for an app",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.UserAppAccessResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/users-daily-usage": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get app users daily usage",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Get app users daily usage",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Start date",
-                        "name": "from",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "End date",
-                        "name": "to",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.AggregatedUsageMetric"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -9544,6 +9544,713 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/agents": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "List the canonical Agents in an organization, including their instructions, tools, runtime, model configuration, and reporting lines.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list agents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.BotDTO"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a canonical Agent with its org-chart position, communication topics, tools, and Agent App configuration.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Agent specification",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateBotRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateBotResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get one canonical Agent with its instructions, tools, runtime, model configuration, project, and reporting lines.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get agent detail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AgentDetailDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Delete an Agent after stopping its sessions and project, then atomically remove its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Update the canonical Agent instructions, tools, project access, runtime, provider, model, or reasoning configuration.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Agent fields to update",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateBotRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/activate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: activate an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/chat": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: provision an agent chat",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotChatDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/parents": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: add an agent manager",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID of the direct report",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Manager Agent ID",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.AddBotParentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/parents/{parent_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: remove an agent manager",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID of the direct report",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Manager Agent ID",
+                        "name": "parent_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/restart-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: restart an agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/stop-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: stop an agent desktop",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list an agent's subscriptions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotSubscriptionsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: subscribe an agent to a topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Topic to subscribe the Agent to",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SubscribeBotRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotSubscriptionDTO"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotSubscriptionDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/subscriptions/{topic_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: unsubscribe an agent from a topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "topic_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots": {
             "get": {
                 "security": [
@@ -10374,7 +11081,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Returns the flat set of Bots in the org for the helix-org React Overview page.",
+                "description": "Returns the flat set of Nodes in the org for the helix-org React Overview page.",
                 "produces": [
                     "application/json"
                 ],
@@ -20281,7 +20988,7 @@ const docTemplate = `{
                 ],
                 "description": "List all triggers configurations for either user or the org or user within an org",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
                 "summary": "List all triggers configurations for either user or the org or user within an org",
                 "parameters": [
@@ -20316,11 +21023,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Create triggers for the app. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the app",
+                "description": "Create triggers for the agent. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the agent",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
-                "summary": "Create app triggers",
+                "summary": "Create agent triggers",
                 "parameters": [
                     {
                         "description": "Trigger configuration",
@@ -20349,11 +21056,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update triggers for the app, for example to change the cron schedule or enable/disable the trigger",
+                "description": "Update triggers for the agent, for example to change the cron schedule or enable/disable the trigger",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
-                "summary": "Update app triggers",
+                "summary": "Update agent triggers",
                 "parameters": [
                     {
                         "type": "string",
@@ -20387,11 +21094,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Delete triggers for the app",
+                "description": "Delete triggers for the agent",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
-                "summary": "Delete app triggers",
+                "summary": "Delete agent triggers",
                 "parameters": [
                     {
                         "type": "string",
@@ -20418,11 +21125,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update triggers for the app, for example to change the cron schedule or enable/disable the trigger",
+                "description": "Update triggers for the agent, for example to change the cron schedule or enable/disable the trigger",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
-                "summary": "Execute app trigger",
+                "summary": "Execute agent trigger",
                 "parameters": [
                     {
                         "type": "string",
@@ -20451,7 +21158,7 @@ const docTemplate = `{
                 ],
                 "description": "List executions for the trigger",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
                 "summary": "List trigger executions",
                 "parameters": [
@@ -21764,6 +22471,99 @@ const docTemplate = `{
                 }
             }
         },
+        "api.AgentDetailDTO": {
+            "type": "object",
+            "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "agent_id": {
+                    "type": "string"
+                },
+                "agent_model": {
+                    "type": "string"
+                },
+                "agent_runtime": {
+                    "type": "string"
+                },
+                "agent_status": {
+                    "description": "AgentStatus is \"running\" when the bot's desktop sandbox is online,\n\"stopped\" otherwise (no session, paused, never activated). Drives\nthe green/grey presence dot on the org chart.",
+                    "type": "string"
+                },
+                "code_agent_credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "helix_user_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "identity": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "kind": {
+                    "description": "Kind is \"\" (agent) or \"human\". A human node is a person placeholder,\nnever activated; Identity holds their cross-system handles and\nHelixUserID optionally links them to a Helix org member. Identity is\nomitted for agent bots.",
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is the human-readable display label; empty means the UI falls\nback to ID. Distinct from ID, which is the immutable handle.",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "parent_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "preserve_context": {
+                    "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
+                    "type": "boolean"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "api.BotActivateDTO": {
             "type": "object",
             "properties": {
@@ -21771,6 +22571,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "agent_app_id": {
+                    "type": "string"
+                },
+                "agent_id": {
                     "type": "string"
                 },
                 "project_id": {
@@ -21795,6 +22598,9 @@ const docTemplate = `{
                 "agent_app_id": {
                     "type": "string"
                 },
+                "agent_id": {
+                    "type": "string"
+                },
                 "project_id": {
                     "type": "string"
                 }
@@ -21803,6 +22609,12 @@ const docTemplate = `{
         "api.BotDTO": {
             "type": "object",
             "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "agent_id": {
+                    "type": "string"
+                },
                 "agent_model": {
                     "type": "string"
                 },
@@ -21812,6 +22624,12 @@ const docTemplate = `{
                 "agent_status": {
                     "description": "AgentStatus is \"running\" when the bot's desktop sandbox is online,\n\"stopped\" otherwise (no session, paused, never activated). Drives\nthe green/grey presence dot on the org chart.",
                     "type": "string"
+                },
+                "code_agent_credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
                 },
                 "content": {
                     "type": "string"
@@ -21833,6 +22651,9 @@ const docTemplate = `{
                 },
                 "kind": {
                     "description": "Kind is \"\" (agent) or \"human\". A human node is a person placeholder,\nnever activated; Identity holds their cross-system handles and\nHelixUserID optionally links them to a Helix org member. Identity is\nomitted for agent bots.",
+                    "type": "string"
+                },
+                "model": {
                     "type": "string"
                 },
                 "name": {
@@ -21858,6 +22679,12 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "provider": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
                 "tools": {
                     "type": "array",
                     "items": {
@@ -21873,7 +22700,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "agent_app_id": {
-                    "description": "AgentAppID + ProjectID — see BotChatDTO comments.",
+                    "type": "string"
+                },
+                "agent_id": {
+                    "description": "AgentID + ProjectID — see BotChatDTO comments.",
                     "type": "string"
                 },
                 "bot": {
@@ -21952,7 +22782,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "owner": {
-                    "description": "Owner makes this a manager Bot: it receives the canonical owner\ntool set (every org-graph mutation - create_bot, delete_bot,\nset_bot_content, subscribe, ... - plus the read baseline) so it can\nhire and manage other Bots. When true, Tools is ignored in favour\nof that set. Used to seed a starter/root Bot for a new org.",
+                    "description": "Owner makes this a manager Bot: it receives the canonical owner\ntool set (every org-graph mutation - create_bot, delete_bot,\nset_bot_content, subscribe, ... - plus the read baseline) so it can\nhire and manage other Nodes. When true, Tools is ignored in favour\nof that set. Used to seed a starter/root Bot for a new org.",
                     "type": "boolean"
                 },
                 "parent_id": {
@@ -22532,6 +23362,12 @@ const docTemplate = `{
         "api.UpdateBotRequest": {
             "type": "object",
             "properties": {
+                "code_agent_credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
                 "content": {
                     "type": "string"
                 },
@@ -22541,6 +23377,9 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "model": {
+                    "type": "string"
                 },
                 "name": {
                     "type": "string"
@@ -22553,6 +23392,12 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
                 },
                 "tools": {
                     "type": "array",
@@ -23823,6 +24668,59 @@ const docTemplate = `{
                 }
             }
         },
+        "server.AgentCreateResponse": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/types.AgentConfig"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "global": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_helix_org_agent": {
+                    "description": "IsHelixOrgAgent is true when this app backs a Helix org-chart Worker\n(see api/pkg/org). Computed at list time, not persisted, so the frontend\ncan hide org-chart agents from the spec-task agent switchers.",
+                    "type": "boolean"
+                },
+                "model_substitutions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.ModelSubstitution"
+                    }
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "uuid of user ID",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "e.g. user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "Owner user struct, populated by the server for organization views",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                }
+            }
+        },
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
@@ -23884,59 +24782,6 @@ const docTemplate = `{
                 "valid": {
                     "description": "that subscription passed its last liveness probe",
                     "type": "boolean"
-                }
-            }
-        },
-        "server.AppCreateResponse": {
-            "type": "object",
-            "properties": {
-                "config": {
-                    "$ref": "#/definitions/types.AppConfig"
-                },
-                "created": {
-                    "type": "string"
-                },
-                "global": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "is_helix_org_agent": {
-                    "description": "IsHelixOrgAgent is true when this app backs a Helix org-chart Worker\n(see api/pkg/org). Computed at list time, not persisted, so the frontend\ncan hide org-chart agents from the spec-task agent switchers.",
-                    "type": "boolean"
-                },
-                "model_substitutions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.ModelSubstitution"
-                    }
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "owner": {
-                    "description": "uuid of user ID",
-                    "type": "string"
-                },
-                "owner_type": {
-                    "description": "e.g. user, system, org",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OwnerType"
-                        }
-                    ]
-                },
-                "updated": {
-                    "type": "string"
-                },
-                "user": {
-                    "description": "Owner user struct, populated by the server for organization views",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.User"
-                        }
-                    ]
                 }
             }
         },
@@ -26360,6 +27205,122 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Agent": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/types.AgentConfig"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "global": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_helix_org_agent": {
+                    "description": "IsHelixOrgAgent is true when this app backs a Helix org-chart Worker\n(see api/pkg/org). Computed at list time, not persisted, so the frontend\ncan hide org-chart agents from the spec-task agent switchers.",
+                    "type": "boolean"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "uuid of user ID",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "e.g. user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "Owner user struct, populated by the server for organization views",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.AgentConfig": {
+            "type": "object",
+            "properties": {
+                "allowed_domains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "helix": {
+                    "$ref": "#/definitions/types.AgentHelixConfig"
+                },
+                "secrets": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.AgentHelixConfig": {
+            "type": "object",
+            "properties": {
+                "assistants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantConfig"
+                    }
+                },
+                "avatar": {
+                    "type": "string"
+                },
+                "avatar_content_type": {
+                    "type": "string"
+                },
+                "default_agent_type": {
+                    "description": "Agent configuration",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentType"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": "string"
+                },
+                "external_agent_config": {
+                    "$ref": "#/definitions/types.ExternalAgentConfig"
+                },
+                "external_agent_enabled": {
+                    "type": "boolean"
+                },
+                "external_url": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "triggers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Trigger"
+                    }
+                }
+            }
+        },
         "types.AgentType": {
             "type": "string",
             "enum": [
@@ -26490,122 +27451,6 @@ const docTemplate = `{
                 },
                 "type": {
                     "$ref": "#/definitions/types.APIKeyType"
-                }
-            }
-        },
-        "types.App": {
-            "type": "object",
-            "properties": {
-                "config": {
-                    "$ref": "#/definitions/types.AppConfig"
-                },
-                "created": {
-                    "type": "string"
-                },
-                "global": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "is_helix_org_agent": {
-                    "description": "IsHelixOrgAgent is true when this app backs a Helix org-chart Worker\n(see api/pkg/org). Computed at list time, not persisted, so the frontend\ncan hide org-chart agents from the spec-task agent switchers.",
-                    "type": "boolean"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "owner": {
-                    "description": "uuid of user ID",
-                    "type": "string"
-                },
-                "owner_type": {
-                    "description": "e.g. user, system, org",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OwnerType"
-                        }
-                    ]
-                },
-                "updated": {
-                    "type": "string"
-                },
-                "user": {
-                    "description": "Owner user struct, populated by the server for organization views",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.User"
-                        }
-                    ]
-                }
-            }
-        },
-        "types.AppConfig": {
-            "type": "object",
-            "properties": {
-                "allowed_domains": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "helix": {
-                    "$ref": "#/definitions/types.AppHelixConfig"
-                },
-                "secrets": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "types.AppHelixConfig": {
-            "type": "object",
-            "properties": {
-                "assistants": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AssistantConfig"
-                    }
-                },
-                "avatar": {
-                    "type": "string"
-                },
-                "avatar_content_type": {
-                    "type": "string"
-                },
-                "default_agent_type": {
-                    "description": "Agent configuration",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.AgentType"
-                        }
-                    ]
-                },
-                "description": {
-                    "type": "string"
-                },
-                "external_agent_config": {
-                    "$ref": "#/definitions/types.ExternalAgentConfig"
-                },
-                "external_agent_enabled": {
-                    "type": "boolean"
-                },
-                "external_url": {
-                    "type": "string"
-                },
-                "image": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "triggers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.Trigger"
-                    }
                 }
             }
         },
@@ -26751,7 +27596,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
                 "claude_subscription_model": {
-                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means \"opus\"\n(resolveModelPreference resolves this to the latest Opus version).",
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means \"opus[1m]\"\n(the 1M-context Opus; resolveModelPreference resolves the \"[1m]\" hint to the\n1M row, while a bare \"opus\" resolves to the 200k sibling).",
                     "type": "string"
                 },
                 "code_agent_credential_type": {
@@ -28978,7 +29823,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "app_config_snapshot": {
-                    "$ref": "#/definitions/types.AppConfig"
+                    "$ref": "#/definitions/types.AgentConfig"
                 },
                 "app_id": {
                     "type": "string"
@@ -32177,6 +33022,9 @@ const docTemplate = `{
         "types.ProjectApplyRequest": {
             "type": "object",
             "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },

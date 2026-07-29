@@ -218,17 +218,17 @@ type AppClaudeSubscriptionStatus struct {
 	LastError             string     `json:"last_error,omitempty"`
 }
 
-// @Summary Get the Claude subscription status for an app's owner
-// @Description Reports whether the app owner (whose subscription authenticates the app's sessions) has a working Claude subscription
+// @Summary Get the Claude subscription status for an agent's owner
+// @Description Reports whether the agent owner (whose subscription authenticates the agent's sessions) has a working Claude subscription
 // @Tags Claude
 // @Produce json
-// @Param id path string true "App ID"
+// @Param id path string true "Agent ID"
 // @Success 200 {object} AppClaudeSubscriptionStatus
 // @Failure 401 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Security BearerAuth
-// @Router /api/v1/apps/{id}/claude-subscription-status [get]
+// @Router /api/v1/agents/{id}/claude-subscription-status [get]
 func (apiServer *HelixAPIServer) getAppClaudeSubscriptionStatus(_ http.ResponseWriter, req *http.Request) (*AppClaudeSubscriptionStatus, *system.HTTPError) {
 	user := getRequestUser(req)
 	if user == nil {

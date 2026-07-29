@@ -7,7 +7,12 @@
 // client-side.
 package api
 
-import "github.com/helixml/helix/api/pkg/org/application/publishing"
+import (
+	"encoding/json"
+
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/types"
+)
 
 // BotBadge is a compact reference to a Bot on the org overview.
 type BotBadge struct {
@@ -18,7 +23,7 @@ type BotBadge struct {
 // in the org. The React Overview page renders the reporting graph from
 // the bots + their parent_ids (fetched via GET /bots).
 type OrgOverview struct {
-	Bots []BotBadge `json:"bots"`
+	Nodes []BotBadge `json:"bots"`
 }
 
 // ToolDTO is one entry in GET /tools — the catalogue of every tool
@@ -32,12 +37,14 @@ type ToolDTO struct {
 
 // BotDTO is one row in GET /bots and the body of GET /bots/{id}. A Bot
 // IS its own job description: Content is the canonical role.md markdown,
-// Tools is its live MCP surface. ParentIDs are the Bots this one reports
+// Tools is its live MCP surface. ParentIDs are the Nodes this one reports
 // to (empty for the org root). Reporting is many-to-many — a Bot may
 // report to several managers. A Bot's subscriptions are not on the bot —
 // they live as (bot, topic) rows.
 type BotDTO struct {
-	ID string `json:"id"`
+	ID            string `json:"id"`
+	AgentID       string `json:"agent_id,omitempty"`
+	LegacyAgentID string `json:"agent_app_id,omitempty"`
 	// Name is the human-readable display label; empty means the UI falls
 	// back to ID. Distinct from ID, which is the immutable handle.
 	Name           string   `json:"name,omitempty"`
@@ -60,39 +67,102 @@ type BotDTO struct {
 	// AgentStatus is "running" when the bot's desktop sandbox is online,
 	// "stopped" otherwise (no session, paused, never activated). Drives
 	// the green/grey presence dot on the org chart.
-	AgentStatus  string `json:"agent_status,omitempty"`
-	AgentRuntime string `json:"agent_runtime,omitempty"`
-	AgentModel   string `json:"agent_model,omitempty"`
-	CreatedAt    string `json:"created_at,omitempty"`
-	UpdatedAt    string `json:"updated_at,omitempty"`
+	AgentStatus             string                        `json:"agent_status,omitempty"`
+	AgentRuntime            string                        `json:"agent_runtime,omitempty"`
+	AgentModel              string                        `json:"agent_model,omitempty"`
+	CodeAgentRuntime        types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`
+	CodeAgentCredentialType types.CodeAgentCredentialType `json:"code_agent_credential_type,omitempty"`
+	Provider                string                        `json:"provider,omitempty"`
+	Model                   string                        `json:"model,omitempty"`
+	ReasoningEffort         string                        `json:"reasoning_effort,omitempty"`
+	CreatedAt               string                        `json:"created_at,omitempty"`
+	UpdatedAt               string                        `json:"updated_at,omitempty"`
 }
 
-// BotChatDTO is the POST /bots/{id}/chat response. AgentAppID is the
+func (d BotDTO) MarshalJSON() ([]byte, error) {
+	type botDTO BotDTO
+	return json.Marshal(botDTO(canonicalBotDTO(d)))
+}
+
+func (d *BotDTO) UnmarshalJSON(data []byte) error {
+	type botDTO BotDTO
+	var decoded botDTO
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*d = canonicalBotDTO(BotDTO(decoded))
+	return nil
+}
+
+func canonicalBotDTO(d BotDTO) BotDTO {
+	if d.AgentID == "" {
+		d.AgentID = d.LegacyAgentID
+	}
+	d.LegacyAgentID = d.AgentID
+	return d
+}
+
+// BotChatDTO is the POST /bots/{id}/chat response. AgentID is the
 // per-Bot Helix agent app id and ProjectID is the Helix project that
 // owns it — the chart UI prefers ProjectID for the "chat via Human
 // Desktop" deep-link (/orgs/<org>/projects/<id>/desktop/<session>),
 // falling back to /agent/<agent_app_id> only when the project's
 // exploratory session can't be reached.
 type BotChatDTO struct {
-	AgentAppID string `json:"agent_app_id"`
-	ProjectID  string `json:"project_id,omitempty"`
+	AgentID       string `json:"agent_id"`
+	LegacyAgentID string `json:"agent_app_id"`
+	ProjectID     string `json:"project_id,omitempty"`
 }
 
 // BotActivateDTO is the POST /bots/{id}/activate response.
 type BotActivateDTO struct {
-	ActivationID string `json:"activation_id,omitempty"`
-	ProjectID    string `json:"project_id,omitempty"`
-	AgentAppID   string `json:"agent_app_id,omitempty"`
-	SessionID    string `json:"session_id,omitempty"`
+	ActivationID  string `json:"activation_id,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
+	AgentID       string `json:"agent_id,omitempty"`
+	LegacyAgentID string `json:"agent_app_id,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
 }
 
 // BotDetailDTO is the full GET /bots/{id} response — the Bot plus the
 // surrounding runtime context the UI's detail pane needs.
 type BotDetailDTO struct {
 	Bot BotDTO `json:"bot"`
-	// AgentAppID + ProjectID — see BotChatDTO comments.
-	AgentAppID string `json:"agent_app_id,omitempty"`
-	ProjectID  string `json:"project_id,omitempty"`
+	// AgentID + ProjectID — see BotChatDTO comments.
+	AgentID       string `json:"agent_id,omitempty"`
+	LegacyAgentID string `json:"agent_app_id,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
+}
+
+type AgentDetailDTO struct {
+	BotDTO
+	ProjectID string `json:"project_id,omitempty"`
+}
+
+func (d AgentDetailDTO) MarshalJSON() ([]byte, error) {
+	type botDTO BotDTO
+	type agentDetailDTO struct {
+		botDTO
+		ProjectID string `json:"project_id,omitempty"`
+	}
+	return json.Marshal(agentDetailDTO{
+		botDTO:    botDTO(canonicalBotDTO(d.BotDTO)),
+		ProjectID: d.ProjectID,
+	})
+}
+
+func (d *AgentDetailDTO) UnmarshalJSON(data []byte) error {
+	type botDTO BotDTO
+	type agentDetailDTO struct {
+		botDTO
+		ProjectID string `json:"project_id,omitempty"`
+	}
+	var decoded agentDetailDTO
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	d.BotDTO = canonicalBotDTO(BotDTO(decoded.botDTO))
+	d.ProjectID = decoded.ProjectID
+	return nil
 }
 
 // CreateBotRequest is the body of POST /bots. Mirrors the MCP
@@ -113,7 +183,7 @@ type CreateBotRequest struct {
 	// Owner makes this a manager Bot: it receives the canonical owner
 	// tool set (every org-graph mutation - create_bot, delete_bot,
 	// set_bot_content, subscribe, ... - plus the read baseline) so it can
-	// hire and manage other Bots. When true, Tools is ignored in favour
+	// hire and manage other Nodes. When true, Tools is ignored in favour
 	// of that set. Used to seed a starter/root Bot for a new org.
 	Owner bool `json:"owner,omitempty"`
 }
@@ -138,7 +208,12 @@ type UpdateBotRequest struct {
 	// Identity is the per-channel handle map for a human node (slack/github/
 	// email/…). When present it replaces the stored map; absent leaves it
 	// unchanged. Only meaningful for kind=human bots.
-	Identity map[string]string `json:"identity,omitempty"`
+	Identity                map[string]string              `json:"identity,omitempty"`
+	CodeAgentRuntime        *types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`
+	CodeAgentCredentialType *types.CodeAgentCredentialType `json:"code_agent_credential_type,omitempty"`
+	Provider                *string                        `json:"provider,omitempty"`
+	Model                   *string                        `json:"model,omitempty"`
+	ReasoningEffort         *string                        `json:"reasoning_effort,omitempty"`
 }
 
 // AddBotParentRequest is the body of POST /bots/{id}/parents. ParentID
@@ -290,7 +365,7 @@ type BotSubscriptionDTO struct {
 // BotSubscriptionsResponse is the GET /bots/{id}/subscriptions
 // response body.
 type BotSubscriptionsResponse struct {
-	BotID         string               `json:"bot_id"`
+	NodeID        string               `json:"bot_id"`
 	Subscriptions []BotSubscriptionDTO `json:"subscriptions"`
 }
 

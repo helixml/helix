@@ -3,6 +3,7 @@ package gorm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,20 +14,22 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-// botRow has composite PK (id, org_id) so short readable handles
+//	nodeRow has composite PK (id, org_id) so short readable handles
+//
 // (`b-root`, `b-engineer`) can repeat across helix tenants. OrgID
-// additionally carries a FK to organizations(id) ON DELETE CASCADE —
+// additionally carries a FK to organizations(id) ON DELETE CASCADE -
 // added out-of-band in OpenWithDB because GORM tag-driven FK creation
 // to a table owned by another package is fragile.
 //
-// A Bot is the merge of the former Role and Worker: it carries its own
+// A Node is the merge of the former Role and Worker: it carries its own
 // content + tool list (its capability) and is the live participant in
 // the reporting graph. Reporting lines (who reports to whom) are a
-// separate many-to-many relation — see reportingLineRow — so a Bot
+// separate many-to-many relation - see reportingLineRow - so a Node
 // carries no parent column.
-type botRow struct {
+type nodeRow struct {
 	ID              string   `gorm:"primaryKey;type:text"`
 	OrgID           string   `gorm:"primaryKey;type:text;index"`
+	AgentID         *string  `gorm:"column:agent_app_id;type:text;index"`
 	Name            string   `gorm:"not null;default:''"`
 	Content         string   `gorm:"not null"`
 	Tools           []string `gorm:"serializer:json"`
@@ -41,35 +44,41 @@ type botRow struct {
 	UpdatedAt   time.Time
 }
 
-func (botRow) TableName() string { return "org_bots" }
+// org_bots is the legacy physical name retained for existing Node rows.
+func (nodeRow) TableName() string { return "org_bots" }
 
-type botMapper struct{}
+type nodeMapper struct{}
 
-func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
-	tools := make([]string, 0, len(b.Tools))
-	for _, t := range b.Tools {
+func (nodeMapper) ToRow(node orgchart.Node) (nodeRow, error) {
+	tools := make([]string, 0, len(node.Tools))
+	for _, t := range node.Tools {
 		tools = append(tools, string(t))
 	}
 	if len(tools) == 0 {
 		tools = nil
 	}
-	return botRow{
-		ID:              string(b.ID),
-		OrgID:           b.OrganizationID,
-		Name:            b.Name,
-		Content:         b.Content,
+	var agentID *string
+	if node.AgentID != "" {
+		agentID = &node.AgentID
+	}
+	return nodeRow{
+		ID:              string(node.ID),
+		OrgID:           node.OrganizationID,
+		AgentID:         agentID,
+		Name:            node.Name,
+		Content:         node.Content,
 		Tools:           tools,
-		ProjectIDs:      b.ProjectIDs,
-		PreserveContext: b.PreserveContext,
-		Kind:            b.Kind,
-		HelixUserID:     b.HelixUserID,
-		Identity:        b.Identity,
-		CreatedAt:       b.CreatedAt,
-		UpdatedAt:       b.UpdatedAt,
+		ProjectIDs:      node.ProjectIDs,
+		PreserveContext: node.PreserveContext,
+		Kind:            node.Kind,
+		HelixUserID:     node.HelixUserID,
+		Identity:        node.Identity,
+		CreatedAt:       node.CreatedAt,
+		UpdatedAt:       node.UpdatedAt,
 	}, nil
 }
 
-func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
+func (nodeMapper) ToDomain(row nodeRow) (orgchart.Node, error) {
 	var tools []tool.Name
 	if len(row.Tools) > 0 {
 		tools = make([]tool.Name, 0, len(row.Tools))
@@ -77,9 +86,14 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 			tools = append(tools, tool.Name(t))
 		}
 	}
-	return orgchart.Bot{
-		ID:              orgchart.BotID(row.ID),
+	var agentID string
+	if row.AgentID != nil {
+		agentID = *row.AgentID
+	}
+	return orgchart.Node{
+		ID:              orgchart.NodeID(row.ID),
 		OrganizationID:  row.OrgID,
+		AgentID:         agentID,
 		Name:            row.Name,
 		Content:         row.Content,
 		Tools:           tools,
@@ -93,30 +107,41 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 	}, nil
 }
 
-type botsRepo struct {
-	*Repository[orgchart.Bot, botRow]
+type nodesRepo struct {
+	*Repository[orgchart.Node, nodeRow]
 	db *gorm.DB
 }
 
-func newBotsRepo(db *gorm.DB) *botsRepo {
-	return &botsRepo{
-		Repository: NewRepository[orgchart.Bot, botRow](db, botMapper{}, "bot"),
+func newNodesRepo(db *gorm.DB) *nodesRepo {
+	return &nodesRepo{
+		Repository: NewRepository[orgchart.Node, nodeRow](db, nodeMapper{}, "node"),
 		db:         db,
 	}
 }
 
-func (r *botsRepo) Get(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Bot, error) {
+func (r *nodesRepo) Create(ctx context.Context, node orgchart.Node) error {
+	if node.IsHuman() {
+		if node.AgentID != "" {
+			return errors.New("create node: human node cannot reference an agent app")
+		}
+	} else if node.AgentID == "" {
+		return errors.New("create node: agent app id is required")
+	}
+	return r.Repository.Create(ctx, node)
+}
+
+func (r *nodesRepo) Get(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error) {
 	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }
 
-func (r *botsRepo) List(ctx context.Context, orgID string) ([]orgchart.Bot, error) {
+func (r *nodesRepo) List(ctx context.Context, orgID string) ([]orgchart.Node, error) {
 	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }
 
-func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
-	row, err := botMapper{}.ToRow(b)
+func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
+	row, err := nodeMapper{}.ToRow(node)
 	if err != nil {
-		return fmt.Errorf("map bot: %w", err)
+		return fmt.Errorf("map node: %w", err)
 	}
 	// Pre-marshal JSON columns so the Updates() map carries typed
 	// string literals; gorm's serializer:json tag works on full-row
@@ -142,6 +167,7 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 		store.WithID(row.ID),
 		store.WithUpdates(map[string]any{
 			"name":             row.Name,
+			"agent_app_id":     row.AgentID,
 			"content":          row.Content,
 			"tools":            string(toolsJSON),
 			"project_ids":      string(projectIDsJSON),
@@ -154,23 +180,34 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 	)
 }
 
-// Delete removes the bot row and drops its bot-anchored subscriptions
-// in the same transaction. The reporting lines that reference this bot
+func (r *nodesRepo) ClaimAgentApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string) (bool, error) {
+	res := r.db.WithContext(ctx).
+		Model(&nodeRow{}).
+		Where("org_id = ? AND id = ? AND agent_app_id IS NULL", orgID, string(id)).
+		Update("agent_app_id", appID)
+	if res.Error != nil {
+		return false, fmt.Errorf("claim agent app: %w", res.Error)
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// Delete removes the node row and drops its node-anchored subscriptions
+// in the same transaction. The reporting lines that reference this node
 // (as manager or report) are removed by the ON DELETE CASCADE foreign
 // keys on org_reporting_lines (installed in OpenWithDB), so no app code
-// clears them — that's the whole point of the association table.
-func (r *botsRepo) Delete(ctx context.Context, orgID string, id orgchart.BotID) error {
+// clears them - that's the whole point of the association table.
+func (r *nodesRepo) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("org_id = ? AND bot_id = ?", orgID, string(id)).
 			Delete(&subscriptionRow{}).Error; err != nil {
-			return fmt.Errorf("delete bot: drop subscriptions: %w", err)
+			return fmt.Errorf("delete node: drop subscriptions: %w", err)
 		}
-		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&botRow{})
+		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&nodeRow{})
 		if res.Error != nil {
-			return fmt.Errorf("delete bot: %w", res.Error)
+			return fmt.Errorf("delete node: %w", res.Error)
 		}
 		if res.RowsAffected == 0 {
-			return fmt.Errorf("bot: %w", store.ErrNotFound)
+			return fmt.Errorf("node: %w", store.ErrNotFound)
 		}
 		return nil
 	})

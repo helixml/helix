@@ -8,11 +8,11 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/messages"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
@@ -25,7 +25,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
+	"github.com/helixml/helix/api/pkg/types"
 )
+
+var ErrInvalidAgentProfile = errors.New("invalid agent profile")
 
 // resolveOrgID returns the orgID stashed on ctx by the helix-org
 // middleware (withHelixOrgScope in api/pkg/server). Empty orgID
@@ -48,7 +51,7 @@ type Dispatcher interface {
 	// given Bot. Called by activateBot after the synchronous
 	// ensureProject step. activationID is the pre-allocated audit-row
 	// ID; empty means the Spawner mints its own.
-	DispatchManual(ctx context.Context, orgID string, botID orgchart.BotID, activationID activation.ID)
+	DispatchManual(ctx context.Context, orgID string, botID orgchart.NodeID, activationID activation.ID)
 }
 
 // ProjectEnsurer provisions (or fast-paths) the per-Bot Helix project +
@@ -57,7 +60,7 @@ type Dispatcher interface {
 // through this to guarantee an agent_app_id exists before redirecting to
 // /agent/.
 type ProjectEnsurer interface {
-	Ensure(ctx context.Context, orgID string, botID orgchart.BotID) (projectID, agentAppID, repoID string, err error)
+	Ensure(ctx context.Context, orgID string, botID orgchart.NodeID) (projectID, agentAppID, repoID string, err error)
 }
 
 // Deps is the JSON API's wiring.
@@ -73,10 +76,10 @@ type Deps struct {
 	// store (the Phase-D enforcement gate).
 	Topics   *topics.Topics
 	Messages *messages.Messages
-	// Bots is the merged role+worker mutation service: content/tools
+	// Nodes is the merged role+worker mutation service: content/tools
 	// updates (PATCH /bots/{id}) and reporting-line edges
 	// (AddParent/RemoveParent). Creation/deletion go through Lifecycle.
-	Bots          *bots.Bots
+	Nodes         *nodes.Nodes
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
 	Activations   *activations.Activations
@@ -140,7 +143,10 @@ type Deps struct {
 	// row, reporting lines, Helix project + app teardown, store
 	// cleanup, topology reconcile). nil disables POST /bots and
 	// DELETE /bots/{id} (returns 501).
-	Lifecycle *lifecycle.Service
+	Lifecycle           *lifecycle.Service
+	AgentUpdater        AgentUpdater
+	AgentReader         AgentReader
+	AgentDefaultApplier AgentDefaultApplier
 
 	// GitHubTokenResolver is the production hook for "reinstate the
 	// GitHub topic + reuse the existing GitHub integration for
@@ -199,15 +205,50 @@ type Deps struct {
 	PublicServerURL string
 }
 
+type AgentUpdater interface {
+	UpdateAgent(ctx context.Context, appID string, patch AgentConfigPatch, name, instructions *string) error
+}
+
+type AgentReader interface {
+	ReadAgent(ctx context.Context, appID string) (AgentProfile, error)
+}
+
+type AgentDefaultApplier interface {
+	ApplyAgentDefaults(ctx context.Context, appID string, defaults types.AssistantConfig) error
+}
+
+type AgentConfigPatch struct {
+	CodeAgentRuntime        *types.CodeAgentRuntime
+	CodeAgentCredentialType *types.CodeAgentCredentialType
+	Provider                *string
+	Model                   *string
+	ReasoningEffort         *string
+}
+
+func (p AgentConfigPatch) Empty() bool {
+	return p.CodeAgentRuntime == nil && p.CodeAgentCredentialType == nil &&
+		p.Provider == nil && p.Model == nil && p.ReasoningEffort == nil
+}
+
+type AgentProfile struct {
+	Name                    string
+	Instructions            string
+	CodeAgentRuntime        types.CodeAgentRuntime
+	CodeAgentCredentialType types.CodeAgentCredentialType
+	Provider                string
+	Model                   string
+	ReasoningEffort         string
+}
+
 // BotRuntimeInfo is the subset of a Bot's runtime-state sidecar the
 // REST adapter surfaces: the per-project deep-link ids, the current
 // desktop session id, and whether that sandbox is online.
 type BotRuntimeInfo struct {
-	ProjectID  string
-	AgentAppID string
-	SessionID  string
-	Runtime    string
-	Model      string
+	ProjectID string
+	AgentID   string
+	SessionID string
+	Runtime   string
+	Model     string
 	// AgentStatus is "running" when the bot's exploratory-session
 	// desktop is online (external_agent_status == running), else
 	// "stopped". Empty when the status could not be resolved.
@@ -219,7 +260,7 @@ type BotRuntimeInfo struct {
 // the bot-detail and activate handlers read project/agent/session ids
 // without the api adapter touching the store.
 type BotRuntime interface {
-	State(ctx context.Context, orgID string, botID orgchart.BotID) (BotRuntimeInfo, error)
+	State(ctx context.Context, orgID string, botID orgchart.NodeID) (BotRuntimeInfo, error)
 }
 
 // BotSessionResetter fully removes a bot's current session so the next
@@ -232,7 +273,7 @@ type BotRuntime interface {
 // composition root over the in-proc helix client; nil → restartBotAgent
 // skips the reset and just re-activates the existing session.
 type BotSessionResetter interface {
-	ResetSession(ctx context.Context, orgID string, botID orgchart.BotID, sessionID string) error
+	ResetSession(ctx context.Context, orgID string, botID orgchart.NodeID, sessionID string) error
 }
 
 // BotDesktopStopper stops a bot's desktop container without deleting the
@@ -271,7 +312,7 @@ func Routes(deps Deps) []Route {
 	a := &apiHandler{deps: deps}
 	return []Route{
 		{Pattern: "GET /overview", Handler: http.HandlerFunc(a.getOverview)},
-		// Bots are the single org-chart aggregate (the merged Role +
+		// Nodes are the single org-chart aggregate (the merged Role +
 		// Worker). Create/Delete go through the lifecycle cascade;
 		// content/tools edits and reporting-line edges go through the
 		// bots service.
@@ -293,6 +334,20 @@ func Routes(deps Deps) []Route {
 		// manager edges rather than replacing a single parent.
 		{Pattern: "POST /bots/{id}/parents", Handler: http.HandlerFunc(a.addBotParent)},
 		{Pattern: "DELETE /bots/{id}/parents/{parent_id}", Handler: http.HandlerFunc(a.removeBotParent)},
+		{Pattern: "GET /agents", Handler: http.HandlerFunc(a.listAgents)},
+		{Pattern: "POST /agents", Handler: http.HandlerFunc(a.createAgent)},
+		{Pattern: "GET /agents/{id}", Handler: http.HandlerFunc(a.getAgent)},
+		{Pattern: "PATCH /agents/{id}", Handler: http.HandlerFunc(a.updateAgent)},
+		{Pattern: "DELETE /agents/{id}", Handler: http.HandlerFunc(a.deleteAgent)},
+		{Pattern: "GET /agents/{id}/subscriptions", Handler: http.HandlerFunc(a.listAgentSubscriptions)},
+		{Pattern: "POST /agents/{id}/subscriptions", Handler: http.HandlerFunc(a.subscribeAgent)},
+		{Pattern: "DELETE /agents/{id}/subscriptions/{topic_id}", Handler: http.HandlerFunc(a.unsubscribeAgent)},
+		{Pattern: "POST /agents/{id}/chat", Handler: http.HandlerFunc(a.ensureAgentChat)},
+		{Pattern: "POST /agents/{id}/activate", Handler: http.HandlerFunc(a.activateAgent)},
+		{Pattern: "POST /agents/{id}/stop-agent", Handler: http.HandlerFunc(a.stopAgent)},
+		{Pattern: "POST /agents/{id}/restart-agent", Handler: http.HandlerFunc(a.restartAgent)},
+		{Pattern: "POST /agents/{id}/parents", Handler: http.HandlerFunc(a.addAgentParent)},
+		{Pattern: "DELETE /agents/{id}/parents/{parent_id}", Handler: http.HandlerFunc(a.removeAgentParent)},
 		{Pattern: "GET /tools", Handler: http.HandlerFunc(a.listTools)},
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},

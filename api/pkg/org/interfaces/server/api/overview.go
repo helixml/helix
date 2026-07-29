@@ -15,7 +15,7 @@ import (
 // their parent_ids (fetched via GET /bots).
 //
 // @Summary Helix-org: get org overview
-// @Description Returns the flat set of Bots in the org for the helix-org React Overview page.
+// @Description Returns the flat set of Nodes in the org for the helix-org React Overview page.
 // @Tags HelixOrg
 // @Produce json
 // @Success 200 {object} api.OrgOverview
@@ -37,11 +37,11 @@ func (a *apiHandler) getOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildOverview collapses the Bot set into the flat overview payload.
-func buildOverview(bots []orgchart.Bot) OrgOverview {
-	out := OrgOverview{Bots: make([]BotBadge, 0, len(bots))}
+func buildOverview(bots []orgchart.Node) OrgOverview {
+	out := OrgOverview{Nodes: make([]BotBadge, 0, len(bots))}
 	for _, b := range bots {
-		out.Bots = append(out.Bots, BotBadge{ID: string(b.ID)})
+		out.Nodes = append(out.Nodes, BotBadge{ID: string(b.ID)})
 	}
-	sort.SliceStable(out.Bots, func(i, j int) bool { return out.Bots[i].ID < out.Bots[j].ID })
+	sort.SliceStable(out.Nodes, func(i, j int) bool { return out.Nodes[i].ID < out.Nodes[j].ID })
 	return out
 }

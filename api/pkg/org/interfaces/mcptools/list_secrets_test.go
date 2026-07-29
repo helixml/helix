@@ -23,7 +23,7 @@ func invokeAsCaller(t *testing.T, tl domainTool.Tool) (json.RawMessage, error) {
 func TestListSecrets_ReturnsNameValueMap(t *testing.T) {
 	t.Parallel()
 	fc := &fakeProjectConfig{
-		list: func(orgID string, botID orgchart.BotID) (map[string]string, error) {
+		list: func(orgID string, botID orgchart.NodeID) (map[string]string, error) {
 			if orgID != "org-test" {
 				t.Errorf("orgID = %q, want org-test", orgID)
 			}
@@ -55,7 +55,7 @@ func TestListSecrets_ReturnsNameValueMap(t *testing.T) {
 func TestListSecrets_EmptyIsEmptyObjectNotNull(t *testing.T) {
 	t.Parallel()
 	fc := &fakeProjectConfig{
-		list: func(string, orgchart.BotID) (map[string]string, error) { return nil, nil },
+		list: func(string, orgchart.NodeID) (map[string]string, error) { return nil, nil },
 	}
 	raw, err := invokeAsCaller(t, mcptools.NewListSecrets(mcptools.Deps{ProjectConfig: fc}))
 	if err != nil {

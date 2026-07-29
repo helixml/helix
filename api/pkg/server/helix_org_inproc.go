@@ -23,11 +23,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
+	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
+	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -36,11 +41,231 @@ import (
 // runtimehelix.SpawnerClient by routing through the HelixAPIServer's
 // handler methods in-process.
 type inProcHelixClient struct {
-	server *HelixAPIServer
+	server  *HelixAPIServer
+	configs *configregistry.Registry
 }
 
-func NewInProcHelixClient(s *HelixAPIServer) *inProcHelixClient {
-	return &inProcHelixClient{server: s}
+func NewInProcHelixClient(s *HelixAPIServer, configs ...*configregistry.Registry) *inProcHelixClient {
+	client := &inProcHelixClient{server: s}
+	if len(configs) > 0 {
+		client.configs = configs[0]
+	}
+	return client
+}
+
+func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instructions string) (string, error) {
+	user, err := c.resolveUser(ctx)
+	if err != nil {
+		org, orgErr := c.server.lookupOrg(ctx, orgID)
+		if orgErr != nil {
+			return "", fmt.Errorf("resolve organization %s: %w", orgID, orgErr)
+		}
+		user, err = c.server.Store.GetUser(ctx, &store.GetUserQuery{ID: org.Owner})
+		if err != nil {
+			return "", fmt.Errorf("resolve owner %s for organization %s: %w", org.Owner, org.ID, err)
+		}
+		if user == nil {
+			return "", fmt.Errorf("resolve owner %s for organization %s: user not found", org.Owner, org.ID)
+		}
+	}
+	if user.ID == "" {
+		return "", errors.New("create agent: user is missing")
+	}
+	if name == "" {
+		return "", errors.New("create agent: name is missing")
+	}
+	assistant := types.AssistantConfig{
+		Name:             name,
+		SystemPrompt:     instructions,
+		AgentType:        types.AgentTypeZedExternal,
+		CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+	}
+	if c.configs != nil && c.configs.IsDefaultAgentConfigured(ctx, orgID) {
+		defaults, configErr := c.configs.GetDefaultAgentConfig(ctx, orgID)
+		if configErr != nil {
+			return "", fmt.Errorf("read default agent config: %w", configErr)
+		}
+		applyResolvedAgentDefaults(&assistant, defaults)
+	}
+	app, err := c.server.Store.CreateApp(ctx, &types.App{
+		Owner:          user.ID,
+		OwnerType:      types.OwnerTypeUser,
+		OrganizationID: orgID,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Name:                 name,
+			DefaultAgentType:     types.AgentTypeZedExternal,
+			ExternalAgentEnabled: true,
+			Assistants:           []types.AssistantConfig{assistant},
+		}},
+	})
+	if err != nil {
+		return "", err
+	}
+	return app.ID, nil
+}
+
+func (c *inProcHelixClient) ApplyAgentDefaults(ctx context.Context, appID string, defaults types.AssistantConfig) error {
+	app, err := c.server.Store.GetApp(ctx, appID)
+	if err != nil {
+		return err
+	}
+	if len(app.Config.Helix.Assistants) != 1 {
+		return errors.New("apply agent defaults: org-linked agent must contain exactly one assistant")
+	}
+	assistant := &app.Config.Helix.Assistants[0]
+	if !isDeferredAgentScaffold(*assistant) {
+		return nil
+	}
+	applyResolvedAgentDefaults(assistant, defaults)
+	_, err = c.server.Store.UpdateApp(ctx, app)
+	return err
+}
+
+func isDeferredAgentScaffold(assistant types.AssistantConfig) bool {
+	return assistant.AgentType == types.AgentTypeZedExternal &&
+		assistant.CodeAgentRuntime == types.CodeAgentRuntimeZedAgent &&
+		assistant.CodeAgentCredentialType == "" &&
+		assistant.Provider == "" &&
+		assistant.Model == "" &&
+		(assistant.ReasoningEffort == "" || assistant.ReasoningEffort == types.ReasoningEffortNone) &&
+		assistant.GenerationModelProvider == "" &&
+		assistant.GenerationModel == ""
+}
+
+func applyResolvedAgentDefaults(assistant *types.AssistantConfig, defaults types.AssistantConfig) {
+	runtime := defaults.CodeAgentRuntime
+	if runtime == "" {
+		runtime = types.CodeAgentRuntimeClaudeCode
+	}
+	credentials := defaults.CodeAgentCredentialType
+	if credentials == "" {
+		credentials = types.CodeAgentCredentialTypeSubscription
+	}
+	if !workerRuntimeSupportsSubscription(string(runtime)) {
+		credentials = types.CodeAgentCredentialTypeAPIKey
+	}
+	assistant.CodeAgentRuntime = runtime
+	assistant.CodeAgentCredentialType = credentials
+	assistant.Provider = ""
+	assistant.Model = ""
+	assistant.GenerationModelProvider = ""
+	assistant.GenerationModel = ""
+	if credentials == types.CodeAgentCredentialTypeAPIKey {
+		assistant.Provider = defaults.Provider
+		assistant.Model = defaults.Model
+		assistant.GenerationModelProvider = defaults.Provider
+		assistant.GenerationModel = defaults.Model
+	} else if runtime == types.CodeAgentRuntimeCodexCLI {
+		assistant.Model = defaults.Model
+	}
+	assistant.ReasoningEffort = defaults.ReasoningEffort
+}
+
+func (c *inProcHelixClient) UpdateAgent(ctx context.Context, appID string, patch orgapi.AgentConfigPatch, name, instructions *string) error {
+	user, err := c.resolveUser(ctx)
+	if err != nil {
+		return err
+	}
+	existing, err := c.server.Store.GetApp(ctx, appID)
+	if err != nil {
+		return err
+	}
+	priorJSON, err := json.Marshal(existing)
+	if err != nil {
+		return fmt.Errorf("snapshot agent app: %w", err)
+	}
+	var prior types.App
+	if err := json.Unmarshal(priorJSON, &prior); err != nil {
+		return fmt.Errorf("snapshot agent app: %w", err)
+	}
+	if err := c.server.authorizeUserToApp(ctx, user, existing, types.ActionUpdate); err != nil {
+		return err
+	}
+	update := existing
+	if len(update.Config.Helix.Assistants) != 1 {
+		return errors.New("update agent: org-linked agent must contain exactly one assistant")
+	}
+	assistant := &update.Config.Helix.Assistants[0]
+	if name != nil {
+		update.Config.Helix.Name = *name
+		assistant.Name = *name
+	}
+	if instructions != nil {
+		assistant.SystemPrompt = *instructions
+	}
+	if patch.CodeAgentRuntime != nil {
+		assistant.CodeAgentRuntime = *patch.CodeAgentRuntime
+	}
+	if patch.CodeAgentCredentialType != nil {
+		assistant.CodeAgentCredentialType = *patch.CodeAgentCredentialType
+	}
+	if patch.Provider != nil {
+		assistant.Provider = *patch.Provider
+	}
+	if patch.Model != nil {
+		assistant.Model = *patch.Model
+	}
+	if patch.ReasoningEffort != nil {
+		assistant.ReasoningEffort = *patch.ReasoningEffort
+	}
+	if patch.CodeAgentCredentialType != nil || patch.Provider != nil || patch.Model != nil {
+		if assistant.CodeAgentCredentialType == types.CodeAgentCredentialTypeAPIKey {
+			assistant.GenerationModelProvider = assistant.Provider
+			assistant.GenerationModel = assistant.Model
+		} else {
+			assistant.GenerationModelProvider = ""
+			assistant.GenerationModel = ""
+		}
+	}
+	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/agents/"+appID, update, map[string]string{"id": appID})
+	if err != nil {
+		return err
+	}
+	if _, herr := c.server.updateAgent(nil, r); herr != nil {
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if _, rollbackErr := c.server.Store.UpdateApp(rollbackCtx, &prior); rollbackErr != nil {
+			return fmt.Errorf("%s; restore agent app: %w", herr.Error(), rollbackErr)
+		}
+		return errors.New(herr.Error())
+	}
+	return nil
+}
+
+func (c *inProcHelixClient) UpdateAgentContent(ctx context.Context, appID, content string) error {
+	return c.UpdateAgent(ctx, appID, orgapi.AgentConfigPatch{}, nil, &content)
+}
+
+func (c *inProcHelixClient) ReadAgent(ctx context.Context, appID string) (orgapi.AgentProfile, error) {
+	app, err := c.server.Store.GetApp(ctx, appID)
+	if err != nil {
+		return orgapi.AgentProfile{}, err
+	}
+	if len(app.Config.Helix.Assistants) != 1 {
+		return orgapi.AgentProfile{}, fmt.Errorf("%w: org-linked agent app must contain exactly one assistant", orgapi.ErrInvalidAgentProfile)
+	}
+	assistant := app.Config.Helix.Assistants[0]
+	name := assistant.Name
+	if name == "" {
+		name = app.Config.Helix.Name
+	}
+	return orgapi.AgentProfile{
+		Name:                    name,
+		Instructions:            assistant.SystemPrompt,
+		CodeAgentRuntime:        assistant.CodeAgentRuntime,
+		CodeAgentCredentialType: assistant.CodeAgentCredentialType,
+		Provider:                assistant.Provider,
+		Model:                   assistant.Model,
+		ReasoningEffort:         assistant.ReasoningEffort,
+	}, nil
+}
+
+func (c *inProcHelixClient) AgentProfile(ctx context.Context, appID string) (string, string, error) {
+	profile, err := c.ReadAgent(ctx, appID)
+	if err != nil {
+		return "", "", err
+	}
+	return profile.Name, profile.Instructions, nil
 }
 
 // resolveUser returns the *types.User to attach to a handler-bound
@@ -400,11 +625,11 @@ func (c *inProcHelixClient) CreateBranch(ctx context.Context, repoID, branch, ba
 // GetAppConfig returns the typed config for an App. Used by
 // runtimehelix.AttachHelixOrgMCP to round-trip MCP entries.
 func (c *inProcHelixClient) GetAppConfig(ctx context.Context, id string) (types.AppConfig, error) {
-	r, err := c.newRequest(ctx, http.MethodGet, "/api/v1/apps/"+id, nil, map[string]string{"id": id})
+	r, err := c.newRequest(ctx, http.MethodGet, "/api/v1/agents/"+id, nil, map[string]string{"id": id})
 	if err != nil {
 		return types.AppConfig{}, err
 	}
-	app, herr := c.server.getApp(nil, r)
+	app, herr := c.server.getAgent(nil, r)
 	if herr != nil {
 		return types.AppConfig{}, fmt.Errorf("get app %s: %s", id, herr.Error())
 	}
@@ -414,19 +639,23 @@ func (c *inProcHelixClient) GetAppConfig(ctx context.Context, id string) (types.
 	return app.Config, nil
 }
 
+func (c *inProcHelixClient) GetApp(ctx context.Context, id string) (*types.App, error) {
+	return c.server.Store.GetApp(ctx, id)
+}
+
 // UpdateAppConfig persists a mutated app config.
 func (c *inProcHelixClient) UpdateAppConfig(ctx context.Context, id string, cfg types.AppConfig) error {
-	// updateApp reads the existing app to preserve immutable fields, so
+	// updateAgent reads the existing app to preserve immutable fields, so
 	// we only need to send {id, config}.
 	body := types.App{
 		ID:     id,
 		Config: cfg,
 	}
-	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/apps/"+id, body, map[string]string{"id": id})
+	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/agents/"+id, body, map[string]string{"id": id})
 	if err != nil {
 		return err
 	}
-	if _, herr := c.server.updateApp(nil, r); herr != nil {
+	if _, herr := c.server.updateAgent(nil, r); herr != nil {
 		return fmt.Errorf("update app %s: %s", id, herr.Error())
 	}
 	return nil
@@ -437,7 +666,26 @@ func (c *inProcHelixClient) UpdateAppConfig(ctx context.Context, id string, cfg 
 // 404 from the underlying handler is mapped to ErrProjectNotFound so
 // callers can treat already-gone projects as success.
 func (c *inProcHelixClient) DeleteProject(ctx context.Context, id string) error {
-	r, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/projects/"+id, nil, map[string]string{"id": id})
+	project, err := c.server.Store.GetProject(ctx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("%w: project %s", runtimehelix.ErrProjectNotFound, id)
+		}
+		return err
+	}
+	deleteCtx := ctx
+	if project.OrganizationID != "" {
+		org, err := c.server.Store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: project.OrganizationID})
+		if err != nil {
+			return fmt.Errorf("resolve project organization %s: %w", project.OrganizationID, err)
+		}
+		owner, err := c.server.Store.GetUser(ctx, &store.GetUserQuery{ID: org.Owner})
+		if err != nil {
+			return fmt.Errorf("resolve project organization owner %s: %w", org.Owner, err)
+		}
+		deleteCtx = runtimehelix.WithUser(ctx, owner)
+	}
+	r, err := c.newRequest(deleteCtx, http.MethodDelete, "/api/v1/projects/"+id, nil, map[string]string{"id": id})
 	if err != nil {
 		return err
 	}
@@ -456,17 +704,55 @@ func (c *inProcHelixClient) DeleteProject(ctx context.Context, id string) error 
 // gone" semantics; we re-use the sentinel rather than minting a
 // second one for the cascade caller's sake).
 func (c *inProcHelixClient) DeleteApp(ctx context.Context, id string) error {
-	r, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/apps/"+id, nil, map[string]string{"id": id})
-	if err != nil {
+	if _, err := c.server.Store.GetApp(ctx, id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("%w: app %s", runtimehelix.ErrProjectNotFound, id)
+		}
 		return err
 	}
-	if _, herr := c.server.deleteApp(nil, r); herr != nil {
-		if herr.StatusCode == http.StatusNotFound {
-			return fmt.Errorf("%w: %s", runtimehelix.ErrProjectNotFound, herr.Message)
-		}
-		return fmt.Errorf("delete app %s: %s", id, herr.Error())
+	return c.server.deleteAppData(ctx, id, false)
+}
+
+func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID string) error {
+	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
+	if !ok {
+		return fmt.Errorf("delete linked agent: store %T has no shared database", c.server.Store)
 	}
-	return nil
+	return accessor.GormDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		knowledgeIDs := tx.Model(&types.Knowledge{}).Select("id").Where("app_id = ?", appID)
+		if err := tx.Where("knowledge_id IN (?)", knowledgeIDs).Delete(&types.KnowledgeVersion{}).Error; err != nil {
+			return fmt.Errorf("delete knowledge versions: %w", err)
+		}
+		if err := tx.Where("app_id = ?", appID).Delete(&types.Knowledge{}).Error; err != nil {
+			return fmt.Errorf("delete knowledge: %w", err)
+		}
+		if err := tx.Exec(
+			"DELETE FROM org_bot_runtime_state WHERE org_id = ? AND bot_id = ?",
+			orgID, string(botID),
+		).Error; err != nil {
+			return fmt.Errorf("delete runtime state: %w", err)
+		}
+		if err := tx.Exec(
+			"DELETE FROM org_subscriptions WHERE org_id = ? AND bot_id = ?",
+			orgID, string(botID),
+		).Error; err != nil {
+			return fmt.Errorf("delete subscriptions: %w", err)
+		}
+		result := tx.Exec(
+			"DELETE FROM org_bots WHERE org_id = ? AND id = ? AND agent_app_id = ?",
+			orgID, string(botID), appID,
+		)
+		if result.Error != nil {
+			return fmt.Errorf("delete bot: %w", result.Error)
+		}
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("delete bot: linked graph node not found")
+		}
+		if err := tx.Delete(&types.App{ID: appID}).Error; err != nil {
+			return fmt.Errorf("delete app: %w", err)
+		}
+		return nil
+	})
 }
 
 // ---- runtimehelix.SpawnerClient ----

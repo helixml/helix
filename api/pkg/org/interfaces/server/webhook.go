@@ -21,7 +21,7 @@ const maxWebhookBody = 1 << 20
 // must exist and have transport.kind == webhook; otherwise 404.
 //
 // Source attribution on the resulting Event is empty (system-emitted,
-// per streaming.NewEvent's contract). The dispatcher is invoked so Bots
+// per streaming.NewEvent's contract). The dispatcher is invoked so Nodes
 // subscribed to the Topic are activated; the broadcaster is notified so
 // any long-poll observer wakes.
 func (s *Server) webhookHandler() http.Handler {

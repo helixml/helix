@@ -62,7 +62,6 @@ import RobustPromptInput from '../components/common/RobustPromptInput'
 
 import router5 from '../router'
 import useApi from '../hooks/useApi'
-import useApps from '../hooks/useApps'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import { useListProjects } from '../services/projectService'
@@ -70,6 +69,7 @@ import { deriveDisplaySettings } from '../services/externalAgentDisplay'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import {
+  BotDTO,
   ToolDTO,
   useActivateBot,
   useDeleteBot,
@@ -95,7 +95,7 @@ const HelixOrgBotDetail: FC = () => {
   const api = useApi()
   const orgSlug = router.params.org_id as string | undefined
   const botId = router.params.bot_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Bots', routeName: 'helix_org_bots' })
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Agents', routeName: 'helix_org_bots' })
 
   const del = useDeleteBot()
   // Stop polling/refetching this bot once a delete is in flight or done —
@@ -109,7 +109,6 @@ const HelixOrgBotDetail: FC = () => {
   const activateAgent = useActivateBot()
   const stopAgent = useStopBotAgent()
   const restartAgent = useRestartBotAgent()
-  const apps = useApps()
   const { data: toolCatalogue } = useListHelixOrgTools()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [agentMenuEl, setAgentMenuEl] = useState<null | HTMLElement>(null)
@@ -123,9 +122,7 @@ const HelixOrgBotDetail: FC = () => {
   const bot = data?.bot
   const projectID = data?.project_id
   const { data: projects = [] } = useListProjects(bot?.organization_id, { enabled: !!bot?.organization_id })
-  const agentAppID = data?.agent_app_id
-  const agentApp = apps.apps?.find((app) => app.id === agentAppID)
-  const assistant = agentApp?.config.helix.assistants?.[0]
+  const agentID = data?.agent_id ?? data?.agent_app_id
   // A human node is a person placeholder — it never runs, so the agent-only
   // surfaces (Project Desktop session, tools, preserve-context, restart) make
   // no sense for it and are hidden below.
@@ -162,13 +159,13 @@ const HelixOrgBotDetail: FC = () => {
 
   useEffect(() => {
     setRuntimeConfig({
-      runtime: assistant?.code_agent_runtime ?? '',
-      credentials: assistant?.code_agent_credential_type ?? 'api_key',
-      provider: assistant?.provider ?? '',
-      model: assistant?.model ?? '',
-      reasoning_effort: assistant?.reasoning_effort ?? 'none',
+      runtime: bot?.code_agent_runtime ?? '',
+      credentials: bot?.code_agent_credential_type ?? 'api_key',
+      provider: bot?.provider ?? '',
+      model: bot?.model ?? '',
+      reasoning_effort: bot?.reasoning_effort ?? 'none',
     })
-  }, [assistant?.code_agent_runtime, assistant?.code_agent_credential_type, assistant?.provider, assistant?.model, assistant?.reasoning_effort])
+  }, [bot?.code_agent_runtime, bot?.code_agent_credential_type, bot?.provider, bot?.model, bot?.reasoning_effort])
 
   // A human node is a person, not a bot — the agent detail page (desktop,
   // tools, activation) makes no sense for it. Redirect a direct hit on
@@ -202,50 +199,48 @@ const HelixOrgBotDetail: FC = () => {
     const savedProjectIDs = Array.from(new Set([...(bot.project_ids ?? []), ...(projectID ? [projectID] : [])])).sort()
     if (savedProjectIDs.join(',') !== [...projectIDs].sort().join(',')) return true
     if ((bot.preserve_context ?? false) !== preserveContext) return true
-    if ((assistant?.code_agent_runtime ?? '') !== runtimeConfig.runtime) return true
-    if ((assistant?.code_agent_credential_type ?? 'api_key') !== runtimeConfig.credentials) return true
-    if ((assistant?.provider ?? '') !== runtimeConfig.provider) return true
-    if ((assistant?.model ?? '') !== runtimeConfig.model) return true
-    if ((assistant?.reasoning_effort ?? 'none') !== (runtimeConfig.reasoning_effort ?? 'none')) return true
+    if ((bot.code_agent_runtime ?? '') !== runtimeConfig.runtime) return true
+    if ((bot.code_agent_credential_type ?? 'api_key') !== runtimeConfig.credentials) return true
+    if ((bot.provider ?? '') !== runtimeConfig.provider) return true
+    if ((bot.model ?? '') !== runtimeConfig.model) return true
+    if ((bot.reasoning_effort ?? 'none') !== (runtimeConfig.reasoning_effort ?? 'none')) return true
     return false
-  }, [bot, name, content, tools, projectIDs, projectID, preserveContext, assistant?.code_agent_runtime, assistant?.code_agent_credential_type, assistant?.provider, assistant?.model, assistant?.reasoning_effort, runtimeConfig.runtime, runtimeConfig.credentials, runtimeConfig.provider, runtimeConfig.model, runtimeConfig.reasoning_effort])
+  }, [bot, name, content, tools, projectIDs, projectID, preserveContext, runtimeConfig.runtime, runtimeConfig.credentials, runtimeConfig.provider, runtimeConfig.model, runtimeConfig.reasoning_effort])
 
   const handleSave = async () => {
     if (!botId) return
     const runtimeChanged =
-      (assistant?.code_agent_runtime ?? '') !== runtimeConfig.runtime
+      (bot?.code_agent_runtime ?? '') !== runtimeConfig.runtime
     try {
-      await updateBot.mutateAsync({ id: botId, name, content, tools, project_ids: projectIDs, preserve_context: preserveContext })
-      if (agentAppID && agentApp && assistant) {
-        const updatedAssistant = {
-          ...assistant,
-          code_agent_runtime: runtimeConfig.runtime as typeof assistant.code_agent_runtime,
-          code_agent_credential_type: runtimeConfig.credentials as typeof assistant.code_agent_credential_type,
-          provider: runtimeConfig.provider,
-          model: runtimeConfig.model,
-          reasoning_effort: runtimeConfig.reasoning_effort ?? 'none',
-          generation_model_provider: runtimeConfig.credentials === 'api_key' ? runtimeConfig.provider : '',
-          generation_model: runtimeConfig.credentials === 'api_key' ? runtimeConfig.model : '',
-        }
-        await apps.updateApp(agentAppID, {
-          ...agentApp,
-          config: {
-            ...agentApp.config,
-            helix: {
-              ...agentApp.config.helix,
-              assistants: [updatedAssistant, ...(agentApp.config.helix.assistants ?? []).slice(1)],
-            },
-          },
-        })
-      }
-      if (runtimeChanged && chatSessionId && agentAppID) {
-        await switchAgent.mutateAsync({ helix_app_id: agentAppID })
-        snackbar.success(`bot ${botId} saved — switching the active session to ${runtimeConfig.runtime}`)
-      } else {
-        snackbar.success(`bot ${botId} saved`)
-      }
+      await updateBot.mutateAsync({
+        id: botId,
+        name,
+        content,
+        tools,
+        project_ids: projectIDs,
+        preserve_context: preserveContext,
+        code_agent_runtime: runtimeConfig.runtime as NonNullable<BotDTO['code_agent_runtime']>,
+        code_agent_credential_type: runtimeConfig.credentials as NonNullable<BotDTO['code_agent_credential_type']>,
+        provider: runtimeConfig.provider,
+        model: runtimeConfig.model,
+        reasoning_effort: runtimeConfig.reasoning_effort ?? 'none',
+      })
+      await refetchBot()
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save failed')
+      return
+    }
+    if (runtimeChanged && chatSessionId && agentID) {
+      try {
+        await switchAgent.mutateAsync({ helix_app_id: agentID })
+        snackbar.success(`Agent ${botId} saved and the active session switched to ${runtimeConfig.runtime}`)
+      } catch (err: any) {
+        await refetchBot()
+        const message = err?.response?.data?.error ?? err?.message ?? 'session switch failed'
+        snackbar.error(`Agent saved, but active session switch failed: ${message}`)
+      }
+    } else {
+      snackbar.success(`Agent ${botId} saved`)
     }
   }
 
@@ -313,10 +308,7 @@ const HelixOrgBotDetail: FC = () => {
   // Desktop resolution / fps for the stream, derived from the bot's agent
   // app config (same helper the spec-task desktop uses). Falls back to
   // 1920x1080x60 when the app or config is missing.
-  const displaySettings = useMemo(
-    () => deriveDisplaySettings(apps.apps?.find((a) => a.id === agentAppID)),
-    [agentAppID, apps.apps],
-  )
+  const displaySettings = deriveDisplaySettings(undefined)
 
   // chatApi adapts the generated client to the read-only shape the
   // workerChatSession helper expects (we only GET the existing session
@@ -371,7 +363,7 @@ const HelixOrgBotDetail: FC = () => {
     } catch (err: any) {
       const status = err?.response?.status
       if (status === 409) {
-        snackbar.error('owner bot is protected and cannot be deleted')
+        snackbar.error('owner agent is protected and cannot be deleted')
       } else {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'delete failed')
       }
@@ -380,7 +372,7 @@ const HelixOrgBotDetail: FC = () => {
     }
   }
 
-  const leafTitle = bot?.name || botId || 'Bot'
+  const leafTitle = bot?.name || botId || 'Agent'
 
   return (
     <HelixOrgShell
@@ -424,8 +416,8 @@ const HelixOrgBotDetail: FC = () => {
                 </Box>
 
                 {/* Session panel — Chat | Desktop toggle, both bound to the
-                    bot's Project Desktop exploratory session (the same views
-                    the spec-task page uses). Auto-loads when the bot already
+                    agent's Project Desktop exploratory session (the same views
+                    the spec-task page uses). Auto-loads when the agent already
                     has a session; otherwise shows an empty state. */}
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack spacing={2} alignItems="flex-start">
@@ -518,8 +510,8 @@ const HelixOrgBotDetail: FC = () => {
                     </Stack>
                     <Typography variant="body2" color="text.secondary">
                       {sessionTab === 'chat'
-                        ? "Chat with this bot’s agent — messages include tool calls. Use the menu to start, stop, or restart the agent."
-                        : "Live desktop of the bot’s agent. Use the menu to start, stop, or restart the agent."}
+                        ? "Chat with this agent - messages include tool calls. Use the menu to start, stop, or restart it."
+                        : "Live desktop of this agent. Use the menu to start, stop, or restart it."}
                     </Typography>
 
                     {!agentOnline && !chatSessionId && (
@@ -632,7 +624,7 @@ const HelixOrgBotDetail: FC = () => {
                   />
                 </Box>
 
-                {agentAppID && (
+                {agentID && (
                   <Box>
                     <AgentConfigForm
                       value={runtimeConfig}
@@ -710,7 +702,7 @@ const HelixOrgBotDetail: FC = () => {
                       <TextField
                         {...params}
                         placeholder="Select projects"
-                        helperText="The bot's own project is always allowed and is used when a tool omits project_id. Other projects must be selected here."
+                        helperText="The agent's own project is always allowed and is used when a tool omits project_id. Other projects must be selected here."
                       />
                     )}
                   />
@@ -769,8 +761,8 @@ const HelixOrgBotDetail: FC = () => {
                     renderInput={(params) => (
                       <TextField
                         {...params}
-                        placeholder={tools.length === 0 ? 'Pick the tools this bot can call' : ''}
-                        helperText="MCP tools this bot can call. Empty = no tools (the bot can still receive owner-chat)."
+                        placeholder={tools.length === 0 ? 'Pick the tools this agent can call' : ''}
+                        helperText="MCP tools this agent can call. Empty = no tools (the agent can still receive owner-chat)."
                       />
                     )}
                   />
@@ -787,12 +779,12 @@ const HelixOrgBotDetail: FC = () => {
                     label="Preserve context across triggers"
                   />
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    By default each trigger wipes the bot's session so every turn
+                    By default each trigger wipes the agent's session so every turn
                     starts on a fresh context window. Enable this to keep the
                     conversation across triggers — faster, more context-aware
                     follow-ups (e.g. for Slack), at the cost of the session
                     growing toward the model's context limit (where compaction
-                    kicks in). Durable state still belongs in the bot's git
+                    kicks in). Durable state still belongs in the agent's git
                     workspace, not the chat history.
                   </Typography>
                 </Box>
@@ -848,22 +840,22 @@ const HelixOrgBotDetail: FC = () => {
                       )}
                     </Box>
                   )}
-                  {agentAppID && (
+                  {agentID && (
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Agent</Typography>
                       {orgSlug ? (
                         <Link
-                          href={router5.buildPath('org_agent', { org_id: orgSlug, app_id: agentAppID })}
+                          href={router5.buildPath('org_agent', { org_id: orgSlug, app_id: agentID })}
                           target="_blank"
                           rel="noopener noreferrer"
                           underline="hover"
                           sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: 0.5, wordBreak: 'break-all' }}
                         >
-                          {agentAppID}
+                          {agentID}
                           <OpenInNewIcon sx={{ fontSize: 14, flexShrink: 0 }} />
                         </Link>
                       ) : (
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>{agentAppID}</Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>{agentID}</Typography>
                       )}
                     </Box>
                   )}
@@ -876,11 +868,12 @@ const HelixOrgBotDetail: FC = () => {
                     disabled={del.isPending}
                     fullWidth
                   >
-                    Delete bot
+                    Delete agent
                   </Button>
                   <Typography variant="caption" color="text.secondary">
-                    Tears down the bot's per-bot Helix project and deletes the row,
-                    dropping its subscriptions and reporting lines.
+                    Deletes the canonical Agent configuration and knowledge,
+                    tears down its Helix project, and drops its subscriptions
+                    and reporting lines.
                   </Typography>
                 </Stack>
               </Paper>
@@ -893,14 +886,16 @@ const HelixOrgBotDetail: FC = () => {
 
       {confirmingDelete && botId && (
         <DeleteConfirmWindow
-          title="bot"
+          title="agent"
           submitTitle="Delete"
           onSubmit={handleDelete}
           onCancel={() => setConfirmingDelete(false)}
         >
           <Typography variant="body1">
-            Deleting bot <b style={{ fontFamily: 'monospace' }}>{botId}</b> tears down its
-            per-bot Helix project + agent app and clears its runtime state. This is irreversible.
+            Deleting agent <b style={{ fontFamily: 'monospace' }}>{botId}</b> deletes its
+            canonical Agent configuration and knowledge sources, tears down its
+            Helix project, and clears its subscriptions, reporting lines, and runtime state.
+            This is irreversible.
           </Typography>
         </DeleteConfirmWindow>
       )}
@@ -986,7 +981,7 @@ const SubscriptionsPanel: FC<{ botID?: string }> = ({ botID }) => {
         renderInput={(params) => (
           <TextField
             {...params}
-            placeholder={subscribedTopics.length === 0 ? 'Subscribe this bot to a topic…' : ''}
+            placeholder={subscribedTopics.length === 0 ? 'Subscribe this agent to a topic...' : ''}
             variant="outlined"
             size="small"
           />
@@ -1007,7 +1002,7 @@ const SubscriptionsPanel: FC<{ botID?: string }> = ({ botID }) => {
         }
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-        Subscriptions are per-Bot — they die when this Bot is deleted.
+        Subscriptions belong to this agent and are removed when it is deleted.
       </Typography>
     </Box>
   )

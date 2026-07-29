@@ -21,8 +21,8 @@ func TestQueries_ReadsAcrossAggregates(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	b, _ := orgchart.NewBot("w-mark", "# Eng", []tool.Name{"publish"}, now, "org-test")
-	if err := st.Bots.Create(ctx, b); err != nil {
+	b, _ := orgchart.NewNode("w-mark", "# Eng", []tool.Name{"publish"}, now, "org-test")
+	if err := st.Nodes.Create(ctx, b); err != nil {
 		t.Fatal(err)
 	}
 	topic, _ := streaming.NewTopic("s-1", "s-1", "", "w-owner", now, transport.LocalTransport(), "org-test")
@@ -39,7 +39,7 @@ func TestQueries_ReadsAcrossAggregates(t *testing.T) {
 	}
 
 	q := New(Deps{
-		Bots: st.Bots, ReportingLines: st.ReportingLines,
+		Nodes: st.Nodes, ReportingLines: st.ReportingLines,
 		Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events,
 	})
 

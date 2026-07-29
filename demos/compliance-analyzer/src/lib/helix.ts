@@ -91,7 +91,7 @@ export interface CreatedApp {
  * Each analysis run gets its own app so documents are isolated.
  */
 export async function createApp(config: HelixConfig): Promise<CreatedApp> {
-  const response = await helixFetch(config, "/api/v1/apps", {
+  const response = await helixFetch(config, "/api/v1/agents", {
     method: "POST",
     body: JSON.stringify({
       config: {

@@ -56,7 +56,7 @@ func (activationMapper) ToDomain(row activationRow) (*activation.Activation, err
 	a := &activation.Activation{
 		ID:             activation.ID(row.ID),
 		OrganizationID: row.OrgID,
-		WorkerID:       orgchart.BotID(row.WorkerID),
+		WorkerID:       orgchart.NodeID(row.WorkerID),
 		Triggers:       triggers,
 		StartedAt:      row.StartedAt,
 		EndedAt:        row.EndedAt,
@@ -99,7 +99,7 @@ func (r *activationsRepo) Get(ctx context.Context, orgID string, id activation.I
 	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }
 
-func (r *activationsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.BotID, limit int) ([]*activation.Activation, error) {
+func (r *activationsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.NodeID, limit int) ([]*activation.Activation, error) {
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("worker_id", string(workerID)),

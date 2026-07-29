@@ -10,15 +10,15 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 )
 
-// ---- Bots ---------------------------------------------------------------
+// ---- Nodes ---------------------------------------------------------------
 
 // listBots returns every Bot row, each with its tools and the managers
 // it reports to.
@@ -43,7 +43,7 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 	}
 	// One List call builds the report → managers index so each bot's
 	// parent_ids don't cost a query.
-	managersByReport := map[orgchart.BotID][]string{}
+	managersByReport := map[orgchart.NodeID][]string{}
 	if a.deps.Queries.ReportingLinesWired() {
 		lines, err := a.deps.Queries.ListReportingLines(ctx, orgID)
 		if err != nil {
@@ -57,10 +57,14 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 	out := make([]BotDTO, 0, len(bs))
 	for _, b := range bs {
 		dto := botDTO(b, managersByReport[b.ID])
+		if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil && !errors.Is(err, ErrInvalidAgentProfile) {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 		// Humans never run an agent sandbox — always "stopped". Agents
 		// get status from the runtime sidecar + session metadata.
 		dto.AgentStatus = "stopped"
-		if b.Kind != orgchart.BotKindHuman && a.deps.BotRuntime != nil {
+		if b.Kind != orgchart.NodeKindHuman && a.deps.BotRuntime != nil {
 			if info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID); err == nil {
 				if info.AgentStatus != "" {
 					dto.AgentStatus = info.AgentStatus
@@ -111,7 +115,7 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A manager Bot gets the canonical owner tool set (all mutations +
-	// read baseline) so it can hire and manage other Bots; otherwise the
+	// read baseline) so it can hire and manage other Nodes; otherwise the
 	// caller's tools are used. Either way the bots service unions the
 	// base read tools, so a "New Bot" dialog with no tools picker still
 	// gets a usable MCP surface.
@@ -119,13 +123,6 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 	if req.Owner {
 		tools = mcptools.OwnerBotTools()
 	}
-	// Defer provisioning when the org has no runtime configured yet, so the
-	// Bot is never brought up on the seed-time default (claude_code /
-	// subscription / no model, which Zed renders as gpt). It provisions with
-	// the correct config once the operator sets the default agent configuration - see
-	// reapplyBotsAfterRuntimeChange. When a runtime IS already configured
-	// (e.g. picked in the create-org dialog before seeding), the Bot
-	// provisions immediately with that config, correct from the first boot.
 	deferActivation := a.deps.Configs != nil && !a.deps.Configs.IsDefaultAgentConfigured(ctx, orgID)
 	// REST and chat-driven creates share lifecycle.Create — one
 	// implementation.
@@ -135,7 +132,7 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		Content:         req.Content,
 		Tools:           tools,
 		Topics:          toTopicIDs(req.Topics),
-		ParentID:        orgchart.BotID(strings.TrimSpace(req.ParentID)),
+		ParentID:        orgchart.NodeID(strings.TrimSpace(req.ParentID)),
 		PreserveContext: req.PreserveContext,
 		DeferActivation: deferActivation,
 	})
@@ -143,7 +140,7 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, CreateBotResponse{ID: string(res.Bot.ID), ActivationID: string(res.ActivationID)})
+	writeJSON(w, http.StatusCreated, CreateBotResponse{ID: string(res.Node.ID), ActivationID: string(res.ActivationID)})
 }
 
 // getBot returns one Bot + the surrounding runtime context.
@@ -163,7 +160,7 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.BotID(r.PathValue("id"))
+	id := orgchart.NodeID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
@@ -175,6 +172,10 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dto := botDTO(b, a.managerIDs(ctx, orgID, id))
+	if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	dto.AgentStatus = "stopped"
 	// Populate the agent app id + project id from the helix-runtime
 	// sidecar so the chart UI can deep-link "chat with bot" to the
@@ -184,17 +185,43 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	// presence control on the bot detail page.
 	if a.deps.BotRuntime != nil {
 		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
-			detail := BotDetailDTO{Bot: dto, AgentAppID: info.AgentAppID, ProjectID: info.ProjectID}
+			agentID := b.AgentID
+			if agentID == "" {
+				agentID = info.AgentID
+			}
+			detail := BotDetailDTO{Bot: dto, AgentID: agentID, LegacyAgentID: agentID, ProjectID: info.ProjectID}
 			if info.AgentStatus != "" {
 				detail.Bot.AgentStatus = info.AgentStatus
 			}
 			detail.Bot.AgentRuntime = info.Runtime
 			detail.Bot.AgentModel = info.Model
-			writeJSON(w, http.StatusOK, detail)
+			if strings.Contains(r.URL.Path, "/agents/") {
+				writeJSON(w, http.StatusOK, AgentDetailDTO{BotDTO: detail.Bot, ProjectID: detail.ProjectID})
+			} else {
+				writeJSON(w, http.StatusOK, detail)
+			}
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto})
+	if strings.Contains(r.URL.Path, "/agents/") {
+		writeJSON(w, http.StatusOK, AgentDetailDTO{BotDTO: dto})
+	} else {
+		writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto, AgentID: b.AgentID, LegacyAgentID: b.AgentID})
+	}
+}
+
+// @Summary Helix-org: get agent detail
+// @Description Get one canonical Agent with its instructions, tools, runtime, model configuration, project, and reporting lines.
+// @Tags HelixOrg
+// @Produce json
+// @Param org path string true "Organization slug or ID"
+// @Param id path string true "Agent ID"
+// @Success 200 {object} api.AgentDetailDTO
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/agents/{id} [get]
+func (a *apiHandler) getAgent(w http.ResponseWriter, r *http.Request) {
+	a.getBot(w, r)
 }
 
 // updateBot rewrites a Bot's content / tools / topics. A nil field is
@@ -217,7 +244,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.BotID(r.PathValue("id"))
+	id := orgchart.NodeID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
@@ -251,9 +278,28 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		}
 		identityPatch = &req.Identity
 	}
-	updated, err := a.deps.Bots.Update(ctx, orgID, id, bots.UpdateParams{
-		Name:            req.Name,
-		Content:         req.Content,
+	namePatch := req.Name
+	contentPatch := req.Content
+	configPatch := AgentConfigPatch{
+		CodeAgentRuntime:        req.CodeAgentRuntime,
+		CodeAgentCredentialType: req.CodeAgentCredentialType,
+		Provider:                req.Provider,
+		Model:                   req.Model,
+		ReasoningEffort:         req.ReasoningEffort,
+	}
+	existing, err := a.deps.Queries.GetBot(ctx, orgID, id)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get bot for update: %w", err))
+		return
+	}
+	canonicalChange := !configPatch.Empty() || namePatch != nil || contentPatch != nil
+	if !existing.IsHuman() && existing.AgentID != "" && canonicalChange && a.deps.AgentUpdater == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("canonical agent updater is not available"))
+		return
+	}
+	updated, err := a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
+		Name:            namePatch,
+		Content:         contentPatch,
 		Tools:           toolsPatch,
 		ProjectIDs:      stringSlicePatch(req.ProjectIDs),
 		PreserveContext: req.PreserveContext,
@@ -263,7 +309,37 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, botDTO(updated, a.managerIDs(ctx, orgID, id)))
+	if !updated.IsHuman() && updated.AgentID != "" && canonicalChange {
+		if err := a.deps.AgentUpdater.UpdateAgent(ctx, updated.AgentID, configPatch, namePatch, contentPatch); err != nil {
+			tools := append([]tool.Name(nil), existing.Tools...)
+			projectIDs := append([]string(nil), existing.ProjectIDs...)
+			identity := make(map[string]string, len(existing.Identity))
+			for key, value := range existing.Identity {
+				identity[key] = value
+			}
+			preserveContext := existing.PreserveContext
+			_, rollbackErr := a.deps.Nodes.Update(ctx, orgID, id, nodes.UpdateParams{
+				Name:            &existing.Name,
+				Content:         &existing.Content,
+				Tools:           &tools,
+				ProjectIDs:      &projectIDs,
+				PreserveContext: &preserveContext,
+				Identity:        &identity,
+			})
+			if rollbackErr != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Errorf("update agent: %v; rollback org profile: %w", err, rollbackErr))
+				return
+			}
+			writeError(w, errStatus(err), fmt.Errorf("update agent: %w", err))
+			return
+		}
+	}
+	dto := botDTO(updated, a.managerIDs(ctx, orgID, id))
+	if err := a.canonicalAgentProfile(ctx, updated, &dto); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto)
 }
 
 // deleteBot tears down a Bot via the lifecycle service. Cascades the
@@ -290,7 +366,7 @@ func (a *apiHandler) deleteBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.BotID(r.PathValue("id"))
+	id := orgchart.NodeID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
@@ -333,7 +409,7 @@ func (a *apiHandler) addBotParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.BotID(r.PathValue("id"))
+	id := orgchart.NodeID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
@@ -343,7 +419,7 @@ func (a *apiHandler) addBotParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	managerID := orgchart.BotID(strings.TrimSpace(req.ParentID))
+	managerID := orgchart.NodeID(strings.TrimSpace(req.ParentID))
 	if managerID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("parent_id is required"))
 		return
@@ -351,12 +427,12 @@ func (a *apiHandler) addBotParent(w http.ResponseWriter, r *http.Request) {
 	// The service validates both endpoints, guards the DAG against
 	// cycles, wires the line, and reconciles the activation/team Topics
 	// the new edge implies — one place, shared invariants.
-	switch err := a.deps.Bots.AddParent(ctx, orgID, id, managerID); {
+	switch err := a.deps.Nodes.AddParent(ctx, orgID, id, managerID); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, bots.ErrReportingLinesUnavailable):
+	case errors.Is(err, nodes.ErrReportingLinesUnavailable):
 		writeError(w, http.StatusNotImplemented, err)
-	case errors.Is(err, bots.ErrReportingCycle):
+	case errors.Is(err, nodes.ErrReportingCycle):
 		writeError(w, http.StatusConflict, err)
 	default:
 		writeError(w, errStatus(err), err)
@@ -383,8 +459,8 @@ func (a *apiHandler) removeBotParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.BotID(r.PathValue("id"))
-	managerID := orgchart.BotID(r.PathValue("parent_id"))
+	id := orgchart.NodeID(r.PathValue("id"))
+	managerID := orgchart.NodeID(r.PathValue("parent_id"))
 	if id == "" || managerID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id and parent_id are required"))
 		return
@@ -392,10 +468,10 @@ func (a *apiHandler) removeBotParent(w http.ResponseWriter, r *http.Request) {
 	// The service drops the line and reconciles the Topics the dropped
 	// edge implies (unsubscribe ex-manager from the report's activation
 	// topic, remove report from the ex-manager's team topic).
-	switch err := a.deps.Bots.RemoveParent(ctx, orgID, id, managerID); {
+	switch err := a.deps.Nodes.RemoveParent(ctx, orgID, id, managerID); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, bots.ErrReportingLinesUnavailable):
+	case errors.Is(err, nodes.ErrReportingLinesUnavailable):
 		writeError(w, http.StatusNotImplemented, err)
 	default:
 		writeError(w, errStatus(err), err)
@@ -428,7 +504,7 @@ func (a *apiHandler) ensureBotChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.BotID(r.PathValue("id"))
+	id := orgchart.NodeID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
@@ -442,7 +518,7 @@ func (a *apiHandler) ensureBotChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("ensure bot chat: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, BotChatDTO{AgentAppID: agentAppID, ProjectID: projectID})
+	writeJSON(w, http.StatusOK, BotChatDTO{AgentID: agentAppID, LegacyAgentID: agentAppID, ProjectID: projectID})
 }
 
 // activateBot manually triggers an activation for a Bot. The bot
@@ -473,7 +549,7 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.BotID(r.PathValue("id"))
+	id := orgchart.NodeID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
@@ -494,10 +570,11 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, BotActivateDTO{
-		ActivationID: string(res.ActivationID),
-		ProjectID:    res.ProjectID,
-		AgentAppID:   res.AgentAppID,
-		SessionID:    res.SessionID,
+		ActivationID:  string(res.ActivationID),
+		ProjectID:     res.ProjectID,
+		AgentID:       res.AgentID,
+		LegacyAgentID: res.AgentID,
+		SessionID:     res.SessionID,
 	})
 }
 
@@ -525,7 +602,7 @@ func (a *apiHandler) stopBotAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.BotID(r.PathValue("id"))
+	id := orgchart.NodeID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
@@ -569,7 +646,7 @@ func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.BotID(r.PathValue("id"))
+	id := orgchart.NodeID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
@@ -588,10 +665,11 @@ func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, BotActivateDTO{
-		ActivationID: string(res.ActivationID),
-		ProjectID:    res.ProjectID,
-		AgentAppID:   res.AgentAppID,
-		SessionID:    res.SessionID,
+		ActivationID:  string(res.ActivationID),
+		ProjectID:     res.ProjectID,
+		AgentID:       res.AgentID,
+		LegacyAgentID: res.AgentID,
+		SessionID:     res.SessionID,
 	})
 }
 
@@ -601,7 +679,7 @@ func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 // as strings, for embedding in a BotDTO. Returns nil on any store error
 // — the reporting graph is best-effort context, never a reason to fail
 // the whole bot read.
-func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.BotID) []string {
+func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.NodeID) []string {
 	if !a.deps.Queries.ReportingLinesWired() {
 		return nil
 	}
@@ -616,12 +694,14 @@ func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.B
 	return out
 }
 
-// botDTO converts an orgchart.Bot to its wire form. parentIDs are the
+// botDTO converts an orgchart.Node to its wire form. parentIDs are the
 // managers this Bot reports to (from the reporting lines); nil for a
 // top-level Bot.
-func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
+func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 	dto := BotDTO{
 		ID:              string(b.ID),
+		AgentID:         b.AgentID,
+		LegacyAgentID:   b.AgentID,
 		Name:            b.Name,
 		Content:         b.Content,
 		ProjectIDs:      b.ProjectIDs,
@@ -645,6 +725,24 @@ func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 	sort.Strings(tools)
 	dto.Tools = tools
 	return dto
+}
+
+func (a *apiHandler) canonicalAgentProfile(ctx context.Context, bot orgchart.Node, dto *BotDTO) error {
+	if dto == nil || bot.IsHuman() || bot.AgentID == "" || a.deps.AgentReader == nil {
+		return nil
+	}
+	profile, err := a.deps.AgentReader.ReadAgent(ctx, bot.AgentID)
+	if err != nil {
+		return fmt.Errorf("read canonical agent %s for bot %s: %w", bot.AgentID, bot.ID, err)
+	}
+	dto.Name = profile.Name
+	dto.Content = profile.Instructions
+	dto.CodeAgentRuntime = profile.CodeAgentRuntime
+	dto.CodeAgentCredentialType = profile.CodeAgentCredentialType
+	dto.Provider = profile.Provider
+	dto.Model = profile.Model
+	dto.ReasoningEffort = profile.ReasoningEffort
+	return nil
 }
 
 func stringSlicePatch(in []string) *[]string {

@@ -12,15 +12,15 @@ import (
 
 const orgID = "org-test"
 
-func bot(id orgchart.BotID) orgchart.Bot {
-	b, err := orgchart.NewBot(id, "#", nil, time.Unix(1, 0), orgID)
+func bot(id orgchart.NodeID) orgchart.Node {
+	b, err := orgchart.NewNode(id, "#", nil, time.Unix(1, 0), orgID)
 	if err != nil {
 		panic(err)
 	}
 	return b
 }
 
-func line(manager, report orgchart.BotID) orgchart.ReportingLine {
+func line(manager, report orgchart.NodeID) orgchart.ReportingLine {
 	l, err := orgchart.NewReportingLine(orgID, manager, report)
 	if err != nil {
 		panic(err)
@@ -28,18 +28,18 @@ func line(manager, report orgchart.BotID) orgchart.ReportingLine {
 	return l
 }
 
-func membersOf(set Set, sid streaming.TopicID) []orgchart.BotID {
-	var out []orgchart.BotID
+func membersOf(set Set, sid streaming.TopicID) []orgchart.NodeID {
+	var out []orgchart.NodeID
 	for k := range set.Members {
 		if k.TopicID == sid {
-			out = append(out, k.BotID)
+			out = append(out, k.NodeID)
 		}
 	}
 	sort.Strings(out)
 	return out
 }
 
-func eq(a, b []orgchart.BotID) bool {
+func eq(a, b []orgchart.NodeID) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -56,7 +56,7 @@ func eq(a, b []orgchart.BotID) bool {
 // NO observers — never self-subscribed — and, with no reports, no team
 // topic.
 func TestRequired_ManagerlessRootHasUnobservedTranscript(t *testing.T) {
-	set := Required([]orgchart.Bot{bot("w-root")}, nil)
+	set := Required([]orgchart.Node{bot("w-root")}, nil)
 
 	tx := activation.TranscriptID("w-root")
 	if _, ok := set.Channels[tx]; !ok {
@@ -73,7 +73,7 @@ func TestRequired_ManagerlessRootHasUnobservedTranscript(t *testing.T) {
 // TestRequired_ObservedByManagers: a bot's transcript is subscribed by
 // ALL its managers (many-to-many).
 func TestRequired_ObservedByManagers(t *testing.T) {
-	bots := []orgchart.Bot{bot("w-owner"), bot("w-jane"), bot("w-bob"), bot("w-li")}
+	bots := []orgchart.Node{bot("w-owner"), bot("w-jane"), bot("w-bob"), bot("w-li")}
 	lines := []orgchart.ReportingLine{
 		line("w-owner", "w-jane"),
 		line("w-owner", "w-bob"),
@@ -83,14 +83,14 @@ func TestRequired_ObservedByManagers(t *testing.T) {
 	set := Required(bots, lines)
 
 	// w-li observed by both jane and bob.
-	if got := membersOf(set, activation.TranscriptID("w-li")); !eq(got, []orgchart.BotID{"w-bob", "w-jane"}) {
+	if got := membersOf(set, activation.TranscriptID("w-li")); !eq(got, []orgchart.NodeID{"w-bob", "w-jane"}) {
 		t.Fatalf("w-li activation observers = %v, want [w-bob w-jane]", got)
 	}
 	// w-li is a member of BOTH team topics.
-	if got := membersOf(set, TeamTopicID("w-jane")); !eq(got, []orgchart.BotID{"w-jane", "w-li"}) {
+	if got := membersOf(set, TeamTopicID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
 		t.Fatalf("s-team-w-jane members = %v, want [w-jane w-li]", got)
 	}
-	if got := membersOf(set, TeamTopicID("w-bob")); !eq(got, []orgchart.BotID{"w-bob", "w-li"}) {
+	if got := membersOf(set, TeamTopicID("w-bob")); !eq(got, []orgchart.NodeID{"w-bob", "w-li"}) {
 		t.Fatalf("s-team-w-bob members = %v, want [w-bob w-li]", got)
 	}
 }
@@ -98,7 +98,7 @@ func TestRequired_ObservedByManagers(t *testing.T) {
 // TestRequired_NoSelfSubscribe: a manager-less bot is never subscribed
 // to its own transcript (would re-trigger forever).
 func TestRequired_NoSelfSubscribe(t *testing.T) {
-	set := Required([]orgchart.Bot{bot("w-rogue")}, nil)
+	set := Required([]orgchart.Node{bot("w-rogue")}, nil)
 	if got := membersOf(set, activation.TranscriptID("w-rogue")); len(got) != 0 {
 		t.Fatalf("manager-less bot activation observers = %v, want none", got)
 	}
@@ -109,7 +109,7 @@ func TestRequired_NoSelfSubscribe(t *testing.T) {
 // managed bot's transcript is observed by its manager, and the manager
 // gets a team topic containing the report.
 func TestRequired_EveryBotGetsTranscript(t *testing.T) {
-	bots := []orgchart.Bot{bot("w-owner"), bot("w-renee")}
+	bots := []orgchart.Node{bot("w-owner"), bot("w-renee")}
 	set := Required(bots, []orgchart.ReportingLine{line("w-owner", "w-renee")})
 
 	// The managed bot DOES get a transcript now.
@@ -117,11 +117,11 @@ func TestRequired_EveryBotGetsTranscript(t *testing.T) {
 		t.Fatalf("managed bot must get a transcript")
 	}
 	// Its observer is the manager.
-	if got := membersOf(set, activation.TranscriptID("w-renee")); !eq(got, []orgchart.BotID{"w-owner"}) {
+	if got := membersOf(set, activation.TranscriptID("w-renee")); !eq(got, []orgchart.NodeID{"w-owner"}) {
 		t.Fatalf("w-renee transcript observers = %v, want [w-owner]", got)
 	}
 	// And the owner now has a team topic containing renee.
-	if got := membersOf(set, TeamTopicID("w-owner")); !eq(got, []orgchart.BotID{"w-owner", "w-renee"}) {
+	if got := membersOf(set, TeamTopicID("w-owner")); !eq(got, []orgchart.NodeID{"w-owner", "w-renee"}) {
 		t.Fatalf("s-team-w-owner members = %v, want [w-owner w-renee]", got)
 	}
 }
@@ -130,7 +130,7 @@ func TestRequired_EveryBotGetsTranscript(t *testing.T) {
 // non-existent bot is ignored rather than producing phantom
 // subscriptions.
 func TestRequired_DanglingLineIgnored(t *testing.T) {
-	bots := []orgchart.Bot{bot("w-owner")}
+	bots := []orgchart.Node{bot("w-owner")}
 	set := Required(bots, []orgchart.ReportingLine{line("w-owner", "w-ghost")})
 	if _, ok := set.Channels[TeamTopicID("w-owner")]; ok {
 		t.Fatalf("team topic must not exist when the only report is a ghost")

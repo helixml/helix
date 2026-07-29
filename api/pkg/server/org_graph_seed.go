@@ -7,8 +7,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
@@ -41,7 +41,7 @@ If they choose Slack, ask them to install the org's Slack workspace from the Hel
 When the owner answers, use what they told you to build the org: bring in assistant bots for the concrete pieces of work, give each a clear purpose, connect who works with whom, and subscribe them to the topics they need. Coordinate and keep things organized, and delegate the hands-on work to the assistants you bring in rather than doing it all yourself. Reach the owner again with ` + "`ask_human`" + ` whenever you need a decision or their input.
 
 ## Give bots the code they need
-Bots only see git repositories attached to their Helix project. After you create a bot (and it has been activated so its project exists):
+Nodes only see git repositories attached to their Helix project. After you create a bot (and it has been activated so its project exists):
 
 1. Call ` + "`list_repositories`" + ` to see every repo in this organization.
 2. Call ` + "`attach_repository`" + ` with ` + "`bot_id`" + ` + ` + "`repo_id`" + ` (and ` + "`primary: true`" + ` when it should be their main working repo).
@@ -56,7 +56,7 @@ Your tools are helix MCP tools (` + "`mcp__helix__…`" + `). They are live as s
 ## Start, stop, and restart bots
 Use ` + "`start_bot`" + ` to bring a bot's desktop online (also after create — activation provisions the project). Use ` + "`stop_bot`" + ` to shut the desktop down without losing the transcript. Use ` + "`restart_bot`" + ` when you need a brand-new session (e.g. after changing tools or repo attachments).`
 
-const chiefOfStaffBotID orgchart.BotID = "chief-of-staff"
+const chiefOfStaffBotID orgchart.NodeID = "chief-of-staff"
 
 // orgGraphSeeder owns the membership-driven seeding of human nodes and the
 // per-org Chief of Staff bot. Humans are never free-created: a human node
@@ -68,8 +68,8 @@ const chiefOfStaffBotID orgchart.BotID = "chief-of-staff"
 // org-lifecycle handlers (org create, membership add/remove).
 type orgGraphSeeder struct {
 	lifecycle *lifecycle.Service // creates the Chief of Staff bot (runs)
-	bots      *bots.Bots         // creates human nodes (never run)
-	botStore  store.Bots         // existence checks for idempotency
+	bots      *nodes.Nodes       // creates human nodes (never run)
+	botStore  store.Nodes        // existence checks for idempotency
 }
 
 // EnsureHumanNode creates a human placeholder for an org member if one does
@@ -98,11 +98,11 @@ func (s *orgGraphSeeder) EnsureHumanNode(ctx context.Context, orgID string, user
 	// The id is deterministic (h-<userID>) and used exactly. On a create race
 	// the loser gets a conflict, which we treat as success below (the node
 	// now exists).
-	if _, err := s.bots.Create(ctx, orgID, bots.CreateParams{
+	if _, err := s.bots.Create(ctx, orgID, nodes.CreateParams{
 		ID:          string(id),
 		Name:        humanDisplayName(user),
 		Content:     "Org member.",
-		Kind:        orgchart.BotKindHuman,
+		Kind:        orgchart.NodeKindHuman,
 		HelixUserID: user.ID,
 		Identity:    identity,
 	}); err != nil {
@@ -152,12 +152,9 @@ func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) err
 	if !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("check chief of staff: %w", err)
 	}
-	// DeferActivation: a brand-new org has no bot runtime configured yet.
-	// Activating now would provision CoS on the seed-time default
-	// (claude_code/subscription/no-model → renders as gpt). The deferred bot
-	// shows on the chart and is provisioned correctly once the operator sets
-	// the default agent configuration. The id is used
-	// exactly (`chief-of-staff`); a collision means already-seeded.
+	// Bootstrap has already provisioned the org service key, but activation
+	// waits for the operator's runtime selection so the scaffold App is
+	// configured before its first project/session.
 	if _, err := s.lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
 		ID:              string(chiefOfStaffBotID),
 		Name:            "Chief of Staff",
@@ -184,7 +181,7 @@ func (s *orgGraphSeeder) ReconcileHumans(ctx context.Context, orgID string, memb
 	if s == nil {
 		return nil
 	}
-	want := make(map[orgchart.BotID]bool, len(members))
+	want := make(map[orgchart.NodeID]bool, len(members))
 	for _, u := range members {
 		if u == nil || u.ID == "" {
 			continue
@@ -257,7 +254,7 @@ func (apiServer *HelixAPIServer) removeOrgHumanNode(ctx context.Context, orgID, 
 // humanNodeID derives a human node's stable handle from the Helix user id.
 // One human node per user per org; the id references the user id so the two
 // are trivially correlated.
-func humanNodeID(userID string) orgchart.BotID { return orgchart.BotID("h-" + userID) }
+func humanNodeID(userID string) orgchart.NodeID { return orgchart.NodeID("h-" + userID) }
 
 // humanDisplayName prefers the user's full name, falling back to username
 // then email so a node always has a readable label.

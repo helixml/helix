@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -114,10 +114,10 @@ func TestRepositories_AttachDetachForBot(t *testing.T) {
 	orgStore := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 	orgID := "org-test"
-	botID := orgchart.BotID("b-coder")
+	botID := orgchart.NodeID("b-coder")
 
 	// Seed bot + runtime state with a project.
-	if err := orgStore.Bots.Create(ctx, mustBot(t, botID, orgID)); err != nil {
+	if err := orgStore.Nodes.Create(ctx, mustBot(t, botID, orgID)); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveProject(ctx, orgStore, orgID, botID, "prj_1", "app_1", "repo_seed"); err != nil {
@@ -176,8 +176,8 @@ func TestRepositories_NoProjectYet(t *testing.T) {
 	orgStore := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 	orgID := "org-test"
-	botID := orgchart.BotID("b-new")
-	if err := orgStore.Bots.Create(ctx, mustBot(t, botID, orgID)); err != nil {
+	botID := orgchart.NodeID("b-new")
+	if err := orgStore.Nodes.Create(ctx, mustBot(t, botID, orgID)); err != nil {
 		t.Fatal(err)
 	}
 	fake := newFakeRepoStore()
@@ -191,9 +191,9 @@ func TestRepositories_NoProjectYet(t *testing.T) {
 	}
 }
 
-func mustBot(t *testing.T, id orgchart.BotID, orgID string) orgchart.Bot {
+func mustBot(t *testing.T, id orgchart.NodeID, orgID string) orgchart.Node {
 	t.Helper()
-	b, err := orgchart.NewBot(id, "# bot", nil, time.Now().UTC(), orgID)
+	b, err := orgchart.NewNode(id, "# bot", nil, time.Now().UTC(), orgID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,9 +18,9 @@ import (
 
 func newBotsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "bots",
-		Short:   "List and manage helix-org bots",
-		Aliases: []string{"bot"},
+		Use:     "agents",
+		Short:   "List and manage helix-org agents",
+		Aliases: []string{"agent", "bots", "bot"},
 	}
 	cmd.AddCommand(newBotsListCmd())
 	cmd.AddCommand(newBotsGetCmd())

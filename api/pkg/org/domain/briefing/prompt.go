@@ -21,7 +21,7 @@ import (
 // `mandate` is the static text the agent reads first — for the Helix
 // runtime it's a short pointer at the helix-specs branch, which carries
 // the real policy text the Worker reads before acting.
-func BuildPrompt(workerID orgchart.BotID, mandate string, triggers []activation.Trigger) string {
+func BuildPrompt(workerID orgchart.NodeID, mandate string, triggers []activation.Trigger) string {
 	var ctx strings.Builder
 
 	if len(triggers) > 1 {

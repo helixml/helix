@@ -22,9 +22,9 @@ func seedReportingGraph(t *testing.T) Config {
 	st := orggorm.GetOrgTestDB(t)
 
 	now := time.Now().UTC()
-	for _, id := range []orgchart.BotID{"b-owner", "b-jane", "b-bob", "b-li", "b-sam"} {
-		b, _ := orgchart.NewBot(id, "# "+string(id), nil, now, "org-test")
-		if err := st.Bots.Create(ctx, b); err != nil {
+	for _, id := range []orgchart.NodeID{"b-owner", "b-jane", "b-bob", "b-li", "b-sam"} {
+		b, _ := orgchart.NewNode(id, "# "+string(id), nil, now, "org-test")
+		if err := st.Nodes.Create(ctx, b); err != nil {
 			t.Fatalf("create %s: %v", id, err)
 		}
 	}
@@ -36,7 +36,7 @@ func seedReportingGraph(t *testing.T) Config {
 	return DefaultDeps(st)
 }
 
-func addReportingLine(t *testing.T, st *orgstore.Store, manager, report orgchart.BotID) {
+func addReportingLine(t *testing.T, st *orgstore.Store, manager, report orgchart.NodeID) {
 	t.Helper()
 	line, err := orgchart.NewReportingLine("org-test", manager, report)
 	if err != nil {
@@ -49,7 +49,7 @@ func addReportingLine(t *testing.T, st *orgstore.Store, manager, report orgchart
 
 // callerBot builds a tool.Caller for the given bot id (the MCP server
 // builds the real adapter at the boundary).
-func callerBot(id orgchart.BotID) tool.Caller {
+func callerBot(id orgchart.NodeID) tool.Caller {
 	return botCaller{id: string(id), orgID: "org-test"}
 }
 
@@ -71,7 +71,7 @@ func TestManagers_ListsBothManagersWithDMTopics(t *testing.T) {
 	if len(got.Managers) != 2 {
 		t.Fatalf("managers = %+v, want 2 (b-bob, b-jane)", got.Managers)
 	}
-	byID := map[orgchart.BotID]managerView{}
+	byID := map[orgchart.NodeID]managerView{}
 	for _, m := range got.Managers {
 		byID[m.ID] = m
 	}

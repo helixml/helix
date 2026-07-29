@@ -8,19 +8,23 @@
 package gorm
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // orgRowTypes is the canonical list of org-* tables. Kept in one
 // place so the FK installation loop stays in sync with AutoMigrate.
 var orgRowTypes = []any{
-	&botRow{},
+	&nodeRow{},
 	&reportingLineRow{},
-	&botRuntimeStateRow{},
+	&nodeRuntimeStateRow{},
 	&topicRow{},
 	&subscriptionRow{},
 	&eventRow{},
@@ -110,21 +114,247 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := installReportingLineFKs(db); err != nil {
 		return nil, fmt.Errorf("install reporting-line FKs: %w", err)
 	}
+	if err := installAgentAppLinks(db); err != nil {
+		return nil, fmt.Errorf("install agent app links: %w", err)
+	}
 
-	bots := newBotsRepo(db)
+	bots := newNodesRepo(db)
 	return &store.Store{
-		Bots:            bots,
-		ReportingLines:  newReportingLinesRepo(db),
-		BotRuntimeState: newBotRuntimeStateRepo(db),
-		Topics:          newTopicsRepo(db),
-		Subscriptions:   newSubscriptionsRepo(db),
-		Events:          newEventsRepo(db, bots),
-		Configs:         newConfigsRepo(db),
-		Activations:     newActivationsRepo(db),
-		Processors:      newProcessorsRepo(db),
-		ChartPositions:  newChartPositionsRepo(db),
-		DomainEvents:    newDomainEventsRepo(db),
+		Nodes:            bots,
+		ReportingLines:   newReportingLinesRepo(db),
+		NodeRuntimeState: newNodeRuntimeStateRepo(db),
+		Topics:           newTopicsRepo(db),
+		Subscriptions:    newSubscriptionsRepo(db),
+		Events:           newEventsRepo(db, bots),
+		Configs:          newConfigsRepo(db),
+		Activations:      newActivationsRepo(db),
+		Processors:       newProcessorsRepo(db),
+		ChartPositions:   newChartPositionsRepo(db),
+		DomainEvents:     newDomainEventsRepo(db),
 	}, nil
+}
+
+func installAgentAppLinks(db *gorm.DB) error {
+	if !db.Migrator().HasTable("org_bots") || !db.Migrator().HasTable("apps") {
+		return nil
+	}
+	if db.Migrator().HasTable("org_bot_runtime_state") {
+		if err := backfillAgentAppLinks(db); err != nil {
+			return err
+		}
+	}
+	if err := db.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_org_bots_agent_app
+		ON org_bots (org_id, agent_app_id)
+		WHERE agent_app_id IS NOT NULL
+	`).Error; err != nil {
+		return fmt.Errorf("add unique index: %w", err)
+	}
+	if err := db.Exec(`
+		DO $$ BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint WHERE conname = 'fk_org_bots_agent_app'
+			) THEN
+				ALTER TABLE org_bots
+					ADD CONSTRAINT fk_org_bots_agent_app
+					FOREIGN KEY (agent_app_id)
+					REFERENCES apps(id)
+					ON DELETE RESTRICT;
+			END IF;
+		END $$;
+	`).Error; err != nil {
+		return fmt.Errorf("add foreign key: %w", err)
+	}
+	if err := backfillProjectAgentApps(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func backfillAgentAppLinks(db *gorm.DB) error {
+	type candidate struct {
+		OrgID  string
+		NodeID string
+		AppID  string
+		Config string
+	}
+	var candidates []candidate
+	if err := db.Raw(`
+		SELECT state.org_id, state.bot_id AS node_id, state.value AS app_id,
+		       CAST(a.config AS TEXT) AS config
+		FROM org_bot_runtime_state AS state
+		JOIN org_bots AS bot
+		  ON bot.org_id = state.org_id
+		 AND bot.id = state.bot_id
+		JOIN apps AS a
+		  ON a.id = state.value
+		 AND a.organization_id = state.org_id
+		WHERE bot.kind <> 'human'
+		  AND bot.agent_app_id IS NULL
+		  AND state.backend = 'helix'
+		  AND state.key = 'agent_app_id'
+		  AND state.value <> ''
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM org_bot_runtime_state AS other
+			WHERE other.org_id = state.org_id
+			  AND other.backend = state.backend
+			  AND other.key = state.key
+			  AND other.value = state.value
+			  AND other.bot_id <> state.bot_id
+		  )
+	`).Scan(&candidates).Error; err != nil {
+		return fmt.Errorf("list agent link candidates: %w", err)
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, candidate := range candidates {
+			var config types.AppConfig
+			if json.Unmarshal([]byte(candidate.Config), &config) != nil || len(config.Helix.Assistants) != 1 {
+				continue
+			}
+			if err := tx.Table("org_bots").
+				Where("org_id = ? AND id = ? AND agent_app_id IS NULL", candidate.OrgID, candidate.NodeID).
+				Update("agent_app_id", candidate.AppID).Error; err != nil {
+				return fmt.Errorf("backfill link %s/%s: %w", candidate.OrgID, candidate.NodeID, err)
+			}
+		}
+		return nil
+	})
+}
+
+func backfillProjectAgentApps(db *gorm.DB) error {
+	if !db.Migrator().HasTable("projects") ||
+		!db.Migrator().HasTable("org_bot_runtime_state") ||
+		!db.Migrator().HasTable("org_bots") ||
+		!db.Migrator().HasTable("apps") {
+		return nil
+	}
+	type candidate struct {
+		ProjectID       string
+		OrganizationID  string
+		DefaultAppID    string
+		NodeID          string
+		BotAppID        string
+		RuntimeAgentApp string
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		var candidates []candidate
+		if err := tx.Raw(`
+		SELECT project.id AS project_id,
+		       project.organization_id,
+		       COALESCE(project.default_helix_app_id, '') AS default_app_id,
+		       bot.id AS node_id,
+		       COALESCE(bot.agent_app_id, '') AS bot_app_id,
+		       COALESCE(agent_state.value, '') AS runtime_agent_app
+		FROM projects AS project
+		JOIN org_bot_runtime_state AS project_state
+		  ON project_state.value = project.id
+		 AND project_state.backend = 'helix'
+		 AND project_state.key = 'project_id'
+		JOIN org_bots AS bot
+		  ON bot.org_id = project_state.org_id
+		 AND bot.id = project_state.bot_id
+		LEFT JOIN org_bot_runtime_state AS agent_state
+		  ON agent_state.org_id = project_state.org_id
+		 AND agent_state.bot_id = project_state.bot_id
+		 AND agent_state.backend = 'helix'
+		 AND agent_state.key = 'agent_app_id'
+		WHERE project.organization_id = bot.org_id
+		  AND project.deleted_at IS NULL
+		`).Scan(&candidates).Error; err != nil {
+			return fmt.Errorf("list project agent app candidates: %w", err)
+		}
+		projectApps := make(map[string]map[string]struct{})
+		projectBotCounts := make(map[string]int)
+		for _, candidate := range candidates {
+			projectKey := candidate.OrganizationID + "\x00" + candidate.ProjectID
+			projectBotCounts[projectKey]++
+			if projectApps[projectKey] == nil {
+				projectApps[projectKey] = make(map[string]struct{})
+			}
+			projectApps[projectKey][candidate.BotAppID] = struct{}{}
+		}
+		for _, candidate := range candidates {
+			projectKey := candidate.OrganizationID + "\x00" + candidate.ProjectID
+			if projectBotCounts[projectKey] != 1 || len(projectApps[projectKey]) != 1 {
+				continue
+			}
+			validApp := func(appID string) (bool, error) {
+				if appID == "" {
+					return false, nil
+				}
+				var app struct {
+					Config string
+				}
+				if err := tx.Table("apps").Select("CAST(config AS TEXT) AS config").
+					Where("id = ? AND organization_id = ?", appID, candidate.OrganizationID).
+					Take(&app).Error; err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						return false, nil
+					}
+					return false, err
+				}
+				var config types.AppConfig
+				if err := json.Unmarshal([]byte(app.Config), &config); err != nil {
+					return false, nil
+				}
+				if len(config.Helix.Assistants) != 1 {
+					return false, nil
+				}
+				var claims int64
+				if err := tx.Table("org_bots").
+					Where("org_id = ? AND agent_app_id = ? AND id <> ?", candidate.OrganizationID, appID, candidate.NodeID).
+					Count(&claims).Error; err != nil {
+					return false, err
+				}
+				return claims == 0, nil
+			}
+
+			canonicalAppID := candidate.DefaultAppID
+			defaultValid, err := validApp(canonicalAppID)
+			if err != nil {
+				return fmt.Errorf("validate project %s default app: %w", candidate.ProjectID, err)
+			}
+			if !defaultValid {
+				botValid, err := validApp(candidate.BotAppID)
+				if err != nil {
+					return fmt.Errorf("validate bot %s agent app: %w", candidate.NodeID, err)
+				}
+				if !botValid {
+					continue
+				}
+				canonicalAppID = candidate.BotAppID
+			}
+
+			if candidate.DefaultAppID != canonicalAppID {
+				if err := tx.Table("projects").
+					Where("id = ? AND organization_id = ?", candidate.ProjectID, candidate.OrganizationID).
+					Update("default_helix_app_id", canonicalAppID).Error; err != nil {
+					return fmt.Errorf("backfill project %s agent app: %w", candidate.ProjectID, err)
+				}
+			}
+			if candidate.BotAppID != canonicalAppID {
+				if err := tx.Table("org_bots").
+					Where("org_id = ? AND id = ?", candidate.OrganizationID, candidate.NodeID).
+					Update("agent_app_id", canonicalAppID).Error; err != nil {
+					return fmt.Errorf("backfill bot %s agent app: %w", candidate.NodeID, err)
+				}
+			}
+			if candidate.RuntimeAgentApp != canonicalAppID {
+				state := nodeRuntimeStateRow{
+					OrgID: candidate.OrganizationID, NodeID: candidate.NodeID,
+					Backend: "helix", Key: "agent_app_id", Value: canonicalAppID,
+				}
+				if err := tx.Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "org_id"}, {Name: "bot_id"}, {Name: "backend"}, {Name: "key"}},
+					DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+				}).Create(&state).Error; err != nil {
+					return fmt.Errorf("backfill bot %s runtime agent app: %w", candidate.NodeID, err)
+				}
+			}
+		}
+		return nil
+	})
 }
 
 // renamedTables maps an old table name to its current name for
