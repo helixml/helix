@@ -30,7 +30,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
-	"gorm.io/gorm"
 )
 
 // AlternativeModelOption represents a provider/model combination for fallback substitution
@@ -339,12 +338,6 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	if s.helixOrg != nil && s.helixOrg.lifecycle != nil {
-		if err := s.helixOrg.lifecycle.ReconcileAgentLinks(ctx, orgID); err != nil {
-			return nil, system.NewHTTPError500(fmt.Sprintf("failed to reconcile organization agents: %s", err))
-		}
-	}
-
 	apps, err := s.Store.ListApps(ctx, &store.ListAppsQuery{
 		OrganizationID: orgID,
 	})
@@ -384,30 +377,20 @@ func (s *HelixAPIServer) markHelixOrgAgents(ctx context.Context, orgID string, a
 		return nil
 	}
 
-	// helix-org shares helix's Postgres connection; reach the *gorm.DB via the
-	// same anonymous-interface accessor used by openOrgStore (helix_org.go).
-	accessor, ok := s.Store.(interface{ GormDB() *gorm.DB })
-	if !ok {
-		// A non-Postgres store means helix-org cannot be running either.
+	if s.helixOrg == nil || s.helixOrg.store == nil || s.helixOrg.store.Nodes == nil {
 		return nil
 	}
 
-	var agentAppIDs []string
-	if err := accessor.GormDB().WithContext(ctx).
-		Table("org_bots").
-		Where("org_id = ? AND agent_app_id IS NOT NULL", orgID).
-		Distinct("agent_app_id").
-		Pluck("agent_app_id", &agentAppIDs).Error; err != nil {
+	nodes, err := s.helixOrg.store.Nodes.List(ctx, orgID)
+	if err != nil {
 		return system.NewHTTPError500(fmt.Sprintf("failed to list helix-org agent apps: %s", err))
 	}
 
-	if len(agentAppIDs) == 0 {
-		return nil
-	}
-
-	orgAgents := make(map[string]struct{}, len(agentAppIDs))
-	for _, id := range agentAppIDs {
-		orgAgents[id] = struct{}{}
+	orgAgents := make(map[string]struct{}, len(nodes))
+	for _, node := range nodes {
+		if node.AgentAppID != "" {
+			orgAgents[node.AgentAppID] = struct{}{}
+		}
 	}
 	for _, app := range apps {
 		if _, ok := orgAgents[app.ID]; ok {
@@ -1090,8 +1073,14 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 2, error: %s", err))
 	}
 
+	id := getID(r)
+	if update.ID != "" && update.ID != id {
+		return nil, system.NewHTTPError400("app ID in request body does not match URL")
+	}
+	update.ID = id
+
 	// Getting existing app
-	existing, err := s.Store.GetApp(r.Context(), update.ID)
+	existing, err := s.Store.GetApp(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
