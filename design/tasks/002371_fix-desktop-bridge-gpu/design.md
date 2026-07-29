@@ -1,6 +1,117 @@
 # Design: Fix desktop-bridge GPU and FD Leak in GStreamer Pipeline Teardown
 
-## 1. Root cause analysis
+---
+
+## 0. MEASURED RESULT — read this before §1
+
+Everything below §1 was the pre-implementation analysis. It was **partly right
+and importantly wrong**, and the measurements corrected it. This section is what
+actually happened; §1 is kept because its go-gst ownership research is still
+accurate and useful, but its conclusion about *what pinned the GPU* was wrong.
+
+### 0.1 The measurement
+
+Driving real stream connect/disconnect cycles against a live `desktop-bridge`
+(a small WS client hitting `localhost:9876/ws/stream`, 20 frames per cycle,
+`VIDEO_GRACE_PERIOD_SECONDS=5` so each cycle really creates and destroys a
+pipeline), counting `/dev/nvidia0` entries in `/proc/<pid>/fd`:
+
+| | before | after |
+|---|---|---|
+| cycle 1 | 24 | 10 |
+| cycle 2 | 38 | 10 |
+| cycle 3 | 52 | 10 |
+| cycle 4 | 66 | 10 |
+| cycle 5 | 80 | 10 |
+| cycle 6 | 94 | 10 |
+| cycle 7 | 108 | 10 |
+| cycle 8 | 122 | 10 |
+
+**+14 fds per cycle, unbounded → flat.** Production leaked 1512 fds over 111
+*started* pipelines = 13.6/pipeline. 14 measured. The GStreamer leaks tracer
+(`GST_TRACERS=leaks`, `GST_LEAKS_TRACER_SIG=1`, dump on `SIGUSR1`) goes from a
+per-cycle set of survivors to **zero live objects**.
+
+### 0.2 There were two independent bugs, not one
+
+**Bug 1 — Go side (`api/pkg/desktop/gst_pipeline.go`).** Objects, not GPU.
+After three cycles the tracer showed alive: 21 × `GstSample`, 20 × `GstBuffer`,
+40 × `GstMemory`, 1 × `GstAppSink <videosink>`, 1 × `GstBus <bus7>`. Causes:
+
+- `PullSample()` is transfer-full and `Sample.GetBuffer()` takes a ref of its
+  own — `onNewSample` released neither, so every frame leaked two objects.
+- `GetElementByName("videosink")` is transfer-full; `Stop()` did `g.appsink = nil`
+  without unreffing.
+- `GetPipelineBus()` is transfer-full and was never released or flushed.
+
+It also had a **latent crash**: because `gst_parse_launch` returns a *floating*
+ref that go-glib ref-sinks (net refcount 1), `Stop()`'s `Unref()` freed the
+pipeline while the GC finalizer stayed armed. The first Go test written for this
+task reproduced it immediately —
+`g_object_unref: assertion 'G_IS_OBJECT (object)' failed` followed by SIGSEGV in
+`runtime.runFinalizers`. `start-desktop-bridge.sh` already carries a restart loop
+whose comment reads *"The desktop-bridge can crash (e.g. segfault during
+WebSocket reconnection)"*. That was this.
+
+**Bug 2 — Rust plugin. This was the entire GPU leak.** In
+`desktop/gst-pipewire-zerocopy/src/pipewiresrc/imp.rs`:
+
+```rust
+if settings.cuda_context.is_none() {
+    settings.cuda_context = Some(Arc::new(Mutex::new(ctx)));
+} else {
+    std::mem::forget(ctx); // Prevent double-unref
+}
+```
+
+`gst_cuda_ensure_element_context()` runs a context query, and GStreamer answers
+it by calling our own `set_context()` **synchronously on the same thread**, which
+populates `settings.cuda_context`. So by the time the `else` is evaluated it is
+*always* taken. Confirmed from the logs: `Received CUDA context via set_context`
+appears exactly once per pipeline start, between
+`Using PipeWire DmaBuf (GNOME+NVIDIA CUDA mode)` and the blitter init.
+
+`ctx` at that point aliases a `GstCudaContext` pointer it does not own (so
+unreffing it really would double-free — the comment's fear was legitimate) but it
+*does* own the `GstCudaStream` created alongside it at
+`CUDAContext::new_from_gstreamer`. `mem::forget` leaked that stream, and a
+`GstCudaStream` holds a reference on its context — so **every pipeline stranded a
+whole CUDA context**. The tracer showed exactly this: N pipelines → N live
+`GstCudaContext` + N live `GstCudaStream`, both at refcount 1, with every
+`GstElement` and the `GstPipeline` itself correctly finalized, and N
+`cuda-EvtHandlr` driver threads.
+
+Fix: a new `CUDAContext::release_stream_only()` in `wayland-display-core` that
+drops the `StreamHandle` (releasing its reference on the context) and then
+`mem::forget`s only the borrowed context pointer.
+
+### 0.3 What this changes about the brief
+
+- The brief's headline hypothesis — "`Stop()` releases only one of two refs, the
+  GC finalizer never runs" — is **not** what held the GPU. It correctly
+  identified that something was wrong at that line (there is exactly *one* ref,
+  and dropping it left an armed finalizer → the crash), but the ~28 MiB and
+  ~14 fds were never held by the Go layer at all.
+- Its instruction to *verify before fixing* was decisive. The Go-only fix was
+  written, deployed, and measured: object leaks gone, crash gone, **fd count
+  completely unchanged at +14/cycle**. Only the tracer dump pointed at the plugin.
+- The per-pipeline figures in the brief (28 MiB / 4.66 fds over all 324
+  pipelines) should be read as **~82 MiB / ~13.6 fds per *started* pipeline**:
+  the 213 that never reached PLAYING do not leak. The `create → Stop()` sub-test
+  is flat on unmodified code, which confirms this.
+
+### 0.4 Incidental findings
+
+- `scripts/build-zerocopy-plugin.sh` pinned Rust 1.85.0 while
+  `Dockerfile.ubuntu-helix` uses 1.87.0. The script could not build the plugin at
+  all (`unstable library feature 'unsigned_is_multiple_of'` in a transitive dep).
+  Bumped to 1.87.0.
+- `diagnoseGPUEncoderFailure` leaked its probe `nvh264enc` element — on every
+  parse failure, i.e. exactly when the GPU is already exhausted.
+
+---
+
+## 1. Root cause analysis (pre-implementation — see §0 for corrections)
 
 The brief's hypothesis was "`Stop()` releases only one of two refs; the GC
 finalizer never runs because GC pressure never builds". Reading the actual
