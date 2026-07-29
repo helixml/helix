@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/vhost"
+	"github.com/helixml/helix/api/pkg/webservice"
 	"github.com/rs/zerolog/log"
 )
 
@@ -202,8 +203,16 @@ func (m *VHostMiddleware) dispatchSandboxPreview(w http.ResponseWriter, r *http.
 // sandbox and proxies to it. Returns 503 if the project has no active
 // sandbox yet (e.g. the first deploy is still pending).
 func (m *VHostMiddleware) dispatchProjectWebService(w http.ResponseWriter, r *http.Request, route *types.VHostRoute) {
+	// Every failure exit below is a request a real customer made and we could
+	// not serve, so each one counts towards helix_webservice_upstream_errors_total.
+	// The metric's whole value is that it cannot be masked by a bug in the
+	// platform's own health state machine — which only holds if it counts ALL
+	// the ways a request fails, not just the reverse-proxy path. A missing
+	// sandbox row in particular is a real outage shape (it is case 1 of
+	// RecoverWebService's escalation).
 	state, err := m.apiServer.Store.GetProjectWebServiceState(r.Context(), route.TargetID)
 	if err != nil {
+		webservice.RecordUpstreamError(route.TargetID)
 		if errors.Is(err, store.ErrNotFound) {
 			http.Error(w, "project web service not configured", http.StatusServiceUnavailable)
 			return
@@ -212,10 +221,12 @@ func (m *VHostMiddleware) dispatchProjectWebService(w http.ResponseWriter, r *ht
 		return
 	}
 	if !state.Enabled {
+		webservice.RecordUpstreamError(route.TargetID)
 		http.Error(w, "project web service is disabled", http.StatusServiceUnavailable)
 		return
 	}
 	if state.ActiveSandboxID == "" {
+		webservice.RecordUpstreamError(route.TargetID)
 		http.Error(w, "project web service has no active deployment", http.StatusServiceUnavailable)
 		return
 	}
@@ -226,6 +237,7 @@ func (m *VHostMiddleware) dispatchProjectWebService(w http.ResponseWriter, r *ht
 	// itself.
 	sb, err := m.apiServer.Store.GetSandbox(r.Context(), state.ActiveSandboxID)
 	if err != nil {
+		webservice.RecordUpstreamError(route.TargetID)
 		http.Error(w, fmt.Sprintf("active sandbox not found: %s", err), http.StatusBadGateway)
 		return
 	}
