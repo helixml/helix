@@ -744,10 +744,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Helix:  inProcClient,
 		Agents: inProcClient,
 		Logger: logger,
-		// Bot-scoped reconcilers: the single topology reconciler (one owner
+		// Node-scoped reconcilers: the single topology reconciler (one owner
 		// of activation/team Topic lifecycle across create, reparent, and delete).
-		BotReconcilers: []lifecycle.BotReconciler{deps.Reconciler},
-		Mirror:         mirror, // Delete stops the deleted bot's subscription
+		NodeReconcilers: []lifecycle.NodeReconciler{deps.Reconciler},
+		Mirror:          mirror, // Delete stops the deleted bot's subscription
 		// Hire collaborators (the create half of the lifecycle). REST POST
 		// /workers and the MCP hire_worker tool both drive Hire through
 		// this service, so the hire semantics live in one place.

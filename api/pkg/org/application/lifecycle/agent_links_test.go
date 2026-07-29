@@ -267,10 +267,10 @@ func TestCreateRollbackIgnoresCancelledRequestContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	runtime := &lifecycleRuntime{store: st}
 	svc := &lifecycle.Service{
-		Store:          st,
-		Helix:          runtime,
-		Agents:         fixedAgentCreator{id: "app-cleanup"},
-		BotReconcilers: []lifecycle.BotReconciler{cancellingReconciler{cancel: cancel}},
+		Store:           st,
+		Helix:           runtime,
+		Agents:          fixedAgentCreator{id: "app-cleanup"},
+		NodeReconcilers: []lifecycle.NodeReconciler{cancellingReconciler{cancel: cancel}},
 		Nodes: nodes.New(nodes.Deps{
 			Nodes: st.Nodes,
 			Now:   func() time.Time { return time.Now().UTC() },
