@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -83,7 +83,7 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 
 	// Seed owner directly: a Bot with the structural tool list.
 	now := time.Now().UTC()
-	owner, err := orgchart.NewBot(
+	owner, err := orgchart.NewNode(
 		"b-owner",
 		"# Owner\nBootstrap owner.",
 		[]tool.Name{
@@ -98,7 +98,7 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed owner bot: %v", err)
 	}
-	mustCreate(t, s.Bots.Create(ctx, owner))
+	mustCreate(t, s.Nodes.Create(ctx, owner))
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")
 
@@ -165,7 +165,7 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	owner, _ := orgchart.NewBot(
+	owner, _ := orgchart.NewNode(
 		"b-owner",
 		"# Owner",
 		[]tool.Name{
@@ -177,7 +177,7 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 		now,
 		"org-test",
 	)
-	mustCreate(t, s.Bots.Create(ctx, owner))
+	mustCreate(t, s.Nodes.Create(ctx, owner))
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")
 
@@ -190,12 +190,12 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 	})
 
 	// The created bot carries publish + the baseline read tools.
-	created, err := s.Bots.Get(ctx, "org-test", "b-eng")
+	created, err := s.Nodes.Get(ctx, "org-test", "b-eng")
 	if err != nil {
 		t.Fatalf("get b-eng: %v", err)
 	}
 	toolsBefore := append([]tool.Name(nil), created.Tools...)
-	mustCreate(t, s.Bots.Update(ctx, created.WithAgentAppID("app-eng")))
+	mustCreate(t, s.Nodes.Update(ctx, created.WithAgentAppID("app-eng")))
 
 	// set_bot_content rewrites Content and preserves Tools.
 	invokeExpectID(t, ownerSession, mcptools.SetBotContentName, map[string]any{
@@ -203,7 +203,7 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 		"content": "# Engineer v2\nBuild better stuff.",
 	})
 
-	got, err := s.Bots.Get(ctx, "org-test", "b-eng")
+	got, err := s.Nodes.Get(ctx, "org-test", "b-eng")
 	if err != nil {
 		t.Fatalf("get b-eng: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 		t.Fatalf("list_bots after App update: %v", err)
 	}
 	var listResult struct {
-		Bots []struct {
+		Nodes []struct {
 			ID      string `json:"id"`
 			Name    string `json:"name"`
 			Content string `json:"content"`
@@ -231,7 +231,7 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 		t.Fatalf("decode list_bots: %v", err)
 	}
 	var listedName, listedContent string
-	for _, listed := range listResult.Bots {
+	for _, listed := range listResult.Nodes {
 		if listed.ID == "b-eng" {
 			listedName, listedContent = listed.Name, listed.Content
 		}
@@ -261,7 +261,7 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 	}); err == nil {
 		t.Fatal("set_bot_content succeeded after App update failed")
 	}
-	got, err = s.Bots.Get(ctx, "org-test", "b-eng")
+	got, err = s.Nodes.Get(ctx, "org-test", "b-eng")
 	if err != nil {
 		t.Fatalf("get b-eng after rollback: %v", err)
 	}
@@ -282,11 +282,11 @@ func TestSetBotContentPreflightsLinkedAgentUpdater(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	owner, _ := orgchart.NewBot("b-owner", "owner", []tool.Name{mcptools.SetBotContentName}, time.Now().UTC(), "org-test")
-	target, _ := orgchart.NewBot("b-agent", "original", nil, time.Now().UTC(), "org-test")
+	owner, _ := orgchart.NewNode("b-owner", "owner", []tool.Name{mcptools.SetBotContentName}, time.Now().UTC(), "org-test")
+	target, _ := orgchart.NewNode("b-agent", "original", nil, time.Now().UTC(), "org-test")
 	target = target.WithAgentAppID("app-agent")
-	mustCreate(t, s.Bots.Create(ctx, owner))
-	mustCreate(t, s.Bots.Create(ctx, target))
+	mustCreate(t, s.Nodes.Create(ctx, owner))
+	mustCreate(t, s.Nodes.Create(ctx, target))
 
 	session := connectMCP(t, srv.URL, "b-owner")
 	if _, err := invokeTool(t, session, mcptools.SetBotContentName, map[string]any{
@@ -294,7 +294,7 @@ func TestSetBotContentPreflightsLinkedAgentUpdater(t *testing.T) {
 	}); err == nil {
 		t.Fatal("set_bot_content succeeded without linked Agent updater")
 	}
-	got, err := s.Bots.Get(ctx, "org-test", target.ID)
+	got, err := s.Nodes.Get(ctx, "org-test", target.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,24 +325,24 @@ func TestTopicMembers(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	owner, _ := orgchart.NewBot(
+	owner, _ := orgchart.NewNode(
 		"b-owner",
 		"# Owner",
 		[]tool.Name{mcptools.CreateTopicName, mcptools.TopicMembersName, mcptools.SubscribeName},
 		now,
 		"org-test",
 	)
-	mustCreate(t, s.Bots.Create(ctx, owner))
+	mustCreate(t, s.Nodes.Create(ctx, owner))
 	// Subscriptions are bot-anchored — give b-listener its own surface so
 	// a subscribe-by-listener doesn't accidentally subscribe b-owner too.
-	listener, _ := orgchart.NewBot(
+	listener, _ := orgchart.NewNode(
 		"b-listener",
 		"# Listener",
 		[]tool.Name{mcptools.SubscribeName},
 		now,
 		"org-test",
 	)
-	mustCreate(t, s.Bots.Create(ctx, listener))
+	mustCreate(t, s.Nodes.Create(ctx, listener))
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")
 	listenerSession := connectMCP(t, srv.URL, "b-listener")
@@ -384,19 +384,19 @@ func TestSubscribeOtherBots(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	owner, _ := orgchart.NewBot(
+	owner, _ := orgchart.NewNode(
 		"b-owner",
 		"# Owner",
 		[]tool.Name{mcptools.CreateTopicName, mcptools.SubscribeName, mcptools.TopicMembersName},
 		now,
 		"org-test",
 	)
-	mustCreate(t, s.Bots.Create(ctx, owner))
+	mustCreate(t, s.Nodes.Create(ctx, owner))
 	// Subscriptions are bot-anchored: each bot gets its own sub rows.
-	alice, _ := orgchart.NewBot("b-alice", "# Alice", nil, now, "org-test")
-	mustCreate(t, s.Bots.Create(ctx, alice))
-	bob, _ := orgchart.NewBot("b-bob", "# Bob", nil, now, "org-test")
-	mustCreate(t, s.Bots.Create(ctx, bob))
+	alice, _ := orgchart.NewNode("b-alice", "# Alice", nil, now, "org-test")
+	mustCreate(t, s.Nodes.Create(ctx, alice))
+	bob, _ := orgchart.NewNode("b-bob", "# Bob", nil, now, "org-test")
+	mustCreate(t, s.Nodes.Create(ctx, bob))
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")
 
@@ -473,10 +473,10 @@ func TestDM(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	// Alice and Bob both get dm + read_events.
-	alice, _ := orgchart.NewBot("b-alice", "# Alice", []tool.Name{mcptools.DMName, mcptools.ReadEventsName}, now, "org-test")
-	mustCreate(t, s.Bots.Create(ctx, alice))
-	bob, _ := orgchart.NewBot("b-bob", "# Bob", []tool.Name{mcptools.DMName, mcptools.ReadEventsName}, now, "org-test")
-	mustCreate(t, s.Bots.Create(ctx, bob))
+	alice, _ := orgchart.NewNode("b-alice", "# Alice", []tool.Name{mcptools.DMName, mcptools.ReadEventsName}, now, "org-test")
+	mustCreate(t, s.Nodes.Create(ctx, alice))
+	bob, _ := orgchart.NewNode("b-bob", "# Bob", []tool.Name{mcptools.DMName, mcptools.ReadEventsName}, now, "org-test")
+	mustCreate(t, s.Nodes.Create(ctx, bob))
 
 	// DM channels are scoped to reporting relationships: wire one (Alice
 	// manages Bob) and reconcile so topology provisions s-dm-b-alice-b-bob
@@ -515,7 +515,7 @@ func TestDM(t *testing.T) {
 
 	// Both bots are subscribed (the DM tool resolves participants); the
 	// event landed in the store.
-	for _, bid := range []orgchart.BotID{"b-alice", "b-bob"} {
+	for _, bid := range []orgchart.NodeID{"b-alice", "b-bob"} {
 		if _, err := s.Subscriptions.Find(ctx, "org-test", bid, streaming.TopicID(out.TopicID)); err != nil {
 			t.Fatalf("%s not subscribed to %s: %v", bid, out.TopicID, err)
 		}
@@ -586,7 +586,7 @@ func TestReadsOverMCP(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	owner, _ := orgchart.NewBot(
+	owner, _ := orgchart.NewNode(
 		"b-owner",
 		"# Owner",
 		[]tool.Name{
@@ -601,7 +601,7 @@ func TestReadsOverMCP(t *testing.T) {
 		now,
 		"org-test",
 	)
-	mustCreate(t, s.Bots.Create(ctx, owner))
+	mustCreate(t, s.Nodes.Create(ctx, owner))
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")
 
@@ -611,15 +611,15 @@ func TestReadsOverMCP(t *testing.T) {
 		t.Fatalf("list_bots: %v", err)
 	}
 	var listBotsOut struct {
-		Bots []struct {
+		Nodes []struct {
 			ID string `json:"id"`
 		} `json:"bots"`
 	}
 	if err := json.Unmarshal(rawBots, &listBotsOut); err != nil {
 		t.Fatalf("unmarshal list_bots: %v", err)
 	}
-	if len(listBotsOut.Bots) != 1 || listBotsOut.Bots[0].ID != "b-owner" {
-		t.Fatalf("list_bots = %+v, want [{b-owner}]", listBotsOut.Bots)
+	if len(listBotsOut.Nodes) != 1 || listBotsOut.Nodes[0].ID != "b-owner" {
+		t.Fatalf("list_bots = %+v, want [{b-owner}]", listBotsOut.Nodes)
 	}
 
 	// Drive a small mutation through to populate read targets.
@@ -702,10 +702,10 @@ func TestBotLog(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	owner, _ := orgchart.NewBot("b-owner", "# Owner", []tool.Name{mcptools.BotLogName}, now, "org-test")
-	mustCreate(t, s.Bots.Create(ctx, owner))
-	bot, _ := orgchart.NewBot("b-bot", "# Bot", nil, now, "org-test")
-	mustCreate(t, s.Bots.Create(ctx, bot))
+	owner, _ := orgchart.NewNode("b-owner", "# Owner", []tool.Name{mcptools.BotLogName}, now, "org-test")
+	mustCreate(t, s.Nodes.Create(ctx, owner))
+	bot, _ := orgchart.NewNode("b-bot", "# Bot", nil, now, "org-test")
+	mustCreate(t, s.Nodes.Create(ctx, bot))
 
 	// Pre-create the transcript + seed a couple of events. In production
 	// create_bot creates the topic and the spawner publishes events; here
@@ -797,10 +797,10 @@ func TestBotLogFiltersByActivationID(t *testing.T) {
 	ctx := context.Background()
 	base := time.Now().UTC().Truncate(time.Second)
 
-	owner, _ := orgchart.NewBot("b-owner", "# Owner", []tool.Name{mcptools.BotLogName}, base, "org-test")
-	mustCreate(t, s.Bots.Create(ctx, owner))
-	bot, _ := orgchart.NewBot("b-bot", "# Bot", nil, base, "org-test")
-	mustCreate(t, s.Bots.Create(ctx, bot))
+	owner, _ := orgchart.NewNode("b-owner", "# Owner", []tool.Name{mcptools.BotLogName}, base, "org-test")
+	mustCreate(t, s.Nodes.Create(ctx, owner))
+	bot, _ := orgchart.NewNode("b-bot", "# Bot", nil, base, "org-test")
+	mustCreate(t, s.Nodes.Create(ctx, bot))
 
 	topicID := activation.TranscriptID("b-bot")
 	str, _ := streaming.NewTopic(topicID, "Activations: b-bot", "", "b-owner", base, transport.Transport{}, "org-test")
@@ -911,8 +911,8 @@ func TestBotLogFiltersByActivationID(t *testing.T) {
 	// activationId belonging to a *different* Bot is rejected too — no
 	// cross-Bot leakage even if the caller knows another Bot's activation
 	// IDs.
-	other, _ := orgchart.NewBot("b-other", "# Other", nil, base, "org-test")
-	mustCreate(t, s.Bots.Create(ctx, other))
+	other, _ := orgchart.NewNode("b-other", "# Other", nil, base, "org-test")
+	mustCreate(t, s.Nodes.Create(ctx, other))
 	otherTopic, _ := streaming.NewTopic(activation.TranscriptID("b-other"), "Activations: b-other", "", "b-owner", base, transport.Transport{}, "org-test")
 	mustCreate(t, s.Topics.Create(ctx, otherTopic))
 	a3, _ := activation.New("a-3", "b-other", []activation.Trigger{{Kind: activation.TriggerHire}}, base, "org-test")
@@ -931,8 +931,8 @@ func TestBotLogFiltersByActivationID(t *testing.T) {
 func seedActingBot(t *testing.T, s *store.Store, orgID, botID string, tools []tool.Name) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := bots.New(bots.Deps{Bots: s.Bots, BaseTools: mcptools.BaseReadTools}).
-		Create(ctx, orgID, bots.CreateParams{ID: botID, Content: "# " + botID, Tools: tools}); err != nil {
+	if _, err := nodes.New(nodes.Deps{Nodes: s.Nodes, BaseTools: mcptools.BaseReadTools}).
+		Create(ctx, orgID, nodes.CreateParams{ID: botID, Content: "# " + botID, Tools: tools}); err != nil {
 		t.Fatalf("seed bot %s: %v", botID, err)
 	}
 }
@@ -1037,7 +1037,7 @@ func mustCreate(t *testing.T, err error) {
 	}
 }
 
-func connectMCP(t *testing.T, baseURL string, botID orgchart.BotID) *mcp.ClientSession {
+func connectMCP(t *testing.T, baseURL string, botID orgchart.NodeID) *mcp.ClientSession {
 	t.Helper()
 	c := mcp.NewClient(&mcp.Implementation{Name: "helix-org-test", Version: "v0.0.0"}, nil)
 	transport := &mcp.StreamableClientTransport{

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -46,7 +46,7 @@ func (t *SetHumanContact) Invoke(ctx context.Context, inv tool.Invocation) (json
 	if orgID == "" {
 		return nil, fmt.Errorf("set_human_contact: caller has no OrgID")
 	}
-	person, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.BotID(args.PersonID))
+	person, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.NodeID(args.PersonID))
 	if err != nil {
 		return nil, fmt.Errorf("person %q: %w", args.PersonID, err)
 	}
@@ -74,7 +74,7 @@ func (t *SetHumanContact) Invoke(ctx context.Context, inv tool.Invocation) (json
 	if identity["preferred_contact"] == "slack" && identity["slack_user_id"] == "" {
 		return nil, fmt.Errorf("slack_user_id is required when preferred_contact is slack")
 	}
-	if _, err := t.deps.Bots.Update(ctx, orgID, person.ID, bots.UpdateParams{Identity: &identity}); err != nil {
+	if _, err := t.deps.Nodes.Update(ctx, orgID, person.ID, nodes.UpdateParams{Identity: &identity}); err != nil {
 		return nil, fmt.Errorf("set human contact: %w", err)
 	}
 	return json.Marshal(map[string]string{"id": args.PersonID})

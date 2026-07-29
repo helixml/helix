@@ -264,18 +264,18 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgchart.BotID) {
+func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgchart.NodeID) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 	// The Bot IS the role: its Content is the prompt that lands in
 	// role.md. Keep the `w-eng` handle so the on-branch path assertions
 	// (workers/w-eng/.context/role.md) stay meaningful.
-	b, err := orgchart.NewBot("w-eng", roleContent, nil, time.Now().UTC(), "org-test")
+	b, err := orgchart.NewNode("w-eng", roleContent, nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}
-	if err := st.Bots.Create(ctx, b); err != nil {
+	if err := st.Nodes.Create(ctx, b); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 	return st, b.ID
@@ -651,11 +651,11 @@ func TestEnsureFastPathPreservesAgentSpec(t *testing.T) {
 func TestEnsureFastPathPreservesValidProjectDefaultAndConvergesLinks(t *testing.T) {
 	st, wid := newProjectTestStore(t, "# Role")
 	ctx := context.Background()
-	bot, err := st.Bots.Get(ctx, "org-test", wid)
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Bots.Update(ctx, bot.WithAgentAppID("app-new")); err != nil {
+	if err := st.Nodes.Update(ctx, bot.WithAgentAppID("app-new")); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
@@ -672,7 +672,7 @@ func TestEnsureFastPathPreservesValidProjectDefaultAndConvergesLinks(t *testing.
 	} else if agentAppID != "app-explicit" {
 		t.Fatalf("returned app = %q, want app-explicit", agentAppID)
 	}
-	bot, err = st.Bots.Get(ctx, "org-test", wid)
+	bot, err = st.Nodes.Get(ctx, "org-test", wid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,18 +691,18 @@ func TestEnsureFastPathPreservesValidProjectDefaultAndConvergesLinks(t *testing.
 func TestEnsureFastPathDoesNotAdoptProjectDefaultClaimedByAnotherBot(t *testing.T) {
 	st, wid := newProjectTestStore(t, "# Role")
 	ctx := context.Background()
-	bot, err := st.Bots.Get(ctx, "org-test", wid)
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Bots.Update(ctx, bot.WithAgentAppID("app-current")); err != nil {
+	if err := st.Nodes.Update(ctx, bot.WithAgentAppID("app-current")); err != nil {
 		t.Fatal(err)
 	}
-	other, err := orgchart.NewBot("w-other", "# Other", nil, time.Now().UTC(), "org-test")
+	other, err := orgchart.NewNode("w-other", "# Other", nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Bots.Create(ctx, other.WithAgentAppID("app-claimed")); err != nil {
+	if err := st.Nodes.Create(ctx, other.WithAgentAppID("app-claimed")); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
@@ -719,7 +719,7 @@ func TestEnsureFastPathDoesNotAdoptProjectDefaultClaimedByAnotherBot(t *testing.
 	} else if agentAppID != "app-current" {
 		t.Fatalf("returned app = %q, want app-current", agentAppID)
 	}
-	bot, err = st.Bots.Get(ctx, "org-test", wid)
+	bot, err = st.Nodes.Get(ctx, "org-test", wid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -738,11 +738,11 @@ func TestEnsureFastPathDoesNotAdoptProjectDefaultClaimedByAnotherBot(t *testing.
 func TestEnsureFastPathPreservesLinksWhenProjectDefaultAppReadFails(t *testing.T) {
 	st, wid := newProjectTestStore(t, "# Role")
 	ctx := context.Background()
-	bot, err := st.Bots.Get(ctx, "org-test", wid)
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Bots.Update(ctx, bot.WithAgentAppID("app-current")); err != nil {
+	if err := st.Nodes.Update(ctx, bot.WithAgentAppID("app-current")); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-runtime", "repo_existing"); err != nil {
@@ -759,7 +759,7 @@ func TestEnsureFastPathPreservesLinksWhenProjectDefaultAppReadFails(t *testing.T
 		!strings.Contains(err.Error(), "get project default agent app app-explicit") {
 		t.Fatalf("Ensure error = %v", err)
 	}
-	bot, err = st.Bots.Get(ctx, "org-test", wid)
+	bot, err = st.Nodes.Get(ctx, "org-test", wid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -786,11 +786,11 @@ func TestEnsureFastPathPreservesLinksWhenProjectDefaultAppReadFails(t *testing.T
 func TestEnsureFastPathRepairsStaleRuntimeAgentApp(t *testing.T) {
 	st, wid := newProjectTestStore(t, "# Role")
 	ctx := context.Background()
-	bot, err := st.Bots.Get(ctx, "org-test", wid)
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Bots.Update(ctx, bot.WithAgentAppID("app-canonical")); err != nil {
+	if err := st.Nodes.Update(ctx, bot.WithAgentAppID("app-canonical")); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
@@ -852,12 +852,12 @@ func TestEnsureFastPathPropagatesRoleEdits(t *testing.T) {
 	// that bypasses update_role/MirrorFile (direct DB edit,
 	// RoleReconciler reseed, restore-from-backup, …). The DB is the
 	// source of truth; the branch must reflect it on next activation.
-	existing, err := st.Bots.Get(ctx, "org-test", "w-eng")
+	existing, err := st.Nodes.Get(ctx, "org-test", "w-eng")
 	if err != nil {
 		t.Fatalf("get bot: %v", err)
 	}
 	existing = existing.WithContent("# Role v2").WithUpdatedAt(time.Now().UTC())
-	if err := st.Bots.Update(ctx, existing); err != nil {
+	if err := st.Nodes.Update(ctx, existing); err != nil {
 		t.Fatalf("update bot: %v", err)
 	}
 

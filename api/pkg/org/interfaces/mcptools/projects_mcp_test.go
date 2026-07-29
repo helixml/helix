@@ -24,7 +24,7 @@ type stubProjectsPort struct{ views []runtime.ProjectView }
 
 type stubProjectAccess struct{ ownProjectID string }
 
-func (s stubProjectAccess) OwnProjectID(_ context.Context, _ string, _ orgchart.BotID) (string, error) {
+func (s stubProjectAccess) OwnProjectID(_ context.Context, _ string, _ orgchart.NodeID) (string, error) {
 	return s.ownProjectID, nil
 }
 
@@ -66,7 +66,7 @@ func TestProjectDiscoveryOverMCP(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed a PM bot granted the discovery tools.
-	bot, err := orgchart.NewBot(
+	bot, err := orgchart.NewNode(
 		"b-pm",
 		"# PM\nProject manager bot.",
 		[]tool.Name{mcptools.ListProjectsName, mcptools.GetProjectName},
@@ -76,7 +76,7 @@ func TestProjectDiscoveryOverMCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}
-	mustCreate(t, s.Bots.Create(ctx, bot.WithProjectIDs([]string{"prj_2"})))
+	mustCreate(t, s.Nodes.Create(ctx, bot.WithProjectIDs([]string{"prj_2"})))
 
 	session := connectMCP(t, srv.URL, "b-pm")
 

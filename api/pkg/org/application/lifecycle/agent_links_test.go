@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
@@ -42,7 +42,7 @@ func (r *lifecycleRuntime) DeleteApp(ctx context.Context, id string) error {
 	return r.deleteAppErr
 }
 
-func (r *lifecycleRuntime) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.BotID, appID string) error {
+func (r *lifecycleRuntime) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID string) error {
 	r.linkedCancelled = ctx.Err() != nil
 	if r.linkedErr != nil {
 		return r.linkedErr
@@ -50,12 +50,12 @@ func (r *lifecycleRuntime) DeleteLinkedAgent(ctx context.Context, orgID string, 
 	if r.store == nil {
 		return nil
 	}
-	if r.store.BotRuntimeState != nil {
-		if err := r.store.BotRuntimeState.Clear(ctx, orgID, botID, runtimehelix.Backend); err != nil {
+	if r.store.NodeRuntimeState != nil {
+		if err := r.store.NodeRuntimeState.Clear(ctx, orgID, botID, runtimehelix.Backend); err != nil {
 			return err
 		}
 	}
-	return r.store.Bots.Delete(ctx, orgID, botID)
+	return r.store.Nodes.Delete(ctx, orgID, botID)
 }
 
 type fixedAgentCreator struct {
@@ -70,31 +70,31 @@ type cancellingReconciler struct {
 	cancel context.CancelFunc
 }
 
-func (r cancellingReconciler) Reconcile(context.Context, string, ...orgchart.BotID) error {
+func (r cancellingReconciler) Reconcile(context.Context, string, ...orgchart.NodeID) error {
 	r.cancel()
 	return errors.New("reconcile failed")
 }
 
 type losingClaimBots struct {
-	store.Bots
+	store.Nodes
 	winner string
 }
 
 type failingClaimBots struct {
-	store.Bots
+	store.Nodes
 	err error
 }
 
-func (b failingClaimBots) ClaimAgentApp(context.Context, string, orgchart.BotID, string) (bool, error) {
+func (b failingClaimBots) ClaimAgentApp(context.Context, string, orgchart.NodeID, string) (bool, error) {
 	return false, b.err
 }
 
-func (b losingClaimBots) ClaimAgentApp(ctx context.Context, orgID string, id orgchart.BotID, _ string) (bool, error) {
-	current, err := b.Bots.Get(ctx, orgID, id)
+func (b losingClaimBots) ClaimAgentApp(ctx context.Context, orgID string, id orgchart.NodeID, _ string) (bool, error) {
+	current, err := b.Nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return false, err
 	}
-	if err := b.Bots.Update(ctx, current.WithAgentAppID(b.winner)); err != nil {
+	if err := b.Nodes.Update(ctx, current.WithAgentAppID(b.winner)); err != nil {
 		return false, err
 	}
 	return false, nil
@@ -103,22 +103,22 @@ func (b losingClaimBots) ClaimAgentApp(ctx context.Context, orgID string, id org
 func TestReconcileAgentLinksPreservesReplicaWinner(t *testing.T) {
 	st := memory.New()
 	ctx := context.Background()
-	bot, err := orgchart.NewBot("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Bots.Create(ctx, bot); err != nil {
+	if err := st.Nodes.Create(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
 	copyStore := *st
-	copyStore.Bots = losingClaimBots{Bots: st.Bots, winner: "app-winner"}
+	copyStore.Nodes = losingClaimBots{Nodes: st.Nodes, winner: "app-winner"}
 	runtime := &lifecycleRuntime{}
 	svc := &lifecycle.Service{
 		Store:  &copyStore,
 		Agents: fixedAgentCreator{id: "app-loser"},
 		Helix:  runtime,
-		Bots: bots.New(bots.Deps{
-			Bots:  copyStore.Bots,
+		Nodes: nodes.New(nodes.Deps{
+			Nodes: copyStore.Nodes,
 			Now:   func() time.Time { return time.Now().UTC() },
 			NewID: func() string { return "unused" },
 		}),
@@ -127,7 +127,7 @@ func TestReconcileAgentLinksPreservesReplicaWinner(t *testing.T) {
 	if err := svc.ReconcileAgentLinks(ctx, "org-test"); err != nil {
 		t.Fatalf("reconcile links: %v", err)
 	}
-	got, err := st.Bots.Get(ctx, "org-test", bot.ID)
+	got, err := st.Nodes.Get(ctx, "org-test", bot.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,22 +142,22 @@ func TestReconcileAgentLinksPreservesReplicaWinner(t *testing.T) {
 func TestReconcileAgentLinksReportsClaimAndCleanupFailures(t *testing.T) {
 	st := memory.New()
 	ctx := context.Background()
-	bot, err := orgchart.NewBot("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Bots.Create(ctx, bot); err != nil {
+	if err := st.Nodes.Create(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
 	copyStore := *st
-	copyStore.Bots = failingClaimBots{Bots: st.Bots, err: errors.New("claim failed")}
+	copyStore.Nodes = failingClaimBots{Nodes: st.Nodes, err: errors.New("claim failed")}
 	runtime := &lifecycleRuntime{deleteAppErr: errors.New("cleanup failed")}
 	svc := &lifecycle.Service{
 		Store:  &copyStore,
 		Agents: fixedAgentCreator{id: "app-unlinked"},
 		Helix:  runtime,
-		Bots: bots.New(bots.Deps{
-			Bots:  copyStore.Bots,
+		Nodes: nodes.New(nodes.Deps{
+			Nodes: copyStore.Nodes,
 			Now:   func() time.Time { return time.Now().UTC() },
 			NewID: func() string { return "unused" },
 		}),
@@ -181,12 +181,12 @@ func TestDeleteFailuresPreserveGraphAnchorAndRetry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			st := memory.New()
 			ctx := context.Background()
-			bot, err := orgchart.NewBot("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
+			bot, err := orgchart.NewNode("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
 			if err != nil {
 				t.Fatal(err)
 			}
 			bot = bot.WithAgentAppID("app-agent")
-			if err := st.Bots.Create(ctx, bot); err != nil {
+			if err := st.Nodes.Create(ctx, bot); err != nil {
 				t.Fatal(err)
 			}
 			if err := runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-agent", "app-agent", "repo-agent"); err != nil {
@@ -198,7 +198,7 @@ func TestDeleteFailuresPreserveGraphAnchorAndRetry(t *testing.T) {
 			if err := svc.Delete(ctx, "org-test", bot.ID); err == nil {
 				t.Fatal("delete succeeded despite runtime failure")
 			}
-			got, err := st.Bots.Get(ctx, "org-test", bot.ID)
+			got, err := st.Nodes.Get(ctx, "org-test", bot.ID)
 			if err != nil {
 				t.Fatalf("graph anchor removed: %v", err)
 			}
@@ -219,7 +219,7 @@ func TestDeleteFailuresPreserveGraphAnchorAndRetry(t *testing.T) {
 				t.Fatalf("retry delete: %v", err)
 			}
 			recreated := bot.WithAgentAppID("app-recreated")
-			if err := st.Bots.Create(ctx, recreated); err != nil {
+			if err := st.Nodes.Create(ctx, recreated); err != nil {
 				t.Fatalf("recreate after delete: %v", err)
 			}
 		})
@@ -230,11 +230,11 @@ func TestCreateCleanupIgnoresCancelledRequestContext(t *testing.T) {
 	st := memory.New()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	existing, err := orgchart.NewBot("b-agent", "existing", nil, time.Now().UTC(), "org-test")
+	existing, err := orgchart.NewNode("b-agent", "existing", nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Bots.Create(context.Background(), existing); err != nil {
+	if err := st.Nodes.Create(context.Background(), existing); err != nil {
 		t.Fatal(err)
 	}
 	runtime := &lifecycleRuntime{}
@@ -242,8 +242,8 @@ func TestCreateCleanupIgnoresCancelledRequestContext(t *testing.T) {
 		Store:  st,
 		Helix:  runtime,
 		Agents: fixedAgentCreator{id: "app-cleanup"},
-		Bots: bots.New(bots.Deps{
-			Bots:  st.Bots,
+		Nodes: nodes.New(nodes.Deps{
+			Nodes: st.Nodes,
 			Now:   func() time.Time { return time.Now().UTC() },
 			NewID: func() string { return "unused" },
 		}),
@@ -271,8 +271,8 @@ func TestCreateRollbackIgnoresCancelledRequestContext(t *testing.T) {
 		Helix:          runtime,
 		Agents:         fixedAgentCreator{id: "app-cleanup"},
 		BotReconcilers: []lifecycle.BotReconciler{cancellingReconciler{cancel: cancel}},
-		Bots: bots.New(bots.Deps{
-			Bots:  st.Bots,
+		Nodes: nodes.New(nodes.Deps{
+			Nodes: st.Nodes,
 			Now:   func() time.Time { return time.Now().UTC() },
 			NewID: func() string { return "unused" },
 		}),
@@ -286,7 +286,7 @@ func TestCreateRollbackIgnoresCancelledRequestContext(t *testing.T) {
 	if runtime.linkedCancelled {
 		t.Fatal("lifecycle rollback inherited cancelled request context")
 	}
-	if _, err := st.Bots.Get(context.Background(), "org-test", "b-agent"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.Nodes.Get(context.Background(), "org-test", "b-agent"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("rolled back bot still exists: %v", err)
 	}
 }

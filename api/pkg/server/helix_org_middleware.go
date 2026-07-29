@@ -12,10 +12,10 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/helixevents"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -126,7 +126,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// (e.g. orgs upgraded from an older server version that
 		// lacked team-stream auto-creation).
 		rec := reconcile.New(reconcile.Deps{
-			Bots:           s.orgStore.Bots,
+			Nodes:          s.orgStore.Nodes,
 			ReportingLines: s.orgStore.ReportingLines,
 			Topics:         s.orgStore.Topics,
 			Subscriptions:  s.orgStore.Subscriptions,
@@ -160,7 +160,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// `reports` (issue #2546). Best-effort like the topology
 		// reconcile above: a failure logs and continues so a transient
 		// DB error doesn't lock users out of the org.
-		botsSvc := bots.New(bots.Deps{Bots: s.orgStore.Bots, BaseTools: mcptools.BaseReadTools})
+		botsSvc := nodes.New(nodes.Deps{Nodes: s.orgStore.Nodes, BaseTools: mcptools.BaseReadTools})
 		if err := botsSvc.Reconcile(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}
@@ -197,7 +197,7 @@ func repairNeverActivatedBots(ctx context.Context, orgID string, st *helixorgsto
 	if err != nil {
 		return fmt.Errorf("read default agent config: %w", err)
 	}
-	bs, err := st.Bots.List(ctx, orgID)
+	bs, err := st.Nodes.List(ctx, orgID)
 	if err != nil {
 		return err
 	}

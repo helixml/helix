@@ -22,9 +22,9 @@ import (
 // orgRowTypes is the canonical list of org-* tables. Kept in one
 // place so the FK installation loop stays in sync with AutoMigrate.
 var orgRowTypes = []any{
-	&botRow{},
+	&nodeRow{},
 	&reportingLineRow{},
-	&botRuntimeStateRow{},
+	&nodeRuntimeStateRow{},
 	&topicRow{},
 	&subscriptionRow{},
 	&eventRow{},
@@ -118,19 +118,19 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		return nil, fmt.Errorf("install agent app links: %w", err)
 	}
 
-	bots := newBotsRepo(db)
+	bots := newNodesRepo(db)
 	return &store.Store{
-		Bots:            bots,
-		ReportingLines:  newReportingLinesRepo(db),
-		BotRuntimeState: newBotRuntimeStateRepo(db),
-		Topics:          newTopicsRepo(db),
-		Subscriptions:   newSubscriptionsRepo(db),
-		Events:          newEventsRepo(db, bots),
-		Configs:         newConfigsRepo(db),
-		Activations:     newActivationsRepo(db),
-		Processors:      newProcessorsRepo(db),
-		ChartPositions:  newChartPositionsRepo(db),
-		DomainEvents:    newDomainEventsRepo(db),
+		Nodes:            bots,
+		ReportingLines:   newReportingLinesRepo(db),
+		NodeRuntimeState: newNodeRuntimeStateRepo(db),
+		Topics:           newTopicsRepo(db),
+		Subscriptions:    newSubscriptionsRepo(db),
+		Events:           newEventsRepo(db, bots),
+		Configs:          newConfigsRepo(db),
+		Activations:      newActivationsRepo(db),
+		Processors:       newProcessorsRepo(db),
+		ChartPositions:   newChartPositionsRepo(db),
+		DomainEvents:     newDomainEventsRepo(db),
 	}, nil
 }
 
@@ -174,13 +174,13 @@ func installAgentAppLinks(db *gorm.DB) error {
 func backfillAgentAppLinks(db *gorm.DB) error {
 	type candidate struct {
 		OrgID  string
-		BotID  string
+		NodeID string
 		AppID  string
 		Config string
 	}
 	var candidates []candidate
 	if err := db.Raw(`
-		SELECT state.org_id, state.bot_id, state.value AS app_id,
+		SELECT state.org_id, state.bot_id AS node_id, state.value AS app_id,
 		       CAST(a.config AS TEXT) AS config
 		FROM org_bot_runtime_state AS state
 		JOIN org_bots AS bot
@@ -213,9 +213,9 @@ func backfillAgentAppLinks(db *gorm.DB) error {
 				continue
 			}
 			if err := tx.Table("org_bots").
-				Where("org_id = ? AND id = ? AND agent_app_id IS NULL", candidate.OrgID, candidate.BotID).
+				Where("org_id = ? AND id = ? AND agent_app_id IS NULL", candidate.OrgID, candidate.NodeID).
 				Update("agent_app_id", candidate.AppID).Error; err != nil {
-				return fmt.Errorf("backfill link %s/%s: %w", candidate.OrgID, candidate.BotID, err)
+				return fmt.Errorf("backfill link %s/%s: %w", candidate.OrgID, candidate.NodeID, err)
 			}
 		}
 		return nil
@@ -233,7 +233,7 @@ func backfillProjectAgentApps(db *gorm.DB) error {
 		ProjectID       string
 		OrganizationID  string
 		DefaultAppID    string
-		BotID           string
+		NodeID          string
 		BotAppID        string
 		RuntimeAgentApp string
 	}
@@ -243,7 +243,7 @@ func backfillProjectAgentApps(db *gorm.DB) error {
 		SELECT project.id AS project_id,
 		       project.organization_id,
 		       COALESCE(project.default_helix_app_id, '') AS default_app_id,
-		       bot.id AS bot_id,
+		       bot.id AS node_id,
 		       COALESCE(bot.agent_app_id, '') AS bot_app_id,
 		       COALESCE(agent_state.value, '') AS runtime_agent_app
 		FROM projects AS project
@@ -303,7 +303,7 @@ func backfillProjectAgentApps(db *gorm.DB) error {
 				}
 				var claims int64
 				if err := tx.Table("org_bots").
-					Where("org_id = ? AND agent_app_id = ? AND id <> ?", candidate.OrganizationID, appID, candidate.BotID).
+					Where("org_id = ? AND agent_app_id = ? AND id <> ?", candidate.OrganizationID, appID, candidate.NodeID).
 					Count(&claims).Error; err != nil {
 					return false, err
 				}
@@ -318,7 +318,7 @@ func backfillProjectAgentApps(db *gorm.DB) error {
 			if !defaultValid {
 				botValid, err := validApp(candidate.BotAppID)
 				if err != nil {
-					return fmt.Errorf("validate bot %s agent app: %w", candidate.BotID, err)
+					return fmt.Errorf("validate bot %s agent app: %w", candidate.NodeID, err)
 				}
 				if !botValid {
 					continue
@@ -335,21 +335,21 @@ func backfillProjectAgentApps(db *gorm.DB) error {
 			}
 			if candidate.BotAppID != canonicalAppID {
 				if err := tx.Table("org_bots").
-					Where("org_id = ? AND id = ?", candidate.OrganizationID, candidate.BotID).
+					Where("org_id = ? AND id = ?", candidate.OrganizationID, candidate.NodeID).
 					Update("agent_app_id", canonicalAppID).Error; err != nil {
-					return fmt.Errorf("backfill bot %s agent app: %w", candidate.BotID, err)
+					return fmt.Errorf("backfill bot %s agent app: %w", candidate.NodeID, err)
 				}
 			}
 			if candidate.RuntimeAgentApp != canonicalAppID {
-				state := botRuntimeStateRow{
-					OrgID: candidate.OrganizationID, BotID: candidate.BotID,
+				state := nodeRuntimeStateRow{
+					OrgID: candidate.OrganizationID, NodeID: candidate.NodeID,
 					Backend: "helix", Key: "agent_app_id", Value: canonicalAppID,
 				}
 				if err := tx.Clauses(clause.OnConflict{
 					Columns:   []clause.Column{{Name: "org_id"}, {Name: "bot_id"}, {Name: "backend"}, {Name: "key"}},
 					DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
 				}).Create(&state).Error; err != nil {
-					return fmt.Errorf("backfill bot %s runtime agent app: %w", candidate.BotID, err)
+					return fmt.Errorf("backfill bot %s runtime agent app: %w", candidate.NodeID, err)
 				}
 			}
 		}

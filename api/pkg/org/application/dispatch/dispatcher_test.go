@@ -102,7 +102,7 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 
 // recordedActivation captures one Spawner invocation for assertions.
 type recordedActivation struct {
-	BotID    orgchart.BotID
+	NodeID   orgchart.NodeID
 	Triggers []activation.Trigger
 }
 
@@ -113,8 +113,8 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	rec := make(chan recordedActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, _ string, botID orgchart.BotID, triggers []activation.Trigger) error {
-		rec <- recordedActivation{BotID: botID, Triggers: triggers}
+	spawner := runtime.Spawner(func(_ context.Context, _ string, botID orgchart.NodeID, triggers []activation.Trigger) error {
+		rec <- recordedActivation{NodeID: botID, Triggers: triggers}
 		return nil
 	})
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -137,30 +137,30 @@ func drainActivations(t *testing.T, rec <-chan recordedActivation, window time.D
 		case r := <-rec:
 			got = append(got, r)
 		case <-deadline:
-			sort.Slice(got, func(i, j int) bool { return got[i].BotID < got[j].BotID })
+			sort.Slice(got, func(i, j int) bool { return got[i].NodeID < got[j].NodeID })
 			return got
 		}
 	}
 }
 
 // seedBot creates a Bot and persists it.
-func seedBot(t *testing.T, s *store.Store, botID orgchart.BotID) {
+func seedBot(t *testing.T, s *store.Store, botID orgchart.NodeID) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
-	b, err := orgchart.NewBot(botID, "# "+string(botID)+"\nTest persona.", nil, now, "org-test")
+	b, err := orgchart.NewNode(botID, "# "+string(botID)+"\nTest persona.", nil, now, "org-test")
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}
-	if err := s.Bots.Create(ctx, b); err != nil {
+	if err := s.Nodes.Create(ctx, b); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 }
 
 // seedSubscription persists a Bot→Topic subscription.
-func seedSubscription(t *testing.T, s *store.Store, botID orgchart.BotID, topicID streaming.TopicID) {
+func seedSubscription(t *testing.T, s *store.Store, botID orgchart.NodeID, topicID streaming.TopicID) {
 	t.Helper()
-	if _, err := s.Bots.Get(context.Background(), "org-test", botID); err != nil {
+	if _, err := s.Nodes.Get(context.Background(), "org-test", botID); err != nil {
 		t.Fatalf("get bot %q for subscription: %v", botID, err)
 	}
 	sub, err := streaming.NewSubscription(string(botID), topicID, time.Now().UTC(), "org-test")
@@ -518,8 +518,8 @@ func TestDispatchSkipsPublisher(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("activations = %d, want 1; got %+v", len(got), got)
 	}
-	if got[0].BotID != "w-other" {
-		t.Fatalf("activated bot = %q, want w-other", got[0].BotID)
+	if got[0].NodeID != "w-other" {
+		t.Fatalf("activated bot = %q, want w-other", got[0].NodeID)
 	}
 }
 
@@ -547,7 +547,7 @@ func TestDispatchDeliversEventsOneAtATime(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	spawner := runtime.Spawner(func(_ context.Context, _ string, botID orgchart.BotID, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, botID orgchart.NodeID, triggers []activation.Trigger) error {
 		n := calls.Add(1)
 		if n == 1 {
 			close(started)
@@ -557,7 +557,7 @@ func TestDispatchDeliversEventsOneAtATime(t *testing.T) {
 		// today, but defensive) can't race with the assertion read.
 		copied := make([]activation.Trigger, len(triggers))
 		copy(copied, triggers)
-		rec <- recordedActivation{BotID: botID, Triggers: copied}
+		rec <- recordedActivation{NodeID: botID, Triggers: copied}
 		return nil
 	})
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))

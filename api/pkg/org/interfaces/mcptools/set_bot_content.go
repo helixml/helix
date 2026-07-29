@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -26,7 +26,7 @@ const SetBotContentName tool.Name = "set_bot_content"
 var setBotContentSchema = mustSchema[setBotContentArgs]()
 
 type setBotContentArgs struct {
-	BotID   string `json:"botId"`
+	NodeID  string `json:"botId"`
 	Content string `json:"content"`
 }
 
@@ -42,7 +42,7 @@ func (t *SetBotContent) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return nil, fmt.Errorf("botId is required")
 	}
 	if args.Content == "" {
@@ -52,7 +52,7 @@ func (t *SetBotContent) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 	if orgID == "" {
 		return nil, fmt.Errorf("set_bot_content: caller has no OrgID")
 	}
-	botID := orgchart.BotID(args.BotID)
+	botID := orgchart.NodeID(args.NodeID)
 	existing, err := t.deps.Queries.GetBot(ctx, orgID, botID)
 	if err != nil {
 		return nil, fmt.Errorf("get bot: %w", err)
@@ -60,13 +60,13 @@ func (t *SetBotContent) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 	if existing.AgentAppID != "" && t.deps.AgentContentUpdater == nil {
 		return nil, fmt.Errorf("update linked agent content: updater is not wired")
 	}
-	updated, err := t.deps.Bots.Update(ctx, orgID, botID, bots.UpdateParams{Content: &args.Content})
+	updated, err := t.deps.Nodes.Update(ctx, orgID, botID, nodes.UpdateParams{Content: &args.Content})
 	if err != nil {
 		return nil, fmt.Errorf("set bot content: %w", err)
 	}
 	if updated.AgentAppID != "" {
 		if err := t.deps.AgentContentUpdater.UpdateAgentContent(ctx, updated.AgentAppID, args.Content); err != nil {
-			_, rollbackErr := t.deps.Bots.Update(ctx, orgID, botID, bots.UpdateParams{Content: &existing.Content})
+			_, rollbackErr := t.deps.Nodes.Update(ctx, orgID, botID, nodes.UpdateParams{Content: &existing.Content})
 			if rollbackErr != nil {
 				return nil, fmt.Errorf("update linked agent content: %v; rollback bot content: %w", err, rollbackErr)
 			}

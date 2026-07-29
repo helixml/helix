@@ -58,7 +58,7 @@ func TestSubscriptionsUniquePositionTopic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
-	if found.BotID != "p-1" || found.TopicID != "s-1" {
+	if found.NodeID != "p-1" || found.TopicID != "s-1" {
 		t.Fatalf("subscription = %+v", found)
 	}
 
@@ -80,11 +80,11 @@ func TestEventsListForBotViaSubscriptions(t *testing.T) {
 	// Subscriptions are bot-anchored. Seed b-1 and subscribe
 	// b-1 → s-a; ListForBot(b-1) joins events on subscribed
 	// topics.
-	bot, err := orgchart.NewBot("b-1", "# b-1", nil, base, "org-test")
+	bot, err := orgchart.NewNode("b-1", "# b-1", nil, base, "org-test")
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}
-	if err := s.Bots.Create(ctx, bot); err != nil {
+	if err := s.Nodes.Create(ctx, bot); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 	sub, _ := streaming.NewSubscription("b-1", "s-a", base, "org-test")

@@ -66,7 +66,7 @@ func (a *apiHandler) listTopics(w http.ResponseWriter, r *http.Request) {
 		for _, sub := range subs {
 			// Subscriptions are bot-anchored — return bot ids
 			// directly. The Topics page renders them as chips.
-			dto.Subscribers = append(dto.Subscribers, string(sub.BotID))
+			dto.Subscribers = append(dto.Subscribers, string(sub.NodeID))
 		}
 		events, err := a.deps.Queries.TopicEvents(ctx, orgID, s.ID, 50)
 		if err != nil {
@@ -202,7 +202,7 @@ func (a *apiHandler) getTopic(w http.ResponseWriter, r *http.Request) {
 		for _, sub := range subs {
 			// Subscriptions are bot-anchored — return bot ids
 			// directly. The Topics page renders them as chips.
-			dto.Subscribers = append(dto.Subscribers, string(sub.BotID))
+			dto.Subscribers = append(dto.Subscribers, string(sub.NodeID))
 		}
 	}
 	if events, err := a.deps.Queries.TopicEvents(ctx, orgID, s.ID, 50); err == nil {
@@ -330,7 +330,7 @@ func (a *apiHandler) updateTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	if subs, err := a.deps.Queries.TopicSubscribers(ctx, orgID, updated.ID); err == nil {
 		for _, sub := range subs {
-			dto.Subscribers = append(dto.Subscribers, string(sub.BotID))
+			dto.Subscribers = append(dto.Subscribers, string(sub.NodeID))
 		}
 	}
 	if events, err := a.deps.Queries.TopicEvents(ctx, orgID, updated.ID, 50); err == nil {

@@ -21,7 +21,7 @@ type BotBadge struct {
 // in the org. The React Overview page renders the reporting graph from
 // the bots + their parent_ids (fetched via GET /bots).
 type OrgOverview struct {
-	Bots []BotBadge `json:"bots"`
+	Nodes []BotBadge `json:"bots"`
 }
 
 // ToolDTO is one entry in GET /tools — the catalogue of every tool
@@ -35,7 +35,7 @@ type ToolDTO struct {
 
 // BotDTO is one row in GET /bots and the body of GET /bots/{id}. A Bot
 // IS its own job description: Content is the canonical role.md markdown,
-// Tools is its live MCP surface. ParentIDs are the Bots this one reports
+// Tools is its live MCP surface. ParentIDs are the Nodes this one reports
 // to (empty for the org root). Reporting is many-to-many — a Bot may
 // report to several managers. A Bot's subscriptions are not on the bot —
 // they live as (bot, topic) rows.
@@ -127,7 +127,7 @@ type CreateBotRequest struct {
 	// Owner makes this a manager Bot: it receives the canonical owner
 	// tool set (every org-graph mutation - create_bot, delete_bot,
 	// set_bot_content, subscribe, ... - plus the read baseline) so it can
-	// hire and manage other Bots. When true, Tools is ignored in favour
+	// hire and manage other Nodes. When true, Tools is ignored in favour
 	// of that set. Used to seed a starter/root Bot for a new org.
 	Owner bool `json:"owner,omitempty"`
 }
@@ -309,7 +309,7 @@ type BotSubscriptionDTO struct {
 // BotSubscriptionsResponse is the GET /bots/{id}/subscriptions
 // response body.
 type BotSubscriptionsResponse struct {
-	BotID         string               `json:"bot_id"`
+	NodeID        string               `json:"bot_id"`
 	Subscriptions []BotSubscriptionDTO `json:"subscriptions"`
 }
 

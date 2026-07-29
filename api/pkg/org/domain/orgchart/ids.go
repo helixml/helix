@@ -6,7 +6,7 @@
 // Collapsing these into one Go package resolves the cycle that
 // per-entity packages produced.
 //
-// The ID type is a Go type alias (`type BotID = string`) rather than a
+// The ID type is a Go type alias (`type NodeID = string`) rather than a
 // distinct named type. This is deliberate: orgchart's Bot references
 // tool.Name and streaming.TopicID (so orgchart imports those packages),
 // and tool.Invocation.Caller needs a caller identity (which would
@@ -16,7 +16,7 @@
 // thin adapter at the MCP boundary, without tool importing orgchart.
 package orgchart
 
-// BotID identifies a Bot. Convention: `b-<kebab-case>` (e.g. `b-root`,
+// NodeID identifies a Bot. Convention: `b-<kebab-case>` (e.g. `b-root`,
 // `b-software-engineer`). The bootstrap owner Bot is conventionally
 // `b-root`.
-type BotID = string
+type NodeID = string

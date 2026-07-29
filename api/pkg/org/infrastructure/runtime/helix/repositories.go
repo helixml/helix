@@ -23,7 +23,7 @@ type RepoStore interface {
 }
 
 // Repositories is the helix-runtime implementation of runtime.Repositories.
-// Org-scoped list/get, and bot-scoped attach/detach via BotRuntimeState →
+// Org-scoped list/get, and bot-scoped attach/detach via NodeRuntimeState →
 // project ID.
 type Repositories struct {
 	orgStore *store.Store
@@ -56,7 +56,7 @@ func (r *Repositories) List(ctx context.Context, orgID string) ([]runtime.RepoVi
 	return repoViews(repos, ""), nil
 }
 
-func (r *Repositories) ListForBot(ctx context.Context, orgID string, botID orgchart.BotID) ([]runtime.RepoView, error) {
+func (r *Repositories) ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID) ([]runtime.RepoView, error) {
 	projectID, defaultRepoID, err := r.botProject(ctx, orgID, botID)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (r *Repositories) ListForBot(ctx context.Context, orgID string, botID orgch
 	return repoViews(repos, defaultRepoID), nil
 }
 
-func (r *Repositories) AttachToBot(ctx context.Context, orgID string, botID orgchart.BotID, repoID string, primary bool) ([]runtime.RepoView, error) {
+func (r *Repositories) AttachToBot(ctx context.Context, orgID string, botID orgchart.NodeID, repoID string, primary bool) ([]runtime.RepoView, error) {
 	if repoID == "" {
 		return nil, errors.New("repo_id is required")
 	}
@@ -100,7 +100,7 @@ func (r *Repositories) AttachToBot(ctx context.Context, orgID string, botID orgc
 	return r.ListForBot(ctx, orgID, botID)
 }
 
-func (r *Repositories) DetachFromBot(ctx context.Context, orgID string, botID orgchart.BotID, repoID string) ([]runtime.RepoView, error) {
+func (r *Repositories) DetachFromBot(ctx context.Context, orgID string, botID orgchart.NodeID, repoID string) ([]runtime.RepoView, error) {
 	if repoID == "" {
 		return nil, errors.New("repo_id is required")
 	}
@@ -125,7 +125,7 @@ func (r *Repositories) DetachFromBot(ctx context.Context, orgID string, botID or
 }
 
 // botProject resolves bot → Helix project id + current default_repo_id.
-func (r *Repositories) botProject(ctx context.Context, orgID string, botID orgchart.BotID) (projectID, defaultRepoID string, err error) {
+func (r *Repositories) botProject(ctx context.Context, orgID string, botID orgchart.NodeID) (projectID, defaultRepoID string, err error) {
 	if orgID == "" {
 		return "", "", errors.New("orgID is required")
 	}
@@ -133,7 +133,7 @@ func (r *Repositories) botProject(ctx context.Context, orgID string, botID orgch
 		return "", "", errors.New("bot_id is required")
 	}
 	// Confirm the bot exists in this org before touching runtime state.
-	if _, err := r.orgStore.Bots.Get(ctx, orgID, botID); err != nil {
+	if _, err := r.orgStore.Nodes.Get(ctx, orgID, botID); err != nil {
 		return "", "", fmt.Errorf("get bot %s: %w", botID, err)
 	}
 	state, err := LoadState(ctx, r.orgStore, orgID, botID)

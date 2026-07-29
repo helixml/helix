@@ -36,20 +36,20 @@ import (
 func New() *store.Store {
 	subs := &subscriptionsRepo{rows: map[subKey]streaming.Subscription{}}
 	lines := &reportingLinesRepo{rows: map[lineKey]struct{}{}}
-	bots := &botsRepo{rows: map[orgKey]orgchart.Bot{}, subs: subs, lines: lines}
+	bots := &nodesRepo{rows: map[orgKey]orgchart.Node{}, subs: subs, lines: lines}
 	topics := &topicsRepo{rows: map[orgKey]streaming.Topic{}, subs: subs}
 	return &store.Store{
-		Bots:            bots,
-		ReportingLines:  lines,
-		BotRuntimeState: &runtimeStateRepo{rows: map[runtimeKey]string{}},
-		Topics:          topics,
-		Subscriptions:   subs,
-		Events:          &eventsRepo{rows: []streaming.Event{}, subs: subs, bots: bots},
-		Configs:         &configsRepo{rows: map[orgKey]config.Config{}},
-		Activations:     &activationsRepo{rows: map[orgKey]*activation.Activation{}},
-		Processors:      &processorsRepo{rows: map[orgKey]processor.Processor{}},
-		ChartPositions:  &chartPositionsRepo{rows: map[chartPosKey]orgchart.ChartPosition{}},
-		DomainEvents:    &domainEventsRepo{},
+		Nodes:            bots,
+		ReportingLines:   lines,
+		NodeRuntimeState: &runtimeStateRepo{rows: map[runtimeKey]string{}},
+		Topics:           topics,
+		Subscriptions:    subs,
+		Events:           &eventsRepo{rows: []streaming.Event{}, subs: subs, bots: bots},
+		Configs:          &configsRepo{rows: map[orgKey]config.Config{}},
+		Activations:      &activationsRepo{rows: map[orgKey]*activation.Activation{}},
+		Processors:       &processorsRepo{rows: map[orgKey]processor.Processor{}},
+		ChartPositions:   &chartPositionsRepo{rows: map[chartPosKey]orgchart.ChartPosition{}},
+		DomainEvents:     &domainEventsRepo{},
 	}
 }
 
@@ -164,11 +164,11 @@ type orgKey struct {
 	ID    string
 }
 
-// ---- Bots ---------------------------------------------------------------
+// ---- Nodes ---------------------------------------------------------------
 
-type botsRepo struct {
+type nodesRepo struct {
 	mu   sync.RWMutex
-	rows map[orgKey]orgchart.Bot
+	rows map[orgKey]orgchart.Node
 	// subs and lines are held by reference so Delete can cascade: a
 	// deleted bot's own subscriptions and every reporting line that
 	// references it (as manager or report) are dropped, mirroring the
@@ -177,7 +177,7 @@ type botsRepo struct {
 	lines *reportingLinesRepo
 }
 
-func (r *botsRepo) Create(_ context.Context, b orgchart.Bot) error {
+func (r *nodesRepo) Create(_ context.Context, b orgchart.Node) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := orgKey{OrgID: b.OrganizationID, ID: string(b.ID)}
@@ -188,19 +188,19 @@ func (r *botsRepo) Create(_ context.Context, b orgchart.Bot) error {
 	return nil
 }
 
-func (r *botsRepo) Get(_ context.Context, orgID string, id orgchart.BotID) (orgchart.Bot, error) {
+func (r *nodesRepo) Get(_ context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if b, ok := r.rows[orgKey{OrgID: orgID, ID: string(id)}]; ok {
 		return b, nil
 	}
-	return orgchart.Bot{}, fmt.Errorf("bot %q in org %q: %w", id, orgID, store.ErrNotFound)
+	return orgchart.Node{}, fmt.Errorf("bot %q in org %q: %w", id, orgID, store.ErrNotFound)
 }
 
-func (r *botsRepo) List(_ context.Context, orgID string) ([]orgchart.Bot, error) {
+func (r *nodesRepo) List(_ context.Context, orgID string) ([]orgchart.Node, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]orgchart.Bot, 0)
+	out := make([]orgchart.Node, 0)
 	for k, b := range r.rows {
 		if k.OrgID == orgID {
 			out = append(out, b)
@@ -210,7 +210,7 @@ func (r *botsRepo) List(_ context.Context, orgID string) ([]orgchart.Bot, error)
 	return out, nil
 }
 
-func (r *botsRepo) Update(_ context.Context, b orgchart.Bot) error {
+func (r *nodesRepo) Update(_ context.Context, b orgchart.Node) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := orgKey{OrgID: b.OrganizationID, ID: string(b.ID)}
@@ -221,7 +221,7 @@ func (r *botsRepo) Update(_ context.Context, b orgchart.Bot) error {
 	return nil
 }
 
-func (r *botsRepo) ClaimAgentApp(_ context.Context, orgID string, id orgchart.BotID, appID string) (bool, error) {
+func (r *nodesRepo) ClaimAgentApp(_ context.Context, orgID string, id orgchart.NodeID, appID string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := orgKey{OrgID: orgID, ID: string(id)}
@@ -239,7 +239,7 @@ func (r *botsRepo) ClaimAgentApp(_ context.Context, orgID string, id orgchart.Bo
 // Delete removes the bot and cascades the rows that reference it,
 // matching the gorm store: the bot's own subscriptions and every
 // reporting line where it is the manager or the report are dropped.
-func (r *botsRepo) Delete(_ context.Context, orgID string, id orgchart.BotID) error {
+func (r *nodesRepo) Delete(_ context.Context, orgID string, id orgchart.NodeID) error {
 	r.mu.Lock()
 	k := orgKey{OrgID: orgID, ID: string(id)}
 	if _, ok := r.rows[k]; !ok {
@@ -282,7 +282,7 @@ func (r *reportingLinesRepo) Add(_ context.Context, line orgchart.ReportingLine)
 	return nil
 }
 
-func (r *reportingLinesRepo) Remove(_ context.Context, orgID string, reportID, managerID orgchart.BotID) error {
+func (r *reportingLinesRepo) Remove(_ context.Context, orgID string, reportID, managerID orgchart.NodeID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := lineKey{OrgID: orgID, ManagerID: string(managerID), ReportID: string(reportID)}
@@ -299,7 +299,7 @@ func (r *reportingLinesRepo) List(_ context.Context, orgID string) ([]orgchart.R
 	out := make([]orgchart.ReportingLine, 0)
 	for k := range r.rows {
 		if k.OrgID == orgID {
-			out = append(out, orgchart.ReportingLine{OrgID: k.OrgID, ManagerID: orgchart.BotID(k.ManagerID), ReportID: orgchart.BotID(k.ReportID)})
+			out = append(out, orgchart.ReportingLine{OrgID: k.OrgID, ManagerID: orgchart.NodeID(k.ManagerID), ReportID: orgchart.NodeID(k.ReportID)})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -311,26 +311,26 @@ func (r *reportingLinesRepo) List(_ context.Context, orgID string) ([]orgchart.R
 	return out, nil
 }
 
-func (r *reportingLinesRepo) ListManagers(_ context.Context, orgID string, reportID orgchart.BotID) ([]orgchart.BotID, error) {
+func (r *reportingLinesRepo) ListManagers(_ context.Context, orgID string, reportID orgchart.NodeID) ([]orgchart.NodeID, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]orgchart.BotID, 0)
+	out := make([]orgchart.NodeID, 0)
 	for k := range r.rows {
 		if k.OrgID == orgID && k.ReportID == string(reportID) {
-			out = append(out, orgchart.BotID(k.ManagerID))
+			out = append(out, orgchart.NodeID(k.ManagerID))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out, nil
 }
 
-func (r *reportingLinesRepo) ListReports(_ context.Context, orgID string, managerID orgchart.BotID) ([]orgchart.BotID, error) {
+func (r *reportingLinesRepo) ListReports(_ context.Context, orgID string, managerID orgchart.NodeID) ([]orgchart.NodeID, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]orgchart.BotID, 0)
+	out := make([]orgchart.NodeID, 0)
 	for k := range r.rows {
 		if k.OrgID == orgID && k.ManagerID == string(managerID) {
-			out = append(out, orgchart.BotID(k.ReportID))
+			out = append(out, orgchart.NodeID(k.ReportID))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
@@ -338,9 +338,9 @@ func (r *reportingLinesRepo) ListReports(_ context.Context, orgID string, manage
 }
 
 // deleteAllForBot drops every reporting line where the bot is the
-// manager or the report. Used by botsRepo.Delete to cascade — the
+// manager or the report. Used by  nodesRepo.Delete to cascade — the
 // memory-store analogue of the gorm ON DELETE CASCADE foreign keys.
-func (r *reportingLinesRepo) deleteAllForBot(orgID string, botID orgchart.BotID) {
+func (r *reportingLinesRepo) deleteAllForBot(orgID string, botID orgchart.NodeID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for k := range r.rows {
@@ -350,11 +350,11 @@ func (r *reportingLinesRepo) deleteAllForBot(orgID string, botID orgchart.BotID)
 	}
 }
 
-// ---- BotRuntimeState ---------------------------------------------------
+// ---- NodeRuntimeState ---------------------------------------------------
 
 type runtimeKey struct {
 	OrgID   string
-	BotID   string
+	NodeID  string
 	Backend string
 	Key     string
 }
@@ -364,39 +364,39 @@ type runtimeStateRepo struct {
 	rows map[runtimeKey]string
 }
 
-func (r *runtimeStateRepo) Get(_ context.Context, orgID string, botID orgchart.BotID, backend string) (map[string]string, error) {
+func (r *runtimeStateRepo) Get(_ context.Context, orgID string, botID orgchart.NodeID, backend string) (map[string]string, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := map[string]string{}
 	for k, v := range r.rows {
-		if k.OrgID == orgID && k.BotID == string(botID) && k.Backend == backend {
+		if k.OrgID == orgID && k.NodeID == string(botID) && k.Backend == backend {
 			out[k.Key] = v
 		}
 	}
 	return out, nil
 }
 
-func (r *runtimeStateRepo) Set(_ context.Context, orgID string, botID orgchart.BotID, backend, key, value string) error {
+func (r *runtimeStateRepo) Set(_ context.Context, orgID string, botID orgchart.NodeID, backend, key, value string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.rows[runtimeKey{OrgID: orgID, BotID: string(botID), Backend: backend, Key: key}] = value
+	r.rows[runtimeKey{OrgID: orgID, NodeID: string(botID), Backend: backend, Key: key}] = value
 	return nil
 }
 
-func (r *runtimeStateRepo) SetMany(_ context.Context, orgID string, botID orgchart.BotID, backend string, kv map[string]string) error {
+func (r *runtimeStateRepo) SetMany(_ context.Context, orgID string, botID orgchart.NodeID, backend string, kv map[string]string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for key, value := range kv {
-		r.rows[runtimeKey{OrgID: orgID, BotID: string(botID), Backend: backend, Key: key}] = value
+		r.rows[runtimeKey{OrgID: orgID, NodeID: string(botID), Backend: backend, Key: key}] = value
 	}
 	return nil
 }
 
-func (r *runtimeStateRepo) Clear(_ context.Context, orgID string, botID orgchart.BotID, backend string) error {
+func (r *runtimeStateRepo) Clear(_ context.Context, orgID string, botID orgchart.NodeID, backend string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for k := range r.rows {
-		if k.OrgID == orgID && k.BotID == string(botID) && k.Backend == backend {
+		if k.OrgID == orgID && k.NodeID == string(botID) && k.Backend == backend {
 			delete(r.rows, k)
 		}
 	}
@@ -523,7 +523,7 @@ func (s *topicsRepo) Delete(_ context.Context, orgID string, id streaming.TopicI
 
 type subKey struct {
 	OrgID   string
-	BotID   string
+	NodeID  string
 	TopicID string
 }
 
@@ -535,18 +535,18 @@ type subscriptionsRepo struct {
 func (s *subscriptionsRepo) Create(_ context.Context, sub streaming.Subscription) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := subKey{OrgID: sub.OrganizationID, BotID: string(sub.BotID), TopicID: string(sub.TopicID)}
+	k := subKey{OrgID: sub.OrganizationID, NodeID: string(sub.NodeID), TopicID: string(sub.TopicID)}
 	if _, ok := s.rows[k]; ok {
-		return fmt.Errorf("subscription %q→%q in org %q: already exists", sub.BotID, sub.TopicID, sub.OrganizationID)
+		return fmt.Errorf("subscription %q→%q in org %q: already exists", sub.NodeID, sub.TopicID, sub.OrganizationID)
 	}
 	s.rows[k] = sub
 	return nil
 }
 
-func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) error {
+func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := subKey{OrgID: orgID, BotID: string(botID), TopicID: string(topicID)}
+	k := subKey{OrgID: orgID, NodeID: string(botID), TopicID: string(topicID)}
 	if _, ok := s.rows[k]; !ok {
 		return fmt.Errorf("subscription %q→%q in org %q: %w", botID, topicID, orgID, store.ErrNotFound)
 	}
@@ -555,13 +555,13 @@ func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, botID orgcha
 }
 
 // deleteAllForBot drops every subscription held by the given bot.
-// Used by botsRepo.Delete to cascade — idempotent, no error when the
+// Used by  nodesRepo.Delete to cascade — idempotent, no error when the
 // bot has none.
-func (s *subscriptionsRepo) deleteAllForBot(orgID string, botID orgchart.BotID) {
+func (s *subscriptionsRepo) deleteAllForBot(orgID string, botID orgchart.NodeID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k := range s.rows {
-		if k.OrgID == orgID && k.BotID == string(botID) {
+		if k.OrgID == orgID && k.NodeID == string(botID) {
 			delete(s.rows, k)
 		}
 	}
@@ -580,22 +580,22 @@ func (s *subscriptionsRepo) deleteAllForTopic(orgID string, topicID streaming.To
 	}
 }
 
-func (s *subscriptionsRepo) Find(_ context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) (streaming.Subscription, error) {
+func (s *subscriptionsRepo) Find(_ context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) (streaming.Subscription, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	k := subKey{OrgID: orgID, BotID: string(botID), TopicID: string(topicID)}
+	k := subKey{OrgID: orgID, NodeID: string(botID), TopicID: string(topicID)}
 	if sub, ok := s.rows[k]; ok {
 		return sub, nil
 	}
 	return streaming.Subscription{}, fmt.Errorf("subscription %q→%q in org %q: %w", botID, topicID, orgID, store.ErrNotFound)
 }
 
-func (s *subscriptionsRepo) ListForBot(_ context.Context, orgID string, botID orgchart.BotID) ([]streaming.Subscription, error) {
+func (s *subscriptionsRepo) ListForBot(_ context.Context, orgID string, botID orgchart.NodeID) ([]streaming.Subscription, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]streaming.Subscription, 0)
 	for k, sub := range s.rows {
-		if k.OrgID == orgID && k.BotID == string(botID) {
+		if k.OrgID == orgID && k.NodeID == string(botID) {
 			out = append(out, sub)
 		}
 	}
@@ -612,7 +612,7 @@ func (s *subscriptionsRepo) ListForTopic(_ context.Context, orgID string, topicI
 			out = append(out, sub)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].BotID < out[j].BotID })
+	sort.Slice(out, func(i, j int) bool { return out[i].NodeID < out[j].NodeID })
 	return out, nil
 }
 
@@ -624,7 +624,7 @@ type eventsRepo struct {
 	// subs + bots are held by reference so ListForBot can join against
 	// subscriptions for the bot the same way the gorm impl does.
 	subs *subscriptionsRepo
-	bots *botsRepo
+	bots *nodesRepo
 }
 
 func (e *eventsRepo) Append(_ context.Context, ev streaming.Event) error {
@@ -705,7 +705,7 @@ func (e *eventsRepo) CountForTopic(_ context.Context, orgID string, topicID stre
 	return count, nil
 }
 
-func (e *eventsRepo) ListForBot(ctx context.Context, orgID string, botID orgchart.BotID, limit int) ([]streaming.Event, error) {
+func (e *eventsRepo) ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID, limit int) ([]streaming.Event, error) {
 	// Match gorm's join semantics: events on topics the bot is
 	// subscribed to. Subscriptions are bot-anchored.
 	if e.bots == nil {
@@ -896,7 +896,7 @@ func (a *activationsRepo) Get(_ context.Context, orgID string, id activation.ID)
 	return nil, fmt.Errorf("activation %q in org %q: %w", id, orgID, store.ErrNotFound)
 }
 
-func (a *activationsRepo) ListForWorker(_ context.Context, orgID string, botID orgchart.BotID, limit int) ([]*activation.Activation, error) {
+func (a *activationsRepo) ListForWorker(_ context.Context, orgID string, botID orgchart.NodeID, limit int) ([]*activation.Activation, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	out := make([]*activation.Activation, 0)

@@ -13,14 +13,14 @@ import "errors"
 // add-parent handler's ancestor walk).
 type ReportingLine struct {
 	OrgID     string
-	ManagerID BotID
-	ReportID  BotID
+	ManagerID NodeID
+	ReportID  NodeID
 }
 
 // NewReportingLine validates and constructs a ReportingLine. Both
 // endpoints are required, must differ, and orgID must be set. A Bot
 // cannot report to itself.
-func NewReportingLine(orgID string, managerID, reportID BotID) (ReportingLine, error) {
+func NewReportingLine(orgID string, managerID, reportID NodeID) (ReportingLine, error) {
 	if orgID == "" {
 		return ReportingLine{}, errors.New("reporting line orgID is empty")
 	}

@@ -33,24 +33,24 @@ func TestBots_SameIDAcrossOrgs(t *testing.T) {
 	ctx := context.Background()
 
 	for _, org := range []string{orgA, orgB} {
-		b, err := orgchart.NewBot("b-owner", "# Owner", nil, time.Now().UTC(), org)
+		b, err := orgchart.NewNode("b-owner", "# Owner", nil, time.Now().UTC(), org)
 		if err != nil {
-			t.Fatalf("orgchart.NewBot(%s): %v", org, err)
+			t.Fatalf("orgchart.NewNode(%s): %v", org, err)
 		}
-		if err := s.Bots.Create(ctx, b); err != nil {
-			t.Fatalf("Bots.Create(%s): %v", org, err)
+		if err := s.Nodes.Create(ctx, b); err != nil {
+			t.Fatalf("Nodes.Create(%s): %v", org, err)
 		}
 	}
 
 	// Same id, different orgs: both Get calls succeed and return the
 	// org-scoped row.
 	for _, org := range []string{orgA, orgB} {
-		got, err := s.Bots.Get(ctx, org, "b-owner")
+		got, err := s.Nodes.Get(ctx, org, "b-owner")
 		if err != nil {
-			t.Fatalf("Bots.Get(%s, b-owner): %v", org, err)
+			t.Fatalf("Nodes.Get(%s, b-owner): %v", org, err)
 		}
 		if got.OrganizationID != org {
-			t.Errorf("Bots.Get(%s, b-owner).OrganizationID = %q, want %q", org, got.OrganizationID, org)
+			t.Errorf("Nodes.Get(%s, b-owner).OrganizationID = %q, want %q", org, got.OrganizationID, org)
 		}
 	}
 }
@@ -62,8 +62,8 @@ func TestBots_GetWrongOrgReturnsNotFound(t *testing.T) {
 
 	mustSeedOwner(t, s, orgA)
 
-	if _, err := s.Bots.Get(ctx, orgB, "b-owner"); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("Bots.Get(%s, b-owner) wantErr ErrNotFound, got %v", orgB, err)
+	if _, err := s.Nodes.Get(ctx, orgB, "b-owner"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Nodes.Get(%s, b-owner) wantErr ErrNotFound, got %v", orgB, err)
 	}
 }
 
@@ -83,16 +83,16 @@ func TestBots_ListFiltersByOrg(t *testing.T) {
 		{orgB, 1},
 		{"org-missing", 0},
 	} {
-		got, err := s.Bots.List(ctx, tc.org)
+		got, err := s.Nodes.List(ctx, tc.org)
 		if err != nil {
-			t.Fatalf("Bots.List(%s): %v", tc.org, err)
+			t.Fatalf("Nodes.List(%s): %v", tc.org, err)
 		}
 		if len(got) != tc.want {
-			t.Errorf("Bots.List(%s) = %d rows, want %d", tc.org, len(got), tc.want)
+			t.Errorf("Nodes.List(%s) = %d rows, want %d", tc.org, len(got), tc.want)
 		}
 		for _, b := range got {
 			if b.OrganizationID != tc.org {
-				t.Errorf("Bots.List(%s) returned bot in org %q", tc.org, b.OrganizationID)
+				t.Errorf("Nodes.List(%s) returned bot in org %q", tc.org, b.OrganizationID)
 			}
 		}
 	}
@@ -106,12 +106,12 @@ func TestBots_ListFiltersByOrg_Owner(t *testing.T) {
 	mustSeedOwner(t, s, orgA)
 	mustSeedOwner(t, s, orgB)
 
-	got, err := s.Bots.List(ctx, orgA)
+	got, err := s.Nodes.List(ctx, orgA)
 	if err != nil {
-		t.Fatalf("Bots.List(%s): %v", orgA, err)
+		t.Fatalf("Nodes.List(%s): %v", orgA, err)
 	}
 	if len(got) != 1 || got[0].OrganizationID != orgA {
-		t.Errorf("Bots.List(%s) returned %+v, want one bot in %s", orgA, got, orgA)
+		t.Errorf("Nodes.List(%s) returned %+v, want one bot in %s", orgA, got, orgA)
 	}
 }
 
@@ -121,11 +121,11 @@ func mustSeedOwner(t *testing.T, s *store.Store, orgID string) {
 	t.Helper()
 	ctx := context.Background()
 
-	b, err := orgchart.NewBot("b-owner", "# Owner", nil, time.Now().UTC(), orgID)
+	b, err := orgchart.NewNode("b-owner", "# Owner", nil, time.Now().UTC(), orgID)
 	if err != nil {
-		t.Fatalf("orgchart.NewBot: %v", err)
+		t.Fatalf("orgchart.NewNode: %v", err)
 	}
-	if err := s.Bots.Create(ctx, b); err != nil {
-		t.Fatalf("Bots.Create(%s): %v", orgID, err)
+	if err := s.Nodes.Create(ctx, b); err != nil {
+		t.Fatalf("Nodes.Create(%s): %v", orgID, err)
 	}
 }

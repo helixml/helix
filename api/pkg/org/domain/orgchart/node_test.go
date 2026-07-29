@@ -6,16 +6,16 @@ import (
 )
 
 // TestNewBotDefaultsPreserveContextFalse pins that a freshly constructed
-// Bot does not preserve context — the spawner wipes its session on every
+// Node does not preserve context — the spawner wipes its session on every
 // re-activation unless the operator opts in.
 func TestNewBotDefaultsPreserveContextFalse(t *testing.T) {
 	t.Parallel()
-	b, err := NewBot("b-test", "content", nil, time.Now(), "org-test")
+	b, err := NewNode("b-test", "content", nil, time.Now(), "org-test")
 	if err != nil {
-		t.Fatalf("NewBot: %v", err)
+		t.Fatalf("NewNode: %v", err)
 	}
 	if b.PreserveContext {
-		t.Error("NewBot PreserveContext = true, want false (wipe-on-trigger is the default)")
+		t.Error("NewNode PreserveContext = true, want false (wipe-on-trigger is the default)")
 	}
 }
 
@@ -23,9 +23,9 @@ func TestNewBotDefaultsPreserveContextFalse(t *testing.T) {
 // copy without mutating the receiver.
 func TestWithPreserveContext(t *testing.T) {
 	t.Parallel()
-	b, err := NewBot("b-test", "content", nil, time.Now(), "org-test")
+	b, err := NewNode("b-test", "content", nil, time.Now(), "org-test")
 	if err != nil {
-		t.Fatalf("NewBot: %v", err)
+		t.Fatalf("NewNode: %v", err)
 	}
 	on := b.WithPreserveContext(true)
 	if !on.PreserveContext {

@@ -27,7 +27,7 @@ type fakeDispatcher struct {
 
 type dispatchHireCall struct {
 	orgID        string
-	botID        orgchart.BotID
+	botID        orgchart.NodeID
 	activationID activation.ID
 }
 
@@ -37,7 +37,7 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, _ streaming.Event) {
 	f.mu.Unlock()
 }
 
-func (f *fakeDispatcher) DispatchHire(_ context.Context, orgID string, botID orgchart.BotID, activationID activation.ID) {
+func (f *fakeDispatcher) DispatchHire(_ context.Context, orgID string, botID orgchart.NodeID, activationID activation.ID) {
 	f.mu.Lock()
 	f.hires = append(f.hires, dispatchHireCall{orgID: orgID, botID: botID, activationID: activationID})
 	f.mu.Unlock()
@@ -128,7 +128,7 @@ func TestCreateBotRequiresContent(t *testing.T) {
 	if !strings.Contains(err.Error(), "content") {
 		t.Errorf("err = %v, want mention of content", err)
 	}
-	if _, err := deps.Store.Bots.Get(context.Background(), "org-test", "b-empty"); err == nil {
+	if _, err := deps.Store.Nodes.Get(context.Background(), "org-test", "b-empty"); err == nil {
 		t.Fatal("bot row created despite content rejection")
 	}
 }
@@ -144,7 +144,7 @@ func TestCreateBotInheritsCallerOrgID(t *testing.T) {
 	if _, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: args}); err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
-	got, err := deps.Store.Bots.Get(context.Background(), "org-test", "b-alice")
+	got, err := deps.Store.Nodes.Get(context.Background(), "org-test", "b-alice")
 	if err != nil {
 		t.Fatalf("Get created bot: %v", err)
 	}

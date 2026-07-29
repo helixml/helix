@@ -40,7 +40,7 @@ func newRig(t *testing.T) *rig {
 	t.Helper()
 	r := &rig{store: memory.New(), gotAct: make(chan struct{}, 64)}
 
-	spawner := func(_ context.Context, _ string, _ orgchart.BotID, triggers []activation.Trigger) error {
+	spawner := func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
 		r.mu.Lock()
 		r.activations = append(r.activations, triggers...)
 		r.mu.Unlock()
@@ -96,11 +96,11 @@ func (r *rig) mkTopic(t *testing.T, id, name string) streaming.TopicID {
 
 func (r *rig) mkAIWorker(t *testing.T, id, subTopic streaming.TopicID) {
 	t.Helper()
-	w, err := orgchart.NewBot(orgchart.BotID(id), "# "+string(id), nil, time.Now().UTC(), org)
+	w, err := orgchart.NewNode(orgchart.NodeID(id), "# "+string(id), nil, time.Now().UTC(), org)
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}
-	if err := r.store.Bots.Create(context.Background(), w); err != nil {
+	if err := r.store.Nodes.Create(context.Background(), w); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 	sub, err := streaming.NewSubscription(string(id), subTopic, time.Now().UTC(), org)

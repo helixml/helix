@@ -35,7 +35,7 @@ var ErrConflict = errors.New("already exists")
 // tenants. ErrNotFound is returned when the (orgID, id) pair doesn't
 // exist — even if the bare id exists under another org.
 
-// Bots persists the org's bots — the single org-chart aggregate (the
+// Nodes persists the org's bots — the single org-chart aggregate (the
 // merge of the former Role and Worker). A Bot carries its own content
 // and tool list (its capability) and is the live participant in the
 // reporting graph. Update replaces the mutable fields (content, tools,
@@ -45,13 +45,13 @@ var ErrConflict = errors.New("already exists")
 // reference it: its subscriptions (bot-anchored) and every reporting
 // line where it is the manager or the report. See the gorm and memory
 // implementations.
-type Bots interface {
-	Create(ctx context.Context, bot orgchart.Bot) error
-	Get(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Bot, error)
-	List(ctx context.Context, orgID string) ([]orgchart.Bot, error)
-	Update(ctx context.Context, bot orgchart.Bot) error
-	ClaimAgentApp(ctx context.Context, orgID string, id orgchart.BotID, appID string) (bool, error)
-	Delete(ctx context.Context, orgID string, id orgchart.BotID) error
+type Nodes interface {
+	Create(ctx context.Context, bot orgchart.Node) error
+	Get(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error)
+	List(ctx context.Context, orgID string) ([]orgchart.Node, error)
+	Update(ctx context.Context, bot orgchart.Node) error
+	ClaimAgentApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string) (bool, error)
+	Delete(ctx context.Context, orgID string, id orgchart.NodeID) error
 }
 
 // ReportingLines persists the org's many-to-many reporting graph:
@@ -66,16 +66,16 @@ type ReportingLines interface {
 	Add(ctx context.Context, line orgchart.ReportingLine) error
 	// Remove drops the (report → manager) line. Returns ErrNotFound
 	// when no such line exists.
-	Remove(ctx context.Context, orgID string, reportID, managerID orgchart.BotID) error
+	Remove(ctx context.Context, orgID string, reportID, managerID orgchart.NodeID) error
 	// List returns every reporting line in the org.
 	List(ctx context.Context, orgID string) ([]orgchart.ReportingLine, error)
 	// ListManagers returns the managers the given report reports to.
-	ListManagers(ctx context.Context, orgID string, reportID orgchart.BotID) ([]orgchart.BotID, error)
+	ListManagers(ctx context.Context, orgID string, reportID orgchart.NodeID) ([]orgchart.NodeID, error)
 	// ListReports returns the direct reports of the given manager.
-	ListReports(ctx context.Context, orgID string, managerID orgchart.BotID) ([]orgchart.BotID, error)
+	ListReports(ctx context.Context, orgID string, managerID orgchart.NodeID) ([]orgchart.NodeID, error)
 }
 
-// BotRuntimeState is a sidecar key/value store keyed by
+// NodeRuntimeState is a sidecar key/value store keyed by
 // (orgID, botID, backend). Runtime backends (the Helix integration
 // today, future local containers, etc.) write whatever per-Bot
 // pointers they need — Helix uses keys like "session_id", "project_id",
@@ -84,11 +84,11 @@ type ReportingLines interface {
 //
 // The "backend" component is a free-form string the runtime owns
 // (e.g. "helix"); helix-org core never reads or writes it.
-type BotRuntimeState interface {
-	Get(ctx context.Context, orgID string, botID orgchart.BotID, backend string) (map[string]string, error)
-	Set(ctx context.Context, orgID string, botID orgchart.BotID, backend, key, value string) error
-	SetMany(ctx context.Context, orgID string, botID orgchart.BotID, backend string, kv map[string]string) error
-	Clear(ctx context.Context, orgID string, botID orgchart.BotID, backend string) error
+type NodeRuntimeState interface {
+	Get(ctx context.Context, orgID string, botID orgchart.NodeID, backend string) (map[string]string, error)
+	Set(ctx context.Context, orgID string, botID orgchart.NodeID, backend, key, value string) error
+	SetMany(ctx context.Context, orgID string, botID orgchart.NodeID, backend string, kv map[string]string) error
+	Clear(ctx context.Context, orgID string, botID orgchart.NodeID, backend string) error
 }
 
 // Topics persists named event sources. Topics are created explicitly
@@ -126,9 +126,9 @@ type Topics interface {
 // unsubscribe), letting each Bot consume exactly the topics it should.
 type Subscriptions interface {
 	Create(ctx context.Context, sub streaming.Subscription) error
-	Delete(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) error
-	Find(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) (streaming.Subscription, error)
-	ListForBot(ctx context.Context, orgID string, botID orgchart.BotID) ([]streaming.Subscription, error)
+	Delete(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) error
+	Find(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) (streaming.Subscription, error)
+	ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID) ([]streaming.Subscription, error)
 	ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) ([]streaming.Subscription, error)
 }
 
@@ -150,7 +150,7 @@ type Events interface {
 	// the total-count meta the paginated messages endpoint surfaces,
 	// independent of any page window.
 	CountForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) (int, error)
-	ListForBot(ctx context.Context, orgID string, botID orgchart.BotID, limit int) ([]streaming.Event, error)
+	ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID, limit int) ([]streaming.Event, error)
 	ListSince(ctx context.Context, orgID string, topicIDs []streaming.TopicID, since streaming.EventID, limit int) ([]streaming.Event, error)
 	// ListAll returns events across every Topic in the given org,
 	// newest first. Powers the unified "All topics" activity feed in
@@ -224,15 +224,15 @@ type ChartPositions interface {
 // storage boundary is part of the domain package, not a parallel
 // declaration here. Lifted in B5.5.
 type Store struct {
-	Bots            Bots
-	ReportingLines  ReportingLines
-	BotRuntimeState BotRuntimeState
-	Topics          Topics
-	Subscriptions   Subscriptions
-	Events          Events
-	Configs         Configs
-	Activations     activation.Repository
-	Processors      Processors
+	Nodes            Nodes
+	ReportingLines   ReportingLines
+	NodeRuntimeState NodeRuntimeState
+	Topics           Topics
+	Subscriptions    Subscriptions
+	Events           Events
+	Configs          Configs
+	Activations      activation.Repository
+	Processors       Processors
 	// ChartPositions is the free-placed canvas layout for the org chart UI.
 	ChartPositions ChartPositions
 	// DomainEvents is the append-only decision/audit log (e.g. Slack

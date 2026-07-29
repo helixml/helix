@@ -29,11 +29,11 @@ func bulkTestEnv(t *testing.T) (*store.Store, *Registry, botCaller) {
 	if err := RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	owner, err := orgchart.NewBot("b-owner", "# Owner", nil, deps.Now(), "org-test")
+	owner, err := orgchart.NewNode("b-owner", "# Owner", nil, deps.Now(), "org-test")
 	if err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
-	if err := st.Bots.Create(context.Background(), owner); err != nil {
+	if err := st.Nodes.Create(context.Background(), owner); err != nil {
 		t.Fatalf("create owner: %v", err)
 	}
 	return st, reg, botCaller{id: "b-owner", orgID: "org-test"}
@@ -51,11 +51,11 @@ func invoke(t *testing.T, reg *Registry, caller botCaller, name tool.Name, args 
 
 func seedBotRow(t *testing.T, st *store.Store, id string) {
 	t.Helper()
-	b, err := orgchart.NewBot(orgchart.BotID(id), "# "+id, nil, time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC), "org-test")
+	b, err := orgchart.NewNode(orgchart.NodeID(id), "# "+id, nil, time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC), "org-test")
 	if err != nil {
 		t.Fatalf("new bot %q: %v", id, err)
 	}
-	if err := st.Bots.Create(context.Background(), b); err != nil {
+	if err := st.Nodes.Create(context.Background(), b); err != nil {
 		t.Fatalf("create bot %q: %v", id, err)
 	}
 }
@@ -72,7 +72,7 @@ func seedTopicRow(t *testing.T, st *store.Store, id string) {
 	}
 }
 
-func toolSet(b orgchart.Bot) map[tool.Name]bool {
+func toolSet(b orgchart.Node) map[tool.Name]bool {
 	m := make(map[tool.Name]bool, len(b.Tools))
 	for _, n := range b.Tools {
 		m[n] = true
@@ -94,7 +94,7 @@ func TestAttachDetachTools(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("attach: %v", err)
 	}
-	got, _ := st.Bots.Get(ctx, "org-test", "b-eng")
+	got, _ := st.Nodes.Get(ctx, "org-test", "b-eng")
 	ts := toolSet(got)
 	if !ts[PublishName] || !ts[SubscribeName] {
 		t.Fatalf("attach did not add tools: %v", got.Tools)
@@ -113,7 +113,7 @@ func TestAttachDetachTools(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("detach: %v", err)
 	}
-	got, _ = st.Bots.Get(ctx, "org-test", "b-eng")
+	got, _ = st.Nodes.Get(ctx, "org-test", "b-eng")
 	if toolSet(got)[PublishName] {
 		t.Fatalf("detach did not remove publish: %v", got.Tools)
 	}
@@ -164,7 +164,7 @@ func TestCreateBotSubscribesToTopics(t *testing.T) {
 	}); err == nil {
 		t.Fatalf("create with unknown topic should error")
 	}
-	if _, err := st.Bots.Get(ctx, "org-test", "b-ghost"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.Nodes.Get(ctx, "org-test", "b-ghost"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("failed create left a partial bot row: %v", err)
 	}
 
@@ -195,7 +195,7 @@ func TestDeleteBotCascades(t *testing.T) {
 	if _, err := invoke(t, reg, caller, DeleteBotName, map[string]any{"botId": "b-eng"}); err != nil {
 		t.Fatalf("delete_bot: %v", err)
 	}
-	if _, err := st.Bots.Get(ctx, "org-test", "b-eng"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.Nodes.Get(ctx, "org-test", "b-eng"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("bot still present after delete: %v", err)
 	}
 	if _, err := st.Subscriptions.Find(ctx, "org-test", "b-eng", "s-a"); !errors.Is(err, store.ErrNotFound) {

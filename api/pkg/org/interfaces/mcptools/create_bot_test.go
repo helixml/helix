@@ -16,13 +16,13 @@ import (
 // store-backed Config, a deterministic clock + ID generator, and a
 // caller Bot whose OrganizationID create_bot reads. The tool only checks
 // Caller.OrganizationID, so we don't have to pre-seed a manager bot.
-func newCreateBotCaller(t *testing.T, orgID string) (Config, orgchart.Bot) {
+func newCreateBotCaller(t *testing.T, orgID string) (Config, orgchart.Node) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	deps := DefaultDeps(st)
 	deps.Now = func() time.Time { return time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC) }
 	deps.NewID = func() string { return "id-create-bot-test" }
-	caller, err := orgchart.NewBot("b-owner", "# Owner", nil, deps.Now(), orgID)
+	caller, err := orgchart.NewNode("b-owner", "# Owner", nil, deps.Now(), orgID)
 	if err != nil {
 		t.Fatalf("new caller: %v", err)
 	}
@@ -31,7 +31,7 @@ func newCreateBotCaller(t *testing.T, orgID string) (Config, orgchart.Bot) {
 
 // invokeCreateBot runs the tool and reads back the created Bot from the
 // store so tests can assert on Bot.Tools directly.
-func invokeCreateBot(t *testing.T, deps Config, caller orgchart.Bot, args string) orgchart.Bot {
+func invokeCreateBot(t *testing.T, deps Config, caller orgchart.Node, args string) orgchart.Node {
 	t.Helper()
 	ctx := context.Background()
 	out, err := (&CreateBot{deps: deps.Build()}).Invoke(ctx, tool.Invocation{
@@ -47,7 +47,7 @@ func invokeCreateBot(t *testing.T, deps Config, caller orgchart.Bot, args string
 	if err := json.Unmarshal(out, &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	bot, err := deps.Store.Bots.Get(ctx, caller.OrganizationID, orgchart.BotID(resp.ID))
+	bot, err := deps.Store.Nodes.Get(ctx, caller.OrganizationID, orgchart.NodeID(resp.ID))
 	if err != nil {
 		t.Fatalf("get back bot: %v", err)
 	}

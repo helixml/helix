@@ -5,19 +5,19 @@ import (
 	"time"
 )
 
-// Subscription is a Bot's link to a Topic. The (BotID, TopicID) pair is
+// Subscription is a Bot's link to a Topic. The (NodeID, TopicID) pair is
 // the identity — there is no synthetic ID.
 //
 // Subscriptions are BOT-anchored: deleting a Bot drops its
 // subscriptions. They are driven explicitly (subscribe / unsubscribe),
 // letting each Bot consume exactly the topics it should.
 //
-// BotID is an orgchart.BotID carried as a plain string; the streaming
+// NodeID is an orgchart.NodeID carried as a plain string; the streaming
 // aggregate intentionally does not import orgchart to keep the
 // dependency DAG one-way.
 type Subscription struct {
 	OrganizationID string
-	BotID          string // orgchart.BotID
+	NodeID         string // orgchart.NodeID
 	TopicID        TopicID
 	CreatedAt      time.Time
 }
@@ -39,7 +39,7 @@ func NewSubscription(botID string, topicID TopicID, createdAt time.Time, orgID s
 	}
 	return Subscription{
 		OrganizationID: orgID,
-		BotID:          botID,
+		NodeID:         botID,
 		TopicID:        topicID,
 		CreatedAt:      createdAt.UTC(),
 	}, nil

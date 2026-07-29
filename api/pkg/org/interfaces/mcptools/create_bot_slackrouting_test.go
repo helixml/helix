@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
@@ -52,17 +52,17 @@ func TestCreateBotRunsInjectedOrgReconcilers(t *testing.T) {
 	}
 
 	rec := reconcile.New(reconcile.Deps{
-		Bots: st.Bots, ReportingLines: st.ReportingLines,
+		Nodes: st.Nodes, ReportingLines: st.ReportingLines,
 		Topics: st.Topics, Subscriptions: st.Subscriptions, Now: deps.Now,
 	})
-	botSvc := bots.New(bots.Deps{
-		Bots: st.Bots, Lines: st.ReportingLines, Reconciler: rec,
+	botSvc := nodes.New(nodes.Deps{
+		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: rec,
 		Now: deps.Now, NewID: deps.NewID, BaseTools: BaseReadTools,
 	})
 	spy := &spyOrgReconciler{}
 	deps.Lifecycle = &lifecycle.Service{
 		Store:          st,
-		Bots:           botSvc,
+		Nodes:          botSvc,
 		BotReconcilers: []lifecycle.BotReconciler{rec},
 		OrgReconcilers: []lifecycle.OrgReconciler{spy},
 		Now:            deps.Now,

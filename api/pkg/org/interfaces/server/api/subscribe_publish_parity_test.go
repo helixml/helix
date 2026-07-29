@@ -24,8 +24,8 @@ func seedTopicAndOwner(t *testing.T, st *store.Store, clock func() time.Time) {
 	if err := st.Topics.Create(ctx, s); err != nil {
 		t.Fatalf("seed topic: %v", err)
 	}
-	b, _ := orgchart.NewBot("b-owner", "# Owner", nil, clock(), "org-test")
-	if err := st.Bots.Create(ctx, b); err != nil {
+	b, _ := orgchart.NewNode("b-owner", "# Owner", nil, clock(), "org-test")
+	if err := st.Nodes.Create(ctx, b); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
 }
@@ -63,7 +63,7 @@ func TestSubscribeParity_RESTvsMCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MCP sub find: %v", err)
 	}
-	if restSub.BotID != mcpSub.BotID || restSub.TopicID != mcpSub.TopicID {
+	if restSub.NodeID != mcpSub.NodeID || restSub.TopicID != mcpSub.TopicID {
 		t.Errorf("sub differs: REST=%+v MCP=%+v", restSub, mcpSub)
 	}
 	if !restSub.CreatedAt.Equal(mcpSub.CreatedAt) {

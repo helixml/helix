@@ -134,7 +134,7 @@ func TestSpecTasks_NoProjectReturnsUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpecTasks: %v", err)
 	}
-	_, err = st.Create(context.Background(), "org-test", orgchart.BotID("w-noproject"), "", runtime.CreateSpecTaskInput{Name: "x", Description: "y"})
+	_, err = st.Create(context.Background(), "org-test", orgchart.NodeID("w-noproject"), "", runtime.CreateSpecTaskInput{Name: "x", Description: "y"})
 	if !errors.Is(err, runtime.ErrSpecTasksUnsupported) {
 		t.Errorf("err = %v, want ErrSpecTasksUnsupported", err)
 	}
@@ -146,7 +146,7 @@ func TestSpecTasks_NoProjectReturnsUnsupported(t *testing.T) {
 func TestSpecTasks_CreateInOwnProject(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_01abc", "app_x", "repo_y", "ses_z")
 
 	fs := newFakeSpecTaskStore()
@@ -184,7 +184,7 @@ func TestSpecTasks_CreateInOwnProject(t *testing.T) {
 func TestSpecTasks_GetForeignTaskRejected(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
 
 	fs := newFakeSpecTaskStore()
@@ -204,13 +204,13 @@ func TestSpecTasks_GetForeignTaskRejected(t *testing.T) {
 func TestSpecTasks_CrossProjectSameOrgAllowed(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-pm")
+	wid := orgchart.NodeID("w-pm")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
-	bot, err := orgchart.NewBot(wid, "# PM", nil, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode(wid, "# PM", nil, time.Now().UTC(), "org-test")
 	if err != nil {
-		t.Fatalf("NewBot: %v", err)
+		t.Fatalf("NewNode: %v", err)
 	}
-	if err := wrap.Store.Bots.Create(context.Background(), bot.WithProjectIDs([]string{"prj_other"})); err != nil {
+	if err := wrap.Store.Nodes.Create(context.Background(), bot.WithProjectIDs([]string{"prj_other"})); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 
@@ -233,13 +233,13 @@ func TestSpecTasks_CrossProjectSameOrgAllowed(t *testing.T) {
 func TestSpecTasks_CrossProjectWithoutAccessRejected(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-pm")
+	wid := orgchart.NodeID("w-pm")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
-	bot, err := orgchart.NewBot(wid, "# PM", nil, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode(wid, "# PM", nil, time.Now().UTC(), "org-test")
 	if err != nil {
-		t.Fatalf("NewBot: %v", err)
+		t.Fatalf("NewNode: %v", err)
 	}
-	if err := wrap.Store.Bots.Create(context.Background(), bot); err != nil {
+	if err := wrap.Store.Nodes.Create(context.Background(), bot); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 
@@ -263,13 +263,13 @@ func TestSpecTasks_CrossProjectWithoutAccessRejected(t *testing.T) {
 func TestSpecTasks_CrossOrgProjectRejected(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-pm")
+	wid := orgchart.NodeID("w-pm")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
-	bot, err := orgchart.NewBot(wid, "# PM", nil, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode(wid, "# PM", nil, time.Now().UTC(), "org-test")
 	if err != nil {
-		t.Fatalf("NewBot: %v", err)
+		t.Fatalf("NewNode: %v", err)
 	}
-	if err := wrap.Store.Bots.Create(context.Background(), bot.WithProjectIDs([]string{"prj_foreign"})); err != nil {
+	if err := wrap.Store.Nodes.Create(context.Background(), bot.WithProjectIDs([]string{"prj_foreign"})); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 
@@ -289,7 +289,7 @@ func TestSpecTasks_CrossOrgProjectRejected(t *testing.T) {
 func TestSpecTasks_UpdateMetadata(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
 
 	fs := newFakeSpecTaskStore()
@@ -313,7 +313,7 @@ func TestSpecTasks_UpdateMetadata(t *testing.T) {
 func TestSpecTasks_StopAgentDelegates(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
 
 	fs := newFakeSpecTaskStore()
@@ -337,7 +337,7 @@ func TestSpecTasks_StopAgentDelegates(t *testing.T) {
 func TestSpecTasks_RequestChangesDeliversComment(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
 	if err := SaveHiringUser(context.Background(), &wrap.Store, "org-test", wid, "user_hiring"); err != nil {
 		t.Fatalf("SaveHiringUser: %v", err)
@@ -370,7 +370,7 @@ func TestSpecTasks_RequestChangesDeliversComment(t *testing.T) {
 func TestSpecTasks_ApproveSpecSetsApproverAndDelegates(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
 	if err := SaveHiringUser(context.Background(), &wrap.Store, "org-test", wid, "user_hiring"); err != nil {
 		t.Fatalf("SaveHiringUser: %v", err)
@@ -398,7 +398,7 @@ func TestSpecTasks_ApproveSpecSetsApproverAndDelegates(t *testing.T) {
 func TestSpecTasks_RequestChangesTransitions(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
 
 	fs := newFakeSpecTaskStore()
@@ -422,7 +422,7 @@ func TestSpecTasks_RequestChangesTransitions(t *testing.T) {
 func TestSpecTasks_CreatePullRequestsDelegatesAndMapsPRs(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
-	wid := orgchart.BotID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
 	if err := SaveHiringUser(context.Background(), &wrap.Store, "org-test", wid, "user_hiring"); err != nil {
 		t.Fatalf("SaveHiringUser: %v", err)

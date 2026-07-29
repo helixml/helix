@@ -43,7 +43,7 @@ func TestHumanInboxNotifyExpectsReply(t *testing.T) {
 				})
 
 			h := humanInbox{store: mockStore}
-			person := orgchart.Bot{HelixUserID: "usr_1", Name: "Priya"}
+			person := orgchart.Node{HelixUserID: "usr_1", Name: "Priya"}
 			if _, err := h.Deliver(context.Background(), "org_1", person, "chief-of-staff", "Chief of Staff", "hi", tc.expectsReply); err != nil {
 				t.Fatalf("Deliver: %v", err)
 			}
@@ -133,7 +133,7 @@ func TestHumanDeliverySlackDMAndChannel(t *testing.T) {
 					return nil
 				},
 			}
-			person := orgchart.Bot{Identity: map[string]string{
+			person := orgchart.Node{Identity: map[string]string{
 				"preferred_contact": "slack", "slack_user_id": "U123", "slack_channel_id": tc.channelID,
 			}}
 			route, err := h.Deliver(context.Background(), "org-1", person, "b-sender", "Sender", "hello", true)
@@ -168,7 +168,7 @@ func TestHumanDeliverySlackNoReplyDoesNotRecordDMRecipient(t *testing.T) {
 		slackClient:     func(string) slackAPI { return api },
 		threadFollower:  recorder,
 	}
-	person := orgchart.Bot{Identity: map[string]string{"preferred_contact": "slack", "slack_user_id": "U123"}}
+	person := orgchart.Node{Identity: map[string]string{"preferred_contact": "slack", "slack_user_id": "U123"}}
 	if _, err := h.Deliver(context.Background(), "org-1", person, "b-sender", "Sender", "hello", false); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestHumanDeliverySlackPostFailureDoesNotRecordRouting(t *testing.T) {
 			return nil
 		},
 	}
-	person := orgchart.Bot{Identity: map[string]string{
+	person := orgchart.Node{Identity: map[string]string{
 		"preferred_contact": "slack", "slack_user_id": "U123", "slack_channel_id": "C123",
 	}}
 	if _, err := h.Deliver(context.Background(), "org-1", person, "b-sender", "Sender", "hello", true); err == nil {
@@ -201,7 +201,7 @@ func TestHumanDeliverySlackPostFailureDoesNotRecordRouting(t *testing.T) {
 
 func TestHumanDeliverySlackDoesNotFallback(t *testing.T) {
 	h := humanInbox{slackWorkspaces: fakeSlackWorkspaces{err: errors.New("not installed")}}
-	person := orgchart.Bot{HelixUserID: "usr-1", Identity: map[string]string{
+	person := orgchart.Node{HelixUserID: "usr-1", Identity: map[string]string{
 		"preferred_contact": "slack", "slack_user_id": "U123",
 	}}
 	if _, err := h.Deliver(context.Background(), "org-1", person, "b-sender", "Sender", "hello", false); err == nil {
@@ -218,7 +218,7 @@ func TestHumanDeliverySlackRequiresReplyRouterBeforePosting(t *testing.T) {
 			return errors.New("missing")
 		},
 	}
-	person := orgchart.Bot{Identity: map[string]string{"preferred_contact": "slack", "slack_user_id": "U123"}}
+	person := orgchart.Node{Identity: map[string]string{"preferred_contact": "slack", "slack_user_id": "U123"}}
 	if _, err := h.Deliver(context.Background(), "org-1", person, "b-sender", "Sender", "hello", true); err == nil {
 		t.Fatal("expected missing reply router error")
 	}
