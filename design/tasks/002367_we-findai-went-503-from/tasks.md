@@ -33,14 +33,14 @@
 
 ## Gap 1 follow-on — actionable deploy error
 
-- [~] Add `classifyDeployFailure(logTail)` with signatures for corrupt checkpoint / invalid resource manager ID, `PANIC:`, `dependency failed to start`, `container ... is unhealthy`
-- [ ] Call it on readiness failure, store the specific error on the deploy row, fall back to the existing generic error on no match
-- [ ] Include the classified error in the AdminAlerter payload
-- [ ] Table-test the classifier including the no-match case
+- [x] Add `classifyDeployFailure(logTail)` with signatures for corrupt checkpoint / invalid resource manager ID, `PANIC:`, `dependency failed to start`, `container ... is unhealthy`
+- [x] Call it on readiness failure, store the specific error on the deploy row, fall back to the existing generic error on no match
+- [x] Include the classified error in the AdminAlerter payload
+- [x] Table-test the classifier including the no-match case
 
 ## End-to-end verification in the inner Helix
 
-- [ ] Stand up a project web service whose compose runs a real `postgres:15` with its volume under `/data`
+- [~] Stand up a project web service whose compose runs a real `postgres:15` with its volume under `/data`
 - [ ] Control run on `main`: redeploy, capture the unclean shutdown and `pg_controldata` → `in production`
 - [ ] With the change: redeploy and delete, capture `database system is shut down` + `pg_controldata` → `shut down`, then restart and confirm no recovery/PANIC
 - [ ] Force the service down and capture `/metrics` showing `helix_webservice_unhealthy_since_seconds` pinned across a recovery redeploy while `helix_webservice_up` flaps
