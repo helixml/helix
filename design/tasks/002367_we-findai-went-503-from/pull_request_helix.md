@@ -36,9 +36,12 @@ at `1` for 15-minute stretches. Confirmed live — see Verification.
   began; cleared **only** by a genuinely successful probe. An in-flight recovery deploy does not
   clear it, so `time() - gauge` grows monotonically for as long as the site is actually down.
   `helix_webservice_up` keeps its dashboard meaning and is documented as never-page-on-this.
-- **`helix_webservice_upstream_errors_total`** (new): incremented in the vhost proxy's error
-  handler — requests real customers made that we failed. Metric only; the holding page is
-  unchanged.
+- **`helix_webservice_upstream_errors_total`** (new): incremented wherever a customer request to a
+  hosted service fails — the reverse-proxy error handler *and* the four earlier exits in
+  `dispatchProjectWebService` (missing state, disabled, no active sandbox, **missing sandbox row**
+  — that last one is case 1 of `RecoverWebService`'s own escalation ladder). A metric justified by
+  "cannot be masked by a bug in the health state machine" has to count every failure path. Metric
+  only; the holding page is unchanged.
 - **`deploy/monitoring/`** (new): four Prometheus rules — down, recovery-looping, sustained 503s,
   and a **dead-man switch** (`absent(helix_webservice_up)`), because a broken scrape would
   otherwise be indistinguishable from health. With `promtool` unit tests that replay this
@@ -118,14 +121,22 @@ Note: plain `docker:dind` is **not** a faithful harness — its PID 1 *is* docke
 containers gracefully and hides the bug entirely. The harness above backgrounds dockerd and makes
 PID 1 `tail`, matching the real sandbox.
 
+**Upstream-error counter**, live on both failure paths:
+
+```
+3 requests, sandbox row absent      -> HTTP 502, counter 0 -> 3   (early-exit path)
+2 requests, sandbox row unreachable -> HTTP 503, counter 3 -> 5   (ErrorHandler path)
+                                       + branded "Temporarily unavailable" page still served
+```
+
 Also: `go build ./...`, package tests, and `promtool test rules` all pass. The regression test for
-the flapping gauge was verified to fail when the fix is sabotaged.
+the flapping gauge was verified to fail when the fix is sabotaged. **CI is green** — Drone build
+#3149, all 19 steps including the new `prometheus-rules-test`.
 
 ### NOT tested
 
 - The recovery ("back up") notification — unit-tested only; needs a service that comes back.
-- The admin-email arm (no SMTP in the inner Helix) and `helix_webservice_upstream_errors_total`
-  incrementing live (needs a runner-backed sandbox to proxy to).
+- The admin-email arm of the alert (no SMTP in the inner Helix).
 - `DrainNestedContainers` and hydra's `/api/v1/drain` through a live RevDial sandbox — the drain
   script and the failure mode were proven in the harness, and the Go wiring is unit-tested, but
   not exercised together. Needs `./stack build-sandbox` and a runner restart.
