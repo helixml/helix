@@ -118,7 +118,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   useEffect(() => {
     const fetchUsageData = async () => {
       const usagePromises = data.map(app => 
-        apiClient.v1AppsDailyUsageDetail(app.id)
+        apiClient.v1AgentsDailyUsageDetail(app.id)
           .then(response => ({ [app.id]: response.data as TypesAggregatedUsageMetric[] }))
           .catch(() => ({ [app.id]: null }))
       )

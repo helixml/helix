@@ -2022,13 +2022,13 @@ const HelixOrgChart: FC = () => {
       if (!botId || !detail) return
 
       const botProjectID = detail.project_id ?? ''
-      const botAgentAppID = detail.agent_app_id ?? ''
+      const botAgentID = detail.agent_id ?? detail.agent_app_id ?? ''
       const botTasks = specTasks.filter((task) => {
         const taskProject = projectsByID.get(task.project_id ?? '')
-        const taskAgentAppID = task.helix_app_id || taskProject?.default_helix_app_id
+        const taskAgentID = task.helix_app_id || taskProject?.default_helix_app_id
         return (
           (!!botProjectID && task.project_id === botProjectID) ||
-          (!!botAgentAppID && taskAgentAppID === botAgentAppID)
+          (!!botAgentID && taskAgentID === botAgentID)
         )
       })
       tasksByBotId.set(botId, botTasks)

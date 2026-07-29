@@ -216,7 +216,7 @@ Example workflow:
 
 	cmd.Flags().StringVarP(&taskName, "name", "n", "CLI Test Task", "Task name")
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required when creating new task)")
-	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent/App ID to use (e.g., app_01xxx)")
+	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent ID to use (e.g., app_01xxx)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
 	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). Uploaded as spec-task attachments the agent reads at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt.")
@@ -710,13 +710,13 @@ func newResumeCommand() *cobra.Command {
 	}
 }
 
-type App struct {
-	ID     string    `json:"id"`
-	Name   string    `json:"name"`
-	Config AppConfig `json:"config"`
+type Agent struct {
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Config AgentConfig `json:"config"`
 }
 
-type AppConfig struct {
+type AgentConfig struct {
 	Helix HelixConfig `json:"helix"`
 }
 
@@ -731,13 +731,13 @@ type Assistant struct {
 	Model            string `json:"model"`
 }
 
-type AppsResponse struct {
-	Apps []App `json:"apps"`
+type AgentsResponse struct {
+	Agents []Agent `json:"apps"`
 }
 
 func newListAgentsCommand() *cobra.Command {
 	var (
-		orgFlag        string
+		orgFlag         string
 		zedExternalOnly bool
 	)
 	cmd := &cobra.Command{
@@ -773,7 +773,7 @@ agents.`,
 
 			q := url.Values{}
 			q.Set("organization_id", orgID)
-			endpoint := apiURL + "/api/v1/apps?" + q.Encode()
+			endpoint := apiURL + "/api/v1/agents?" + q.Encode()
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 			if err != nil {
@@ -788,35 +788,35 @@ agents.`,
 			}
 			defer resp.Body.Close()
 
-			var apps []App
-			if err := json.NewDecoder(resp.Body).Decode(&apps); err != nil {
-				return fmt.Errorf("failed to parse apps: %w", err)
+			var agents []Agent
+			if err := json.NewDecoder(resp.Body).Decode(&agents); err != nil {
+				return fmt.Errorf("failed to parse agents: %w", err)
 			}
 
 			fmt.Println("Available Agents:")
 			fmt.Println()
 
 			shown := 0
-			for _, app := range apps {
-				// Surface the most relevant assistant per app: prefer zed_external
+			for _, agent := range agents {
+				// Surface the most relevant assistant per agent: prefer zed_external
 				// (the only kind launchable via `spectask start` today), fall back
 				// to the first assistant otherwise so non-spec-task agents are
 				// still visible to the user.
 				var primary *Assistant
-				for i, assistant := range app.Config.Helix.Assistants {
+				for i, assistant := range agent.Config.Helix.Assistants {
 					if assistant.AgentType == "zed_external" {
-						primary = &app.Config.Helix.Assistants[i]
+						primary = &agent.Config.Helix.Assistants[i]
 						break
 					}
 				}
-				if primary == nil && len(app.Config.Helix.Assistants) > 0 {
+				if primary == nil && len(agent.Config.Helix.Assistants) > 0 {
 					if zedExternalOnly {
 						continue
 					}
-					primary = &app.Config.Helix.Assistants[0]
+					primary = &agent.Config.Helix.Assistants[0]
 				}
 				if primary == nil {
-					// App with no assistants at all - skip.
+					// Agent with no assistants at all - skip.
 					continue
 				}
 
@@ -827,8 +827,8 @@ agents.`,
 					marker = ""
 				}
 
-				fmt.Printf("App: %s%s\n", app.Name, marker)
-				fmt.Printf("  ID: %s\n", app.ID)
+				fmt.Printf("Agent: %s%s\n", agent.Name, marker)
+				fmt.Printf("  ID: %s\n", agent.ID)
 				fmt.Printf("  Assistant: %s\n", primary.Name)
 				if primary.AgentType != "" {
 					fmt.Printf("  Agent type: %s\n", primary.AgentType)
@@ -840,7 +840,7 @@ agents.`,
 					fmt.Printf("  Model: %s\n", primary.Model)
 				}
 				if usable {
-					fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", app.ID)
+					fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", agent.ID)
 				}
 				fmt.Println()
 			}
@@ -1691,7 +1691,6 @@ type videoStreamStats struct {
 	lastCursorHotspotX int // Last cursor hotspot X
 	lastCursorHotspotY int // Last cursor hotspot Y
 }
-
 
 // getContainerAppID fetches the placeholder app ID for a session
 // This is required for the AuthenticateAndInit message

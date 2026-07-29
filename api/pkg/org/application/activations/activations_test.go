@@ -47,8 +47,8 @@ func TestActivate_PreAllocatesAuditRow(t *testing.T) {
 	if res.ActivationID != "a-fixed" {
 		t.Fatalf("activation id = %q, want a-fixed", res.ActivationID)
 	}
-	if res.ProjectID != "prj-1" || res.AgentAppID != "app-1" {
-		t.Fatalf("project/agent ids = %q/%q, want prj-1/app-1", res.ProjectID, res.AgentAppID)
+	if res.ProjectID != "prj-1" || res.AgentID != "app-1" {
+		t.Fatalf("project/agent ids = %q/%q, want prj-1/app-1", res.ProjectID, res.AgentID)
 	}
 	if disp.gotID != "a-fixed" {
 		t.Fatalf("dispatcher got id %q, want a-fixed", disp.gotID)

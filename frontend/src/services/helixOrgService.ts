@@ -320,6 +320,7 @@ export function useHelixOrgBot(botId: string | undefined, options?: { enabled?: 
       const agent = res.data as AgentDetailDTO
       return {
         bot: agent as BotDTO,
+        agent_id: agent.agent_id ?? agent.agent_app_id,
         agent_app_id: agent.agent_app_id,
         project_id: agent.project_id,
       } as BotDetailDTO
@@ -346,6 +347,7 @@ export function useListHelixOrgBotDetails(
         const agent = res.data as AgentDetailDTO
         return {
           bot: agent as BotDTO,
+          agent_id: agent.agent_id ?? agent.agent_app_id,
           agent_app_id: agent.agent_app_id,
           project_id: agent.project_id,
         } as BotDetailDTO

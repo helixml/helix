@@ -12,7 +12,7 @@ export function useListEvaluationSuites(appId: string) {
 
   return useQuery({
     queryKey: evaluationSuitesQueryKey(appId),
-    queryFn: () => apiClient.v1AppsEvaluationSuitesDetail(appId),
+    queryFn: () => apiClient.v1AgentsEvaluationSuitesDetail(appId),
     enabled: !!appId,
   })
 }
@@ -24,7 +24,7 @@ export function useCreateEvaluationSuite(appId: string) {
 
   return useMutation({
     mutationFn: (suite: TypesEvaluationSuite) =>
-      apiClient.v1AppsEvaluationSuitesCreate(appId, suite),
+      apiClient.v1AgentsEvaluationSuitesCreate(appId, suite),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationSuitesQueryKey(appId) })
     },
@@ -38,7 +38,7 @@ export function useUpdateEvaluationSuite(appId: string) {
 
   return useMutation({
     mutationFn: (suite: TypesEvaluationSuite) =>
-      apiClient.v1AppsEvaluationSuitesUpdate(appId, suite.id!, suite),
+      apiClient.v1AgentsEvaluationSuitesUpdate(appId, suite.id!, suite),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationSuitesQueryKey(appId) })
     },
@@ -52,7 +52,7 @@ export function useDeleteEvaluationSuite(appId: string) {
 
   return useMutation({
     mutationFn: (suiteId: string) =>
-      apiClient.v1AppsEvaluationSuitesDelete(appId, suiteId),
+      apiClient.v1AgentsEvaluationSuitesDelete(appId, suiteId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationSuitesQueryKey(appId) })
     },
@@ -66,7 +66,7 @@ export function useStartEvaluationRun(appId: string) {
 
   return useMutation({
     mutationFn: (suiteId: string) =>
-      apiClient.v1AppsEvaluationSuitesRunsCreate(appId, suiteId),
+      apiClient.v1AgentsEvaluationSuitesRunsCreate(appId, suiteId),
     onSuccess: (_data, suiteId) => {
       queryClient.invalidateQueries({ queryKey: evaluationRunsQueryKey(appId, suiteId) })
     },
@@ -79,7 +79,7 @@ export function useListEvaluationRuns(appId: string, suiteId: string) {
 
   return useQuery({
     queryKey: evaluationRunsQueryKey(appId, suiteId),
-    queryFn: () => apiClient.v1AppsEvaluationSuitesRunsDetail(appId, suiteId),
+    queryFn: () => apiClient.v1AgentsEvaluationSuitesRunsDetail(appId, suiteId),
     enabled: !!appId && !!suiteId,
   })
 }
@@ -91,7 +91,7 @@ export function useDeleteEvaluationRun(appId: string, suiteId: string) {
 
   return useMutation({
     mutationFn: (runId: string) =>
-      apiClient.v1AppsEvaluationRunsDelete(appId, runId),
+      apiClient.v1AgentsEvaluationRunsDelete(appId, runId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationRunsQueryKey(appId, suiteId) })
     },
@@ -104,7 +104,7 @@ export function useGetEvaluationRun(appId: string, runId: string) {
 
   return useQuery({
     queryKey: evaluationRunQueryKey(appId, runId),
-    queryFn: () => apiClient.v1AppsEvaluationRunsDetail(appId, runId),
+    queryFn: () => apiClient.v1AgentsEvaluationRunsDetail(appId, runId),
     enabled: !!appId && !!runId,
     refetchInterval: (query) => {
       const data = query.state.data?.data

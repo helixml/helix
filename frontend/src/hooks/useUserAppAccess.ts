@@ -37,7 +37,7 @@ export const useUserAppAccess = (appId: string | null): IUserAppAccessState => {
     
     try {
       // Call the new API endpoint to get user access rights
-      const accessResponse = await api.getApiClient().v1AppsUserAccessDetail(appId)
+      const accessResponse = await api.getApiClient().v1AgentsUserAccessDetail(appId)
           
       if (accessResponse.data) {
         setAccess(accessResponse.data)

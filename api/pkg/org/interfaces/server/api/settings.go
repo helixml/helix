@@ -128,7 +128,7 @@ func (a *apiHandler) activateDeferredBotsAfterRuntimeChange(ctx context.Context,
 		if provisioned {
 			continue
 		}
-		if b.AgentAppID != "" {
+		if b.AgentID != "" {
 			if a.deps.AgentDefaultApplier == nil {
 				log.Warn().Str("org", orgID).Str("bot", string(b.ID)).
 					Msg("apply deferred agent defaults skipped: applier is not wired")
@@ -140,7 +140,7 @@ func (a *apiHandler) activateDeferredBotsAfterRuntimeChange(ctx context.Context,
 					Msg("read deferred agent defaults failed")
 				continue
 			}
-			if err := a.deps.AgentDefaultApplier.ApplyAgentDefaults(ctx, b.AgentAppID, defaults); err != nil {
+			if err := a.deps.AgentDefaultApplier.ApplyAgentDefaults(ctx, b.AgentID, defaults); err != nil {
 				log.Warn().Err(err).Str("org", orgID).Str("bot", string(b.ID)).
 					Msg("apply deferred agent defaults failed")
 				continue

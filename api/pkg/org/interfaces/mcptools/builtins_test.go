@@ -195,7 +195,7 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 		t.Fatalf("get b-eng: %v", err)
 	}
 	toolsBefore := append([]tool.Name(nil), created.Tools...)
-	mustCreate(t, s.Nodes.Update(ctx, created.WithAgentAppID("app-eng")))
+	mustCreate(t, s.Nodes.Update(ctx, created.WithAgentID("app-eng")))
 
 	// set_bot_content rewrites Content and preserves Tools.
 	invokeExpectID(t, ownerSession, mcptools.SetBotContentName, map[string]any{
@@ -284,7 +284,7 @@ func TestSetBotContentPreflightsLinkedAgentUpdater(t *testing.T) {
 	ctx := context.Background()
 	owner, _ := orgchart.NewNode("b-owner", "owner", []tool.Name{mcptools.SetBotContentName}, time.Now().UTC(), "org-test")
 	target, _ := orgchart.NewNode("b-agent", "original", nil, time.Now().UTC(), "org-test")
-	target = target.WithAgentAppID("app-agent")
+	target = target.WithAgentID("app-agent")
 	mustCreate(t, s.Nodes.Create(ctx, owner))
 	mustCreate(t, s.Nodes.Create(ctx, target))
 
