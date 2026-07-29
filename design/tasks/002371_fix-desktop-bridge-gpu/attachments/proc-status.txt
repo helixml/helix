@@ -1,0 +1,61 @@
+Name:	desktop-bridge
+Umask:	0022
+State:	S (sleeping)
+Tgid:	2515110
+Ngid:	0
+Pid:	2515110
+PPid:	2514931
+TracerPid:	0
+Uid:	1000	1000	1000	1000
+Gid:	1000	1000	1000	1000
+FDSize:	2048
+Groups:	44 984 989 
+NStgid:	2515110	282178	954
+NSpid:	2515110	282178	954
+NSpgid:	2512942	280070	1
+NSsid:	2512942	280070	1
+Kthread:	0
+VmPeak:	47553656 kB
+VmSize:	47373688 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	 9349276 kB
+VmRSS:	 9349276 kB
+RssAnon:	 1193164 kB
+RssFile:	 7246800 kB
+RssShmem:	  909312 kB
+VmData:	 4096664 kB
+VmStk:	     136 kB
+VmExe:	    4832 kB
+VmLib:	  323052 kB
+VmPTE:	   23052 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+CoreDumping:	0
+THP_enabled:	1
+untag_mask:	0xffffffffffffffff
+Threads:	256
+SigQ:	6/2044088
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	fffffffc3bba3a00
+SigIgn:	0000000000000000
+SigCgt:	fffffffd7fc1feff
+CapInh:	0000000000000000
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	000001ffffffffff
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+Seccomp:	0
+Seccomp_filters:	0
+Speculation_Store_Bypass:	thread vulnerable
+SpeculationIndirectBranch:	conditional enabled
+Cpus_allowed:	ffff,ffffffff
+Cpus_allowed_list:	0-47
+Mems_allowed:	00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001
+Mems_allowed_list:	0
+voluntary_ctxt_switches:	5
+nonvoluntary_ctxt_switches:	13
+x86_Thread_features:	
+x86_Thread_features_locked:	
