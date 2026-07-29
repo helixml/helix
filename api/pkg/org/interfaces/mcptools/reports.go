@@ -31,7 +31,7 @@ var reportsSchema = mustSchema[reportsArgs]()
 type reportsArgs struct{}
 
 type reportView struct {
-	ID        orgchart.BotID    `json:"id"`
+	ID        orgchart.NodeID   `json:"id"`
 	DMTopicID streaming.TopicID `json:"dmTopicId"`
 	// Manages is true when this report leads their own sub-team. When
 	// true, TeamTopicID is shown for context — but you delegate the
@@ -65,7 +65,7 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 	if orgID == "" {
 		return nil, fmt.Errorf("reports: caller has no OrgID")
 	}
-	caller := orgchart.BotID(inv.Caller.ID())
+	caller := orgchart.NodeID(inv.Caller.ID())
 	result := reportsResult{Reports: []reportView{}}
 	if !t.deps.Queries.ReportingLinesWired() {
 		return json.Marshal(result)

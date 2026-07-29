@@ -21,7 +21,7 @@ import (
 // satisfies it (via GetBot). Kept as a tiny interface so the service can be
 // unit-tested with a fake and so this package doesn't depend on queries.
 type MemberVerifier interface {
-	GetBot(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Bot, error)
+	GetBot(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error)
 }
 
 // Service is the spec-task application service. It is a thin policy layer
@@ -47,7 +47,7 @@ func New(port runtime.SpecTasks, members MemberVerifier) *Service {
 // callerIdentity extracts and validates the caller's org + worker IDs and,
 // when a MemberVerifier is wired, confirms the Bot is a member of that org.
 // Identity is taken from the authenticated caller, never from tool args.
-func (s *Service) callerIdentity(ctx context.Context, caller tool.Caller) (string, orgchart.BotID, error) {
+func (s *Service) callerIdentity(ctx context.Context, caller tool.Caller) (string, orgchart.NodeID, error) {
 	if caller == nil {
 		return "", "", errors.New("caller missing on invocation")
 	}
@@ -60,11 +60,11 @@ func (s *Service) callerIdentity(ctx context.Context, caller tool.Caller) (strin
 		return "", "", errors.New("caller has no worker id")
 	}
 	if s.members != nil {
-		if _, err := s.members.GetBot(ctx, orgID, orgchart.BotID(workerID)); err != nil {
+		if _, err := s.members.GetBot(ctx, orgID, orgchart.NodeID(workerID)); err != nil {
 			return "", "", fmt.Errorf("caller bot %s is not a member of org %s: %w", workerID, orgID, err)
 		}
 	}
-	return orgID, orgchart.BotID(workerID), nil
+	return orgID, orgchart.NodeID(workerID), nil
 }
 
 func (s *Service) Create(ctx context.Context, caller tool.Caller, projectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {

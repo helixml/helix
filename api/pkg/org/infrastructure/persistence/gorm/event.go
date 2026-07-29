@@ -41,7 +41,7 @@ func (eventMapper) ToDomain(row eventRow) (streaming.Event, error) {
 	return streaming.NewEvent(
 		streaming.EventID(row.ID),
 		streaming.TopicID(row.TopicID),
-		orgchart.BotID(row.Source),
+		orgchart.NodeID(row.Source),
 		row.Body,
 		row.CreatedAt,
 		row.OrgID,
@@ -50,10 +50,10 @@ func (eventMapper) ToDomain(row eventRow) (streaming.Event, error) {
 
 type eventsRepo struct {
 	*Repository[streaming.Event, eventRow]
-	bots *botsRepo
+	bots *nodesRepo
 }
 
-func newEventsRepo(db *gorm.DB, bots *botsRepo) *eventsRepo {
+func newEventsRepo(db *gorm.DB, bots *nodesRepo) *eventsRepo {
 	return &eventsRepo{
 		Repository: NewRepository[streaming.Event, eventRow](db, eventMapper{}, "event"),
 		bots:       bots,
@@ -115,7 +115,7 @@ func (r *eventsRepo) ListAll(ctx context.Context, orgID string, limit int) ([]st
 	)
 }
 
-func (r *eventsRepo) ListForBot(ctx context.Context, orgID string, botID orgchart.BotID, limit int) ([]streaming.Event, error) {
+func (r *eventsRepo) ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID, limit int) ([]streaming.Event, error) {
 	// Subscriptions are bot-anchored. Join events against
 	// subscriptions for this bot directly.
 	if r.bots == nil {

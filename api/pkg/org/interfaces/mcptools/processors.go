@@ -17,14 +17,14 @@ import (
 // topic ids are included so a create_processor caller can immediately
 // subscribe bots to the auto-provisioned branches.
 type processorView struct {
-	ID           string              `json:"id"`
-	Name         string              `json:"name"`
-	InputTopicID string              `json:"inputTopicId"`
-	Kind         string              `json:"kind"`
-	Config       json.RawMessage     `json:"config,omitempty"`
-	Outputs      []processorOutView  `json:"outputs"`
-	CreatedBy    string              `json:"createdBy,omitempty"`
-	Automated    bool                `json:"automated"`
+	ID           string             `json:"id"`
+	Name         string             `json:"name"`
+	InputTopicID string             `json:"inputTopicId"`
+	Kind         string             `json:"kind"`
+	Config       json.RawMessage    `json:"config,omitempty"`
+	Outputs      []processorOutView `json:"outputs"`
+	CreatedBy    string             `json:"createdBy,omitempty"`
+	Automated    bool               `json:"automated"`
 }
 
 type processorOutView struct {
@@ -270,7 +270,7 @@ type updateProcessorArgs struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	// Kind is required on update (same as REST — full replace of mutable fields).
-	Kind processor.Kind  `json:"kind"`
+	Kind   processor.Kind  `json:"kind"`
 	Config json.RawMessage `json:"config,omitempty"`
 	// InputTopicID: omit to leave unchanged; "" to disconnect; non-empty to rewire.
 	// Using a pointer would need custom schema; we use a present flag via raw

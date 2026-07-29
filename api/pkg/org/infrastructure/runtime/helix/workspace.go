@@ -78,7 +78,7 @@ func NewWorkspace(git WorkspaceGit, st *store.Store, branch, author, email strin
 // project — callers don't have to gate on activation status.
 //
 // Renamed from PublishFile per ADR-0001 §7.
-func (w *Workspace) MirrorFile(ctx context.Context, orgID string, workerID orgchart.BotID, name, content, message string) error {
+func (w *Workspace) MirrorFile(ctx context.Context, orgID string, workerID orgchart.NodeID, name, content, message string) error {
 	if workerID == "" {
 		return errors.New("helix workspace: workerID is empty")
 	}
@@ -127,7 +127,7 @@ func (w *Workspace) EnsureBranch(ctx context.Context, repoID, baseBranch string)
 // `workers/<workerID>/.context/<name>`. Used by WorkerProject's
 // first-apply path; MirrorFile is the public WorkspaceSync surface
 // that wraps this with session-invalidation semantics.
-func (w *Workspace) WriteWorkerFile(ctx context.Context, workerID orgchart.BotID, repoID, name, content, message string) error {
+func (w *Workspace) WriteWorkerFile(ctx context.Context, workerID orgchart.NodeID, repoID, name, content, message string) error {
 	if workerID == "" {
 		return errors.New("helix workspace: workerID is empty")
 	}

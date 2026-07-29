@@ -12,8 +12,9 @@ import (
 )
 
 type subscriptionRow struct {
-	OrgID     string `gorm:"primaryKey;type:text;index"`
-	BotID     string `gorm:"primaryKey;type:text"`
+	OrgID string `gorm:"primaryKey;type:text;index"`
+	// bot_id is the legacy physical column name for the Node identifier.
+	NodeID    string `gorm:"column:bot_id;primaryKey;type:text"`
 	TopicID   string `gorm:"primaryKey;type:text"`
 	CreatedAt time.Time
 }
@@ -25,7 +26,7 @@ type subscriptionMapper struct{}
 func (subscriptionMapper) ToRow(sub streaming.Subscription) (subscriptionRow, error) {
 	return subscriptionRow{
 		OrgID:     sub.OrganizationID,
-		BotID:     string(sub.BotID),
+		NodeID:    string(sub.NodeID),
 		TopicID:   string(sub.TopicID),
 		CreatedAt: sub.CreatedAt,
 	}, nil
@@ -33,7 +34,7 @@ func (subscriptionMapper) ToRow(sub streaming.Subscription) (subscriptionRow, er
 
 func (subscriptionMapper) ToDomain(row subscriptionRow) (streaming.Subscription, error) {
 	return streaming.NewSubscription(
-		row.BotID,
+		row.NodeID,
 		streaming.TopicID(row.TopicID),
 		row.CreatedAt,
 		row.OrgID,
@@ -48,7 +49,7 @@ func newSubscriptionsRepo(db *gorm.DB) *subscriptionsRepo {
 	return &subscriptionsRepo{Repository: NewRepository[streaming.Subscription, subscriptionRow](db, subscriptionMapper{}, "subscription")}
 }
 
-func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) error {
+func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) error {
 	return r.Repository.Delete(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("bot_id", string(botID)),
@@ -56,7 +57,7 @@ func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, botID orgc
 	)
 }
 
-func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) (streaming.Subscription, error) {
+func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) (streaming.Subscription, error) {
 	return r.FindOne(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("bot_id", string(botID)),
@@ -64,7 +65,7 @@ func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, botID orgcha
 	)
 }
 
-func (r *subscriptionsRepo) ListForBot(ctx context.Context, orgID string, botID orgchart.BotID) ([]streaming.Subscription, error) {
+func (r *subscriptionsRepo) ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID) ([]streaming.Subscription, error) {
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("bot_id", string(botID)),

@@ -20,14 +20,14 @@ import (
 // satisfies it (via GetBot). Kept tiny so the service is unit-testable with a
 // fake and this package doesn't depend on queries.
 type MemberVerifier interface {
-	GetBot(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Bot, error)
+	GetBot(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error)
 }
 
 // OwnProjectResolver resolves the Bot's runtime-owned project. It is separate
 // from the explicit Bot.ProjectIDs allowlist because runtime provisioning owns
 // that project pointer.
 type OwnProjectResolver interface {
-	OwnProjectID(ctx context.Context, orgID string, botID orgchart.BotID) (string, error)
+	OwnProjectID(ctx context.Context, orgID string, botID orgchart.NodeID) (string, error)
 }
 
 // Service is the project-discovery application service.
@@ -51,30 +51,30 @@ func New(port runtime.Projects, members MemberVerifier, access ...OwnProjectReso
 
 // callerIdentity extracts and validates the caller's org + worker IDs and,
 // when a MemberVerifier is wired, confirms the Bot is a member of that org.
-func (s *Service) callerIdentity(ctx context.Context, caller tool.Caller) (string, orgchart.BotID, orgchart.Bot, error) {
+func (s *Service) callerIdentity(ctx context.Context, caller tool.Caller) (string, orgchart.NodeID, orgchart.Node, error) {
 	if caller == nil {
-		return "", "", orgchart.Bot{}, errors.New("caller missing on invocation")
+		return "", "", orgchart.Node{}, errors.New("caller missing on invocation")
 	}
 	orgID := caller.OrganizationID()
 	if orgID == "" {
-		return "", "", orgchart.Bot{}, errors.New("caller has no organization id")
+		return "", "", orgchart.Node{}, errors.New("caller has no organization id")
 	}
 	workerID := caller.ID()
 	if workerID == "" {
-		return "", "", orgchart.Bot{}, errors.New("caller has no worker id")
+		return "", "", orgchart.Node{}, errors.New("caller has no worker id")
 	}
-	var bot orgchart.Bot
+	var bot orgchart.Node
 	if s.members != nil {
 		var err error
-		bot, err = s.members.GetBot(ctx, orgID, orgchart.BotID(workerID))
+		bot, err = s.members.GetBot(ctx, orgID, orgchart.NodeID(workerID))
 		if err != nil {
-			return "", "", orgchart.Bot{}, fmt.Errorf("caller bot %s is not a member of org %s: %w", workerID, orgID, err)
+			return "", "", orgchart.Node{}, fmt.Errorf("caller bot %s is not a member of org %s: %w", workerID, orgID, err)
 		}
 	}
-	return orgID, orgchart.BotID(workerID), bot, nil
+	return orgID, orgchart.NodeID(workerID), bot, nil
 }
 
-func (s *Service) allowedProjectIDs(ctx context.Context, orgID string, botID orgchart.BotID, bot orgchart.Bot) (map[string]struct{}, error) {
+func (s *Service) allowedProjectIDs(ctx context.Context, orgID string, botID orgchart.NodeID, bot orgchart.Node) (map[string]struct{}, error) {
 	allowed := make(map[string]struct{}, len(bot.ProjectIDs)+1)
 	for _, projectID := range bot.ProjectIDs {
 		allowed[projectID] = struct{}{}

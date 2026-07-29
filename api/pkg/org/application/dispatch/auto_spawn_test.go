@@ -74,8 +74,8 @@ func TestDispatchTranscriptEventSpawnsSubscribedWorker(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("activations = %d, want 1 (event on s-transcript-<W> must spawn W); got %+v", len(got), got)
 	}
-	if got[0].BotID != "w-newhire" {
-		t.Fatalf("spawned worker = %q, want %q", got[0].BotID, "w-newhire")
+	if got[0].NodeID != "w-newhire" {
+		t.Fatalf("spawned worker = %q, want %q", got[0].NodeID, "w-newhire")
 	}
 }
 
@@ -103,8 +103,8 @@ func TestDispatchHireEnqueuesSpawn(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("activations = %d, want 1 (DispatchHire must spawn the worker); got %+v", len(got), got)
 	}
-	if got[0].BotID != "w-fresh-hire" {
-		t.Fatalf("spawned worker = %q, want %q", got[0].BotID, "w-fresh-hire")
+	if got[0].NodeID != "w-fresh-hire" {
+		t.Fatalf("spawned worker = %q, want %q", got[0].NodeID, "w-fresh-hire")
 	}
 	if len(got[0].Triggers) != 1 || got[0].Triggers[0].Kind != activation.TriggerHire {
 		t.Fatalf("trigger kind = %+v, want one TriggerHire", got[0].Triggers)
@@ -132,8 +132,8 @@ func TestDispatchManualEnqueuesSpawn(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("activations = %d, want 1 (DispatchManual must spawn the worker); got %+v", len(got), got)
 	}
-	if got[0].BotID != "w-manual" {
-		t.Fatalf("spawned worker = %q, want %q", got[0].BotID, "w-manual")
+	if got[0].NodeID != "w-manual" {
+		t.Fatalf("spawned worker = %q, want %q", got[0].NodeID, "w-manual")
 	}
 	if len(got[0].Triggers) != 1 || got[0].Triggers[0].Kind != activation.TriggerManual {
 		t.Fatalf("trigger kind = %+v, want one TriggerManual", got[0].Triggers)

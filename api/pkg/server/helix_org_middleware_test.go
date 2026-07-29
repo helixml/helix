@@ -49,13 +49,13 @@ type helixOrgRouteTestStore struct {
 }
 
 type bootstrapActivationDispatcher struct {
-	ids           []orgchart.BotID
+	ids           []orgchart.NodeID
 	activationIDs []activation.ID
 	defaults      *repairDefaultApplier
 	outOfOrder    bool
 }
 
-func (d *bootstrapActivationDispatcher) DispatchHire(_ context.Context, _ string, id orgchart.BotID, activationID activation.ID) {
+func (d *bootstrapActivationDispatcher) DispatchHire(_ context.Context, _ string, id orgchart.NodeID, activationID activation.ID) {
 	if d.defaults != nil && !d.defaults.applied {
 		d.outOfOrder = true
 	}
@@ -264,13 +264,13 @@ func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
 	configs := configregistry.New(st.Configs)
 	configs.Register(configregistry.Spec{Key: configregistry.DefaultAgentConfigKey, Type: configregistry.TypeObject})
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
-	for _, b := range []orgchart.Bot{
+	for _, b := range []orgchart.Node{
 		mustBot(t, "bot-legacy-a", "", now).WithAgentAppID("app-legacy-a"),
 		mustBot(t, "bot-legacy-b", "", now),
 		mustBot(t, "bot-created", "", now),
-		mustBot(t, "human-owner", orgchart.BotKindHuman, now),
+		mustBot(t, "human-owner", orgchart.NodeKindHuman, now),
 	} {
-		if err := st.Bots.Create(ctx, b); err != nil {
+		if err := st.Nodes.Create(ctx, b); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -340,9 +340,9 @@ func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
 	}
 }
 
-func mustBot(t *testing.T, id string, kind orgchart.BotKind, now time.Time) orgchart.Bot {
+func mustBot(t *testing.T, id string, kind orgchart.NodeKind, now time.Time) orgchart.Node {
 	t.Helper()
-	b, err := orgchart.NewBot(orgchart.BotID(id), "test bot", nil, now, "org-test")
+	b, err := orgchart.NewNode(orgchart.NodeID(id), "test bot", nil, now, "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}

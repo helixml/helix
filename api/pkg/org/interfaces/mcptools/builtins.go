@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/projects"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
@@ -55,7 +55,7 @@ type EventDispatcher interface {
 	// the existing row instead of writing a sibling. Empty activationID
 	// is allowed for callers that don't pre-allocate (legacy code paths,
 	// tests that don't wire activation.Repository).
-	DispatchHire(ctx context.Context, orgID string, botID orgchart.BotID, activationID activation.ID)
+	DispatchHire(ctx context.Context, orgID string, botID orgchart.NodeID, activationID activation.ID)
 }
 
 // Deps is the MCP tool surface — the pre-built application services and
@@ -68,11 +68,11 @@ type Deps struct {
 	// one the REST read handlers use, so the two surfaces can't drift on
 	// read semantics.
 	Queries *queries.Queries
-	// Bots is the bot-mutation service (the merge of the former roles +
+	// Nodes is the bot-mutation service (the merge of the former roles +
 	// workers services) — set_bot_content and attach_tool/detach_tool
 	// delegate here; create_bot goes through Lifecycle, which itself drives
-	// Bots.
-	Bots          *bots.Bots
+	// Nodes.
+	Nodes         *nodes.Nodes
 	Topics        *topics.Topics
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
@@ -187,7 +187,7 @@ type Config struct {
 func (c Config) Build() Deps {
 	return Deps{
 		Queries:             c.Queries,
-		Bots:                c.botsService(),
+		Nodes:               c.botsService(),
 		Topics:              c.topicsService(),
 		Subscriptions:       c.subscriptionsService(),
 		Publishing:          c.Publishing,
@@ -275,7 +275,7 @@ func (c Config) subscriptionsService() *subscriptions.Subscriptions {
 	return subscriptions.New(subscriptions.Deps{
 		Subscriptions: c.Store.Subscriptions,
 		Topics:        c.Store.Topics,
-		Bots:          c.Store.Bots,
+		Nodes:         c.Store.Nodes,
 		Now:           c.Now,
 	})
 }
@@ -291,7 +291,7 @@ func (c Config) lifecycleService() *lifecycle.Service {
 	}
 	svc := &lifecycle.Service{
 		Store:          c.Store,
-		Bots:           c.botsService(),
+		Nodes:          c.botsService(),
 		Subscriber:     c.subscriptionsService(),
 		BotReconcilers: []lifecycle.BotReconciler{c.Reconciler},
 		HireHook:       c.HireHook,
@@ -309,9 +309,9 @@ func (c Config) lifecycleService() *lifecycle.Service {
 // botsService builds the bot-mutation application service, injecting
 // BaseReadTools as the universal baseline so the MCP create_bot tool and
 // the REST bot handlers union the same set.
-func (c Config) botsService() *bots.Bots {
-	return bots.New(bots.Deps{
-		Bots:       c.Store.Bots,
+func (c Config) botsService() *nodes.Nodes {
+	return nodes.New(nodes.Deps{
+		Nodes:      c.Store.Nodes,
 		Lines:      c.Store.ReportingLines,
 		Reconciler: c.Reconciler,
 		Now:        c.Now,
@@ -348,14 +348,14 @@ func DefaultDeps(s *store.Store) Config {
 		CredentialProviders: map[string]credential.Provider{},
 	}
 	c.Reconciler = reconcile.New(reconcile.Deps{
-		Bots:           s.Bots,
+		Nodes:          s.Nodes,
 		ReportingLines: s.ReportingLines,
 		Topics:         s.Topics,
 		Subscriptions:  s.Subscriptions,
 		Now:            c.Now,
 	})
 	c.Queries = queries.New(queries.Deps{
-		Bots: s.Bots, ReportingLines: s.ReportingLines,
+		Nodes: s.Nodes, ReportingLines: s.ReportingLines,
 		Topics: s.Topics, Subscriptions: s.Subscriptions, Events: s.Events,
 		Activations: s.Activations,
 	})
@@ -460,7 +460,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 	}
 	// Fail fast if BaseReadTools references a name that isn't registered
 	// — a typo in defaults.go would otherwise produce silently-broken
-	// Bots whose reconciled tool list is missing one of the baseline
+	// Nodes whose reconciled tool list is missing one of the baseline
 	// entries.
 	for _, name := range BaseReadTools {
 		if _, err := reg.Get(name); err != nil {

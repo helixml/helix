@@ -1115,7 +1115,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	if s.helixOrg != nil && s.helixOrg.store != nil && existing.OrganizationID != "" {
-		bots, listErr := s.helixOrg.store.Bots.List(r.Context(), existing.OrganizationID)
+		bots, listErr := s.helixOrg.store.Nodes.List(r.Context(), existing.OrganizationID)
 		if listErr != nil {
 			return nil, system.NewHTTPError500(listErr.Error())
 		}
@@ -1225,7 +1225,7 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError403(err.Error())
 	}
 	if s.helixOrg != nil && s.helixOrg.store != nil && s.helixOrg.lifecycle != nil && existing.OrganizationID != "" {
-		bots, listErr := s.helixOrg.store.Bots.List(r.Context(), existing.OrganizationID)
+		bots, listErr := s.helixOrg.store.Nodes.List(r.Context(), existing.OrganizationID)
 		if listErr != nil {
 			return nil, system.NewHTTPError500(listErr.Error())
 		}

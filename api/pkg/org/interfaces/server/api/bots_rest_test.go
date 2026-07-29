@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -71,12 +71,12 @@ func (p *recordingAgentPort) UpdateAgent(_ context.Context, _ string, patch orga
 func TestRESTAgentResourceIsFlat(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
-	bot, err := orgchart.NewBot("b-agent", "stale", nil, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode("b-agent", "stale", nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	bot = bot.WithAgentAppID("app-agent")
-	if err := st.Bots.Create(ctx, bot); err != nil {
+	if err := st.Nodes.Create(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
 	port := &recordingAgentPort{profile: orgapi.AgentProfile{
@@ -132,11 +132,11 @@ func TestRESTAgentListKeepsOtherAgentsWhenOneLinkedAppIsInvalid(t *testing.T) {
 		{id: "b-invalid", appID: "app-invalid", content: "Bot fallback"},
 		{id: "b-valid", appID: "app-valid", content: "Stale"},
 	} {
-		bot, err := orgchart.NewBot(orgchart.BotID(fixture.id), fixture.content, nil, time.Now().UTC(), "org-test")
+		bot, err := orgchart.NewNode(orgchart.NodeID(fixture.id), fixture.content, nil, time.Now().UTC(), "org-test")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := st.Bots.Create(ctx, bot.WithAgentAppID(fixture.appID)); err != nil {
+		if err := st.Nodes.Create(ctx, bot.WithAgentAppID(fixture.appID)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -163,11 +163,11 @@ func TestRESTAgentListKeepsOtherAgentsWhenOneLinkedAppIsInvalid(t *testing.T) {
 func TestRESTAgentListReportsOperationalAgentReadFailure(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
-	bot, err := orgchart.NewBot("b-agent", "Fallback", nil, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode("b-agent", "Fallback", nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Bots.Create(ctx, bot.WithAgentAppID("app-agent")); err != nil {
+	if err := st.Nodes.Create(ctx, bot.WithAgentAppID("app-agent")); err != nil {
 		t.Fatal(err)
 	}
 	deps.AgentReader = failingAgentReader{}
@@ -212,8 +212,8 @@ func TestRESTUpdateHumanIdentityAuthorization(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			deps, st, _ := newDeps(t)
-			if _, err := deps.Bots.Create(context.Background(), "org-test", bots.CreateParams{
-				ID: "h-human", Kind: orgchart.BotKindHuman, HelixUserID: "usr-human", Content: "Human",
+			if _, err := deps.Nodes.Create(context.Background(), "org-test", nodes.CreateParams{
+				ID: "h-human", Kind: orgchart.NodeKindHuman, HelixUserID: "usr-human", Content: "Human",
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -224,7 +224,7 @@ func TestRESTUpdateHumanIdentityAuthorization(t *testing.T) {
 			if rec.Code != tc.want {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.want, rec.Body)
 			}
-			updated, _ := st.Bots.Get(context.Background(), "org-test", "h-human")
+			updated, _ := st.Nodes.Get(context.Background(), "org-test", "h-human")
 			if tc.want == http.StatusForbidden && len(updated.Identity) != 0 {
 				t.Fatalf("forbidden update changed identity: %#v", updated.Identity)
 			}
@@ -246,7 +246,7 @@ func TestRESTUpdateNonHumanIdentityDoesNotRequireHumanAuthorization(t *testing.T
 func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
-	bot, err := orgchart.NewBot("b-agent", "old content", []tool.Name{"old_tool"}, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode("b-agent", "old content", []tool.Name{"old_tool"}, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 		WithProjectIDs([]string{"prj-old"}).
 		WithPreserveContext(true).
 		WithIdentity(map[string]string{"old": "value"})
-	if err := st.Bots.Create(ctx, bot); err != nil {
+	if err := st.Nodes.Create(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
 	deps.AgentUpdater = failingAgentUpdater{}
@@ -273,7 +273,7 @@ func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body)
 	}
-	got, err := st.Bots.Get(ctx, "org-test", "b-agent")
+	got, err := st.Nodes.Get(ctx, "org-test", "b-agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,12 +288,12 @@ func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 func TestRESTUpdateLinkedAgentRequiresUpdaterBeforeMutation(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
-	bot, err := orgchart.NewBot("b-agent", "old content", nil, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode("b-agent", "old content", nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	bot = bot.WithAgentAppID("app-agent").WithName("Old name")
-	if err := st.Bots.Create(ctx, bot); err != nil {
+	if err := st.Nodes.Create(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
 	name := "New name"
@@ -307,7 +307,7 @@ func TestRESTUpdateLinkedAgentRequiresUpdaterBeforeMutation(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body)
 	}
-	got, err := st.Bots.Get(ctx, "org-test", "b-agent")
+	got, err := st.Nodes.Get(ctx, "org-test", "b-agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestRESTCreateBot_EmptyToolsGetsBaseline(t *testing.T) {
 		t.Fatalf("created id = %q, want b-qa-engineer", out.ID)
 	}
 
-	bot, err := st.Bots.Get(context.Background(), "org-test", "b-qa-engineer")
+	bot, err := st.Nodes.Get(context.Background(), "org-test", "b-qa-engineer")
 	if err != nil {
 		t.Fatalf("get created bot: %v", err)
 	}
@@ -409,7 +409,7 @@ func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 		t.Fatalf("status: got %d, want 201; body=%s", rec.Code, rec.Body)
 	}
 
-	bot, err := st.Bots.Get(context.Background(), "org-test", "b-mixed")
+	bot, err := st.Nodes.Get(context.Background(), "org-test", "b-mixed")
 	if err != nil {
 		t.Fatalf("get created bot: %v", err)
 	}
@@ -468,11 +468,11 @@ func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 		t.Fatalf("MCP create_bot: %v", err)
 	}
 
-	restBot, err := restStore.Bots.Get(context.Background(), "org-test", "b-qa")
+	restBot, err := restStore.Nodes.Get(context.Background(), "org-test", "b-qa")
 	if err != nil {
 		t.Fatalf("REST bot get: %v", err)
 	}
-	mcpBot, err := mcpStore.Bots.Get(context.Background(), "org-test", "b-qa")
+	mcpBot, err := mcpStore.Nodes.Get(context.Background(), "org-test", "b-qa")
 	if err != nil {
 		t.Fatalf("MCP bot get: %v", err)
 	}
@@ -510,8 +510,8 @@ func TestSetBotContentParity_RESTvsMCP(t *testing.T) {
 		t.Fatalf("MCP set_bot_content: %v", err)
 	}
 
-	restBot, _ := restStore.Bots.Get(ctx, "org-test", "b-eng")
-	mcpBot, _ := mcpStore.Bots.Get(ctx, "org-test", "b-eng")
+	restBot, _ := restStore.Nodes.Get(ctx, "org-test", "b-eng")
+	mcpBot, _ := mcpStore.Nodes.Get(ctx, "org-test", "b-eng")
 	if restBot.Content != mcpBot.Content {
 		t.Errorf("content differs: REST=%q MCP=%q", restBot.Content, mcpBot.Content)
 	}

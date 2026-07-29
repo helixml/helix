@@ -53,7 +53,7 @@ func New(q *queries.Queries, pub *publishing.Publishing, registry *mcptools.Regi
 // the corresponding step).
 func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wakebus.Bus, dispatcher publishing.Dispatcher, logger *slog.Logger) *Server {
 	q := queries.New(queries.Deps{
-		Bots:           s.Bots,
+		Nodes:          s.Nodes,
 		ReportingLines: s.ReportingLines,
 		Topics:         s.Topics,
 		Subscriptions:  s.Subscriptions,

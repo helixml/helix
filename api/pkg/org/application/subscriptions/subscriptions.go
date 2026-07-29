@@ -8,7 +8,7 @@
 // several topics. One implementation, many callers.
 //
 // Depends only on the narrow store repositories it touches
-// (Subscriptions/Topics/Bots) plus a clock (CLAUDE.md §5.0).
+// (Subscriptions/Topics/Nodes) plus a clock (CLAUDE.md §5.0).
 package subscriptions
 
 import (
@@ -26,7 +26,7 @@ import (
 type Subscriptions struct {
 	subs   store.Subscriptions
 	topics store.Topics
-	bots   store.Bots
+	bots   store.Nodes
 	now    func() time.Time
 }
 
@@ -34,7 +34,7 @@ type Subscriptions struct {
 type Deps struct {
 	Subscriptions store.Subscriptions
 	Topics        store.Topics
-	Bots          store.Bots
+	Nodes         store.Nodes
 	Now           func() time.Time
 }
 
@@ -44,14 +44,14 @@ func New(deps Deps) *Subscriptions {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Subscriptions{subs: deps.Subscriptions, topics: deps.Topics, bots: deps.Bots, now: now}
+	return &Subscriptions{subs: deps.Subscriptions, topics: deps.Topics, bots: deps.Nodes, now: now}
 }
 
 // Subscribe links the Worker to the Topic, validating both exist.
 // Idempotent: if the link already exists it returns the existing row
 // with created=false and no error. Returns store.ErrNotFound (wrapped)
 // when the topic or worker is absent.
-func (s *Subscriptions) Subscribe(ctx context.Context, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) (sub streaming.Subscription, created bool, err error) {
+func (s *Subscriptions) Subscribe(ctx context.Context, orgID string, workerID orgchart.NodeID, topicID streaming.TopicID) (sub streaming.Subscription, created bool, err error) {
 	if _, err := s.topics.Get(ctx, orgID, topicID); err != nil {
 		return streaming.Subscription{}, false, fmt.Errorf("topic %q: %w", topicID, err)
 	}
@@ -75,7 +75,7 @@ func (s *Subscriptions) Subscribe(ctx context.Context, orgID string, workerID or
 
 // Unsubscribe drops the (worker, topic) link. Returns store.ErrNotFound
 // (wrapped) when no such link exists.
-func (s *Subscriptions) Unsubscribe(ctx context.Context, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) error {
+func (s *Subscriptions) Unsubscribe(ctx context.Context, orgID string, workerID orgchart.NodeID, topicID streaming.TopicID) error {
 	return s.subs.Delete(ctx, orgID, workerID, topicID)
 }
 
@@ -84,7 +84,7 @@ func (s *Subscriptions) Unsubscribe(ctx context.Context, orgID string, workerID 
 // whole call before any write) then subscribes each via the single
 // Subscribe primitive (idempotent per topic). Used by the subscribe tool
 // and by lifecycle.Create to subscribe a new Bot at creation.
-func (s *Subscriptions) SubscribeTopics(ctx context.Context, orgID string, botID orgchart.BotID, topicIDs []streaming.TopicID) error {
+func (s *Subscriptions) SubscribeTopics(ctx context.Context, orgID string, botID orgchart.NodeID, topicIDs []streaming.TopicID) error {
 	if len(topicIDs) == 0 {
 		return nil
 	}
@@ -111,7 +111,7 @@ func (s *Subscriptions) SubscribeTopics(ctx context.Context, orgID string, botID
 // validates the Bot and every Topic up front, then removes each link via
 // the single Unsubscribe primitive. Idempotent per topic: a topic the
 // Bot isn't subscribed to is a no-op (store.ErrNotFound is swallowed).
-func (s *Subscriptions) UnsubscribeTopics(ctx context.Context, orgID string, botID orgchart.BotID, topicIDs []streaming.TopicID) error {
+func (s *Subscriptions) UnsubscribeTopics(ctx context.Context, orgID string, botID orgchart.NodeID, topicIDs []streaming.TopicID) error {
 	if len(topicIDs) == 0 {
 		return nil
 	}

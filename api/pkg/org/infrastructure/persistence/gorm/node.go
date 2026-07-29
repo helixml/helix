@@ -14,7 +14,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-// botRow has composite PK (id, org_id) so short readable handles
+//	nodeRow has composite PK (id, org_id) so short readable handles
+//
 // (`b-root`, `b-engineer`) can repeat across helix tenants. OrgID
 // additionally carries a FK to organizations(id) ON DELETE CASCADE —
 // added out-of-band in OpenWithDB because GORM tag-driven FK creation
@@ -25,7 +26,7 @@ import (
 // the reporting graph. Reporting lines (who reports to whom) are a
 // separate many-to-many relation — see reportingLineRow — so a Bot
 // carries no parent column.
-type botRow struct {
+type nodeRow struct {
 	ID              string   `gorm:"primaryKey;type:text"`
 	OrgID           string   `gorm:"primaryKey;type:text;index"`
 	AgentAppID      *string  `gorm:"type:text;index"`
@@ -43,11 +44,12 @@ type botRow struct {
 	UpdatedAt   time.Time
 }
 
-func (botRow) TableName() string { return "org_bots" }
+// org_bots is the legacy physical name retained for existing Node rows.
+func (nodeRow) TableName() string { return "org_bots" }
 
-type botMapper struct{}
+type nodeMapper struct{}
 
-func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
+func (nodeMapper) ToRow(b orgchart.Node) (nodeRow, error) {
 	tools := make([]string, 0, len(b.Tools))
 	for _, t := range b.Tools {
 		tools = append(tools, string(t))
@@ -59,7 +61,7 @@ func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
 	if b.AgentAppID != "" {
 		agentAppID = &b.AgentAppID
 	}
-	return botRow{
+	return nodeRow{
 		ID:              string(b.ID),
 		OrgID:           b.OrganizationID,
 		AgentAppID:      agentAppID,
@@ -76,7 +78,7 @@ func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
 	}, nil
 }
 
-func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
+func (nodeMapper) ToDomain(row nodeRow) (orgchart.Node, error) {
 	var tools []tool.Name
 	if len(row.Tools) > 0 {
 		tools = make([]tool.Name, 0, len(row.Tools))
@@ -88,8 +90,8 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 	if row.AgentAppID != nil {
 		agentAppID = *row.AgentAppID
 	}
-	return orgchart.Bot{
-		ID:              orgchart.BotID(row.ID),
+	return orgchart.Node{
+		ID:              orgchart.NodeID(row.ID),
 		OrganizationID:  row.OrgID,
 		AgentAppID:      agentAppID,
 		Name:            row.Name,
@@ -105,19 +107,19 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 	}, nil
 }
 
-type botsRepo struct {
-	*Repository[orgchart.Bot, botRow]
+type nodesRepo struct {
+	*Repository[orgchart.Node, nodeRow]
 	db *gorm.DB
 }
 
-func newBotsRepo(db *gorm.DB) *botsRepo {
-	return &botsRepo{
-		Repository: NewRepository[orgchart.Bot, botRow](db, botMapper{}, "bot"),
+func newNodesRepo(db *gorm.DB) *nodesRepo {
+	return &nodesRepo{
+		Repository: NewRepository[orgchart.Node, nodeRow](db, nodeMapper{}, "bot"),
 		db:         db,
 	}
 }
 
-func (r *botsRepo) Create(ctx context.Context, b orgchart.Bot) error {
+func (r *nodesRepo) Create(ctx context.Context, b orgchart.Node) error {
 	if b.IsHuman() {
 		if b.AgentAppID != "" {
 			return errors.New("create bot: human node cannot reference an agent app")
@@ -128,16 +130,16 @@ func (r *botsRepo) Create(ctx context.Context, b orgchart.Bot) error {
 	return r.Repository.Create(ctx, b)
 }
 
-func (r *botsRepo) Get(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Bot, error) {
+func (r *nodesRepo) Get(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error) {
 	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }
 
-func (r *botsRepo) List(ctx context.Context, orgID string) ([]orgchart.Bot, error) {
+func (r *nodesRepo) List(ctx context.Context, orgID string) ([]orgchart.Node, error) {
 	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }
 
-func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
-	row, err := botMapper{}.ToRow(b)
+func (r *nodesRepo) Update(ctx context.Context, b orgchart.Node) error {
+	row, err := nodeMapper{}.ToRow(b)
 	if err != nil {
 		return fmt.Errorf("map bot: %w", err)
 	}
@@ -178,9 +180,9 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 	)
 }
 
-func (r *botsRepo) ClaimAgentApp(ctx context.Context, orgID string, id orgchart.BotID, appID string) (bool, error) {
+func (r *nodesRepo) ClaimAgentApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string) (bool, error) {
 	res := r.db.WithContext(ctx).
-		Model(&botRow{}).
+		Model(&nodeRow{}).
 		Where("org_id = ? AND id = ? AND agent_app_id IS NULL", orgID, string(id)).
 		Update("agent_app_id", appID)
 	if res.Error != nil {
@@ -194,13 +196,13 @@ func (r *botsRepo) ClaimAgentApp(ctx context.Context, orgID string, id orgchart.
 // (as manager or report) are removed by the ON DELETE CASCADE foreign
 // keys on org_reporting_lines (installed in OpenWithDB), so no app code
 // clears them — that's the whole point of the association table.
-func (r *botsRepo) Delete(ctx context.Context, orgID string, id orgchart.BotID) error {
+func (r *nodesRepo) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("org_id = ? AND bot_id = ?", orgID, string(id)).
 			Delete(&subscriptionRow{}).Error; err != nil {
 			return fmt.Errorf("delete bot: drop subscriptions: %w", err)
 		}
-		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&botRow{})
+		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&nodeRow{})
 		if res.Error != nil {
 			return fmt.Errorf("delete bot: %w", res.Error)
 		}

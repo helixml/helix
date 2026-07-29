@@ -18,7 +18,7 @@ type fakeBotRuntime struct {
 	sessionID string
 }
 
-func (f fakeBotRuntime) State(_ context.Context, _ string, _ orgchart.BotID) (orgapi.BotRuntimeInfo, error) {
+func (f fakeBotRuntime) State(_ context.Context, _ string, _ orgchart.NodeID) (orgapi.BotRuntimeInfo, error) {
 	return orgapi.BotRuntimeInfo{SessionID: f.sessionID}, nil
 }
 
@@ -32,7 +32,7 @@ type fakeResetter struct {
 	err     error
 }
 
-func (f *fakeResetter) ResetSession(_ context.Context, _ string, _ orgchart.BotID, sessionID string) error {
+func (f *fakeResetter) ResetSession(_ context.Context, _ string, _ orgchart.NodeID, sessionID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++

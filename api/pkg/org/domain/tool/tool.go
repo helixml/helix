@@ -12,9 +12,9 @@
 // Cycle break: this package intentionally does NOT import
 // api/pkg/org/domain/orgchart. Invocation.Caller is typed as the local
 // Caller interface (a minimal subset — ID and OrganizationID) so a thin
-// adapter over orgchart.Bot satisfies it structurally without orgchart
+// adapter over orgchart.Node satisfies it structurally without orgchart
 // having to import tool. This pattern keeps the dependency DAG one-way
-// (orgchart -> tool, never back), which matters because orgchart.Bot.Tools
+// (orgchart -> tool, never back), which matters because orgchart.Node.Tools
 // is []tool.Name.
 package tool
 
@@ -31,7 +31,7 @@ import (
 type Name = string
 
 // Caller is the minimal caller surface a Tool depends on. A thin
-// adapter over orgchart.Bot (exposing the bot's ID and OrganizationID)
+// adapter over orgchart.Node (exposing the bot's ID and OrganizationID)
 // satisfies this; defining it locally here keeps the tool package free
 // of an orgchart import.
 type Caller interface {

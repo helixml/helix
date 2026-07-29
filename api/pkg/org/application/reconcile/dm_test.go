@@ -26,7 +26,7 @@ func TestReconcile_DMChannelCreatedPerEdge(t *testing.T) {
 	if !topicExists(t, st, dm) {
 		t.Fatalf("DM channel %q should exist after wiring the edge", dm)
 	}
-	if got := topicMembers(t, st, dm); !eq(got, []orgchart.BotID{"w-jane", "w-li"}) {
+	if got := topicMembers(t, st, dm); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
 		t.Fatalf("DM members = %v, want [w-jane w-li]", got)
 	}
 }
@@ -74,10 +74,10 @@ func TestReconcile_DMChannelTornDownOnFire(t *testing.T) {
 	dm := channels.DMTopicID("w-jane", "w-li")
 
 	managers, _ := st.ReportingLines.ListManagers(ctx, orgID, "w-li")
-	if err := st.Bots.Delete(ctx, orgID, "w-li"); err != nil {
+	if err := st.Nodes.Delete(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("delete worker: %v", err)
 	}
-	affected := append([]orgchart.BotID{"w-li"}, managers...)
+	affected := append([]orgchart.NodeID{"w-li"}, managers...)
 	if err := rec.Reconcile(ctx, orgID, affected...); err != nil {
 		t.Fatalf("reconcile fire: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestReconcile_LeavesForeignTopicsUntouched(t *testing.T) {
 	if !topicExists(t, st, foreign) {
 		t.Fatalf("operator topic %q must survive reconcile", foreign)
 	}
-	if got := topicMembers(t, st, foreign); !eq(got, []orgchart.BotID{"w-jane", "w-li", "w-outsider"}) {
+	if got := topicMembers(t, st, foreign); !eq(got, []orgchart.NodeID{"w-jane", "w-li", "w-outsider"}) {
 		t.Fatalf("foreign topic members = %v, want untouched [w-jane w-li w-outsider]", got)
 	}
 }
@@ -151,7 +151,7 @@ func TestReconcileAll_CatchesUpMissingTeamTopic(t *testing.T) {
 	if !topicExists(t, st, team) {
 		t.Fatalf("s-team-w-owner should exist after ReconcileAll")
 	}
-	if got := topicMembers(t, st, team); !eq(got, []orgchart.BotID{"w-alice", "w-owner", "w-qa-1"}) {
+	if got := topicMembers(t, st, team); !eq(got, []orgchart.NodeID{"w-alice", "w-owner", "w-qa-1"}) {
 		t.Fatalf("s-team-w-owner members = %v, want [w-alice w-owner w-qa-1]", got)
 	}
 }
@@ -162,10 +162,10 @@ func TestReconcile_ScopedToAffectedSubtree(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
 	// Two independent subtrees: jane→li and bob→sam.
-	for _, id := range []orgchart.BotID{"w-jane", "w-bob"} {
+	for _, id := range []orgchart.NodeID{"w-jane", "w-bob"} {
 		seedBot(t, st, bot(id))
 	}
-	for _, id := range []orgchart.BotID{"w-li", "w-sam"} {
+	for _, id := range []orgchart.NodeID{"w-li", "w-sam"} {
 		seedBot(t, st, bot(id))
 	}
 	addLine(t, st, "w-jane", "w-li")
@@ -180,10 +180,10 @@ func TestReconcile_ScopedToAffectedSubtree(t *testing.T) {
 
 	// Now mutate jane's subtree only (fire li) and reconcile just it.
 	managers, _ := st.ReportingLines.ListManagers(ctx, orgID, "w-li")
-	if err := st.Bots.Delete(ctx, orgID, "w-li"); err != nil {
+	if err := st.Nodes.Delete(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if err := rec.Reconcile(ctx, orgID, append([]orgchart.BotID{"w-li"}, managers...)...); err != nil {
+	if err := rec.Reconcile(ctx, orgID, append([]orgchart.NodeID{"w-li"}, managers...)...); err != nil {
 		t.Fatalf("reconcile fire: %v", err)
 	}
 

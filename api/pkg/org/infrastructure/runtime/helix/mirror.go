@@ -62,7 +62,7 @@ type Mirror struct {
 // Stop tears down whichever org happens to hold the slot.
 type mirrorKey struct {
 	orgID    string
-	workerID orgchart.BotID
+	workerID orgchart.NodeID
 }
 
 // NewMirror constructs a Mirror. base bounds every tracker (typically
@@ -88,7 +88,7 @@ func (m *Mirror) pollInterval() time.Duration {
 // Ensure starts tracking a worker (idempotent). The session is resolved
 // by the tracker, not passed in — the caller's notion of "the session"
 // is exactly what goes stale.
-func (m *Mirror) Ensure(orgID string, workerID orgchart.BotID) {
+func (m *Mirror) Ensure(orgID string, workerID orgchart.NodeID) {
 	if m == nil || m.cfg.PubSub == nil {
 		return
 	}
@@ -111,7 +111,7 @@ func (m *Mirror) EnsureAll(ctx context.Context, orgID string) {
 	if m == nil || m.cfg.PubSub == nil || m.cfg.Store == nil {
 		return
 	}
-	bots, err := m.cfg.Store.Bots.List(ctx, orgID)
+	bots, err := m.cfg.Store.Nodes.List(ctx, orgID)
 	if err != nil {
 		if m.cfg.Logger != nil {
 			m.cfg.Logger.Warn("helix mirror: list bots for sweep", "org", orgID, "err", err)
@@ -131,7 +131,7 @@ func (m *Mirror) EnsureAll(ctx context.Context, orgID string) {
 // Stop stops tracking a worker (on fire). orgID is required — trackers
 // are keyed per (org, worker), so a bare workerID would tear down the
 // wrong tenant's tracker when two orgs share the id.
-func (m *Mirror) Stop(orgID string, workerID orgchart.BotID) {
+func (m *Mirror) Stop(orgID string, workerID orgchart.NodeID) {
 	if m == nil {
 		return
 	}
@@ -147,7 +147,7 @@ func (m *Mirror) Stop(orgID string, workerID orgchart.BotID) {
 // track resolves the worker's current session and (re)subscribes
 // whenever it changes, polling on an interval, until ctx fires. Each
 // session gets a fresh bridge.
-func (m *Mirror) track(ctx context.Context, orgID string, workerID orgchart.BotID) {
+func (m *Mirror) track(ctx context.Context, orgID string, workerID orgchart.NodeID) {
 	var (
 		curSession string
 		curCancel  = func() {}
@@ -184,7 +184,7 @@ func (m *Mirror) track(ctx context.Context, orgID string, workerID orgchart.BotI
 
 // resolveSession returns the worker's current exploratory session,
 // falling back to the persisted pointer when that lookup is unavailable.
-func (m *Mirror) resolveSession(ctx context.Context, orgID string, workerID orgchart.BotID) string {
+func (m *Mirror) resolveSession(ctx context.Context, orgID string, workerID orgchart.NodeID) string {
 	state, err := LoadState(ctx, m.cfg.Store, orgID, workerID)
 	if err != nil {
 		return ""
@@ -202,7 +202,7 @@ func (m *Mirror) resolveSession(ctx context.Context, orgID string, workerID orgc
 // subscribe attaches a bridge to one session's topic and pumps its
 // frames onto the transcript until ctx fires. The first subscribe
 // is synchronous so a frame published right after isn't raced.
-func (m *Mirror) subscribe(ctx context.Context, orgID string, workerID orgchart.BotID, sessionID string) {
+func (m *Mirror) subscribe(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionID string) {
 	ownerID := ""
 	if m.cfg.Client != nil {
 		if owner, err := m.cfg.Client.SessionOwner(ctx, sessionID); err != nil {

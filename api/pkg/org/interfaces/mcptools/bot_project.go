@@ -36,7 +36,7 @@ func NewGetBotProject(deps Deps) *GetBotProject {
 var getBotProjectSchema = mustSchema[getBotProjectArgs]()
 
 type getBotProjectArgs struct {
-	BotID string `json:"botId"`
+	NodeID string `json:"botId"`
 }
 
 func (t *GetBotProject) Name() tool.Name                 { return GetBotProjectName }
@@ -53,7 +53,7 @@ func (t *GetBotProject) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return nil, errors.New("botId is required")
 	}
 	orgID, err := projectConfigOrgID(inv)
@@ -68,7 +68,7 @@ func (t *GetBotProject) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 		// nil-deref.
 		return nil, runtime.ErrProjectConfigUnsupported
 	}
-	snap, err := cfg.GetWorkerProjectConfig(ctx, orgID, orgchart.BotID(args.BotID))
+	snap, err := cfg.GetWorkerProjectConfig(ctx, orgID, orgchart.NodeID(args.NodeID))
 	if err != nil {
 		return nil, fmt.Errorf("get bot project: %w", err)
 	}
@@ -119,7 +119,7 @@ var configureBotProjectSchema = mustSchema[configureBotProjectArgs]()
 // can distinguish "field omitted" (nil) from "explicitly empty" (non-nil
 // pointer to ""). Mirrors Helix's `types.ProjectUpdateRequest` shape.
 type configureBotProjectArgs struct {
-	BotID         string  `json:"botId"`
+	NodeID        string  `json:"botId"`
 	StartupScript *string `json:"startupScript,omitempty"`
 	// Future fields go here (Skills, Guidelines, etc.) in the same
 	// pointer-optional shape. Don't add them until the underlying
@@ -144,7 +144,7 @@ func (t *ConfigureBotProject) Invoke(ctx context.Context, inv tool.Invocation) (
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return nil, errors.New("botId is required")
 	}
 	patch := runtime.ProjectConfigPatch{
@@ -161,7 +161,7 @@ func (t *ConfigureBotProject) Invoke(ctx context.Context, inv tool.Invocation) (
 	if cfg == nil {
 		return nil, runtime.ErrProjectConfigUnsupported
 	}
-	snap, err := cfg.UpdateWorkerProjectConfig(ctx, orgID, orgchart.BotID(args.BotID), patch)
+	snap, err := cfg.UpdateWorkerProjectConfig(ctx, orgID, orgchart.NodeID(args.NodeID), patch)
 	if err != nil {
 		return nil, fmt.Errorf("configure bot project: %w", err)
 	}

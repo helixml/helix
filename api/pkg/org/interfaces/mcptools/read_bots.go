@@ -24,14 +24,14 @@ import (
 // project) when the repositories port is wired — so "what can this bot
 // work on?" is answered without a second tool call.
 type botView struct {
-	ID   orgchart.BotID `json:"id"`
-	Name string         `json:"name,omitempty"`
+	ID   orgchart.NodeID `json:"id"`
+	Name string          `json:"name,omitempty"`
 	// Kind is "" for an agent bot or "human" for a person (a human node).
 	// Use ask_human to reach a person; do not try to dm/manage them.
-	Kind      string           `json:"kind,omitempty"`
-	Content   string           `json:"content"`
-	Tools     []tool.Name      `json:"tools,omitempty"`
-	ParentIDs []orgchart.BotID `json:"parentIds,omitempty"`
+	Kind      string            `json:"kind,omitempty"`
+	Content   string            `json:"content"`
+	Tools     []tool.Name       `json:"tools,omitempty"`
+	ParentIDs []orgchart.NodeID `json:"parentIds,omitempty"`
 	// Repositories is only set by get_bot (not list_bots). Nil means the
 	// field was not loaded; empty slice means loaded and none attached.
 	Repositories []runtime.RepoView `json:"repositories,omitempty"`
@@ -42,7 +42,7 @@ type botView struct {
 	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
-func botViewOf(b orgchart.Bot, managers []orgchart.BotID) botView {
+func botViewOf(b orgchart.Node, managers []orgchart.NodeID) botView {
 	return botView{
 		ID:        b.ID,
 		Name:      b.Name,
@@ -55,7 +55,7 @@ func botViewOf(b orgchart.Bot, managers []orgchart.BotID) botView {
 	}
 }
 
-func canonicalBotView(ctx context.Context, deps Deps, b orgchart.Bot, managers []orgchart.BotID) (botView, error) {
+func canonicalBotView(ctx context.Context, deps Deps, b orgchart.Node, managers []orgchart.NodeID) (botView, error) {
 	view := botViewOf(b, managers)
 	if b.IsHuman() || b.AgentAppID == "" {
 		return view, nil
@@ -102,7 +102,7 @@ func (t *ListBots) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	}
 	// One List call builds the report → managers index, so we don't
 	// issue a ListManagers per bot.
-	managersByReport := map[orgchart.BotID][]orgchart.BotID{}
+	managersByReport := map[orgchart.NodeID][]orgchart.NodeID{}
 	if t.deps.Queries.ReportingLinesWired() {
 		lines, err := t.deps.Queries.ListReportingLines(ctx, orgID)
 		if err != nil {
@@ -158,11 +158,11 @@ func (t *GetBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 	if orgID == "" {
 		return nil, fmt.Errorf("get_bot: caller has no OrgID")
 	}
-	b, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.BotID(args.ID))
+	b, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.NodeID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get bot %q: %w", args.ID, err)
 	}
-	var managers []orgchart.BotID
+	var managers []orgchart.NodeID
 	if t.deps.Queries.ReportingLinesWired() {
 		managers, err = t.deps.Queries.ListManagers(ctx, orgID, b.ID)
 		if err != nil {
@@ -175,7 +175,7 @@ func (t *GetBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 	}
 	// Best-effort: surface attached repos so callers don't have to know
 	// about list_bot_repositories. Humans never have a project.
-	if b.Kind != orgchart.BotKindHuman && t.deps.Repositories != nil {
+	if b.Kind != orgchart.NodeKindHuman && t.deps.Repositories != nil {
 		repos, rerr := t.deps.Repositories.ListForBot(ctx, orgID, b.ID)
 		switch {
 		case rerr == nil:

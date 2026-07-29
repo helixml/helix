@@ -5,18 +5,18 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
 type fakeHumanDelivery struct {
-	person orgchart.Bot
+	person orgchart.Node
 	route  string
 }
 
-func (f *fakeHumanDelivery) Deliver(_ context.Context, _ string, person orgchart.Bot, _, _, _ string, _ bool) (string, error) {
+func (f *fakeHumanDelivery) Deliver(_ context.Context, _ string, person orgchart.Node, _, _, _ string, _ bool) (string, error) {
 	f.person = person
 	return f.route, nil
 }
@@ -25,8 +25,8 @@ func TestAskHumanReturnsConfiguredDeliveryRoute(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
 	cfg := DefaultDeps(st)
-	if _, err := cfg.botsService().Create(ctx, "org-test", bots.CreateParams{
-		ID: "h-owner", Kind: orgchart.BotKindHuman, Content: "Owner",
+	if _, err := cfg.botsService().Create(ctx, "org-test", nodes.CreateParams{
+		ID: "h-owner", Kind: orgchart.NodeKindHuman, Content: "Owner",
 		Identity: map[string]string{"preferred_contact": "slack", "slack_user_id": "U123"},
 	}); err != nil {
 		t.Fatal(err)

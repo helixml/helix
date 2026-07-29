@@ -109,7 +109,7 @@ func (d *Dispatcher) RegisterProcessorRunner(r ProcessorRunner) {
 // case.
 //
 // No-op if the Spawner is nil.
-func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID) {
+func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgchart.NodeID, activationID activation.ID) {
 	d.queue.Enqueue(orgID, workerID, activation.Trigger{
 		Kind:         activation.TriggerHire,
 		ActivationID: activationID,
@@ -129,7 +129,7 @@ func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgc
 // goroutine. activationID semantics match DispatchHire — callers that
 // pre-allocate the audit row pass its ID through; empty means the
 // Spawner mints its own. No-op if the Spawner is nil.
-func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID) {
+func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID orgchart.NodeID, activationID activation.ID) {
 	d.queue.Enqueue(orgID, workerID, activation.Trigger{
 		Kind:         activation.TriggerManual,
 		ActivationID: activationID,
@@ -172,11 +172,11 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 	// dispatches to nobody (the row is dropped on fire — see
 	// lifecycle.Fire).
 	for _, sub := range subs {
-		botID := orgchart.BotID(sub.BotID)
+		botID := orgchart.NodeID(sub.NodeID)
 		if string(botID) == string(e.Source) {
 			continue // do not deliver the event back to its publisher
 		}
-		b, err := d.store.Bots.Get(ctx, orgID, botID)
+		b, err := d.store.Nodes.Get(ctx, orgID, botID)
 		if err != nil {
 			d.logger.Warn("dispatch: get bot", "bot", botID, "err", err)
 			continue
