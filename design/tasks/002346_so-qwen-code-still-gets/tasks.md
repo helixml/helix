@@ -13,17 +13,17 @@
 
 ## Verification
 
-- [ ] Add/adjust a Zed unit test (or e2e) covering: setting=allow → auto-approved, no UI; setting=ask → interactive dialog still shown.
-- [~] Build the Zed binary: `./stack build-zed release`.
-- [ ] Bake into desktop image: `./stack build-ubuntu`.
+- [x] Add Zed unit tests for the option-selection logic (prefers AllowAlways, falls back to AllowOnce, prefers RejectOnce when denying, returns None when no matching kind). 4/4 pass.
+- [x] Build the Zed binary (`./stack build-zed dev`) — compiles clean, no `agent_servers` warnings.
+- [~] Bake into desktop image: `./stack build-ubuntu`.
 - [ ] Live e2e in inner Helix (`localhost:8080`): create a **qwen_code** spec-task, confirm an edit/write runs with no "Awaiting Confirmation" prompt and the task progresses autonomously (capture screenshot/logs).
 - [ ] Run the Zed WebSocket-sync e2e (`run_docker_e2e.sh`) if it exercises the permission path.
 - [ ] Negative test: with `tool_permissions.default = ask`, confirm the interactive dialog still appears (no regression).
 
 ## Release wiring
 
-- [ ] Commit the Zed change locally; copy the commit hash (`git rev-parse HEAD`).
-- [ ] Update `helix/sandbox-versions.txt` `ZED_COMMIT` to the new hash.
+- [x] Commit the Zed change locally; hash `4d248e320eeab82a8dd3d86d8c83c01f92b712b7`.
+- [x] Update `helix/sandbox-versions.txt` `ZED_COMMIT` to the new hash (resolved a conflict with main, which had pinned the base commit my work descends from).
 - [ ] Open the Helix PR (with bumped hash) BEFORE pushing the Zed branch (per CLAUDE.md ordering).
 - [ ] Push the Zed branch, open its PR (`gh pr create --repo helixml/zed`).
 - [ ] Merge Zed PR, then merge Helix PR.
