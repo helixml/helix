@@ -77,6 +77,46 @@ three blank sections (better UX and easier to diagnose than silent blanks).
 - (Reference, unchanged) `api/pkg/store/spec_task_design_review_store.go` —
   `ListSpecTaskDesignReviews` / `GetLatestDesignReview`.
 
+## Implementation Notes
+
+**What was built** (all in `api/pkg/server/spec_task_share_handlers.go`):
+
+- `resolvePublicDesignDocs(ctx, task)` — resolves doc content: reads the current
+  design review, and if empty *and* `task.DesignDocsPushedAt != nil`, looks up
+  the project → default repo and calls the existing
+  `backfillDesignReviewFromGit`, then re-reads.
+- `designDocsFromReviews(ctx, taskID)` — picks the review: iterates
+  `ListSpecTaskDesignReviews` (ordered `created_at DESC`) and takes the first
+  **non-superseded** entry, defaulting to `reviews[0]`.
+- `publicDesignDocs` struct + `empty()` helper — small value type so the
+  empty-guard is a single readable check.
+- `renderDocsUnavailablePage` + `docsUnavailableTemplate` — 404 page shown when
+  no content exists anywhere. Styled to match the existing private-task page.
+
+**Answers to the requirements' Open Questions** (resolved during implementation):
+
+1. *Which review is authoritative?* Latest **non-superseded**, matching what
+   `createDesignReviewForPush` in `git_http_server.go` picks when it writes. A
+   superseded review can legitimately sort first under `created_at DESC`, so
+   taking `reviews[0]` blindly would show stale content — covered by a test.
+2. *Remove dead code?* Left in place. `HandleSpecGenerationComplete` has no
+   callers, but the `SpecTask` doc columns are still read by the clone path
+   (`spec_task_clone_handlers.go:199`) and the agent get-tool
+   (`spec_task_get_tool.go:158`), so removing the columns is a wider change.
+   Flagged as a follow-up rather than bundled here.
+3. *Git fallback needed?* Yes, implemented — it mirrors the authenticated
+   `listDesignReviews` self-healing path, so both viewers behave identically.
+
+**Gotchas discovered:**
+
+- Go tests in `pkg/server` need CGo for tree-sitter. `gcc` is not installed by
+  default in this sandbox: `sudo apt-get install -y gcc libc6-dev`, then
+  `CGO_ENABLED=1 go test ...` (documented in CLAUDE.md, easy to miss).
+- `docker exec ... psql` does not accept a heredoc on stdin the way you'd
+  expect — the SQL silently does nothing. Use `psql -c "..."` per statement.
+- `psql -c` with multiple `;`-separated statements only prints the last
+  result, which makes seeding look like it failed when it didn't.
+
 ## Testing
 
 - **Unit (Go, `pkg/server`)**: with a gomock store, a public task whose latest
@@ -88,3 +128,26 @@ three blank sections (better UX and easier to diagnose than silent blanks).
   spec task, let it generate + push design docs, toggle "public", open
   `GET /api/v1/spec-tasks/{id}/view` in a fresh/incognito context (no auth) and
   confirm the three sections show real content matching the in-app review.
+
+### Verification performed (results)
+
+Go unit tests — all 6 pass (`CGO_ENABLED=1 go test -run TestPublicShareViewerSuite
+./pkg/server/`). `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` clean.
+
+End-to-end against the running inner Helix (real API + real Postgres, request
+made **unauthenticated**), seeding a task in the exact production state — task
+doc columns empty (`req_len=0`), content only on the design review:
+
+| Scenario | Result |
+|---|---|
+| Public task, content on review | HTTP 200, all three docs render as HTML |
+| Superseded review sorting first | Stale content NOT shown; current review wins |
+| Public task, no content anywhere | HTTP 404 + "Design documents not available yet" |
+| `public_design_docs = false` | HTTP 200 + "This spec task is private" |
+| Status `backlog` | HTTP 404 "specifications not yet generated" |
+
+The bug was also **reproduced then re-fixed on the same data**: temporarily
+restoring the pre-fix handler made the page render three empty sections
+(`screenshots/01-share-link-before-fix.png`); restoring the fix brought the
+content back (`screenshots/02-share-link-after-fix.png`). Both screenshots were
+taken in an isolated, logged-out browser context.

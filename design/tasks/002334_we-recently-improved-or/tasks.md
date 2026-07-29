@@ -6,5 +6,7 @@
 - [x] Add an empty-content guard: if all three docs are still empty after resolving the review + backfill, render a clear "documents not available yet" message rather than blank sections.
 - [x] Add Go unit tests in `api/pkg/server` (gomock store): public task with populated review renders content; empty review + git triggers backfill; non-public renders private page; backlog/spec_generation returns 404.
 - [x] `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` passes.
-- [~] End-to-end verify in inner Helix (`localhost:8080`): create task, generate + push docs, toggle public, open `/api/v1/spec-tasks/{id}/view` unauthenticated, confirm the three sections show real content matching the in-app review.
-- [ ] (Optional / separate PR) Flag dead `HandleSpecGenerationComplete` and the unused `SpecTask` doc columns for cleanup — confirm with the user first.
+- [x] End-to-end verify in inner Helix (`localhost:8080`): create task, generate + push docs, toggle public, open `/api/v1/spec-tasks/{id}/view` unauthenticated, confirm the three sections show real content matching the in-app review.
+- [x] Flag dead `HandleSpecGenerationComplete` + unused `SpecTask` doc columns for a follow-up PR (documented in design.md; NOT removed here — still read by clone path and agent get-tool).
+- [x] Capture before/after screenshots of the public viewer in a logged-out browser context.
+- [x] Write PR description.

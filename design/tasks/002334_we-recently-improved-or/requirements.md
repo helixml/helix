@@ -71,17 +71,17 @@ generated specs,
 
 ## Open Questions
 
-1. **Which review record is authoritative?** `git_http_server.go` updates the
-   first *non-superseded* review, while `GetLatestDesignReview` returns the most
-   recent by `created_at`. Assumption: render the latest non-superseded review
-   (falling back to latest). Is that the intended "current" version to share?
-2. **Remove dead code?** `HandleSpecGenerationComplete` and the task-level
-   `RequirementsSpec/TechnicalDesign/ImplementationPlan` columns appear unused
-   for content. Assumption: leave the columns in place (other code reads them,
-   e.g. clone/get-tool paths) but stop relying on them for the public viewer.
-   Should the dead `HandleSpecGenerationComplete` be deleted in this task, or
-   left for a separate cleanup?
-3. **Git fallback:** if no design-review record exists but docs are in git,
-   should the viewer read directly from git (as the backfill path does) as a
-   fallback, or is the review record guaranteed to exist whenever
-   `design_docs_pushed_at` is set?
+*All three were resolved during implementation — decisions and rationale are in
+design.md → Implementation Notes. Summarised here:*
+
+1. **Which review record is authoritative?** ✅ Resolved: latest
+   **non-superseded**, matching what `createDesignReviewForPush` picks when
+   writing. Covered by a regression test (a superseded review can sort first
+   under `created_at DESC`).
+2. **Remove dead code?** ✅ Resolved: left in place for now. The `SpecTask` doc
+   columns are still read by the clone path and the agent get-tool, so removing
+   them is a wider change. `HandleSpecGenerationComplete` is dead but harmless —
+   flagged as a follow-up. **Still worth the user's call**: do you want that
+   cleanup done as a separate PR?
+3. **Git fallback:** ✅ Resolved: implemented, mirroring the authenticated
+   `listDesignReviews` self-healing path so both viewers behave identically.
