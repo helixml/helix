@@ -140,7 +140,7 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, CreateBotResponse{ID: string(res.Bot.ID), ActivationID: string(res.ActivationID)})
+	writeJSON(w, http.StatusCreated, CreateBotResponse{ID: string(res.Node.ID), ActivationID: string(res.ActivationID)})
 }
 
 // getBot returns one Bot + the surrounding runtime context.

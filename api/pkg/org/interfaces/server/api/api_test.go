@@ -75,11 +75,11 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		Messages: messages.New(messages.Deps{Topics: st.Topics, Events: st.Events, Notifier: hub}),
 		Nodes:    botsSvc,
 		// Create + Delete live on the lifecycle service. Nodes is required
-		// for Create (row creation + base-tool union). BotReconcilers wires
+		// for Create (row creation + base-tool union). NodeReconcilers wires
 		// the topology reconcile. Helix/Mirror stay nil — the REST tests
 		// don't exercise the Helix-side teardown.
 		Lifecycle: &lifecycle.Service{
-			Store: st, Nodes: botsSvc, BotReconcilers: []lifecycle.BotReconciler{topo},
+			Store: st, Nodes: botsSvc, NodeReconcilers: []lifecycle.NodeReconciler{topo},
 			Now: clock, NewID: newID,
 		},
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Nodes: st.Nodes, Now: clock}),

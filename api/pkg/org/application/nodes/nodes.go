@@ -1,13 +1,13 @@
-// Package bots is the application service that owns the structural Bot
+// Package nodes is the application service that owns the structural Node
 // use cases — Create, Update, the reporting-line edges (AddParent /
 // RemoveParent), and the base-tool Reconcile backfill. It is the single
-// home for the bot-mutation logic the MCP tools and REST handlers drive,
+// home for the node-mutation logic the MCP tools and REST handlers drive,
 // so the semantics cannot drift between callers.
 //
 // It is the merge of the former `roles` and `workers` application
-// services: now that a Bot IS its own job description (the former Role
-// and Worker collapsed into one aggregate), "edit a bot's content/tools"
-// and "wire a bot's reporting lines" are operations on the same entity.
+// services: now that a Node IS its own job description (the former Role
+// and Worker collapsed into one aggregate), content/tools and reporting
+// lines are operations on the same entity.
 //
 // Create/Update do a proper read-modify-write that preserves unpatched
 // fields (a content-only update keeps Tools/Topics). The service depends
@@ -39,9 +39,9 @@ var ErrReportingCycle = errors.New("reporting cycle")
 // repository is not wired. Adapters map it to 501.
 var ErrReportingLinesUnavailable = errors.New("reporting lines not wired")
 
-// Nodes owns the bot-mutation use cases.
+// Nodes owns the node-mutation use cases.
 type Nodes struct {
-	bots       store.Nodes
+	nodes      store.Nodes
 	lines      store.ReportingLines
 	reconciler *reconcile.Reconciler
 	now        func() time.Time
@@ -61,7 +61,7 @@ type Deps struct {
 	Now        func() time.Time
 	NewID      func() string
 	// BaseTools is the universal read baseline unioned into every
-	// created Bot so no Bot can miss the read primitives every Bot
+	// created Node so no Node can miss the read primitives every Node
 	// needs. Injected by the wiring (tools.BaseReadTools) to avoid an
 	// import cycle.
 	BaseTools []tool.Name
@@ -74,7 +74,7 @@ func New(deps Deps) *Nodes {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Nodes{
-		bots:       deps.Nodes,
+		nodes:      deps.Nodes,
 		lines:      deps.Lines,
 		reconciler: deps.Reconciler,
 		now:        now,
@@ -83,10 +83,10 @@ func New(deps Deps) *Nodes {
 	}
 }
 
-// CreateParams describes a new Bot. ID is optional — when empty a fresh
+// CreateParams describes a new Node. ID is optional - when empty a fresh
 // `b-<id>` is minted. Tools is unioned with the injected base read
-// tools. Subscriptions are not part of the bot row — the lifecycle
-// service creates them as (bot, topic) rows from its own CreateParams.
+// tools. Subscriptions are not part of the node row - the lifecycle
+// service creates them as (node, topic) rows from its own CreateParams.
 type CreateParams struct {
 	ID              string
 	Name            string
@@ -102,7 +102,7 @@ type CreateParams struct {
 	Identity    map[string]string
 }
 
-// Create builds and persists a new Bot, returning the created
+// Create builds and persists a new Node, returning the created
 // aggregate. The caller's tools are unioned with the base read tools
 // (caller order preserved, baseline appended, deduped).
 func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgchart.Node, error) {
@@ -114,10 +114,10 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	// (id, org) primary key), so a clash means the id is already taken — return
 	// a clear error rather than silently mutating it. Deterministic-id callers
 	// (seeds) treat this as "already exists" after a Get.
-	if _, err := s.bots.Get(ctx, orgID, id); err == nil {
-		return orgchart.Node{}, fmt.Errorf("bot id %q already exists in this org", id)
+	if _, err := s.nodes.Get(ctx, orgID, id); err == nil {
+		return orgchart.Node{}, fmt.Errorf("node id %q already exists in this org", id)
 	} else if !errors.Is(err, store.ErrNotFound) {
-		return orgchart.Node{}, fmt.Errorf("check bot id %q: %w", id, err)
+		return orgchart.Node{}, fmt.Errorf("check node id %q: %w", id, err)
 	}
 	// A human placeholder gets no tools — it never makes an MCP request.
 	// An agent gets the caller's tools unioned with the read baseline.
@@ -125,35 +125,35 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	if p.Kind != orgchart.NodeKindHuman {
 		tools = MergeTools(p.Tools, s.baseTools)
 	}
-	bot, err := orgchart.NewNode(id, p.Content, tools, s.now(), orgID)
+	node, err := orgchart.NewNode(id, p.Content, tools, s.now(), orgID)
 	if err != nil {
 		return orgchart.Node{}, err
 	}
 	if p.Name != "" {
-		bot = bot.WithName(p.Name)
+		node = node.WithName(p.Name)
 	}
 	if p.AgentAppID != "" {
-		bot = bot.WithAgentAppID(p.AgentAppID)
+		node = node.WithAgentAppID(p.AgentAppID)
 	}
 	if p.PreserveContext {
-		bot = bot.WithPreserveContext(true)
+		node = node.WithPreserveContext(true)
 	}
 	if p.Kind != "" {
-		bot = bot.WithKind(p.Kind)
+		node = node.WithKind(p.Kind)
 	}
 	if p.HelixUserID != "" {
-		bot = bot.WithHelixUserID(p.HelixUserID)
+		node = node.WithHelixUserID(p.HelixUserID)
 	}
 	if len(p.Identity) > 0 {
-		bot = bot.WithIdentity(p.Identity)
+		node = node.WithIdentity(p.Identity)
 	}
-	if err := s.bots.Create(ctx, bot); err != nil {
+	if err := s.nodes.Create(ctx, node); err != nil {
 		return orgchart.Node{}, err
 	}
-	return bot, nil
+	return node, nil
 }
 
-// UpdateParams patches the mutable fields of a Bot. A nil pointer
+// UpdateParams patches the mutable fields of a Node. A nil pointer
 // leaves the corresponding field unchanged — this is what preserves
 // Tools on a content-only update.
 type UpdateParams struct {
@@ -163,16 +163,16 @@ type UpdateParams struct {
 	Tools           *[]tool.Name
 	ProjectIDs      *[]string
 	PreserveContext *bool
-	// Identity, when non-nil, replaces the bot's per-channel handle map
+	// Identity, when non-nil, replaces the node's per-channel handle map
 	// (human nodes only). nil leaves it unchanged.
 	Identity *map[string]string
 }
 
-// Update reads the existing Bot, applies the patch via the domain's
+// Update reads the existing Node, applies the patch via the domain's
 // With* builders, bumps UpdatedAt, and persists. Returns
 // store.ErrNotFound (wrapped) when the (orgID, id) row is absent.
 func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p UpdateParams) (orgchart.Node, error) {
-	existing, err := s.bots.Get(ctx, orgID, id)
+	existing, err := s.nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return orgchart.Node{}, err
 	}
@@ -199,7 +199,7 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 		updated = updated.WithIdentity(*p.Identity)
 	}
 	updated = updated.WithUpdatedAt(s.now())
-	if err := s.bots.Update(ctx, updated); err != nil {
+	if err := s.nodes.Update(ctx, updated); err != nil {
 		return orgchart.Node{}, err
 	}
 	return updated, nil
@@ -222,13 +222,13 @@ func normalizeProjectIDs(projectIDs []string) []string {
 	return out
 }
 
-// AttachTools grants the named tools to a Bot: the union of its current
+// AttachTools grants the named tools to a Node: the union of its current
 // tools and names (caller order preserved, new names appended, deduped),
-// persisted. Idempotent per name — names the Bot already has are no-ops,
+// persisted. Idempotent per name - names the Node already has are no-ops,
 // and a call that adds nothing writes nothing. Returns store.ErrNotFound
 // (wrapped) when the (orgID, id) row is absent.
 func (s *Nodes) AttachTools(ctx context.Context, orgID string, id orgchart.NodeID, names []tool.Name) (orgchart.Node, error) {
-	existing, err := s.bots.Get(ctx, orgID, id)
+	existing, err := s.nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return orgchart.Node{}, err
 	}
@@ -237,14 +237,14 @@ func (s *Nodes) AttachTools(ctx context.Context, orgID string, id orgchart.NodeI
 		return existing, nil
 	}
 	updated := existing.WithTools(merged).WithUpdatedAt(s.now())
-	if err := s.bots.Update(ctx, updated); err != nil {
+	if err := s.nodes.Update(ctx, updated); err != nil {
 		return orgchart.Node{}, err
 	}
 	return updated, nil
 }
 
-// DetachTools removes the named tools from a Bot. Idempotent per name (a
-// name the Bot lacks is a no-op). It refuses to remove any universal
+// DetachTools removes the named tools from a Node. Idempotent per name (a
+// name the Node lacks is a no-op). It refuses to remove any universal
 // read-baseline tool — those are mandatory and the reconciler would
 // re-add them — failing the whole call before any write. Returns
 // store.ErrNotFound (wrapped) when the (orgID, id) row is absent.
@@ -260,7 +260,7 @@ func (s *Nodes) DetachTools(ctx context.Context, orgID string, id orgchart.NodeI
 		}
 		remove[n] = struct{}{}
 	}
-	existing, err := s.bots.Get(ctx, orgID, id)
+	existing, err := s.nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return orgchart.Node{}, err
 	}
@@ -275,7 +275,7 @@ func (s *Nodes) DetachTools(ctx context.Context, orgID string, id orgchart.NodeI
 		return existing, nil
 	}
 	updated := existing.WithTools(kept).WithUpdatedAt(s.now())
-	if err := s.bots.Update(ctx, updated); err != nil {
+	if err := s.nodes.Update(ctx, updated); err != nil {
 		return orgchart.Node{}, err
 	}
 	return updated, nil
@@ -291,10 +291,10 @@ func (s *Nodes) AddParent(ctx context.Context, orgID string, reportID, managerID
 	if s.lines == nil {
 		return ErrReportingLinesUnavailable
 	}
-	if _, err := s.bots.Get(ctx, orgID, reportID); err != nil {
-		return fmt.Errorf("get bot %s: %w", reportID, err)
+	if _, err := s.nodes.Get(ctx, orgID, reportID); err != nil {
+		return fmt.Errorf("get node %s: %w", reportID, err)
 	}
-	if _, err := s.bots.Get(ctx, orgID, managerID); err != nil {
+	if _, err := s.nodes.Get(ctx, orgID, managerID); err != nil {
 		return fmt.Errorf("get manager %s: %w", managerID, err)
 	}
 	line, err := orgchart.NewReportingLine(orgID, managerID, reportID)
@@ -361,7 +361,7 @@ func (s *Nodes) RemoveParent(ctx context.Context, orgID string, reportID, manage
 }
 
 // Reconcile backfills the universal read baseline (the injected
-// BaseTools) onto every Bot in the org. Idempotent: a Bot already at the
+// BaseTools) onto every Node in the org. Idempotent: a Node already at the
 // baseline is left untouched (no write, no UpdatedAt bump). Order is
 // stable — caller tools first, baseline appended in BaseTools order —
 // because it reuses the same MergeTools the create path does.
@@ -369,19 +369,19 @@ func (s *Nodes) Reconcile(ctx context.Context, orgID string) error {
 	if s == nil {
 		return nil
 	}
-	all, err := s.bots.List(ctx, orgID)
+	all, err := s.nodes.List(ctx, orgID)
 	if err != nil {
-		return fmt.Errorf("list bots: %w", err)
+		return fmt.Errorf("list nodes: %w", err)
 	}
 	now := s.now()
-	for _, bot := range all {
-		merged := MergeTools(bot.Tools, s.baseTools)
-		if sameToolList(bot.Tools, merged) {
+	for _, node := range all {
+		merged := MergeTools(node.Tools, s.baseTools)
+		if sameToolList(node.Tools, merged) {
 			continue
 		}
-		updated := bot.WithTools(merged).WithUpdatedAt(now)
-		if err := s.bots.Update(ctx, updated); err != nil {
-			return fmt.Errorf("update bot %q: %w", bot.ID, err)
+		updated := node.WithTools(merged).WithUpdatedAt(now)
+		if err := s.nodes.Update(ctx, updated); err != nil {
+			return fmt.Errorf("update node %q: %w", node.ID, err)
 		}
 	}
 	return nil
@@ -406,7 +406,7 @@ func sameToolList(a, b []tool.Name) bool {
 // MergeTools returns the union of `existing` and `base`: the order of
 // `existing` is preserved, any `base` entries not already present are
 // appended in base order, and duplicates within `existing` are dropped.
-// It is the single dedup-union algorithm shared by bot creation and the
+// It is the single dedup-union algorithm shared by node creation and the
 // tools-package reconciler.
 func MergeTools(existing, base []tool.Name) []tool.Name {
 	seen := make(map[tool.Name]struct{}, len(existing)+len(base))

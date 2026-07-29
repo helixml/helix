@@ -23,9 +23,9 @@ func (fakeAgentCreator) CreateAgent(context.Context, string, string, string) (st
 	return "app-agent", nil
 }
 
-type failingBotReconciler struct{}
+type failingNodeReconciler struct{}
 
-func (failingBotReconciler) Reconcile(context.Context, string, ...orgchart.NodeID) error {
+func (failingNodeReconciler) Reconcile(context.Context, string, ...orgchart.NodeID) error {
 	return errors.New("reconcile failed")
 }
 
@@ -44,12 +44,12 @@ func newHireService(st *store.Store) *lifecycle.Service {
 		NewID:      func() string { return "id" },
 	})
 	return &lifecycle.Service{
-		Store:          st,
-		Nodes:          botSvc,
-		Agents:         fakeAgentCreator{},
-		BotReconcilers: []lifecycle.BotReconciler{rec},
-		Now:            hireClock,
-		NewID:          func() string { return "id" },
+		Store:           st,
+		Nodes:           botSvc,
+		Agents:          fakeAgentCreator{},
+		NodeReconcilers: []lifecycle.NodeReconciler{rec},
+		Now:             hireClock,
+		NewID:           func() string { return "id" },
 	}
 }
 
@@ -73,11 +73,11 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if res.Bot.ID != "w-new" {
-		t.Fatalf("bot id = %q", res.Bot.ID)
+	if res.Node.ID != "w-new" {
+		t.Fatalf("node id = %q", res.Node.ID)
 	}
-	if res.Bot.AgentAppID != "app-agent" {
-		t.Fatalf("agent app id = %q, want app-agent", res.Bot.AgentAppID)
+	if res.Node.AgentAppID != "app-agent" {
+		t.Fatalf("agent app id = %q, want app-agent", res.Node.AgentAppID)
 	}
 	if _, err := st.Nodes.Get(ctx, "org-test", "w-new"); err != nil {
 		t.Fatalf("bot not persisted: %v", err)
@@ -162,7 +162,7 @@ func TestCreate_RollsBackBotWhenReconcileFails(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newHireService(st)
-	svc.BotReconcilers = []lifecycle.BotReconciler{failingBotReconciler{}}
+	svc.NodeReconcilers = []lifecycle.NodeReconciler{failingNodeReconciler{}}
 
 	_, err := svc.Create(context.Background(), "org-test", lifecycle.CreateParams{ID: "w-new", Content: "x"})
 
@@ -222,7 +222,7 @@ func TestCreate_DeferredDoesNotCreateOrDispatchActivation(t *testing.T) {
 	if disp.hires != 0 {
 		t.Fatalf("deferred create dispatched %d hires", disp.hires)
 	}
-	rows, err := st.Activations.ListForWorker(context.Background(), "org-test", res.Bot.ID, 1)
+	rows, err := st.Activations.ListForWorker(context.Background(), "org-test", res.Node.ID, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

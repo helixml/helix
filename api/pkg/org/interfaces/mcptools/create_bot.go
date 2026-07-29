@@ -111,7 +111,7 @@ func (t *CreateBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if err != nil {
 		return nil, err
 	}
-	resp := map[string]string{"id": string(res.Bot.ID)}
+	resp := map[string]string{"id": string(res.Node.ID)}
 	if res.ActivationID != "" {
 		resp["activation_id"] = string(res.ActivationID)
 	}

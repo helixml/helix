@@ -59,7 +59,7 @@ func TestDelete_RemovesBotsTranscript(t *testing.T) {
 		t.Fatalf("precondition: transcript not seeded: %v", err)
 	}
 
-	svc := &lifecycle.Service{Store: st, BotReconcilers: []lifecycle.BotReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}}
+	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}}
 	if err := svc.Delete(ctx, orgID, bot.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestDelete_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 		t.Fatalf("create subscription: %v", err)
 	}
 
-	svc := &lifecycle.Service{Store: st, BotReconcilers: []lifecycle.BotReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}}
+	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}}
 	if err := svc.Delete(ctx, orgID, mgr.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestDelete_TearsDownDMChannelToReports(t *testing.T) {
 		t.Fatalf("precondition: DM channel %q should exist after wiring the edge: %v", dm, err)
 	}
 
-	svc := &lifecycle.Service{Store: st, BotReconcilers: []lifecycle.BotReconciler{rec}}
+	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{rec}}
 	if err := svc.Delete(ctx, orgID, mgr.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -222,8 +222,8 @@ func TestDelete_TearsDownDMChannelToReports(t *testing.T) {
 // Helix project/app, so the Delete cascade never calls into Helix).
 func newLifecycleSvc(st *store.Store) *lifecycle.Service {
 	return &lifecycle.Service{
-		Store:          st,
-		BotReconcilers: []lifecycle.BotReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})},
+		Store:           st,
+		NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})},
 	}
 }
 
@@ -262,7 +262,7 @@ func TestDelete_ReconcilesSurvivingReport(t *testing.T) {
 
 	svc := newLifecycleSvc(st)
 	// Provision the channels the edge implies (team topic + DM channel).
-	if err := svc.BotReconcilers[0].Reconcile(ctx, orgID, "w-mgr", "w-ic"); err != nil {
+	if err := svc.NodeReconcilers[0].Reconcile(ctx, orgID, "w-mgr", "w-ic"); err != nil {
 		t.Fatalf("reconcile (wire edge): %v", err)
 	}
 	dm := channels.DMTopicID("w-mgr", "w-ic")
