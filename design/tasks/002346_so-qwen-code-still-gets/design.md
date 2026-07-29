@@ -116,6 +116,42 @@ Keep the option-selection logic tolerant: qwen's options come from
   open Helix PR with bumped hash → push Zed branch → merge Zed → merge Helix).
 - No Helix API change is required; the daemon already writes the "allow" setting.
 
+## Implementation Notes (discovered during implementation)
+
+### Cannot reuse the native `decide_permission_from_settings` helper
+The original design proposed reusing
+`agent::tool_permissions::decide_permission_from_settings`. **This is
+impossible: it would create a dependency cycle.** `crates/agent/Cargo.toml`
+already depends on `agent_servers` (line 24), so `agent_servers` cannot depend
+on `agent`.
+
+Resolution: read the setting from **`crates/agent_settings`** instead
+(`AgentSettings::get_global(cx).tool_permissions.default`). `agent_settings`
+depends on neither `agent` nor `agent_servers`, so adding it to
+`agent_servers` is cycle-free. `ToolPermissionMode` (`Allow` / `Deny` /
+`Confirm`, defined in `crates/settings_content/src/agent.rs:844`) is re-exported
+via the `settings` crate, which `agent_servers` already depends on.
+
+### Only the global `default` applies to external agents (resolves Open Question 4)
+Per-tool `tool_permissions` rules are keyed by **Zed's native tool names**
+(`edit_file`, `terminal`, …). An external ACP `request_permission` carries no
+stable tool *name* — `args.tool_call` has only `tool_call_id`, `title`, `kind`,
+`locations` and `raw_input`. Mapping an arbitrary agent's tool titles onto
+Zed's native rule keys would be guesswork, so **only the global
+`tool_permissions.default` is honoured** for external agents. This is also the
+behaviour the native path falls back to when a tool has no rules entry, so it
+is consistent. Note the hardcoded security rules (e.g. `rm -rf /` blocking) are
+likewise native-tool-keyed and do not apply here.
+
+### Auto-approval reuses the existing thread machinery
+Rather than bypassing `request_tool_call_authorization` entirely, the handler
+calls it and then immediately calls `authorize_tool_call(...)` with the chosen
+option **inside the same `cx.update` closure**. No frame renders between the
+two, so the user never sees a prompt, while the tool call still appears in the
+thread view with the correct `InProgress`/`Rejected` status via the existing
+status-transition logic (`acp_thread.rs:2695+`). This is the same mechanism
+Zed's own e2e tests use to simulate a click, so it is a well-trodden path.
+
 ## Testing plan
 
 - **Live e2e in inner Helix (mandatory).** Register/onboard at `localhost:8080`,

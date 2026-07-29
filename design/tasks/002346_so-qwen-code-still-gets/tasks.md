@@ -2,12 +2,13 @@
 
 ## Zed change (primary fix)
 
-- [ ] In `zed/crates/agent_servers/src/acp.rs`, locate `handle_request_permission` (the external-ACP permission handler).
-- [ ] Resolve the effective agent tool-permission decision by reusing the native helper (`AgentSettings::get_global` + `decide_permission_from_settings` / `crates/agent/src/tool_permissions.rs`), keyed on the tool name/kind from `args.tool_call`.
-- [ ] When the decision is **Allow**: select an option from `args.options` (prefer `AllowAlways` kind, else `AllowOnce`) and respond immediately via `responder.respond(...)` without calling `request_tool_call_authorization` (no interactive dialog).
-- [ ] Still surface the auto-approved tool call in the thread view for transparency, without blocking on the UI oneshot.
-- [ ] When the decision is **Deny**: respond with a reject/cancel outcome.
-- [ ] When **Confirm** / no definitive setting: fall through to the existing interactive path unchanged.
+- [x] In `zed/crates/agent_servers/src/acp.rs`, locate `handle_request_permission` (the external-ACP permission handler) — found at line 4027.
+- [x] Investigate reusing the native helper — **NOT possible**, see design.md "Implementation Notes": `crates/agent` depends on `crates/agent_servers`, so importing `agent::tool_permissions` would be a dependency cycle. Also external ACP tool calls carry no stable tool *name*, so per-tool rules can't be keyed. Decision: use the **global `tool_permissions.default`** only, read from `AgentSettings` (`crates/agent_settings`, no cycle).
+- [ ] Add `agent_settings` to `crates/agent_servers/Cargo.toml` dependencies.
+- [ ] In `handle_request_permission`, read `AgentSettings::get_global(cx).tool_permissions.default`.
+- [ ] When **Allow**: select an option from `args.options` (prefer `AllowAlways` kind, else `AllowOnce`), register the tool call then immediately authorize it in the same `update` closure so no interactive prompt is ever rendered.
+- [ ] When **Deny**: select a reject option (prefer `RejectOnce`) and authorize with it; if none offered, respond `Cancelled`.
+- [ ] When **Confirm** (the default): fall through to the existing interactive path unchanged.
 - [ ] Match permission options by ACP `PermissionOption.kind`, not by string id.
 
 ## Verification
