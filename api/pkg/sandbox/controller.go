@@ -231,6 +231,21 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 
 	if sandbox.HostDeviceID != "" {
 		hydraClient := c.newHydraClient(sandbox.HostDeviceID)
+
+		// Web-service sandboxes host the customer's own docker-compose stack —
+		// often including a database — on their inner dockerd. Deleting the
+		// sandbox kills that dockerd, which SIGKILLs every nested container
+		// mid-write. Stop them cleanly first. Ephemeral sandboxes (spec tasks,
+		// dev containers) keep the existing fast teardown; they hold no durable
+		// state worth waiting for.
+		if sandbox.Purpose == types.SandboxPurposeWebService {
+			drainCtx, drainCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			if drainErr := DrainNestedContainers(drainCtx, hydraClient, sandbox.ID, DefaultDrainGrace); drainErr != nil {
+				log.Warn().Err(drainErr).Str("sandbox_id", id).
+					Msg("failed to drain nested containers before delete; continuing with teardown")
+			}
+			drainCancel()
+		}
 		// Detach from the caller's ctx for the hydra teardown. If the
 		// HTTP caller goes away (LB closed connection, user navigated
 		// off, ctx cancelled), the container may still be in mid-tear

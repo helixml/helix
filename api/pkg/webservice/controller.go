@@ -561,6 +561,20 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 		return err
 	}
 
+	// Stop the customer's nested container stack cleanly BEFORE the deploy
+	// script tears down the old app. The script's process-group kill only stops
+	// the startup.sh supervisor — the compose containers are children of the
+	// sandbox's inner dockerd, not of that group, so without this they keep
+	// running and are later killed abruptly. A nested Postgres killed mid-write
+	// is what produced we-find.ai's corrupt checkpoint record. Draining here is
+	// also what makes this package's single-writer-on-/data claim true.
+	//
+	// Best-effort: a failed drain must not block the deploy.
+	if drainErr := sandbox.DrainNestedContainers(ctx, hydraClient, sb.ID, sandbox.DefaultDrainGrace); drainErr != nil {
+		log.Warn().Err(drainErr).Str("sandbox_id", sb.ID).
+			Msg("web service: nested stack drain failed before redeploy; continuing")
+	}
+
 	script := deployScript(repo.CloneURL, sha, repoDirName(repo), containerPort)
 
 	// Inject prod-scoped project secrets via the exec environment (NOT inlined

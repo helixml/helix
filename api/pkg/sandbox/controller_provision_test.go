@@ -30,11 +30,43 @@ type fakeHydra struct {
 	createCalls []*hydra.CreateDevContainerRequest
 	deleteCalls []string
 	forgetCalls []string
+	// execCalls records commands run inside the sandbox, in order. The drain
+	// that must precede a web-service teardown shows up here.
+	execCalls []*hydra.ExecRequest
+	// order records the sequence of hydra operations, so tests can assert the
+	// drain happens BEFORE the container is destroyed — a drain afterwards is
+	// worthless.
+	order []string
 
 	createResp *hydra.DevContainerResponse
 	createErr  error
 	deleteErr  error
 	forgetErr  error
+	execErr    error
+}
+
+func (f *fakeHydra) RunSandboxCommand(_ context.Context, _ string, req *hydra.ExecRequest) (*hydra.SandboxCommandResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.execCalls = append(f.execCalls, req)
+	f.order = append(f.order, "exec")
+	if f.execErr != nil {
+		return nil, f.execErr
+	}
+	return &hydra.SandboxCommandResponse{Stdout: "2\n"}, nil
+}
+
+// execScripts returns the shell scripts exec'd inside the sandbox, in order.
+func (f *fakeHydra) execScripts() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, e := range f.execCalls {
+		if len(e.Args) == 2 {
+			out = append(out, e.Args[1])
+		}
+	}
+	return out
 }
 
 func (f *fakeHydra) CreateDevContainer(_ context.Context, req *hydra.CreateDevContainerRequest) (*hydra.DevContainerResponse, error) {
@@ -58,6 +90,7 @@ func (f *fakeHydra) DeleteDevContainer(_ context.Context, sessionID string) (*hy
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleteCalls = append(f.deleteCalls, sessionID)
+	f.order = append(f.order, "delete")
 	if f.deleteErr != nil {
 		return nil, f.deleteErr
 	}
@@ -879,4 +912,76 @@ func (s *ProvisionSuite) TestEnvMapJSONRoundTrip() {
 	var out map[string]string
 	s.Require().NoError(json.Unmarshal(b, &out))
 	s.Require().Equal(in, out)
+}
+
+// TestDeleteDrainsNestedContainersBeforeTeardownForWebService is the regression
+// test for the we-find.ai data corruption. Deleting a web-service sandbox kills
+// its inner dockerd, which SIGKILLs the customer's nested Postgres. The drain
+// must run, and must run BEFORE the container is destroyed — a drain afterwards
+// is worthless.
+func (s *ProvisionSuite) TestDeleteDrainsNestedContainersBeforeTeardownForWebService() {
+	sb := &types.Sandbox{
+		ID:             "sbx_ws",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		HostDeviceID:   "host-z",
+		Status:         types.SandboxStatusPending,
+		Purpose:        types.SandboxPurposeWebService,
+	}
+	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
+	s.store.EXPECT().SetSandboxStatus(s.ctx, sb.ID, types.SandboxStatusStopping, "").Return(nil)
+	s.store.EXPECT().DecrementSandboxContainerCount(gomock.Any(), "host-z").Return(nil)
+	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().DeleteSandbox(s.ctx, sb.ID).Return(nil)
+
+	s.Require().NoError(s.controller.Delete(s.ctx, sb.ID))
+
+	scripts := s.hydra.execScripts()
+	s.Require().Len(scripts, 1, "web-service delete must drain nested containers")
+	s.Require().Contains(scripts[0], "docker stop --time 60")
+	s.Require().Equal([]string{"exec", "delete"}, s.hydra.order,
+		"the drain must happen BEFORE the container is destroyed")
+}
+
+// TestDeleteSkipsDrainForEphemeralSandboxes: spec-task and dev sandboxes hold no
+// durable state worth waiting for, and draining every one would slow down every
+// teardown. Only web-service sandboxes get the graceful path.
+func (s *ProvisionSuite) TestDeleteSkipsDrainForEphemeralSandboxes() {
+	sb := &types.Sandbox{
+		ID:             "sbx_ephemeral",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		HostDeviceID:   "host-z",
+		Status:         types.SandboxStatusPending,
+	}
+	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
+	s.store.EXPECT().SetSandboxStatus(s.ctx, sb.ID, types.SandboxStatusStopping, "").Return(nil)
+	s.store.EXPECT().DecrementSandboxContainerCount(gomock.Any(), "host-z").Return(nil)
+	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().DeleteSandbox(s.ctx, sb.ID).Return(nil)
+
+	s.Require().NoError(s.controller.Delete(s.ctx, sb.ID))
+	s.Require().Empty(s.hydra.execScripts(), "ephemeral sandboxes must keep the fast teardown")
+}
+
+// TestDeleteProceedsWhenDrainFails: a wedged or already-dead inner dockerd must
+// not block the delete — otherwise a broken sandbox could never be removed.
+func (s *ProvisionSuite) TestDeleteProceedsWhenDrainFails() {
+	sb := &types.Sandbox{
+		ID:             "sbx_ws_dead",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		HostDeviceID:   "host-z",
+		Status:         types.SandboxStatusPending,
+		Purpose:        types.SandboxPurposeWebService,
+	}
+	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
+	s.store.EXPECT().SetSandboxStatus(s.ctx, sb.ID, types.SandboxStatusStopping, "").Return(nil)
+	s.store.EXPECT().DecrementSandboxContainerCount(gomock.Any(), "host-z").Return(nil)
+	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().DeleteSandbox(s.ctx, sb.ID).Return(nil)
+
+	s.hydra.execErr = errors.New("dockerd is not running")
+	s.Require().NoError(s.controller.Delete(s.ctx, sb.ID))
+	s.Require().Equal([]string{sb.ID}, s.hydra.deletes(), "teardown must proceed even if the drain fails")
 }

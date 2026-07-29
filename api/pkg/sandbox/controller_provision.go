@@ -23,6 +23,9 @@ type hydraProvisionClient interface {
 	CreateDevContainer(ctx context.Context, req *hydra.CreateDevContainerRequest) (*hydra.DevContainerResponse, error)
 	DeleteDevContainer(ctx context.Context, sessionID string) (*hydra.DevContainerResponse, error)
 	ForgetSandboxOps(ctx context.Context, sessionID string) error
+	// RunSandboxCommand execs inside the sandbox. Delete() uses it to drain a
+	// web-service sandbox's nested containers before teardown.
+	RunSandboxCommand(ctx context.Context, sessionID string, req *hydra.ExecRequest) (*hydra.SandboxCommandResponse, error)
 }
 
 // DefaultDisplayWidth/Height/FPS are applied when the request doesn't override.
