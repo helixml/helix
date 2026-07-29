@@ -437,6 +437,13 @@ type SessionMetadata struct {
 	// Shown on hover in the SpecTask tab view to see what topics were covered
 	TitleHistory []*TitleHistoryEntry `json:"title_history,omitempty"`
 
+	// CredentialOwnerID mirrors SpecTask.CredentialOwnerID onto the session: the
+	// user whose Claude subscription authenticates this session's agent, when
+	// that differs from Owner. Affects credential resolution ONLY — Owner still
+	// owns and is attributed the session. Honoured only with an explicit
+	// delegation grant; see ResolveClaudeCredentialOwner.
+	CredentialOwnerID string `json:"credential_owner_id,omitempty"`
+
 	// Multi-session SpecTask context
 	SpecTaskID              string               `json:"spec_task_id,omitempty"`              // ID of associated SpecTask
 	ProjectID               string               `json:"project_id,omitempty"`                // ID of associated Project (for exploratory sessions)
@@ -2437,42 +2444,42 @@ const (
 // LLMCall used to store the request and response of LLM calls
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
-	ID               string         `json:"id" gorm:"primaryKey"`
-	AppID            string         `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
-	OrganizationID   string         `json:"organization_id" gorm:"index"`
-	UserID           string         `json:"user_id" gorm:"index"`
-	Created          time.Time      `json:"created"`
-	Updated          time.Time      `json:"updated"`
-	SessionID        string         `json:"session_id" gorm:"index"`
-	InteractionID    string         `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
-	ProjectID        string         `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
-	SpecTaskID       string         `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
-	Model            string         `json:"model"`
-	Provider         string         `json:"provider"`
-	Step             LLMCallStep    `json:"step" gorm:"index"`
-	OriginalRequest  datatypes.JSON `json:"original_request" gorm:"type:jsonb"`
-	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
-	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
-	DurationMs       int64          `json:"duration_ms"`
+	ID              string         `json:"id" gorm:"primaryKey"`
+	AppID           string         `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
+	OrganizationID  string         `json:"organization_id" gorm:"index"`
+	UserID          string         `json:"user_id" gorm:"index"`
+	Created         time.Time      `json:"created"`
+	Updated         time.Time      `json:"updated"`
+	SessionID       string         `json:"session_id" gorm:"index"`
+	InteractionID   string         `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
+	ProjectID       string         `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID      string         `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
+	Model           string         `json:"model"`
+	Provider        string         `json:"provider"`
+	Step            LLMCallStep    `json:"step" gorm:"index"`
+	OriginalRequest datatypes.JSON `json:"original_request" gorm:"type:jsonb"`
+	Request         datatypes.JSON `json:"request" gorm:"type:jsonb"`
+	Response        datatypes.JSON `json:"response" gorm:"type:jsonb"`
+	DurationMs      int64          `json:"duration_ms"`
 	// TimeToFirstTokenMs is the wall time from request start to the first
 	// streamed chunk. It isolates provider prefill / cold-start latency from
 	// generation time (a cold or overloaded provider shows a large TTFT while
 	// generation stays normal). 0 means no chunk was received (the call errored
 	// or was cut before the first token). For non-streaming calls it equals the
 	// time to the full response.
-	TimeToFirstTokenMs int64          `json:"time_to_first_token_ms"`
-	PromptTokens       int64          `json:"prompt_tokens"`
-	CompletionTokens int64          `json:"completion_tokens"`
-	TotalTokens      int64          `json:"total_tokens"`
-	CacheReadTokens  int64          `json:"cache_read_tokens"`  // prompt tokens served from provider cache (subset of PromptTokens)
-	CacheWriteTokens int64          `json:"cache_write_tokens"` // prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)
-	PromptCost       float64        `json:"prompt_cost"`
-	CompletionCost   float64        `json:"completion_cost"`
-	CacheReadCost    float64        `json:"cache_read_cost"`
-	CacheWriteCost   float64        `json:"cache_write_cost"`
-	TotalCost        float64        `json:"total_cost"` // Prompt + completion + cache read + cache write
-	Stream           bool           `json:"stream"`
-	Error            string         `json:"error"`
+	TimeToFirstTokenMs int64   `json:"time_to_first_token_ms"`
+	PromptTokens       int64   `json:"prompt_tokens"`
+	CompletionTokens   int64   `json:"completion_tokens"`
+	TotalTokens        int64   `json:"total_tokens"`
+	CacheReadTokens    int64   `json:"cache_read_tokens"`  // prompt tokens served from provider cache (subset of PromptTokens)
+	CacheWriteTokens   int64   `json:"cache_write_tokens"` // prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)
+	PromptCost         float64 `json:"prompt_cost"`
+	CompletionCost     float64 `json:"completion_cost"`
+	CacheReadCost      float64 `json:"cache_read_cost"`
+	CacheWriteCost     float64 `json:"cache_write_cost"`
+	TotalCost          float64 `json:"total_cost"` // Prompt + completion + cache read + cache write
+	Stream             bool    `json:"stream"`
+	Error              string  `json:"error"`
 }
 
 // SecretScope controls which environment a project secret is injected into.

@@ -385,6 +385,83 @@ func (apiServer *HelixAPIServer) getClaudeSubscription(_ http.ResponseWriter, re
 // @Failure 404 {object} system.HTTPError
 // @Security BearerAuth
 // @Router /api/v1/claude-subscriptions/{id} [delete]
+// UpdateClaudeSubscriptionDelegationRequest sets which organizations may run
+// agents on this subscription for its owner.
+type UpdateClaudeSubscriptionDelegationRequest struct {
+	DelegatedOrgIDs []string `json:"delegated_org_ids"`
+}
+
+// @Summary Set which orgs may use a Claude subscription for delegated agent runs
+// @Description Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.
+// @Tags Claude
+// @Accept json
+// @Produce json
+// @Param id path string true "Subscription ID"
+// @Param body body UpdateClaudeSubscriptionDelegationRequest true "Delegated organizations"
+// @Success 200 {object} types.ClaudeSubscription
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/claude-subscriptions/{id}/delegation [put]
+func (apiServer *HelixAPIServer) updateClaudeSubscriptionDelegation(_ http.ResponseWriter, req *http.Request) (*types.ClaudeSubscription, *system.HTTPError) {
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("authentication required")
+	}
+
+	sub, err := apiServer.Store.GetClaudeSubscription(req.Context(), mux.Vars(req)["id"])
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("subscription not found")
+		}
+		return nil, system.NewHTTPError500("failed to get subscription: " + err.Error())
+	}
+
+	// Delegation lends out the owner's own Claude quota, so ONLY the owner may
+	// grant it — not an org admin, not the person who would benefit.
+	if sub.OwnerType != types.OwnerTypeUser || sub.OwnerID != user.ID {
+		return nil, system.NewHTTPError403("only the subscription owner can change delegation")
+	}
+
+	var body UpdateClaudeSubscriptionDelegationRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+	}
+
+	// You can only delegate to an org you actually belong to.
+	memberships, err := apiServer.Store.ListOrganizationMemberships(req.Context(), &store.ListOrganizationMembershipsQuery{UserID: user.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to resolve org memberships: " + err.Error())
+	}
+	member := make(map[string]bool, len(memberships))
+	for _, m := range memberships {
+		member[m.OrganizationID] = true
+	}
+	granted := make([]string, 0, len(body.DelegatedOrgIDs))
+	for _, orgID := range body.DelegatedOrgIDs {
+		if !member[orgID] {
+			return nil, system.NewHTTPError403("not a member of organization " + orgID)
+		}
+		granted = append(granted, orgID)
+	}
+
+	sub.DelegatedOrgIDs = granted
+	updated, err := apiServer.Store.UpdateClaudeSubscription(req.Context(), sub)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to update subscription: " + err.Error())
+	}
+
+	log.Info().
+		Str("subscription_id", sub.ID).
+		Str("owner_id", sub.OwnerID).
+		Strs("delegated_org_ids", granted).
+		Msg("Updated Claude subscription delegation")
+
+	return updated, nil
+}
+
 func (apiServer *HelixAPIServer) deleteClaudeSubscription(_ http.ResponseWriter, req *http.Request) (map[string]string, *system.HTTPError) {
 	user := getRequestUser(req)
 	if user == nil {
@@ -489,8 +566,10 @@ func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWrit
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	orgID := session.OrganizationID
-	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, orgID)
+	// Resolve exactly as the desktop does, so a delegated credential owner is
+	// honoured here too — and so a refresh pushed back lands on the SAME
+	// subscription that was handed out, not the session owner's.
+	sub, err := apiServer.Store.GetSessionClaudeSubscription(ctx, session)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("no Claude subscription found for session owner")
@@ -579,8 +658,10 @@ func (apiServer *HelixAPIServer) updateSessionClaudeCredentials(_ http.ResponseW
 	}
 
 	// Look up the effective subscription for this session's owner
-	orgID := session.OrganizationID
-	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, orgID)
+	// Resolve exactly as the desktop does, so a delegated credential owner is
+	// honoured here too — and so a refresh pushed back lands on the SAME
+	// subscription that was handed out, not the session owner's.
+	sub, err := apiServer.Store.GetSessionClaudeSubscription(ctx, session)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("no Claude subscription found for session owner")

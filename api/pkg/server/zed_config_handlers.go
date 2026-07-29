@@ -306,7 +306,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// Check if user has an active Claude subscription (for credential sync in containers)
 	var claudeSubAvailable bool
 	if codeAgentConfig != nil && codeAgentConfig.Runtime == types.CodeAgentRuntimeClaudeCode {
-		sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+		sub, err := apiServer.Store.GetSessionClaudeSubscription(ctx, session)
 		if err == nil && sub.Status == "active" {
 			claudeSubAvailable = true
 		}
