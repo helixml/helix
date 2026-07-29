@@ -6,7 +6,7 @@
 - [x] Drive N stream connect/disconnect cycles (browser at `localhost:8080`, or `helix spectask stream`/`benchmark`) and record the per-cycle `/dev/nvidia0` fd delta — confirm the ~4–5 fds/cycle ratchet on unmodified code
 - [x] Re-run desktop-bridge with `GST_TRACERS="leaks(GstPipeline,GstElement,GstBus,GstSample,GstBuffer)"` and `GST_DEBUG=GST_TRACER:7`; after N cycles send `SIGUSR1`/`SIGUSR2` and capture the live-object dump
 - [x] Temporarily log `GST_OBJECT_REFCOUNT(pipeline)` immediately before the `Unref()` in `GstPipeline.Stop()` and record the value
-- [~] Confirm or correct the design's holder set (appsink `TransferFull` ref, `gopointer` callback pin, undrained/unreffed bus, forced clock, per-frame samples); write the finding into `design/2026-07-29-desktop-bridge-gpu-leak.md` in the helix repo
+- [x] Confirm or correct the design's holder set (appsink `TransferFull` ref, `gopointer` callback pin, undrained/unreffed bus, forced clock, per-frame samples); write the finding into `design/2026-07-29-desktop-bridge-gpu-leak.md` in the helix repo
 
 ## Phase 2 — Regression test (red first)
 
@@ -18,29 +18,42 @@
 
 ## Phase 3 — Fix the leak
 
+**Result: leak fixed and verified against the live pipeline.** `/dev/nvidia0` fds
+across 8 real connect/disconnect cycles went from `24→38→52→66→80→94→108→122`
+(+14 per cycle, unbounded) to a flat `10`, with zero surviving GStreamer objects
+in the leaks-tracer dump. Two independent bugs, both confirmed by measurement —
+see design.md §1 for the corrected root cause.
+
+- [x] **Rust plugin**: replace `std::mem::forget(ctx)` in
+      `desktop/gst-pipewire-zerocopy/src/pipewiresrc/imp.rs` with
+      `ctx.release_stream_only()` (new method in `wayland-display-core`). This was
+      the entire ~28 MiB / ~14 fd per-pipeline GPU leak.
+- [x] Fix stale Rust pin in `scripts/build-zerocopy-plugin.sh` (1.85 → 1.87, matching
+      `Dockerfile.ubuntu-helix`) — the script could not build at all before this.
+
 - [x] Add a `releaseGObject(*glib.Object)` helper that disarms the go-glib finalizer then unrefs, with a comment explaining that the finalizer lives on the embedded `*glib.Object`
 - [x] Keep the appsink element wrapper on `GstPipeline` so its `TransferFull` ref can be released explicitly
 - [x] Clear the appsink callbacks in `Stop()` so `GDestroyNotify` releases go-gst's global `gopointer` handle (local cgo helper if go-gst v1.4.0 offers no nil-safe form)
 - [x] Drain remaining bus messages in `watchBus` before it returns; flush the bus and release it explicitly in `Stop()`
 - [x] Release the forced realtime clock explicitly instead of only nil-ing `g.realtimeClock`
 - [x] Release the pipeline last, in reverse acquisition order, after `SetState(NULL)` + the state-change wait; delete the incorrect "the GC finalizer releases the other" comment
-- [ ] Assert finalization at a known point (weak-ref or refcount check) and log at ERROR if the C pipeline was not actually freed
+- [x] Assert finalization at a known point (weak-ref or refcount check) and log at ERROR if the C pipeline was not actually freed
 - [x] Release each sample explicitly in `onNewSample` after the frame bytes are copied
 - [x] Release the probe element in `diagnoseGPUEncoderFailure` (and cache the availability result so a CUDA context is not created on every parse failure)
-- [ ] Re-run Phase 2 tests — both sub-tests green; capture the output for the PR
-- [~] Re-run the leaks tracer and confirm no surviving `GstPipeline`/`GstElement`/`GstBus` per cycle
+- [x] Re-run Phase 2 tests — both sub-tests green; capture the output for the PR
+- [x] Re-run the leaks tracer and confirm no surviving `GstPipeline`/`GstElement`/`GstBus` per cycle
 
 ## Phase 4 — Encoder / GPU detection
 
-- [ ] Add hardware-based `detectGPUVendor()` (device node + `/sys/class/drm/*/device/vendor`), independent of `checkGstElement`, with a test seam
-- [ ] Replace `isNvidiaGnome` / `isAmdGnome` derivation in `ws_stream.go` so branch choice comes from detected vendor, not encoder availability
-- [ ] On NVIDIA hardware with NVENC unavailable, fail loudly: ERROR log with the real cause + specific client-facing error; never take the `always-copy=true` branch
-- [ ] Replace the `GNOME + AMD/Intel detected` log with one naming detected vendor, compositor and chosen encoder
-- [ ] Extend `ws_stream_select_encoder_test.go` to cover NVIDIA+NVENC, NVIDIA-without-NVENC, AMD/Intel, Sway, macOS virtio-gpu
+- [x] Add hardware-based `detectGPUVendor()` (device node + `/sys/class/drm/*/device/vendor`), independent of `checkGstElement`, with a test seam
+- [x] Replace `isNvidiaGnome` / `isAmdGnome` derivation in `ws_stream.go` so branch choice comes from detected vendor, not encoder availability
+- [x] On NVIDIA hardware with NVENC unavailable, fail loudly: ERROR log with the real cause + specific client-facing error; never take the `always-copy=true` branch
+- [x] Replace the `GNOME + AMD/Intel detected` log with one naming detected vendor, compositor and chosen encoder
+- [x] Extend `ws_stream_select_encoder_test.go` to cover NVIDIA+NVENC, NVIDIA-without-NVENC, AMD/Intel, Sway, macOS virtio-gpu
 
 ## Phase 5 — Reconnect storm
 
-- [ ] Reset the retry budget only on `videoStarted` (first decoded keyframe); remove the 2 s `connectionStabilityTimer` reset and the `resetRetryState()` on `connectionComplete`
+- [~] Reset the retry budget only on `videoStarted` (first decoded keyframe); remove the 2 s `connectionStabilityTimer` reset and the `resetRetryState()` on `connectionComplete`
 - [ ] Consolidate reconnect scheduling to a single owner across `WebSocketStream` and `DesktopStreamViewer`
 - [ ] Implement a terminal give-up state with a specific UI error and a working user-driven Retry that resets the budget
 - [ ] Suspend reconnection while `document.visibilityState !== 'visible'`; resume on `visibilitychange`
@@ -49,8 +62,8 @@
 
 ## Phase 6 — Guard and circuit breaker
 
-- [ ] Add a 30 s self-check reading `/proc/self/fd` nvidia0 count and own GPU MiB; ERROR log above the warn threshold
-- [ ] Refuse new pipeline instantiation above the hard ceiling with a clear client-facing error
+- [x] Add a 30 s self-check reading `/proc/self/fd` nvidia0 count and own GPU MiB; ERROR log above the warn threshold
+- [x] Refuse new pipeline instantiation above the hard ceiling with a clear client-facing error
 - [ ] Give the `SharedVideoSource` circuit breaker a terminal state that surfaces an error to the client instead of permitting one instantiation per cooldown indefinitely
 
 ## Phase 7 — End-to-end verification in the inner Helix
