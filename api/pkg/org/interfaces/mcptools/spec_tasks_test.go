@@ -29,47 +29,47 @@ type recordingPort struct {
 	err         error
 }
 
-func (p *recordingPort) Create(_ context.Context, _ string, _ orgchart.BotID, projectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
+func (p *recordingPort) Create(_ context.Context, _ string, _ orgchart.NodeID, projectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
 	p.lastProject, p.createIn = projectID, in
 	return p.view, p.err
 }
-func (p *recordingPort) List(_ context.Context, _ string, _ orgchart.BotID, projectID string, f runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
+func (p *recordingPort) List(_ context.Context, _ string, _ orgchart.NodeID, projectID string, f runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
 	p.lastProject, p.lastFilter = projectID, f
 	if p.err != nil {
 		return nil, p.err
 	}
 	return []runtime.SpecTaskView{p.view}, nil
 }
-func (p *recordingPort) Get(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
+func (p *recordingPort) Get(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
 	return p.view, p.err
 }
-func (p *recordingPort) Update(_ context.Context, _ string, _ orgchart.BotID, projectID, id string, in runtime.UpdateSpecTaskInput) (runtime.SpecTaskView, error) {
+func (p *recordingPort) Update(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string, in runtime.UpdateSpecTaskInput) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID, p.updateIn = projectID, id, in
 	return p.view, p.err
 }
-func (p *recordingPort) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
+func (p *recordingPort) StartPlanning(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
 	return p.view, p.err
 }
-func (p *recordingPort) StopAgent(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
+func (p *recordingPort) StopAgent(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
 	p.stopCalls++
 	return p.view, p.err
 }
-func (p *recordingPort) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecReviewView, error) {
+func (p *recordingPort) ReviewSpec(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecReviewView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
 	return p.review, p.err
 }
-func (p *recordingPort) ApproveSpec(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
+func (p *recordingPort) ApproveSpec(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
 	return p.view, p.err
 }
-func (p *recordingPort) RequestChanges(_ context.Context, _ string, _ orgchart.BotID, projectID, id, comment string) (runtime.SpecTaskView, error) {
+func (p *recordingPort) RequestChanges(_ context.Context, _ string, _ orgchart.NodeID, projectID, id, comment string) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID, p.lastComment = projectID, id, comment
 	return p.view, p.err
 }
-func (p *recordingPort) CreatePullRequests(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
+func (p *recordingPort) CreatePullRequests(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
 	return p.view, p.err
 }

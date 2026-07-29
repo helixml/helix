@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -33,7 +33,7 @@ import (
 // narrow interface so the lifecycle service doesn't import the tools
 // package. The composition root's dispatcher satisfies it.
 type CreateDispatcher interface {
-	DispatchHire(ctx context.Context, orgID string, botID orgchart.BotID, activationID activation.ID)
+	DispatchHire(ctx context.Context, orgID string, botID orgchart.NodeID, activationID activation.ID)
 }
 
 // TopicSubscriber subscribes a Bot to Topics. Create uses it to subscribe
@@ -42,7 +42,7 @@ type CreateDispatcher interface {
 // so lifecycle doesn't import the subscriptions package;
 // *subscriptions.Subscriptions satisfies it.
 type TopicSubscriber interface {
-	SubscribeTopics(ctx context.Context, orgID string, botID orgchart.BotID, topicIDs []streaming.TopicID) error
+	SubscribeTopics(ctx context.Context, orgID string, botID orgchart.NodeID, topicIDs []streaming.TopicID) error
 }
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
@@ -53,7 +53,7 @@ type TopicSubscriber interface {
 type HelixRuntime interface {
 	DeleteProject(ctx context.Context, id string) error
 	DeleteApp(ctx context.Context, id string) error
-	DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.BotID, appID string) error
+	DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID string) error
 }
 
 type AgentCreator interface {
@@ -74,7 +74,7 @@ func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // FATAL (the new Bot's channels weren't set up), Delete as best-effort.
 // *reconcile.Reconciler (activation/team/DM Topics) is the implementer.
 type BotReconciler interface {
-	Reconcile(ctx context.Context, orgID string, affected ...orgchart.BotID) error
+	Reconcile(ctx context.Context, orgID string, affected ...orgchart.NodeID) error
 }
 
 // OrgReconciler converges some derived state for the WHOLE org — it takes no
@@ -98,10 +98,10 @@ type Service struct {
 	Agents AgentCreator
 	Logger *slog.Logger
 
-	// Bots is the bot-mutation service Create delegates the row creation
+	// Nodes is the bot-mutation service Create delegates the row creation
 	// to, so the base-tool union and id minting are shared with the
 	// REST/MCP update path. Required for Create.
-	Bots *bots.Bots
+	Nodes *nodes.Nodes
 
 	// Subscriber subscribes a new Bot to the topics named at creation
 	// (CreateParams.Topics), reusing the shared subscription use case. nil
@@ -150,7 +150,7 @@ type CreateParams struct {
 	Content         string
 	Tools           []tool.Name
 	Topics          []streaming.TopicID
-	ParentID        orgchart.BotID
+	ParentID        orgchart.NodeID
 	PreserveContext bool
 	// DeferActivation creates the Agent and org topology without starting
 	// its runtime. Settings activation provisions it after the org default
@@ -161,7 +161,7 @@ type CreateParams struct {
 // CreateResult carries the new Bot and the pre-allocated
 // create-activation id.
 type CreateResult struct {
-	Bot          orgchart.Bot
+	Bot          orgchart.Node
 	ActivationID activation.ID
 }
 
@@ -182,13 +182,13 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 	if s.Store == nil {
 		return CreateResult{}, errors.New("lifecycle: store is nil")
 	}
-	if s.Bots == nil {
+	if s.Nodes == nil {
 		return CreateResult{}, errors.New("lifecycle: bots service not wired")
 	}
 
-	var parent *orgchart.BotID
+	var parent *orgchart.NodeID
 	if p.ParentID != "" {
-		if _, err := s.Store.Bots.Get(ctx, orgID, p.ParentID); err != nil {
+		if _, err := s.Store.Nodes.Get(ctx, orgID, p.ParentID); err != nil {
 			return CreateResult{}, fmt.Errorf("parent bot %q: %w", p.ParentID, err)
 		}
 		parent = &p.ParentID
@@ -221,7 +221,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 			return CreateResult{}, fmt.Errorf("create agent app: %w", err)
 		}
 	}
-	bot, err := s.Bots.Create(ctx, orgID, bots.CreateParams{
+	bot, err := s.Nodes.Create(ctx, orgID, nodes.CreateParams{
 		ID:              p.ID,
 		Name:            p.Name,
 		Content:         p.Content,
@@ -324,10 +324,10 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 }
 
 func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
-	if s.Store == nil || s.Bots == nil || s.Agents == nil {
+	if s.Store == nil || s.Nodes == nil || s.Agents == nil {
 		return nil
 	}
-	all, err := s.Store.Bots.List(ctx, orgID)
+	all, err := s.Store.Nodes.List(ctx, orgID)
 	if err != nil {
 		return err
 	}
@@ -343,7 +343,7 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 		if err != nil {
 			return fmt.Errorf("create agent app for %s: %w", bot.ID, err)
 		}
-		claimed, err := s.Store.Bots.ClaimAgentApp(ctx, orgID, bot.ID, appID)
+		claimed, err := s.Store.Nodes.ClaimAgentApp(ctx, orgID, bot.ID, appID)
 		if err != nil {
 			if s.Helix != nil {
 				cleanupCtx, cancel := cleanupContext(ctx)
@@ -374,7 +374,7 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 //
 //  1. Read the Helix-runtime state (project + app IDs) before clearing.
 //  2. DeleteProject on Helix — stops any active sessions.
-//  3. Atomically delete the agent app, BotRuntimeState, subscriptions, and
+//  3. Atomically delete the agent app, NodeRuntimeState, subscriptions, and
 //     bot row. The org_reporting_lines foreign keys drop its lines.
 //  4. Reconcile topology: tear down the deleted Bot's own activation +
 //     team Topics and collapse any ex-manager's team Topic that just
@@ -383,14 +383,14 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 // Subscriptions are bot-anchored, so they die with the bot. Activation
 // events themselves are intentionally left behind as an audit trail; only
 // the Topic row is dropped.
-func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.BotID) error {
+func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	if id == "" {
 		return errors.New("bot id is empty")
 	}
 	if s.Store == nil {
 		return errors.New("lifecycle: store is nil")
 	}
-	bot, err := s.Store.Bots.Get(ctx, orgID, id)
+	bot, err := s.Store.Nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return fmt.Errorf("get bot %q: %w", id, err)
 	}
@@ -403,7 +403,7 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.BotID) e
 	// reconciler's DM-channel cleanup is an all-pairs-of-affected scan, so
 	// to tear down `s-dm-<deleted>-<report>` BOTH endpoints must be in the
 	// affected set.
-	var exManagers, exReports []orgchart.BotID
+	var exManagers, exReports []orgchart.NodeID
 	if s.Store.ReportingLines != nil {
 		exManagers, _ = s.Store.ReportingLines.ListManagers(ctx, orgID, id)
 		exReports, _ = s.Store.ReportingLines.ListReports(ctx, orgID, id)
@@ -426,12 +426,12 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.BotID) e
 			return fmt.Errorf("delete linked agent %s: %w", agentAppID, err)
 		}
 	} else {
-		if s.Store.BotRuntimeState != nil {
-			if err := s.Store.BotRuntimeState.Clear(ctx, orgID, id, helix.Backend); err != nil {
+		if s.Store.NodeRuntimeState != nil {
+			if err := s.Store.NodeRuntimeState.Clear(ctx, orgID, id, helix.Backend); err != nil {
 				return fmt.Errorf("clear runtime state: %w", err)
 			}
 		}
-		if err := s.Store.Bots.Delete(ctx, orgID, id); err != nil {
+		if err := s.Store.Nodes.Delete(ctx, orgID, id); err != nil {
 			return fmt.Errorf("delete bot row %q: %w", id, err)
 		}
 	}
@@ -442,7 +442,7 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.BotID) e
 	// Settle the activation/team Topics now that the row (and its reporting
 	// lines) are gone. Best-effort: a failure leaves a dangling Topic row,
 	// not a half-deleted bot, so we log and continue.
-	affected := append([]orgchart.BotID{id}, exManagers...)
+	affected := append([]orgchart.NodeID{id}, exManagers...)
 	affected = append(affected, exReports...)
 	for _, rec := range s.BotReconcilers {
 		if rec == nil {
@@ -462,7 +462,7 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.BotID) e
 // runOrgReconcilers runs every whole-org reconciler best-effort, logging (not
 // propagating) failures so one reconciler can't abort the lifecycle mutation
 // or block the others. phase/bot are for the log line only.
-func (s *Service) runOrgReconcilers(ctx context.Context, orgID, phase string, bot orgchart.BotID) {
+func (s *Service) runOrgReconcilers(ctx context.Context, orgID, phase string, bot orgchart.NodeID) {
 	for _, rec := range s.OrgReconcilers {
 		if rec == nil {
 			continue

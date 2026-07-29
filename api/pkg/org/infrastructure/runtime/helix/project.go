@@ -188,7 +188,7 @@ type WorkerProject struct {
 // inside the activation path (project.go:156 in the original
 // crash); now they're checked up front so the failure is a
 // clear error message instead of a panic.
-func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgchart.BotID) (projectID, agentAppID, repoID string, err error) {
+func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgchart.NodeID) (projectID, agentAppID, repoID string, err error) {
 	if a == nil {
 		return "", "", "", errors.New("worker project applier is nil")
 	}
@@ -201,7 +201,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	projectEnsureMu.Lock()
 	defer projectEnsureMu.Unlock()
 
-	bot, err := a.Store.Bots.Get(ctx, orgID, workerID)
+	bot, err := a.Store.Nodes.Get(ctx, orgID, workerID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("get bot: %w", err)
 	}
@@ -219,7 +219,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				return "", "", "", fmt.Errorf("get project default agent app %s for %s: %w", existingProject.DefaultHelixAppID, workerID, appErr)
 			}
 			if defaultApp.OrganizationID == orgID && len(defaultApp.Config.Helix.Assistants) == 1 {
-				allBots, err := a.Store.Bots.List(ctx, orgID)
+				allBots, err := a.Store.Nodes.List(ctx, orgID)
 				if err != nil {
 					return "", "", "", fmt.Errorf("check project default agent app claims for %s: %w", workerID, err)
 				}
@@ -232,7 +232,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				}
 				if !claimed {
 					bot = bot.WithAgentAppID(defaultApp.ID)
-					if err := a.Store.Bots.Update(ctx, bot); err != nil {
+					if err := a.Store.Nodes.Update(ctx, bot); err != nil {
 						return "", "", "", fmt.Errorf("link project default agent app %s to bot %s: %w", defaultApp.ID, workerID, err)
 					}
 					state.AgentAppID = defaultApp.ID
@@ -470,7 +470,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 // re-checks GetProject inside the lock, so two concurrent activations for the
 // same bot cannot each create a duplicate same-named repo (which the desktop
 // workspace setup would then clone into the same path and fail on).
-func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID string, workerID orgchart.BotID) (string, error) {
+func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID string, workerID orgchart.NodeID) (string, error) {
 	repoEnsureMu.Lock()
 	defer repoEnsureMu.Unlock()
 	// A concurrent activation may have created+attached the repo since the
@@ -538,7 +538,7 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 // separate identity — its Content IS its prompt, written to role.md.
 // Best-effort: errors are logged, not returned — a single failed file
 // shouldn't block the rest of the apply.
-func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.BotID, repoID, roleContent string) {
+func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.NodeID, repoID, roleContent string) {
 	if repoID == "" || a.Workspace == nil {
 		return
 	}

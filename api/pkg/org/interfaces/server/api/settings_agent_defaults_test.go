@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/types"
@@ -16,7 +16,7 @@ import (
 
 type deferredRuntime struct{}
 
-func (deferredRuntime) State(context.Context, string, orgchart.BotID) (orgapi.BotRuntimeInfo, error) {
+func (deferredRuntime) State(context.Context, string, orgchart.NodeID) (orgapi.BotRuntimeInfo, error) {
 	return orgapi.BotRuntimeInfo{}, errors.New("not provisioned")
 }
 
@@ -38,7 +38,7 @@ type orderedEnsurer struct {
 	called   bool
 }
 
-func (e *orderedEnsurer) Ensure(context.Context, string, orgchart.BotID) (string, string, string, error) {
+func (e *orderedEnsurer) Ensure(context.Context, string, orgchart.NodeID) (string, string, string, error) {
 	if !e.defaults.applied {
 		return "", "", "", errors.New("provisioned before defaults were applied")
 	}
@@ -50,7 +50,7 @@ func TestSettingDefaultAppliesDeferredAgentBeforeActivation(t *testing.T) {
 	deps, st, reg := newDeps(t)
 	reg.Register(configregistry.Spec{Key: configregistry.DefaultAgentConfigKey, Type: configregistry.TypeObject})
 	ctx := context.Background()
-	created, err := deps.Bots.Create(ctx, "org-test", bots.CreateParams{
+	created, err := deps.Nodes.Create(ctx, "org-test", nodes.CreateParams{
 		ID: "b-agent", Name: "Agent", Content: "instructions", AgentAppID: "app-agent",
 	})
 	if err != nil {

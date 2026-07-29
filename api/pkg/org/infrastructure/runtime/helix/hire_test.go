@@ -13,8 +13,8 @@ import (
 func TestHireRecorderPersistsHiringUser(t *testing.T) {
 	t.Parallel()
 	st := orggorm.GetOrgTestDB(t)
-	b, _ := orgchart.NewBot("b-alice", "# Alice", nil, time.Now().UTC(), "org-test")
-	if err := st.Bots.Create(context.Background(), b); err != nil {
+	b, _ := orgchart.NewNode("b-alice", "# Alice", nil, time.Now().UTC(), "org-test")
+	if err := st.Nodes.Create(context.Background(), b); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 
@@ -34,8 +34,8 @@ func TestHireRecorderPersistsHiringUser(t *testing.T) {
 func TestHireRecorderEmptyUserIDIsNoop(t *testing.T) {
 	t.Parallel()
 	st := orggorm.GetOrgTestDB(t)
-	b, _ := orgchart.NewBot("b-alice", "# Alice", nil, time.Now().UTC(), "org-test")
-	if err := st.Bots.Create(context.Background(), b); err != nil {
+	b, _ := orgchart.NewNode("b-alice", "# Alice", nil, time.Now().UTC(), "org-test")
+	if err := st.Nodes.Create(context.Background(), b); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 	h := &Hire{Store: st}

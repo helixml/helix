@@ -32,7 +32,7 @@ var managersSchema = mustSchema[managersArgs]()
 type managersArgs struct{}
 
 type managerView struct {
-	ID        orgchart.BotID    `json:"id"`
+	ID        orgchart.NodeID   `json:"id"`
 	DMTopicID streaming.TopicID `json:"dmTopicId"`
 }
 
@@ -57,7 +57,7 @@ func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	if orgID == "" {
 		return nil, fmt.Errorf("managers: caller has no OrgID")
 	}
-	caller := orgchart.BotID(inv.Caller.ID())
+	caller := orgchart.NodeID(inv.Caller.ID())
 	if !t.deps.Queries.ReportingLinesWired() {
 		return json.Marshal(managersResult{Managers: []managerView{}})
 	}

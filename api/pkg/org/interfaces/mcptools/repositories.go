@@ -14,8 +14,8 @@ import (
 )
 
 // Repository tools let a manager Bot (typically Chief of Staff) discover
-// the org's Helix git repositories and attach/detach them on other Bots'
-// projects so those Bots can clone the code and do real work.
+// the org's Helix git repositories and attach/detach them on other Nodes'
+// projects so those Nodes can clone the code and do real work.
 //
 // Granted on OwnerBotTools (CoS seed) by default; any Bot can receive
 // them via create_bot tools=… or attach_tool.
@@ -66,7 +66,7 @@ func NewListBotRepositories(deps Deps) *ListBotRepositories {
 }
 
 type listBotRepositoriesArgs struct {
-	BotID string `json:"bot_id"`
+	NodeID string `json:"bot_id"`
 }
 
 var listBotRepositoriesSchema = mustSchema[listBotRepositoriesArgs]()
@@ -85,7 +85,7 @@ func (t *ListBotRepositories) Invoke(ctx context.Context, inv tool.Invocation) (
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return nil, errors.New("bot_id is required")
 	}
 	orgID, err := repositoriesOrgID(inv)
@@ -96,7 +96,7 @@ func (t *ListBotRepositories) Invoke(ctx context.Context, inv tool.Invocation) (
 	if err != nil {
 		return nil, err
 	}
-	views, err := port.ListForBot(ctx, orgID, orgchart.BotID(args.BotID))
+	views, err := port.ListForBot(ctx, orgID, orgchart.NodeID(args.NodeID))
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
@@ -112,7 +112,7 @@ type AttachRepository struct{ deps Deps }
 func NewAttachRepository(deps Deps) *AttachRepository { return &AttachRepository{deps: deps} }
 
 type attachRepositoryArgs struct {
-	BotID   string `json:"bot_id"`
+	NodeID  string `json:"bot_id"`
 	RepoID  string `json:"repo_id"`
 	Primary bool   `json:"primary,omitempty"`
 }
@@ -133,7 +133,7 @@ func (t *AttachRepository) Invoke(ctx context.Context, inv tool.Invocation) (jso
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return nil, errors.New("bot_id is required")
 	}
 	if args.RepoID == "" {
@@ -147,7 +147,7 @@ func (t *AttachRepository) Invoke(ctx context.Context, inv tool.Invocation) (jso
 	if err != nil {
 		return nil, err
 	}
-	views, err := port.AttachToBot(ctx, orgID, orgchart.BotID(args.BotID), args.RepoID, args.Primary)
+	views, err := port.AttachToBot(ctx, orgID, orgchart.NodeID(args.NodeID), args.RepoID, args.Primary)
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
@@ -163,7 +163,7 @@ type DetachRepository struct{ deps Deps }
 func NewDetachRepository(deps Deps) *DetachRepository { return &DetachRepository{deps: deps} }
 
 type detachRepositoryArgs struct {
-	BotID  string `json:"bot_id"`
+	NodeID string `json:"bot_id"`
 	RepoID string `json:"repo_id"`
 }
 
@@ -181,7 +181,7 @@ func (t *DetachRepository) Invoke(ctx context.Context, inv tool.Invocation) (jso
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return nil, errors.New("bot_id is required")
 	}
 	if args.RepoID == "" {
@@ -195,7 +195,7 @@ func (t *DetachRepository) Invoke(ctx context.Context, inv tool.Invocation) (jso
 	if err != nil {
 		return nil, err
 	}
-	views, err := port.DetachFromBot(ctx, orgID, orgchart.BotID(args.BotID), args.RepoID)
+	views, err := port.DetachFromBot(ctx, orgID, orgchart.NodeID(args.NodeID), args.RepoID)
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}

@@ -38,12 +38,12 @@ func (f *fakeGitWriter) CreateOrUpdateFileContents(_ context.Context, repoID, pa
 
 func (f *fakeGitWriter) CreateBranch(_ context.Context, _, _, _ string) error { return nil }
 
-func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.BotID) {
+func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.NodeID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	b, _ := orgchart.NewBot("w-eng", "# Role", nil, time.Now().UTC(), "org-test")
-	_ = s.Bots.Create(ctx, b)
+	b, _ := orgchart.NewNode("w-eng", "# Role", nil, time.Now().UTC(), "org-test")
+	_ = s.Nodes.Create(ctx, b)
 	if repoID != "" {
 		_ = SaveProject(ctx, s, "org-test", b.ID, "prj_x", "app_x", repoID)
 	}

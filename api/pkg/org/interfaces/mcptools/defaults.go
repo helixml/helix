@@ -1,7 +1,7 @@
 package mcptools
 
 import (
-	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -12,9 +12,9 @@ import (
 // been subscribed to).
 //
 // `create_bot` unions this list into the caller-supplied tools so that
-// new Bots can never miss the baseline. The bots Reconcile backfill
+// new Nodes can never miss the baseline. The bots Reconcile backfill
 // unions this list into every existing Bot's tools so that pre-existing
-// Bots get backfilled at API server start.
+// Nodes get backfilled at API server start.
 //
 // Order matters: it is preserved when appending to a Bot's tool list, so
 // the reconciled output is deterministic.
@@ -100,5 +100,5 @@ func OwnerBotTools() []tool.Name {
 // order and dedup semantics, and adding a new entry point only requires
 // a single call to this helper.
 func MergeBaseReadTools(existing []tool.Name) []tool.Name {
-	return bots.MergeTools(existing, BaseReadTools)
+	return nodes.MergeTools(existing, BaseReadTools)
 }

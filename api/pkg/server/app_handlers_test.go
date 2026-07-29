@@ -11,8 +11,8 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai/manager"
-	orgbots "github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	orgbots "github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	"github.com/helixml/helix/api/pkg/store"
@@ -36,9 +36,9 @@ func TestUpdateAppRejectsInvalidLinkedOrgAgentShape(t *testing.T) {
 	helixStore := store.NewMockStore(ctrl)
 	orgStore := orgmemory.New()
 
-	bot, err := orgchart.NewBot("b-linked", "# Linked", nil, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org-test")
 	require.NoError(t, err)
-	require.NoError(t, orgStore.Bots.Create(context.Background(), bot.WithAgentAppID("app-linked")))
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), bot.WithAgentAppID("app-linked")))
 
 	existing := &types.App{
 		ID:             "app-linked",
@@ -130,9 +130,9 @@ func TestListOrganizationAppsReconcilesUnlinkedAgentsBeforeQuery(t *testing.T) {
 	orgStore := orgmemory.New()
 	ctx := context.Background()
 
-	bot, err := orgchart.NewBot("b-legacy", "Legacy instructions", nil, time.Now().UTC(), "org-test")
+	bot, err := orgchart.NewNode("b-legacy", "Legacy instructions", nil, time.Now().UTC(), "org-test")
 	require.NoError(t, err)
-	require.NoError(t, orgStore.Bots.Create(ctx, bot))
+	require.NoError(t, orgStore.Nodes.Create(ctx, bot))
 
 	user := &types.User{ID: "user-owner"}
 	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
@@ -140,20 +140,20 @@ func TestListOrganizationAppsReconcilesUnlinkedAgentsBeforeQuery(t *testing.T) {
 	}, nil)
 	helixStore.EXPECT().ListApps(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(context.Context, *store.ListAppsQuery) ([]*types.App, error) {
-			linked, err := orgStore.Bots.Get(ctx, "org-test", bot.ID)
+			linked, err := orgStore.Nodes.Get(ctx, "org-test", bot.ID)
 			require.NoError(t, err)
 			require.Equal(t, "app-reconciled", linked.AgentAppID)
 			return []*types.App{{ID: linked.AgentAppID, OrganizationID: "org-test"}}, nil
 		},
 	)
 
-	botService := orgbots.New(orgbots.Deps{Bots: orgStore.Bots})
+	botService := orgbots.New(orgbots.Deps{Nodes: orgStore.Nodes})
 	server := &HelixAPIServer{
 		Store: helixStore,
 		helixOrg: &helixOrgHandlers{
 			store: orgStore,
 			lifecycle: &lifecycle.Service{
-				Store: orgStore, Bots: botService, Agents: listingAgentCreator{appID: "app-reconciled"},
+				Store: orgStore, Nodes: botService, Agents: listingAgentCreator{appID: "app-reconciled"},
 			},
 		},
 	}

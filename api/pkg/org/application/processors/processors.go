@@ -82,7 +82,7 @@ type OutputSpec struct {
 	TopicID streaming.TopicID
 	Label   string
 	Match   string
-	// ManagedFor tags an auto-managed route with the orgchart.BotID it
+	// ManagedFor tags an auto-managed route with the orgchart.NodeID it
 	// serves (see processor.Output.ManagedFor). Empty for ordinary
 	// human-authored outputs.
 	ManagedFor string

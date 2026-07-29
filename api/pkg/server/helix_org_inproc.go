@@ -713,7 +713,7 @@ func (c *inProcHelixClient) DeleteApp(ctx context.Context, id string) error {
 	return c.server.deleteAppData(ctx, id, false)
 }
 
-func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.BotID, appID string) error {
+func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID string) error {
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
 	if !ok {
 		return fmt.Errorf("delete linked agent: store %T has no shared database", c.server.Store)

@@ -47,9 +47,9 @@ type ProcessorService interface {
 }
 
 // Reconciler converges Automated Slack routers' managed routes onto the
-// org's Bots. Construct with New.
+// org's Nodes. Construct with New.
 type Reconciler struct {
-	bots   store.Bots
+	bots   store.Nodes
 	subs   store.Subscriptions
 	procs  ProcessorService
 	now    func() time.Time
@@ -58,14 +58,14 @@ type Reconciler struct {
 
 // Deps are the constructor-injected collaborators.
 type Deps struct {
-	Bots          store.Bots
+	Nodes         store.Nodes
 	Subscriptions store.Subscriptions
 	Processors    ProcessorService
 	Now           func() time.Time
 	Logger        *slog.Logger
 }
 
-// New builds a Reconciler. A nil Bots or Processors repo yields a
+// New builds a Reconciler. A nil Nodes or Processors repo yields a
 // Reconciler whose Reconcile no-ops, so runtimes/tests that don't wire
 // Slack routing degrade gracefully.
 func New(deps Deps) *Reconciler {
@@ -78,7 +78,7 @@ func New(deps Deps) *Reconciler {
 		logger = slog.Default()
 	}
 	return &Reconciler{
-		bots:   deps.Bots,
+		bots:   deps.Nodes,
 		subs:   deps.Subscriptions,
 		procs:  deps.Processors,
 		now:    now,
@@ -112,9 +112,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string) error {
 	if err != nil {
 		return fmt.Errorf("slackrouting: list bots: %w", err)
 	}
-	// The Bots the router should route to: every bot activates. Keyed by
+	// The Nodes the router should route to: every bot activates. Keyed by
 	// id for diffing against ManagedFor.
-	botIDs := map[orgchart.BotID]struct{}{}
+	botIDs := map[orgchart.NodeID]struct{}{}
 	for _, b := range bots {
 		botIDs[b.ID] = struct{}{}
 	}
@@ -128,11 +128,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string) error {
 }
 
 // reconcileRouter brings one router's managed routes to match botIDs.
-func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router processor.Processor, botIDs map[orgchart.BotID]struct{}) error {
-	managed := map[orgchart.BotID]processor.Output{} // ManagedFor → route
+func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router processor.Processor, botIDs map[orgchart.NodeID]struct{}) error {
+	managed := map[orgchart.NodeID]processor.Output{} // ManagedFor → route
 	for _, o := range router.Outputs {
 		if o.ManagedFor != "" {
-			managed[orgchart.BotID(o.ManagedFor)] = o
+			managed[orgchart.NodeID(o.ManagedFor)] = o
 		}
 	}
 
@@ -175,7 +175,7 @@ func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router p
 // ensureSubscribed idempotently subscribes the Bot to the route's output
 // Topic, so a managed route always delivers even if the subscription was
 // dropped out-of-band.
-func (r *Reconciler) ensureSubscribed(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) error {
+func (r *Reconciler) ensureSubscribed(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) error {
 	if r.subs == nil {
 		return nil
 	}
@@ -200,6 +200,6 @@ func (r *Reconciler) ensureSubscribed(ctx context.Context, orgID string, botID o
 // (`b-jokebot`, not `jokebot`). The id is the Bot's canonical name and is
 // what the org refers to it by; matching the bare slug would over-trigger on
 // common words. `mentions`'s `\b…\b` handles the internal hyphen fine.
-func matchPredicate(botID orgchart.BotID) string {
+func matchPredicate(botID orgchart.NodeID) string {
 	return fmt.Sprintf(`{{ mentions %q .Message.body }}`, string(botID))
 }

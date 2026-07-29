@@ -13,16 +13,17 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 )
 
-type botRuntimeStateRow struct {
-	OrgID     string    `gorm:"primaryKey;type:text;index"`
-	BotID     string    `gorm:"primaryKey;type:text"`
+type nodeRuntimeStateRow struct {
+	OrgID string `gorm:"primaryKey;type:text;index"`
+	// bot_id is the legacy physical column name for the Node identifier.
+	NodeID    string    `gorm:"column:bot_id;primaryKey;type:text"`
 	Backend   string    `gorm:"primaryKey;type:text"`
 	Key       string    `gorm:"primaryKey;type:text"`
 	Value     string    `gorm:"type:text"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
-func (botRuntimeStateRow) TableName() string { return "org_bot_runtime_state" }
+func (nodeRuntimeStateRow) TableName() string { return "org_bot_runtime_state" }
 
 // botRuntimeStateEntry is the domain-level shape of a single
 // runtime-state row. The store interface exposes Get as
@@ -30,7 +31,7 @@ func (botRuntimeStateRow) TableName() string { return "org_bot_runtime_state" }
 // Repository[D, R] can carry the type-pair around.
 type botRuntimeStateEntry struct {
 	OrgID   string
-	BotID   string
+	NodeID  string
 	Backend string
 	Key     string
 	Value   string
@@ -38,45 +39,46 @@ type botRuntimeStateEntry struct {
 
 type botRuntimeStateMapper struct{}
 
-func (botRuntimeStateMapper) ToRow(e botRuntimeStateEntry) (botRuntimeStateRow, error) {
-	return botRuntimeStateRow{
+func (botRuntimeStateMapper) ToRow(e botRuntimeStateEntry) (nodeRuntimeStateRow, error) {
+	return nodeRuntimeStateRow{
 		OrgID:   e.OrgID,
-		BotID:   e.BotID,
+		NodeID:  e.NodeID,
 		Backend: e.Backend,
 		Key:     e.Key,
 		Value:   e.Value,
 	}, nil
 }
 
-func (botRuntimeStateMapper) ToDomain(row botRuntimeStateRow) (botRuntimeStateEntry, error) {
+func (botRuntimeStateMapper) ToDomain(row nodeRuntimeStateRow) (botRuntimeStateEntry, error) {
 	return botRuntimeStateEntry{
 		OrgID:   row.OrgID,
-		BotID:   row.BotID,
+		NodeID:  row.NodeID,
 		Backend: row.Backend,
 		Key:     row.Key,
 		Value:   row.Value,
 	}, nil
 }
 
-// botRuntimeStateRepo embeds the generic Repository for the
+//	nodeRuntimeStateRepo embeds the generic Repository for the
+//
 // shared Get / Delete code paths and falls through to a bespoke
 // gorm.OnConflict batch upsert for SetMany. Single-row Save() would
 // work but would issue one SQL statement per pair; the map shape of
 // the public Set/SetMany API makes a batched VALUES(…),(…) write the
 // natural fit.
-type botRuntimeStateRepo struct {
-	*Repository[botRuntimeStateEntry, botRuntimeStateRow]
+type nodeRuntimeStateRepo struct {
+	*Repository[botRuntimeStateEntry, nodeRuntimeStateRow]
 	db *gorm.DB
 }
 
-func newBotRuntimeStateRepo(db *gorm.DB) *botRuntimeStateRepo {
-	return &botRuntimeStateRepo{
-		Repository: NewRepository[botRuntimeStateEntry, botRuntimeStateRow](db, botRuntimeStateMapper{}, "bot_runtime_state"),
+func newNodeRuntimeStateRepo(db *gorm.DB) *nodeRuntimeStateRepo {
+	return &nodeRuntimeStateRepo{
+		Repository: NewRepository[botRuntimeStateEntry, nodeRuntimeStateRow](db, botRuntimeStateMapper{}, "bot_runtime_state"),
 		db:         db,
 	}
 }
 
-func (r *botRuntimeStateRepo) Get(ctx context.Context, orgID string, botID orgchart.BotID, backend string) (map[string]string, error) {
+func (r *nodeRuntimeStateRepo) Get(ctx context.Context, orgID string, botID orgchart.NodeID, backend string) (map[string]string, error) {
 	if orgID == "" || botID == "" || backend == "" {
 		return nil, errors.New("bot_runtime_state: orgID, botID, and backend are required")
 	}
@@ -95,7 +97,7 @@ func (r *botRuntimeStateRepo) Get(ctx context.Context, orgID string, botID orgch
 	return out, nil
 }
 
-func (r *botRuntimeStateRepo) Set(ctx context.Context, orgID string, botID orgchart.BotID, backend, key, value string) error {
+func (r *nodeRuntimeStateRepo) Set(ctx context.Context, orgID string, botID orgchart.NodeID, backend, key, value string) error {
 	return r.SetMany(ctx, orgID, botID, backend, map[string]string{key: value})
 }
 
@@ -103,21 +105,21 @@ func (r *botRuntimeStateRepo) Set(ctx context.Context, orgID string, botID orgch
 // raw gorm path here (rather than going through Repository.Save in
 // a loop) avoids N round-trips on hot calls — see
 // activation-time multi-key writes in the runtime/helix adapter.
-func (r *botRuntimeStateRepo) SetMany(ctx context.Context, orgID string, botID orgchart.BotID, backend string, kv map[string]string) error {
+func (r *nodeRuntimeStateRepo) SetMany(ctx context.Context, orgID string, botID orgchart.NodeID, backend string, kv map[string]string) error {
 	if orgID == "" || botID == "" || backend == "" {
 		return errors.New("bot_runtime_state: orgID, botID, and backend are required")
 	}
 	if len(kv) == 0 {
 		return nil
 	}
-	rows := make([]botRuntimeStateRow, 0, len(kv))
+	rows := make([]nodeRuntimeStateRow, 0, len(kv))
 	for k, v := range kv {
 		if k == "" {
 			return errors.New("bot_runtime_state: key is empty")
 		}
-		rows = append(rows, botRuntimeStateRow{
+		rows = append(rows, nodeRuntimeStateRow{
 			OrgID:   orgID,
-			BotID:   string(botID),
+			NodeID:  string(botID),
 			Backend: backend,
 			Key:     k,
 			Value:   v,
@@ -135,7 +137,7 @@ func (r *botRuntimeStateRepo) SetMany(ctx context.Context, orgID string, botID o
 	return nil
 }
 
-func (r *botRuntimeStateRepo) Clear(ctx context.Context, orgID string, botID orgchart.BotID, backend string) error {
+func (r *nodeRuntimeStateRepo) Clear(ctx context.Context, orgID string, botID orgchart.NodeID, backend string) error {
 	if orgID == "" || botID == "" || backend == "" {
 		return errors.New("bot_runtime_state: orgID, botID, and backend are required")
 	}

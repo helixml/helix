@@ -16,7 +16,7 @@ func TestNewEvent(t *testing.T) {
 		name    string
 		id      streaming.EventID
 		topic   streaming.TopicID
-		source  orgchart.BotID
+		source  orgchart.NodeID
 		body    string
 		ts      time.Time
 		wantErr bool

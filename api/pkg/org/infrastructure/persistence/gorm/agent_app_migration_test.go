@@ -161,7 +161,7 @@ func TestBackfillProjectAgentAppsUpdatesProjectInPlace(t *testing.T) {
 	}
 	type stateRow struct {
 		OrgID   string
-		BotID   string
+		NodeID  string
 		Backend string
 		Key     string
 		Value   string

@@ -57,7 +57,7 @@ func validateSlackReplyRouter(router processor.Processor, workspaceID, workerID 
 	return fmt.Errorf("router has no route for worker %q", workerID)
 }
 
-func (h humanInbox) Deliver(ctx context.Context, orgID string, person orgchart.Bot, fromBotID, fromBotName, message string, expectsReply bool) (string, error) {
+func (h humanInbox) Deliver(ctx context.Context, orgID string, person orgchart.Node, fromBotID, fromBotName, message string, expectsReply bool) (string, error) {
 	switch person.Identity["preferred_contact"] {
 	case "", "helix":
 		if err := h.notifyHelix(ctx, orgID, person.HelixUserID, fromBotID, fromBotName, person.Name, message, expectsReply); err != nil {
@@ -101,7 +101,7 @@ func (h humanInbox) notifyHelix(ctx context.Context, orgID, userID, fromBotID, f
 	return nil
 }
 
-func (h humanInbox) deliverSlack(ctx context.Context, orgID string, person orgchart.Bot, fromBotID, fromBotName, message string, expectsReply bool) (string, error) {
+func (h humanInbox) deliverSlack(ctx context.Context, orgID string, person orgchart.Node, fromBotID, fromBotName, message string, expectsReply bool) (string, error) {
 	userID := person.Identity["slack_user_id"]
 	if userID == "" {
 		return "", fmt.Errorf("person has no slack_user_id")

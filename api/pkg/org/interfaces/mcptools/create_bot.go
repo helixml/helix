@@ -106,7 +106,7 @@ func (t *CreateBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		Content:  args.Content,
 		Tools:    args.Tools,
 		Topics:   args.Topics,
-		ParentID: orgchart.BotID(args.ParentID),
+		ParentID: orgchart.NodeID(args.ParentID),
 	})
 	if err != nil {
 		return nil, err

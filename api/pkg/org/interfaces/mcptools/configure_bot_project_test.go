@@ -34,15 +34,15 @@ import (
 // rename — the runtime contract still says "Worker").
 type fakeProjectConfig struct {
 	mu     sync.Mutex
-	get    func(orgID string, botID orgchart.BotID) (runtime.ProjectConfigSnapshot, error)
-	patch  func(orgID string, botID orgchart.BotID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error)
-	list   func(orgID string, botID orgchart.BotID) (map[string]string, error)
+	get    func(orgID string, botID orgchart.NodeID) (runtime.ProjectConfigSnapshot, error)
+	patch  func(orgID string, botID orgchart.NodeID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error)
+	list   func(orgID string, botID orgchart.NodeID) (map[string]string, error)
 	getN   int
 	patchN int
 	listN  int
 }
 
-func (f *fakeProjectConfig) ListWorkerProjectSecrets(_ context.Context, orgID string, botID orgchart.BotID) (map[string]string, error) {
+func (f *fakeProjectConfig) ListWorkerProjectSecrets(_ context.Context, orgID string, botID orgchart.NodeID) (map[string]string, error) {
 	f.mu.Lock()
 	f.listN++
 	f.mu.Unlock()
@@ -52,7 +52,7 @@ func (f *fakeProjectConfig) ListWorkerProjectSecrets(_ context.Context, orgID st
 	return f.list(orgID, botID)
 }
 
-func (f *fakeProjectConfig) GetWorkerProjectConfig(_ context.Context, orgID string, botID orgchart.BotID) (runtime.ProjectConfigSnapshot, error) {
+func (f *fakeProjectConfig) GetWorkerProjectConfig(_ context.Context, orgID string, botID orgchart.NodeID) (runtime.ProjectConfigSnapshot, error) {
 	f.mu.Lock()
 	f.getN++
 	f.mu.Unlock()
@@ -62,7 +62,7 @@ func (f *fakeProjectConfig) GetWorkerProjectConfig(_ context.Context, orgID stri
 	return f.get(orgID, botID)
 }
 
-func (f *fakeProjectConfig) UpdateWorkerProjectConfig(_ context.Context, orgID string, botID orgchart.BotID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+func (f *fakeProjectConfig) UpdateWorkerProjectConfig(_ context.Context, orgID string, botID orgchart.NodeID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 	f.mu.Lock()
 	f.patchN++
 	f.mu.Unlock()
@@ -104,7 +104,7 @@ func (fakeOwnerCaller) OrganizationID() string { return "org-test" }
 func TestGetBotProject_HappyPath(t *testing.T) {
 	t.Parallel()
 	fc := &fakeProjectConfig{
-		get: func(orgID string, botID orgchart.BotID) (runtime.ProjectConfigSnapshot, error) {
+		get: func(orgID string, botID orgchart.NodeID) (runtime.ProjectConfigSnapshot, error) {
 			if orgID != "org-test" {
 				t.Errorf("orgID = %q, want org-test", orgID)
 			}
@@ -184,7 +184,7 @@ func TestConfigureBotProject_PatchStartupScript(t *testing.T) {
 	t.Parallel()
 	var gotPatch runtime.ProjectConfigPatch
 	fc := &fakeProjectConfig{
-		patch: func(orgID string, botID orgchart.BotID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+		patch: func(orgID string, botID orgchart.NodeID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 			if orgID != "org-test" {
 				t.Errorf("orgID = %q", orgID)
 			}
@@ -245,7 +245,7 @@ func TestConfigureBotProject_EmptyStringStartupScriptAccepted(t *testing.T) {
 	t.Parallel()
 	var gotPatch runtime.ProjectConfigPatch
 	fc := &fakeProjectConfig{
-		patch: func(_ string, _ orgchart.BotID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+		patch: func(_ string, _ orgchart.NodeID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 			gotPatch = p
 			return runtime.ProjectConfigSnapshot{StartupScript: ""}, nil
 		},
@@ -274,7 +274,7 @@ func TestConfigureBotProject_PropagatesRuntimeErrors(t *testing.T) {
 	t.Parallel()
 	boom := errors.New("helix project update returned 500")
 	fc := &fakeProjectConfig{
-		patch: func(_ string, _ orgchart.BotID, _ runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+		patch: func(_ string, _ orgchart.NodeID, _ runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 			return runtime.ProjectConfigSnapshot{}, boom
 		},
 	}
@@ -292,7 +292,7 @@ func TestConfigureBotProject_PropagatesRuntimeErrors(t *testing.T) {
 func TestConfigureBotProject_NoFieldsDoesNotCallPort(t *testing.T) {
 	t.Parallel()
 	fc := &fakeProjectConfig{
-		patch: func(_ string, _ orgchart.BotID, _ runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+		patch: func(_ string, _ orgchart.NodeID, _ runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 			t.Fatal("port should NOT be called on empty patch")
 			return runtime.ProjectConfigSnapshot{}, nil
 		},

@@ -16,14 +16,14 @@ import (
 // dmTestEnv seeds two bots and (optionally) a reporting line between
 // them, reconciling topology so the DM channel exists exactly when a
 // reporting relationship does. Returns Deps + the two bot ids.
-func dmTestEnv(t *testing.T, wireLine bool) (Config, orgchart.BotID, orgchart.BotID) {
+func dmTestEnv(t *testing.T, wireLine bool) (Config, orgchart.NodeID, orgchart.NodeID) {
 	t.Helper()
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
 	now := time.Now().UTC()
-	for _, id := range []orgchart.BotID{"b-mgr", "b-rep"} {
-		b, _ := orgchart.NewBot(id, "# "+string(id), nil, now, "org-test")
-		if err := st.Bots.Create(ctx, b); err != nil {
+	for _, id := range []orgchart.NodeID{"b-mgr", "b-rep"} {
+		b, _ := orgchart.NewNode(id, "# "+string(id), nil, now, "org-test")
+		if err := st.Nodes.Create(ctx, b); err != nil {
 			t.Fatalf("create %s: %v", id, err)
 		}
 	}
@@ -70,7 +70,7 @@ func TestDM_DeliversOverExistingChannel(t *testing.T) {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
 	// Both parties are subscribers (provisioned by topology, not by dm).
-	for _, id := range []orgchart.BotID{mgr, rep} {
+	for _, id := range []orgchart.NodeID{mgr, rep} {
 		if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", id, channels.DMTopicID(rep, mgr)); err != nil {
 			t.Fatalf("%s not subscribed to DM channel: %v", id, err)
 		}

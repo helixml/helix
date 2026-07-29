@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -25,19 +25,19 @@ func (fakeAgentCreator) CreateAgent(context.Context, string, string, string) (st
 
 type failingBotReconciler struct{}
 
-func (failingBotReconciler) Reconcile(context.Context, string, ...orgchart.BotID) error {
+func (failingBotReconciler) Reconcile(context.Context, string, ...orgchart.NodeID) error {
 	return errors.New("reconcile failed")
 }
 
 // newHireService builds a lifecycle.Service wired only for Create (the
 // create half) against the in-memory store. Delete-only collaborators
 // (Helix / Mirror) stay nil — these tests never delete. Create delegates
-// the row creation to a bots.Bots service, so one is wired over the same
+// the row creation to nodes.Nodes service, so one is wired over the same
 // memory store.
 func newHireService(st *store.Store) *lifecycle.Service {
-	rec := reconcile.New(reconcile.Deps{Bots: st.Bots, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: hireClock})
-	botSvc := bots.New(bots.Deps{
-		Bots:       st.Bots,
+	rec := reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: hireClock})
+	botSvc := nodes.New(nodes.Deps{
+		Nodes:      st.Nodes,
 		Lines:      st.ReportingLines,
 		Reconciler: rec,
 		Now:        hireClock,
@@ -45,7 +45,7 @@ func newHireService(st *store.Store) *lifecycle.Service {
 	})
 	return &lifecycle.Service{
 		Store:          st,
-		Bots:           botSvc,
+		Nodes:          botSvc,
 		Agents:         fakeAgentCreator{},
 		BotReconcilers: []lifecycle.BotReconciler{rec},
 		Now:            hireClock,
@@ -62,8 +62,8 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	svc := newHireService(st)
 	ctx := context.Background()
 
-	boss, _ := orgchart.NewBot("w-boss", "# Eng", nil, hireClock(), "org-test")
-	if err := st.Bots.Create(ctx, boss); err != nil {
+	boss, _ := orgchart.NewNode("w-boss", "# Eng", nil, hireClock(), "org-test")
+	if err := st.Nodes.Create(ctx, boss); err != nil {
 		t.Fatal(err)
 	}
 
@@ -79,7 +79,7 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	if res.Bot.AgentAppID != "app-agent" {
 		t.Fatalf("agent app id = %q, want app-agent", res.Bot.AgentAppID)
 	}
-	if _, err := st.Bots.Get(ctx, "org-test", "w-new"); err != nil {
+	if _, err := st.Nodes.Get(ctx, "org-test", "w-new"); err != nil {
 		t.Fatalf("bot not persisted: %v", err)
 	}
 	managers, _ := st.ReportingLines.ListManagers(ctx, "org-test", "w-new")
@@ -99,14 +99,14 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 func TestBotsCreate_RejectsDuplicateID(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
-	botSvc := bots.New(bots.Deps{
-		Bots:  st.Bots,
+	botSvc := nodes.New(nodes.Deps{
+		Nodes: st.Nodes,
 		Now:   hireClock,
 		NewID: func() string { return "id" },
 	})
 	ctx := context.Background()
 
-	first, err := botSvc.Create(ctx, "org-test", bots.CreateParams{ID: "chief-of-staff", Content: "# Chief of Staff"})
+	first, err := botSvc.Create(ctx, "org-test", nodes.CreateParams{ID: "chief-of-staff", Content: "# Chief of Staff"})
 	if err != nil {
 		t.Fatalf("first create: %v", err)
 	}
@@ -114,12 +114,12 @@ func TestBotsCreate_RejectsDuplicateID(t *testing.T) {
 		t.Fatalf("first id = %q, want chief-of-staff", first.ID)
 	}
 
-	if _, err := botSvc.Create(ctx, "org-test", bots.CreateParams{ID: "chief-of-staff", Content: "# Another"}); err == nil {
+	if _, err := botSvc.Create(ctx, "org-test", nodes.CreateParams{ID: "chief-of-staff", Content: "# Another"}); err == nil {
 		t.Fatalf("second create with a duplicate id should error, got nil")
 	}
 
 	// No suffixed row was created.
-	if _, err := st.Bots.Get(ctx, "org-test", "chief-of-staff-1"); err == nil {
+	if _, err := st.Nodes.Get(ctx, "org-test", "chief-of-staff-1"); err == nil {
 		t.Fatalf("a suffixed bot chief-of-staff-1 was created; expected none")
 	}
 }
@@ -139,7 +139,7 @@ func TestCreate_RejectsPathTraversalID(t *testing.T) {
 		t.Fatal("Create with traversal id: want error")
 	}
 	// No bot row persisted.
-	if _, gerr := st.Bots.Get(ctx, "org-test", "../../escape"); gerr == nil {
+	if _, gerr := st.Nodes.Get(ctx, "org-test", "../../escape"); gerr == nil {
 		t.Fatal("traversal bot should not have been created")
 	}
 }
@@ -169,14 +169,14 @@ func TestCreate_RollsBackBotWhenReconcileFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("Create: want error")
 	}
-	if _, err := st.Bots.Get(context.Background(), "org-test", "w-new"); err == nil {
+	if _, err := st.Nodes.Get(context.Background(), "org-test", "w-new"); err == nil {
 		t.Fatal("failed create left bot row")
 	}
 }
 
 type recordingDispatcher struct{ hires int }
 
-func (r *recordingDispatcher) DispatchHire(context.Context, string, orgchart.BotID, activation.ID) {
+func (r *recordingDispatcher) DispatchHire(context.Context, string, orgchart.NodeID, activation.ID) {
 	r.hires++
 }
 

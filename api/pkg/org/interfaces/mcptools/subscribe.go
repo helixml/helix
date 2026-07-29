@@ -34,7 +34,7 @@ func (t *Subscribe) InputSchema() *jsonschema.Schema {
 }
 
 type subscribeArgs struct {
-	BotID    string   `json:"botId"`
+	NodeID   string   `json:"botId"`
 	TopicIDs []string `json:"topicIds"`
 }
 
@@ -43,7 +43,7 @@ func (t *Subscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.BotID == "" {
+	if args.NodeID == "" {
 		return nil, fmt.Errorf("botId is required")
 	}
 	if len(args.TopicIDs) == 0 {
@@ -53,7 +53,7 @@ func (t *Subscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if orgID == "" {
 		return nil, fmt.Errorf("subscribe: caller has no OrgID")
 	}
-	botID := orgchart.BotID(args.BotID)
+	botID := orgchart.NodeID(args.NodeID)
 	if err := t.deps.Subscriptions.SubscribeTopics(ctx, orgID, botID, args.TopicIDs); err != nil {
 		return nil, err
 	}

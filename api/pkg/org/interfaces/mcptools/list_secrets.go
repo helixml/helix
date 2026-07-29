@@ -65,7 +65,7 @@ func (t *ListSecrets) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if cfg == nil {
 		return nil, runtime.ErrProjectConfigUnsupported
 	}
-	secrets, err := cfg.ListWorkerProjectSecrets(ctx, orgID, orgchart.BotID(botID))
+	secrets, err := cfg.ListWorkerProjectSecrets(ctx, orgID, orgchart.NodeID(botID))
 	if err != nil {
 		return nil, fmt.Errorf("list secrets: %w", err)
 	}

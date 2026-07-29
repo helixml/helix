@@ -19,7 +19,7 @@ func newService(st *store.Store) *Subscriptions {
 	return New(Deps{
 		Subscriptions: st.Subscriptions,
 		Topics:        st.Topics,
-		Bots:          st.Bots,
+		Nodes:         st.Nodes,
 		Now:           fixedClock,
 	})
 }
@@ -36,8 +36,8 @@ func seed(t *testing.T, st *store.Store, orgID string) {
 	if err := st.Topics.Create(ctx, topic); err != nil {
 		t.Fatalf("create topic: %v", err)
 	}
-	b, _ := orgchart.NewBot("w-mark", "content", nil, fixedClock(), orgID)
-	if err := st.Bots.Create(ctx, b); err != nil {
+	b, _ := orgchart.NewNode("w-mark", "content", nil, fixedClock(), orgID)
+	if err := st.Nodes.Create(ctx, b); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 }
@@ -56,7 +56,7 @@ func TestSubscribe_Idempotent(t *testing.T) {
 	if !created {
 		t.Fatal("first subscribe should report created=true")
 	}
-	if sub.BotID != "w-mark" || sub.TopicID != "s-1" {
+	if sub.NodeID != "w-mark" || sub.TopicID != "s-1" {
 		t.Fatalf("unexpected sub: %+v", sub)
 	}
 

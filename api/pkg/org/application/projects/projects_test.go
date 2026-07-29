@@ -32,11 +32,11 @@ type fakeMembers struct {
 	projectIDs []string
 }
 
-func (m *fakeMembers) GetBot(_ context.Context, org string, id orgchart.BotID) (orgchart.Bot, error) {
+func (m *fakeMembers) GetBot(_ context.Context, org string, id orgchart.NodeID) (orgchart.Node, error) {
 	if m.err != nil {
-		return orgchart.Bot{}, m.err
+		return orgchart.Node{}, m.err
 	}
-	return orgchart.Bot{ID: id, OrganizationID: org, ProjectIDs: m.projectIDs}, nil
+	return orgchart.Node{ID: id, OrganizationID: org, ProjectIDs: m.projectIDs}, nil
 }
 
 type fakeAccess struct {
@@ -44,7 +44,7 @@ type fakeAccess struct {
 	err       error
 }
 
-func (a fakeAccess) OwnProjectID(_ context.Context, _ string, _ orgchart.BotID) (string, error) {
+func (a fakeAccess) OwnProjectID(_ context.Context, _ string, _ orgchart.NodeID) (string, error) {
 	return a.projectID, a.err
 }
 
