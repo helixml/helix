@@ -22,6 +22,9 @@ import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
+import Switch from '@mui/material/Switch'
+import FormGroup from '@mui/material/FormGroup'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -41,6 +44,9 @@ interface ClaudeSubscriptionData {
   last_refreshed_at?: string
   owner_type: string
   owner_id: string
+  // Orgs allowed to run orchestrated agents on this subscription for its owner.
+  // Empty means it is only ever used for sessions the owner owns.
+  delegated_org_ids?: string[]
 }
 
 // Shared hook for querying Claude subscription status
@@ -114,6 +120,28 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       snackbar.success('Claude subscription disconnected')
     },
   })
+
+  // Delegation: let an org's orchestrated agents (e.g. a bot dispatched under a
+  // service account) authenticate as this subscription's owner. Owner-only, and
+  // opt-in per org — without it nobody else's automation can spend your quota.
+  const delegationMutation = useMutation({
+    mutationFn: async ({ id, orgIDs }: { id: string; orgIDs: string[] }) => {
+      return api.put(`/api/v1/claude-subscriptions/${id}/delegation`, {
+        delegated_org_ids: orgIDs,
+      }, {}, { snackbar: true })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
+    },
+  })
+
+  const toggleDelegation = (sub: ClaudeSubscriptionData, orgID: string, enabled: boolean) => {
+    const current = sub.delegated_org_ids || []
+    const next = enabled
+      ? Array.from(new Set([...current, orgID]))
+      : current.filter((id) => id !== orgID)
+    delegationMutation.mutate({ id: sub.id, orgIDs: next })
+  }
 
   // Setup token dialog state
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
@@ -395,6 +423,39 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                             Token has expired. Update your token to refresh credentials for new sessions.
                           </Typography>
                         </Alert>
+                      )}
+                      {variant === 'account' && sub.owner_type === 'user' && organizations.length > 0 && (
+                        <Box sx={{ mt: 1.5 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            Let these organizations&apos; agents use this subscription when they run
+                            work on your behalf — for example a bot you own that is launched by a
+                            shared service account. Without this, your subscription is only used for
+                            sessions you own.
+                          </Typography>
+                          <FormGroup>
+                            {organizations.filter((org) => !!org.id).map((org) => {
+                              const orgID = org.id as string
+                              return (
+                                <FormControlLabel
+                                  key={orgID}
+                                  control={
+                                    <Switch
+                                      size="small"
+                                      checked={(sub.delegated_org_ids || []).includes(orgID)}
+                                      disabled={delegationMutation.isPending}
+                                      onChange={(e) => toggleDelegation(sub, orgID, e.target.checked)}
+                                    />
+                                  }
+                                  label={
+                                    <Typography variant="caption">
+                                      {org.display_name || org.name || orgID}
+                                    </Typography>
+                                  }
+                                />
+                              )
+                            })}
+                          </FormGroup>
+                        </Box>
                       )}
                     </Box>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
