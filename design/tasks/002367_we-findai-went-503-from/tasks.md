@@ -19,12 +19,12 @@
 
 ## Gap 1 — graceful shutdown of the nested app stack
 
-- [~] Add `DrainNestedContainers(ctx, hc, sandboxID, grace)` to `api/pkg/sandbox/` — one exec of `docker ps -q` + `docker stop --time <grace>`, exec timeout `grace + slack`, returns whether the drain completed or was forced
-- [ ] Unit-test the helper: expected exec issued, grace bound respected, no-containers case, wedged-container case does not block
-- [ ] Drain in `webservice.Controller.deployInPlace` before running `deployScript` (keep the existing pidfile/process-group kill)
-- [ ] Drain in `webservice.Controller.RecoverWebService` before `sandboxes.Delete` in the recreate branch; skip with a log line when the reason is `sandbox dockerd unresponsive`
-- [ ] Drain in `sandbox.Controller.Delete` when `Purpose == types.SandboxPurposeWebService`, before `hydraClient.DeleteDevContainer`; leave other purposes on the fast 2s path
-- [ ] Add hydra `POST /api/v1/drain?grace=<seconds>` — drains all containers labelled `helix.persistent=true` in parallel, bounded, idempotent
+- [x] Add `DrainNestedContainers(ctx, hc, sandboxID, grace)` to `api/pkg/sandbox/` — one exec of `docker ps -q` + `docker stop --time <grace>`, exec timeout `grace + slack`, returns whether the drain completed or was forced
+- [x] Unit-test the helper: expected exec issued, grace bound respected, no-containers case, wedged-container case does not block
+- [x] Drain in `webservice.Controller.deployInPlace` before running `deployScript` (keep the existing pidfile/process-group kill)
+- [x] ~~Drain in `webservice.Controller.RecoverWebService`~~ — **not needed**: the recreate branch calls `sandboxes.Delete`, which now drains web-service sandboxes itself. A second call site would be duplicate logic (see design.md Implementation Notes)
+- [x] Drain in `sandbox.Controller.Delete` when `Purpose == types.SandboxPurposeWebService`, before `hydraClient.DeleteDevContainer`; leave other purposes on the fast 2s path
+- [~] Add hydra `POST /api/v1/drain?grace=<seconds>` — drains all containers labelled `helix.persistent=true` in parallel, bounded, idempotent
 - [ ] Call the drain from hydra's existing SIGTERM handler (`api/cmd/hydra/main.go`)
 - [ ] Replace `exec tail -f /dev/null` in `sandbox/startup-app.sh` with backgrounded `tail` + `wait` + a SIGTERM trap that POSTs the hydra drain endpoint before exiting
 - [ ] Set `stop_grace_period: 120s` on the sandbox services in `docker-compose.yaml` and `docker-compose.dev.yaml`
