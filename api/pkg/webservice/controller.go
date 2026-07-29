@@ -223,10 +223,14 @@ func (c *Controller) runDeploy(
 	// response (even 4xx/5xx) as "the app is bound" — what matters here
 	// is that the listener exists, not that the app likes the request.
 	if err := c.waitForReady(ctx, sb.ID, state.ContainerPort); err != nil {
+		// Diagnose before rolling back. "The app never bound its port" reads
+		// like a code problem; when the real cause is an unstartable nested
+		// database, an operator needs to know that redeploying cannot fix it.
+		reason := c.classifyReadinessFailure(ctx, req.ProjectID, err)
 		// Roll back to the last-known-good commit so the site comes back up
 		// against the same intact /data. The data is never touched either way.
 		c.rollback(ctx, sb, repo, req.ProjectID, previousSHA, state.ContainerPort, gitToken)
-		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("readiness: %s", err))
+		c.markFailed(ctx, deployID, sb.ID, reason)
 		return
 	}
 
@@ -655,6 +659,29 @@ func (c *Controller) projectSecretEnv(ctx context.Context, projectID, sandboxID 
 		log.Info().Int("secret_count", len(secretEnv)).Str("project_id", projectID).Str("sandbox_id", sandboxID).Msg("injected prod project secrets into web service env")
 	}
 	return env
+}
+
+// classifyReadinessFailure turns a readiness timeout into a specific diagnosis
+// when the deploy log carries a known fatal signature (e.g. a nested Postgres
+// with a corrupt checkpoint record). Falls back to the generic readiness error
+// when nothing matches or the log can't be read — an unrecognised failure must
+// never be given a confident wrong explanation.
+func (c *Controller) classifyReadinessFailure(ctx context.Context, projectID string, readinessErr error) string {
+	generic := fmt.Sprintf("readiness: %s", readinessErr)
+
+	logTail, logErr := c.DeployLog(ctx, projectID)
+	if logErr != nil {
+		log.Warn().Err(logErr).Str("project_id", projectID).
+			Msg("web service: could not read deploy log to classify the failure")
+		return generic
+	}
+	diagnosis := classifyDeployFailure(logTail)
+	if diagnosis == "" {
+		return generic
+	}
+	log.Error().Str("project_id", projectID).Str("diagnosis", diagnosis).
+		Msg("web service: deploy failed with a recognised fatal signature")
+	return diagnosis
 }
 
 // rollback re-deploys a previously-live commit in place after a failed
