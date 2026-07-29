@@ -951,7 +951,7 @@ const Skills: React.FC<SkillsProps> = ({
     // autoProvision skills (e.g. code-intelligence) — enable via server endpoint, no dialog.
     if (skill.autoProvision && skill.backendSkillId && appId) {
       const client = api.getApiClient();
-      client.v1AppsSkillsEnableCreate(appId, skill.backendSkillId).then((response) => {
+      client.v1AgentsSkillsEnableCreate(appId, skill.backendSkillId).then((response) => {
         const updatedApp = response.data;
         onUpdate({
           ...app,

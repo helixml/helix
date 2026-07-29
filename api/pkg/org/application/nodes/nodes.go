@@ -91,7 +91,7 @@ type CreateParams struct {
 	ID              string
 	Name            string
 	Content         string
-	AgentAppID      string
+	AgentID         string
 	Tools           []tool.Name
 	PreserveContext bool
 	// Kind, HelixUserID, Identity create a human placeholder when Kind ==
@@ -132,8 +132,8 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	if p.Name != "" {
 		node = node.WithName(p.Name)
 	}
-	if p.AgentAppID != "" {
-		node = node.WithAgentAppID(p.AgentAppID)
+	if p.AgentID != "" {
+		node = node.WithAgentID(p.AgentID)
 	}
 	if p.PreserveContext {
 		node = node.WithPreserveContext(true)
@@ -157,7 +157,7 @@ func (s *Nodes) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 // leaves the corresponding field unchanged — this is what preserves
 // Tools on a content-only update.
 type UpdateParams struct {
-	AgentAppID      *string
+	AgentID         *string
 	Name            *string
 	Content         *string
 	Tools           *[]tool.Name
@@ -177,8 +177,8 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 		return orgchart.Node{}, err
 	}
 	updated := existing
-	if p.AgentAppID != nil {
-		updated = updated.WithAgentAppID(*p.AgentAppID)
+	if p.AgentID != nil {
+		updated = updated.WithAgentID(*p.AgentID)
 	}
 	if p.Name != nil {
 		updated = updated.WithName(*p.Name)

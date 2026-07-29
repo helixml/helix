@@ -66,7 +66,7 @@ func (s *HelixAPIServer) listLLMCalls(_ http.ResponseWriter, r *http.Request) (*
 
 // listAppLLMCalls godoc
 // @Summary List LLM calls
-// @Description List user's LLM calls with pagination and optional session filtering for a specific app
+// @Description List user's LLM calls with pagination and optional session filtering for a specific agent
 // @Tags    llm_calls
 // @Produce json
 // @Param   page          query    int     false  "Page number"
@@ -74,7 +74,7 @@ func (s *HelixAPIServer) listLLMCalls(_ http.ResponseWriter, r *http.Request) (*
 // @Param   session       query    string  false  "Filter by session ID"
 // @Param   interaction   query    string  false  "Filter by interaction ID"
 // @Success 200 {object} types.PaginatedLLMCalls
-// @Router /api/v1/apps/{id}/llm-calls [get]
+// @Router /api/v1/agents/{id}/llm-calls [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request) (*types.PaginatedLLMCalls, *system.HTTPError) {
 	appID := getID(r)
@@ -143,7 +143,7 @@ func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request)
 
 // listAppInteractions godoc
 // @Summary List interactions
-// @Description List interactions with pagination and optional session filtering for a specific app
+// @Description List interactions with pagination and optional session filtering for a specific agent
 // @Tags    interactions
 // @Produce json
 // @Param   page          query    int     false  "Page number"
@@ -152,7 +152,7 @@ func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request)
 // @Param   interaction   query    string  false  "Filter by interaction ID"
 // @Param   feedback      query    string  false  "Query by like/dislike"
 // @Success 200 {object} types.PaginatedInteractions
-// @Router /api/v1/apps/{id}/interactions [get]
+// @Router /api/v1/agents/{id}/interactions [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listAppInteractions(_ http.ResponseWriter, r *http.Request) (*types.PaginatedInteractions, *system.HTTPError) {
 	appID := getID(r)
@@ -240,12 +240,12 @@ func (s *HelixAPIServer) listAppInteractions(_ http.ResponseWriter, r *http.Requ
 
 // listAppStepInfo godoc
 // @Summary List step info
-// @Description List step info for a specific app and interaction ID, used to build the timeline of events
+// @Description List step info for a specific agent and interaction ID, used to build the timeline of events
 // @Tags    step_info
 // @Produce json
 // @Param   interactionId query    string  false  "Interaction ID"
 // @Success 200 {array} types.StepInfo
-// @Router /api/v1/apps/{id}/step-info [get]
+// @Router /api/v1/agents/{id}/step-info [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listAppStepInfo(_ http.ResponseWriter, r *http.Request) ([]*types.StepInfo, *system.HTTPError) {
 	appID := getID(r)

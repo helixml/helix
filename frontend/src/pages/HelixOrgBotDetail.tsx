@@ -122,7 +122,7 @@ const HelixOrgBotDetail: FC = () => {
   const bot = data?.bot
   const projectID = data?.project_id
   const { data: projects = [] } = useListProjects(bot?.organization_id, { enabled: !!bot?.organization_id })
-  const agentAppID = data?.agent_app_id
+  const agentID = data?.agent_id ?? data?.agent_app_id
   // A human node is a person placeholder — it never runs, so the agent-only
   // surfaces (Project Desktop session, tools, preserve-context, restart) make
   // no sense for it and are hidden below.
@@ -230,9 +230,9 @@ const HelixOrgBotDetail: FC = () => {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save failed')
       return
     }
-    if (runtimeChanged && chatSessionId && agentAppID) {
+    if (runtimeChanged && chatSessionId && agentID) {
       try {
-        await switchAgent.mutateAsync({ helix_app_id: agentAppID })
+        await switchAgent.mutateAsync({ helix_app_id: agentID })
         snackbar.success(`Agent ${botId} saved and the active session switched to ${runtimeConfig.runtime}`)
       } catch (err: any) {
         await refetchBot()
@@ -624,7 +624,7 @@ const HelixOrgBotDetail: FC = () => {
                   />
                 </Box>
 
-                {agentAppID && (
+                {agentID && (
                   <Box>
                     <AgentConfigForm
                       value={runtimeConfig}
@@ -840,22 +840,22 @@ const HelixOrgBotDetail: FC = () => {
                       )}
                     </Box>
                   )}
-                  {agentAppID && (
+                  {agentID && (
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Agent</Typography>
                       {orgSlug ? (
                         <Link
-                          href={router5.buildPath('org_agent', { org_id: orgSlug, app_id: agentAppID })}
+                          href={router5.buildPath('org_agent', { org_id: orgSlug, app_id: agentID })}
                           target="_blank"
                           rel="noopener noreferrer"
                           underline="hover"
                           sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: 0.5, wordBreak: 'break-all' }}
                         >
-                          {agentAppID}
+                          {agentID}
                           <OpenInNewIcon sx={{ fontSize: 14, flexShrink: 0 }} />
                         </Link>
                       ) : (
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>{agentAppID}</Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>{agentID}</Typography>
                       )}
                     </Box>
                   )}

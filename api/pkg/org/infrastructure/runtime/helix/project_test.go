@@ -352,7 +352,7 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
-	if state.ProjectID != "prj_test" || state.AgentAppID != "app_test" {
+	if state.ProjectID != "prj_test" || state.AgentID != "app_test" {
 		t.Errorf("state = %+v", state)
 	}
 	// RepoID is part of the contract — without it the desktop bringup
@@ -655,7 +655,7 @@ func TestEnsureFastPathPreservesValidProjectDefaultAndConvergesLinks(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Nodes.Update(ctx, bot.WithAgentAppID("app-new")); err != nil {
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-new")); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
@@ -676,15 +676,15 @@ func TestEnsureFastPathPreservesValidProjectDefaultAndConvergesLinks(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bot.AgentAppID != "app-explicit" {
-		t.Fatalf("bot app = %q, want app-explicit", bot.AgentAppID)
+	if bot.AgentID != "app-explicit" {
+		t.Fatalf("bot app = %q, want app-explicit", bot.AgentID)
 	}
 	state, err := LoadState(ctx, st, "org-test", wid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.AgentAppID != "app-explicit" {
-		t.Fatalf("runtime app = %q, want app-explicit", state.AgentAppID)
+	if state.AgentID != "app-explicit" {
+		t.Fatalf("runtime app = %q, want app-explicit", state.AgentID)
 	}
 }
 
@@ -695,14 +695,14 @@ func TestEnsureFastPathDoesNotAdoptProjectDefaultClaimedByAnotherBot(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Nodes.Update(ctx, bot.WithAgentAppID("app-current")); err != nil {
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-current")); err != nil {
 		t.Fatal(err)
 	}
 	other, err := orgchart.NewNode("w-other", "# Other", nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Nodes.Create(ctx, other.WithAgentAppID("app-claimed")); err != nil {
+	if err := st.Nodes.Create(ctx, other.WithAgentID("app-claimed")); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
@@ -723,15 +723,15 @@ func TestEnsureFastPathDoesNotAdoptProjectDefaultClaimedByAnotherBot(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bot.AgentAppID != "app-current" {
-		t.Fatalf("bot app = %q, want app-current", bot.AgentAppID)
+	if bot.AgentID != "app-current" {
+		t.Fatalf("bot app = %q, want app-current", bot.AgentID)
 	}
 	state, err := LoadState(ctx, st, "org-test", wid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.AgentAppID != "app-current" {
-		t.Fatalf("runtime app = %q, want app-current", state.AgentAppID)
+	if state.AgentID != "app-current" {
+		t.Fatalf("runtime app = %q, want app-current", state.AgentID)
 	}
 }
 
@@ -742,7 +742,7 @@ func TestEnsureFastPathPreservesLinksWhenProjectDefaultAppReadFails(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Nodes.Update(ctx, bot.WithAgentAppID("app-current")); err != nil {
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-current")); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-runtime", "repo_existing"); err != nil {
@@ -763,15 +763,15 @@ func TestEnsureFastPathPreservesLinksWhenProjectDefaultAppReadFails(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bot.AgentAppID != "app-current" {
-		t.Fatalf("bot app changed to %q", bot.AgentAppID)
+	if bot.AgentID != "app-current" {
+		t.Fatalf("bot app changed to %q", bot.AgentID)
 	}
 	state, err := LoadState(ctx, st, "org-test", wid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.AgentAppID != "app-runtime" {
-		t.Fatalf("runtime app changed to %q", state.AgentAppID)
+	if state.AgentID != "app-runtime" {
+		t.Fatalf("runtime app changed to %q", state.AgentID)
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
@@ -790,7 +790,7 @@ func TestEnsureFastPathRepairsStaleRuntimeAgentApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Nodes.Update(ctx, bot.WithAgentAppID("app-canonical")); err != nil {
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-canonical")); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
@@ -809,8 +809,8 @@ func TestEnsureFastPathRepairsStaleRuntimeAgentApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.AgentAppID != "app-canonical" {
-		t.Fatalf("runtime app = %q, want app-canonical", state.AgentAppID)
+	if state.AgentID != "app-canonical" {
+		t.Fatalf("runtime app = %q, want app-canonical", state.AgentID)
 	}
 }
 

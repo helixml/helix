@@ -229,10 +229,10 @@ func (r *nodesRepo) ClaimAgentApp(_ context.Context, orgID string, id orgchart.N
 	if !ok {
 		return false, fmt.Errorf("bot %q in org %q: %w", id, orgID, store.ErrNotFound)
 	}
-	if b.AgentAppID != "" {
+	if b.AgentID != "" {
 		return false, nil
 	}
-	r.rows[k] = b.WithAgentAppID(appID)
+	r.rows[k] = b.WithAgentID(appID)
 	return true, nil
 }
 

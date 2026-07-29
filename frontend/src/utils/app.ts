@@ -19,7 +19,7 @@ export const getFlatStateAvatarUrl = (app: IAppFlatState, appId: string): string
   }
   
   // Otherwise, assume it's an uploaded avatar and use the API endpoint
-  return `/api/v1/apps/${appId}/avatar`
+  return `/api/v1/agents/${appId}/avatar`
 }
 
 /**

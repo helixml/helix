@@ -51,7 +51,7 @@ func TestSettingDefaultAppliesDeferredAgentBeforeActivation(t *testing.T) {
 	reg.Register(configregistry.Spec{Key: configregistry.DefaultAgentConfigKey, Type: configregistry.TypeObject})
 	ctx := context.Background()
 	created, err := deps.Nodes.Create(ctx, "org-test", nodes.CreateParams{
-		ID: "b-agent", Name: "Agent", Content: "instructions", AgentAppID: "app-agent",
+		ID: "b-agent", Name: "Agent", Content: "instructions", AgentID: "app-agent",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestSettingDefaultAppliesDeferredAgentBeforeActivation(t *testing.T) {
 	if !ensurer.called {
 		t.Fatal("deferred Agent was not activated")
 	}
-	if applier.appID != created.AgentAppID ||
+	if applier.appID != created.AgentID ||
 		applier.defaults.CodeAgentRuntime != types.CodeAgentRuntimeCodexCLI ||
 		applier.defaults.Model != "gpt-5.6" {
 		t.Fatalf("applied defaults = app %q config %+v", applier.appID, applier.defaults)

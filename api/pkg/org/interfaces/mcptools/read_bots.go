@@ -57,15 +57,15 @@ func botViewOf(b orgchart.Node, managers []orgchart.NodeID) botView {
 
 func canonicalBotView(ctx context.Context, deps Deps, b orgchart.Node, managers []orgchart.NodeID) (botView, error) {
 	view := botViewOf(b, managers)
-	if b.IsHuman() || b.AgentAppID == "" {
+	if b.IsHuman() || b.AgentID == "" {
 		return view, nil
 	}
 	if deps.AgentProfileReader == nil {
-		return botView{}, fmt.Errorf("read canonical agent %s: profile reader is not wired", b.AgentAppID)
+		return botView{}, fmt.Errorf("read canonical agent %s: profile reader is not wired", b.AgentID)
 	}
-	name, instructions, err := deps.AgentProfileReader.AgentProfile(ctx, b.AgentAppID)
+	name, instructions, err := deps.AgentProfileReader.AgentProfile(ctx, b.AgentID)
 	if err != nil {
-		return botView{}, fmt.Errorf("read canonical agent %s: %w", b.AgentAppID, err)
+		return botView{}, fmt.Errorf("read canonical agent %s: %w", b.AgentID, err)
 	}
 	view.Name = name
 	view.Content = instructions

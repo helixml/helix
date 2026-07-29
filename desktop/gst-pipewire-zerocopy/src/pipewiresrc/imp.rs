@@ -667,7 +667,23 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                             if settings.cuda_context.is_none() {
                                 settings.cuda_context = Some(Arc::new(std::sync::Mutex::new(ctx)));
                             } else {
-                                std::mem::forget(ctx); // Prevent double-unref
+                                // gst_cuda_ensure_element_context runs a context
+                                // query, and GStreamer answers it by calling our
+                                // set_context() on this very thread — so by the
+                                // time we get here settings.cuda_context is
+                                // ALWAYS already populated on the GNOME+NVIDIA
+                                // path. This is the hot path, not a rare race.
+                                //
+                                // ctx therefore aliases a context pointer we do
+                                // not own (unreffing it would be a double-unref)
+                                // but it does own the GstCudaStream created
+                                // alongside it. mem::forget used to be used here
+                                // to dodge the double-unref; that also leaked the
+                                // stream, and because a stream holds a reference
+                                // on its context, every pipeline left a whole
+                                // CUDA context alive — ~28 MiB of GPU memory and
+                                // ~14 /dev/nvidia0 fds each, forever.
+                                ctx.release_stream_only();
                             }
                         }
                         Err(e) => {
