@@ -46,7 +46,7 @@ func TestUpdateAppRejectsInvalidLinkedOrgAgentShape(t *testing.T) {
 
 	bot, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org-test")
 	require.NoError(t, err)
-	require.NoError(t, orgStore.Nodes.Create(context.Background(), bot.WithAgentAppID("app-linked")))
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), bot.WithAgentID("app-linked")))
 
 	existing := &types.App{
 		ID:             "app-linked",
@@ -80,7 +80,7 @@ func TestUpdateAppRejectsInvalidLinkedOrgAgentShape(t *testing.T) {
 	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
 	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
 
-	updated, httpErr := server.updateApp(nil, req)
+	updated, httpErr := server.updateAgent(nil, req)
 
 	require.Nil(t, updated)
 	require.NotNil(t, httpErr)
@@ -97,7 +97,7 @@ func TestUpdateAppRejectsMismatchedBodyID(t *testing.T) {
 	require.NoError(t, err)
 	req = mux.SetURLVars(req, map[string]string{"id": "app-path"})
 
-	updated, httpErr := server.updateApp(nil, req)
+	updated, httpErr := server.updateAgent(nil, req)
 
 	require.Nil(t, updated)
 	require.NotNil(t, httpErr)
@@ -110,7 +110,7 @@ func Test_markHelixOrgAgents_UsesNodesRepository(t *testing.T) {
 	orgStore := orgmemory.New()
 	node, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org_1")
 	require.NoError(t, err)
-	require.NoError(t, orgStore.Nodes.Create(context.Background(), node.WithAgentAppID("app_1")))
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), node.WithAgentID("app_1")))
 
 	server := &HelixAPIServer{
 		Store: store.NewMockStore(ctrl),
@@ -159,7 +159,7 @@ func TestListOrganizationAppsDoesNotReconcileAgentLinks(t *testing.T) {
 		func(context.Context, *store.ListAppsQuery) ([]*types.App, error) {
 			linked, err := orgStore.Nodes.Get(ctx, "org-test", bot.ID)
 			require.NoError(t, err)
-			require.Empty(t, linked.AgentAppID)
+			require.Empty(t, linked.AgentID)
 			return []*types.App{{ID: "app-existing", OrganizationID: "org-test"}}, nil
 		},
 	)
@@ -299,7 +299,7 @@ func Test_handleDuplicateAppNames(t *testing.T) {
 	require.Equal(t, "", app3.Config.Helix.Name)
 }
 
-// Helper function to handle duplicate names (extracted from createApp handler)
+// Helper function to handle duplicate names (extracted from createAgent handler)
 func handleDuplicateAppNames(app *types.App, existingApps []*types.App) {
 	// Handle duplicate names by adding suffixes like (1), (2), etc.
 	if app.Config.Helix.Name != "" {

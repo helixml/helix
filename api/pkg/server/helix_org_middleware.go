@@ -212,11 +212,11 @@ func repairNeverActivatedBots(ctx context.Context, orgID string, st *helixorgsto
 		if len(acts) > 0 {
 			continue
 		}
-		if b.AgentAppID != "" {
+		if b.AgentID != "" {
 			if applier == nil {
 				return fmt.Errorf("apply defaults to never-activated bot %s: applier is not wired", b.ID)
 			}
-			if err := applier.ApplyAgentDefaults(ctx, b.AgentAppID, defaults); err != nil {
+			if err := applier.ApplyAgentDefaults(ctx, b.AgentID, defaults); err != nil {
 				return fmt.Errorf("apply defaults to never-activated bot %s: %w", b.ID, err)
 			}
 		}

@@ -265,7 +265,7 @@ func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
 	configs.Register(configregistry.Spec{Key: configregistry.DefaultAgentConfigKey, Type: configregistry.TypeObject})
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	for _, b := range []orgchart.Node{
-		mustBot(t, "bot-legacy-a", "", now).WithAgentAppID("app-legacy-a"),
+		mustBot(t, "bot-legacy-a", "", now).WithAgentID("app-legacy-a"),
 		mustBot(t, "bot-legacy-b", "", now),
 		mustBot(t, "bot-created", "", now),
 		mustBot(t, "human-owner", orgchart.NodeKindHuman, now),

@@ -143,18 +143,20 @@ func (t *RestartBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 // --- helpers --------------------------------------------------------------
 
 type botActivateView struct {
-	ActivationID string `json:"activation_id,omitempty"`
-	ProjectID    string `json:"project_id,omitempty"`
-	AgentAppID   string `json:"agent_app_id,omitempty"`
-	SessionID    string `json:"session_id,omitempty"`
+	ActivationID  string `json:"activation_id,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
+	AgentID       string `json:"agent_id,omitempty"`
+	LegacyAgentID string `json:"agent_app_id,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
 }
 
 func toBotActivateView(res activations.ActivateResult) botActivateView {
 	return botActivateView{
-		ActivationID: string(res.ActivationID),
-		ProjectID:    res.ProjectID,
-		AgentAppID:   res.AgentAppID,
-		SessionID:    res.SessionID,
+		ActivationID:  string(res.ActivationID),
+		ProjectID:     res.ProjectID,
+		AgentID:       res.AgentID,
+		LegacyAgentID: res.AgentID,
+		SessionID:     res.SessionID,
 	}
 }
 

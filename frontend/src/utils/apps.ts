@@ -22,7 +22,7 @@ export const getAppAvatarUrl = (app: IApp): string => {
   }
   
   // Otherwise, assume it's an uploaded avatar and use the API endpoint
-  return `/api/v1/apps/${app.id}/avatar`
+  return `/api/v1/agents/${app.id}/avatar`
 }
 
 export const getAppName = (app: IApp): string => {

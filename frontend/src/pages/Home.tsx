@@ -938,7 +938,7 @@ const Home: FC = () => {
                                   src={app?.config.helix.avatar ? (
                                     app.config.helix.avatar.startsWith('http://') || app.config.helix.avatar.startsWith('https://')
                                       ? app.config.helix.avatar
-                                      : `/api/v1/apps/${trigger.app_id}/avatar`
+                                      : `/api/v1/agents/${trigger.app_id}/avatar`
                                   ) : undefined}
                                 >
                                   {app?.config.helix.name && app.config.helix.name.length > 0
@@ -1115,7 +1115,7 @@ const Home: FC = () => {
                                 src={app.config.helix.avatar ? (
                                   app.config.helix.avatar.startsWith('http://') || app.config.helix.avatar.startsWith('https://')
                                     ? app.config.helix.avatar
-                                    : `/api/v1/apps/${app.id}/avatar`
+                                    : `/api/v1/agents/${app.id}/avatar`
                                 ) : undefined}
                               >
                                 {app.config.helix.name && app.config.helix.name.length > 0

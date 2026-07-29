@@ -55,7 +55,7 @@ func TestBackfillAgentAppLinksRequiresSameOrganization(t *testing.T) {
 	}
 
 	var sameOrg, otherOrg, multiple struct {
-		AgentAppID *string
+		AgentID *string `gorm:"column:agent_app_id"`
 	}
 	if err := db.Table("org_bots").Where("id = ?", "b-same-org").First(&sameOrg).Error; err != nil {
 		t.Fatalf("read same-org bot: %v", err)
@@ -66,14 +66,14 @@ func TestBackfillAgentAppLinksRequiresSameOrganization(t *testing.T) {
 	if err := db.Table("org_bots").Where("id = ?", "b-multiple").First(&multiple).Error; err != nil {
 		t.Fatalf("read multiple-assistant bot: %v", err)
 	}
-	if sameOrg.AgentAppID == nil || *sameOrg.AgentAppID != "app-same-org" {
-		t.Fatalf("same-org link = %v", sameOrg.AgentAppID)
+	if sameOrg.AgentID == nil || *sameOrg.AgentID != "app-same-org" {
+		t.Fatalf("same-org link = %v", sameOrg.AgentID)
 	}
-	if otherOrg.AgentAppID != nil {
-		t.Fatalf("cross-org link was backfilled: %q", *otherOrg.AgentAppID)
+	if otherOrg.AgentID != nil {
+		t.Fatalf("cross-org link was backfilled: %q", *otherOrg.AgentID)
 	}
-	if multiple.AgentAppID != nil {
-		t.Fatalf("multiple-assistant app was backfilled: %q", *multiple.AgentAppID)
+	if multiple.AgentID != nil {
+		t.Fatalf("multiple-assistant app was backfilled: %q", *multiple.AgentID)
 	}
 }
 
@@ -302,12 +302,14 @@ func TestBackfillProjectAgentAppsPreservesExplicitDefaultAndConvergesLinks(t *te
 	if project.DefaultHelixAppID != "app-explicit" {
 		t.Fatalf("project default = %q, want app-explicit", project.DefaultHelixAppID)
 	}
-	var bot struct{ AgentAppID string }
+	var bot struct {
+		AgentID string `gorm:"column:agent_app_id"`
+	}
 	if err := db.Table("org_bots").Where("id = ?", "b-agent").First(&bot).Error; err != nil {
 		t.Fatal(err)
 	}
-	if bot.AgentAppID != "app-explicit" {
-		t.Fatalf("bot app = %q, want app-explicit", bot.AgentAppID)
+	if bot.AgentID != "app-explicit" {
+		t.Fatalf("bot app = %q, want app-explicit", bot.AgentID)
 	}
 	var state struct{ Value string }
 	if err := db.Table("org_bot_runtime_state").
@@ -328,8 +330,8 @@ func TestBackfillProjectAgentAppsPreservesExplicitDefaultAndConvergesLinks(t *te
 	if err := db.Table("org_bots").Where("id = ?", "b-target").First(&bot).Error; err != nil {
 		t.Fatal(err)
 	}
-	if bot.AgentAppID != "app-target" {
-		t.Fatalf("target bot app = %q, want app-target", bot.AgentAppID)
+	if bot.AgentID != "app-target" {
+		t.Fatalf("target bot app = %q, want app-target", bot.AgentID)
 	}
 
 	if err := db.Table("projects").Where("id = ?", "project-ambiguous").First(&project).Error; err != nil {

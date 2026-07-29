@@ -76,8 +76,8 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	if res.Node.ID != "w-new" {
 		t.Fatalf("node id = %q", res.Node.ID)
 	}
-	if res.Node.AgentAppID != "app-agent" {
-		t.Fatalf("agent app id = %q, want app-agent", res.Node.AgentAppID)
+	if res.Node.AgentID != "app-agent" {
+		t.Fatalf("agent app id = %q, want app-agent", res.Node.AgentID)
 	}
 	if _, err := st.Nodes.Get(ctx, "org-test", "w-new"); err != nil {
 		t.Fatalf("bot not persisted: %v", err)
