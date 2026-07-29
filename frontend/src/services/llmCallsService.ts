@@ -40,7 +40,7 @@ export function useListAppLLMCalls(appId: string, session: string, interaction: 
   return useQuery({
     queryKey: appLLMCallsQueryKey(appId, session, interaction),
     queryFn: async () => {
-      const response = await apiClient.v1AppsLlmCallsDetail(appId, {
+      const response = await apiClient.v1AgentsLlmCallsDetail(appId, {
         session,
         interaction,
         page: page,

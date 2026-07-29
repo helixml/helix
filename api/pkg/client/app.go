@@ -20,7 +20,7 @@ type AppFilter struct {
 func (c *HelixClient) ListApps(ctx context.Context, f *AppFilter) ([]*types.App, error) {
 	var apps []*types.App
 
-	path := "/apps"
+	path := "/agents"
 	if f.OrganizationID != "" {
 		path += "?organization_id=" + f.OrganizationID
 	}
@@ -34,7 +34,7 @@ func (c *HelixClient) ListApps(ctx context.Context, f *AppFilter) ([]*types.App,
 
 func (c *HelixClient) GetApp(ctx context.Context, appID string) (*types.App, error) {
 	var app types.App
-	err := c.makeRequest(ctx, http.MethodGet, "/apps/"+appID, nil, &app)
+	err := c.makeRequest(ctx, http.MethodGet, "/agents/"+appID, nil, &app)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (c *HelixClient) CreateApp(ctx context.Context, app *types.App) (*types.App
 	}
 
 	var createdApp types.App
-	err = c.makeRequest(ctx, http.MethodPost, "/apps", bytes.NewBuffer(bts), &createdApp)
+	err = c.makeRequest(ctx, http.MethodPost, "/agents", bytes.NewBuffer(bts), &createdApp)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (c *HelixClient) UpdateApp(ctx context.Context, app *types.App) (*types.App
 	}
 
 	var updatedApp types.App
-	err = c.makeRequest(ctx, http.MethodPut, "/apps/"+app.ID, bytes.NewBuffer(bts), &updatedApp)
+	err = c.makeRequest(ctx, http.MethodPut, "/agents/"+app.ID, bytes.NewBuffer(bts), &updatedApp)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (c *HelixClient) DeleteApp(ctx context.Context, appID string, deleteKnowled
 	query := url.Values{}
 	query.Add("knowledge", strconv.FormatBool(deleteKnowledge))
 
-	url := "/apps/" + appID + "?" + query.Encode()
+	url := "/agents/" + appID + "?" + query.Encode()
 
 	err := c.makeRequest(ctx, http.MethodDelete, url, nil, nil)
 	if err != nil {
@@ -127,7 +127,7 @@ func (c *HelixClient) RunAPIAction(ctx context.Context, appID string, action str
 	}
 
 	var resp types.RunAPIActionResponse
-	err = c.makeRequest(ctx, http.MethodPost, fmt.Sprintf("/apps/%s/api-actions", appID), bytes.NewBuffer(bts), &resp)
+	err = c.makeRequest(ctx, http.MethodPost, fmt.Sprintf("/agents/%s/api-actions", appID), bytes.NewBuffer(bts), &resp)
 	if err != nil {
 		return nil, err
 	}

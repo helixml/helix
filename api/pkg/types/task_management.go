@@ -221,7 +221,7 @@ func (a *AssistantConfig) IsAgentType(agentType AgentType) bool {
 }
 
 // GetDefaultAgentType returns the default agent type for an app
-func (a *AppHelixConfig) GetDefaultAgentType() AgentType {
+func (a *AgentHelixConfig) GetDefaultAgentType() AgentType {
 	if a.DefaultAgentType != "" {
 		return a.DefaultAgentType
 	}

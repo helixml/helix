@@ -22,7 +22,7 @@ const (
 type EvaluationAssertion struct {
 	Type           EvaluationAssertionType `json:"type"`
 	Value          string                  `json:"value"`                      // Expected string, regex pattern, or skill name
-	LLMJudgePrompt string                 `json:"llm_judge_prompt,omitempty"` // Custom prompt for LLM judge mode
+	LLMJudgePrompt string                  `json:"llm_judge_prompt,omitempty"` // Custom prompt for LLM judge mode
 }
 
 // EvaluationQuestion is a question with assertions to check the response against
@@ -34,15 +34,15 @@ type EvaluationQuestion struct {
 
 // EvaluationSuite represents a test suite for evaluating an agent
 type EvaluationSuite struct {
-	ID             string               `json:"id" gorm:"primaryKey"`
-	Created        time.Time            `json:"created"`
-	Updated        time.Time            `json:"updated"`
-	UserID         string               `json:"user_id" gorm:"index"`
-	OrganizationID string               `json:"organization_id" gorm:"index"`
-	AppID          string               `json:"app_id" gorm:"index"`
-	Name           string               `json:"name"`
-	Description    string               `json:"description"`
-	Questions      EvaluationQuestions   `json:"questions" gorm:"type:jsonb;serializer:json"`
+	ID             string              `json:"id" gorm:"primaryKey"`
+	Created        time.Time           `json:"created"`
+	Updated        time.Time           `json:"updated"`
+	UserID         string              `json:"user_id" gorm:"index"`
+	OrganizationID string              `json:"organization_id" gorm:"index"`
+	AppID          string              `json:"app_id" gorm:"index"`
+	Name           string              `json:"name"`
+	Description    string              `json:"description"`
+	Questions      EvaluationQuestions `json:"questions" gorm:"type:jsonb;serializer:json"`
 }
 
 // EvaluationQuestions is a slice type for GORM JSON serialization
@@ -90,7 +90,7 @@ type EvaluationRunSummary struct {
 	TotalQuestions  int      `json:"total_questions"`
 	Passed          int      `json:"passed"`
 	Failed          int      `json:"failed"`
-	TotalDurationMs int64   `json:"total_duration_ms"`
+	TotalDurationMs int64    `json:"total_duration_ms"`
 	TotalTokens     int      `json:"total_tokens"`
 	TotalCost       float64  `json:"total_cost"`
 	SkillsUsed      []string `json:"skills_used"`
@@ -98,18 +98,18 @@ type EvaluationRunSummary struct {
 
 // EvaluationRun stores a single execution of an evaluation suite
 type EvaluationRun struct {
-	ID                string                     `json:"id" gorm:"primaryKey"`
-	Created           time.Time                  `json:"created"`
-	Updated           time.Time                  `json:"updated"`
-	SuiteID           string                     `json:"suite_id" gorm:"index"`
-	AppID             string                     `json:"app_id" gorm:"index"`
-	UserID            string                     `json:"user_id" gorm:"index"`
-	OrganizationID    string                     `json:"organization_id" gorm:"index"`
-	Status            EvaluationRunStatus        `json:"status"`
-	AppConfigSnapshot AppConfig                  `json:"app_config_snapshot" gorm:"type:jsonb;serializer:json"`
-	Summary           EvaluationRunSummary       `json:"summary" gorm:"type:jsonb;serializer:json"`
-	Results           EvaluationQuestionResults  `json:"results" gorm:"type:jsonb;serializer:json"`
-	Error             string                     `json:"error,omitempty"`
+	ID                string                    `json:"id" gorm:"primaryKey"`
+	Created           time.Time                 `json:"created"`
+	Updated           time.Time                 `json:"updated"`
+	SuiteID           string                    `json:"suite_id" gorm:"index"`
+	AppID             string                    `json:"app_id" gorm:"index"`
+	UserID            string                    `json:"user_id" gorm:"index"`
+	OrganizationID    string                    `json:"organization_id" gorm:"index"`
+	Status            EvaluationRunStatus       `json:"status"`
+	AppConfigSnapshot AgentConfig               `json:"app_config_snapshot" gorm:"type:jsonb;serializer:json"`
+	Summary           EvaluationRunSummary      `json:"summary" gorm:"type:jsonb;serializer:json"`
+	Results           EvaluationQuestionResults `json:"results" gorm:"type:jsonb;serializer:json"`
+	Error             string                    `json:"error,omitempty"`
 }
 
 // EvaluationQuestionResults is a slice type for GORM JSON serialization
@@ -119,13 +119,13 @@ func (EvaluationQuestionResults) GormDataType() string { return "json" }
 
 // EvaluationRunProgress is sent via SSE during a run
 type EvaluationRunProgress struct {
-	RunID            string                    `json:"run_id"`
-	Status           EvaluationRunStatus       `json:"status"`
-	CurrentQuestion  int                       `json:"current_question"`
-	TotalQuestions   int                       `json:"total_questions"`
-	LatestResult     *EvaluationQuestionResult `json:"latest_result,omitempty"`
-	Summary          *EvaluationRunSummary     `json:"summary,omitempty"`
-	Error            string                    `json:"error,omitempty"`
+	RunID           string                    `json:"run_id"`
+	Status          EvaluationRunStatus       `json:"status"`
+	CurrentQuestion int                       `json:"current_question"`
+	TotalQuestions  int                       `json:"total_questions"`
+	LatestResult    *EvaluationQuestionResult `json:"latest_result,omitempty"`
+	Summary         *EvaluationRunSummary     `json:"summary,omitempty"`
+	Error           string                    `json:"error,omitempty"`
 }
 
 // ListEvaluationSuitesRequest defines filters for listing suites

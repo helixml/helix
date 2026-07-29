@@ -114,7 +114,7 @@ func New(deps Deps) *Activations {
 type ActivateResult struct {
 	ActivationID activation.ID
 	ProjectID    string
-	AgentAppID   string
+	AgentID      string
 	SessionID    string
 }
 
@@ -156,7 +156,7 @@ func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgch
 	return ActivateResult{
 		ActivationID: activationID,
 		ProjectID:    projectID,
-		AgentAppID:   agentAppID,
+		AgentID:      agentAppID,
 		SessionID:    sessionID,
 	}, nil
 }

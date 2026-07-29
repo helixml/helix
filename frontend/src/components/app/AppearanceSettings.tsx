@@ -224,7 +224,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
                 >              
                   <Avatar
                     src={`${getFlatStateAvatarUrl(app, id)}${getFlatStateAvatarUrl(app, id).includes('?') ? '&' : '?'}t=${avatarUpdateKey}`}
-                    // src={`/api/v1/apps/${id}/avatar?t=${avatarUpdateKey}`}
+                    // src={`/api/v1/agents/${id}/avatar?t=${avatarUpdateKey}`}
                     sx={{
                       width: 200,
                       height: 200,

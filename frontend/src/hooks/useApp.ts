@@ -217,7 +217,7 @@ export const useApp = (appId: string) => {
     
     try {
       // Fetch the app directly by ID
-      const loadedApp = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
+      const loadedApp = await api.get<IApp>(`/api/v1/agents/${id}`, undefined, {
         snackbar: showErrors,
       })
 
@@ -542,7 +542,7 @@ export const useApp = (appId: string) => {
     setIsAppSaving(true)
     
     try {
-      const savedApp = await api.put<IApp>(`/api/v1/apps/${app.id}`, app)
+      const savedApp = await api.put<IApp>(`/api/v1/agents/${app.id}`, app)
       if (!savedApp) {
         return
       }
@@ -813,7 +813,7 @@ export const useApp = (appId: string) => {
     }
     
     try {
-      const grants = await api.get<IAccessGrant[]>(`/api/v1/apps/${appId}/access-grants`, {}, { snackbar: false })
+      const grants = await api.get<IAccessGrant[]>(`/api/v1/agents/${appId}/access-grants`, {}, { snackbar: false })
       setAccessGrants(grants || [])
     } catch (error) {
       console.error('Failed to load access grants:', error)
@@ -832,7 +832,7 @@ export const useApp = (appId: string) => {
     try {
       setIsAppSaving(true)
       // Explicitly specify both the request and response types
-      const newGrant = await api.post<CreateAccessGrantRequest, IAccessGrant>(`/api/v1/apps/${appId}/access-grants`, request)
+      const newGrant = await api.post<CreateAccessGrantRequest, IAccessGrant>(`/api/v1/agents/${appId}/access-grants`, request)
       
       if (!newGrant) {
         return null
@@ -862,7 +862,7 @@ export const useApp = (appId: string) => {
     try {
       setIsAppSaving(true)
 
-      await api.delete(`/api/v1/apps/${appId}/access-grants/${grantId}`)
+      await api.delete(`/api/v1/agents/${appId}/access-grants/${grantId}`)
       
       // Refresh the list of access grants
       await loadAccessGrants()

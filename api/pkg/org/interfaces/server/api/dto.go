@@ -8,6 +8,8 @@
 package api
 
 import (
+	"encoding/json"
+
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -40,8 +42,9 @@ type ToolDTO struct {
 // report to several managers. A Bot's subscriptions are not on the bot —
 // they live as (bot, topic) rows.
 type BotDTO struct {
-	ID         string `json:"id"`
-	AgentAppID string `json:"agent_app_id,omitempty"`
+	ID            string `json:"id"`
+	AgentID       string `json:"agent_id,omitempty"`
+	LegacyAgentID string `json:"agent_app_id,omitempty"`
 	// Name is the human-readable display label; empty means the UI falls
 	// back to ID. Distinct from ID, which is the immutable handle.
 	Name           string   `json:"name,omitempty"`
@@ -76,32 +79,63 @@ type BotDTO struct {
 	UpdatedAt               string                        `json:"updated_at,omitempty"`
 }
 
-// BotChatDTO is the POST /bots/{id}/chat response. AgentAppID is the
+func (d BotDTO) MarshalJSON() ([]byte, error) {
+	type botDTO BotDTO
+	encoded := botDTO(d)
+	if encoded.AgentID == "" {
+		encoded.AgentID = encoded.LegacyAgentID
+	}
+	if encoded.LegacyAgentID == "" {
+		encoded.LegacyAgentID = encoded.AgentID
+	}
+	return json.Marshal(encoded)
+}
+
+func (d *BotDTO) UnmarshalJSON(data []byte) error {
+	type botDTO BotDTO
+	var decoded botDTO
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if decoded.AgentID == "" {
+		decoded.AgentID = decoded.LegacyAgentID
+	}
+	if decoded.LegacyAgentID == "" {
+		decoded.LegacyAgentID = decoded.AgentID
+	}
+	*d = BotDTO(decoded)
+	return nil
+}
+
+// BotChatDTO is the POST /bots/{id}/chat response. AgentID is the
 // per-Bot Helix agent app id and ProjectID is the Helix project that
 // owns it — the chart UI prefers ProjectID for the "chat via Human
 // Desktop" deep-link (/orgs/<org>/projects/<id>/desktop/<session>),
 // falling back to /agent/<agent_app_id> only when the project's
 // exploratory session can't be reached.
 type BotChatDTO struct {
-	AgentAppID string `json:"agent_app_id"`
-	ProjectID  string `json:"project_id,omitempty"`
+	AgentID       string `json:"agent_id"`
+	LegacyAgentID string `json:"agent_app_id"`
+	ProjectID     string `json:"project_id,omitempty"`
 }
 
 // BotActivateDTO is the POST /bots/{id}/activate response.
 type BotActivateDTO struct {
-	ActivationID string `json:"activation_id,omitempty"`
-	ProjectID    string `json:"project_id,omitempty"`
-	AgentAppID   string `json:"agent_app_id,omitempty"`
-	SessionID    string `json:"session_id,omitempty"`
+	ActivationID  string `json:"activation_id,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
+	AgentID       string `json:"agent_id,omitempty"`
+	LegacyAgentID string `json:"agent_app_id,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
 }
 
 // BotDetailDTO is the full GET /bots/{id} response — the Bot plus the
 // surrounding runtime context the UI's detail pane needs.
 type BotDetailDTO struct {
 	Bot BotDTO `json:"bot"`
-	// AgentAppID + ProjectID — see BotChatDTO comments.
-	AgentAppID string `json:"agent_app_id,omitempty"`
-	ProjectID  string `json:"project_id,omitempty"`
+	// AgentID + ProjectID — see BotChatDTO comments.
+	AgentID       string `json:"agent_id,omitempty"`
+	LegacyAgentID string `json:"agent_app_id,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
 }
 
 type AgentDetailDTO struct {

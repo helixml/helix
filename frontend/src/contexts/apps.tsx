@@ -186,7 +186,7 @@ export const useAppsContext = (): IAppsContext => {
 
     const organizationIdParam = account.organizationTools.organization?.id || ''
 
-    const result = await api.get<IApp[]>(`/api/v1/apps`, {
+    const result = await api.get<IApp[]>(`/api/v1/agents`, {
       params: {
         organization_id: organizationIdParam,
       }
@@ -199,7 +199,7 @@ export const useAppsContext = (): IAppsContext => {
 
   const loadApp = useCallback(async (id: string, showErrors: boolean = true) => {
     if(!id || !orgLoaded) return
-    const result = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
+    const result = await api.get<IApp>(`/api/v1/agents/${id}`, undefined, {
       snackbar: showErrors,
     })
     if(!result || !mountedRef.current) return
@@ -212,7 +212,7 @@ export const useAppsContext = (): IAppsContext => {
       // Use the model from params, or fall back to generation_model if not provided
       const effectiveModel = params.model || params.generationModel || '';
 
-      const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
+      const result = await api.post<Partial<IApp>, IApp>(`/api/v1/agents`, {
         organization_id: params.organizationId || account.organizationTools.organization?.id || '',
         config: {
           helix: {
@@ -284,7 +284,7 @@ export const useAppsContext = (): IAppsContext => {
 
   const updateApp = useCallback(async (id: string, updatedApp: IAppUpdate): Promise<IApp | undefined> => {
     try {
-      const url = `/api/v1/apps/${id}`;
+      const url = `/api/v1/agents/${id}`;
       console.log("useApps: Request URL:", url);
       const result = await api.put<IAppUpdate, IApp>(url, updatedApp, {}, {
         snackbar: true,
@@ -306,7 +306,7 @@ export const useAppsContext = (): IAppsContext => {
   }, [api, loadApps]);
 
   const deleteApp = useCallback(async (id: string): Promise<boolean | undefined> => {
-    await api.delete(`/api/v1/apps/${id}`, {}, {
+    await api.delete(`/api/v1/agents/${id}`, {}, {
       snackbar: true,
     })
     await loadApps()

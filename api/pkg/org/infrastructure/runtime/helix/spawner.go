@@ -291,16 +291,16 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		mandate := cfg.SpecsMandate
 		if mandate == "" {
 			instructions := bot.Content
-			if bot.AgentAppID != "" {
+			if bot.AgentID != "" {
 				if cfg.ProjectService == nil {
 					return errors.New("load canonical agent instructions: project service is nil")
 				}
-				appConfig, err := cfg.ProjectService.GetAppConfig(startupCtx, bot.AgentAppID)
+				appConfig, err := cfg.ProjectService.GetAppConfig(startupCtx, bot.AgentID)
 				if err != nil {
 					return fmt.Errorf("load canonical agent instructions: %w", err)
 				}
 				if len(appConfig.Helix.Assistants) != 1 {
-					return fmt.Errorf("linked agent app %s must contain exactly one assistant", bot.AgentAppID)
+					return fmt.Errorf("linked agent %s must contain exactly one assistant", bot.AgentID)
 				}
 				instructions = appConfig.Helix.Assistants[0].SystemPrompt
 			}
@@ -402,11 +402,11 @@ func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, work
 		}
 		return
 	}
-	if state.AgentAppID == "" {
+	if state.AgentID == "" {
 		return
 	}
-	if err := AttachHelixOrgMCP(ctx, c.ProjectService, state.AgentAppID, c.HelixOrgURL, workerID, c.MCPAuthBearer); err != nil && c.Logger != nil {
-		c.Logger.Warn("helix spawner: attach helix-org MCP", "worker", workerID, "app", state.AgentAppID, "err", err)
+	if err := AttachHelixOrgMCP(ctx, c.ProjectService, state.AgentID, c.HelixOrgURL, workerID, c.MCPAuthBearer); err != nil && c.Logger != nil {
+		c.Logger.Warn("helix spawner: attach helix-org MCP", "worker", workerID, "agent", state.AgentID, "err", err)
 	}
 }
 
@@ -511,7 +511,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 		// gets a 403 loading the worker's chat. The owner-chat bridge path
 		// sets this via EnsureAndSend too; the activation path must match.
 		OrganizationID: orgID,
-		AppID:          state.AgentAppID,
+		AppID:          state.AgentID,
 		AgentType:      AgentType,
 		Prompt:         prompt,
 	})

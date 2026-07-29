@@ -16,11 +16,11 @@ import (
 )
 
 // listAppAccessGrants godoc
-// @Summary List app access grants
-// @Description List access grants for an app (organization owners and members can list access grants)
-// @Tags    apps
+// @Summary List agent access grants
+// @Description List access grants for an agent (organization owners and members can list access grants)
+// @Tags    agents
 // @Success 200 {array} types.AccessGrant
-// @Router /api/v1/apps/{id}/access-grants [get]
+// @Router /api/v1/agents/{id}/access-grants [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listAppAccessGrants(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
@@ -80,10 +80,10 @@ func (apiServer *HelixAPIServer) listAppAccessGrants(rw http.ResponseWriter, r *
 // createAppAccessGrant godoc
 // @Summary Grant access to an agent to a team or organization member
 // @Description Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)
-// @Tags    apps
+// @Tags    agents
 // @Success 200 {object} types.AccessGrant
 // @Param request body types.CreateAccessGrantRequest true "Request body with team or organization member ID and role"
-// @Router /api/v1/apps/{id}/access-grants [post]
+// @Router /api/v1/agents/{id}/access-grants [post]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) createAppAccessGrant(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)

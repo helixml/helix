@@ -225,7 +225,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		ID:              p.ID,
 		Name:            p.Name,
 		Content:         p.Content,
-		AgentAppID:      agentAppID,
+		AgentID:         agentAppID,
 		Tools:           p.Tools,
 		PreserveContext: p.PreserveContext,
 	})
@@ -332,7 +332,7 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 		return err
 	}
 	for _, node := range all {
-		if node.IsHuman() || node.AgentAppID != "" {
+		if node.IsHuman() || node.AgentID != "" {
 			continue
 		}
 		name := node.Name
@@ -417,9 +417,9 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 		}
 	}
 
-	agentAppID := node.AgentAppID
+	agentAppID := node.AgentID
 	if agentAppID == "" {
-		agentAppID = state.AgentAppID
+		agentAppID = state.AgentID
 	}
 	if s.Helix != nil && agentAppID != "" {
 		if err := s.Helix.DeleteLinkedAgent(ctx, orgID, id, agentAppID); err != nil {

@@ -56,9 +56,9 @@ const NodeKindHuman NodeKind = "human"
 type Node struct {
 	ID             NodeID
 	OrganizationID string
-	// AgentAppID is the canonical Helix Agent App backing this org node.
+	// AgentID is the canonical Helix Agent backing this org node.
 	// It is required for nodes and empty for human placeholders.
-	AgentAppID string
+	AgentID string
 	// Name is the human-readable display label (e.g. "Chief of Staff").
 	// Free text, may be empty — the UI falls back to ID. Distinct from
 	// ID, which is the immutable handle.
@@ -126,9 +126,9 @@ func (n Node) WithName(name string) Node {
 	return n
 }
 
-// WithAgentAppID returns a copy of the Node linked to the canonical Agent App.
-func (n Node) WithAgentAppID(agentAppID string) Node {
-	n.AgentAppID = agentAppID
+// WithAgentID returns a copy of the Node linked to the canonical Agent.
+func (n Node) WithAgentID(agentID string) Node {
+	n.AgentID = agentID
 	return n
 }
 
