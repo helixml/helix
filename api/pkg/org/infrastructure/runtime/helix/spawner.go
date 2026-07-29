@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/transcript"
@@ -406,8 +407,13 @@ func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, work
 		return
 	}
 	if err := AttachHelixOrgMCP(ctx, c.ProjectService, state.AgentID, c.HelixOrgURL, workerID, c.MCPAuthBearer); err != nil && c.Logger != nil {
-		c.Logger.Warn("helix spawner: attach helix-org MCP", "worker", workerID, "agent", state.AgentID, "err", err)
+		c.Logger.Warn("helix spawner: attach helix-org MCP", "worker", workerID, "agent", state.AgentID, "err", sanitizeLogValue(err.Error()))
 	}
+}
+
+func sanitizeLogValue(value string) string {
+	value = strings.ReplaceAll(value, "\n", "")
+	return strings.ReplaceAll(value, "\r", "")
 }
 
 // ensureSession dispatches the activation prompt to the Worker's
