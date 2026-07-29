@@ -52,4 +52,4 @@
 
 - [x] `go build ./...`, `go vet`, affected package tests, `promtool test rules` — all pass
 - [x] PR description written (`pull_request_helix.md`); branch pushed. Open the PR against `https://github.com/helixml/helix` referencing this incident and `design/2026-07-08-we-find-ai-custom-domain-prod-cutover.md`, with full URLs and the operator actions needed (runner compose `stop_grace_period`, rules install, `HELIX_METRICS_LISTEN`)
-- [~] Check CI yourself and drive it green
+- [x] CI green — Drone build #3149 SUCCESS, all 19 steps incl. the new `prometheus-rules-test`

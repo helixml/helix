@@ -435,6 +435,40 @@ volume under `/data`, with dirty buffers written after the last checkpoint, then
 The OLD column is the we-find.ai failure mode reproduced on demand; the NEW column is the same
 scenario after the change.
 
+## Late finding: the customer-truth metric had a hole
+
+Verifying `helix_webservice_upstream_errors_total` live caught a real bug in my own change.
+The counter was only in `proxy.ErrorHandler` (`vhost_proxy.go`), but
+`dispatchProjectWebService` (`vhost_middleware.go`) has **four earlier exits** that fail a
+customer request without ever constructing the reverse proxy:
+
+- web-service state not found → 503
+- state disabled → 503
+- no active sandbox → 503
+- **active sandbox row missing → 502**
+
+The last one matters most: "active sandbox row is gone" is *case 1* of `RecoverWebService`'s own
+escalation ladder, i.e. a real outage shape. A metric whose entire justification is "cannot be
+masked by a bug in the platform's health state machine" must count every way a request fails, not
+just the proxy path. All four now call `RecordUpstreamError`.
+
+This is also why the first live test showed `HTTP 502` and no counter movement — the requests were
+never reaching the code I had instrumented. Worth remembering: a metric that looks right in unit
+tests can still be wired to the wrong branch.
+
+Also discovered while testing: the vhost middleware is inert unless `DEV_SUBDOMAIN` is set
+(`parseVHostConfig` only sets `Enabled` when it derives a `BaseDomain`). Without it every Host
+header falls through to the main mux and returns 200 from the frontend, which looks like the proxy
+working when it is not being exercised at all.
+
+Verified after the fix (inner Helix, live):
+
+```
+3 requests, sandbox row absent      -> HTTP 502, counter 0 -> 3   (early-exit path)
+2 requests, sandbox row unreachable -> HTTP 503, counter 3 -> 5   (ErrorHandler path)
+                                       + branded "Temporarily unavailable" holding page
+```
+
 ## NOT tested
 
 Stated explicitly per repo `CLAUDE.md`:
@@ -445,6 +479,8 @@ Stated explicitly per repo `CLAUDE.md`:
 - **The admin-email arm of the alert.** Only the Slack arm was exercised; SMTP is not configured
   in the inner Helix. The email path shares `AdminAlerter`'s existing, already-used template
   machinery.
+  (`helix_webservice_upstream_errors_total` was originally listed here — it has since been
+  verified live on both code paths; see "Late finding" above.)
 - **`DrainNestedContainers` against a real runner-backed web-service sandbox.** The drain *script*
   and the layered SIGKILL failure mode were proven in the faithful harness above, and the Go
   wiring (drain issued, before teardown, skipped for ephemeral sandboxes, non-fatal on failure) is
