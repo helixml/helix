@@ -57,15 +57,15 @@ func (t *SetBotContent) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 	if err != nil {
 		return nil, fmt.Errorf("get bot: %w", err)
 	}
-	if existing.AgentAppID != "" && t.deps.AgentContentUpdater == nil {
+	if existing.AgentID != "" && t.deps.AgentContentUpdater == nil {
 		return nil, fmt.Errorf("update linked agent content: updater is not wired")
 	}
 	updated, err := t.deps.Nodes.Update(ctx, orgID, botID, nodes.UpdateParams{Content: &args.Content})
 	if err != nil {
 		return nil, fmt.Errorf("set bot content: %w", err)
 	}
-	if updated.AgentAppID != "" {
-		if err := t.deps.AgentContentUpdater.UpdateAgentContent(ctx, updated.AgentAppID, args.Content); err != nil {
+	if updated.AgentID != "" {
+		if err := t.deps.AgentContentUpdater.UpdateAgentContent(ctx, updated.AgentID, args.Content); err != nil {
 			_, rollbackErr := t.deps.Nodes.Update(ctx, orgID, botID, nodes.UpdateParams{Content: &existing.Content})
 			if rollbackErr != nil {
 				return nil, fmt.Errorf("update linked agent content: %v; rollback bot content: %w", err, rollbackErr)

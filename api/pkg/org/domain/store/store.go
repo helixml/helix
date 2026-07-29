@@ -1,5 +1,5 @@
 // Package store defines the persistence contracts for the org-graph
-// subsystem (bots, topics, events,
+// subsystem (nodes, topics, events,
 // subscriptions, activations, configs). The concrete
 // implementation lives in the sibling gorm sub-package — dialect-
 // portable GORM, wired against helix's Postgres connection.
@@ -35,28 +35,28 @@ var ErrConflict = errors.New("already exists")
 // tenants. ErrNotFound is returned when the (orgID, id) pair doesn't
 // exist — even if the bare id exists under another org.
 
-// Nodes persists the org's bots — the single org-chart aggregate (the
-// merge of the former Role and Worker). A Bot carries its own content
+// Nodes persists the org's nodes - the single org-chart aggregate (the
+// merge of the former Role and Worker). A Node carries its own content
 // and tool list (its capability) and is the live participant in the
 // reporting graph. Update replaces the mutable fields (content, tools,
 // topics) wholesale.
 //
-// Delete removes the bot row and structurally cascades the rows that
-// reference it: its subscriptions (bot-anchored) and every reporting
+// Delete removes the node row and structurally cascades the rows that
+// reference it: its subscriptions (node-anchored) and every reporting
 // line where it is the manager or the report. See the gorm and memory
 // implementations.
 type Nodes interface {
-	Create(ctx context.Context, bot orgchart.Node) error
+	Create(ctx context.Context, node orgchart.Node) error
 	Get(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error)
 	List(ctx context.Context, orgID string) ([]orgchart.Node, error)
-	Update(ctx context.Context, bot orgchart.Node) error
+	Update(ctx context.Context, node orgchart.Node) error
 	ClaimAgentApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string) (bool, error)
 	Delete(ctx context.Context, orgID string, id orgchart.NodeID) error
 }
 
 // ReportingLines persists the org's many-to-many reporting graph:
-// each row says ReportID reports to ManagerID. Bot-anchored on both
-// ends — deleting either endpoint Bot drops the line (the gorm store
+// each row says ReportID reports to ManagerID. Node-anchored on both
+// ends - deleting either endpoint Node drops the line (the gorm store
 // enforces this with ON DELETE CASCADE foreign keys; the memory store
 // mirrors it). The graph is a DAG; cycle prevention lives in the
 // add-parent handler, not here.
@@ -76,8 +76,8 @@ type ReportingLines interface {
 }
 
 // NodeRuntimeState is a sidecar key/value store keyed by
-// (orgID, botID, backend). Runtime backends (the Helix integration
-// today, future local containers, etc.) write whatever per-Bot
+// (orgID, nodeID, backend). Runtime backends (the Helix integration
+// today, future local containers, etc.) write whatever per-Node
 // pointers they need — Helix uses keys like "session_id", "project_id",
 // "agent_app_id", "repo_id" — without forcing the domain to grow a
 // field every time.
@@ -85,10 +85,10 @@ type ReportingLines interface {
 // The "backend" component is a free-form string the runtime owns
 // (e.g. "helix"); helix-org core never reads or writes it.
 type NodeRuntimeState interface {
-	Get(ctx context.Context, orgID string, botID orgchart.NodeID, backend string) (map[string]string, error)
-	Set(ctx context.Context, orgID string, botID orgchart.NodeID, backend, key, value string) error
-	SetMany(ctx context.Context, orgID string, botID orgchart.NodeID, backend string, kv map[string]string) error
-	Clear(ctx context.Context, orgID string, botID orgchart.NodeID, backend string) error
+	Get(ctx context.Context, orgID string, nodeID orgchart.NodeID, backend string) (map[string]string, error)
+	Set(ctx context.Context, orgID string, nodeID orgchart.NodeID, backend, key, value string) error
+	SetMany(ctx context.Context, orgID string, nodeID orgchart.NodeID, backend string, kv map[string]string) error
+	Clear(ctx context.Context, orgID string, nodeID orgchart.NodeID, backend string) error
 }
 
 // Topics persists named event sources. Topics are created explicitly

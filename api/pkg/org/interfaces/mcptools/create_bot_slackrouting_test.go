@@ -61,12 +61,12 @@ func TestCreateBotRunsInjectedOrgReconcilers(t *testing.T) {
 	})
 	spy := &spyOrgReconciler{}
 	deps.Lifecycle = &lifecycle.Service{
-		Store:          st,
-		Nodes:          botSvc,
-		BotReconcilers: []lifecycle.BotReconciler{rec},
-		OrgReconcilers: []lifecycle.OrgReconciler{spy},
-		Now:            deps.Now,
-		NewID:          deps.NewID,
+		Store:           st,
+		Nodes:           botSvc,
+		NodeReconcilers: []lifecycle.NodeReconciler{rec},
+		OrgReconcilers:  []lifecycle.OrgReconciler{spy},
+		Now:             deps.Now,
+		NewID:           deps.NewID,
 	}
 
 	tl := &CreateBot{deps: deps.Build()}

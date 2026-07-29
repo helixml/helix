@@ -94,7 +94,7 @@ func (b losingClaimBots) ClaimAgentApp(ctx context.Context, orgID string, id org
 	if err != nil {
 		return false, err
 	}
-	if err := b.Nodes.Update(ctx, current.WithAgentAppID(b.winner)); err != nil {
+	if err := b.Nodes.Update(ctx, current.WithAgentID(b.winner)); err != nil {
 		return false, err
 	}
 	return false, nil
@@ -131,8 +131,8 @@ func TestReconcileAgentLinksPreservesReplicaWinner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AgentAppID != "app-winner" {
-		t.Fatalf("winner = %q", got.AgentAppID)
+	if got.AgentID != "app-winner" {
+		t.Fatalf("winner = %q", got.AgentID)
 	}
 	if len(runtime.deletedApps) != 1 || runtime.deletedApps[0] != "app-loser" {
 		t.Fatalf("discarded apps = %v", runtime.deletedApps)
@@ -185,7 +185,7 @@ func TestDeleteFailuresPreserveGraphAnchorAndRetry(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			bot = bot.WithAgentAppID("app-agent")
+			bot = bot.WithAgentID("app-agent")
 			if err := st.Nodes.Create(ctx, bot); err != nil {
 				t.Fatal(err)
 			}
@@ -202,14 +202,14 @@ func TestDeleteFailuresPreserveGraphAnchorAndRetry(t *testing.T) {
 			if err != nil {
 				t.Fatalf("graph anchor removed: %v", err)
 			}
-			if got.AgentAppID != "app-agent" {
-				t.Fatalf("graph link = %q", got.AgentAppID)
+			if got.AgentID != "app-agent" {
+				t.Fatalf("graph link = %q", got.AgentID)
 			}
 			state, err := runtimehelix.LoadState(ctx, st, "org-test", bot.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if state.ProjectID != "project-agent" || state.AgentAppID != "app-agent" {
+			if state.ProjectID != "project-agent" || state.AgentID != "app-agent" {
 				t.Fatalf("runtime state changed: %+v", state)
 			}
 
@@ -218,7 +218,7 @@ func TestDeleteFailuresPreserveGraphAnchorAndRetry(t *testing.T) {
 			if err := svc.Delete(ctx, "org-test", bot.ID); err != nil {
 				t.Fatalf("retry delete: %v", err)
 			}
-			recreated := bot.WithAgentAppID("app-recreated")
+			recreated := bot.WithAgentID("app-recreated")
 			if err := st.Nodes.Create(ctx, recreated); err != nil {
 				t.Fatalf("recreate after delete: %v", err)
 			}
@@ -267,10 +267,10 @@ func TestCreateRollbackIgnoresCancelledRequestContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	runtime := &lifecycleRuntime{store: st}
 	svc := &lifecycle.Service{
-		Store:          st,
-		Helix:          runtime,
-		Agents:         fixedAgentCreator{id: "app-cleanup"},
-		BotReconcilers: []lifecycle.BotReconciler{cancellingReconciler{cancel: cancel}},
+		Store:           st,
+		Helix:           runtime,
+		Agents:          fixedAgentCreator{id: "app-cleanup"},
+		NodeReconcilers: []lifecycle.NodeReconciler{cancellingReconciler{cancel: cancel}},
 		Nodes: nodes.New(nodes.Deps{
 			Nodes: st.Nodes,
 			Now:   func() time.Time { return time.Now().UTC() },

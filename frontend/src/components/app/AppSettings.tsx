@@ -299,7 +299,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const { data: ownerClaudeStatus } = useQuery({
     queryKey: ['app-claude-subscription-status', id],
     queryFn: async () => {
-      const response = await apiHookForClaude.getApiClient().v1AppsClaudeSubscriptionStatusDetail(id)
+      const response = await apiHookForClaude.getApiClient().v1AgentsClaudeSubscriptionStatusDetail(id)
       return response.data
     },
     // Only meaningful for a saved Claude Code agent in subscription mode.

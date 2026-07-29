@@ -63,7 +63,7 @@ const App: FC = () => {
   useEffect(() => {
     const checkAccess = async () => {
       try {
-        const result = await api.getApiClient().v1AppsDetail(params.app_id)        
+        const result = await api.getApiClient().v1AgentsDetail(params.app_id)
         if (!result) {
           setIsAccessDenied(true)
         }

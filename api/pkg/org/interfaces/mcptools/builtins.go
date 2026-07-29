@@ -290,13 +290,13 @@ func (c Config) lifecycleService() *lifecycle.Service {
 		return c.Lifecycle
 	}
 	svc := &lifecycle.Service{
-		Store:          c.Store,
-		Nodes:          c.botsService(),
-		Subscriber:     c.subscriptionsService(),
-		BotReconcilers: []lifecycle.BotReconciler{c.Reconciler},
-		HireHook:       c.HireHook,
-		Now:            c.Now,
-		NewID:          c.NewID,
+		Store:           c.Store,
+		Nodes:           c.botsService(),
+		Subscriber:      c.subscriptionsService(),
+		NodeReconcilers: []lifecycle.NodeReconciler{c.Reconciler},
+		HireHook:        c.HireHook,
+		Now:             c.Now,
+		NewID:           c.NewID,
 	}
 	// c.Dispatcher (EventDispatcher) satisfies lifecycle.CreateDispatcher
 	// (DispatchHire); guard the typed-nil-in-interface case.

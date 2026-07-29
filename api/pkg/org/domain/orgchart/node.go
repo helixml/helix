@@ -56,9 +56,9 @@ const NodeKindHuman NodeKind = "human"
 type Node struct {
 	ID             NodeID
 	OrganizationID string
-	// AgentAppID is the canonical Helix Agent App backing this org node.
+	// AgentID is the canonical Helix Agent backing this org node.
 	// It is required for nodes and empty for human placeholders.
-	AgentAppID string
+	AgentID string
 	// Name is the human-readable display label (e.g. "Chief of Staff").
 	// Free text, may be empty — the UI falls back to ID. Distinct from
 	// ID, which is the immutable handle.
@@ -101,13 +101,13 @@ func NewNode(id NodeID, content string, tools []tool.Name, now time.Time, orgID 
 		return Node{}, err
 	}
 	if content == "" {
-		return Node{}, errors.New("bot content is empty")
+		return Node{}, errors.New("node content is empty")
 	}
 	if now.IsZero() {
-		return Node{}, errors.New("bot timestamp is zero")
+		return Node{}, errors.New("node timestamp is zero")
 	}
 	if orgID == "" {
-		return Node{}, errors.New("bot orgID is empty")
+		return Node{}, errors.New("node orgID is empty")
 	}
 	return Node{
 		ID:             id,
@@ -121,68 +121,68 @@ func NewNode(id NodeID, content string, tools []tool.Name, now time.Time, orgID 
 
 // WithName returns a copy of the Node with Name (the display label)
 // replaced.
-func (b Node) WithName(name string) Node {
-	b.Name = name
-	return b
+func (n Node) WithName(name string) Node {
+	n.Name = name
+	return n
 }
 
-// WithAgentAppID returns a copy of the Node linked to the canonical Agent App.
-func (b Node) WithAgentAppID(agentAppID string) Node {
-	b.AgentAppID = agentAppID
-	return b
+// WithAgentID returns a copy of the Node linked to the canonical Agent.
+func (n Node) WithAgentID(agentID string) Node {
+	n.AgentID = agentID
+	return n
 }
 
 // WithContent returns a copy of the Node with Content replaced. The
 // With* builders are the supported way to mutate a Node outside the
 // domain package (immutability + tell-don't-ask) — the application
 // service composes them instead of poking exported fields in a handler.
-func (b Node) WithContent(content string) Node {
-	b.Content = content
-	return b
+func (n Node) WithContent(content string) Node {
+	n.Content = content
+	return n
 }
 
 // WithTools returns a copy of the Node with Tools replaced.
-func (b Node) WithTools(tools []tool.Name) Node {
-	b.Tools = tools
-	return b
+func (n Node) WithTools(tools []tool.Name) Node {
+	n.Tools = tools
+	return n
 }
 
 // WithProjectIDs returns a copy of the Node with its project allowlist replaced.
-func (b Node) WithProjectIDs(projectIDs []string) Node {
-	b.ProjectIDs = projectIDs
-	return b
+func (n Node) WithProjectIDs(projectIDs []string) Node {
+	n.ProjectIDs = projectIDs
+	return n
 }
 
 // WithUpdatedAt returns a copy of the Node with UpdatedAt replaced.
-func (b Node) WithUpdatedAt(t time.Time) Node {
-	b.UpdatedAt = t
-	return b
+func (n Node) WithUpdatedAt(t time.Time) Node {
+	n.UpdatedAt = t
+	return n
 }
 
 // WithPreserveContext returns a copy of the Node with PreserveContext
 // replaced.
-func (b Node) WithPreserveContext(preserve bool) Node {
-	b.PreserveContext = preserve
-	return b
+func (n Node) WithPreserveContext(preserve bool) Node {
+	n.PreserveContext = preserve
+	return n
 }
 
 // WithKind returns a copy of the Node with Kind replaced.
-func (b Node) WithKind(kind NodeKind) Node {
-	b.Kind = kind
-	return b
+func (n Node) WithKind(kind NodeKind) Node {
+	n.Kind = kind
+	return n
 }
 
 // WithHelixUserID returns a copy of the Node with HelixUserID replaced.
-func (b Node) WithHelixUserID(userID string) Node {
-	b.HelixUserID = userID
-	return b
+func (n Node) WithHelixUserID(userID string) Node {
+	n.HelixUserID = userID
+	return n
 }
 
 // WithIdentity returns a copy of the Node with Identity replaced.
-func (b Node) WithIdentity(identity map[string]string) Node {
-	b.Identity = identity
-	return b
+func (n Node) WithIdentity(identity map[string]string) Node {
+	n.Identity = identity
+	return n
 }
 
 // IsHuman reports whether this Node is a human placeholder.
-func (b Node) IsHuman() bool { return b.Kind == NodeKindHuman }
+func (n Node) IsHuman() bool { return n.Kind == NodeKindHuman }

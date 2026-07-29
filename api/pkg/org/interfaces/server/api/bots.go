@@ -140,7 +140,7 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, CreateBotResponse{ID: string(res.Bot.ID), ActivationID: string(res.ActivationID)})
+	writeJSON(w, http.StatusCreated, CreateBotResponse{ID: string(res.Node.ID), ActivationID: string(res.ActivationID)})
 }
 
 // getBot returns one Bot + the surrounding runtime context.
@@ -185,11 +185,11 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	// presence control on the bot detail page.
 	if a.deps.BotRuntime != nil {
 		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
-			agentAppID := b.AgentAppID
-			if agentAppID == "" {
-				agentAppID = info.AgentAppID
+			agentID := b.AgentID
+			if agentID == "" {
+				agentID = info.AgentID
 			}
-			detail := BotDetailDTO{Bot: dto, AgentAppID: agentAppID, ProjectID: info.ProjectID}
+			detail := BotDetailDTO{Bot: dto, AgentID: agentID, LegacyAgentID: agentID, ProjectID: info.ProjectID}
 			if info.AgentStatus != "" {
 				detail.Bot.AgentStatus = info.AgentStatus
 			}
@@ -206,7 +206,7 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.URL.Path, "/agents/") {
 		writeJSON(w, http.StatusOK, AgentDetailDTO{BotDTO: dto})
 	} else {
-		writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto, AgentAppID: b.AgentAppID})
+		writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto, AgentID: b.AgentID, LegacyAgentID: b.AgentID})
 	}
 }
 
@@ -293,7 +293,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	canonicalChange := !configPatch.Empty() || namePatch != nil || contentPatch != nil
-	if !existing.IsHuman() && existing.AgentAppID != "" && canonicalChange && a.deps.AgentUpdater == nil {
+	if !existing.IsHuman() && existing.AgentID != "" && canonicalChange && a.deps.AgentUpdater == nil {
 		writeError(w, http.StatusServiceUnavailable, errors.New("canonical agent updater is not available"))
 		return
 	}
@@ -309,8 +309,8 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
 		return
 	}
-	if !updated.IsHuman() && updated.AgentAppID != "" && canonicalChange {
-		if err := a.deps.AgentUpdater.UpdateAgent(ctx, updated.AgentAppID, configPatch, namePatch, contentPatch); err != nil {
+	if !updated.IsHuman() && updated.AgentID != "" && canonicalChange {
+		if err := a.deps.AgentUpdater.UpdateAgent(ctx, updated.AgentID, configPatch, namePatch, contentPatch); err != nil {
 			tools := append([]tool.Name(nil), existing.Tools...)
 			projectIDs := append([]string(nil), existing.ProjectIDs...)
 			identity := make(map[string]string, len(existing.Identity))
@@ -518,7 +518,7 @@ func (a *apiHandler) ensureBotChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("ensure bot chat: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, BotChatDTO{AgentAppID: agentAppID, ProjectID: projectID})
+	writeJSON(w, http.StatusOK, BotChatDTO{AgentID: agentAppID, LegacyAgentID: agentAppID, ProjectID: projectID})
 }
 
 // activateBot manually triggers an activation for a Bot. The bot
@@ -570,10 +570,11 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, BotActivateDTO{
-		ActivationID: string(res.ActivationID),
-		ProjectID:    res.ProjectID,
-		AgentAppID:   res.AgentAppID,
-		SessionID:    res.SessionID,
+		ActivationID:  string(res.ActivationID),
+		ProjectID:     res.ProjectID,
+		AgentID:       res.AgentID,
+		LegacyAgentID: res.AgentID,
+		SessionID:     res.SessionID,
 	})
 }
 
@@ -664,10 +665,11 @@ func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, BotActivateDTO{
-		ActivationID: string(res.ActivationID),
-		ProjectID:    res.ProjectID,
-		AgentAppID:   res.AgentAppID,
-		SessionID:    res.SessionID,
+		ActivationID:  string(res.ActivationID),
+		ProjectID:     res.ProjectID,
+		AgentID:       res.AgentID,
+		LegacyAgentID: res.AgentID,
+		SessionID:     res.SessionID,
 	})
 }
 
@@ -698,7 +700,8 @@ func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.N
 func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 	dto := BotDTO{
 		ID:              string(b.ID),
-		AgentAppID:      b.AgentAppID,
+		AgentID:         b.AgentID,
+		LegacyAgentID:   b.AgentID,
 		Name:            b.Name,
 		Content:         b.Content,
 		ProjectIDs:      b.ProjectIDs,
@@ -725,12 +728,12 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 }
 
 func (a *apiHandler) canonicalAgentProfile(ctx context.Context, bot orgchart.Node, dto *BotDTO) error {
-	if dto == nil || bot.IsHuman() || bot.AgentAppID == "" || a.deps.AgentReader == nil {
+	if dto == nil || bot.IsHuman() || bot.AgentID == "" || a.deps.AgentReader == nil {
 		return nil
 	}
-	profile, err := a.deps.AgentReader.ReadAgent(ctx, bot.AgentAppID)
+	profile, err := a.deps.AgentReader.ReadAgent(ctx, bot.AgentID)
 	if err != nil {
-		return fmt.Errorf("read canonical agent %s for bot %s: %w", bot.AgentAppID, bot.ID, err)
+		return fmt.Errorf("read canonical agent %s for bot %s: %w", bot.AgentID, bot.ID, err)
 	}
 	dto.Name = profile.Name
 	dto.Content = profile.Instructions

@@ -559,7 +559,7 @@ export default function Onboarding() {
 
     api
       .get<IApp[]>(
-        "/api/v1/apps",
+        "/api/v1/agents",
         {
           params: { organization_id: createdOrg.id },
         },
@@ -847,7 +847,7 @@ export default function Onboarding() {
 
         // Update the agent with resolution config
         try {
-          await apiClient.v1AppsUpdate(agentId, {
+          await apiClient.v1AgentsUpdate(agentId, {
             ...createdAgent,
             config: {
               ...createdAgent.config,

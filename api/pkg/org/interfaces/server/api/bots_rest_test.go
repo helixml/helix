@@ -75,7 +75,7 @@ func TestRESTAgentResourceIsFlat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bot = bot.WithAgentAppID("app-agent")
+	bot = bot.WithAgentID("app-agent")
 	if err := st.Nodes.Create(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestRESTAgentListKeepsOtherAgentsWhenOneLinkedAppIsInvalid(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := st.Nodes.Create(ctx, bot.WithAgentAppID(fixture.appID)); err != nil {
+		if err := st.Nodes.Create(ctx, bot.WithAgentID(fixture.appID)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -167,7 +167,7 @@ func TestRESTAgentListReportsOperationalAgentReadFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Nodes.Create(ctx, bot.WithAgentAppID("app-agent")); err != nil {
+	if err := st.Nodes.Create(ctx, bot.WithAgentID("app-agent")); err != nil {
 		t.Fatal(err)
 	}
 	deps.AgentReader = failingAgentReader{}
@@ -250,7 +250,7 @@ func TestRESTUpdateAgentRollsBackOrgProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bot = bot.WithAgentAppID("app-agent").
+	bot = bot.WithAgentID("app-agent").
 		WithName("Old name").
 		WithProjectIDs([]string{"prj-old"}).
 		WithPreserveContext(true).
@@ -292,7 +292,7 @@ func TestRESTUpdateLinkedAgentRequiresUpdaterBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bot = bot.WithAgentAppID("app-agent").WithName("Old name")
+	bot = bot.WithAgentID("app-agent").WithName("Old name")
 	if err := st.Nodes.Create(ctx, bot); err != nil {
 		t.Fatal(err)
 	}

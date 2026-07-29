@@ -8,6 +8,8 @@ definitions:
     properties:
       agent_app_id:
         type: string
+      agent_id:
+        type: string
       agent_model:
         type: string
       agent_runtime:
@@ -83,6 +85,8 @@ definitions:
         type: string
       agent_app_id:
         type: string
+      agent_id:
+        type: string
       project_id:
         type: string
       session_id:
@@ -97,12 +101,16 @@ definitions:
     properties:
       agent_app_id:
         type: string
+      agent_id:
+        type: string
       project_id:
         type: string
     type: object
   api.BotDTO:
     properties:
       agent_app_id:
+        type: string
+      agent_id:
         type: string
       agent_model:
         type: string
@@ -174,7 +182,9 @@ definitions:
   api.BotDetailDTO:
     properties:
       agent_app_id:
-        description: AgentAppID + ProjectID — see BotChatDTO comments.
+        type: string
+      agent_id:
+        description: AgentID + ProjectID — see BotChatDTO comments.
         type: string
       bot:
         $ref: '#/definitions/api.BotDTO'
@@ -233,7 +243,7 @@ definitions:
           Owner makes this a manager Bot: it receives the canonical owner
           tool set (every org-graph mutation - create_bot, delete_bot,
           set_bot_content, subscribe, ... - plus the read baseline) so it can
-          hire and manage other Bots. When true, Tools is ignored in favour
+          hire and manage other Nodes. When true, Tools is ignored in favour
           of that set. Used to seed a starter/root Bot for a new org.
         type: boolean
       parent_id:
@@ -1613,6 +1623,42 @@ definitions:
       status:
         type: string
     type: object
+  server.AgentCreateResponse:
+    properties:
+      config:
+        $ref: '#/definitions/types.AgentConfig'
+      created:
+        type: string
+      global:
+        type: boolean
+      id:
+        type: string
+      is_helix_org_agent:
+        description: |-
+          IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
+          (see api/pkg/org). Computed at list time, not persisted, so the frontend
+          can hide org-chart agents from the spec-task agent switchers.
+        type: boolean
+      model_substitutions:
+        items:
+          $ref: '#/definitions/server.ModelSubstitution'
+        type: array
+      organization_id:
+        type: string
+      owner:
+        description: uuid of user ID
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: e.g. user, system, org
+      updated:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Owner user struct, populated by the server for organization views
+    type: object
   server.AgentSandboxesDebugResponse:
     properties:
       dev_containers:
@@ -1656,42 +1702,6 @@ definitions:
       valid:
         description: that subscription passed its last liveness probe
         type: boolean
-    type: object
-  server.AppCreateResponse:
-    properties:
-      config:
-        $ref: '#/definitions/types.AppConfig'
-      created:
-        type: string
-      global:
-        type: boolean
-      id:
-        type: string
-      is_helix_org_agent:
-        description: |-
-          IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
-          (see api/pkg/org). Computed at list time, not persisted, so the frontend
-          can hide org-chart agents from the spec-task agent switchers.
-        type: boolean
-      model_substitutions:
-        items:
-          $ref: '#/definitions/server.ModelSubstitution'
-        type: array
-      organization_id:
-        type: string
-      owner:
-        description: uuid of user ID
-        type: string
-      owner_type:
-        allOf:
-        - $ref: '#/definitions/types.OwnerType'
-        description: e.g. user, system, org
-      updated:
-        type: string
-      user:
-        allOf:
-        - $ref: '#/definitions/types.User'
-        description: Owner user struct, populated by the server for organization views
     type: object
   server.BatchTaskProgressResponse:
     properties:
@@ -3371,6 +3381,82 @@ definitions:
       name:
         type: string
     type: object
+  types.Agent:
+    properties:
+      config:
+        $ref: '#/definitions/types.AgentConfig'
+      created:
+        type: string
+      global:
+        type: boolean
+      id:
+        type: string
+      is_helix_org_agent:
+        description: |-
+          IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
+          (see api/pkg/org). Computed at list time, not persisted, so the frontend
+          can hide org-chart agents from the spec-task agent switchers.
+        type: boolean
+      organization_id:
+        type: string
+      owner:
+        description: uuid of user ID
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: e.g. user, system, org
+      updated:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Owner user struct, populated by the server for organization views
+    type: object
+  types.AgentConfig:
+    properties:
+      allowed_domains:
+        items:
+          type: string
+        type: array
+      helix:
+        $ref: '#/definitions/types.AgentHelixConfig'
+      secrets:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  types.AgentHelixConfig:
+    properties:
+      assistants:
+        items:
+          $ref: '#/definitions/types.AssistantConfig'
+        type: array
+      avatar:
+        type: string
+      avatar_content_type:
+        type: string
+      default_agent_type:
+        allOf:
+        - $ref: '#/definitions/types.AgentType'
+        description: Agent configuration
+      description:
+        type: string
+      external_agent_config:
+        $ref: '#/definitions/types.ExternalAgentConfig'
+      external_agent_enabled:
+        type: boolean
+      external_url:
+        type: string
+      image:
+        type: string
+      name:
+        type: string
+      triggers:
+        items:
+          $ref: '#/definitions/types.Trigger'
+        type: array
+    type: object
   types.AgentType:
     enum:
     - helix_basic
@@ -3464,82 +3550,6 @@ definitions:
         type: string
       type:
         $ref: '#/definitions/types.APIKeyType'
-    type: object
-  types.App:
-    properties:
-      config:
-        $ref: '#/definitions/types.AppConfig'
-      created:
-        type: string
-      global:
-        type: boolean
-      id:
-        type: string
-      is_helix_org_agent:
-        description: |-
-          IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
-          (see api/pkg/org). Computed at list time, not persisted, so the frontend
-          can hide org-chart agents from the spec-task agent switchers.
-        type: boolean
-      organization_id:
-        type: string
-      owner:
-        description: uuid of user ID
-        type: string
-      owner_type:
-        allOf:
-        - $ref: '#/definitions/types.OwnerType'
-        description: e.g. user, system, org
-      updated:
-        type: string
-      user:
-        allOf:
-        - $ref: '#/definitions/types.User'
-        description: Owner user struct, populated by the server for organization views
-    type: object
-  types.AppConfig:
-    properties:
-      allowed_domains:
-        items:
-          type: string
-        type: array
-      helix:
-        $ref: '#/definitions/types.AppHelixConfig'
-      secrets:
-        additionalProperties:
-          type: string
-        type: object
-    type: object
-  types.AppHelixConfig:
-    properties:
-      assistants:
-        items:
-          $ref: '#/definitions/types.AssistantConfig'
-        type: array
-      avatar:
-        type: string
-      avatar_content_type:
-        type: string
-      default_agent_type:
-        allOf:
-        - $ref: '#/definitions/types.AgentType'
-        description: Agent configuration
-      description:
-        type: string
-      external_agent_config:
-        $ref: '#/definitions/types.ExternalAgentConfig'
-      external_agent_enabled:
-        type: boolean
-      external_url:
-        type: string
-      image:
-        type: string
-      name:
-        type: string
-      triggers:
-        items:
-          $ref: '#/definitions/types.Trigger'
-        type: array
     type: object
   types.AssistantAPI:
     properties:
@@ -5275,7 +5285,7 @@ definitions:
   types.EvaluationRun:
     properties:
       app_config_snapshot:
-        $ref: '#/definitions/types.AppConfig'
+        $ref: '#/definitions/types.AgentConfig'
       app_id:
         type: string
       created:
@@ -13097,6 +13107,934 @@ paths:
       summary: Activate a trial for a user (Admin, cloud only)
       tags:
       - users
+  /api/v1/agents:
+    get:
+      description: List agents for the user. Agents are pre-configured to spawn sessions
+        with specific tools and config.
+      parameters:
+      - description: Organization ID
+        in: query
+        name: organization_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Agent'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List agents
+      tags:
+      - agents
+    post:
+      parameters:
+      - description: Request body with agent configuration. Can be legacy Agent format
+          or structured format with organization_id, global, and yaml_config fields.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Agent'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AgentCreateResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/agents/{agent_id}/evaluation-runs/{run_id}:
+    delete:
+      description: Delete an evaluation run
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      - description: Run ID
+        in: path
+        name: run_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete an evaluation run
+      tags:
+      - evaluations
+    get:
+      description: Get evaluation run details
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      - description: Run ID
+        in: path
+        name: run_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.EvaluationRun'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get an evaluation run
+      tags:
+      - evaluations
+  /api/v1/agents/{agent_id}/evaluation-suites:
+    get:
+      description: List all evaluation suites for an agent
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.EvaluationSuite'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List evaluation suites for an agent
+      tags:
+      - evaluations
+    post:
+      consumes:
+      - application/json
+      description: Create a new evaluation suite for an agent
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      - description: Evaluation suite to create
+        in: body
+        name: suite
+        required: true
+        schema:
+          $ref: '#/definitions/types.EvaluationSuite'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.EvaluationSuite'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create an evaluation suite
+      tags:
+      - evaluations
+  /api/v1/agents/{agent_id}/evaluation-suites/{id}:
+    delete:
+      description: Delete an evaluation suite
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      - description: Suite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete an evaluation suite
+      tags:
+      - evaluations
+    get:
+      description: Get an evaluation suite by ID
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      - description: Suite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.EvaluationSuite'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get an evaluation suite
+      tags:
+      - evaluations
+    put:
+      consumes:
+      - application/json
+      description: Update an evaluation suite
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      - description: Suite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated suite
+        in: body
+        name: suite
+        required: true
+        schema:
+          $ref: '#/definitions/types.EvaluationSuite'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.EvaluationSuite'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update an evaluation suite
+      tags:
+      - evaluations
+  /api/v1/agents/{agent_id}/evaluation-suites/{id}/runs:
+    get:
+      description: List evaluation runs for a suite
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      - description: Suite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.EvaluationRun'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List evaluation runs
+      tags:
+      - evaluations
+    post:
+      consumes:
+      - application/json
+      description: Start running an evaluation suite against an agent
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      - description: Suite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.EvaluationRun'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Start an evaluation run
+      tags:
+      - evaluations
+  /api/v1/agents/{agent_id}/triggers:
+    get:
+      description: List triggers for the agent
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.TriggerConfiguration'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List agent triggers
+      tags:
+      - agents
+  /api/v1/agents/{id}:
+    delete:
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+    get:
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Agent'
+      security:
+      - BearerAuth: []
+    put:
+      parameters:
+      - description: Request body with agent configuration.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Agent'
+      - description: Tool ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Agent'
+      security:
+      - BearerAuth: []
+  /api/v1/agents/{id}/access-grants:
+    get:
+      description: List access grants for an agent (organization owners and members
+        can list access grants)
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AccessGrant'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List agent access grants
+      tags:
+      - agents
+    post:
+      description: Grant access to an agent to a team or organization member (organization
+        owners can grant access to teams and organization members)
+      parameters:
+      - description: Request body with team or organization member ID and role
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateAccessGrantRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.AccessGrant'
+      security:
+      - BearerAuth: []
+      summary: Grant access to an agent to a team or organization member
+      tags:
+      - agents
+  /api/v1/agents/{id}/api-actions:
+    post:
+      consumes:
+      - application/json
+      description: Runs an API action for an agent
+      parameters:
+      - description: Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.RunAPIActionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunAPIActionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Run an API action
+  /api/v1/agents/{id}/avatar:
+    delete:
+      description: Delete the agent's avatar image
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete agent avatar
+      tags:
+      - agents
+    get:
+      description: Get the agent's avatar image
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - image/*
+      responses:
+        "200":
+          description: Avatar image data
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get agent avatar
+      tags:
+      - agents
+    post:
+      consumes:
+      - text/plain
+      description: Upload a base64 encoded image as the agent's avatar
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Base64 encoded image data
+        in: body
+        name: image
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Upload agent avatar
+      tags:
+      - agents
+  /api/v1/agents/{id}/claude-subscription-status:
+    get:
+      description: Reports whether the agent owner (whose subscription authenticates
+        the agent's sessions) has a working Claude subscription
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AppClaudeSubscriptionStatus'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get the Claude subscription status for an agent's owner
+      tags:
+      - Claude
+  /api/v1/agents/{id}/daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get agent daily usage
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get agent usage
+      tags:
+      - agents
+  /api/v1/agents/{id}/duplicate:
+    post:
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Optional new name for the agent
+        in: query
+        name: name
+        type: string
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+  /api/v1/agents/{id}/interactions:
+    get:
+      description: List interactions with pagination and optional session filtering
+        for a specific agent
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: pageSize
+        type: integer
+      - description: Filter by session ID
+        in: query
+        name: session
+        type: string
+      - description: Filter by interaction ID
+        in: query
+        name: interaction
+        type: string
+      - description: Query by like/dislike
+        in: query
+        name: feedback
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedInteractions'
+      security:
+      - BearerAuth: []
+      summary: List interactions
+      tags:
+      - interactions
+  /api/v1/agents/{id}/llm-calls:
+    get:
+      description: List user's LLM calls with pagination and optional session filtering
+        for a specific agent
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: pageSize
+        type: integer
+      - description: Filter by session ID
+        in: query
+        name: session
+        type: string
+      - description: Filter by interaction ID
+        in: query
+        name: interaction
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedLLMCalls'
+      security:
+      - BearerAuth: []
+      summary: List LLM calls
+      tags:
+      - llm_calls
+  /api/v1/agents/{id}/memories:
+    get:
+      description: List memories for a specific agent and user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Memory'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List agent memories
+      tags:
+      - memories
+  /api/v1/agents/{id}/memories/{memory_id}:
+    delete:
+      description: Delete a specific memory for an agent and user
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Memory ID
+        in: path
+        name: memory_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Delete agent memory
+      tags:
+      - memories
+  /api/v1/agents/{id}/skills/{skill}/enable:
+    post:
+      description: Enable a marketplace skill on an agent. For autoProvision MCP skills
+        the server generates URL and auth automatically.
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Skill name (e.g. code-intelligence)
+        in: path
+        name: skill
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Agent'
+      security:
+      - BearerAuth: []
+      summary: Enable a marketplace skill on an agent
+      tags:
+      - skills
+  /api/v1/agents/{id}/step-info:
+    get:
+      description: List step info for a specific agent and interaction ID, used to
+        build the timeline of events
+      parameters:
+      - description: Interaction ID
+        in: query
+        name: interactionId
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.StepInfo'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List step info
+      tags:
+      - step_info
+  /api/v1/agents/{id}/trigger-status:
+    get:
+      description: Get the status of a specific trigger type for an agent
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Trigger type (e.g., slack)
+        in: query
+        name: trigger_type
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.TriggerStatus'
+      security:
+      - BearerAuth: []
+      summary: Get agent trigger status
+      tags:
+      - agents
+  /api/v1/agents/{id}/user-access:
+    get:
+      description: Returns the access rights the current user has for this agent
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserAppAccessResponse'
+      security:
+      - BearerAuth: []
+      summary: Get current user's access level for an agent
+      tags:
+      - agents
+  /api/v1/agents/{id}/users-daily-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get agent users daily usage
+      parameters:
+      - description: Agent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get agent users daily usage
+      tags:
+      - agents
   /api/v1/api_keys:
     delete:
       description: Delete an API key
@@ -13155,934 +14093,6 @@ paths:
       summary: Create a new API key
       tags:
       - api-keys
-  /api/v1/apps:
-    get:
-      description: List apps for the user. Apps are pre-configured to spawn sessions
-        with specific tools and config.
-      parameters:
-      - description: Organization ID
-        in: query
-        name: organization_id
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.App'
-            type: array
-      security:
-      - BearerAuth: []
-      summary: List apps
-      tags:
-      - apps
-    post:
-      parameters:
-      - description: Request body with app configuration. Can be legacy App format
-          or structured format with organization_id, global, and yaml_config fields.
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.App'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.AppCreateResponse'
-      security:
-      - BearerAuth: []
-  /api/v1/apps/{app_id}/evaluation-runs/{run_id}:
-    delete:
-      description: Delete an evaluation run
-      parameters:
-      - description: App ID
-        in: path
-        name: app_id
-        required: true
-        type: string
-      - description: Run ID
-        in: path
-        name: run_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Delete an evaluation run
-      tags:
-      - evaluations
-    get:
-      description: Get evaluation run details
-      parameters:
-      - description: App ID
-        in: path
-        name: app_id
-        required: true
-        type: string
-      - description: Run ID
-        in: path
-        name: run_id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.EvaluationRun'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Get an evaluation run
-      tags:
-      - evaluations
-  /api/v1/apps/{app_id}/evaluation-suites:
-    get:
-      description: List all evaluation suites for an app
-      parameters:
-      - description: App ID
-        in: path
-        name: app_id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.EvaluationSuite'
-            type: array
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: List evaluation suites for an app
-      tags:
-      - evaluations
-    post:
-      consumes:
-      - application/json
-      description: Create a new evaluation suite for an agent
-      parameters:
-      - description: App ID
-        in: path
-        name: app_id
-        required: true
-        type: string
-      - description: Evaluation suite to create
-        in: body
-        name: suite
-        required: true
-        schema:
-          $ref: '#/definitions/types.EvaluationSuite'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/types.EvaluationSuite'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Create an evaluation suite
-      tags:
-      - evaluations
-  /api/v1/apps/{app_id}/evaluation-suites/{id}:
-    delete:
-      description: Delete an evaluation suite
-      parameters:
-      - description: App ID
-        in: path
-        name: app_id
-        required: true
-        type: string
-      - description: Suite ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Delete an evaluation suite
-      tags:
-      - evaluations
-    get:
-      description: Get an evaluation suite by ID
-      parameters:
-      - description: App ID
-        in: path
-        name: app_id
-        required: true
-        type: string
-      - description: Suite ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.EvaluationSuite'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Get an evaluation suite
-      tags:
-      - evaluations
-    put:
-      consumes:
-      - application/json
-      description: Update an evaluation suite
-      parameters:
-      - description: App ID
-        in: path
-        name: app_id
-        required: true
-        type: string
-      - description: Suite ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Updated suite
-        in: body
-        name: suite
-        required: true
-        schema:
-          $ref: '#/definitions/types.EvaluationSuite'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.EvaluationSuite'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Update an evaluation suite
-      tags:
-      - evaluations
-  /api/v1/apps/{app_id}/evaluation-suites/{id}/runs:
-    get:
-      description: List evaluation runs for a suite
-      parameters:
-      - description: App ID
-        in: path
-        name: app_id
-        required: true
-        type: string
-      - description: Suite ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.EvaluationRun'
-            type: array
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: List evaluation runs
-      tags:
-      - evaluations
-    post:
-      consumes:
-      - application/json
-      description: Start running an evaluation suite against an agent
-      parameters:
-      - description: App ID
-        in: path
-        name: app_id
-        required: true
-        type: string
-      - description: Suite ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.EvaluationRun'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Start an evaluation run
-      tags:
-      - evaluations
-  /api/v1/apps/{app_id}/triggers:
-    get:
-      description: List triggers for the app
-      parameters:
-      - description: App ID
-        in: path
-        name: app_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.TriggerConfiguration'
-            type: array
-      security:
-      - BearerAuth: []
-      summary: List app triggers
-      tags:
-      - apps
-  /api/v1/apps/{id}:
-    delete:
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-      security:
-      - BearerAuth: []
-    get:
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.App'
-      security:
-      - BearerAuth: []
-    put:
-      parameters:
-      - description: Request body with app configuration.
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.App'
-      - description: Tool ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.App'
-      security:
-      - BearerAuth: []
-  /api/v1/apps/{id}/access-grants:
-    get:
-      description: List access grants for an app (organization owners and members
-        can list access grants)
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.AccessGrant'
-            type: array
-      security:
-      - BearerAuth: []
-      summary: List app access grants
-      tags:
-      - apps
-    post:
-      description: Grant access to an agent to a team or organization member (organization
-        owners can grant access to teams and organization members)
-      parameters:
-      - description: Request body with team or organization member ID and role
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.CreateAccessGrantRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.AccessGrant'
-      security:
-      - BearerAuth: []
-      summary: Grant access to an agent to a team or organization member
-      tags:
-      - apps
-  /api/v1/apps/{id}/api-actions:
-    post:
-      consumes:
-      - application/json
-      description: Runs an API action for an app
-      parameters:
-      - description: Request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.RunAPIActionRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.RunAPIActionResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Run an API action
-  /api/v1/apps/{id}/avatar:
-    delete:
-      description: Delete the app's avatar image
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Delete app avatar
-      tags:
-      - apps
-    get:
-      description: Get the app's avatar image
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - image/*
-      responses:
-        "200":
-          description: Avatar image data
-          schema:
-            type: file
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Get app avatar
-      tags:
-      - apps
-    post:
-      consumes:
-      - text/plain
-      description: Upload a base64 encoded image as the app's avatar
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Base64 encoded image data
-        in: body
-        name: image
-        required: true
-        schema:
-          type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Upload app avatar
-      tags:
-      - apps
-  /api/v1/apps/{id}/claude-subscription-status:
-    get:
-      description: Reports whether the app owner (whose subscription authenticates
-        the app's sessions) has a working Claude subscription
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.AppClaudeSubscriptionStatus'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Get the Claude subscription status for an app's owner
-      tags:
-      - Claude
-  /api/v1/apps/{id}/daily-usage:
-    get:
-      consumes:
-      - application/json
-      description: Get app daily usage
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Start date
-        in: query
-        name: from
-        type: string
-      - description: End date
-        in: query
-        name: to
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.AggregatedUsageMetric'
-            type: array
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Get app usage
-      tags:
-      - apps
-  /api/v1/apps/{id}/duplicate:
-    post:
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Optional new name for the app
-        in: query
-        name: name
-        type: string
-      responses:
-        "200":
-          description: OK
-      security:
-      - BearerAuth: []
-  /api/v1/apps/{id}/interactions:
-    get:
-      description: List interactions with pagination and optional session filtering
-        for a specific app
-      parameters:
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Page size
-        in: query
-        name: pageSize
-        type: integer
-      - description: Filter by session ID
-        in: query
-        name: session
-        type: string
-      - description: Filter by interaction ID
-        in: query
-        name: interaction
-        type: string
-      - description: Query by like/dislike
-        in: query
-        name: feedback
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.PaginatedInteractions'
-      security:
-      - BearerAuth: []
-      summary: List interactions
-      tags:
-      - interactions
-  /api/v1/apps/{id}/llm-calls:
-    get:
-      description: List user's LLM calls with pagination and optional session filtering
-        for a specific app
-      parameters:
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Page size
-        in: query
-        name: pageSize
-        type: integer
-      - description: Filter by session ID
-        in: query
-        name: session
-        type: string
-      - description: Filter by interaction ID
-        in: query
-        name: interaction
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.PaginatedLLMCalls'
-      security:
-      - BearerAuth: []
-      summary: List LLM calls
-      tags:
-      - llm_calls
-  /api/v1/apps/{id}/memories:
-    get:
-      description: List memories for a specific app and user
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.Memory'
-            type: array
-      security:
-      - BearerAuth: []
-      summary: List app memories
-      tags:
-      - memories
-  /api/v1/apps/{id}/memories/{memory_id}:
-    delete:
-      description: Delete a specific memory for an app and user
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Memory ID
-        in: path
-        name: memory_id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-      security:
-      - BearerAuth: []
-      summary: Delete app memory
-      tags:
-      - memories
-  /api/v1/apps/{id}/skills/{skill}/enable:
-    post:
-      description: Enable a marketplace skill on an app. For autoProvision MCP skills
-        the server generates URL and auth automatically.
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Skill name (e.g. code-intelligence)
-        in: path
-        name: skill
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.App'
-      security:
-      - BearerAuth: []
-      summary: Enable a marketplace skill on an app
-      tags:
-      - skills
-  /api/v1/apps/{id}/step-info:
-    get:
-      description: List step info for a specific app and interaction ID, used to build
-        the timeline of events
-      parameters:
-      - description: Interaction ID
-        in: query
-        name: interactionId
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.StepInfo'
-            type: array
-      security:
-      - BearerAuth: []
-      summary: List step info
-      tags:
-      - step_info
-  /api/v1/apps/{id}/trigger-status:
-    get:
-      description: Get the status of a specific trigger type for an app
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Trigger type (e.g., slack)
-        in: query
-        name: trigger_type
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.TriggerStatus'
-      security:
-      - BearerAuth: []
-      summary: Get app trigger status
-      tags:
-      - apps
-  /api/v1/apps/{id}/user-access:
-    get:
-      description: Returns the access rights the current user has for this app
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.UserAppAccessResponse'
-      security:
-      - BearerAuth: []
-      summary: Get current user's access level for an app
-      tags:
-      - apps
-  /api/v1/apps/{id}/users-daily-usage:
-    get:
-      consumes:
-      - application/json
-      description: Get app users daily usage
-      parameters:
-      - description: App ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Start date
-        in: query
-        name: from
-        type: string
-      - description: End date
-        in: query
-        name: to
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.AggregatedUsageMetric'
-            type: array
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Get app users daily usage
-      tags:
-      - apps
   /api/v1/attention-events:
     get:
       description: Returns attention events that need human action for the current
@@ -19483,7 +19493,7 @@ paths:
       - HelixOrg
   /api/v1/orgs/{org}/overview:
     get:
-      description: Returns the flat set of Bots in the org for the helix-org React
+      description: Returns the flat set of Nodes in the org for the helix-org React
         Overview page.
       produces:
       - application/json
@@ -25911,11 +25921,11 @@ paths:
       summary: List all triggers configurations for either user or the org or user
         within an org
       tags:
-      - apps
+      - agents
     post:
-      description: Create triggers for the app. Used to create standalone trigger
+      description: Create triggers for the agent. Used to create standalone trigger
         configurations such as cron tasks for agents that could be owned by a different
-        user than the owner of the app
+        user than the owner of the agent
       parameters:
       - description: Trigger configuration
         in: body
@@ -25930,12 +25940,12 @@ paths:
             $ref: '#/definitions/types.TriggerConfiguration'
       security:
       - BearerAuth: []
-      summary: Create app triggers
+      summary: Create agent triggers
       tags:
-      - apps
+      - agents
   /api/v1/triggers/{trigger_id}:
     delete:
-      description: Delete triggers for the app
+      description: Delete triggers for the agent
       parameters:
       - description: Trigger ID
         in: path
@@ -25949,11 +25959,11 @@ paths:
             $ref: '#/definitions/types.TriggerConfiguration'
       security:
       - BearerAuth: []
-      summary: Delete app triggers
+      summary: Delete agent triggers
       tags:
-      - apps
+      - agents
     put:
-      description: Update triggers for the app, for example to change the cron schedule
+      description: Update triggers for the agent, for example to change the cron schedule
         or enable/disable the trigger
       parameters:
       - description: Trigger ID
@@ -25974,12 +25984,12 @@ paths:
             $ref: '#/definitions/types.TriggerConfiguration'
       security:
       - BearerAuth: []
-      summary: Update app triggers
+      summary: Update agent triggers
       tags:
-      - apps
+      - agents
   /api/v1/triggers/{trigger_id}/execute:
     post:
-      description: Update triggers for the app, for example to change the cron schedule
+      description: Update triggers for the agent, for example to change the cron schedule
         or enable/disable the trigger
       parameters:
       - description: Trigger ID
@@ -25994,9 +26004,9 @@ paths:
             $ref: '#/definitions/types.TriggerExecuteResponse'
       security:
       - BearerAuth: []
-      summary: Execute app trigger
+      summary: Execute agent trigger
       tags:
-      - apps
+      - agents
   /api/v1/triggers/{trigger_id}/executions:
     get:
       description: List executions for the trigger
@@ -26025,7 +26035,7 @@ paths:
       - BearerAuth: []
       summary: List trigger executions
       tags:
-      - apps
+      - agents
   /api/v1/usage:
     get:
       consumes:

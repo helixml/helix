@@ -1,8 +1,8 @@
 // Package lifecycle owns the cross-cutting orchestration that
-// composes store + runtime when a Bot is created or destroyed.
+// composes store + runtime when a Node is created or destroyed.
 //
-// This package owns the two halves of the Bot lifecycle: Create (the
-// create cascade — bot row, reporting line, topology reconcile,
+// This package owns the two halves of the Node lifecycle: Create (the
+// create cascade - node row, reporting line, topology reconcile,
 // create-activation dispatch) and Delete (the destroy cascade — Helix
 // project/app teardown, store cleanup, topology reconcile). Both REST
 // and the MCP create_bot tool drive Create here, so the semantics
@@ -29,15 +29,15 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 )
 
-// CreateDispatcher fires the per-create activation for a new Bot. A
+// CreateDispatcher fires the per-create activation for a new Node. A
 // narrow interface so the lifecycle service doesn't import the tools
 // package. The composition root's dispatcher satisfies it.
 type CreateDispatcher interface {
 	DispatchHire(ctx context.Context, orgID string, botID orgchart.NodeID, activationID activation.ID)
 }
 
-// TopicSubscriber subscribes a Bot to Topics. Create uses it to subscribe
-// a new Bot to the topics named at creation, reusing the same subscription
+// TopicSubscriber subscribes a Node to Topics. Create uses it to subscribe
+// a new Node to the topics named at creation, reusing the same subscription
 // use case the standalone subscribe tool drives (DRY). A narrow interface
 // so lifecycle doesn't import the subscriptions package;
 // *subscriptions.Subscriptions satisfies it.
@@ -46,7 +46,7 @@ type TopicSubscriber interface {
 }
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
-// Delete cascade needs to tear down a Bot's Helix-side project and
+// Delete cascade needs to tear down a Node's Helix-side project and
 // agent app. Production wiring satisfies this with the in-process
 // adapter used everywhere else; the interface exists so tests can
 // stub.
@@ -68,12 +68,12 @@ func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // they are deliberately separate types because their CONTRACTS differ — not
 // just a comment, the compiler enforces which list a reconciler can join.
 //
-// BotReconciler is scoped to the Bot(s) that changed: callers pass the
+// NodeReconciler is scoped to the Node(s) that changed: callers pass the
 // affected ids and it converges only their neighbourhood (cheap, and it
 // no-ops on an empty set). It is structural — Create treats a failure as
-// FATAL (the new Bot's channels weren't set up), Delete as best-effort.
+// FATAL (the new Node's channels weren't set up), Delete as best-effort.
 // *reconcile.Reconciler (activation/team/DM Topics) is the implementer.
-type BotReconciler interface {
+type NodeReconciler interface {
 	Reconcile(ctx context.Context, orgID string, affected ...orgchart.NodeID) error
 }
 
@@ -89,7 +89,7 @@ type OrgReconciler interface {
 	Reconcile(ctx context.Context, orgID string) error
 }
 
-// Service composes the bot-lifecycle operations the REST/MCP layers
+// Service composes the node-lifecycle operations the REST/MCP layers
 // drive. All fields are required; pass nil HelixRuntime only in tests
 // that don't need the Helix-side teardown.
 type Service struct {
@@ -98,23 +98,23 @@ type Service struct {
 	Agents AgentCreator
 	Logger *slog.Logger
 
-	// Nodes is the bot-mutation service Create delegates the row creation
+	// Nodes is the node-mutation service Create delegates the row creation
 	// to, so the base-tool union and id minting are shared with the
 	// REST/MCP update path. Required for Create.
 	Nodes *nodes.Nodes
 
-	// Subscriber subscribes a new Bot to the topics named at creation
+	// Subscriber subscribes a new Node to the topics named at creation
 	// (CreateParams.Topics), reusing the shared subscription use case. nil
 	// → no creation-time subscription (create still succeeds).
 	Subscriber TopicSubscriber
 
-	// BotReconcilers are the Bot-scoped reconcilers (see the contract on
-	// BotReconciler) run on create (FATAL) and delete (best-effort) with
-	// the affected Bot ids. Today just the activation/team/DM topology
+	// NodeReconcilers are the Node-scoped reconcilers (see the contract on
+	// NodeReconciler) run on create (FATAL) and delete (best-effort) with
+	// the affected Node ids. Today just the activation/team/DM topology
 	// reconciler. Empty/nil is a no-op.
-	BotReconcilers []BotReconciler
+	NodeReconcilers []NodeReconciler
 
-	// Mirror is the transcript mirror; Delete stops the deleted Bot's
+	// Mirror is the transcript mirror; Delete stops the deleted Node's
 	// subscription so it doesn't leak. nil is a no-op.
 	Mirror *helix.Mirror
 
@@ -126,11 +126,11 @@ type Service struct {
 
 	// --- Create collaborators ---
 
-	// Dispatcher fires the per-create activation for a new Bot.
+	// Dispatcher fires the per-create activation for a new Node.
 	// nil → no activation is dispatched (tests / runtimes without a
 	// dispatcher).
 	Dispatcher CreateDispatcher
-	// HireHook runs runtime bookkeeping after the bot row exists — the
+	// HireHook runs runtime bookkeeping after the node row exists - the
 	// helix runtime persists the creating user. nil is a no-op.
 	HireHook runtime.HireHook
 	// Now / NewID seam the clock and id-generator. Both are required for
@@ -139,10 +139,10 @@ type Service struct {
 	NewID func() string
 }
 
-// CreateParams describes a new Bot. ID is optional — when empty the
-// bots service mints a fresh `b-<id>` (discouraged; callers should pass
-// a readable handle). ParentID is the manager this bot reports to
-// (empty only for the org root). Content is the bot's prompt; Tools and
+// CreateParams describes a new Node. ID is optional - when empty the
+// nodes service mints a fresh `b-<id>` (discouraged; callers should pass
+// a readable handle). ParentID is the manager this node reports to
+// (empty only for the org root). Content is the node's prompt; Tools and
 // Topics are its capability/manifest.
 type CreateParams struct {
 	ID              string
@@ -158,23 +158,23 @@ type CreateParams struct {
 	DeferActivation bool
 }
 
-// CreateResult carries the new Bot and the pre-allocated
+// CreateResult carries the new Node and the pre-allocated
 // create-activation id.
 type CreateResult struct {
-	Bot          orgchart.Node
+	Node         orgchart.Node
 	ActivationID activation.ID
 }
 
-// Create brings a Bot into existence: the bot row (content + tools, via
-// the bots service so the base-read-tool union is applied), the initial
+// Create brings a Node into existence: the node row (content + tools, via
+// the nodes service so the base-read-tool union is applied), the initial
 // reporting line, a topology reconcile, the creating-user bookkeeping,
 // and a pre-allocated create activation dispatched through the Spawner.
 // This is the single implementation the MCP create_bot tool and the
 // REST POST /bots handler both call.
 //
-// State lives in the domain DB, with role.md mirrored to the per-Bot
-// helix-specs branch for workspace workflows. A Bot's MCP tool surface is
-// derived live from Bot.Tools.
+// State lives in the domain DB, with role.md mirrored to the per-Node
+// helix-specs branch for workspace workflows. A Node's MCP tool surface is
+// derived live from Node.Tools.
 func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (CreateResult, error) {
 	if s.NewID == nil || s.Now == nil {
 		return CreateResult{}, fmt.Errorf("lifecycle: clock/id-generator not wired")
@@ -183,20 +183,20 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		return CreateResult{}, errors.New("lifecycle: store is nil")
 	}
 	if s.Nodes == nil {
-		return CreateResult{}, errors.New("lifecycle: bots service not wired")
+		return CreateResult{}, errors.New("lifecycle: nodes service not wired")
 	}
 
 	var parent *orgchart.NodeID
 	if p.ParentID != "" {
 		if _, err := s.Store.Nodes.Get(ctx, orgID, p.ParentID); err != nil {
-			return CreateResult{}, fmt.Errorf("parent bot %q: %w", p.ParentID, err)
+			return CreateResult{}, fmt.Errorf("parent node %q: %w", p.ParentID, err)
 		}
 		parent = &p.ParentID
 	}
 
-	// Validate every requested topic exists BEFORE writing the bot row, so
-	// a bad topic id fails the create with no partially-created Bot. The
-	// actual subscription rows are created below, after the bot exists.
+	// Validate every requested topic exists BEFORE writing the node row, so
+	// a bad topic id fails the create with no partially-created Node. The
+	// actual subscription rows are created below, after the node exists.
 	for _, tid := range p.Topics {
 		if tid == "" {
 			return CreateResult{}, fmt.Errorf("topic id is empty")
@@ -221,11 +221,11 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 			return CreateResult{}, fmt.Errorf("create agent app: %w", err)
 		}
 	}
-	bot, err := s.Nodes.Create(ctx, orgID, nodes.CreateParams{
+	node, err := s.Nodes.Create(ctx, orgID, nodes.CreateParams{
 		ID:              p.ID,
 		Name:            p.Name,
 		Content:         p.Content,
-		AgentAppID:      agentAppID,
+		AgentID:         agentAppID,
 		Tools:           p.Tools,
 		PreserveContext: p.PreserveContext,
 	})
@@ -239,7 +239,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		}
 		return CreateResult{}, err
 	}
-	id := bot.ID
+	id := node.ID
 	rollback := func(createErr error) (CreateResult, error) {
 		cleanupCtx, cancel := cleanupContext(ctx)
 		defer cancel()
@@ -249,7 +249,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		return CreateResult{}, createErr
 	}
 
-	// Wire the initial reporting line now that both bot rows exist.
+	// Wire the initial reporting line now that both node rows exist.
 	if parent != nil && s.Store.ReportingLines != nil {
 		line, err := orgchart.NewReportingLine(orgID, *parent, id)
 		if err != nil {
@@ -260,32 +260,32 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		}
 	}
 
-	// Reconcile the activation/team Topics implied by the new Bot and its
-	// reporting line (mints the bot's transcript + the manager's team Topic
-	// from one declarative pass). FATAL: a Bot without its channels is a
-	// broken create. Bot-scoped to the new id.
-	for _, rec := range s.BotReconcilers {
+	// Reconcile the activation/team Topics implied by the new Node and its
+	// reporting line (mints the node's transcript + the manager's team Topic
+	// from one declarative pass). FATAL: a Node without its channels is a
+	// broken create. Node-scoped to the new id.
+	for _, rec := range s.NodeReconcilers {
 		if rec == nil {
 			continue
 		}
 		if err := rec.Reconcile(ctx, orgID, id); err != nil {
-			return rollback(fmt.Errorf("reconcile topology for bot %q: %w", id, err))
+			return rollback(fmt.Errorf("reconcile topology for node %q: %w", id, err))
 		}
 	}
 
-	// Subscribe the new Bot to the topics named at creation, reusing the
+	// Subscribe the new Node to the topics named at creation, reusing the
 	// shared subscription use case (the same one the subscribe tool drives).
 	// Topics were validated above, so this only fails on an infrastructure
-	// error — treat it as FATAL like the topology reconcile, since a Bot
+	// error - treat it as FATAL like the topology reconcile, since a Node
 	// that silently isn't listening is a broken create.
 	if s.Subscriber != nil && len(p.Topics) > 0 {
 		if err := s.Subscriber.SubscribeTopics(ctx, orgID, id, p.Topics); err != nil {
-			return rollback(fmt.Errorf("subscribe new bot %q to topics: %w", id, err))
+			return rollback(fmt.Errorf("subscribe new node %q to topics: %w", id, err))
 		}
 	}
 
 	// Run the whole-org reconcilers (Slack auto-router routes, …) for the new
-	// Bot. Best-effort: a failure must not abort the create — each is
+	// Node. Best-effort: a failure must not abort the create - each is
 	// idempotent and re-runs on the next create/delete and at startup.
 	s.runOrgReconcilers(ctx, orgID, "create", id)
 
@@ -298,13 +298,13 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 	}
 
 	if p.DeferActivation {
-		return CreateResult{Bot: bot}, nil
+		return CreateResult{Node: node}, nil
 	}
 
 	// Pre-create the create-Activation audit row so Create can return the
 	// id synchronously; the Spawner Completes it (matched by
-	// Trigger.ActivationID) rather than minting a sibling. Every bot is an
-	// agent, so every bot gets a create activation.
+	// Trigger.ActivationID) rather than minting a sibling. Every node is an
+	// agent, so every node gets a create activation.
 	var actID activation.ID
 	if s.Store.Activations != nil {
 		actID = activation.ID("a-" + s.NewID())
@@ -320,7 +320,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		s.Dispatcher.DispatchHire(ctx, orgID, id, actID)
 	}
 
-	return CreateResult{Bot: bot, ActivationID: actID}, nil
+	return CreateResult{Node: node, ActivationID: actID}, nil
 }
 
 func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
@@ -331,29 +331,29 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 	if err != nil {
 		return err
 	}
-	for _, bot := range all {
-		if bot.IsHuman() || bot.AgentAppID != "" {
+	for _, node := range all {
+		if node.IsHuman() || node.AgentID != "" {
 			continue
 		}
-		name := bot.Name
+		name := node.Name
 		if name == "" {
-			name = string(bot.ID)
+			name = string(node.ID)
 		}
-		appID, err := s.Agents.CreateAgent(ctx, orgID, name, bot.Content)
+		appID, err := s.Agents.CreateAgent(ctx, orgID, name, node.Content)
 		if err != nil {
-			return fmt.Errorf("create agent app for %s: %w", bot.ID, err)
+			return fmt.Errorf("create agent app for %s: %w", node.ID, err)
 		}
-		claimed, err := s.Store.Nodes.ClaimAgentApp(ctx, orgID, bot.ID, appID)
+		claimed, err := s.Store.Nodes.ClaimAgentApp(ctx, orgID, node.ID, appID)
 		if err != nil {
 			if s.Helix != nil {
 				cleanupCtx, cancel := cleanupContext(ctx)
 				cleanupErr := s.Helix.DeleteApp(cleanupCtx, appID)
 				cancel()
 				if cleanupErr != nil && !errors.Is(cleanupErr, helix.ErrProjectNotFound) {
-					return fmt.Errorf("link agent app for %s: %v; delete unlinked agent app %s: %w", bot.ID, err, appID, cleanupErr)
+					return fmt.Errorf("link agent app for %s: %v; delete unlinked agent app %s: %w", node.ID, err, appID, cleanupErr)
 				}
 			}
-			return fmt.Errorf("link agent app for %s: %w", bot.ID, err)
+			return fmt.Errorf("link agent app for %s: %w", node.ID, err)
 		}
 		if !claimed {
 			if s.Helix != nil {
@@ -370,33 +370,33 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 	return nil
 }
 
-// Delete tears down a Bot end-to-end:
+// Delete tears down a Node end-to-end:
 //
 //  1. Read the Helix-runtime state (project + app IDs) before clearing.
 //  2. DeleteProject on Helix — stops any active sessions.
 //  3. Atomically delete the agent app, NodeRuntimeState, subscriptions, and
-//     bot row. The org_reporting_lines foreign keys drop its lines.
-//  4. Reconcile topology: tear down the deleted Bot's own activation +
+//     node row. The org_reporting_lines foreign keys drop its lines.
+//  4. Reconcile topology: tear down the deleted Node's own activation +
 //     team Topics and collapse any ex-manager's team Topic that just
 //     lost its last report.
 //
-// Subscriptions are bot-anchored, so they die with the bot. Activation
+// Subscriptions are node-anchored, so they die with the node. Activation
 // events themselves are intentionally left behind as an audit trail; only
 // the Topic row is dropped.
 func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	if id == "" {
-		return errors.New("bot id is empty")
+		return errors.New("node id is empty")
 	}
 	if s.Store == nil {
 		return errors.New("lifecycle: store is nil")
 	}
-	bot, err := s.Store.Nodes.Get(ctx, orgID, id)
+	node, err := s.Store.Nodes.Get(ctx, orgID, id)
 	if err != nil {
-		return fmt.Errorf("get bot %q: %w", id, err)
+		return fmt.Errorf("get node %q: %w", id, err)
 	}
 
-	// Capture the deleted Bot's managers AND reports BEFORE deletion: the
-	// reporting lines cascade-drop with the bot row, so the List* calls
+	// Capture the deleted Node's managers AND reports BEFORE deletion: the
+	// reporting lines cascade-drop with the node row, so the List* calls
 	// return nothing afterward. We feed both sets to the topology reconcile
 	// below. The ex-managers let a manager's team Topic collapse when its
 	// last report leaves. The ex-reports are needed for DM teardown: the
@@ -417,9 +417,9 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 		}
 	}
 
-	agentAppID := bot.AgentAppID
+	agentAppID := node.AgentID
 	if agentAppID == "" {
-		agentAppID = state.AgentAppID
+		agentAppID = state.AgentID
 	}
 	if s.Helix != nil && agentAppID != "" {
 		if err := s.Helix.DeleteLinkedAgent(ctx, orgID, id, agentAppID); err != nil {
@@ -432,7 +432,7 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 			}
 		}
 		if err := s.Store.Nodes.Delete(ctx, orgID, id); err != nil {
-			return fmt.Errorf("delete bot row %q: %w", id, err)
+			return fmt.Errorf("delete node row %q: %w", id, err)
 		}
 	}
 	if s.Mirror != nil {
@@ -441,19 +441,19 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 
 	// Settle the activation/team Topics now that the row (and its reporting
 	// lines) are gone. Best-effort: a failure leaves a dangling Topic row,
-	// not a half-deleted bot, so we log and continue.
+	// not a half-deleted node, so we log and continue.
 	affected := append([]orgchart.NodeID{id}, exManagers...)
 	affected = append(affected, exReports...)
-	for _, rec := range s.BotReconcilers {
+	for _, rec := range s.NodeReconcilers {
 		if rec == nil {
 			continue
 		}
 		if err := rec.Reconcile(ctx, orgID, affected...); err != nil {
-			s.logger().Warn("delete: reconcile topology", "bot", id, "err", err)
+			s.logger().Warn("delete: reconcile topology", "node", id, "err", err)
 		}
 	}
 
-	// Run the whole-org reconcilers so the deleted Bot's Slack auto-route is
+	// Run the whole-org reconcilers so the deleted Node's Slack auto-route is
 	// GC'd. Best-effort, like topology above.
 	s.runOrgReconcilers(ctx, orgID, "delete", id)
 	return nil
@@ -461,14 +461,14 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 
 // runOrgReconcilers runs every whole-org reconciler best-effort, logging (not
 // propagating) failures so one reconciler can't abort the lifecycle mutation
-// or block the others. phase/bot are for the log line only.
-func (s *Service) runOrgReconcilers(ctx context.Context, orgID, phase string, bot orgchart.NodeID) {
+// or block the others. phase/node are for the log line only.
+func (s *Service) runOrgReconcilers(ctx context.Context, orgID, phase string, node orgchart.NodeID) {
 	for _, rec := range s.OrgReconcilers {
 		if rec == nil {
 			continue
 		}
 		if err := rec.Reconcile(ctx, orgID); err != nil {
-			s.logger().Warn(phase+": reconcile", "bot", bot, "err", err)
+			s.logger().Warn(phase+": reconcile", "node", node, "err", err)
 		}
 	}
 }

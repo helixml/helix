@@ -1696,7 +1696,7 @@ type TestStep struct {
 	ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
 }
 
-type AppHelixConfig struct {
+type AgentHelixConfig struct {
 	Name              string            `json:"name,omitempty" yaml:"name,omitempty"`
 	Description       string            `json:"description,omitempty" yaml:"description,omitempty"`
 	Avatar            string            `json:"avatar,omitempty" yaml:"avatar,omitempty"`
@@ -1714,15 +1714,15 @@ type AppHelixConfig struct {
 
 // Helper functions for agent type checking with backward compatibility
 
-type AppHelixConfigMetadata struct {
+type AgentHelixConfigMetadata struct {
 	Name string `json:"name" yaml:"name"`
 }
 
-type AppHelixConfigCRD struct {
-	APIVersion string                 `json:"apiVersion" yaml:"apiVersion"`
-	Kind       string                 `json:"kind" yaml:"kind"`
-	Metadata   AppHelixConfigMetadata `json:"metadata" yaml:"metadata"`
-	Spec       AppHelixConfig         `json:"spec" yaml:"spec"`
+type AgentHelixConfigCRD struct {
+	APIVersion string                   `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                   `json:"kind" yaml:"kind"`
+	Metadata   AgentHelixConfigMetadata `json:"metadata" yaml:"metadata"`
+	Spec       AgentHelixConfig         `json:"spec" yaml:"spec"`
 }
 
 type AppGithubConfigUpdate struct {
@@ -1731,23 +1731,23 @@ type AppGithubConfigUpdate struct {
 	Error   string    `json:"error"`
 }
 
-type AppConfig struct {
+type AgentConfig struct {
 	AllowedDomains []string          `json:"allowed_domains" yaml:"allowed_domains"`
 	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
-	Helix          AppHelixConfig    `json:"helix" yaml:"helix"`
+	Helix          AgentHelixConfig  `json:"helix" yaml:"helix"`
 }
 
-func (c AppConfig) Value() (driver.Value, error) {
+func (c AgentConfig) Value() (driver.Value, error) {
 	j, err := json.Marshal(c)
 	return j, err
 }
 
-func (c *AppConfig) Scan(src interface{}) error {
+func (c *AgentConfig) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
 		return errors.New("type assertion .([]byte) failed")
 	}
-	var result AppConfig
+	var result AgentConfig
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
@@ -1755,7 +1755,7 @@ func (c *AppConfig) Scan(src interface{}) error {
 	return nil
 }
 
-func (AppConfig) GormDataType() string {
+func (AgentConfig) GormDataType() string {
 	return "json"
 }
 
@@ -1866,7 +1866,7 @@ func (Triggers) GormDataType() string {
 	return "json"
 }
 
-type App struct {
+type Agent struct {
 	ID             string    `json:"id" gorm:"primaryKey"`
 	Created        time.Time `json:"created"`
 	Updated        time.Time `json:"updated"`
@@ -1874,9 +1874,9 @@ type App struct {
 	// uuid of user ID
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
-	OwnerType OwnerType `json:"owner_type"`
-	Global    bool      `json:"global"`
-	Config    AppConfig `json:"config" gorm:"jsonb"`
+	OwnerType OwnerType   `json:"owner_type"`
+	Global    bool        `json:"global"`
+	Config    AgentConfig `json:"config" gorm:"jsonb"`
 
 	User User `json:"user" gorm:"-"` // Owner user struct, populated by the server for organization views
 
@@ -1885,6 +1885,23 @@ type App struct {
 	// can hide org-chart agents from the spec-task agent switchers.
 	IsHelixOrgAgent bool `json:"is_helix_org_agent" gorm:"-"`
 }
+
+func (Agent) TableName() string { return "apps" }
+
+// Deprecated: use Agent.
+type App = Agent
+
+// Deprecated: use AgentConfig.
+type AppConfig = AgentConfig
+
+// Deprecated: use AgentHelixConfig.
+type AppHelixConfig = AgentHelixConfig
+
+// Deprecated: use AgentHelixConfigMetadata.
+type AppHelixConfigMetadata = AgentHelixConfigMetadata
+
+// Deprecated: use AgentHelixConfigCRD.
+type AppHelixConfigCRD = AgentHelixConfigCRD
 
 type KeyPair struct {
 	Type       string
@@ -2437,42 +2454,42 @@ const (
 // LLMCall used to store the request and response of LLM calls
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
-	ID               string         `json:"id" gorm:"primaryKey"`
-	AppID            string         `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
-	OrganizationID   string         `json:"organization_id" gorm:"index"`
-	UserID           string         `json:"user_id" gorm:"index"`
-	Created          time.Time      `json:"created"`
-	Updated          time.Time      `json:"updated"`
-	SessionID        string         `json:"session_id" gorm:"index"`
-	InteractionID    string         `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
-	ProjectID        string         `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
-	SpecTaskID       string         `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
-	Model            string         `json:"model"`
-	Provider         string         `json:"provider"`
-	Step             LLMCallStep    `json:"step" gorm:"index"`
-	OriginalRequest  datatypes.JSON `json:"original_request" gorm:"type:jsonb"`
-	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
-	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
-	DurationMs       int64          `json:"duration_ms"`
+	ID              string         `json:"id" gorm:"primaryKey"`
+	AppID           string         `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
+	OrganizationID  string         `json:"organization_id" gorm:"index"`
+	UserID          string         `json:"user_id" gorm:"index"`
+	Created         time.Time      `json:"created"`
+	Updated         time.Time      `json:"updated"`
+	SessionID       string         `json:"session_id" gorm:"index"`
+	InteractionID   string         `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
+	ProjectID       string         `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID      string         `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
+	Model           string         `json:"model"`
+	Provider        string         `json:"provider"`
+	Step            LLMCallStep    `json:"step" gorm:"index"`
+	OriginalRequest datatypes.JSON `json:"original_request" gorm:"type:jsonb"`
+	Request         datatypes.JSON `json:"request" gorm:"type:jsonb"`
+	Response        datatypes.JSON `json:"response" gorm:"type:jsonb"`
+	DurationMs      int64          `json:"duration_ms"`
 	// TimeToFirstTokenMs is the wall time from request start to the first
 	// streamed chunk. It isolates provider prefill / cold-start latency from
 	// generation time (a cold or overloaded provider shows a large TTFT while
 	// generation stays normal). 0 means no chunk was received (the call errored
 	// or was cut before the first token). For non-streaming calls it equals the
 	// time to the full response.
-	TimeToFirstTokenMs int64          `json:"time_to_first_token_ms"`
-	PromptTokens       int64          `json:"prompt_tokens"`
-	CompletionTokens int64          `json:"completion_tokens"`
-	TotalTokens      int64          `json:"total_tokens"`
-	CacheReadTokens  int64          `json:"cache_read_tokens"`  // prompt tokens served from provider cache (subset of PromptTokens)
-	CacheWriteTokens int64          `json:"cache_write_tokens"` // prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)
-	PromptCost       float64        `json:"prompt_cost"`
-	CompletionCost   float64        `json:"completion_cost"`
-	CacheReadCost    float64        `json:"cache_read_cost"`
-	CacheWriteCost   float64        `json:"cache_write_cost"`
-	TotalCost        float64        `json:"total_cost"` // Prompt + completion + cache read + cache write
-	Stream           bool           `json:"stream"`
-	Error            string         `json:"error"`
+	TimeToFirstTokenMs int64   `json:"time_to_first_token_ms"`
+	PromptTokens       int64   `json:"prompt_tokens"`
+	CompletionTokens   int64   `json:"completion_tokens"`
+	TotalTokens        int64   `json:"total_tokens"`
+	CacheReadTokens    int64   `json:"cache_read_tokens"`  // prompt tokens served from provider cache (subset of PromptTokens)
+	CacheWriteTokens   int64   `json:"cache_write_tokens"` // prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)
+	PromptCost         float64 `json:"prompt_cost"`
+	CompletionCost     float64 `json:"completion_cost"`
+	CacheReadCost      float64 `json:"cache_read_cost"`
+	CacheWriteCost     float64 `json:"cache_write_cost"`
+	TotalCost          float64 `json:"total_cost"` // Prompt + completion + cache read + cache write
+	Stream             bool    `json:"stream"`
+	Error              string  `json:"error"`
 }
 
 // SecretScope controls which environment a project secret is injected into.

@@ -30,7 +30,7 @@ const (
 // WorkerState holds the per-Worker pointers the Helix runtime needs.
 type WorkerState struct {
 	ProjectID    string
-	AgentAppID   string
+	AgentID      string
 	RepoID       string
 	SessionID    string
 	HiringUserID string
@@ -38,7 +38,7 @@ type WorkerState struct {
 
 const (
 	keyProjectID    = "project_id"
-	keyAgentAppID   = "agent_app_id"
+	keyAgentID      = "agent_app_id"
 	keyRepoID       = "repo_id"
 	keySessionID    = "session_id"
 	keyHiringUserID = "hiring_user_id"
@@ -55,7 +55,7 @@ func LoadState(ctx context.Context, st *store.Store, orgID string, workerID orgc
 	}
 	return WorkerState{
 		ProjectID:    kv[keyProjectID],
-		AgentAppID:   kv[keyAgentAppID],
+		AgentID:      kv[keyAgentID],
 		RepoID:       kv[keyRepoID],
 		SessionID:    kv[keySessionID],
 		HiringUserID: kv[keyHiringUserID],
@@ -74,14 +74,14 @@ func SaveHiringUser(ctx context.Context, st *store.Store, orgID string, workerID
 }
 
 // SaveProject persists the per-Worker project triple.
-func SaveProject(ctx context.Context, st *store.Store, orgID string, workerID orgchart.NodeID, projectID, agentAppID, repoID string) error {
+func SaveProject(ctx context.Context, st *store.Store, orgID string, workerID orgchart.NodeID, projectID, agentID, repoID string) error {
 	if st == nil || st.NodeRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}
 	return st.NodeRuntimeState.SetMany(ctx, orgID, workerID, Backend, map[string]string{
-		keyProjectID:  projectID,
-		keyAgentAppID: agentAppID,
-		keyRepoID:     repoID,
+		keyProjectID: projectID,
+		keyAgentID:   agentID,
+		keyRepoID:    repoID,
 	})
 }
 
@@ -99,9 +99,9 @@ func ClearProject(ctx context.Context, st *store.Store, orgID string, workerID o
 		return errors.New("helix state: store is nil")
 	}
 	return st.NodeRuntimeState.SetMany(ctx, orgID, workerID, Backend, map[string]string{
-		keyProjectID:  "",
-		keyAgentAppID: "",
-		keyRepoID:     "",
-		keySessionID:  "",
+		keyProjectID: "",
+		keyAgentID:   "",
+		keyRepoID:    "",
+		keySessionID: "",
 	})
 }
