@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"html/template"
 	"net/http"
 
@@ -35,8 +36,79 @@ func (apiServer *HelixAPIServer) viewDesignDocsPublic(w http.ResponseWriter, r *
 		return
 	}
 
+	// Design doc content lives on the design review record (written on every
+	// git push), NOT on the SpecTask row — those columns are only populated by
+	// a legacy spec-generation flow and are empty for agent-generated tasks.
+	docs := apiServer.resolvePublicDesignDocs(r.Context(), task)
+
 	// Render the public design docs
-	apiServer.renderDesignDocsPage(w, task)
+	apiServer.renderDesignDocsPage(w, task, docs)
+}
+
+// publicDesignDocs holds the markdown for the three shared design documents.
+type publicDesignDocs struct {
+	RequirementsSpec   string
+	TechnicalDesign    string
+	ImplementationPlan string
+}
+
+// empty reports whether none of the three documents have any content.
+func (d publicDesignDocs) empty() bool {
+	return d.RequirementsSpec == "" && d.TechnicalDesign == "" && d.ImplementationPlan == ""
+}
+
+// resolvePublicDesignDocs returns the design doc content for a task, reading
+// from the latest non-superseded design review. If no review holds content but
+// docs have been pushed to git, it backfills from git the same way the
+// authenticated review view does, then re-reads.
+func (apiServer *HelixAPIServer) resolvePublicDesignDocs(ctx context.Context, task *types.SpecTask) publicDesignDocs {
+	docs := apiServer.designDocsFromReviews(ctx, task.ID)
+	if !docs.empty() || task.DesignDocsPushedAt == nil {
+		return docs
+	}
+
+	// Self-healing: no review content but docs exist in git — backfill, then re-read.
+	project, err := apiServer.Store.GetProject(ctx, task.ProjectID)
+	if err != nil || project.DefaultRepoID == "" {
+		return docs
+	}
+	repo, err := apiServer.Store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil || repo == nil {
+		return docs
+	}
+
+	log.Info().Str("task_id", task.ID).Msg("Public viewer: backfilling design review from git")
+	apiServer.backfillDesignReviewFromGit(ctx, task.ID, repo)
+
+	return apiServer.designDocsFromReviews(ctx, task.ID)
+}
+
+// designDocsFromReviews picks the current design review for a task — the latest
+// non-superseded one, falling back to the most recent — and returns its docs.
+func (apiServer *HelixAPIServer) designDocsFromReviews(ctx context.Context, taskID string) publicDesignDocs {
+	// Ordered created_at DESC by the store.
+	reviews, err := apiServer.Store.ListSpecTaskDesignReviews(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to list design reviews for public viewer")
+		return publicDesignDocs{}
+	}
+	if len(reviews) == 0 {
+		return publicDesignDocs{}
+	}
+
+	current := &reviews[0]
+	for i := range reviews {
+		if reviews[i].Status != types.SpecTaskDesignReviewStatusSuperseded {
+			current = &reviews[i]
+			break
+		}
+	}
+
+	return publicDesignDocs{
+		RequirementsSpec:   current.RequirementsSpec,
+		TechnicalDesign:    current.TechnicalDesign,
+		ImplementationPlan: current.ImplementationPlan,
+	}
 }
 
 // renderPrivateTaskPage shows a user-friendly message for non-public tasks
@@ -67,12 +139,45 @@ func (apiServer *HelixAPIServer) renderPrivateTaskPage(w http.ResponseWriter, ta
 	}
 }
 
+// renderDocsUnavailablePage is shown when a task is public but has no design
+// document content yet (no review record and nothing readable in git).
+func (apiServer *HelixAPIServer) renderDocsUnavailablePage(w http.ResponseWriter, task *types.SpecTask) {
+	data := struct {
+		TaskID   string
+		TaskName string
+	}{
+		TaskID:   task.ID,
+		TaskName: task.Name,
+	}
+
+	tmpl, err := template.New("docs_unavailable").Parse(docsUnavailableTemplate)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to parse docs unavailable template")
+		http.Error(w, "template error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusNotFound)
+	if err := tmpl.Execute(w, data); err != nil {
+		log.Error().Err(err).Msg("Failed to render docs unavailable template")
+	}
+}
+
 // renderDesignDocsPage renders the design documents for a public task
-func (apiServer *HelixAPIServer) renderDesignDocsPage(w http.ResponseWriter, task *types.SpecTask) {
+func (apiServer *HelixAPIServer) renderDesignDocsPage(w http.ResponseWriter, task *types.SpecTask, docs publicDesignDocs) {
+	// No content anywhere (no review record and nothing in git) — say so
+	// explicitly rather than rendering three blank sections.
+	if docs.empty() {
+		log.Warn().Str("task_id", task.ID).Msg("Public design docs viewer: no document content available")
+		apiServer.renderDocsUnavailablePage(w, task)
+		return
+	}
+
 	// Convert markdown to HTML
-	requirementsHTML := template.HTML(blackfriday.Run([]byte(task.RequirementsSpec)))
-	designHTML := template.HTML(blackfriday.Run([]byte(task.TechnicalDesign)))
-	implementationHTML := template.HTML(blackfriday.Run([]byte(task.ImplementationPlan)))
+	requirementsHTML := template.HTML(blackfriday.Run([]byte(docs.RequirementsSpec)))
+	designHTML := template.HTML(blackfriday.Run([]byte(docs.TechnicalDesign)))
+	implementationHTML := template.HTML(blackfriday.Run([]byte(docs.ImplementationPlan)))
 
 	data := struct {
 		TaskID                 string
@@ -203,6 +308,66 @@ const privateTaskTemplate = `
         <div class="task-name">{{.TaskName}}</div>
         <p>If you have access to this project, you can log in to view the design documents.</p>
         <a href="{{.LoginURL}}" class="login-btn">Log in to Helix</a>
+        <div class="footer">
+            Task ID: {{.TaskID}}
+        </div>
+    </div>
+</body>
+</html>
+`
+
+// Docs-unavailable template - shown when a public task has no design doc content
+const docsUnavailableTemplate = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Design Documents Unavailable - Helix</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f7fa;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            max-width: 500px;
+            margin: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            padding: 40px;
+            text-align: center;
+        }
+        .icon { font-size: 64px; margin-bottom: 20px; }
+        h1 { color: #4b5563; font-size: 24px; font-weight: 600; margin-bottom: 16px; }
+        p { color: #6b7280; margin-bottom: 24px; }
+        .task-name {
+            background: #f3f4f6;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            color: #374151;
+            margin-bottom: 24px;
+            display: inline-block;
+        }
+        .footer { margin-top: 32px; color: #9ca3af; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">📄</div>
+        <h1>Design documents not available yet</h1>
+        <div class="task-name">{{.TaskName}}</div>
+        <p>This task's design documents haven't been published yet. Check back once the agent has finished writing and pushing them.</p>
         <div class="footer">
             Task ID: {{.TaskID}}
         </div>
