@@ -81,14 +81,7 @@ type BotDTO struct {
 
 func (d BotDTO) MarshalJSON() ([]byte, error) {
 	type botDTO BotDTO
-	encoded := botDTO(d)
-	if encoded.AgentID == "" {
-		encoded.AgentID = encoded.LegacyAgentID
-	}
-	if encoded.LegacyAgentID == "" {
-		encoded.LegacyAgentID = encoded.AgentID
-	}
-	return json.Marshal(encoded)
+	return json.Marshal(botDTO(canonicalBotDTO(d)))
 }
 
 func (d *BotDTO) UnmarshalJSON(data []byte) error {
@@ -97,14 +90,16 @@ func (d *BotDTO) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	if decoded.AgentID == "" {
-		decoded.AgentID = decoded.LegacyAgentID
-	}
-	if decoded.LegacyAgentID == "" {
-		decoded.LegacyAgentID = decoded.AgentID
-	}
-	*d = BotDTO(decoded)
+	*d = canonicalBotDTO(BotDTO(decoded))
 	return nil
+}
+
+func canonicalBotDTO(d BotDTO) BotDTO {
+	if d.AgentID == "" {
+		d.AgentID = d.LegacyAgentID
+	}
+	d.LegacyAgentID = d.AgentID
+	return d
 }
 
 // BotChatDTO is the POST /bots/{id}/chat response. AgentID is the
@@ -141,6 +136,33 @@ type BotDetailDTO struct {
 type AgentDetailDTO struct {
 	BotDTO
 	ProjectID string `json:"project_id,omitempty"`
+}
+
+func (d AgentDetailDTO) MarshalJSON() ([]byte, error) {
+	type botDTO BotDTO
+	type agentDetailDTO struct {
+		botDTO
+		ProjectID string `json:"project_id,omitempty"`
+	}
+	return json.Marshal(agentDetailDTO{
+		botDTO:    botDTO(canonicalBotDTO(d.BotDTO)),
+		ProjectID: d.ProjectID,
+	})
+}
+
+func (d *AgentDetailDTO) UnmarshalJSON(data []byte) error {
+	type botDTO BotDTO
+	type agentDetailDTO struct {
+		botDTO
+		ProjectID string `json:"project_id,omitempty"`
+	}
+	var decoded agentDetailDTO
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	d.BotDTO = canonicalBotDTO(BotDTO(decoded.botDTO))
+	d.ProjectID = decoded.ProjectID
+	return nil
 }
 
 // CreateBotRequest is the body of POST /bots. Mirrors the MCP
