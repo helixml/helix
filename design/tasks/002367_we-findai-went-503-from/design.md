@@ -331,3 +331,127 @@ per repo `CLAUDE.md` anything not run is reported as **NOT tested**:
 | Dead-man rule is mandatory | Without it, a broken scrape is indistinguishable from health — this deliverable's own worst failure mode | Trusting the scrape |
 | Both a Prometheus rule *and* an in-code AdminAlerter page | The two fail independently; we cannot currently confirm prod scrapes these metrics (OQ 3) | Rules only — inert if unscraped; in-code only — silent if the API is down |
 | Classify failures, don't act on them | Brief scopes rollback/backoff out | Skipping rollback on data-level failures (flagged for follow-up) |
+
+---
+
+# Implementation Notes (written during implementation)
+
+## What changed vs the approved design
+
+1. **No separate drain in `RecoverWebService`.** The design listed the recreate branch as
+   a third call site. It isn't needed: that branch calls `sandboxes.Delete`, which now drains
+   web-service sandboxes itself. A second call site would be duplicate logic for one path.
+   The "skip when dockerd is unresponsive" refinement was dropped with it — the drain against a
+   dead dockerd fails fast and logs, which is honest (we tried) and costs one failed exec.
+
+2. **`install.sh` needed the fix more than `docker-compose.yaml` did.** The prod compose file
+   does not define sandbox services at all ("Sandbox services are NOT defined here — they are
+   configured by install.sh"). The prod runner is launched by a `docker run` embedded in
+   `install.sh`, so the real fix there is `--stop-timeout 120`, not `stop_grace_period`. The
+   compose change still went into `docker-compose.dev.yaml` (4 sandbox services) for dev parity.
+
+3. **Failure classification became its own file** (`failure_classifier.go`) with an ordered
+   signature table, because ordering is load-bearing: the we-find.ai log contains both `PANIC:`
+   and `could not locate a valid checkpoint record`, and the specific diagnosis must win. There
+   is a test pinning exactly that.
+
+## Discovery: why the drain has to run inside the sandbox
+
+Confirmed empirically, not by reasoning. `dind` is **not** a faithful model of a Helix sandbox —
+in `docker:dind` PID 1 *is* dockerd, which stops its containers gracefully on SIGTERM, so a naive
+dind test shows a clean shutdown and hides the bug entirely. The Helix sandbox is different:
+`sandbox/overlay/entrypoint.sh` ends in `exec gosu … startup-app.sh`, which ended in
+`exec tail -f /dev/null`, so **PID 1 was `tail`** with dockerd as an unrelated background child.
+
+A faithful harness (dockerd backgrounded, PID 1 = `tail`) reproduced the outage exactly. See
+"Evidence" below.
+
+## Discovery: `exec` defeats `trap`
+
+A shell blocked in `exec` cannot run a trap — the shell is gone, replaced by the exec'd process.
+This is why `tail -f /dev/null &` + `wait $!` is required rather than a trap added above the
+existing `exec`. Verified in isolation before touching the real script:
+
+| PID 1 form | `docker stop -t 10` | trap ran? |
+|---|---|---|
+| `exec tail -f /dev/null` | took the full 10s, then SIGKILL | **no** |
+| `tail -f /dev/null & wait $!` | 0s, clean exit | **yes** |
+
+## Discovery: the alert flap is worse than "resolves briefly"
+
+`deployInProgress` is true for up to `DeployBuildTimeout` (15 min), not just while a build is
+genuinely running. So during the outage `helix_webservice_up` sat at **1 for 15-minute stretches**.
+Any rule with a `for:` shorter than that would have shown resolved for the majority of the outage,
+not just momentarily. Confirmed in the live run below: `up=1` continuously from 16:20:53 to
+16:35:53.
+
+## Evidence
+
+All runs below are against the inner Helix at `localhost:8080` with the real API, real health
+monitor, real `notification.AdminAlerter`, and a local HTTP catcher standing in for the Slack
+webhook (`JANITOR_SLACK_WEBHOOK_URL`). Local-only `.env` edits were reverted afterwards; test DB
+rows were deleted.
+
+### Gap 2 — the down signal and the page (VERIFIED END-TO-END)
+
+Seeded a project whose web service points at a dead sandbox, so probes fail — then inserted a
+`status=building` deploy row to reproduce the in-flight recovery redeploy.
+
+```
+16:18:52 up=0 unhealthy_since=1.785341867e+09
+16:20:53 up=1 unhealthy_since=1.785341867e+09   <-- recovery redeploy in flight
+                                                    (the instant the OLD alert sent RESOLVED)
+16:35:53 up=0 unhealthy_since=1.785341867e+09   <-- build timeout; still down
+```
+
+`helix_webservice_up` flapped 0 → 1 → 0. `helix_webservice_unhealthy_since_seconds` held a single
+value for the entire run (verified: exactly one distinct value across 70+ samples).
+
+The page was delivered at 16:33:17 — 15m30s after the streak began, **while `up` was still 1**:
+
+```json
+{"text":"🚨 Hosted web service DOWN — Find AI (e2e) (prj_findai_e2e)\nDomains: we-find.ai, www.we-find.ai\nDown for: 15m30s\nConsecutive failed auto-recoveries: 1 — auto-recovery cannot fix this on its own\nLast deploy error: the app never started listening on port 8080\nDeploy log: http://localhost:8080/projects/prj_findai_e2e/web-service"}
+```
+
+Exactly **1** page across ~35 minutes of ticks — no per-tick spam.
+
+The `promtool` rule tests pass against the same waveform, including the assertion that the naive
+`helix_webservice_up == 0` rule resolves repeatedly during the same outage.
+
+### Gap 1 — graceful nested shutdown (VERIFIED, in a faithful harness)
+
+Two sandboxes differing only in PID 1, each running a nested `docker compose` Postgres with a
+volume under `/data`, with dirty buffers written after the last checkpoint, then `docker stop`:
+
+| | OLD (`exec tail`) | NEW (trap + drain) |
+|---|---|---|
+| `docker stop` duration | **120s** (full timeout, then SIGKILL) | **0s** |
+| trap / drain ran | **no** | yes — `DRAIN COMPLETE` |
+| Postgres shutdown log | *(none — killed)* | `checkpoint complete: shutdown immediate`, `database system is shut down` |
+| `pg_controldata` | **`in production`** (unclean) | **`shut down`** (clean) |
+| next start | — | `database system was shut down at …`, no recovery, no PANIC |
+| data | — | all 400,000 rows present |
+
+The OLD column is the we-find.ai failure mode reproduced on demand; the NEW column is the same
+scenario after the change.
+
+## NOT tested
+
+Stated explicitly per repo `CLAUDE.md`:
+
+- **The recovery ("✅ back up") notification.** Covered by a unit test
+  (`TestPagesOnceThenRecoveryNotice`) but not exercised end-to-end — that needs a web service that
+  goes down and then genuinely comes back, which needs a live runner-backed sandbox.
+- **The admin-email arm of the alert.** Only the Slack arm was exercised; SMTP is not configured
+  in the inner Helix. The email path shares `AdminAlerter`'s existing, already-used template
+  machinery.
+- **`DrainNestedContainers` against a real runner-backed web-service sandbox.** The drain *script*
+  and the layered SIGKILL failure mode were proven in the faithful harness above, and the Go
+  wiring (drain issued, before teardown, skipped for ephemeral sandboxes, non-fatal on failure) is
+  covered by unit tests — but the two have not been exercised together through hydra RevDial.
+- **The hydra `POST /api/v1/drain` endpoint over the unix socket.** Compiles and is wired; not
+  invoked in a live sandbox, because that needs `./stack build-sandbox` and a runner restart.
+- **`install.sh --stop-timeout 120`** — syntax-checked only; not run against a real runner install.
+- **Whether prod scrapes these metrics at all.** Unresolved; see Open Question 3 in
+  `requirements.md`. Until an operator confirms it, the in-code AdminAlerter path is the only
+  thing that will actually page.
