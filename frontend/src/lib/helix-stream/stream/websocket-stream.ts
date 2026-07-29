@@ -112,6 +112,9 @@ export class WebSocketStream {
   // visibilitychange handler picks it up when the tab comes back.
   private reconnectWhenVisible = false
 
+  // Set by reconnect() so the next init message is flagged as a user retry.
+  private pendingUserRetry = false
+
   // Page visibility tracking - prevents false stale detection on iOS when page is backgrounded
   private pageVisible = true
   private visibilityHandler: (() => void) | null = null
@@ -770,6 +773,13 @@ export class WebSocketStream {
       packet_size: this.settings.packetSize,
       play_audio_local: this.settings.playAudioLocal,
       video_supported_formats: supportBits,
+    }
+
+    // Tell the server this is a deliberate user retry, not an automatic
+    // reconnect. Only a user retry clears a latched server-side circuit breaker.
+    if (this.pendingUserRetry) {
+      initMessage.user_retry = true
+      this.pendingUserRetry = false
     }
 
     // Include client_unique_id if provided (enables immediate lobby attachment)
@@ -2439,6 +2449,7 @@ export class WebSocketStream {
     this.closed = false
     this.gaveUp = false
     this.reconnectWhenVisible = false
+    this.pendingUserRetry = true
     this.reconnectAttempts = 0
 
     // Cancel any pending reconnection

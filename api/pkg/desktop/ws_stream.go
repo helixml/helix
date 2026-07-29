@@ -202,6 +202,11 @@ type StreamConfig struct {
 	PlayAudioLocal        bool   `json:"play_audio_local"`
 	VideoSupportedFormats int    `json:"video_supported_formats"`
 	ClientUniqueID        string `json:"client_unique_id,omitempty"`
+	// UserRetry marks this connection as an explicit user-initiated retry (the
+	// Restart button), as opposed to an automatic reconnect. It is the only thing
+	// that clears a latched circuit breaker — automatic reconnects must not, or
+	// the breaker is back to letting a retry storm through one pipeline at a time.
+	UserRetry bool `json:"user_retry,omitempty"`
 	// VideoMode overrides the HELIX_VIDEO_MODE env var for this stream
 	// Valid values: "shm", "native", "zerocopy" (default: from env or "shm")
 	VideoMode string `json:"video_mode,omitempty"`
@@ -1871,7 +1876,13 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		"bitrate", config.Bitrate,
 		"session_id", config.SessionID,
 		"user_name", config.UserName,
+		"user_retry", config.UserRetry,
 	)
+
+	// An explicit user retry is the only way out of a latched circuit breaker.
+	if config.UserRetry {
+		GetSharedVideoRegistry().ResetCircuitBreaker(nodeID)
+	}
 
 	// Create video streamer - unified path for both GNOME and Sway
 	// Both compositors now use pipewirezerocopysrc for zero-copy DMA-BUF capture.
