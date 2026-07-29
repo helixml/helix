@@ -12,14 +12,14 @@
 - [x] Wire `notification.AdminAlerter` into `HealthMonitor`; send one alert per down-streak once past the 15-minute threshold, plus one recovery message; no-op with a warn log when neither Slack nor admin email is configured
 - [x] Alert payload: project id/name, hosted domains, down duration, consecutive recovery failures, classified deploy error, deploy-log URL
 - [x] Unit-test: down-since set once and not refreshed; not cleared by an in-flight deploy; cleared on success; alert sent exactly once per streak
-- [~] Create `deploy/monitoring/helix-webservice.rules.yml` with `HelixWebServiceDown`, `HelixWebServiceRecoveryLooping`, `HelixWebServiceServing503s`, and the `HelixWebServiceMetricsMissing` dead-man rule, each with `keep_firing_for`
-- [ ] Create `deploy/monitoring/helix-webservice.rules.test.yml`: replay the find-ai square wave and assert the down alert fires and never resolves; assert a naive `up == 0` rule would have resolved; slow-first-deploy produces no page; looping and dead-man rules fire
-- [ ] Wire `promtool test rules` into CI
-- [ ] Write `deploy/monitoring/README.md`: where the rules must be installed, the label set that routes to the pager, and that `HELIX_METRICS_LISTEN` must be set on the prod controlplane and scraped or every rule is inert
+- [x] Create `deploy/monitoring/helix-webservice.rules.yml` with `HelixWebServiceDown`, `HelixWebServiceRecoveryLooping`, `HelixWebServiceServing503s`, and the `HelixWebServiceMetricsMissing` dead-man rule, each with `keep_firing_for`
+- [x] Create `deploy/monitoring/helix-webservice.rules.test.yml`: replay the find-ai square wave and assert the down alert fires and never resolves; assert a naive `up == 0` rule would have resolved; slow-first-deploy produces no page; looping and dead-man rules fire
+- [x] Wire `promtool test rules` into CI
+- [x] Write `deploy/monitoring/README.md`: where the rules must be installed, the label set that routes to the pager, and that `HELIX_METRICS_LISTEN` must be set on the prod controlplane and scraped or every rule is inert
 
 ## Gap 1 — graceful shutdown of the nested app stack
 
-- [ ] Add `DrainNestedContainers(ctx, hc, sandboxID, grace)` to `api/pkg/sandbox/` — one exec of `docker ps -q` + `docker stop --time <grace>`, exec timeout `grace + slack`, returns whether the drain completed or was forced
+- [~] Add `DrainNestedContainers(ctx, hc, sandboxID, grace)` to `api/pkg/sandbox/` — one exec of `docker ps -q` + `docker stop --time <grace>`, exec timeout `grace + slack`, returns whether the drain completed or was forced
 - [ ] Unit-test the helper: expected exec issued, grace bound respected, no-containers case, wedged-container case does not block
 - [ ] Drain in `webservice.Controller.deployInPlace` before running `deployScript` (keep the existing pidfile/process-group kill)
 - [ ] Drain in `webservice.Controller.RecoverWebService` before `sandboxes.Delete` in the recreate branch; skip with a log line when the reason is `sandbox dockerd unresponsive`
