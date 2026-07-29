@@ -244,6 +244,12 @@ func (s *Server) Run(ctx context.Context) error {
 	InitGStreamer()
 	s.logger.Info("GStreamer initialized")
 
+	// Watch our own GPU file-descriptor usage. A desktop-bridge that leaks GPU
+	// resources starves every other tenant on the card, and until now nothing
+	// detected it — the 2026-07-28 incident ran for 45 hours before a human
+	// noticed. See gpu_guard.go.
+	StartGPUResourceGuard(s.logger)
+
 	// Detect compositor type and setup D-Bus sessions accordingly
 	s.compositorType = s.detectCompositor()
 	s.logger.Info("detected compositor", "type", s.compositorType)

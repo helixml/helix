@@ -969,7 +969,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           setIsConnected(true);
           hasEverConnectedRef.current = true; // Mark first successful connection
           setError(null); // Clear any previous errors on successful connection
-          resetRetryState(); // Reset retry counters/timers on successful connection
+          // NOTE: retry counters are deliberately NOT reset here. A completed
+          // handshake is not a working stream — the 45-hour reconnect storm ran
+          // entirely on connections that reached this point and then delivered no
+          // video. resetRetryState() now happens on "videoStarted" below.
           onConnectionChange?.(true);
 
           // Register WebSocket stream connection
@@ -1015,10 +1018,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
           // isConnecting stays true until video/screenshot arrives
         } else if (data.type === "videoStarted") {
-          // First keyframe received and being decoded - video is now visible
+          // First keyframe received and being decoded - video is now visible.
+          // This — frames actually arriving — is the only evidence the stream
+          // works, so this is where the retry budget is refunded.
           console.log(
             "[DesktopStreamViewer] Video started - hiding connecting overlay",
           );
+          resetRetryState();
           // Clear video start timeout - video arrived successfully
           if (videoStartTimeoutRef.current) {
             clearTimeout(videoStartTimeoutRef.current);
@@ -1033,6 +1039,23 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           );
           setIsConnecting(false);
           setStatus("Streaming active");
+        } else if (data.type === "gaveUp") {
+          // Terminal: the stream client has stopped connecting. Show a real error
+          // with the Retry affordance instead of an endless "Reconnecting…".
+          addConnectionLog(`Gave up after ${data.attempts} attempts`);
+          console.error(
+            `[DesktopStreamViewer] Stream gave up after ${data.attempts} attempts`,
+          );
+          setError(
+            "Could not start the video stream. The desktop may be out of GPU capacity, or still starting up. Click Restart to try again.",
+          );
+          setIsConnecting(false);
+          setIsConnected(false);
+          setStatus("Connection failed");
+          onConnectionChange?.(false);
+        } else if (data.type === "reconnectDeferred") {
+          addConnectionLog(`Reconnect deferred (${data.reason})`);
+          setStatus("Paused (tab in background)");
         } else if (data.type === "error") {
           // Ignore errors during explicit close (e.g., bitrate change, mode switch)
           // These are expected and should not show error UI
