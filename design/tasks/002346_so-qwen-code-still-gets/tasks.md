@@ -24,11 +24,11 @@
 
 - [x] Commit the Zed change locally; hash `4d248e320eeab82a8dd3d86d8c83c01f92b712b7`.
 - [x] Update `helix/sandbox-versions.txt` `ZED_COMMIT` to the new hash (resolved a conflict with main, which had pinned the base commit my work descends from).
-- [ ] Open the Helix PR (with bumped hash) BEFORE pushing the Zed branch (per CLAUDE.md ordering).
-- [ ] Push the Zed branch, open its PR (`gh pr create --repo helixml/zed`).
-- [ ] Merge Zed PR, then merge Helix PR.
+- [x] Pushed `feature/002346-auto-approve-qwen-code` to **helix** first, then to **zed** (PR creation is done by the Helix platform when the user clicks "Open PR", not by the agent).
+- [x] PR descriptions written: `pull_request_zed.md` (the actual fix) and `pull_request_helix.md` (version bump only).
+- [ ] **For the human merging:** merge the **Zed PR first**, then the **Helix PR** — the Helix PR pins `ZED_COMMIT` and must not land before the commit it points at exists upstream.
 
 ## Optional follow-up (only if confirmed needed)
 
-- [ ] Instrument qwen `config.setApprovalMode` to log the modeId Zed sends after `new_session` — confirm/deny the post-startup YOLO→default flip (root-cause fact 2a). Revert before commit.
+- [ ] Not needed for this fix: instrumenting qwen's `config.setApprovalMode` to confirm the post-startup YOLO→default flip. The Zed-side fix makes qwen's internal mode irrelevant, and the live e2e passed without it.
 - [ ] Decide separately whether `ask_user_question` should be auto-answered in headless/automation contexts (out of scope here).
