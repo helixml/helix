@@ -689,6 +689,17 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64
 		}
 		registry.mu.Unlock()
 
+		// Refuse to instantiate if this process is already hoarding GPU file
+		// descriptors. The circuit breaker above only throttles *failures*; it
+		// happily permits one leaking instantiation per cooldown forever, which is
+		// how a single desktop reached 9.3 GB of GPU memory and starved the card
+		// for every other tenant.
+		if err := CheckGPUResourceBudget(); err != nil {
+			close(client.frameCh)
+			close(client.errorCh)
+			return nil, nil, 0, err
+		}
+
 		// First client - add to map, start pipeline, no catchup needed (no GOP yet)
 		// Set state to live directly since there's nothing to catch up on
 		client.state.Store(clientStateLive)

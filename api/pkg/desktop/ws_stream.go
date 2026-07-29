@@ -255,6 +255,12 @@ type VideoStreamer struct {
 	// do-timestamp=true produces PTS values comparable to time.Now().
 	useRealtimeClock bool
 
+	// pipelineErr is set by buildPipelineString when the environment cannot
+	// produce a working pipeline at all — currently only NVIDIA hardware whose
+	// NVENC encoder will not load. Start() turns it into a client-visible error
+	// rather than streaming down a path that yields no frames.
+	pipelineErr error
+
 	// Cursor tracking
 	cursorUpdateCount uint64 // Number of cursor updates sent
 
@@ -312,6 +318,11 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 	// Build GStreamer pipeline string (outputs to appsink)
 	pipelineStr := v.buildPipelineString(encoder)
+	if v.pipelineErr != nil {
+		// The environment cannot produce a working pipeline (e.g. NVIDIA hardware
+		// with no usable NVENC). Surface it instead of streaming a broken picture.
+		return v.pipelineErr
+	}
 
 	// Log with source info
 	sourceInfo := fmt.Sprintf("pipewire:%d", v.nodeID)
@@ -675,23 +686,49 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		isSway := strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "sway") ||
 			os.Getenv("SWAYSOCK") != ""
 
-		// Detect GPU: Only GNOME+NVIDIA gets DmaBuf/CUDA, everything else uses SHM
-		// Detect GPU: GNOME+NVIDIA gets DmaBuf/CUDA, vsock gets DmaBuf, everything else uses SHM
-		// vsockenc requires DMA-BUF to extract resource IDs for VideoToolbox encoding
-		isNvidiaGnome := !isSway && (encoder == "nvenc" || checkGstElement("nvh264enc"))
+		// Detect GPU from the HARDWARE, never from encoder plugin availability.
+		// GNOME+NVIDIA gets DmaBuf/CUDA, vsock gets DmaBuf, everything else uses SHM.
+		//
+		// This used to read `encoder == "nvenc" || checkGstElement("nvh264enc")`.
+		// When a GPU is exhausted nvh264enc stops registering, so that expression
+		// silently reclassified NVIDIA hardware as AMD/Intel and took a branch that
+		// delivers no frames at all — see gpu_vendor.go for the incident.
+		vendor := detectGPUVendor()
+
+		// macOS ARM (virtio-gpu) detection: vsockenc element exists even if we're using
+		// a software encoder override (HELIX_ENCODER). We need the same pipewiresrc config
+		// (no always-copy, convert+scale before queue) for any encoder on this platform.
+		isMacOSVirtioGpu := !isSway && checkGstElement("vsockenc")
+
+		isNvidiaGnome := !isSway && !isMacOSVirtioGpu && vendor == GPUVendorNVIDIA
 
 		// GNOME + AMD/Intel: Fall back to native pipewiresrc
 		// Our pipewirezerocopysrc requests MemFd but Mutter ONLY supports DmaBuf on AMD.
 		// Mutter ignores MemFd request and allocates DmaBuf, which we can't mmap (tiled format).
 		// Native pipewiresrc properly handles DmaBuf→vapostproc→GPU detiling.
 		// vsockenc: use native pipewiresrc with DMA-BUF (no always-copy)
-		//
-		// macOS ARM (virtio-gpu) detection: vsockenc element exists even if we're using
-		// a software encoder override (HELIX_ENCODER). We need the same pipewiresrc config
-		// (no always-copy, convert+scale before queue) for any encoder on this platform.
-		isMacOSVirtioGpu := !isSway && checkGstElement("vsockenc")
+		isAmdGnome := !isSway && !isMacOSVirtioGpu &&
+			(vendor == GPUVendorAMD || vendor == GPUVendorIntel || vendor == GPUVendorUnknown)
 
-		isAmdGnome := !isSway && !isNvidiaGnome && !isMacOSVirtioGpu
+		slog.Info("[STREAM] GPU/compositor detection",
+			"gpu_vendor", vendor, "compositor", compositorName(isSway), "encoder", encoder)
+
+		// NVIDIA hardware with no NVENC means the GPU is unusable for encoding —
+		// almost always because it has been exhausted by another tenant. Fail
+		// loudly here: the AMD/Intel branch below produces zero frames on NVIDIA,
+		// and a frozen picture with a misleading log is far worse to debug than an
+		// explicit error.
+		// An explicit HELIX_ENCODER override is an operator decision — honour it.
+		// This only guards the auto-detect path.
+		if isNvidiaGnome && encoder != "nvenc" && os.Getenv("HELIX_ENCODER") == "" {
+			slog.Error("[STREAM] NVIDIA GPU detected but NVENC is unavailable — refusing to stream",
+				"gpu_vendor", vendor, "selected_encoder", encoder,
+				"hint", "nvh264enc failed to register, which usually means GPU memory or BAR1 is exhausted by other sessions")
+			v.pipelineErr = fmt.Errorf("GPU encoder unavailable on this host: NVIDIA hardware was detected "+
+				"but the NVENC encoder (nvh264enc) could not be created, so the GPU is out of capacity. "+
+				"Stop unused desktop sessions and try again. (encoder auto-detect fell back to %q)", encoder)
+			return ""
+		}
 
 		if isMacOSVirtioGpu {
 			// macOS ARM / UTM virtio-gpu: Mutter does NOT export DMA-BUF for ScreenCast
@@ -725,7 +762,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// IMPORTANT: Do NOT add a capsfilter like "video/x-raw,framerate=60/1" here!
 			// Mutter offers DmaBuf with modifiers, and the capsfilter breaks negotiation
 			// by stripping the memory type. Let pipewiresrc negotiate directly with vapostproc.
-			slog.Info("[STREAM] GNOME + AMD/Intel detected, using native pipewiresrc with always-copy=true")
+			slog.Info("[STREAM] using native pipewiresrc with always-copy=true",
+				"gpu_vendor", vendor, "compositor", "gnome", "encoder", encoder)
 			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true always-copy=true keepalive-time=500", v.nodeID)
 			if v.pipeWireFd > 0 {
 				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)

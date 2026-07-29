@@ -105,10 +105,6 @@ var gstInitOnce sync.Once
 // so this mutex mainly protects against the rare case of concurrent session starts.
 var pipelineCreateMu sync.Mutex
 
-// activePipelineCount tracks how many pipelines are currently running.
-// Used for logging/debugging.
-var activePipelineCount atomic.Int32
-
 // InitGStreamer initializes the GStreamer library. Safe to call multiple times.
 func InitGStreamer() {
 	gstInitOnce.Do(func() {
