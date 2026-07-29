@@ -1,0 +1,22 @@
+# NOT FOR INSTALLATION. This is the WRONG rule, kept only so the unit tests can
+# demonstrate the bug it causes.
+#
+# An alert shaped like this on helix_webservice_up is what was watching we-find.ai
+# on 2026-07-28. Because the health monitor reports up=1 while any deploy is in
+# flight — and auto-recovery redeploys a broken service every ~11 minutes — this
+# rule fires and RESOLVES on a loop for the entire outage. The operator receives a
+# stream of "down"/"resolved" pairs and reasonably concludes the site is healing
+# itself, while every customer request returns 503.
+#
+# The correct rule is HelixWebServiceDown in ../helix-webservice.rules.yml, which
+# watches helix_webservice_unhealthy_since_seconds instead.
+groups:
+  - name: helix-webservice-naive-DO-NOT-INSTALL
+    rules:
+      - alert: NaiveWebServiceDownDoNotUse
+        expr: helix_webservice_up == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "DO NOT USE — demonstrates the flapping-resolve bug"

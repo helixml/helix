@@ -1,0 +1,199 @@
+# promtool unit tests for helix-webservice.rules.yml
+#
+# Run: promtool test rules deploy/monitoring/helix-webservice.rules.test.yml
+#
+# The first test replays the actual shape of the we-find.ai outage (2026-07-28)
+# and is the reason this file exists: it proves the down alert fires and NEVER
+# resolves while the site is 503, and demonstrates that the naive
+# `helix_webservice_up == 0` formulation would have resolved repeatedly.
+rule_files:
+  - helix-webservice.rules.yml
+  - testdata/naive-rule-for-comparison.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ---------------------------------------------------------------------------
+  # TEST 1 — the we-find.ai outage, replayed.
+  #
+  # Ground truth: the site is 503 for the whole window. But helix_webservice_up
+  # is a square wave, because auto-recovery redeploys every ~11 min and an
+  # in-flight deploy reports up=1 for up to 10 min:
+  #     up = 0 (11 min) → 1 (10 min) → 0 (11 min) → 1 (10 min) → ...
+  # Meanwhile unhealthy_since stays pinned at t=0 because only a genuinely
+  # successful probe clears it.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    name: down alert fires through the recovery-redeploy square wave and never resolves
+    input_series:
+      # The flapping gauge — 0 for 11m, 1 for 10m, repeating for ~3 hours.
+      - series: 'helix_webservice_up{project_id="prj_findai"}'
+        values: '0+0x10 1+0x9 0+0x10 1+0x9 0+0x10 1+0x9 0+0x10 1+0x9 0+0x10 1+0x9 0+0x10 1+0x9 0+0x10 1+0x9 0+0x10 1+0x9'
+      # The down-streak start: pinned at t=0 (unix 0 in promtool's clock) for the
+      # entire outage. time() - 0 grows without bound, so the alert stays firing.
+      - series: 'helix_webservice_unhealthy_since_seconds{project_id="prj_findai"}'
+        values: '0+0x320'
+    alert_rule_test:
+      # Before the 15-minute threshold: no page (a slow deploy must not page).
+      - eval_time: 10m
+        alertname: HelixWebServiceDown
+        exp_alerts: []
+      # Past the threshold + the 5m `for`: firing.
+      - eval_time: 21m
+        alertname: HelixWebServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              team: platform
+              project_id: prj_findai
+            exp_annotations:
+              summary: "Hosted web service prj_findai has been down for over 15 minutes"
+              description: "The hosted web service for project prj_findai has failed every health probe for more than 15 minutes. Auto-recovery redeploys the same commit, so if the cause is a corrupt or unstartable database inside the app's own compose stack, recovery cannot fix it. Check the deploy log on the project's Web Service tab before forcing another deploy."
+              runbook: "Check the project's Web Service tab for the deploy log and classified error. Do NOT run pg_resetwal without taking a volume backup first."
+      # At 15m the site has been down for 15m but the 5m `for` has not elapsed,
+      # so the page is still pending. Not firing yet is correct here.
+      - eval_time: 15m
+        alertname: HelixWebServiceDown
+        exp_alerts: []
+      # THE MONEY SHOT: at 35m helix_webservice_up has flipped back to 1 because
+      # auto-recovery is mid-redeploy. This is the exact instant at which the old
+      # alert sent RESOLVED. The new rule is still firing, because the site is
+      # still down.
+      - eval_time: 35m
+        alertname: HelixWebServiceDown
+        exp_alerts:
+          - exp_labels: {severity: page, team: platform, project_id: prj_findai}
+            exp_annotations:
+              summary: "Hosted web service prj_findai has been down for over 15 minutes"
+              description: "The hosted web service for project prj_findai has failed every health probe for more than 15 minutes. Auto-recovery redeploys the same commit, so if the cause is a corrupt or unstartable database inside the app's own compose stack, recovery cannot fix it. Check the deploy log on the project's Web Service tab before forcing another deploy."
+              runbook: "Check the project's Web Service tab for the deploy log and classified error. Do NOT run pg_resetwal without taking a volume backup first."
+      - eval_time: 25m
+        alertname: HelixWebServiceDown
+        exp_alerts:
+          - exp_labels: {severity: page, team: platform, project_id: prj_findai}
+            exp_annotations:
+              summary: "Hosted web service prj_findai has been down for over 15 minutes"
+              description: "The hosted web service for project prj_findai has failed every health probe for more than 15 minutes. Auto-recovery redeploys the same commit, so if the cause is a corrupt or unstartable database inside the app's own compose stack, recovery cannot fix it. Check the deploy log on the project's Web Service tab before forcing another deploy."
+              runbook: "Check the project's Web Service tab for the deploy log and classified error. Do NOT run pg_resetwal without taking a volume backup first."
+      # Hours later, still firing — five days of this is what actually happened.
+      - eval_time: 180m
+        alertname: HelixWebServiceDown
+        exp_alerts:
+          - exp_labels: {severity: page, team: platform, project_id: prj_findai}
+            exp_annotations:
+              summary: "Hosted web service prj_findai has been down for over 15 minutes"
+              description: "The hosted web service for project prj_findai has failed every health probe for more than 15 minutes. Auto-recovery redeploys the same commit, so if the cause is a corrupt or unstartable database inside the app's own compose stack, recovery cannot fix it. Check the deploy log on the project's Web Service tab before forcing another deploy."
+              runbook: "Check the project's Web Service tab for the deploy log and classified error. Do NOT run pg_resetwal without taking a volume backup first."
+
+  # ---------------------------------------------------------------------------
+  # TEST 2 — the bug, demonstrated. The naive rule (in testdata/) is what an
+  # alert on helix_webservice_up looks like. Against the SAME outage it is
+  # firing at 12m, NOT firing at 25m (mid-recovery-deploy), firing again at 40m.
+  # Each transition to not-firing is a RESOLVED notification to the operator
+  # while the site is still serving 503. This test documents why we do not page
+  # on helix_webservice_up.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    name: naive up==0 rule resolves repeatedly during the same outage
+    input_series:
+      - series: 'helix_webservice_up{project_id="prj_findai"}'
+        values: '0+0x10 1+0x9 0+0x10 1+0x9 0+0x10 1+0x9'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: NaiveWebServiceDownDoNotUse
+        exp_alerts:
+          - exp_labels: {severity: page, project_id: prj_findai}
+            exp_annotations:
+              summary: "DO NOT USE — demonstrates the flapping-resolve bug"
+      # Recovery redeploy starts → up=1 → the page RESOLVES, though the site is
+      # still 503 to every customer. This is the incident, in one assertion.
+      - eval_time: 17m
+        alertname: NaiveWebServiceDownDoNotUse
+        exp_alerts: []
+      - eval_time: 29m
+        alertname: NaiveWebServiceDownDoNotUse
+        exp_alerts:
+          - exp_labels: {severity: page, project_id: prj_findai}
+            exp_annotations:
+              summary: "DO NOT USE — demonstrates the flapping-resolve bug"
+      - eval_time: 38m
+        alertname: NaiveWebServiceDownDoNotUse
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # TEST 3 — no false page for a slow but healthy cold deploy. A first
+  # docker-compose build can take the full 10-minute readiness window; the
+  # service never fails a probe, so no down-streak is ever started.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    name: slow cold deploy does not page
+    input_series:
+      - series: 'helix_webservice_up{project_id="prj_slow"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: HelixWebServiceDown
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: HelixWebServiceDown
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # TEST 4 — recovery loop detection.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    name: looping auto-recovery pages
+    input_series:
+      - series: 'helix_webservice_consecutive_recovery_failures{project_id="prj_findai"}'
+        values: '0 0 1 1 2 2 3+0x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HelixWebServiceRecoveryLooping
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: HelixWebServiceRecoveryLooping
+        exp_alerts:
+          - exp_labels: {severity: page, team: platform, project_id: prj_findai}
+            exp_annotations:
+              summary: "Auto-recovery is looping for web service prj_findai"
+              description: "3 consecutive auto-recovery attempts have failed for project prj_findai. Recovery re-runs the same commit against the same data, so a persistent failure is usually environmental (corrupt database, missing image, dead runner) and needs a human."
+
+  # ---------------------------------------------------------------------------
+  # TEST 5 — customers actually receiving 503s.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    name: sustained upstream errors page
+    input_series:
+      - series: 'helix_webservice_upstream_errors_total{project_id="prj_findai"}'
+        values: '0+5x60'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HelixWebServiceServing503s
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: HelixWebServiceServing503s
+        exp_alerts:
+          - exp_labels: {severity: page, team: platform, project_id: prj_findai}
+            exp_annotations:
+              summary: "Customers are receiving 503s from web service prj_findai"
+              description: "The vhost proxy has been unable to reach the upstream container for project prj_findai continuously for 15 minutes. Customers are seeing the holding page."
+
+  # ---------------------------------------------------------------------------
+  # TEST 6 — the dead-man switch. No series at all (scrape broken, metrics
+  # listener unset, controlplane down) must page, because in that state every
+  # other rule here is silent and silence looks identical to health.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    name: missing metrics pages
+    input_series: []
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HelixWebServiceMetricsMissing
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: HelixWebServiceMetricsMissing
+        exp_alerts:
+          - exp_labels: {severity: page, team: platform}
+            exp_annotations:
+              summary: "Helix web-service metrics have disappeared"
+              description: "No helix_webservice_up series have been scraped for 30 minutes. Either the controlplane is down, HELIX_METRICS_LISTEN is unset, or the scrape config is broken. Every other hosted-web-service alert is blind until this is fixed."

@@ -104,6 +104,22 @@ steps:
         - push
     depends_on: [helm-lint]
 
+  # Prometheus alerting rules for hosted web services. These are the only thing
+  # that pages a human when a customer site goes down, so a broken rule file must
+  # fail the build — a silently-invalid rule is indistinguishable from no alert
+  # at all, which is exactly how we-find.ai stayed 503 for five days.
+  - name: prometheus-rules-test
+    image: prom/prometheus:v3.5.0
+    entrypoint: [""]
+    commands:
+      - cd deploy/monitoring
+      - promtool check rules helix-webservice.rules.yml
+      - promtool test rules helix-webservice.rules.test.yml
+    when:
+      event:
+        - push
+    depends_on: []
+
   - name: shell-script-tests
     image: alpine:3.21
     commands:

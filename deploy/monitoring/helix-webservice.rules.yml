@@ -1,0 +1,98 @@
+# Prometheus alerting rules for Helix hosted web services.
+#
+# WHY THIS FILE EXISTS: on 2026-07-28 the customer site we-find.ai served HTTP
+# 503 for five days. An alert did fire — and then showed as RESOLVED, repeatedly,
+# because the metric behind it (helix_webservice_up) is set to 1 whenever a
+# deploy is in flight, and auto-recovery redeploys a broken service every ~11
+# minutes. The operator saw "down, then resolved" and reasonably read it as a
+# self-healing blip.
+#
+# THE RULE THAT WOULD HAVE PAGED CORRECTLY IS HelixWebServiceDown BELOW.
+# Do NOT write alerts against helix_webservice_up == 0 — see the comment there.
+#
+# Install: see deploy/monitoring/README.md. These rules are inert unless
+# HELIX_METRICS_LISTEN is set on the controlplane and that port is scraped.
+groups:
+  - name: helix-webservice
+    rules:
+      # The primary page. helix_webservice_unhealthy_since_seconds records when
+      # the current down-streak began and is cleared ONLY by a genuinely
+      # successful probe — an in-flight recovery deploy does not clear it. So
+      # this expression grows monotonically for as long as the site is actually
+      # down, and cannot resolve itself while customers are still getting 503s.
+      #
+      # The 15-minute threshold lives inside the expression rather than in `for`,
+      # so a scrape gap doesn't re-arm the window from zero. It must stay above
+      # the deploy readiness window (10 min) so a slow cold build never pages.
+      - alert: HelixWebServiceDown
+        expr: time() - helix_webservice_unhealthy_since_seconds > 900
+        for: 5m
+        keep_firing_for: 15m
+        labels:
+          severity: page
+          team: platform
+        annotations:
+          summary: "Hosted web service {{ $labels.project_id }} has been down for over 15 minutes"
+          description: >-
+            The hosted web service for project {{ $labels.project_id }} has failed
+            every health probe for more than 15 minutes. Auto-recovery redeploys the
+            same commit, so if the cause is a corrupt or unstartable database inside
+            the app's own compose stack, recovery cannot fix it. Check the deploy log
+            on the project's Web Service tab before forcing another deploy.
+          runbook: "Check the project's Web Service tab for the deploy log and classified error. Do NOT run pg_resetwal without taking a volume backup first."
+
+      # Auto-recovery has failed repeatedly: the platform cannot fix this itself.
+      # Distinct from the rule above because it can fire while the site is
+      # intermittently serving, and it tells the operator something different —
+      # "stop waiting for the robot".
+      - alert: HelixWebServiceRecoveryLooping
+        expr: helix_webservice_consecutive_recovery_failures >= 3
+        for: 15m
+        keep_firing_for: 15m
+        labels:
+          severity: page
+          team: platform
+        annotations:
+          summary: "Auto-recovery is looping for web service {{ $labels.project_id }}"
+          description: >-
+            {{ $value }} consecutive auto-recovery attempts have failed for project
+            {{ $labels.project_id }}. Recovery re-runs the same commit against the same
+            data, so a persistent failure is usually environmental (corrupt database,
+            missing image, dead runner) and needs a human.
+
+      # Customer truth: requests that real users made and we could not serve.
+      # Independent of the deploy state machine, so it still fires if the health
+      # monitor itself is wrong.
+      - alert: HelixWebServiceServing503s
+        expr: rate(helix_webservice_upstream_errors_total[5m]) > 0
+        for: 15m
+        keep_firing_for: 15m
+        labels:
+          severity: page
+          team: platform
+        annotations:
+          summary: "Customers are receiving 503s from web service {{ $labels.project_id }}"
+          description: >-
+            The vhost proxy has been unable to reach the upstream container for project
+            {{ $labels.project_id }} continuously for 15 minutes. Customers are seeing the
+            holding page.
+
+      # DEAD-MAN SWITCH — do not delete.
+      # Every rule above depends on this process being scraped. If
+      # HELIX_METRICS_LISTEN gets unset, the scrape target breaks, or the API
+      # cannot start, all of them go silent — which is indistinguishable from
+      # "everything is healthy". Without this rule, the failure mode of this
+      # entire file is the failure mode we are trying to fix.
+      - alert: HelixWebServiceMetricsMissing
+        expr: absent(helix_webservice_up)
+        for: 30m
+        keep_firing_for: 15m
+        labels:
+          severity: page
+          team: platform
+        annotations:
+          summary: "Helix web-service metrics have disappeared"
+          description: >-
+            No helix_webservice_up series have been scraped for 30 minutes. Either the
+            controlplane is down, HELIX_METRICS_LISTEN is unset, or the scrape config is
+            broken. Every other hosted-web-service alert is blind until this is fixed.
