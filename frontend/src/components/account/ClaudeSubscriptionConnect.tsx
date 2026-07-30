@@ -31,6 +31,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
 import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
+import { matchesAllTokens } from '../../utils/searchUtils'
 
 interface ClaudeSubscriptionData {
   id: string
@@ -65,6 +66,103 @@ interface ClaudeSubscriptionConnectProps {
   variant?: 'button' | 'inline' | 'account'
   onConnected?: () => void
   orgId?: string
+}
+
+// Above this many orgs the list gets a filter box. Below it, scanning is faster
+// than typing.
+const DELEGATION_FILTER_THRESHOLD = 8
+
+interface DelegationPickerProps {
+  organizations: { id?: string; name?: string; display_name?: string }[]
+  delegatedOrgIDs: string[]
+  disabled: boolean
+  onToggle: (orgID: string, enabled: boolean) => void
+}
+
+// DelegationPicker lists the orgs whose agents may run on this subscription.
+// It is scroll-capped because membership is unbounded — someone in 27 orgs was
+// getting 27 stacked switches, which pushed the card's own buttons a screen and
+// a half down. Granted orgs sort to the top so the answer to "who can spend my
+// quota" is visible without scrolling or hunting.
+const DelegationPicker: FC<DelegationPickerProps> = ({
+  organizations,
+  delegatedOrgIDs,
+  disabled,
+  onToggle,
+}) => {
+  const [filter, setFilter] = useState('')
+
+  const withIDs = organizations.filter((org) => !!org.id)
+  const labelFor = (org: { id?: string; name?: string; display_name?: string }) =>
+    org.display_name || org.name || (org.id as string)
+
+  const sorted = [...withIDs].sort((a, b) => {
+    const aOn = delegatedOrgIDs.includes(a.id as string)
+    const bOn = delegatedOrgIDs.includes(b.id as string)
+    if (aOn !== bOn) return aOn ? -1 : 1
+    return labelFor(a).localeCompare(labelFor(b))
+  })
+  const visible = sorted.filter((org) => matchesAllTokens(filter, labelFor(org), org.id))
+  const grantedCount = withIDs.filter((org) => delegatedOrgIDs.includes(org.id as string)).length
+
+  return (
+    <Box sx={{ mt: 1.5 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+        Let these organizations&apos; agents use this subscription when they run work on your
+        behalf — for example a bot you own that is launched by a shared service account. Without
+        this, your subscription is only used for sessions you own.
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+        {grantedCount === 0
+          ? `Not shared with any of your ${withIDs.length} organizations.`
+          : `Shared with ${grantedCount} of ${withIDs.length} organizations.`}
+      </Typography>
+      {withIDs.length > DELEGATION_FILTER_THRESHOLD && (
+        <TextField
+          size="small"
+          fullWidth
+          placeholder="Filter organizations"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          sx={{ mt: 1, maxWidth: 320 }}
+        />
+      )}
+      <Box
+        sx={{
+          mt: 0.5,
+          // Caps the card at a readable height however many orgs you are in.
+          maxHeight: 200,
+          overflowY: 'auto',
+          pr: 1,
+        }}
+      >
+        <FormGroup>
+          {visible.map((org) => {
+            const orgID = org.id as string
+            return (
+              <FormControlLabel
+                key={orgID}
+                control={
+                  <Switch
+                    size="small"
+                    checked={delegatedOrgIDs.includes(orgID)}
+                    disabled={disabled}
+                    onChange={(e) => onToggle(orgID, e.target.checked)}
+                  />
+                }
+                label={<Typography variant="caption">{labelFor(org)}</Typography>}
+              />
+            )
+          })}
+        </FormGroup>
+        {visible.length === 0 && (
+          <Typography variant="caption" color="text.secondary">
+            No organizations match &quot;{filter}&quot;.
+          </Typography>
+        )}
+      </Box>
+    </Box>
+  )
 }
 
 const SETUP_TOKEN_COMMAND = 'claude setup-token'
@@ -445,7 +543,11 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                       borderColor: subIsExpired ? 'error.main' : subExpiry?.isExpiringSoon ? 'warning.main' : 'divider',
                       display: 'flex',
                       justifyContent: 'space-between',
-                      alignItems: 'center',
+                      // Top-aligned, not centred: the delegation list makes this row
+                      // tall, and centring stranded Update Token / delete halfway down
+                      // the card, far from the subscription they act on.
+                      alignItems: 'flex-start',
+                      gap: 2,
                       mb: 1,
                     }}
                   >
@@ -504,37 +606,12 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                         </Typography>
                       )}
                       {variant === 'account' && sub.owner_type === 'user' && organizations.length > 0 && (
-                        <Box sx={{ mt: 1.5 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            Let these organizations&apos; agents use this subscription when they run
-                            work on your behalf — for example a bot you own that is launched by a
-                            shared service account. Without this, your subscription is only used for
-                            sessions you own.
-                          </Typography>
-                          <FormGroup>
-                            {organizations.filter((org) => !!org.id).map((org) => {
-                              const orgID = org.id as string
-                              return (
-                                <FormControlLabel
-                                  key={orgID}
-                                  control={
-                                    <Switch
-                                      size="small"
-                                      checked={(sub.delegated_org_ids || []).includes(orgID)}
-                                      disabled={delegationMutation.isPending}
-                                      onChange={(e) => toggleDelegation(sub, orgID, e.target.checked)}
-                                    />
-                                  }
-                                  label={
-                                    <Typography variant="caption">
-                                      {org.display_name || org.name || orgID}
-                                    </Typography>
-                                  }
-                                />
-                              )
-                            })}
-                          </FormGroup>
-                        </Box>
+                        <DelegationPicker
+                          organizations={organizations}
+                          delegatedOrgIDs={sub.delegated_org_ids || []}
+                          disabled={delegationMutation.isPending}
+                          onToggle={(orgID, enabled) => toggleDelegation(sub, orgID, enabled)}
+                        />
                       )}
                     </Box>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
