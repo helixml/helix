@@ -544,8 +544,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // iOS detection for video element fullscreen (iOS Safari doesn't support requestFullscreen on divs)
   const [isIOS, setIsIOS] = useState(false);
-  // iOS custom fullscreen mode (not native video fullscreen - our custom overlay with full interaction)
-  const [isIOSFullscreen, setIsIOSFullscreen] = useState(false);
+  // CSS fullscreen: this container covers its whole document via position: fixed.
+  // Used on iOS (native video fullscreen doesn't accept input) AND whenever we're
+  // embedded in an iframe, where the document around us is a whole page (the spec
+  // task UI) that the desktop has to cover — see toggleFullscreen.
+  const [cssFullscreen, setCssFullscreen] = useState(false);
 
   // Insecure context detection - WebCodecs requires HTTPS or localhost
   // When user sets chrome://flags/#unsafely-treat-insecure-origin-as-secure,
@@ -1558,30 +1561,44 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     }
   }, [wakeSignal, resetRetryState, addConnectionLog]);
 
+  // Tell the embedding page what our fullscreen state is, so its own control can
+  // follow along - and so it can exit the fullscreen IT owns when the user exits
+  // from our toolbar (a child document can't leave a fullscreen the parent entered).
+  const notifyParentFullscreen = useCallback((fullscreen: boolean) => {
+    if (window.self === window.top) return;
+    window.parent.postMessage(
+      { type: "helix:fullscreen-state", fullscreen },
+      "*",
+    );
+  }, []);
+
   // Toggle fullscreen - with cross-browser support (Chrome, Safari, Firefox)
   // On iOS, uses custom CSS fullscreen since native video fullscreen doesn't support interaction
+  //
+  // Inside an iframe this takes TWO layers, because the embedded document is a whole
+  // page (HelixOS embeds /embed/task/:taskId — the spec task UI, with the desktop as
+  // one panel among chat and tabs), not just the desktop:
+  //
+  //   1. the iframe ELEMENT has to fill the screen. Requesting fullscreen on a
+  //      deeply-nested `position: relative` div makes Chrome try window-level
+  //      fullscreen and bounce straight back, so we request it on the iframe
+  //      document's ROOT element (the iframe's <html>) — the YouTube/Vimeo pattern.
+  //      The browser then fullscreens the iframe element itself.
+  //   2. this container has to cover that document, or we just get a full-screen
+  //      spec task page with the desktop still boxed inside it. That's what
+  //      cssFullscreen does (position: fixed, inset 0, z-index 9999).
+  //
+  // Step 2 is pure CSS, so it needs no user gesture — which is what lets the host
+  // page drive it over postMessage (see the helix:desktop-fullscreen listener).
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
 
     const elem = containerRef.current as any;
     const doc = document as any;
 
-    // Check current fullscreen state (including iOS custom fullscreen)
-    const currentlyFullscreen = isFullscreen || isIOSFullscreen;
+    // Check current fullscreen state (including CSS fullscreen)
+    const currentlyFullscreen = isFullscreen || cssFullscreen;
 
-    // When this component is rendered inside a cross-origin iframe (e.g.
-    // the Gatewaze admin embedding /embed/task/:id), the fullscreen API
-    // behaves differently than in a standalone tab. Calling
-    // requestFullscreen() on a deeply-nested `position: relative` div
-    // makes Chrome on macOS try to enter window-level fullscreen and
-    // immediately bounce back — leaving the iframe's content thinking
-    // it's fullscreen but the iframe element still constrained to its
-    // original rect. The reliable pattern (used by YouTube, Vimeo) is
-    // to call requestFullscreen on the iframe document's ROOT element
-    // (the iframe's <html>): the browser then fullscreens the iframe
-    // element itself, the iframe expands to viewport size, and the
-    // root element fills the iframe. The :fullscreen pseudo-class on
-    // the body (added below) makes our content fill the new viewport.
     const inIframe = window.self !== window.top;
     const fullscreenTarget = inIframe ? document.documentElement : elem;
 
@@ -1592,22 +1609,32 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log(
           "[Fullscreen] Using iOS custom CSS fullscreen for full interactivity",
         );
-        setIsIOSFullscreen(true);
+        setCssFullscreen(true);
         setIsFullscreen(true);
+        notifyParentFullscreen(true);
         // Focus container for keyboard input
         containerRef.current?.focus();
         return;
+      }
+
+      // Layer 2 first: cover the embedding document. Harmless if the native
+      // request below also succeeds, and it's what keeps us useful when the host
+      // page has no allow="fullscreen" — the desktop still fills the iframe.
+      if (inIframe) {
+        setCssFullscreen(true);
+        setIsFullscreen(true);
+        notifyParentFullscreen(true);
       }
 
       // Try all fullscreen APIs in order of preference
       // Standard API (Chrome, Firefox, Edge, Safari 16.4+)
       if (fullscreenTarget.requestFullscreen) {
         fullscreenTarget.requestFullscreen().catch(() => {
-          // Fallback to iOS-style CSS fullscreen if native fails
+          // Fallback to CSS fullscreen if native fails
           console.log(
             "[Fullscreen] Native fullscreen failed, using CSS fallback",
           );
-          setIsIOSFullscreen(true);
+          setCssFullscreen(true);
           setIsFullscreen(true);
         });
       }
@@ -1630,15 +1657,27 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // Last resort: CSS fullscreen
       else {
         console.log("[Fullscreen] No native API available, using CSS fallback");
-        setIsIOSFullscreen(true);
+        setCssFullscreen(true);
         setIsFullscreen(true);
       }
     } else {
-      // Exit fullscreen
-      // If using iOS custom fullscreen, just toggle the state
-      if (isIOSFullscreen) {
-        setIsIOSFullscreen(false);
-        setIsFullscreen(false);
+      // Exit fullscreen. Drop the CSS takeover first — it's the layer we always
+      // own, whoever put us in fullscreen.
+      const wasCssFullscreen = cssFullscreen;
+      setCssFullscreen(false);
+      notifyParentFullscreen(false);
+
+      const nativeFullscreenElement =
+        doc.fullscreenElement ||
+        doc.webkitFullscreenElement ||
+        doc.webkitCurrentFullScreenElement ||
+        doc.mozFullScreenElement ||
+        doc.msFullscreenElement;
+
+      // No native fullscreen to leave (CSS-only takeover, or the host document
+      // owns the fullscreen element) - the state change above is the whole exit.
+      if (!nativeFullscreenElement) {
+        if (wasCssFullscreen) setIsFullscreen(false);
         return;
       }
 
@@ -1655,7 +1694,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         doc.msExitFullscreen();
       }
     }
-  }, [isFullscreen, isIOSFullscreen, isIOS]);
+  }, [isFullscreen, cssFullscreen, isIOS, notifyParentFullscreen]);
 
   // Handle fullscreen events (cross-browser support)
   useEffect(() => {
@@ -1668,6 +1707,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         doc.mozFullScreenElement ||
         doc.msFullscreenElement;
       setIsFullscreen(!!fullscreenElement);
+      // Escape leaves native fullscreen without going through toggleFullscreen,
+      // so drop the CSS takeover here too or we're left covering the page with
+      // no way out. iOS never has a native fullscreen element, so leave its
+      // CSS-only fullscreen alone.
+      if (!fullscreenElement && !isIOS) {
+        setCssFullscreen(false);
+        notifyParentFullscreen(false);
+      }
     };
 
     // Listen for all vendor-prefixed fullscreen change events
@@ -1690,6 +1737,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         handleFullscreenChange,
       );
     };
+  }, [isIOS, notifyParentFullscreen]);
+
+  // The embedding page drives the CSS takeover directly: it owns the native
+  // fullscreen call (it has the user gesture), we just cover its document. No
+  // gesture needed on this side because this is only CSS. Hosts that don't send
+  // this still work - our own toolbar button does both layers itself.
+  useEffect(() => {
+    if (window.self === window.top) return;
+    const handleMessage = (event: MessageEvent) => {
+      if (event.source !== window.parent) return;
+      if (event.data?.type !== "helix:desktop-fullscreen") return;
+      const on = !!event.data.on;
+      setCssFullscreen(on);
+      setIsFullscreen(on);
+      if (on) containerRef.current?.focus();
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
   }, []);
 
   // Detect touch capability, iOS, and phone vs tablet on mount
@@ -4662,20 +4727,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Normal mode: relative positioning within parent
         // iOS fullscreen mode: fixed positioning covering entire viewport
         // When keyboard is open on phones, use fixed positioning to stay above keyboard
-        position: isIOSFullscreen
+        position: cssFullscreen
           ? "fixed"
           : keyboardHeight > 0
             ? "fixed"
             : "relative",
-        top: isIOSFullscreen
+        top: cssFullscreen
           ? 0
           : keyboardHeight > 0
             ? Math.max(0, viewportOffset)
             : undefined,
-        left: isIOSFullscreen ? 0 : keyboardHeight > 0 ? 0 : undefined,
-        right: isIOSFullscreen ? 0 : keyboardHeight > 0 ? 0 : undefined,
-        bottom: isIOSFullscreen ? 0 : undefined,
-        width: isIOSFullscreen
+        left: cssFullscreen ? 0 : keyboardHeight > 0 ? 0 : undefined,
+        right: cssFullscreen ? 0 : keyboardHeight > 0 ? 0 : undefined,
+        bottom: cssFullscreen ? 0 : undefined,
+        width: cssFullscreen
           ? "100vw"
           : keyboardHeight > 0
             ? "100vw"
@@ -4683,7 +4748,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Use dvh (dynamic viewport height) for iOS Safari toolbar handling
         // Falls back to vh for older browsers
         // When virtual keyboard is open, use the visible viewport height
-        height: isIOSFullscreen
+        height: cssFullscreen
           ? "100dvh"
           : keyboardHeight > 0
             ? `calc(100vh - ${keyboardHeight}px - ${viewportOffset}px)`
@@ -4691,9 +4756,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Ensure content doesn't overflow above the visible area
         maxHeight:
           keyboardHeight > 0 ? `calc(100vh - ${keyboardHeight}px)` : undefined,
-        minHeight: isIOSFullscreen ? undefined : keyboardHeight > 0 ? 150 : 400,
+        minHeight: cssFullscreen ? undefined : keyboardHeight > 0 ? 150 : 400,
         // High z-index for iOS fullscreen to cover everything, or keyboard open
-        zIndex: isIOSFullscreen ? 9999 : keyboardHeight > 0 ? 1000 : undefined,
+        zIndex: cssFullscreen ? 9999 : keyboardHeight > 0 ? 1000 : undefined,
         // Letterbox/pillarbox bars around the streamed video. Match the page
         // background so a light-mode desktop reads as fully light, not "light
         // desktop in a black frame".
@@ -4714,7 +4779,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Cursor is hidden only on the canvas element, not the container
         // This ensures the cursor is visible in the black letterbox/pillarbox bars
         // Fallback height for iOS when dvh isn't supported
-        "@supports not (height: 100dvh)": isIOSFullscreen
+        "@supports not (height: 100dvh)": cssFullscreen
           ? {
               height: "-webkit-fill-available",
             }
