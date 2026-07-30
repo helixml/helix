@@ -104,6 +104,23 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const { data: subscriptions, isLoading } = useClaudeSubscriptions()
   const hasSubscription = subscriptions && subscriptions.length > 0
 
+  // Only an org owner may connect (or delete) an org-level subscription, so the
+  // owner picker must not offer orgs where this person is a plain member.
+  const currentUserID = account.user?.id
+  const ownableOrgs = organizations.filter(
+    (org) =>
+      !!org.id &&
+      (account.admin ||
+        (org.memberships || []).some((m) => m.user_id === currentUserID && m.role === 'owner')),
+  )
+  const orgLabel = (orgID: string) => {
+    const org = organizations.find((o) => o.id === orgID)
+    return org?.display_name || org?.name || orgID
+  }
+  const personalSub = subscriptions?.find((s) => s.owner_type === 'user')
+  const subForOwner = (type: 'user' | 'org', orgID: string) =>
+    type === 'user' ? personalSub : subscriptions?.find((s) => s.owner_type === 'org' && s.owner_id === orgID)
+
   // Disconnect / delete state
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string>('')
@@ -152,10 +169,26 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   // Org selector state (used by account variant)
   const [ownerType, setOwnerType] = useState<'user' | 'org'>('user')
   const [selectedOrgId, setSelectedOrgId] = useState('')
+  // When re-authenticating an existing subscription the owner is fixed — you are
+  // replacing that credential, not choosing where a new one lands.
+  const [ownerLocked, setOwnerLocked] = useState(false)
 
   const handleOpenTokenDialog = () => {
     setTokenValue('')
     setSubmitError(null)
+    setOwnerType('user')
+    setSelectedOrgId('')
+    setOwnerLocked(false)
+    setTokenDialogOpen(true)
+  }
+
+  // Re-authenticate a specific subscription: pin the dialog to its owner.
+  const handleOpenTokenDialogFor = (sub: ClaudeSubscriptionData) => {
+    setTokenValue('')
+    setSubmitError(null)
+    setOwnerType(sub.owner_type === 'org' ? 'org' : 'user')
+    setSelectedOrgId(sub.owner_type === 'org' ? sub.owner_id : '')
+    setOwnerLocked(true)
     setTokenDialogOpen(true)
   }
 
@@ -166,13 +199,18 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       return
     }
 
+    if (!orgId && ownerType === 'org' && !selectedOrgId) {
+      setSubmitError('Please choose which organization owns this subscription')
+      return
+    }
+
     setSubmitting(true)
     setSubmitError(null)
     try {
       // Use orgId prop if provided (button/inline variants), otherwise use internal state (account variant)
       const effectiveOrgId = orgId || (ownerType === 'org' ? selectedOrgId : undefined)
       await api.post('/api/v1/claude-subscriptions', {
-        name: 'My Claude Subscription',
+        name: effectiveOrgId ? `${orgLabel(effectiveOrgId)} Claude Subscription` : 'My Claude Subscription',
         setup_token: token,
         ...(effectiveOrgId ? { owner_type: 'org', owner_id: effectiveOrgId } : {}),
       })
@@ -210,14 +248,66 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const expiry = firstSub && !isSetupToken ? getTokenExpiryStatus(firstSub.access_token_expires_at) : null
   const isExpired = expiry?.isExpired ?? false
 
+  // Owner picker — only meaningful in the account variant, where you manage every
+  // subscription you can see. The other variants are scoped by the `orgId` prop.
+  // An org-owned subscription is the shared fallback: any member's session that
+  // has no personal subscription uses it, so say so rather than leaving people to
+  // infer it from the word "organization".
+  const replacedSub = ownerLocked ? undefined : subForOwner(ownerType, selectedOrgId)
+  const ownerPicker = variant === 'account' && ownableOrgs.length > 0 && (
+    <Box sx={{ mb: 2 }}>
+      <FormControl size="small" fullWidth disabled={ownerLocked}>
+        <InputLabel>Subscription owner</InputLabel>
+        <Select
+          value={ownerType === 'org' ? selectedOrgId : 'personal'}
+          label="Subscription owner"
+          onChange={(e) => {
+            const val = e.target.value
+            if (val === 'personal') {
+              setOwnerType('user')
+              setSelectedOrgId('')
+            } else {
+              setOwnerType('org')
+              setSelectedOrgId(val)
+            }
+          }}
+        >
+          <MenuItem value="personal">Personal — only my own sessions</MenuItem>
+          {ownableOrgs.map((org) => (
+            <MenuItem key={org.id} value={org.id as string}>
+              {org.display_name || org.name} — shared with the whole organization
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+        {ownerLocked
+          ? 'Replacing the credentials on this subscription. The owner cannot be changed — disconnect it and connect a new one to move it.'
+          : ownerType === 'org'
+            ? `Anyone in ${orgLabel(selectedOrgId)} whose session has no personal Claude subscription will run on this one, and it will be billed to the Claude account you authenticate below.`
+            : 'Used only for sessions you own, unless you delegate it to an organization afterwards.'}
+      </Typography>
+      {replacedSub && (
+        <Alert severity="warning" sx={{ mt: 1 }} icon={false}>
+          <Typography variant="caption">
+            {ownerType === 'org' ? orgLabel(selectedOrgId) : 'Your account'} already has a
+            connected subscription. Connecting a new token will replace it.
+          </Typography>
+        </Alert>
+      )}
+    </Box>
+  )
+
   // Token dialog (shared across all variants)
   const tokenDialog = (
     <Dialog open={tokenDialogOpen} onClose={() => setTokenDialogOpen(false)} maxWidth="sm" fullWidth>
-      <DialogTitle>Connect Claude Subscription</DialogTitle>
+      <DialogTitle>{ownerLocked ? 'Update Claude Subscription' : 'Connect Claude Subscription'}</DialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ mb: 2 }}>
           Generate a setup token on your local machine, then paste it below.
         </Typography>
+
+        {ownerPicker}
 
         <Alert severity="info" sx={{ mb: 2 }}>
           <Typography variant="body2" gutterBottom>
@@ -321,44 +411,20 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                 <Typography variant="h6">Claude Code Subscription</Typography>
                 <Typography variant="body2" color="text.secondary">
                   Connect your Claude subscription to use Claude Code as the coding agent in Helix desktop sessions.
+                  {ownableOrgs.length > 0 && ' You can also connect one for an organization you own, as a shared fallback for members who have not connected their own.'}
                 </Typography>
               </Box>
-              {!hasSubscription && (
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  {organizations.length > 0 && (
-                    <FormControl size="small" sx={{ minWidth: 200 }}>
-                      <InputLabel>Subscription Owner</InputLabel>
-                      <Select
-                        value={ownerType === 'org' ? selectedOrgId : 'personal'}
-                        label="Subscription Owner"
-                        onChange={(e) => {
-                          const val = e.target.value
-                          if (val === 'personal') {
-                            setOwnerType('user')
-                            setSelectedOrgId('')
-                          } else {
-                            setOwnerType('org')
-                            setSelectedOrgId(val)
-                          }
-                        }}
-                      >
-                        <MenuItem value="personal">Personal (just me)</MenuItem>
-                        {organizations.map((org) => (
-                          <MenuItem key={org.id} value={org.id}>
-                            {org.display_name || org.name}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  )}
-                  <Button
-                    variant="contained"
-                    color="secondary"
-                    onClick={handleOpenTokenDialog}
-                  >
-                    Connect with Setup Token
-                  </Button>
-                </Box>
+              {/* With no orgs you own there is exactly one subscription you can
+                  hold, and the card's "Update Token" is how you change it. */}
+              {(!hasSubscription || ownableOrgs.length > 0) && (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  onClick={handleOpenTokenDialog}
+                  sx={{ flexShrink: 0 }}
+                >
+                  {hasSubscription ? 'Add subscription' : 'Connect with Setup Token'}
+                </Button>
               )}
             </Box>
 
@@ -403,8 +469,15 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                         {sub.subscription_type && (
                           <Chip label={sub.subscription_type} size="small" variant="outlined" />
                         )}
-                        {sub.owner_type === 'org' && (
-                          <Chip label="Organization" size="small" variant="outlined" />
+                        {sub.owner_type === 'org' ? (
+                          <Chip
+                            label={`Shared: ${orgLabel(sub.owner_id)}`}
+                            size="small"
+                            variant="outlined"
+                            color="info"
+                          />
+                        ) : (
+                          <Chip label="Personal" size="small" variant="outlined" />
                         )}
                         {subExpiry && (
                           <Typography
@@ -423,6 +496,12 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                             Token has expired. Update your token to refresh credentials for new sessions.
                           </Typography>
                         </Alert>
+                      )}
+                      {sub.owner_type === 'org' && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                          Shared fallback for {orgLabel(sub.owner_id)}: used by any member&apos;s
+                          session that has no personal subscription of its own.
+                        </Typography>
                       )}
                       {variant === 'account' && sub.owner_type === 'user' && organizations.length > 0 && (
                         <Box sx={{ mt: 1.5 }}>
@@ -463,7 +542,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                         variant={subIsExpired ? 'contained' : 'outlined'}
                         color={subIsExpired ? 'warning' : 'secondary'}
                         size="small"
-                        onClick={handleOpenTokenDialog}
+                        onClick={() => handleOpenTokenDialogFor(sub)}
                       >
                         {subIsExpired ? 'Re-authenticate' : 'Update Token'}
                       </Button>
@@ -481,7 +560,8 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             ) : (
               <Box sx={{ p: 2, borderRadius: 1, border: '1px dashed', borderColor: 'divider', textAlign: 'center' }}>
                 <Typography variant="body2" color="text.secondary">
-                  No Claude subscription connected. Click &quot;Connect with Setup Token&quot; to get started.
+                  No Claude subscription connected. Click &quot;Connect with Setup Token&quot; to get started
+                  {ownableOrgs.length > 0 && ' — you can connect it for yourself, or for an organization you own'}.
                 </Typography>
               </Box>
             )}
