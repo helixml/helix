@@ -303,16 +303,18 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		}
 	}
 
-	// Check if user has an active Claude subscription (for credential sync in containers)
+	// Check if user has an active subscription (for credential sync in containers).
+	// Gated on UsesSubscription: an agent configured for api_key credentials must
+	// not receive them, or the CLI authenticates upstream and bypasses the proxy.
 	var claudeSubAvailable bool
-	if codeAgentConfig != nil && codeAgentConfig.Runtime == types.CodeAgentRuntimeClaudeCode {
-		sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+	if codeAgentConfig != nil && codeAgentConfig.UsesSubscription && codeAgentConfig.Runtime == types.CodeAgentRuntimeClaudeCode {
+		sub, err := apiServer.Store.GetSessionClaudeSubscription(ctx, session)
 		if err == nil && sub.Status == "active" {
 			claudeSubAvailable = true
 		}
 	}
 	var codexSubAvailable bool
-	if codeAgentConfig != nil && codeAgentConfig.Runtime == types.CodeAgentRuntimeCodexCLI {
+	if codeAgentConfig != nil && codeAgentConfig.UsesSubscription && codeAgentConfig.Runtime == types.CodeAgentRuntimeCodexCLI {
 		sub, err := apiServer.Store.GetEffectiveCodexSubscription(ctx, session.Owner, session.OrganizationID)
 		if err == nil && sub.Status == "active" {
 			codexSubAvailable = true
@@ -749,15 +751,16 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	}
 
 	return &types.CodeAgentConfig{
-		Provider:        providerName,
-		Model:           model,
-		AgentName:       agentName,
-		BaseURL:         baseURL,
-		APIType:         apiType,
-		Runtime:         runtime,
-		ReasoningEffort: normalizeCodeAgentReasoningEffort(runtime, assistant.ReasoningEffort),
-		MaxTokens:       maxTokens,
-		MaxOutputTokens: maxOutputTokens,
+		Provider:         providerName,
+		Model:            model,
+		AgentName:        agentName,
+		BaseURL:          baseURL,
+		APIType:          apiType,
+		Runtime:          runtime,
+		UsesSubscription: isSubscription,
+		ReasoningEffort:  normalizeCodeAgentReasoningEffort(runtime, assistant.ReasoningEffort),
+		MaxTokens:        maxTokens,
+		MaxOutputTokens:  maxOutputTokens,
 	}
 }
 

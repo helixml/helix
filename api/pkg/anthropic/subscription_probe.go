@@ -81,15 +81,28 @@ func ProbeClaudeSubscription(ctx context.Context, token string) (ProbeResult, st
 	}
 }
 
+// staleRefreshGrace bounds how long an expired OAuth access token can plausibly
+// be "about to be refreshed in-container".
+//
+// A healthy Claude Code refreshes its access token and pushes the new credentials
+// back (PUT /sessions/{id}/claude-credentials), which moves ExpiresAt forward. So
+// an access token that expired minutes ago is unremarkable, but one that expired
+// days ago proves nothing is refreshing it — the stored refresh token is dead or
+// revoked. Treating that as "inconclusive" left Status pinned at its last value,
+// so a long-dead subscription kept reporting "active" while every desktop failed
+// with "OAuth session expired and could not be refreshed".
+const staleRefreshGrace = time.Hour
+
 // ValidateSubscription decrypts the stored credentials for a Claude subscription,
 // selects the bearer token, probes it, and returns the outcome. It does NOT
 // persist anything — callers decide whether to write Status/LastError/
 // LastValidatedAt back via the store.
 //
 // For setup_token credentials a 401 is definitive. For oauth credentials whose
-// access token has already expired we return ProbeInconclusive rather than
+// access token expired only recently we return ProbeInconclusive rather than
 // probing: Claude Code refreshes those in-container, so a raw probe of the stale
-// access token would 401 and falsely read as invalid.
+// access token would 401 and falsely read as invalid. Past staleRefreshGrace that
+// benefit of the doubt is withdrawn — see above.
 func ValidateSubscription(ctx context.Context, sub *types.ClaudeSubscription) (ProbeResult, string) {
 	if sub == nil {
 		return ProbeInconclusive, "no subscription"
@@ -124,6 +137,11 @@ func ValidateSubscription(ctx context.Context, sub *types.ClaudeSubscription) (P
 		// If the access token is expired but a refresh token exists, the
 		// in-container Claude Code will refresh it — don't mark it invalid.
 		if creds.ExpiresAt > 0 && time.UnixMilli(creds.ExpiresAt).Before(time.Now()) && creds.RefreshToken != "" {
+			if expiredFor := time.Since(time.UnixMilli(creds.ExpiresAt)); expiredFor > staleRefreshGrace {
+				return ProbeInvalid, fmt.Sprintf(
+					"access token expired %s ago and has not been refreshed — re-authenticate",
+					expiredFor.Round(time.Hour))
+			}
 			return ProbeInconclusive, "access token expired (refreshable in-container)"
 		}
 		return ProbeClaudeSubscription(ctx, creds.AccessToken)

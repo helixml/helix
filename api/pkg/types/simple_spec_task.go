@@ -89,12 +89,19 @@ type CreateTaskRequest struct {
 	Type         string           `json:"type"`
 	Priority     SpecTaskPriority `json:"priority"`
 	UserID       string           `json:"user_id"`
-	UserEmail    string           `json:"user_email,omitempty"` // Optional: User email for audit trail
-	AppID        string           `json:"app_id"`               // Optional: Helix agent to use for spec generation
-	JustDoItMode bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
-	AutoStart    bool             `json:"auto_start"`           // Optional: Skip backlog and start immediately, regardless of project auto-start setting
-	DependsOn    []string         `json:"depends_on"`           // Optional: IDs of tasks this task depends on
+	UserEmail    string           `json:"user_email,omitempty"`  // Optional: User email for audit trail
+	AppID        string           `json:"app_id"`                // Optional: Helix agent to use for spec generation
+	JustDoItMode bool             `json:"just_do_it_mode"`       // Optional: Skip spec planning, go straight to implementation
+	AutoStart    bool             `json:"auto_start"`            // Optional: Skip backlog and start immediately, regardless of project auto-start setting
+	DependsOn    []string         `json:"depends_on"`            // Optional: IDs of tasks this task depends on
 	AssigneeID   string           `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
+
+	// CredentialOwnerID optionally names the user whose Claude subscription should
+	// authenticate this task's agent, for orchestrators dispatching work on a
+	// human's behalf under one service API key. Credential resolution only — the
+	// task is still created by, owned by, and attributed to the caller. Ignored
+	// unless that user has delegated their subscription to this organization.
+	CredentialOwnerID string `json:"credential_owner_id,omitempty"`
 
 	// Branch configuration
 	BranchMode    BranchMode `json:"branch_mode,omitempty"`    // "new" or "existing" - defaults to "new"
@@ -213,6 +220,23 @@ type SpecTask struct {
 	PlanningStartedAt *time.Time `json:"planning_started_at,omitempty"`
 	StartedAt         *time.Time `json:"started_at,omitempty"`
 	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+
+	// CredentialOwnerID names the user whose Claude subscription authenticates
+	// this task's agent sessions, when that differs from CreatedBy. It changes
+	// ONLY credential resolution — the task and its sessions are still owned by,
+	// and attributed to, CreatedBy. Nothing "runs as" the credential owner.
+	//
+	// This exists for orchestrators (HelixOS) that dispatch every task with one
+	// service API key but run work on behalf of different humans: without it the
+	// service account's subscription authenticates everyone's bots, so one
+	// person's expired token breaks all of them and no one can use their own
+	// Claude account.
+	//
+	// Honoured only when the named user has delegated their subscription to this
+	// organization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able
+	// to create a task could spend another user's Claude quota. See
+	// ResolveClaudeCredentialOwner.
+	CredentialOwnerID string `json:"credential_owner_id,omitempty" gorm:"size:255;index"`
 
 	// Metadata
 	CreatedBy string                 `json:"created_by"`
@@ -445,8 +469,8 @@ type SpecTaskAttachment struct {
 	Filename      string    `json:"filename" gorm:"size:512;not null"`         // original filename, sanitised
 	MimeType      string    `json:"mime_type" gorm:"size:128;not null"`
 	SizeBytes     int64     `json:"size_bytes" gorm:"not null"`
-	Caption       string    `json:"caption,omitempty" gorm:"size:1024"`   // optional user note
-	FilestorePath string    `json:"-" gorm:"size:1024;not null"`          // absolute filestore path (server-internal)
+	Caption       string    `json:"caption,omitempty" gorm:"size:1024"`     // optional user note
+	FilestorePath string    `json:"-" gorm:"size:1024;not null"`            // absolute filestore path (server-internal)
 	CommittedSHA  string    `json:"committed_sha,omitempty" gorm:"size:64"` // helix-specs commit hash once staged
 	CreatedAt     time.Time `json:"created_at"`
 }
@@ -464,15 +488,15 @@ const (
 // SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.
 // Kept narrow on purpose: images the agent can visually read, plus common text formats.
 var SpecTaskAttachmentAllowedMimeTypes = map[string]bool{
-	"image/png":        true,
-	"image/jpeg":       true,
-	"image/gif":        true,
-	"image/webp":       true,
-	"image/svg+xml":    true,
-	"application/pdf":  true,
-	"text/plain":       true,
-	"text/markdown":    true,
-	"text/csv":         true,
+	"image/png":       true,
+	"image/jpeg":      true,
+	"image/gif":       true,
+	"image/webp":      true,
+	"image/svg+xml":   true,
+	"application/pdf": true,
+	"text/plain":      true,
+	"text/markdown":   true,
+	"text/csv":        true,
 }
 
 // SpecTaskExternalAgent represents the external agent (desktop container) for a SpecTask

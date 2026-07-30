@@ -3912,7 +3912,7 @@ func (apiServer *HelixAPIServer) maybeReclassifySubscriptionAuthError(ctx contex
 	}
 
 	owner := apiServer.displayNameForUser(ctx, session.Owner)
-	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+	sub, err := apiServer.Store.GetSessionClaudeSubscription(ctx, session)
 	if errors.Is(err, store.ErrNotFound) || sub == nil {
 		return fmt.Sprintf("Claude subscription authentication failed: %s has no Claude subscription connected. "+
 			"Connect one in Settings, or switch the agent to API-key mode.", owner)

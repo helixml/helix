@@ -437,6 +437,13 @@ type SessionMetadata struct {
 	// Shown on hover in the SpecTask tab view to see what topics were covered
 	TitleHistory []*TitleHistoryEntry `json:"title_history,omitempty"`
 
+	// CredentialOwnerID mirrors SpecTask.CredentialOwnerID onto the session: the
+	// user whose Claude subscription authenticates this session's agent, when
+	// that differs from Owner. Affects credential resolution ONLY — Owner still
+	// owns and is attributed the session. Honoured only with an explicit
+	// delegation grant; see ResolveClaudeCredentialOwner.
+	CredentialOwnerID string `json:"credential_owner_id,omitempty"`
+
 	// Multi-session SpecTask context
 	SpecTaskID              string               `json:"spec_task_id,omitempty"`              // ID of associated SpecTask
 	ProjectID               string               `json:"project_id,omitempty"`                // ID of associated Project (for exploratory sessions)
@@ -2355,6 +2362,13 @@ type CodeAgentConfig struct {
 	APIType string `json:"api_type"`
 	// Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code"
 	Runtime CodeAgentRuntime `json:"runtime"`
+	// UsesSubscription is true when the agent authenticates against the upstream
+	// provider with the user's own subscription (Claude Pro/Max, ChatGPT) instead
+	// of an API key routed through the Helix proxy. It mirrors the assistant's
+	// CodeAgentCredentialType and is what gates credential injection into the
+	// container — an api_key agent must never receive subscription credentials,
+	// because the CLI prefers them over the proxy and would silently bypass it.
+	UsesSubscription bool `json:"uses_subscription,omitempty"`
 	// ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.
 	// Empty means the runtime/model default.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`

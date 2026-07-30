@@ -202,6 +202,10 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		CreatedBy:      req.UserID,
 		HelixAppID:     helixAppID,       // Helix agent used for entire workflow
 		JustDoItMode:   req.JustDoItMode, // Set Just Do It mode from request
+		// Credential-only override: whose Claude subscription authenticates this
+		// task's agent. Enforced at resolution time against the named user's
+		// delegation grant, so an unauthorised value simply has no effect.
+		CredentialOwnerID: req.CredentialOwnerID,
 		// Branch configuration
 		BranchMode:   branchMode,
 		BaseBranch:   req.BaseBranch,    // User-specified base branch (empty = use repo default)
@@ -395,6 +399,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Stream:           false,
 		SpecTaskID:       task.ID,          // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
 		CodeAgentRuntime: codeAgentRuntime, // For open_thread on resume
+		// Whose Claude subscription authenticates this session's agent, when the
+		// dispatcher is a service account acting for a human. Credential-only —
+		// the session is still owned by task.CreatedBy.
+		CredentialOwnerID: task.CredentialOwnerID,
 		// Autonomous surface: no human watches a planning run, so recover the
 		// agent automatically on crash rather than stalling errored+idle.
 		AutoRestartOnCrash: true,
@@ -806,6 +814,12 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Stream:           false,
 		SpecTaskID:       task.ID,             // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
 		CodeAgentRuntime: codeAgentRuntimeJDI, // For open_thread on resume
+		// Whose Claude subscription authenticates this session's agent, when the
+		// dispatcher is a service account acting for a human. Credential-only —
+		// the session is still owned by task.CreatedBy. This is the path HelixOS
+		// bots take (just-do-it), so it is the one that routes a bot to its
+		// owner's Claude account instead of the orchestrator's.
+		CredentialOwnerID: task.CredentialOwnerID,
 		// Autonomous surface: no human watches a just-do-it run, so recover the
 		// agent automatically on crash rather than stalling errored+idle.
 		AutoRestartOnCrash: true,
