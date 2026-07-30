@@ -437,6 +437,13 @@ type SessionMetadata struct {
 	// Shown on hover in the SpecTask tab view to see what topics were covered
 	TitleHistory []*TitleHistoryEntry `json:"title_history,omitempty"`
 
+	// CredentialOwnerID mirrors SpecTask.CredentialOwnerID onto the session: the
+	// user whose Claude subscription authenticates this session's agent, when
+	// that differs from Owner. Affects credential resolution ONLY — Owner still
+	// owns and is attributed the session. Honoured only with an explicit
+	// delegation grant; see ResolveClaudeCredentialOwner.
+	CredentialOwnerID string `json:"credential_owner_id,omitempty"`
+
 	// Multi-session SpecTask context
 	SpecTaskID              string               `json:"spec_task_id,omitempty"`              // ID of associated SpecTask
 	ProjectID               string               `json:"project_id,omitempty"`                // ID of associated Project (for exploratory sessions)
@@ -1801,6 +1808,16 @@ type CronTrigger struct {
 	CallbackURL string   `json:"callback_url,omitempty" yaml:"callback_url,omitempty"` // Webhook URL to POST on completion
 	Action      string   `json:"action,omitempty" yaml:"action,omitempty"`             // "session" (default) or "spec_task"
 	ProjectID   string   `json:"project_id,omitempty" yaml:"project_id,omitempty"`     // Target project for spec_task action
+
+	// CredentialOwnerID optionally names the user whose Claude subscription should
+	// authenticate the agent this trigger starts. An orchestrator writing triggers
+	// on people's behalf under one service API key sets it so a scheduled run
+	// authenticates as the person it acts for, exactly as CreateTaskRequest does
+	// for a run dispatched by hand. Credential resolution only: the task is still
+	// created by, owned by, and attributed to the trigger's app owner, and the
+	// named user must have delegated their subscription to this organization or it
+	// is ignored. Currently honoured by the spec_task action.
+	CredentialOwnerID string `json:"credential_owner_id,omitempty" yaml:"credential_owner_id,omitempty"`
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created
@@ -2355,6 +2372,13 @@ type CodeAgentConfig struct {
 	APIType string `json:"api_type"`
 	// Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code"
 	Runtime CodeAgentRuntime `json:"runtime"`
+	// UsesSubscription is true when the agent authenticates against the upstream
+	// provider with the user's own subscription (Claude Pro/Max, ChatGPT) instead
+	// of an API key routed through the Helix proxy. It mirrors the assistant's
+	// CodeAgentCredentialType and is what gates credential injection into the
+	// container — an api_key agent must never receive subscription credentials,
+	// because the CLI prefers them over the proxy and would silently bypass it.
+	UsesSubscription bool `json:"uses_subscription,omitempty"`
 	// ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.
 	// Empty means the runtime/model default.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`

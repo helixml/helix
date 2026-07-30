@@ -911,6 +911,7 @@ type Store interface {
 	DeleteClaudeSubscription(ctx context.Context, id string) error
 	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
+	GetSessionClaudeSubscription(ctx context.Context, session *types.Session) (*types.ClaudeSubscription, error)
 	CreateCodexSubscription(ctx context.Context, sub *types.CodexSubscription) (*types.CodexSubscription, error)
 	GetCodexSubscription(ctx context.Context, id string) (*types.CodexSubscription, error)
 	GetCodexSubscriptionForOwner(ctx context.Context, ownerID string, ownerType types.OwnerType) (*types.CodexSubscription, error)

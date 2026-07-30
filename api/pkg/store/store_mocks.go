@@ -3531,6 +3531,21 @@ func (mr *MockStoreMockRecorder) GetSession(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSession", reflect.TypeOf((*MockStore)(nil).GetSession), ctx, id)
 }
 
+// GetSessionClaudeSubscription mocks base method.
+func (m *MockStore) GetSessionClaudeSubscription(ctx context.Context, session *types.Session) (*types.ClaudeSubscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSessionClaudeSubscription", ctx, session)
+	ret0, _ := ret[0].(*types.ClaudeSubscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSessionClaudeSubscription indicates an expected call of GetSessionClaudeSubscription.
+func (mr *MockStoreMockRecorder) GetSessionClaudeSubscription(ctx, session any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionClaudeSubscription", reflect.TypeOf((*MockStore)(nil).GetSessionClaudeSubscription), ctx, session)
+}
+
 // GetSessionIncludingDeleted mocks base method.
 func (m *MockStore) GetSessionIncludingDeleted(ctx context.Context, id string) (*types.Session, error) {
 	m.ctrl.T.Helper()

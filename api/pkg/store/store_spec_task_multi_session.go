@@ -555,10 +555,11 @@ func (s *PostgresStore) CreateImplementationSessions(ctx context.Context, specTa
 				Updated:        time.Now(),
 				Metadata: types.SessionMetadata{
 					AgentType:               "zed_external", // Same external agent as planning
+					CredentialOwnerID:       specTask.CredentialOwnerID,
 					SpecTaskID:              specTask.ID,
 					SessionRole:             "implementation",
 					ImplementationTaskIndex: implTask.Index,
-					SystemPrompt:            "", // Will be set when session starts
+					SystemPrompt:            "",               // Will be set when session starts
 					CodeAgentRuntime:        codeAgentRuntime, // For open_thread on resume
 				},
 			}
@@ -695,11 +696,12 @@ func (s *PostgresStore) SpawnWorkSession(ctx context.Context, parentSessionID st
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Metadata: types.SessionMetadata{
-			AgentType:        "zed_external", // Same external agent as planning
-			SpecTaskID:       parentSession.SpecTaskID,
-			SessionRole:      "implementation",
-			SystemPrompt:     "", // Will be set when session starts
-			CodeAgentRuntime: codeAgentRuntimeSpawn, // For open_thread on resume
+			AgentType:         "zed_external", // Same external agent as planning
+			CredentialOwnerID: specTask.CredentialOwnerID,
+			SpecTaskID:        parentSession.SpecTaskID,
+			SessionRole:       "implementation",
+			SystemPrompt:      "",                    // Will be set when session starts
+			CodeAgentRuntime:  codeAgentRuntimeSpawn, // For open_thread on resume
 		},
 	}
 

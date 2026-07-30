@@ -757,6 +757,9 @@ func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction() {
 			// Cron-scheduled tasks must auto-start so they skip backlog
 			// regardless of the project's AutoStartBacklogTasks setting.
 			suite.True(req.AutoStart, "cron-triggered spec tasks must be created with AutoStart=true")
+			// A trigger that names nobody must not invent a credential owner —
+			// the run keeps authenticating as the app owner, as it always has.
+			suite.Empty(req.CredentialOwnerID)
 			return &types.SpecTask{
 				ID:   "task-789",
 				Name: "Build the login page",
@@ -792,6 +795,51 @@ func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction() {
 	)
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, nil, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.NoError(err)
+	suite.Contains(result, "task-789")
+}
+
+// A scheduled run has to authenticate as the person it acts for, not as the one
+// service account whose key wrote every trigger. This pins the only link in that
+// chain that lives here: the owner named on the trigger reaches the task request,
+// where the delegation check downstream decides whether the grant is real.
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskActionCarriesCredentialOwner() {
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "svc-account",
+		OwnerType: types.OwnerTypeUser,
+	}
+
+	trigger := &types.CronTrigger{
+		Input:             "Work the enterprise pipeline",
+		Action:            "spec_task",
+		ProjectID:         "proj-456",
+		CredentialOwnerID: "usr_chris",
+	}
+
+	mockCreator := &mockSpecTaskCreator{
+		createFunc: func(_ context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+			suite.Equal("usr_chris", req.CredentialOwnerID)
+			// Credential resolution only — the task is still created by, and
+			// attributed to, the account that owns the app.
+			suite.Equal("svc-account", req.UserID)
+			return &types.SpecTask{ID: "task-789", Name: "Work the enterprise pipeline"}, nil
+		},
+	}
+
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).Return(nil)
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, nil, app, "svc-account", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
 	suite.Contains(result, "task-789")
 }

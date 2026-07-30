@@ -142,7 +142,7 @@ func (apiServer *HelixAPIServer) subscriptionEnvForSession(ctx context.Context, 
 	if !asst.CodeAgentCredentialType.IsSubscription() {
 		return nil
 	}
-	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+	sub, err := apiServer.Store.GetSessionClaudeSubscription(ctx, session)
 	if err != nil || sub.Status != "active" {
 		log.Warn().Str("session_id", session.ID).Str("owner", session.Owner).
 			Msg("claude_code subscription mode but no active Claude subscription found for session owner")

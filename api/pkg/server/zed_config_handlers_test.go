@@ -141,9 +141,10 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
 			},
 			want: &types.CodeAgentConfig{
-				AgentName: "claude",
-				Model:     "opus[1m]",
-				Runtime:   types.CodeAgentRuntimeClaudeCode,
+				AgentName:        "claude",
+				Model:            "opus[1m]",
+				Runtime:          types.CodeAgentRuntimeClaudeCode,
+				UsesSubscription: true,
 			},
 		},
 		{
@@ -154,9 +155,10 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				ClaudeSubscriptionModel: "claude-haiku-4-5-latest",
 			},
 			want: &types.CodeAgentConfig{
-				AgentName: "claude",
-				Model:     "claude-haiku-4-5-latest",
-				Runtime:   types.CodeAgentRuntimeClaudeCode,
+				AgentName:        "claude",
+				Model:            "claude-haiku-4-5-latest",
+				Runtime:          types.CodeAgentRuntimeClaudeCode,
+				UsesSubscription: true,
 			},
 		},
 		{
@@ -168,9 +170,10 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
 			},
 			want: &types.CodeAgentConfig{
-				AgentName: "claude",
-				Model:     "opus[1m]",
-				Runtime:   types.CodeAgentRuntimeClaudeCode,
+				AgentName:        "claude",
+				Model:            "opus[1m]",
+				Runtime:          types.CodeAgentRuntimeClaudeCode,
+				UsesSubscription: true,
 			},
 		},
 		{
@@ -213,7 +216,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
 				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
 			},
-			want: &types.CodeAgentConfig{AgentName: "codex", Runtime: types.CodeAgentRuntimeCodexCLI},
+			want: &types.CodeAgentConfig{AgentName: "codex", Runtime: types.CodeAgentRuntimeCodexCLI, UsesSubscription: true},
 		},
 		{
 			name: "codex_cli api key mode",
