@@ -1261,7 +1261,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.createUser)).Methods(http.MethodPost)
 
 	adminRouter.HandleFunc("/admin/users/{id}/password", system.DefaultWrapper(apiServer.adminResetPassword)).Methods(http.MethodPut)
-	adminRouter.HandleFunc("/admin/users/{id}/api-keys", system.DefaultWrapper(apiServer.adminMintUserAPIKey)).Methods(http.MethodPost)
+	// system.Wrapper, not DefaultWrapper: DefaultWrapper flattens every error to
+	// 500, and a caller must be able to tell "this person has no Helix account"
+	// (expected, fall back quietly) from "Helix is broken" (shout).
+	adminRouter.HandleFunc("/admin/users/{id}/api-keys", system.Wrapper(apiServer.adminMintUserAPIKey)).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/users/{id}", system.DefaultWrapper(apiServer.adminDeleteUser)).Methods(http.MethodDelete)
 	adminRouter.HandleFunc("/admin/users/{id}/approve", system.DefaultWrapper(apiServer.adminApproveUser)).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/users/{id}/trial-activate", system.DefaultWrapper(apiServer.adminActivateTrial)).Methods(http.MethodPost)

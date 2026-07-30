@@ -997,7 +997,7 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 // @Param   name query string true "Key name, e.g. the orchestrator's slug"
 // @Router  /api/v1/admin/users/{id}/api-keys [post]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req *http.Request) (*types.ApiKey, error) {
+func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req *http.Request) (*types.ApiKey, *system.HTTPError) {
 	ctx := req.Context()
 	adminUser := getRequestUser(req)
 
@@ -1042,11 +1042,12 @@ func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req 
 		}
 	}
 
-	created, err := apiServer.Store.CreateAPIKey(ctx, &types.ApiKey{
-		Owner:     targetUserID,
-		OwnerType: types.OwnerTypeUser,
-		Name:      name,
-		Type:      types.APIkeytypeAPI,
+	// Via the controller, not the store: it generates the key material and stamps
+	// the owner from the user passed in. Going straight to the store leaves Key
+	// empty, which it rejects with "key not specified".
+	created, err := apiServer.Controller.CreateAPIKey(ctx, targetUser, &types.ApiKey{
+		Name: name,
+		Type: types.APIkeytypeAPI,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to create API key: " + err.Error())

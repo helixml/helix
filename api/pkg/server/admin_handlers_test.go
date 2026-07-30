@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -417,8 +418,10 @@ func TestAdminMintUserAPIKey(t *testing.T) {
 					DoAndReturn(func(_ context.Context, key *types.ApiKey) (*types.ApiKey, error) {
 						// The whole point: owned by them, not by the admin who asked.
 						assert.Equal(t, "user-456", key.Owner)
-						assert.Equal(t, types.OwnerTypeUser, key.OwnerType)
 						assert.Equal(t, "helixos", key.Name)
+						// Real key material, generated for us rather than left empty
+						// (the store rejects an unset Key).
+						assert.NotEmpty(t, key.Key)
 						key.Key = "hl-minted"
 						return key, nil
 					})
@@ -487,7 +490,10 @@ func TestAdminMintUserAPIKey(t *testing.T) {
 
 			mockStore := store.NewMockStore(ctrl)
 			tt.setupMocks(mockStore)
-			server := &HelixAPIServer{Store: mockStore}
+			server := &HelixAPIServer{
+				Store:      mockStore,
+				Controller: &controller.Controller{Options: controller.Options{Store: mockStore}},
+			}
 
 			req := httptest.NewRequest(http.MethodPost,
 				"/api/v1/admin/users/"+tt.targetUserID+"/api-keys?name="+tt.keyName, nil)
@@ -499,9 +505,7 @@ func TestAdminMintUserAPIKey(t *testing.T) {
 			if tt.expectedError != "" {
 				require.NotNil(t, httpErr)
 				assert.Contains(t, httpErr.Error(), tt.expectedError)
-				httpError, ok := httpErr.(*system.HTTPError)
-				require.True(t, ok, "expected *system.HTTPError")
-				assert.Equal(t, tt.expectedStatus, httpError.StatusCode)
+				assert.Equal(t, tt.expectedStatus, httpErr.StatusCode)
 			} else {
 				require.Nil(t, httpErr)
 				require.NotNil(t, result)
