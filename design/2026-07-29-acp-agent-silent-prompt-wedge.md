@@ -192,8 +192,30 @@ disablable.
   scope silently returned `unknown`, disabling the one signal that distinguishes "our
   regression" from "the agent package changed under us". Now queries the correct scope,
   warns loudly if it cannot resolve, and states explicitly that the install is unpinned.
-  **Still open:** the npm install remains unpinned, so the claude round is not
-  reproducible across time.
+
+### Decision: do NOT pin `claude-agent-acp` in the E2E
+
+Tempting, because an unpinned install makes the claude round non-reproducible across
+time. Rejected deliberately:
+
+- **Production is unpinned too.** Zed auto-installs the latest
+  `@agentclientprotocol/claude-agent-acp` in every desktop container. Pinning CI would
+  make CI test something we do not ship.
+- **Tracking latest is essential, not incidental.** The Anthropic API and Claude Code
+  move fast, and keeping up with them is the point of this integration. Freezing the
+  agent would mean discovering breakage in production instead of in CI.
+- Consequently, an agent-package regression breaking the claude round is a **true
+  positive**, not noise. Pinning would convert a real signal into silence.
+
+The correct remedy is therefore *attribution and resilience*, not determinism:
+1. Always log the resolved agent version (fixed above) so a failure can be attributed.
+2. Make the system tolerate a misbehaving agent rather than assume a well-behaved one —
+   which is exactly what the silence watchdog and Critical Fix #8 (`cancel()` drops
+   `send_task`) do.
+
+**Practical consequence for flake triage:** a claude-round failure is not automatically
+"our bug". Check the logged agent version first, and prefer hardening Zed against the
+misbehaviour over chasing a deterministic repro that may not exist.
 - The `model_not_found` trigger has been fixed on the serving side (model availability
   in GCP), so the specific path into this wedge is closed. The wedge handling still
   matters: any future provider-side error can re-enter it.
