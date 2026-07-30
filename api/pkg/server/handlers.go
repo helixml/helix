@@ -988,6 +988,80 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 	return updatedUser, nil
 }
 
+// adminMintUserAPIKey godoc
+// @Summary Mint an API key for a user (Admin only)
+// @Description Create (or return the existing) named API key owned by another user, so a trusted orchestrator can act as the people it runs work for instead of putting the whole fleet on one shared account. Idempotent per (user, name).
+// @Tags    users
+// @Success 200 {object} types.ApiKey
+// @Param   id path string true "User ID"
+// @Param   name query string true "Key name, e.g. the orchestrator's slug"
+// @Router  /api/v1/admin/users/{id}/api-keys [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req *http.Request) (*types.ApiKey, error) {
+	ctx := req.Context()
+	adminUser := getRequestUser(req)
+
+	if !adminUser.Admin {
+		return nil, system.NewHTTPError403("only admins can mint API keys for other users")
+	}
+
+	targetUserID := mux.Vars(req)["id"]
+	if targetUserID == "" {
+		return nil, system.NewHTTPError400("user ID is required")
+	}
+	name := req.URL.Query().Get("name")
+	if name == "" {
+		return nil, system.NewHTTPError400("name is required so the key is identifiable and re-mintable")
+	}
+
+	// The target must already be a Helix user. This is the boundary that keeps
+	// this endpoint safe once the orchestrator calling it is web-facing: signing
+	// up there must not be enough to get a Helix identity minted for you. Both
+	// sides share an IdP, so a person who has logged into Helix already has a row
+	// here; one who hasn't is not someone we will act as.
+	targetUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("user not found")
+		}
+		return nil, system.NewHTTPError500("failed to get user: " + err.Error())
+	}
+
+	// Idempotent per (user, name): an orchestrator mints on every login, and a
+	// fresh key each time would leave a pile of live credentials behind.
+	existing, err := apiServer.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
+		Owner:     targetUserID,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to list API keys: " + err.Error())
+	}
+	for _, key := range existing {
+		if key.Name == name {
+			return key, nil
+		}
+	}
+
+	created, err := apiServer.Store.CreateAPIKey(ctx, &types.ApiKey{
+		Owner:     targetUserID,
+		OwnerType: types.OwnerTypeUser,
+		Name:      name,
+		Type:      types.APIkeytypeAPI,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to create API key: " + err.Error())
+	}
+
+	log.Info().
+		Str("admin_id", adminUser.ID).
+		Str("target_user_id", targetUserID).
+		Str("target_user_email", targetUser.Email).
+		Str("key_name", name).
+		Msg("admin minted an API key on behalf of a user")
+
+	return created, nil
+}
+
 // adminDeleteUser godoc
 // @Summary Delete a user (Admin only)
 // @Description Permanently delete a user and all associated data. Only admins can use this endpoint.
