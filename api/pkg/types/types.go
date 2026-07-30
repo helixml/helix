@@ -1808,6 +1808,16 @@ type CronTrigger struct {
 	CallbackURL string   `json:"callback_url,omitempty" yaml:"callback_url,omitempty"` // Webhook URL to POST on completion
 	Action      string   `json:"action,omitempty" yaml:"action,omitempty"`             // "session" (default) or "spec_task"
 	ProjectID   string   `json:"project_id,omitempty" yaml:"project_id,omitempty"`     // Target project for spec_task action
+
+	// CredentialOwnerID optionally names the user whose Claude subscription should
+	// authenticate the agent this trigger starts. An orchestrator writing triggers
+	// on people's behalf under one service API key sets it so a scheduled run
+	// authenticates as the person it acts for, exactly as CreateTaskRequest does
+	// for a run dispatched by hand. Credential resolution only: the task is still
+	// created by, owned by, and attributed to the trigger's app owner, and the
+	// named user must have delegated their subscription to this organization or it
+	// is ignored. Currently honoured by the spec_task action.
+	CredentialOwnerID string `json:"credential_owner_id,omitempty" yaml:"credential_owner_id,omitempty"`
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created
