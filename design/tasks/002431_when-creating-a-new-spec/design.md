@@ -124,6 +124,56 @@ Per `CLAUDE.md`, verify end-to-end in the inner Helix at `http://localhost:8080`
 `cd frontend && yarn build` before committing. `Onboarding.test.tsx` already covers
 its own navigation and must stay green.
 
+## Implementation notes (what actually happened)
+
+Implemented exactly as designed; all three open assumptions were taken as written
+(no opt-out toggle, workspace stays in the workspace, dead plumbing removed).
+
+**Files changed** (all frontend, no API changes):
+
+| File | Change |
+|---|---|
+| `pages/SpecTasksPage.tsx` | `handleTaskCreated` navigates; `focusTaskId` state deleted |
+| `pages/SpecTaskDetailPage.tsx` | `handleTaskCreated` navigates to the new task |
+| `components/tasks/SpecTaskKanbanBoard.tsx` | `focusTaskId` prop chain deleted |
+| `components/tasks/TaskCard.tsx` | `focusStartPlanning` prop + focus effect + `startPlanningButtonRef` deleted |
+| `components/tasks/SpecTaskActionButtons.tsx` | `startPlanningButtonRef` prop deleted (chain had no reader left) |
+
+**Discovery: the dead-code chain was longer than the design said.** Removing
+`focusStartPlanning` also orphaned `startPlanningButtonRef`, which TaskCard created
+only to hand to `SpecTaskActionButtons` for the focus effect. With the effect gone
+nothing read the ref, so the prop was removed from `SpecTaskActionButtons` too
+(along with its now-unused `RefObject` import, and `useRef` in TaskCard). If you
+clone this task elsewhere: grep the ref, not just the boolean prop.
+
+**Discovery: the workspace side-panel branch is only reachable in one state.**
+`TabsView` renders the `onCreateTask` button (which opens SpecTasksPage's side
+panel) *only* in its `!rootNode` empty state — i.e. a project with no tasks and no
+saved layout. With any task present, TabsView auto-opens one and the "+" you see is
+`Add task or desktop`, which opens TabsView's own create *tab* (unchanged path).
+To test the workspace branch you must create a fresh project with zero tasks.
+Closing all tabs is not enough — the leaf node survives, so `rootNode` stays non-null.
+
+**Gotcha: `yarn build` cannot write `frontend/dist` in this sandbox.** The dir is a
+root-owned bind mount (`./frontend/dist:/www:ro`), so vite fails with `EACCES` at
+`prepareOutDir` *after* a successful transform. Do not `rm -rf frontend/dist` — it
+breaks the mount. Verify with `yarn tsc` plus
+`npx vite build --outDir /tmp/fe-dist-check --emptyOutDir` instead.
+
+**Gotcha: `yarn tsc` emits into `frontend/lib` and then breaks `yarn test`.**
+`tsconfig.json` has `"outDir": "./lib"` (gitignored), so `tsc -b` writes compiled
+copies of every test file there; vitest then collects them and 37 files fail with
+"Vitest cannot be imported in a CommonJS module using require()". This is NOT a real
+failure — remove/move `frontend/lib` and rerun. Prefer `npx tsc --noEmit` to avoid it.
+
+**Verified end-to-end in the inner Helix** (register → testorg → testproj →
+claude-opus-4-8), all six scenarios from the testing plan below, with no console
+errors and `yarn test` green (259 passed / 1 skipped, 37 files). Screenshots in
+`screenshots/`. One incidental observation: the destination URL gains `?view=details`
+(the detail page's own `useViewMode` param) — harmless, and the breadcrumb shows the
+real task name immediately because the backend derives a name from the prompt at
+creation time, so the "unnamed task" fallback in US-4 was never hit in practice.
+
 ## Notes for future agents
 
 - **Navigation in this frontend is `account.orgNavigate('<route-without-org_-prefix>', params)`**,
