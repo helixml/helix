@@ -1,8 +1,8 @@
 # Implementation Tasks: Navigate to Task Detail Page After Creating a Spec Task
 
-- [ ] Update `handleTaskCreated` in `frontend/src/pages/SpecTasksPage.tsx` to navigate to `project-task-detail` with the new task id (kanban/audit views)
-- [ ] In the same handler, keep workspace mode in the workspace by navigating to `project-specs` with `tab=workspace` and `openTask=<id>`
-- [ ] Drop the now-pointless `setFocusTaskId` / `setRefreshTrigger` calls from that handler
+- [~] Update `handleTaskCreated` in `frontend/src/pages/SpecTasksPage.tsx` to navigate to `project-task-detail` with the new task id (kanban/audit views)
+- [~] In the same handler, keep workspace mode in the workspace by navigating to `project-specs` with `tab=workspace` and `openTask=<id>`
+- [~] Drop the now-pointless `setFocusTaskId` / `setRefreshTrigger` calls from that handler
 - [ ] Update `handleTaskCreated` in `frontend/src/pages/SpecTaskDetailPage.tsx` to navigate to the newly created task's detail page
 - [ ] Leave `NewSpecTaskForm` and `TabsView` creation behaviour unchanged (verify by reading, not by editing)
 - [ ] Remove the dead `focusTaskId` / `focusStartPlanning` plumbing across `SpecTasksPage.tsx`, `SpecTaskKanbanBoard.tsx`, and `TaskCard.tsx` (only if Open Question 3 is confirmed)
