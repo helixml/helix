@@ -768,6 +768,19 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 
 	for _, repo := range projectRepos {
 		if !s.shouldOpenPullRequest(repo) {
+			// Internal (directly-integrated) repos have no external system to
+			// open a PR in. The PRIMARY internal repo is merged server-side by
+			// approveImplementation; here we finalize the NON-primary internal
+			// repos the same way — a synchronous fast-forward merge — so a
+			// mixed-backing project (e.g. GitHub primary + internal secondary)
+			// doesn't leave the internal secondary repo's feature branch
+			// unmerged after the task is approved.
+			if repo.ID == primaryRepoID || repo.IsExternal {
+				continue
+			}
+			if err := s.mergeInternalRepoBranch(ctx, repo, task); err != nil {
+				log.Error().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Failed to fast-forward merge internal non-primary repo")
+			}
 			continue
 		}
 
@@ -851,6 +864,46 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 	}
 
 	log.Info().Str("task_id", task.ID).Int("pr_count", len(repoPRs)).Msg("Updated task with pull requests")
+	return nil
+}
+
+// mergeInternalRepoBranch fast-forward merges a task's feature branch into the
+// repo's default branch for an internal (directly-integrated) repo, which has no
+// external PR to open. It mirrors the server-side merge approveImplementation
+// runs for the primary internal repo, so non-primary internal repos in a
+// mixed-backing project are finalized synchronously rather than left dangling.
+//
+// No lock is taken: internal repos have no upstream to sync/push to (matching the
+// !repo.IsExternal branch in approveImplementation, which also skips the lock),
+// and MergeBranchFastForward is idempotent — a branch already at the target
+// commit is a no-op — so concurrent orchestrator cycles are safe. Returns nil
+// (nothing to merge) when the feature branch is absent, i.e. the agent made no
+// changes in this repo.
+func (s *HelixAPIServer) mergeInternalRepoBranch(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
+	if repo.DefaultBranch == "" {
+		return fmt.Errorf("default branch not set for repository %s", repo.Name)
+	}
+	if task.BranchName == "" {
+		return fmt.Errorf("task %s has no branch name", task.ID)
+	}
+
+	// If the feature branch doesn't exist in this repo, the agent pushed no
+	// changes here — there's nothing to merge.
+	if _, err := services.GetBranchCommitID(ctx, repo.LocalPath, task.BranchName); err != nil {
+		log.Debug().Str("repo_name", repo.Name).Str("branch", task.BranchName).Msg("Feature branch absent in internal repo, nothing to merge")
+		return nil
+	}
+
+	if _, err := services.MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); err != nil {
+		return fmt.Errorf("fast-forward merge %s into %s: %w", task.BranchName, repo.DefaultBranch, err)
+	}
+
+	log.Info().
+		Str("repo_name", repo.Name).
+		Str("task_id", task.ID).
+		Str("source_branch", task.BranchName).
+		Str("target_branch", repo.DefaultBranch).
+		Msg("Fast-forward merged internal non-primary repo")
 	return nil
 }
 
