@@ -43,7 +43,7 @@ vi.mock('../hooks/useApi', () => ({
       v1ProjectsCreate: mockV1ProjectsCreate,
       v1SpecTasksFromPromptCreate: mockV1SpecTasksFromPromptCreate,
       v1ProviderEndpointsList: mockV1ProviderEndpointsList,
-      v1AppsUpdate: vi.fn().mockResolvedValue({}),
+      v1AgentsUpdate: vi.fn().mockResolvedValue({}),
     }),
   }),
 }))
@@ -527,7 +527,7 @@ describe('Onboarding', () => {
 
       await waitFor(() => {
         expect(mockApiGet).toHaveBeenCalledWith(
-          '/api/v1/apps',
+          '/api/v1/agents',
           expect.objectContaining({
             params: { organization_id: 'org-apps' },
           }),

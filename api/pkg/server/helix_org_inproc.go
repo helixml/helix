@@ -217,11 +217,11 @@ func (c *inProcHelixClient) UpdateAgent(ctx context.Context, appID string, patch
 			assistant.GenerationModel = ""
 		}
 	}
-	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/apps/"+appID, update, map[string]string{"id": appID})
+	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/agents/"+appID, update, map[string]string{"id": appID})
 	if err != nil {
 		return err
 	}
-	if _, herr := c.server.updateApp(nil, r); herr != nil {
+	if _, herr := c.server.updateAgent(nil, r); herr != nil {
 		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		if _, rollbackErr := c.server.Store.UpdateApp(rollbackCtx, &prior); rollbackErr != nil {
@@ -625,11 +625,11 @@ func (c *inProcHelixClient) CreateBranch(ctx context.Context, repoID, branch, ba
 // GetAppConfig returns the typed config for an App. Used by
 // runtimehelix.AttachHelixOrgMCP to round-trip MCP entries.
 func (c *inProcHelixClient) GetAppConfig(ctx context.Context, id string) (types.AppConfig, error) {
-	r, err := c.newRequest(ctx, http.MethodGet, "/api/v1/apps/"+id, nil, map[string]string{"id": id})
+	r, err := c.newRequest(ctx, http.MethodGet, "/api/v1/agents/"+id, nil, map[string]string{"id": id})
 	if err != nil {
 		return types.AppConfig{}, err
 	}
-	app, herr := c.server.getApp(nil, r)
+	app, herr := c.server.getAgent(nil, r)
 	if herr != nil {
 		return types.AppConfig{}, fmt.Errorf("get app %s: %s", id, herr.Error())
 	}
@@ -645,17 +645,17 @@ func (c *inProcHelixClient) GetApp(ctx context.Context, id string) (*types.App, 
 
 // UpdateAppConfig persists a mutated app config.
 func (c *inProcHelixClient) UpdateAppConfig(ctx context.Context, id string, cfg types.AppConfig) error {
-	// updateApp reads the existing app to preserve immutable fields, so
+	// updateAgent reads the existing app to preserve immutable fields, so
 	// we only need to send {id, config}.
 	body := types.App{
 		ID:     id,
 		Config: cfg,
 	}
-	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/apps/"+id, body, map[string]string{"id": id})
+	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/agents/"+id, body, map[string]string{"id": id})
 	if err != nil {
 		return err
 	}
-	if _, herr := c.server.updateApp(nil, r); herr != nil {
+	if _, herr := c.server.updateAgent(nil, r); herr != nil {
 		return fmt.Errorf("update app %s: %s", id, herr.Error())
 	}
 	return nil

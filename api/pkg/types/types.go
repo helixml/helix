@@ -1703,7 +1703,7 @@ type TestStep struct {
 	ExpectedOutput string `json:"expected_output" yaml:"expected_output"`
 }
 
-type AppHelixConfig struct {
+type AgentHelixConfig struct {
 	Name              string            `json:"name,omitempty" yaml:"name,omitempty"`
 	Description       string            `json:"description,omitempty" yaml:"description,omitempty"`
 	Avatar            string            `json:"avatar,omitempty" yaml:"avatar,omitempty"`
@@ -1721,15 +1721,15 @@ type AppHelixConfig struct {
 
 // Helper functions for agent type checking with backward compatibility
 
-type AppHelixConfigMetadata struct {
+type AgentHelixConfigMetadata struct {
 	Name string `json:"name" yaml:"name"`
 }
 
-type AppHelixConfigCRD struct {
-	APIVersion string                 `json:"apiVersion" yaml:"apiVersion"`
-	Kind       string                 `json:"kind" yaml:"kind"`
-	Metadata   AppHelixConfigMetadata `json:"metadata" yaml:"metadata"`
-	Spec       AppHelixConfig         `json:"spec" yaml:"spec"`
+type AgentHelixConfigCRD struct {
+	APIVersion string                   `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                   `json:"kind" yaml:"kind"`
+	Metadata   AgentHelixConfigMetadata `json:"metadata" yaml:"metadata"`
+	Spec       AgentHelixConfig         `json:"spec" yaml:"spec"`
 }
 
 type AppGithubConfigUpdate struct {
@@ -1738,23 +1738,23 @@ type AppGithubConfigUpdate struct {
 	Error   string    `json:"error"`
 }
 
-type AppConfig struct {
+type AgentConfig struct {
 	AllowedDomains []string          `json:"allowed_domains" yaml:"allowed_domains"`
 	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
-	Helix          AppHelixConfig    `json:"helix" yaml:"helix"`
+	Helix          AgentHelixConfig  `json:"helix" yaml:"helix"`
 }
 
-func (c AppConfig) Value() (driver.Value, error) {
+func (c AgentConfig) Value() (driver.Value, error) {
 	j, err := json.Marshal(c)
 	return j, err
 }
 
-func (c *AppConfig) Scan(src interface{}) error {
+func (c *AgentConfig) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
 		return errors.New("type assertion .([]byte) failed")
 	}
-	var result AppConfig
+	var result AgentConfig
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
@@ -1762,7 +1762,7 @@ func (c *AppConfig) Scan(src interface{}) error {
 	return nil
 }
 
-func (AppConfig) GormDataType() string {
+func (AgentConfig) GormDataType() string {
 	return "json"
 }
 
@@ -1873,7 +1873,7 @@ func (Triggers) GormDataType() string {
 	return "json"
 }
 
-type App struct {
+type Agent struct {
 	ID             string    `json:"id" gorm:"primaryKey"`
 	Created        time.Time `json:"created"`
 	Updated        time.Time `json:"updated"`
@@ -1881,9 +1881,9 @@ type App struct {
 	// uuid of user ID
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
-	OwnerType OwnerType `json:"owner_type"`
-	Global    bool      `json:"global"`
-	Config    AppConfig `json:"config" gorm:"jsonb"`
+	OwnerType OwnerType   `json:"owner_type"`
+	Global    bool        `json:"global"`
+	Config    AgentConfig `json:"config" gorm:"jsonb"`
 
 	User User `json:"user" gorm:"-"` // Owner user struct, populated by the server for organization views
 
@@ -1892,6 +1892,23 @@ type App struct {
 	// can hide org-chart agents from the spec-task agent switchers.
 	IsHelixOrgAgent bool `json:"is_helix_org_agent" gorm:"-"`
 }
+
+func (Agent) TableName() string { return "apps" }
+
+// Deprecated: use Agent.
+type App = Agent
+
+// Deprecated: use AgentConfig.
+type AppConfig = AgentConfig
+
+// Deprecated: use AgentHelixConfig.
+type AppHelixConfig = AgentHelixConfig
+
+// Deprecated: use AgentHelixConfigMetadata.
+type AppHelixConfigMetadata = AgentHelixConfigMetadata
+
+// Deprecated: use AgentHelixConfigCRD.
+type AppHelixConfigCRD = AgentHelixConfigCRD
 
 type KeyPair struct {
 	Type       string

@@ -29,7 +29,7 @@ import (
 type nodeRow struct {
 	ID              string   `gorm:"primaryKey;type:text"`
 	OrgID           string   `gorm:"primaryKey;type:text;index"`
-	AgentAppID      *string  `gorm:"type:text;index"`
+	AgentID         *string  `gorm:"column:agent_app_id;type:text;index"`
 	Name            string   `gorm:"not null;default:''"`
 	Content         string   `gorm:"not null"`
 	Tools           []string `gorm:"serializer:json"`
@@ -57,14 +57,14 @@ func (nodeMapper) ToRow(node orgchart.Node) (nodeRow, error) {
 	if len(tools) == 0 {
 		tools = nil
 	}
-	var agentAppID *string
-	if node.AgentAppID != "" {
-		agentAppID = &node.AgentAppID
+	var agentID *string
+	if node.AgentID != "" {
+		agentID = &node.AgentID
 	}
 	return nodeRow{
 		ID:              string(node.ID),
 		OrgID:           node.OrganizationID,
-		AgentAppID:      agentAppID,
+		AgentID:         agentID,
 		Name:            node.Name,
 		Content:         node.Content,
 		Tools:           tools,
@@ -86,14 +86,14 @@ func (nodeMapper) ToDomain(row nodeRow) (orgchart.Node, error) {
 			tools = append(tools, tool.Name(t))
 		}
 	}
-	var agentAppID string
-	if row.AgentAppID != nil {
-		agentAppID = *row.AgentAppID
+	var agentID string
+	if row.AgentID != nil {
+		agentID = *row.AgentID
 	}
 	return orgchart.Node{
 		ID:              orgchart.NodeID(row.ID),
 		OrganizationID:  row.OrgID,
-		AgentAppID:      agentAppID,
+		AgentID:         agentID,
 		Name:            row.Name,
 		Content:         row.Content,
 		Tools:           tools,
@@ -121,10 +121,10 @@ func newNodesRepo(db *gorm.DB) *nodesRepo {
 
 func (r *nodesRepo) Create(ctx context.Context, node orgchart.Node) error {
 	if node.IsHuman() {
-		if node.AgentAppID != "" {
+		if node.AgentID != "" {
 			return errors.New("create node: human node cannot reference an agent app")
 		}
-	} else if node.AgentAppID == "" {
+	} else if node.AgentID == "" {
 		return errors.New("create node: agent app id is required")
 	}
 	return r.Repository.Create(ctx, node)
@@ -167,7 +167,7 @@ func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
 		store.WithID(row.ID),
 		store.WithUpdates(map[string]any{
 			"name":             row.Name,
-			"agent_app_id":     row.AgentAppID,
+			"agent_app_id":     row.AgentID,
 			"content":          row.Content,
 			"tools":            string(toolsJSON),
 			"project_ids":      string(projectIDsJSON),

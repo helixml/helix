@@ -198,13 +198,13 @@ func (s *HelixAPIServer) handleValidateMcpSkill(_ http.ResponseWriter, r *http.R
 // no user input is required.
 //
 // enableSkill godoc
-// @Summary Enable a marketplace skill on an app
-// @Description Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.
+// @Summary Enable a marketplace skill on an agent
+// @Description Enable a marketplace skill on an agent. For autoProvision MCP skills the server generates URL and auth automatically.
 // @Tags    skills
-// @Param   id   path string true "App ID"
+// @Param   id   path string true "Agent ID"
 // @Param   skill path string true "Skill name (e.g. code-intelligence)"
-// @Success 200 {object} types.App
-// @Router /api/v1/apps/{id}/skills/{skill}/enable [post]
+// @Success 200 {object} types.Agent
+// @Router /api/v1/agents/{id}/skills/{skill}/enable [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) handleEnableSkill(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	user := getRequestUser(r)

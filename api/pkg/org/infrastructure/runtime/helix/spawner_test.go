@@ -205,8 +205,8 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	}
 	// The Worker should have its per-project IDs persisted from the
 	// fake's ApplyProject response.
-	if state.ProjectID != "prj_test" || state.AgentAppID != "app_test" {
-		t.Errorf("project IDs not persisted: project=%q agent_app=%q", state.ProjectID, state.AgentAppID)
+	if state.ProjectID != "prj_test" || state.AgentID != "app_test" {
+		t.Errorf("project IDs not persisted: project=%q agent_app=%q", state.ProjectID, state.AgentID)
 	}
 	// StartSession must point at the per-Worker project, not at any
 	// global one.
@@ -280,7 +280,7 @@ func TestSpawnerUsesLinkedAgentInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Nodes.Update(context.Background(), bot.WithAgentAppID("app_test")); err != nil {
+	if err := s.Nodes.Update(context.Background(), bot.WithAgentID("app_test")); err != nil {
 		t.Fatal(err)
 	}
 	fc := &fakeHelixClient{

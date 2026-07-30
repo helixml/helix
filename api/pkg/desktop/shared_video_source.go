@@ -49,6 +49,17 @@ const (
 	// before allowing another pipeline creation attempt. This gives the GPU time
 	// to recover (e.g., other sessions may stop and free VRAM).
 	circuitBreakerCooldown = 30 * time.Second
+
+	// maxCircuitBreakerTrips is how many times the breaker may open for a node
+	// before it latches permanently and every subscribe returns a terminal error.
+	//
+	// Without this the breaker never stops: each cooldown expiry grants one more
+	// instantiation, forever. During the 2026-07-28 incident the breaker opened
+	// 209 times over ~10 hours and let through 209 more pipelines, each of which
+	// leaked GPU resources. Throttling a failure loop is useful; running it
+	// indefinitely on a machine that is plainly out of capacity is not.
+	// Cleared by a successful start or an explicit client-side retry.
+	maxCircuitBreakerTrips = 10
 )
 
 // FrameSource is an abstraction over video frame producers.
@@ -178,6 +189,7 @@ type SharedVideoSourceRegistry struct {
 	// after maxConsecutiveFailures and requires a cooldown before retrying.
 	failureCounts   map[uint32]int       // consecutive failures per node
 	failureCooldown map[uint32]time.Time // when to allow retry per node
+	breakerTrips    map[uint32]int       // how many times the breaker has opened per node
 
 	// Metrics
 	cancelledStops atomic.Uint64 // stops cancelled by client reconnect
@@ -210,6 +222,7 @@ func GetSharedVideoRegistry() *SharedVideoSourceRegistry {
 			gracePeriod:     gracePeriod,
 			failureCounts:   make(map[uint32]int),
 			failureCooldown: make(map[uint32]time.Time),
+			breakerTrips:    make(map[uint32]int),
 		}
 		log.Info().Dur("grace_period", gracePeriod).Msg("[SHARED_VIDEO] Registry initialized")
 	})
@@ -488,12 +501,40 @@ func (r *SharedVideoSourceRegistry) recordPipelineFailure(nodeID uint32) {
 	if count >= maxConsecutiveFailures {
 		cooldownUntil := time.Now().Add(circuitBreakerCooldown)
 		r.failureCooldown[nodeID] = cooldownUntil
+		r.breakerTrips[nodeID]++
 		log.Warn().
 			Uint32("node_id", nodeID).
 			Int("failures", count).
+			Int("trips", r.breakerTrips[nodeID]).
 			Time("cooldown_until", cooldownUntil).
 			Msg("[SHARED_VIDEO] Circuit breaker OPEN")
+		if r.breakerTrips[nodeID] >= maxCircuitBreakerTrips {
+			log.Error().
+				Uint32("node_id", nodeID).
+				Int("trips", r.breakerTrips[nodeID]).
+				Msg("[SHARED_VIDEO] Circuit breaker LATCHED — this node has failed too many times, " +
+					"no further pipelines will be created until a client explicitly retries")
+		}
 	}
+}
+
+// isCircuitBreakerLatched reports whether a node has tripped the breaker so many
+// times that retrying is pointless. Must be called with r.mu held.
+func (r *SharedVideoSourceRegistry) isCircuitBreakerLatched(nodeID uint32) bool {
+	return r.breakerTrips[nodeID] >= maxCircuitBreakerTrips
+}
+
+// ResetCircuitBreaker clears all breaker state for a node. Called when a client
+// explicitly asks to retry, which is the only way out of the latched state.
+func (r *SharedVideoSourceRegistry) ResetCircuitBreaker(nodeID uint32) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.breakerTrips[nodeID] > 0 || r.failureCounts[nodeID] > 0 {
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Circuit breaker cleared by explicit retry")
+	}
+	delete(r.breakerTrips, nodeID)
+	delete(r.failureCounts, nodeID)
+	delete(r.failureCooldown, nodeID)
 }
 
 // recordPipelineSuccess resets the circuit breaker for a node after successful start.
@@ -504,11 +545,15 @@ func (r *SharedVideoSourceRegistry) recordPipelineSuccess(nodeID uint32) {
 	}
 	delete(r.failureCounts, nodeID)
 	delete(r.failureCooldown, nodeID)
+	delete(r.breakerTrips, nodeID)
 }
 
 // isCircuitBreakerOpen returns true if the circuit breaker is open (too many failures)
 // and the cooldown hasn't expired yet. Must be called with r.mu held.
 func (r *SharedVideoSourceRegistry) isCircuitBreakerOpen(nodeID uint32) bool {
+	if r.isCircuitBreakerLatched(nodeID) {
+		return true
+	}
 	cooldownUntil, exists := r.failureCooldown[nodeID]
 	if !exists {
 		return false
@@ -682,12 +727,29 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64
 		registry := GetSharedVideoRegistry()
 		registry.mu.Lock()
 		if registry.isCircuitBreakerOpen(s.nodeID) {
+			latched := registry.isCircuitBreakerLatched(s.nodeID)
 			registry.mu.Unlock()
 			close(client.frameCh)
 			close(client.errorCh)
+			if latched {
+				return nil, nil, 0, fmt.Errorf("video capture has failed repeatedly on this desktop and has been "+
+					"stopped to avoid exhausting the GPU for other sessions. The GPU is most likely out of capacity — "+
+					"stop unused desktop sessions, then restart the stream to try again (node %d)", s.nodeID)
+			}
 			return nil, nil, 0, fmt.Errorf("pipeline creation blocked: too many consecutive failures for node %d (cooldown active)", s.nodeID)
 		}
 		registry.mu.Unlock()
+
+		// Refuse to instantiate if this process is already hoarding GPU file
+		// descriptors. The circuit breaker above only throttles *failures*; it
+		// happily permits one leaking instantiation per cooldown forever, which is
+		// how a single desktop reached 9.3 GB of GPU memory and starved the card
+		// for every other tenant.
+		if err := CheckGPUResourceBudget(); err != nil {
+			close(client.frameCh)
+			close(client.errorCh)
+			return nil, nil, 0, err
+		}
 
 		// First client - add to map, start pipeline, no catchup needed (no GOP yet)
 		// Set state to live directly since there's nothing to catch up on

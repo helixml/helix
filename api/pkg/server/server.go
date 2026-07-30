@@ -1054,18 +1054,6 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/turns/{turn}", system.Wrapper(apiServer.getInteractionByTurn)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/search", system.Wrapper(apiServer.searchSessionInteractions)).Methods(http.MethodGet)
 
-	// Evaluation suites & runs
-	authRouter.HandleFunc("/apps/{app_id}/evaluation-suites", system.Wrapper(apiServer.listEvaluationSuites)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{app_id}/evaluation-suites", system.Wrapper(apiServer.createEvaluationSuite)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/apps/{app_id}/evaluation-suites/{id}", system.Wrapper(apiServer.getEvaluationSuite)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{app_id}/evaluation-suites/{id}", system.Wrapper(apiServer.updateEvaluationSuite)).Methods(http.MethodPut)
-	authRouter.HandleFunc("/apps/{app_id}/evaluation-suites/{id}", system.Wrapper(apiServer.deleteEvaluationSuite)).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/apps/{app_id}/evaluation-suites/{id}/runs", system.Wrapper(apiServer.startEvaluationRun)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/apps/{app_id}/evaluation-suites/{id}/runs", system.Wrapper(apiServer.listEvaluationRuns)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{app_id}/evaluation-runs/{run_id}", system.Wrapper(apiServer.getEvaluationRun)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{app_id}/evaluation-runs/{run_id}", system.Wrapper(apiServer.deleteEvaluationRun)).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/apps/{app_id}/evaluation-runs/{run_id}/stream", apiServer.streamEvaluationRun).Methods(http.MethodGet)
-
 	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.listQuestionSets)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.createQuestionSet)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/question-sets/{id}", system.Wrapper(apiServer.getQuestionSet)).Methods(http.MethodGet)
@@ -1118,27 +1106,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.getSessionCodexCredentials)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.updateSessionCodexCredentials)).Methods(http.MethodPut)
 
-	authRouter.HandleFunc("/apps", wrapWithETag[[]*types.App](apiServer.listApps)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.getApp)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.updateApp)).Methods(http.MethodPut)
-	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/apps/{id}/claude-subscription-status", system.Wrapper(apiServer.getAppClaudeSubscriptionStatus)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/daily-usage", system.Wrapper(apiServer.getAppDailyUsage)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/users-daily-usage", system.Wrapper(apiServer.getAppUsersDailyUsage)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/llm-calls", system.Wrapper(apiServer.listAppLLMCalls)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/interactions", system.Wrapper(apiServer.listAppInteractions)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/step-info", system.Wrapper(apiServer.listAppStepInfo)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/api-actions", system.Wrapper(apiServer.appRunAPIAction)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/apps/{id}/user-access", system.Wrapper(apiServer.getAppUserAccess)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.listAppAccessGrants).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.createAppAccessGrant).Methods(http.MethodPost)
-	authRouter.HandleFunc("/apps/{id}/access-grants/{grant_id}", apiServer.deleteAppAccessGrant).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/apps/{id}/duplicate", system.Wrapper(apiServer.duplicateApp)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/apps/{id}/memories", system.Wrapper(apiServer.listAppMemories)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/memories/{memory_id}", system.Wrapper(apiServer.deleteAppMemory)).Methods(http.MethodDelete)
-
-	authRouter.HandleFunc("/apps/{id}/triggers", system.Wrapper(apiServer.listAppTriggers)).Methods(http.MethodGet)
+	apiServer.registerAgentRoutes(authRouter, insecureRouter)
 
 	// Triggers provide an ability for users to create recurring tasks for agents or
 	// to connect an agent built by another user to their own slack/dicord/etc.
@@ -1149,15 +1117,6 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/triggers/{trigger_id}/execute", system.Wrapper(apiServer.executeAppTrigger)).Methods(http.MethodPost)
 
 	authRouter.HandleFunc("/triggers/{trigger_id}/executions", system.Wrapper(apiServer.listTriggerExecutions)).Methods(http.MethodGet)
-
-	// Avatar routes
-	authRouter.HandleFunc("/apps/{id}/avatar", apiServer.uploadAppAvatar).Methods(http.MethodPost)
-	authRouter.HandleFunc("/apps/{id}/avatar", apiServer.deleteAppAvatar).Methods(http.MethodDelete)
-	// Anyone can get the avatar
-	insecureRouter.HandleFunc("/apps/{id}/avatar", apiServer.getAppAvatar).Methods(http.MethodGet)
-
-	// Trigger status routes
-	authRouter.HandleFunc("/apps/{id}/trigger-status", apiServer.getAppTriggerStatus).Methods(http.MethodGet)
 
 	// Knowledge search endpoint (prompt= param)
 	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods(http.MethodGet).Queries("prompt", "{prompt}")
@@ -1176,8 +1135,6 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/skills/{id}", system.DefaultWrapper(apiServer.handleGetSkill)).Methods("GET")
 	authRouter.HandleFunc("/skills/reload", system.DefaultWrapper(apiServer.handleReloadSkills)).Methods("POST")
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
-	authRouter.HandleFunc("/apps/{id}/skills/{skill}/enable", system.Wrapper(apiServer.handleEnableSkill)).Methods("POST")
-
 	// External agent routes - desktop streaming and Zed agent communication
 	// Note: Session start/stop/resume use /sessions endpoints, not /external-agents
 	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")                                   // WebSocket: Zed agent bidirectional communication (chat, tool calls)

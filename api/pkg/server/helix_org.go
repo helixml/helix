@@ -168,12 +168,12 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 	}
 	info := helixorgapi.BotRuntimeInfo{
 		ProjectID:   s.ProjectID,
-		AgentAppID:  s.AgentAppID,
+		AgentID:     s.AgentID,
 		SessionID:   s.SessionID,
 		AgentStatus: "stopped",
 	}
-	if s.AgentAppID != "" && o.sessions != nil {
-		if app, err := o.sessions.GetApp(ctx, s.AgentAppID); err == nil && app != nil && len(app.Config.Helix.Assistants) > 0 {
+	if s.AgentID != "" && o.sessions != nil {
+		if app, err := o.sessions.GetApp(ctx, s.AgentID); err == nil && app != nil && len(app.Config.Helix.Assistants) > 0 {
 			assistant := app.Config.Helix.Assistants[0]
 			info.Runtime = string(assistant.CodeAgentRuntime)
 			info.Model = assistant.Model

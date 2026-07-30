@@ -40,7 +40,7 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 	switch {
 	case appID != "":
 		// Knowledge is an app-scoped resource. Authorize against the app
-		// itself (the same way getApp does) instead of owner-equality, so
+		// itself (the same way getAgent does) instead of owner-equality, so
 		// everyone who can see the agent can see its knowledge — including
 		// org members editing a shared project agent they don't personally
 		// own. ensureKnowledge stamps each row with the app owner's id, so an
