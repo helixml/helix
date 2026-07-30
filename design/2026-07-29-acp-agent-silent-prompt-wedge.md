@@ -134,12 +134,17 @@ future merge conflict surface) at zero.
   *every* `AcpThreadEvent` (thinking, text, tool call, entry update, Stopped). Any
   event is proof of life.
 - `wait_for_first_agent_activity()` — races a freshly dispatched prompt against a
-  budget (`HELIX_ACP_FIRST_EVENT_TIMEOUT_SECS`, default **120s**, `0` disables).
-- If the agent emits **anything**, the watchdog disarms for the rest of the turn, so
-  arbitrarily long tool calls and slow generations are never interrupted. This is the
-  key design point: a blanket turn timeout would be wrong (the documented
-  long-single-tool-call false positive), but "zero events since dispatch" is
-  unambiguous — a healthy agent emits its first event within seconds.
+  budget (`HELIX_ACP_SILENCE_TIMEOUT_SECS`, default **120s**, `0` disables).
+- A blanket turn timeout would be wrong (the documented long-single-tool-call false
+  positive), so busy-ness is decided by **thread state, not a clock**:
+  `has_outstanding_work()` reports true while any tool call is `Pending` /
+  `InProgress` / `WaitingForConfirmation`. A running tool or a pending permission
+  prompt is exempt for exactly as long as the work genuinely takes — there is no
+  "longest plausible tool call" constant anywhere, because that number is both
+  unknowable and wrong the first time someone runs a 40-minute build.
+- The budget therefore only has to cover model think-time between one event and the
+  next (normally seconds), which is what makes a single modest 120s default
+  defensible.
 - On expiry the send task is dropped (same rationale as Critical Fix #8: never block
   on a non-responding agent) and an error carrying `helix_silent_prompt_wedge` is
   returned.
@@ -170,23 +175,47 @@ disablable.
   `waiting` interaction with no agent events for N minutes on a live connection as a
   wedge, so Restart can reset a genuinely poisoned thread instead of preserving it.
 - Not verified end-to-end against a live wedge (not reproducible on demand).
-- **The watchdog does not cover "emitted output, then went silent before completing".**
-  It is a time-to-FIRST-event watchdog by design (that shape is unambiguous and cannot
-  false-positive on a long tool call). A turn that streams some tokens and *then* stalls
-  before `Stopped` disarms the watchdog and is still unbounded. The E2E claude round was
-  observed failing in exactly that shape on 2026-07-29 (three events including a correct
-  assistant answer, then no `message_completed`), so it is a real behaviour, not
-  hypothetical. Catching it needs a separate idle-since-last-event budget, sized well
-  above the longest plausible tool call.
-- **The E2E harness cannot attribute a claude-round failure.** `e2e-test/run_e2e.sh:204`
-  reports the agent version with
-  `npm view @anthropic-ai/claude-agent-acp version`, but the package Zed actually
-  installs is **`@agentclientprotocol/claude-agent-acp`** (confirmed in
+- ~~The watchdog does not cover "emitted output, then went silent before completing".~~
+  **FIXED** (`e36d6f47ee`). Originally the watchdog disarmed permanently on the first
+  event, so a turn that streamed tokens and *then* stalled before `Stopped` stayed
+  unbounded — observed in the E2E claude round on 2026-07-29 (three events including a
+  correct assistant answer, then no `message_completed`). Rather than add a second idle
+  timer sized to "the longest plausible tool call" (unknowable, and wrong the first time
+  someone runs a 40-minute build), busy-ness is now read from thread state via
+  `has_outstanding_work()`. Both shapes now fall out of one rule:
+  *generating + no events for `budget` + nothing outstanding ⇒ wedged.*
+- ~~The E2E harness cannot attribute a claude-round failure.~~ **FIXED**
+  (`e36d6f47ee`). `run_e2e.sh` queried `npm view @anthropic-ai/claude-agent-acp`, which
+  **404s**; Zed installs `@agentclientprotocol/claude-agent-acp` (confirmed in
   `crates/agent_servers/`, and matching the `ps` output of the wedged production
-  container). The wrong scope means the query always returns `unknown`, so the log line
-  that exists precisely to distinguish "our regression" from "the agent package changed
-  under us" is silently useless. The package is also unpinned in the npm path, so the
-  claude round is not reproducible across time. Worth fixing both.
+  container — today it resolves to **0.63.0**, the very version that wedged). The wrong
+  scope silently returned `unknown`, disabling the one signal that distinguishes "our
+  regression" from "the agent package changed under us". Now queries the correct scope,
+  warns loudly if it cannot resolve, and states explicitly that the install is unpinned.
+
+### Decision: do NOT pin `claude-agent-acp` in the E2E
+
+Tempting, because an unpinned install makes the claude round non-reproducible across
+time. Rejected deliberately:
+
+- **Production is unpinned too.** Zed auto-installs the latest
+  `@agentclientprotocol/claude-agent-acp` in every desktop container. Pinning CI would
+  make CI test something we do not ship.
+- **Tracking latest is essential, not incidental.** The Anthropic API and Claude Code
+  move fast, and keeping up with them is the point of this integration. Freezing the
+  agent would mean discovering breakage in production instead of in CI.
+- Consequently, an agent-package regression breaking the claude round is a **true
+  positive**, not noise. Pinning would convert a real signal into silence.
+
+The correct remedy is therefore *attribution and resilience*, not determinism:
+1. Always log the resolved agent version (fixed above) so a failure can be attributed.
+2. Make the system tolerate a misbehaving agent rather than assume a well-behaved one —
+   which is exactly what the silence watchdog and Critical Fix #8 (`cancel()` drops
+   `send_task`) do.
+
+**Practical consequence for flake triage:** a claude-round failure is not automatically
+"our bug". Check the logged agent version first, and prefer hardening Zed against the
+misbehaviour over chasing a deterministic repro that may not exist.
 - The `model_not_found` trigger has been fixed on the serving side (model availability
   in GCP), so the specific path into this wedge is closed. The wedge handling still
   matters: any future provider-side error can re-enter it.
