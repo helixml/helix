@@ -331,9 +331,6 @@ const SpecTasksPage: FC = () => {
     };
   }, [project?.metadata?.board_settings?.wip_limits]);
 
-  // Track newly created task ID for focusing "Start Planning" button
-  const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);
-
   // Get display settings from the project's default app for exploratory sessions
   const exploratoryDisplaySettings = useMemo(() => {
     if (!project?.default_helix_app_id || !apps.apps) {
@@ -633,14 +630,31 @@ const SpecTasksPage: FC = () => {
     setCreateDialogOpen(true);
   }, []);
 
-  const handleTaskCreated = useCallback((task: TypesSpecTask) => {
-    setCreateDialogOpen(false);
-    if (task.id) {
-      setFocusTaskId(task.id);
-      setTimeout(() => setFocusTaskId(undefined), 5000);
-    }
-    setRefreshTrigger((prev) => prev + 1);
-  }, []);
+  // Go straight to the new task instead of leaving the user to find it on the
+  // board. In workspace mode we stay put and open it as a tab — leaving the
+  // workspace would throw away the user's panel layout.
+  const handleTaskCreated = useCallback(
+    (task: TypesSpecTask) => {
+      setCreateDialogOpen(false);
+      if (!task.id) {
+        setRefreshTrigger((prev) => prev + 1);
+        return;
+      }
+      if (viewMode === "workspace") {
+        account.orgNavigate("project-specs", {
+          id: projectId,
+          tab: "workspace",
+          openTask: task.id,
+        });
+        return;
+      }
+      account.orgNavigate("project-task-detail", {
+        id: projectId,
+        taskId: task.id,
+      });
+    },
+    [viewMode, projectId],
+  );
 
   // Invite dialog helpers
   const handleOpenInvite = useCallback(() => {
@@ -1257,7 +1271,6 @@ const SpecTasksPage: FC = () => {
                 }}
                 refreshing={refreshing}
                 refreshTrigger={refreshTrigger}
-                focusTaskId={focusTaskId}
                 hasExternalRepo={hasExternalRepo}
                 externalRepoType={externalRepoType}
                 showArchived={showArchived}

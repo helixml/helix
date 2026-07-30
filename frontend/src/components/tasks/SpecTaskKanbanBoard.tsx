@@ -253,7 +253,6 @@ interface SpecTaskKanbanBoardProps {
     review: number;
     implementation: number;
   };
-  focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
   hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
   externalRepoType?: string; // The external repo type (e.g. "github", "ado")
   showArchived?: boolean; // Show archived tasks instead of active tasks
@@ -273,7 +272,6 @@ const DroppableColumn: React.FC<{
   onTaskClick?: (task: SpecTaskWithExtras) => void;
   onReviewDocs?: (task: SpecTaskWithExtras) => void;
   projectId?: string;
-  focusTaskId?: string;
   archivingTaskId?: string | null;
   hasExternalRepo?: boolean;
   externalRepoType?: string;
@@ -302,7 +300,6 @@ const DroppableColumn: React.FC<{
   onTaskClick,
   onReviewDocs,
   projectId,
-  focusTaskId,
   archivingTaskId,
   hasExternalRepo,
   externalRepoType,
@@ -348,7 +345,6 @@ const DroppableColumn: React.FC<{
         onTaskClick={onTaskClick}
         onReviewDocs={onReviewDocs}
         projectId={projectId}
-        focusStartPlanning={task.id === focusTaskId}
         isArchiving={task.id === archivingTaskId}
         hasExternalRepo={hasExternalRepo}
         externalRepoType={externalRepoType}
@@ -670,7 +666,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   refreshing = false,
   refreshTrigger,
   wipLimits = { planning: 3, review: 2, implementation: 5 },
-  focusTaskId,
   hasExternalRepo = false,
   externalRepoType,
   showArchived: showArchivedProp = false,
@@ -2003,7 +1998,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 onTaskClick={onTaskClick}
                 onReviewDocs={handleReviewDocs}
                 projectId={projectId}
-                focusTaskId={focusTaskId}
                 archivingTaskId={archivingTaskId}
                 hasExternalRepo={hasExternalRepo}
                 externalRepoType={externalRepoType}
@@ -2049,7 +2043,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               onTaskClick={onTaskClick}
               onReviewDocs={handleReviewDocs}
               projectId={projectId}
-              focusTaskId={focusTaskId}
               archivingTaskId={archivingTaskId}
               hasExternalRepo={hasExternalRepo}
               externalRepoType={externalRepoType}

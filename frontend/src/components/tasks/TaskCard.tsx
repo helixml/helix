@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -216,8 +216,6 @@ interface TaskCardProps {
   highlightedTaskIds?: string[] | null;
   onDependencyHoverStart?: (taskIds: string[]) => void;
   onDependencyHoverEnd?: () => void;
-  /** Whether to focus the Start Planning button (for newly created tasks) */
-  focusStartPlanning?: boolean;
   /** Whether the card is currently visible (for virtualization) */
   isVisible?: boolean;
   /** Unread attention events for this task (agent_interaction_completed events without acknowledged_at) */
@@ -578,7 +576,6 @@ function TaskCardInner({
   highlightedTaskIds,
   onDependencyHoverStart,
   onDependencyHoverEnd,
-  focusStartPlanning = false,
   attentionEvents = [],
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
@@ -587,7 +584,6 @@ function TaskCardInner({
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [isRemovingFromQueue, setIsRemovingFromQueue] = useState(false);
   const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<null | HTMLElement>(null);
-  const startPlanningButtonRef = useRef<HTMLButtonElement>(null);
 
   // Get account context for organization members
   const account = useAccount();
@@ -622,14 +618,6 @@ function TaskCardInner({
     }
   };
 
-  // Focus the Start Planning button when focusStartPlanning is true
-  useEffect(() => {
-    if (focusStartPlanning && task.status === "backlog") {
-      setTimeout(() => {
-        startPlanningButtonRef.current?.focus();
-      }, 100);
-    }
-  }, [focusStartPlanning, task.status]);
   const approveImplementationMutation = useApproveImplementation(task.id!);
   const stopAgentMutation = useStopAgent(task.id!);
   const moveToBacklogMutation = useMoveToBacklog(task.id!);
@@ -1272,7 +1260,6 @@ function TaskCardInner({
                 metadata: task.metadata,
               }}
               variant="stacked"
-              startPlanningButtonRef={startPlanningButtonRef}
               onStartPlanning={async () => {
                 if (onStartPlanning) {
                   setIsStartingPlanning(true);
@@ -1710,7 +1697,6 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     ciSignature(prevProps.task.repo_pull_requests) === ciSignature(nextProps.task.repo_pull_requests) &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
-    prevProps.focusStartPlanning === nextProps.focusStartPlanning &&
     prevProps.usageData === nextProps.usageData &&
     prevProps.progressData === nextProps.progressData &&
     prevProps.attentionEvents?.length === nextProps.attentionEvents?.length

@@ -60,9 +60,20 @@ const SpecTaskDetailPage: FC = () => {
     });
   };
 
-  const handleTaskCreated = useCallback((_task: TypesSpecTask) => {
-    setCreateDialogOpen(false);
-  }, []);
+  // Switch to the task we just created — otherwise the panel closes and nothing
+  // visibly happens, which reads as a failed creation.
+  const handleTaskCreated = useCallback(
+    (task: TypesSpecTask) => {
+      setCreateDialogOpen(false);
+      if (task.id) {
+        account.orgNavigate("project-task-detail", {
+          id: projectId,
+          taskId: task.id,
+        });
+      }
+    },
+    [projectId],
+  );
 
   // Keyboard shortcut: Enter to toggle new task panel, Escape to close
   useEffect(() => {

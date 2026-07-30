@@ -1,4 +1,4 @@
-import React, { RefObject, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -123,7 +123,6 @@ interface SpecTaskActionButtonsProps {
   /** Called when Start Planning is clicked */
   onStartPlanning?: () => Promise<void>;
   /** Ref for the Start Planning button (for focus management) */
-  startPlanningButtonRef?: RefObject<HTMLButtonElement>;
   /** Called when Review Spec is clicked */
   onReviewSpec?: () => Promise<void> | void;
   /** Called when Reject/Archive is clicked */
@@ -245,7 +244,6 @@ export default function SpecTaskActionButtons({
   task,
   variant = "stacked",
   onStartPlanning,
-  startPlanningButtonRef,
   onReviewSpec,
   onReject,
   hasExternalRepo = false,
@@ -425,7 +423,6 @@ export default function SpecTaskActionButtons({
         <Tooltip title={startTooltip} placement="top">
           <span style={{ width: "100%" }}>
             <Button
-              ref={startPlanningButtonRef}
               size={buttonSize}
               variant="contained"
               color="warning"
