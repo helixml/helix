@@ -505,9 +505,7 @@ func TestAdminMintUserAPIKey(t *testing.T) {
 			if tt.expectedError != "" {
 				require.NotNil(t, httpErr)
 				assert.Contains(t, httpErr.Error(), tt.expectedError)
-				httpError, ok := httpErr.(*system.HTTPError)
-				require.True(t, ok, "expected *system.HTTPError")
-				assert.Equal(t, tt.expectedStatus, httpError.StatusCode)
+				assert.Equal(t, tt.expectedStatus, httpErr.StatusCode)
 			} else {
 				require.Nil(t, httpErr)
 				require.NotNil(t, result)

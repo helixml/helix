@@ -997,7 +997,7 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 // @Param   name query string true "Key name, e.g. the orchestrator's slug"
 // @Router  /api/v1/admin/users/{id}/api-keys [post]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req *http.Request) (*types.ApiKey, error) {
+func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req *http.Request) (*types.ApiKey, *system.HTTPError) {
 	ctx := req.Context()
 	adminUser := getRequestUser(req)
 
