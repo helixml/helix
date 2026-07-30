@@ -50,13 +50,14 @@ func (s *ReclassifySubAuthSuite) TestNonGenericErrorUnchanged() {
 
 // Generic error + subscription-mode session whose owner has NO subscription -> legible message naming the owner.
 func (s *ReclassifySubAuthSuite) TestNoSubscriptionProducesLegibleError() {
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_1").Return(&types.Session{
+	session := &types.Session{
 		ID: "ses_1", ParentApp: "app_1", Owner: "usr_chris", OrganizationID: "org_1",
-	}, nil)
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_1").Return(session, nil)
 	s.store.EXPECT().GetApp(gomock.Any(), "app_1").Return(subscriptionApp(), nil)
 	s.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "usr_chris"}).
 		Return(&types.User{ID: "usr_chris", Email: "chris@helix.ml"}, nil)
-	s.store.EXPECT().GetEffectiveClaudeSubscription(gomock.Any(), "usr_chris", "org_1").
+	s.store.EXPECT().GetSessionClaudeSubscription(gomock.Any(), session).
 		Return(nil, store.ErrNotFound)
 
 	got := s.server.maybeReclassifySubscriptionAuthError(context.Background(), "ses_1", genericAbort)
