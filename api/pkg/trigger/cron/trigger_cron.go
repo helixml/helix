@@ -772,6 +772,13 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 		// Scheduled triggers explicitly want the task to run at the scheduled
 		// time, so skip backlog regardless of project AutoStartBacklogTasks.
 		AutoStart: true,
+		// A scheduled run must authenticate as the same person a hand-dispatched
+		// one does. Without this the agent falls back to the app owner — one
+		// service account for the whole fleet, so one expired token breaks every
+		// schedule at once and nobody can run their own agent on their own
+		// subscription. Empty keeps the old behaviour; the delegation check
+		// downstream still decides whether the grant actually exists.
+		CredentialOwnerID: trigger.CredentialOwnerID,
 	})
 	if err != nil {
 		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, triggerID, trigger.Emails, err)
