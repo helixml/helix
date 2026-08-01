@@ -28,6 +28,15 @@ export interface ApiAgentDetailDTO {
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
   created_at?: string;
+  /**
+   * DefaultInstructions is the built-in seed prompt for this node, when
+   * one exists (currently only the Chief of Staff every org is seeded
+   * with). It lets the UI offer "reset instructions" and hide that
+   * affordance for operator-created nodes, which have no default to
+   * reset to. Detail-only: GET /bots/{id} populates it, the list does
+   * not (it would repeat kilobytes of prompt per row).
+   */
+  default_instructions?: string;
   helix_user_id?: string;
   id?: string;
   identity?: Record<string, string>;
@@ -126,6 +135,15 @@ export interface ApiBotDTO {
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
   created_at?: string;
+  /**
+   * DefaultInstructions is the built-in seed prompt for this node, when
+   * one exists (currently only the Chief of Staff every org is seeded
+   * with). It lets the UI offer "reset instructions" and hide that
+   * affordance for operator-created nodes, which have no default to
+   * reset to. Detail-only: GET /bots/{id} populates it, the list does
+   * not (it would repeat kilobytes of prompt per row).
+   */
+  default_instructions?: string;
   helix_user_id?: string;
   id?: string;
   identity?: Record<string, string>;

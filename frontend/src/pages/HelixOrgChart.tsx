@@ -18,7 +18,6 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
-import FilterListIcon from '@mui/icons-material/FilterList'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
@@ -50,7 +49,6 @@ import {
   NodeProps,
   ConnectionMode,
   Position as RFPosition,
-  Panel,
   ReactFlow,
   ReactFlowProvider,
   Viewport,
@@ -67,6 +65,14 @@ import {
   saveChartViewport,
 } from '../components/helix-org/chartViewportStorage'
 import {
+  ChartTopicFilter,
+  DEFAULT_CHART_TOPIC_FILTERS,
+  chartTopicFilterFor,
+  loadChartTopicVisibility,
+  saveChartTopicVisibility,
+} from '../components/helix-org/chartTopicVisibility'
+import ChartTopicVisibilityMenu, { chartToolbarButtonSizeSx, chartToolbarButtonSx } from '../components/helix-org/ChartTopicVisibilityMenu'
+import {
   CHAT_BOT_FOCUS_EVENT,
   ChatBotFocusDetail,
   focusChatBot,
@@ -81,6 +87,7 @@ import AssetConfigDrawer from '../components/helix-org/AssetConfigDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import TopicDetailDrawer from '../components/helix-org/TopicDetailDrawer'
 import ProcessorNode, { ProcessorNodeData, PROC_W, procNodeHeight } from '../components/helix-org/ProcessorNode'
+import AgentRuntimeProviderIcon from '../components/helix-org/AgentRuntimeProviderIcon'
 import { isTranscriptTopic } from '../components/helix-org/helixOrgTopics'
 import { BotTaskStats, summarizeBotTasks } from '../components/helix-org/botTaskStats'
 import useAccount from '../hooks/useAccount'
@@ -201,7 +208,7 @@ type BotNodeData = {
   selected: boolean
   /** Card body click — focus the left chat rail on Chat. */
   onSelectBot: (botId: string) => void
-  /** ⋮ → Details — open the bot detail page. */
+  /** Open the bot detail page from the menu or a card double-click. */
   onOpenBotDetails: (botId: string) => void
   onNewBot: (parentBotId: string) => void
   onDeleteBot: (botId: string) => void
@@ -480,6 +487,15 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   return (
     <Box
       onClick={(e) => { e.stopPropagation(); data.onSelectBot(data.botId) }}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        data.onOpenBotDetails(data.botId)
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setMenuEl(e.currentTarget)
+      }}
       aria-selected={selected}
       sx={{
         width: BOT_W,
@@ -625,15 +641,18 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
         </Stack>
       </Stack>
       <BotTaskStatsRow stats={data.taskStats} isLight={lightTheme.isLight} />
-      <Typography
-        variant="caption"
-        sx={{ color: muted, fontSize: '0.65rem', mt: 'auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-      >
-        {data.agentRuntime
-          ? CODE_AGENT_RUNTIME_DISPLAY_NAMES[data.agentRuntime as CodeAgentRuntime] ?? data.agentRuntime
-          : 'Not provisioned'}
-        {data.agentModel ? ` · ${getModelDisplayName(data.agentModel)}` : ''}
-      </Typography>
+      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: muted, mt: 'auto', minWidth: 0 }}>
+        <AgentRuntimeProviderIcon runtime={data.agentRuntime} />
+        <Typography
+          variant="caption"
+          sx={{ color: 'inherit', fontSize: '0.65rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {data.agentRuntime
+            ? CODE_AGENT_RUNTIME_DISPLAY_NAMES[data.agentRuntime as CodeAgentRuntime] ?? data.agentRuntime
+            : 'Not provisioned'}
+          {data.agentModel ? ` · ${getModelDisplayName(data.agentModel)}` : ''}
+        </Typography>
+      </Stack>
       <Handle
         type="source"
         position={RFPosition.Bottom}
@@ -908,7 +927,7 @@ const buildGraph = (
   processors: ProcessorSummary[],
   assets: AssetDTO[],
   assetHealth: Record<string, AssetHealthDTO | undefined>,
-  showTopics: boolean,
+  visibleTopicIds: ReadonlySet<string>,
   // Saved free-placed coordinates keyed by `${kind}:${id}`. Missing
   // entries keep the auto-layout position for that node.
   savedPositions: ChartPositionMap = {},
@@ -1089,13 +1108,14 @@ const buildGraph = (
     }
   })
 
-  if (showTopics && topics.length > 0) {
+  if (visibleTopicIds.size > 0 && topics.length > 0) {
     const STREAM_GAP_X = 32
     const STREAM_COLUMN_GAP = 120
     const ORPHAN_VERTICAL_GAP = 120
 
     const resolved: { topic: TopicSummary; subjectBot: string | null }[] = []
     for (const s of topics) {
+      if (!visibleTopicIds.has(s.id)) continue
       if (ownedOutputTopicIds.has(s.id)) continue // collapsed into its processor's branch ports
       const subjectBot = s.created_by
       const onChart = subjectBot && botAutoAbs.has(subjectBot) ? subjectBot : null
@@ -1669,14 +1689,13 @@ const ChartCanvas: FC<{
   assets: AssetDTO[]
   assetHealth: Record<string, AssetHealthDTO | undefined>
   savedPositions: ChartPositionMap
-  showTopics: boolean
-  onToggleTopics: () => void
+  visibleTopicIds: ReadonlySet<string>
   onResetLayout: () => void
   resetLayoutPending: boolean
   fitViewRequest: number
   /** Bot id currently focused in the left chat rail. */
   selectedBotId: string
-}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onUnlinkAsset, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, assets, assetHealth, savedPositions, showTopics, onToggleTopics, onResetLayout, resetLayoutPending, fitViewRequest, selectedBotId }) => {
+}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onUnlinkAsset, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, assets, assetHealth, savedPositions, visibleTopicIds, onResetLayout, resetLayoutPending, fitViewRequest, selectedBotId }) => {
   const lightTheme = useLightTheme()
   const account = useAccount()
   const userId = account.user?.id ?? ''
@@ -1693,8 +1712,8 @@ const ChartCanvas: FC<{
   const fitViewRequestRef = useRef(fitViewRequest)
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(flat, handlers, lightTheme.isLight, topics, messageCounts, processors, assets, assetHealth, showTopics, savedPositions, selectedBotId),
-    [flat, handlers, lightTheme.isLight, topics, messageCounts, processors, assets, assetHealth, showTopics, savedPositions, selectedBotId],
+    () => buildGraph(flat, handlers, lightTheme.isLight, topics, messageCounts, processors, assets, assetHealth, visibleTopicIds, savedPositions, selectedBotId),
+    [flat, handlers, lightTheme.isLight, topics, messageCounts, processors, assets, assetHealth, visibleTopicIds, savedPositions, selectedBotId],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
@@ -1986,20 +2005,6 @@ const ChartCanvas: FC<{
             <RestartAltIcon />
           </ControlButton>
         </Controls>
-        <Panel position="bottom-left" style={{ marginLeft: 49 }}>
-          <Button
-            size="small"
-            variant={showTopics ? 'contained' : 'outlined'}
-            color="secondary"
-            startIcon={<FilterListIcon />}
-            onClick={onToggleTopics}
-            aria-label={showTopics ? 'Hide topics from chart' : 'Show topics on chart'}
-            aria-pressed={showTopics}
-            title={showTopics ? 'Hide topics from chart' : 'Show topics on chart'}
-          >
-            Topics
-          </Button>
-        </Panel>
       </ReactFlow>
       <ConfirmDeleteDialog
         open={!!pendingEdgeDelete}
@@ -2237,15 +2242,36 @@ const HelixOrgChart: FC = () => {
     [topics, processorConsumerCounts],
   )
 
-  // Per-topic retained-message counts for the topic cards. One cached query
-  // per topic id (shared with the detail page's count hook), so each
-  // card's number refreshes independently. topicIds is memoized so the
-  // fan-out only re-subscribes when the set of topics changes, not on
-  // every render.
-  const topicIds = useMemo(() => topics.map((s) => s.id), [topics])
-  const [showTopics, setShowTopics] = useState(false)
+  const topicVisibilityScopeRef = useRef('')
+  const [visibleTopicFilters, setVisibleTopicFilters] = useState<ChartTopicFilter[]>(() => [...DEFAULT_CHART_TOPIC_FILTERS])
+  useEffect(() => {
+    const scope = userID && orgID ? `${userID}:${orgID}` : ''
+    if (!scope) {
+      topicVisibilityScopeRef.current = ''
+      setVisibleTopicFilters([...DEFAULT_CHART_TOPIC_FILTERS])
+      return
+    }
+    if (scope === topicVisibilityScopeRef.current) return
+    topicVisibilityScopeRef.current = scope
+    setVisibleTopicFilters(loadChartTopicVisibility(userID, orgID) ?? [...DEFAULT_CHART_TOPIC_FILTERS])
+  }, [userID, orgID])
+
+  const onTopicFiltersChange = useCallback((filters: ChartTopicFilter[]) => {
+    setVisibleTopicFilters(filters)
+    saveChartTopicVisibility(userID, orgID, filters)
+  }, [userID, orgID])
+
+  const visibleTopicIds = useMemo(() => {
+    const selected = new Set(visibleTopicFilters)
+    return new Set(topics
+      .filter((topic) => selected.has(chartTopicFilterFor(topic)))
+      .map((topic) => topic.id))
+  }, [topics, visibleTopicFilters])
+
+  // Retained-message counts only run for cards currently shown on the chart.
+  const visibleTopicIdList = useMemo(() => Array.from(visibleTopicIds), [visibleTopicIds])
   const [fitViewRequest, setFitViewRequest] = useState(0)
-  const messageCounts = useTopicMessageCounts(topicIds, { enabled: showTopics })
+  const messageCounts = useTopicMessageCounts(visibleTopicIdList, { enabled: visibleTopicIdList.length > 0 })
 
   const processorSummaries = useMemo<ProcessorSummary[]>(
     () => (processorsData ?? []).map((p: ProcessorDTO) => ({
@@ -2322,7 +2348,7 @@ const HelixOrgChart: FC = () => {
     },
     [orgSlug],
   )
-  // ⋮ → Details → bot detail page.
+  // Agent menu Details / card double-click → agent detail page.
   const onOpenBotDetails = useCallback(
     (botId: string) => {
       if (!orgSlug) return
@@ -2588,12 +2614,14 @@ const HelixOrgChart: FC = () => {
             overflow: 'hidden',
           }}
         >
-          <Stack direction="row" spacing={1} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
+          <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
+            <ChartTopicVisibilityMenu selected={visibleTopicFilters} onChange={onTopicFiltersChange} />
             <Button
               size="small"
               variant="outlined"
-              startIcon={<TransformIcon />}
+              startIcon={<TransformIcon sx={{ fontSize: 16 }} />}
               onClick={() => setProcessorDrawer({ open: true, processor: null })}
+              sx={chartToolbarButtonSx}
             >
               Processor
             </Button>
@@ -2602,6 +2630,7 @@ const HelixOrgChart: FC = () => {
               variant="outlined"
               startIcon={<HubOutlinedIcon sx={{ fontSize: 16 }} />}
               onClick={() => setTopicDrawerOpen(true)}
+              sx={chartToolbarButtonSx}
             >
               Topic
             </Button>
@@ -2609,8 +2638,9 @@ const HelixOrgChart: FC = () => {
               size="small"
               variant="contained"
               color="secondary"
-              startIcon={<AddIcon />}
+              startIcon={<AddIcon sx={{ fontSize: 16 }} />}
               onClick={() => setBotDialogOpen(true)}
+              sx={chartToolbarButtonSizeSx}
             >
               New agent
             </Button>
@@ -2657,8 +2687,7 @@ const HelixOrgChart: FC = () => {
                 assets={assetsData}
                 assetHealth={assetHealth}
                 savedPositions={savedPositions}
-                showTopics={showTopics}
-                onToggleTopics={() => setShowTopics((visible) => !visible)}
+                visibleTopicIds={visibleTopicIds}
                 onResetLayout={onResetLayout}
                 resetLayoutPending={clearPositions.isPending}
                 fitViewRequest={fitViewRequest}

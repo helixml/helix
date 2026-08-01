@@ -22798,6 +22798,10 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "default_instructions": {
+                    "description": "DefaultInstructions is the built-in seed prompt for this node, when\none exists (currently only the Chief of Staff every org is seeded\nwith). It lets the UI offer \"reset instructions\" and hide that\naffordance for operator-created nodes, which have no default to\nreset to. Detail-only: GET /bots/{id} populates it, the list does\nnot (it would repeat kilobytes of prompt per row).",
+                    "type": "string"
+                },
                 "helix_user_id": {
                     "type": "string"
                 },
@@ -23019,6 +23023,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "created_at": {
+                    "type": "string"
+                },
+                "default_instructions": {
+                    "description": "DefaultInstructions is the built-in seed prompt for this node, when\none exists (currently only the Chief of Staff every org is seeded\nwith). It lets the UI offer \"reset instructions\" and hide that\naffordance for operator-created nodes, which have no default to\nreset to. Detail-only: GET /bots/{id} populates it, the list does\nnot (it would repeat kilobytes of prompt per row).",
                     "type": "string"
                 },
                 "helix_user_id": {
