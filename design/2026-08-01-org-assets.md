@@ -202,3 +202,18 @@ The same test exposed a startup race: external-agent execution queried Hydra
 before waiting for the agent WebSocket. The lookup now occurs after the existing
 readiness hook. A live stop, automatic start, MCP call, and following chat all
 completed without the prior session-not-found error.
+
+### CI E2E coverage
+
+`integration-test/api/assets_e2e_test.go` runs in Drone's existing
+`api-integration-test` step on every push. It starts an ephemeral SSH/SFTP
+target and drives the real Helix API, Postgres-backed org store, MCP gateway,
+asset runtime, and SSH proxy. The test covers owner/member/non-member RBAC,
+create/update persistence, health and host-key pinning, link-derived MCP tools,
+foreground and detached command list/get/kill, file write/read/list, proxy SSH,
+unlink revocation, and delete followed by recreate. It has no dependency on the
+live `ubuntu-1` host or a CI credential.
+
+The frontend suite separately asserts that saved asset coordinates are used,
+linked agents produce a visible arrowed edge, and each asset card renders one
+combined network/SSH status indicator.
