@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { AssetAuthType, AssetKind } from '../api/api'
+import type { AssetDTO } from '../services/helixOrgService'
 import { AssetNode, buildGraph } from './HelixOrgChart'
 
 const handlers = {
@@ -20,12 +22,12 @@ const handlers = {
   onDeleteAsset: vi.fn(),
 }
 
-const asset = {
+const asset: AssetDTO = {
   id: 'a-server',
   name: 'ubuntu-1',
-  kind: 'server',
+  kind: AssetKind.KindServer,
   agent_ids: ['chief-of-staff'],
-  server: { address: '10.0.0.8', port: 22, user: 'ubuntu', auth_type: 'ssh_key' },
+  server: { address: '10.0.0.8', port: 22, user: 'ubuntu', auth_type: AssetAuthType.AuthSSHKey },
 }
 
 describe('HelixOrgChart server assets', () => {
