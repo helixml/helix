@@ -1,5 +1,5 @@
 // HelixOrgBotDetail shows a single bot and lets the operator edit it
-// end-to-end and watch / drive its conversation inline.
+// end-to-end: identity, runtime, instructions, tools, subscriptions.
 //
 // A Bot is the merge of the former Role and Worker: its markdown
 // `content` is its identity/prompt, its `tools` list is its MCP tool
@@ -8,12 +8,15 @@
 // multi-select and saved in one step through useUpdateBot (there is no
 // separate identity field). Subscriptions are managed in the panel below.
 //
-// The inline transcript (EmbeddedSessionView + RobustPromptInput) is the
-// same view the spec-task page uses — it auto-shows when the bot's project
-// already has an exploratory session. GET-only on load — never spins up
-// infra by itself; sessions are provisioned by the bot's activation flow.
+// This page deliberately carries NO inline transcript or desktop viewer —
+// conversing with the agent belongs in the real chat surface, not a
+// duplicate embedded in a config page. What stays here is lifecycle
+// control (start / stop / restart, in the header) because it acts on the
+// thing this page configures. The bot's exploratory session id is still
+// tracked (GET-only, never provisioned here) so a runtime change can
+// switch the live session through the canonical lifecycle.
 
-import { FC, Key, useEffect, useMemo, useRef, useState } from 'react'
+import { FC, Key, useEffect, useMemo, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -21,6 +24,10 @@ import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
 import Divider from '@mui/material/Divider'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Grid from '@mui/material/Grid'
@@ -32,8 +39,6 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import Switch from '@mui/material/Switch'
 import TextField from '@mui/material/TextField'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
@@ -43,6 +48,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SaveIcon from '@mui/icons-material/Save'
+import SettingsBackupRestoreIcon from '@mui/icons-material/SettingsBackupRestore'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import StopIcon from '@mui/icons-material/Stop'
 import Tooltip from '@mui/material/Tooltip'
@@ -53,21 +59,12 @@ import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrum
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
-import SessionPromptQueue from '../components/session/SessionPromptQueue'
-import EmbeddedSessionView, {
-  EmbeddedSessionViewHandle,
-} from '../components/session/EmbeddedSessionView'
-import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
-import RobustPromptInput from '../components/common/RobustPromptInput'
 
 import router5 from '../router'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import { useListProjects } from '../services/projectService'
-import { deriveDisplaySettings } from '../services/externalAgentDisplay'
-import { useStreaming } from '../contexts/streaming'
-import { SESSION_TYPE_TEXT } from '../types'
 import {
   BotDTO,
   ToolDTO,
@@ -104,19 +101,18 @@ const HelixOrgBotDetail: FC = () => {
   const { data, isLoading, refetch: refetchBot } = useHelixOrgBot(botId, {
     enabled: !del.isPending && !del.isSuccess,
   })
-  const streaming = useStreaming()
   const updateBot = useUpdateBot()
   const activateAgent = useActivateBot()
   const stopAgent = useStopBotAgent()
   const restartAgent = useRestartBotAgent()
   const { data: toolCatalogue } = useListHelixOrgTools()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [confirmingResetInstructions, setConfirmingResetInstructions] = useState(false)
   const [agentMenuEl, setAgentMenuEl] = useState<null | HTMLElement>(null)
   // The bot owns one durable exploratory session. Runtime edits must switch
   // that session through the canonical lifecycle instead of leaving it bound
   // to an agent server that the updated app config no longer registers.
   const [chatSessionId, setChatSessionId] = useState<string | null>(null)
-  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
   const switchAgent = useSwitchAgent(chatSessionId ?? '')
 
   const bot = data?.bot
@@ -292,7 +288,6 @@ const HelixOrgBotDetail: FC = () => {
     try {
       await restartAgent.mutateAsync(botId)
       setChatSessionId(null)
-      setSessionTab('chat')
       snackbar.success('Restarting agent — a fresh session will come up shortly')
       await pollForSession(previousSessionId, true)
       void refetchBot()
@@ -300,15 +295,6 @@ const HelixOrgBotDetail: FC = () => {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
     }
   }
-
-  // The session panel toggles between the inline Chat transcript and the
-  // live Desktop stream — both bound to the same exploratory session.
-  const [sessionTab, setSessionTab] = useState<'chat' | 'desktop'>('chat')
-
-  // Desktop resolution / fps for the stream, derived from the bot's agent
-  // app config (same helper the spec-task desktop uses). Falls back to
-  // 1920x1080x60 when the app or config is missing.
-  const displaySettings = deriveDisplaySettings(undefined)
 
   // chatApi adapts the generated client to the read-only shape the
   // workerChatSession helper expects (we only GET the existing session
@@ -327,9 +313,10 @@ const HelixOrgBotDetail: FC = () => {
     },
   }), [api])
 
-  // Auto-load the inline transcript when the bot already has a project.
+  // Track the bot's existing exploratory session when it has a project.
   // GET-only — we never create a session just because the operator opened
-  // this page; sessions are provisioned by the bot's activation flow.
+  // this page; sessions are provisioned by the bot's activation flow. The
+  // id is what lets a runtime change switch the live session on save.
   useEffect(() => {
     let cancelled = false
     if (!projectID) {
@@ -344,13 +331,28 @@ const HelixOrgBotDetail: FC = () => {
     // projectID alone follows the "only primitives in deps" rule.
   }, [projectID])
 
-  // Subscribe the WebSocket to the inline session so in-flight turns live
-  // (mirrors SpecTaskDetailContent, which likewise omits the streaming
-  // context object from deps). Clear on unmount / session change.
-  useEffect(() => {
-    streaming.setCurrentSessionId(chatSessionId)
-    return () => { streaming.setCurrentSessionId(null) }
-  }, [chatSessionId])
+  // Built-in seed prompt for this node, when it has one. Only seeded
+  // nodes (the Chief of Staff every org gets) carry a default; for
+  // operator-created agents the server sends nothing and the reset
+  // affordance stays hidden — there is no default to go back to.
+  const defaultInstructions = bot?.default_instructions ?? ''
+
+  // Reset the editor to the built-in prompt and persist it in one step,
+  // so the operator does not have to remember a follow-up Save. Other
+  // unsaved edits on the page are left alone — this patches content only.
+  const handleResetInstructions = async () => {
+    if (!botId || !defaultInstructions) return
+    try {
+      await updateBot.mutateAsync({ id: botId, content: defaultInstructions })
+      setContent(defaultInstructions)
+      await refetchBot()
+      snackbar.success('Instructions reset to the default')
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'reset failed')
+    } finally {
+      setConfirmingResetInstructions(false)
+    }
+  }
 
   const handleDelete = async () => {
     if (!botId) return
@@ -399,218 +401,99 @@ const HelixOrgBotDetail: FC = () => {
         ) : (
           <>
           <Grid container spacing={3}>
-            <Grid item xs={12} md={9}>
+            <Grid item xs={12} md={8}>
               <Stack spacing={3}>
+                {/* Header — identity plus the agent's lifecycle control.
+                    The start/stop/restart menu lives here (rather than in a
+                    session panel) because it acts on the agent this page
+                    configures; conversing with it belongs in the real chat. */}
                 <Box>
-                  <Stack direction="row" alignItems="baseline" spacing={1}>
-                    <SmartToyOutlinedIcon sx={{ alignSelf: 'center' }} />
-                    <Typography variant="h5">
-                      {bot.name || bot.id}
-                    </Typography>
-                    {bot.name && (
-                      <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                        {bot.id}
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    justifyContent="space-between"
+                    alignItems={{ xs: 'flex-start', sm: 'center' }}
+                    spacing={1}
+                  >
+                    <Stack direction="row" alignItems="baseline" spacing={1}>
+                      <SmartToyOutlinedIcon sx={{ alignSelf: 'center' }} />
+                      <Typography variant="h5">
+                        {bot.name || bot.id}
                       </Typography>
-                    )}
-                  </Stack>
-                </Box>
-
-                {/* Session panel — Chat | Desktop toggle, both bound to the
-                    agent's Project Desktop exploratory session (the same views
-                    the spec-task page uses). Auto-loads when the agent already
-                    has a session; otherwise shows an empty state. */}
-                <Paper variant="outlined" sx={{ p: 3 }}>
-                  <Stack spacing={2} alignItems="flex-start">
-                    <Stack
-                      direction={{ xs: 'column', sm: 'row' }}
-                      justifyContent="space-between"
-                      alignItems={{ xs: 'flex-start', sm: 'center' }}
-                      spacing={1}
-                      sx={{ width: '100%' }}
-                    >
-                      <Stack direction="row" alignItems="center" spacing={1}>
-                        <Tooltip title={agentOnline ? 'Agent sandbox online' : 'Agent sandbox stopped'}>
-                          <Box
-                            sx={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: '50%',
-                              backgroundColor: agentOnline ? 'rgb(46, 160, 67)' : 'rgba(0,0,0,0.28)',
-                              boxShadow: agentOnline ? '0 0 0 2px rgba(46,160,67,0.2)' : 'none',
-                              flexShrink: 0,
-                            }}
-                          />
-                        </Tooltip>
-                        <Typography variant="subtitle1">Agent activity</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {agentOnline ? 'Running' : 'Stopped'}
+                      {bot.name && (
+                        <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                          {bot.id}
                         </Typography>
-                      </Stack>
-                      <Stack direction="row" spacing={0.5} alignItems="center">
-                        <ToggleButtonGroup
-                          size="small"
-                          exclusive
-                          value={sessionTab}
-                          onChange={(_e, value) => { if (value) setSessionTab(value) }}
-                        >
-                          <ToggleButton value="chat">Chat</ToggleButton>
-                          <ToggleButton value="desktop">Desktop</ToggleButton>
-                        </ToggleButtonGroup>
-                        <IconButton
-                          size="small"
-                          aria-label="Agent session actions"
-                          onClick={(e) => setAgentMenuEl(e.currentTarget)}
-                          disabled={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending}
-                        >
-                          {(activateAgent.isPending || stopAgent.isPending || restartAgent.isPending)
-                            ? <CircularProgress size={16} />
-                            : <MoreVertIcon />}
-                        </IconButton>
-                        <Menu
-                          anchorEl={agentMenuEl}
-                          open={Boolean(agentMenuEl)}
-                          onClose={() => setAgentMenuEl(null)}
-                          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-                        >
-                          {agentOnline ? (
-                            <>
-                              <MenuItem
-                                onClick={() => {
-                                  setAgentMenuEl(null)
-                                  void handleStopSession()
-                                }}
-                              >
-                                <StopIcon sx={{ mr: 1, fontSize: 20 }} />
-                                Stop agent
-                              </MenuItem>
-                              <MenuItem
-                                onClick={() => {
-                                  setAgentMenuEl(null)
-                                  void handleRestartSession()
-                                }}
-                              >
-                                <RestartAltIcon sx={{ mr: 1, fontSize: 20 }} />
-                                Restart agent
-                              </MenuItem>
-                            </>
-                          ) : (
+                      )}
+                    </Stack>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <Tooltip title={agentOnline ? 'Agent sandbox online' : 'Agent sandbox stopped'}>
+                        <Box
+                          sx={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            backgroundColor: agentOnline ? 'rgb(46, 160, 67)' : 'rgba(0,0,0,0.28)',
+                            boxShadow: agentOnline ? '0 0 0 2px rgba(46,160,67,0.2)' : 'none',
+                            flexShrink: 0,
+                          }}
+                        />
+                      </Tooltip>
+                      <Typography variant="caption" color="text.secondary">
+                        {agentOnline ? 'Running' : 'Stopped'}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        aria-label="Agent session actions"
+                        onClick={(e) => setAgentMenuEl(e.currentTarget)}
+                        disabled={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending}
+                      >
+                        {(activateAgent.isPending || stopAgent.isPending || restartAgent.isPending)
+                          ? <CircularProgress size={16} />
+                          : <MoreVertIcon />}
+                      </IconButton>
+                      <Menu
+                        anchorEl={agentMenuEl}
+                        open={Boolean(agentMenuEl)}
+                        onClose={() => setAgentMenuEl(null)}
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                      >
+                        {agentOnline ? (
+                          <>
                             <MenuItem
                               onClick={() => {
                                 setAgentMenuEl(null)
-                                void handleStartSession()
+                                void handleStopSession()
                               }}
                             >
-                              <PlayArrowIcon sx={{ mr: 1, fontSize: 20 }} />
-                              Start agent
+                              <StopIcon sx={{ mr: 1, fontSize: 20 }} />
+                              Stop agent
                             </MenuItem>
-                          )}
-                        </Menu>
-                      </Stack>
-                    </Stack>
-                    <Typography variant="body2" color="text.secondary">
-                      {sessionTab === 'chat'
-                        ? "Chat with this agent - messages include tool calls. Use the menu to start, stop, or restart it."
-                        : "Live desktop of this agent. Use the menu to start, stop, or restart it."}
-                    </Typography>
-
-                    {!agentOnline && !chatSessionId && (
-                      <Box
-                        sx={{
-                          width: '100%',
-                          py: 4,
-                          px: 2,
-                          textAlign: 'center',
-                          border: (theme) =>
-                            `1px dashed ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)'}`,
-                          borderRadius: 1,
-                        }}
-                      >
-                        <Typography variant="body2" color="text.secondary">
-                          The agent is not running. Open the ⋮ menu and choose <strong>Start agent</strong> to begin.
-                        </Typography>
-                      </Box>
-                    )}
-
-                    {/* Inline transcript. EmbeddedSessionView self-fetches
-                        the session + interactions and live-tails in-flight
-                        turns; it needs a bounded, flex-column container to
-                        scroll within. RobustPromptInput drives the same
-                        session via streaming.NewInference. */}
-                    {sessionTab === 'chat' ? (
-                      chatSessionId ? (
-                        <Box
-                          sx={{
-                            width: '100%',
-                            height: 520,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            border: (theme) =>
-                              `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
-                            borderRadius: 1,
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <EmbeddedSessionView
-                            ref={sessionViewRef}
-                            sessionId={chatSessionId}
-                            autoScrollOnMount
-                          />
-                          <SessionPromptQueue sessionId={chatSessionId} />
-                          <Box sx={{ p: 1.5, flexShrink: 0 }}>
-                            <RobustPromptInput
-                              sessionId={chatSessionId}
-                              projectId={projectID}
-                              apiClient={api.getApiClient()}
-                              onSend={async (message: string, interrupt?: boolean) => {
-                                await streaming.NewInference({
-                                  type: SESSION_TYPE_TEXT,
-                                  message,
-                                  sessionId: chatSessionId,
-                                  interrupt: interrupt ?? true,
-                                })
+                            <MenuItem
+                              onClick={() => {
+                                setAgentMenuEl(null)
+                                void handleRestartSession()
                               }}
-                              onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
-                              placeholder="Send message to agent..."
-                            />
-                          </Box>
-                        </Box>
-                      ) : agentOnline ? (
-                        <Typography variant="body2" color="text.secondary">
-                          Agent is starting — the transcript will appear when the session is ready.
-                        </Typography>
-                      ) : null
-                    ) : (
-                      chatSessionId ? (
-                        <Box
-                          sx={{
-                            width: '100%',
-                            height: 520,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            border: (theme) =>
-                              `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
-                            borderRadius: 1,
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <ExternalAgentDesktopViewer
-                            sessionId={chatSessionId}
-                            sandboxId={chatSessionId}
-                            mode="stream"
-                            displayWidth={displaySettings.width}
-                            displayHeight={displaySettings.height}
-                            displayFps={displaySettings.fps}
-                          />
-                        </Box>
-                      ) : agentOnline ? (
-                        <Typography variant="body2" color="text.secondary">
-                          Agent is starting — the desktop will appear when ready.
-                        </Typography>
-                      ) : null
-                    )}
+                            >
+                              <RestartAltIcon sx={{ mr: 1, fontSize: 20 }} />
+                              Restart agent
+                            </MenuItem>
+                          </>
+                        ) : (
+                          <MenuItem
+                            onClick={() => {
+                              setAgentMenuEl(null)
+                              void handleStartSession()
+                            }}
+                          >
+                            <PlayArrowIcon sx={{ mr: 1, fontSize: 20 }} />
+                            Start agent
+                          </MenuItem>
+                        )}
+                      </Menu>
+                    </Stack>
                   </Stack>
-                </Paper>
+                </Box>
 
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Name</Typography>
@@ -624,22 +507,17 @@ const HelixOrgBotDetail: FC = () => {
                   />
                 </Box>
 
-                {agentID && (
-                  <Box>
-                    <AgentConfigForm
-                      value={runtimeConfig}
-                      showReasoningEffort
-                      onChange={(patch) => setRuntimeConfig((current) => ({ ...current, ...patch }))}
-                    />
-                  </Box>
-                )}
-
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Instructions</Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
                     Instructions to follow, set on every interaction.
                     Cmd/Ctrl+S inside the editor saves.
                   </Typography>
+                  {/* This is a prose editor, so Monaco's overview ruler (the
+                      decoration strip drawn in the scrollbar gutter) carries
+                      nothing worth showing — it only rendered a coloured line
+                      beside the scrollbar. Zero lanes drops the decorations,
+                      and the border/cursor marks go with it. */}
                   <MonacoEditor
                     value={content}
                     onChange={setContent}
@@ -649,6 +527,11 @@ const HelixOrgBotDetail: FC = () => {
                     maxHeight={600}
                     autoHeight={true}
                     theme="helix-dark"
+                    options={{
+                      overviewRulerLanes: 0,
+                      overviewRulerBorder: false,
+                      hideCursorInOverviewRuler: true,
+                    }}
                   />
                 </Box>
 
@@ -793,8 +676,9 @@ const HelixOrgBotDetail: FC = () => {
               </Stack>
             </Grid>
 
-            {/* Right rail: identity context + delete action */}
-            <Grid item xs={12} md={3}>
+            {/* Right rail: identity context, runtime config, and the
+                destructive actions (reset instructions / delete). */}
+            <Grid item xs={12} md={4}>
               <Paper variant="outlined" sx={{ p: 2 }}>
                 <Stack spacing={2}>
                   <Box>
@@ -840,26 +724,59 @@ const HelixOrgBotDetail: FC = () => {
                       )}
                     </Box>
                   )}
-                  {agentID && (
+                  {/* The agent app id is machine detail nobody reads — the
+                      only useful thing is getting to the agent, so the label
+                      itself is the link. Without an org slug there is no
+                      route to build, so the row is dropped entirely. */}
+                  {agentID && orgSlug && (
                     <Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Agent</Typography>
-                      {orgSlug ? (
-                        <Link
-                          href={router5.buildPath('org_agent', { org_id: orgSlug, app_id: agentID })}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          underline="hover"
-                          sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: 0.5, wordBreak: 'break-all' }}
-                        >
-                          {agentID}
-                          <OpenInNewIcon sx={{ fontSize: 14, flexShrink: 0 }} />
-                        </Link>
-                      ) : (
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>{agentID}</Typography>
-                      )}
+                      <Link
+                        href={router5.buildPath('org_agent', { org_id: orgSlug, app_id: agentID })}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        underline="hover"
+                        sx={{ fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+                      >
+                        Agent
+                        <OpenInNewIcon sx={{ fontSize: 14, flexShrink: 0 }} />
+                      </Link>
                     </Box>
                   )}
+
+                  {/* Runtime / credentials / model / effort. Lives in the
+                      rail with the other agent-level controls rather than
+                      in the editing column, which is for the prompt. */}
+                  {agentID && (
+                    <>
+                      <Divider />
+                      <AgentConfigForm
+                        value={runtimeConfig}
+                        showReasoningEffort
+                        onChange={(patch) => setRuntimeConfig((current) => ({ ...current, ...patch }))}
+                      />
+                    </>
+                  )}
+
                   <Divider />
+                  {defaultInstructions && (
+                    <>
+                      <Button
+                        variant="outlined"
+                        startIcon={<SettingsBackupRestoreIcon />}
+                        onClick={() => setConfirmingResetInstructions(true)}
+                        disabled={updateBot.isPending}
+                        fullWidth
+                      >
+                        Reset instructions
+                      </Button>
+                      <Typography variant="caption" color="text.secondary">
+                        Restores this agent's built-in default instructions,
+                        discarding local edits to them. Tools, subscriptions,
+                        and reporting lines are untouched.
+                      </Typography>
+                      <Divider />
+                    </>
+                  )}
                   <Button
                     variant="outlined"
                     color="error"
@@ -883,6 +800,46 @@ const HelixOrgBotDetail: FC = () => {
           </>
         )}
       </Container>
+
+      {/* Reset is destructive to the current prompt but nothing else, so a
+          plain confirm is enough — no type-the-word gate like delete. */}
+      <Dialog
+        open={confirmingResetInstructions}
+        onClose={() => setConfirmingResetInstructions(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Reset instructions</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1">
+            This replaces the instructions for{' '}
+            <b style={{ fontFamily: 'monospace' }}>{botId}</b> with its built-in
+            default prompt. Any edits you have made to the instructions are
+            lost and cannot be recovered.
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            The agent's tools, subscriptions, reporting lines, runtime, and
+            project access are not affected. The new instructions apply on the
+            agent's next activation.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setConfirmingResetInstructions(false)}
+            disabled={updateBot.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => { void handleResetInstructions() }}
+            disabled={updateBot.isPending}
+          >
+            {updateBot.isPending ? 'Resetting…' : 'Reset instructions'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {confirmingDelete && botId && (
         <DeleteConfirmWindow

@@ -28,6 +28,15 @@ export interface ApiAgentDetailDTO {
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
   created_at?: string;
+  /**
+   * DefaultInstructions is the built-in seed prompt for this node, when
+   * one exists (currently only the Chief of Staff every org is seeded
+   * with). It lets the UI offer "reset instructions" and hide that
+   * affordance for operator-created nodes, which have no default to
+   * reset to. Detail-only: GET /bots/{id} populates it, the list does
+   * not (it would repeat kilobytes of prompt per row).
+   */
+  default_instructions?: string;
   helix_user_id?: string;
   id?: string;
   identity?: Record<string, string>;
@@ -93,6 +102,15 @@ export interface ApiBotDTO {
   code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
   created_at?: string;
+  /**
+   * DefaultInstructions is the built-in seed prompt for this node, when
+   * one exists (currently only the Chief of Staff every org is seeded
+   * with). It lets the UI offer "reset instructions" and hide that
+   * affordance for operator-created nodes, which have no default to
+   * reset to. Detail-only: GET /bots/{id} populates it, the list does
+   * not (it would repeat kilobytes of prompt per row).
+   */
+  default_instructions?: string;
   helix_user_id?: string;
   id?: string;
   identity?: Record<string, string>;
@@ -1967,6 +1985,11 @@ export interface ServerTaskSpecsResponse {
   technical_design?: string;
 }
 
+/** Disconnect a Claude subscription */
+export interface ServerUpdateClaudeSubscriptionDelegationRequest {
+  delegated_org_ids?: string[];
+}
+
 export interface ServerVideoStreamingStats {
   client_buffers?: ServerClientBufferStats[];
   client_count?: number;
@@ -2793,6 +2816,18 @@ export interface TypesClaudeSubscription {
   created_by?: string;
   /** "oauth" or "setup_token" */
   credential_type?: string;
+  /**
+   * DelegatedOrgIDs lists the organizations whose agent sessions may
+   * authenticate with this subscription on the owner's behalf, even when the
+   * session itself is owned by someone else (a service account dispatching
+   * work for this person — see SpecTask.CredentialOwnerID).
+   *
+   * This is the consent gate. Without it, any member who can create a task
+   * could name another user as credential owner and spend their Claude quota.
+   * Empty (the default) means the subscription is only ever used for sessions
+   * its owner owns, which is the pre-existing behaviour.
+   */
+  delegated_org_ids?: string[];
   id?: string;
   last_error?: string;
   last_refreshed_at?: string;
@@ -2967,6 +3002,15 @@ export interface TypesCodeAgentConfig {
   reasoning_effort?: string;
   /** Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code" */
   runtime?: TypesCodeAgentRuntime;
+  /**
+   * UsesSubscription is true when the agent authenticates against the upstream
+   * provider with the user's own subscription (Claude Pro/Max, ChatGPT) instead
+   * of an API key routed through the Helix proxy. It mirrors the assistant's
+   * CodeAgentCredentialType and is what gates credential injection into the
+   * container — an api_key agent must never receive subscription credentials,
+   * because the CLI prefers them over the proxy and would silently bypass it.
+   */
+  uses_subscription?: boolean;
 }
 
 export enum TypesCodeAgentCredentialType {
@@ -3204,6 +3248,14 @@ export interface TypesCreateTaskRequest {
   branch_mode?: TypesBranchMode;
   /** For new mode: user-specified prefix (task# appended) */
   branch_prefix?: string;
+  /**
+   * CredentialOwnerID optionally names the user whose Claude subscription should
+   * authenticate this task's agent, for orchestrators dispatching work on a
+   * human's behalf under one service API key. Credential resolution only — the
+   * task is still created by, owned by, and attributed to the caller. Ignored
+   * unless that user has delegated their subscription to this organization.
+   */
+  credential_owner_id?: string;
   /** Optional: IDs of tasks this task depends on */
   depends_on?: string[];
   /**
@@ -3259,6 +3311,17 @@ export interface TypesCronTrigger {
   agent_type?: string;
   /** Webhook URL to POST on completion */
   callback_url?: string;
+  /**
+   * CredentialOwnerID optionally names the user whose Claude subscription should
+   * authenticate the agent this trigger starts. An orchestrator writing triggers
+   * on people's behalf under one service API key sets it so a scheduled run
+   * authenticates as the person it acts for, exactly as CreateTaskRequest does
+   * for a run dispatched by hand. Credential resolution only: the task is still
+   * created by, owned by, and attributed to the trigger's app owner, and the
+   * named user must have delegated their subscription to this organization or it
+   * is ignored. Currently honoured by the spec_task action.
+   */
+  credential_owner_id?: string;
   emails?: string[];
   enabled?: boolean;
   input?: string;
@@ -6016,6 +6079,14 @@ export interface TypesSessionMetadata {
   container_ip?: string;
   /** Container fields (Hydra executor) */
   container_name?: string;
+  /**
+   * CredentialOwnerID mirrors SpecTask.CredentialOwnerID onto the session: the
+   * user whose Claude subscription authenticates this session's agent, when
+   * that differs from Owner. Affects credential resolution ONLY — Owner still
+   * owns and is attributed the session. Honoured only with an explicit
+   * delegation grant; see ResolveClaudeCredentialOwner.
+   */
+  credential_owner_id?: string;
   /** Dev container ID for streaming */
   dev_container_id?: string;
   document_group_id?: string;
@@ -6277,6 +6348,24 @@ export interface TypesSpecTask {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  /**
+   * CredentialOwnerID names the user whose Claude subscription authenticates
+   * this task's agent sessions, when that differs from CreatedBy. It changes
+   * ONLY credential resolution — the task and its sessions are still owned by,
+   * and attributed to, CreatedBy. Nothing "runs as" the credential owner.
+   *
+   * This exists for orchestrators (HelixOS) that dispatch every task with one
+   * service API key but run work on behalf of different humans: without it the
+   * service account's subscription authenticates everyone's bots, so one
+   * person's expired token breaks all of them and no one can use their own
+   * Claude account.
+   *
+   * Honoured only when the named user has delegated their subscription to this
+   * organization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able
+   * to create a task could spend another user's Claude quota. See
+   * ResolveClaudeCredentialOwner.
+   */
+  credential_owner_id?: string;
   depends_on?: TypesSpecTask[];
   description?: string;
   design_doc_path?: string;
@@ -6623,6 +6712,24 @@ export interface TypesSpecTaskWithProject {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  /**
+   * CredentialOwnerID names the user whose Claude subscription authenticates
+   * this task's agent sessions, when that differs from CreatedBy. It changes
+   * ONLY credential resolution — the task and its sessions are still owned by,
+   * and attributed to, CreatedBy. Nothing "runs as" the credential owner.
+   *
+   * This exists for orchestrators (HelixOS) that dispatch every task with one
+   * service API key but run work on behalf of different humans: without it the
+   * service account's subscription authenticates everyone's bots, so one
+   * person's expired token breaks all of them and no one can use their own
+   * Claude account.
+   *
+   * Honoured only when the named user has delegated their subscription to this
+   * organization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able
+   * to create a task could spend another user's Claude quota. See
+   * ResolveClaudeCredentialOwner.
+   */
+  credential_owner_id?: string;
   depends_on?: TypesSpecTask[];
   description?: string;
   design_doc_path?: string;
@@ -8234,6 +8341,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Create (or return the existing) named API key owned by another user, so a trusted orchestrator can act as the people it runs work for instead of putting the whole fleet on one shared account. Idempotent per (user, name).
+     *
+     * @tags users
+     * @name V1AdminUsersApiKeysCreate
+     * @summary Mint an API key for a user (Admin only)
+     * @request POST:/api/v1/admin/users/{id}/api-keys
+     * @secure
+     */
+    v1AdminUsersApiKeysCreate: (
+      id: string,
+      query: {
+        /** Key name, e.g. the orchestrator's slug */
+        name: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesApiKey, any>({
+        path: `/api/v1/admin/users/${id}/api-keys`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Approve a waitlisted user, removing them from the waitlist. Only admins can use this endpoint.
      *
      * @tags users
@@ -9412,23 +9544,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Disconnect a Claude subscription
-     *
-     * @tags Claude
-     * @name V1ClaudeSubscriptionsDelete
-     * @summary Delete a Claude subscription
-     * @request DELETE:/api/v1/claude-subscriptions/{id}
-     * @secure
-     */
-    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Get details of a specific Claude subscription (no secrets)
      *
      * @tags Claude
@@ -9442,6 +9557,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/claude-subscriptions/${id}`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDelegationUpdate
+     * @summary Set which orgs may use a Claude subscription for delegated agent runs
+     * @request PUT:/api/v1/claude-subscriptions/{id}/delegation
+     * @secure
+     */
+    v1ClaudeSubscriptionsDelegationUpdate: (
+      id: string,
+      body: ServerUpdateClaudeSubscriptionDelegationRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}/delegation`,
+        method: "PUT",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
