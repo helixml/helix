@@ -12,14 +12,28 @@ const (
 	ProviderOpenAI     Provider = "openai"
 	ProviderTogetherAI Provider = "togetherai"
 	ProviderAnthropic  Provider = "anthropic"
+	ProviderMiniMax    Provider = "minimax"
 	ProviderHelix      Provider = "helix"
 	ProviderVLLM       Provider = "vllm"
 )
+
+const (
+	MiniMaxModelM3  = "MiniMax-M3"
+	MiniMaxModelM27 = "MiniMax-M2.7"
+
+	MiniMaxGlobalOpenAIBaseURL    = "https://api.minimax.io/v1"
+	MiniMaxGlobalAnthropicBaseURL = "https://api.minimax.io/anthropic"
+	MiniMaxCNOpenAIBaseURL        = "https://api.minimaxi.com/v1"
+	MiniMaxCNAnthropicBaseURL     = "https://api.minimaxi.com/anthropic"
+)
+
+var MiniMaxModels = []string{MiniMaxModelM3, MiniMaxModelM27}
 
 var GlobalProviders = []string{
 	string(ProviderOpenAI),
 	string(ProviderTogetherAI),
 	string(ProviderAnthropic),
+	string(ProviderMiniMax),
 	string(ProviderHelix),
 	string(ProviderVLLM),
 }
@@ -51,6 +65,17 @@ const (
 	ProviderEndpointStatusDisabled ProviderEndpointStatus = "disabled"
 )
 
+type ProviderAPIFormat string
+
+const (
+	ProviderAPIFormatOpenAI    ProviderAPIFormat = "openai"
+	ProviderAPIFormatAnthropic ProviderAPIFormat = "anthropic"
+)
+
+func (f ProviderAPIFormat) Valid() bool {
+	return f == "" || f == ProviderAPIFormatOpenAI || f == ProviderAPIFormatAnthropic
+}
+
 type ProviderEndpoint struct {
 	ID             string               `json:"id" gorm:"primaryKey"`
 	Created        time.Time            `json:"created"`
@@ -62,6 +87,7 @@ type ProviderEndpoint struct {
 	Owner          string               `json:"owner"`
 	OwnerType      OwnerType            `json:"owner_type"` // user, system, org
 	BaseURL        string               `json:"base_url"`
+	APIFormat      ProviderAPIFormat    `json:"api_format,omitempty"` // openai or anthropic; empty preserves legacy detection
 	APIKey         string               `json:"api_key"`
 	APIKeyFromFile string               `json:"api_key_file"`     // Must be mounted to the container
 	Default        bool                 `json:"default" gorm:"-"` // Set from environment variable
@@ -125,10 +151,11 @@ type UpdateProviderEndpoint struct {
 	Models       []string             `json:"models"`
 	EndpointType ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
 
-	BaseURL        string            `json:"base_url"`
-	APIKey         *string           `json:"api_key,omitempty"`
-	APIKeyFromFile *string           `json:"api_key_file,omitempty"` // Must be mounted to the container
-	Headers        map[string]string `json:"headers,omitempty"`      // Custom headers for the endpoint
+	BaseURL        string             `json:"base_url"`
+	APIFormat      *ProviderAPIFormat `json:"api_format,omitempty"`
+	APIKey         *string            `json:"api_key,omitempty"`
+	APIKeyFromFile *string            `json:"api_key_file,omitempty"` // Must be mounted to the container
+	Headers        map[string]string  `json:"headers,omitempty"`      // Custom headers for the endpoint
 
 	// Google Vertex AI fields
 	VertexProjectID       *string `json:"vertex_project_id,omitempty"`

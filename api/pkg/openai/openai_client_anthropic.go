@@ -52,7 +52,11 @@ func (c *RetryableClient) listAnthropicModels(ctx context.Context) ([]types.Open
 	}
 
 	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("x-api-key", c.apiKey)
+	if c.anthropicBearerAuth {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	} else {
+		req.Header.Set("x-api-key", c.apiKey)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

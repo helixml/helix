@@ -118,18 +118,25 @@ func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts Cli
 type RetryableClient struct {
 	apiClient *openai.Client
 
-	httpClient     *http.Client
-	baseURL        string
-	apiKey         string
-	models         []string
-	billingEnabled bool
-	isAnthropic    bool // true if this client is for an Anthropic-compatible provider
+	httpClient          *http.Client
+	baseURL             string
+	apiKey              string
+	models              []string
+	billingEnabled      bool
+	isAnthropic         bool // true if this client is for an Anthropic-compatible provider
+	anthropicBearerAuth bool
 }
 
 // SetIsAnthropic marks this client as an Anthropic-compatible provider.
 // This is used to determine the correct API format for model listing.
 func (c *RetryableClient) SetIsAnthropic(isAnthropic bool) {
 	c.isAnthropic = isAnthropic
+}
+
+// SetAnthropicBearerAuth uses bearer authentication for an Anthropic-compatible API.
+func (c *RetryableClient) SetAnthropicBearerAuth(enabled bool) {
+	c.isAnthropic = enabled
+	c.anthropicBearerAuth = enabled
 }
 
 // APIKey - returns the API key used by the client, used for testing

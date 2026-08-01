@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,6 +19,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 	tests := []struct {
 		name      string
 		assistant *types.AssistantConfig
+		snapshot  []external_agent.ProviderRef
 		want      *types.CodeAgentConfig
 	}{
 		{
@@ -52,6 +54,27 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				APIType:         "openai",
 				Runtime:         types.CodeAgentRuntimeZedAgent,
 				ReasoningEffort: types.ReasoningEffortNone,
+			},
+		},
+		{
+			name: "explicit Anthropic-compatible endpoint with zed_agent runtime",
+			assistant: &types.AssistantConfig{
+				GenerationModelProvider: "pe_minimax",
+				GenerationModel:         types.MiniMaxModelM3,
+				CodeAgentRuntime:        types.CodeAgentRuntimeZedAgent,
+			},
+			snapshot: []external_agent.ProviderRef{{
+				ID:        "pe_minimax",
+				Name:      "minimax",
+				APIFormat: types.ProviderAPIFormatAnthropic,
+			}},
+			want: &types.CodeAgentConfig{
+				Provider:  "minimax",
+				Model:     types.MiniMaxModelM3,
+				AgentName: "zed-agent",
+				BaseURL:   "http://localhost:8080/v1",
+				APIType:   "anthropic",
+				Runtime:   types.CodeAgentRuntimeZedAgent,
 			},
 		},
 		{
@@ -249,7 +272,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL, nil)
+			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL, tt.snapshot)
 			assert.Equal(t, tt.want, got)
 		})
 	}

@@ -56,6 +56,31 @@ func (suite *MultiClientManagerTestSuite) Test_VLLM() {
 	suite.NotNil(client)
 }
 
+func (suite *MultiClientManagerTestSuite) Test_MiniMaxGlobalProvider() {
+	suite.cfg.Providers.MiniMax = config.MiniMax{
+		APIKey:    "test-key",
+		Region:    "cn",
+		APIFormat: types.ProviderAPIFormatAnthropic,
+	}
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	client, err := manager.GetClient(context.Background(), &GetClientRequest{Provider: string(types.ProviderMiniMax)})
+	suite.Require().NoError(err)
+	suite.Equal(types.MiniMaxCNOpenAIBaseURL, client.BaseURL())
+
+	endpoints, err := manager.ListProviderEndpoints(context.Background(), "")
+	suite.Require().NoError(err)
+	for _, endpoint := range endpoints {
+		if endpoint.Name == string(types.ProviderMiniMax) {
+			suite.Equal(types.MiniMaxCNAnthropicBaseURL, endpoint.BaseURL)
+			suite.Equal(types.ProviderAPIFormatAnthropic, endpoint.APIFormat)
+			suite.Equal(types.MiniMaxModels, []string(endpoint.Models))
+			return
+		}
+	}
+	suite.Fail("MiniMax endpoint was not listed")
+}
+
 func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 	// Create a temporary file for testing
 	tmpDir := suite.T().TempDir()

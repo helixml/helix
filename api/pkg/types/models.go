@@ -182,6 +182,7 @@ const (
 	ModalityText  Modality = "text"
 	ModalityImage Modality = "image"
 	ModalityFile  Modality = "file"
+	ModalityVideo Modality = "video"
 )
 
 type DynamicModelInfo struct {

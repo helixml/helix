@@ -260,6 +260,40 @@ spec:
             - name: ANTHROPIC_VERTEX_CREDENTIALS_FILE
               value: "/run/secrets/vertex-credentials/{{ .Values.controlplane.providers.anthropic.vertexCredentialsSecretKey | default "key" }}"
             {{- end }}
+            {{- if .Values.controlplane.providers.minimax }}
+            {{- with (default "" .Values.controlplane.providers.minimax.region) }}
+            - name: MINIMAX_REGION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (default "" .Values.controlplane.providers.minimax.apiFormat) }}
+            - name: MINIMAX_API_FORMAT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (default "" .Values.controlplane.providers.minimax.openaiBaseUrl) }}
+            - name: MINIMAX_OPENAI_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (default "" .Values.controlplane.providers.minimax.anthropicBaseUrl) }}
+            - name: MINIMAX_ANTHROPIC_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (default "" .Values.controlplane.providers.minimax.models) }}
+            - name: MINIMAX_MODELS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.controlplane.providers.minimax.existingSecret }}
+            - name: MINIMAX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.providers.minimax.existingSecret }}
+                  key: {{ .Values.controlplane.providers.minimax.existingSecretApiKeyKey | default "api-key" }}
+            {{- else }}
+            {{- with (default "" .Values.controlplane.providers.minimax.apiKey) }}
+            - name: MINIMAX_API_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.controlplane.providers.togetherai }}
             {{- with (default "" .Values.controlplane.providers.togetherai.baseUrl) }}
             - name: TOGETHER_BASE_URL

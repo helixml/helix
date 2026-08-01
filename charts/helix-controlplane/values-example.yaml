@@ -99,7 +99,7 @@ controlplane:
 
   # Inference configuration
   inference:
-    # Valid values: openai, togetherai, anthropic, helix, vllm
+    # Valid values: openai, togetherai, anthropic, minimax, helix, vllm
     defaultProvider: "helix"
 
   # Fine-tuning configuration
@@ -138,6 +138,18 @@ controlplane:
     #   # vertexCredentialsJSON: '{"type":"service_account","project_id":"...","private_key":"..."}' # preferred for containers
     #   # vertexCredentialsSecret: "gcp-vertex-credentials"  # alternative: k8s secret with service account JSON file
     #   # vertexCredentialsSecretKey: "key"
+    #
+    # minimax:
+    #   region: "global" # Use "cn" for api.minimaxi.com defaults
+    #   apiFormat: "openai" # Or "anthropic"
+    #   models: "MiniMax-M3,MiniMax-M2.7"
+    #   apiKey: "your-api-key"
+    #   # Optional endpoint overrides:
+    #   # openaiBaseUrl: "https://api.minimax.io/v1"
+    #   # anthropicBaseUrl: "https://api.minimax.io/anthropic"
+    #   # Option: Use existing secret for API key
+    #   # existingSecret: "minimax-credentials"
+    #   # existingSecretApiKeyKey: "api-key"
     #
     # togetherai:
     #   baseUrl: "https://api.together.xyz/v1"

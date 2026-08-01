@@ -290,13 +290,15 @@ func (s *HelixAPIServer) globalProviderEndpoint(provider types.Provider) *types.
 		baseURL = s.Cfg.Providers.OpenAI.BaseURL
 	case types.ProviderTogetherAI:
 		baseURL = s.Cfg.Providers.TogetherAI.BaseURL
+	case types.ProviderMiniMax:
+		baseURL = s.Cfg.Providers.MiniMax.ResolvedBaseURL()
 	case types.ProviderVLLM:
 		baseURL = s.Cfg.Providers.VLLM.BaseURL
 	case types.ProviderHelix:
 		baseURL = "internal"
 	}
 
-	return &types.ProviderEndpoint{
+	endpoint := &types.ProviderEndpoint{
 		ID:             "-",
 		Name:           string(provider),
 		Description:    "",
@@ -306,6 +308,11 @@ func (s *HelixAPIServer) globalProviderEndpoint(provider types.Provider) *types.
 		APIKey:         "",
 		BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
 	}
+	if provider == types.ProviderMiniMax {
+		endpoint.APIFormat = s.Cfg.Providers.MiniMax.ResolvedAPIFormat()
+		endpoint.Models = s.Cfg.Providers.MiniMax.ResolvedModels()
+	}
+	return endpoint
 }
 
 // resolveModelProviderLive is the last-resort routing resolver for
@@ -618,6 +625,11 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if !endpoint.APIFormat.Valid() {
+		http.Error(rw, "Invalid API format", http.StatusBadRequest)
+		return
+	}
+	endpoint.BaseURL = strings.TrimSpace(endpoint.BaseURL)
 
 	// If org ID is set, authorize
 	if endpoint.OwnerType == types.OwnerTypeOrg && endpoint.Owner != "" {
@@ -752,6 +764,10 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if updatedEndpoint.APIFormat != nil && !updatedEndpoint.APIFormat.Valid() {
+		http.Error(rw, "Invalid API format", http.StatusBadRequest)
+		return
+	}
 
 	// For global endpoints, only allow updates by admins. Gate on the stored
 	// row, not the request payload: a global endpoint now retains its original
@@ -815,6 +831,9 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	existingEndpoint.Description = updatedEndpoint.Description
 	existingEndpoint.Models = updatedEndpoint.Models
 	existingEndpoint.BaseURL = strings.TrimSpace(updatedEndpoint.BaseURL)
+	if updatedEndpoint.APIFormat != nil {
+		existingEndpoint.APIFormat = *updatedEndpoint.APIFormat
+	}
 	if updatedEndpoint.APIKey != nil {
 		existingEndpoint.APIKey = strings.TrimSpace(*updatedEndpoint.APIKey)
 	}
@@ -1183,10 +1202,7 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 		log.Warn().Err(err).Msg("failed to list global providers for cache refresh")
 	} else {
 		for _, provider := range globalProviders {
-			endpoint := &types.ProviderEndpoint{
-				Name:  string(provider),
-				Owner: string(types.OwnerTypeSystem),
-			}
+			endpoint := s.globalProviderEndpoint(provider)
 
 			// Skip helix provider - it uses the internal scheduler, not external models
 			if provider == types.ProviderHelix {

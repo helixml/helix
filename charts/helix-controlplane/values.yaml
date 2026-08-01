@@ -115,6 +115,15 @@ controlplane:
       vertexCredentialsJSON: "" # service account JSON string; takes precedence over vertexCredentialsSecret
       vertexCredentialsSecret: "" # k8s secret name containing service-account.json
       vertexCredentialsSecretKey: "key" # key within the secret
+    minimax:
+      region: "global"
+      apiFormat: "openai"
+      openaiBaseUrl: ""
+      anthropicBaseUrl: ""
+      models: "MiniMax-M3,MiniMax-M2.7"
+      apiKey: ""
+      existingSecret: ""
+      existingSecretApiKeyKey: ""
     togetherai:
       baseUrl: ""
       apiKey: ""

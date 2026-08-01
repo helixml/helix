@@ -111,7 +111,7 @@ func (apiServer *HelixAPIServer) listModelsForProvider(rw http.ResponseWriter, r
 	writeResponse(rw, types.OpenAIModelsList{Models: models}, http.StatusOK)
 }
 
-// listModelsAnthropic proxies the request to the upstream Anthropic provider.
+// listModelsAnthropic proxies the request to the selected Anthropic-compatible provider.
 func (apiServer *HelixAPIServer) listModelsAnthropic(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	if user == nil {
@@ -119,10 +119,14 @@ func (apiServer *HelixAPIServer) listModelsAnthropic(rw http.ResponseWriter, r *
 		return
 	}
 
-	endpoint, err := apiServer.getBuiltInProviderEndpoint(r.Context(), string(types.ProviderAnthropic))
+	endpoint, err := apiServer.getProviderEndpoint(r.Context(), user)
 	if err != nil {
-		log.Err(err).Msg("failed to get Anthropic provider endpoint")
-		http.Error(rw, "Anthropic provider not configured: "+err.Error(), http.StatusInternalServerError)
+		log.Err(err).Msg("failed to get Anthropic-compatible provider endpoint")
+		http.Error(rw, "Anthropic-compatible provider not configured: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !isAnthropicCompatible(endpoint) {
+		http.Error(rw, fmt.Sprintf("Provider %q is not Anthropic-compatible", endpoint.Name), http.StatusBadRequest)
 		return
 	}
 

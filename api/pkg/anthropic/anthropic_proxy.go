@@ -206,6 +206,8 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 	}
 	r.URL.Host = u.Host
 	r.URL.Scheme = u.Scheme
+	r.URL.Path = joinAnthropicAPIPath(u.Path, r.URL.Path)
+	r.URL.RawPath = ""
 
 	r.Host = u.Host
 
@@ -214,12 +216,32 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 		r.Header.Set(key, value)
 	}
 
-	// If x-api-key not explicitly set in Headers, use endpoint.APIKey
-	// This allows Anthropic providers to use the standard APIKey field
-	// instead of requiring manual Headers["x-api-key"] configuration
-	if r.Header.Get("x-api-key") == "" && endpoint.APIKey != "" {
-		r.Header.Set("x-api-key", endpoint.APIKey)
+	if r.Header.Get("Authorization") == "" && r.Header.Get("x-api-key") == "" && endpoint.APIKey != "" {
+		if usesAnthropicBearerAuth(endpoint) {
+			r.Header.Set("Authorization", "Bearer "+endpoint.APIKey)
+		} else {
+			r.Header.Set("x-api-key", endpoint.APIKey)
+		}
 	}
+}
+
+func joinAnthropicAPIPath(basePath, requestPath string) string {
+	basePath = strings.TrimSuffix(basePath, "/")
+	if basePath == "" {
+		return requestPath
+	}
+	if strings.HasSuffix(basePath, "/v1") && (requestPath == "/v1" || strings.HasPrefix(requestPath, "/v1/")) {
+		return basePath + strings.TrimPrefix(requestPath, "/v1")
+	}
+	return basePath + "/" + strings.TrimPrefix(requestPath, "/")
+}
+
+func usesAnthropicBearerAuth(endpoint *types.ProviderEndpoint) bool {
+	if endpoint.APIFormat != types.ProviderAPIFormatAnthropic {
+		return false
+	}
+	u, err := url.Parse(endpoint.BaseURL)
+	return err != nil || !strings.EqualFold(u.Hostname(), "api.anthropic.com")
 }
 
 // getVertexTokenSource returns the appropriate OAuth2 token source for a Vertex request.

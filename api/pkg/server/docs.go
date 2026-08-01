@@ -838,6 +838,44 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/users/{id}/api-keys": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create (or return the existing) named API key owned by another user, so a trusted orchestrator can act as the people it runs work for instead of putting the whole fleet on one shared account. Idempotent per (user, name).",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Mint an API key for a user (Admin only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Key name, e.g. the orchestrator's slug",
+                        "name": "name",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ApiKey"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}/approve": {
             "post": {
                 "security": [
@@ -3392,18 +3430,26 @@ const docTemplate = `{
                         }
                     }
                 }
-            },
-            "delete": {
+            }
+        },
+        "/api/v1/claude-subscriptions/{id}/delegation": {
+            "put": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Disconnect a Claude subscription",
+                "description": "Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "Claude"
                 ],
-                "summary": "Delete a Claude subscription",
+                "summary": "Set which orgs may use a Claude subscription for delegated agent runs",
                 "parameters": [
                     {
                         "type": "string",
@@ -3411,16 +3457,28 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Delegated organizations",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.UpdateClaudeSubscriptionDelegationRequest"
+                        }
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/types.ClaudeSubscription"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     },
                     "401": {
@@ -26788,6 +26846,18 @@ const docTemplate = `{
                 }
             }
         },
+        "server.UpdateClaudeSubscriptionDelegationRequest": {
+            "description": "Disconnect a Claude subscription",
+            "type": "object",
+            "properties": {
+                "delegated_org_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "server.VideoStreamingStats": {
             "type": "object",
             "properties": {
@@ -28556,6 +28626,13 @@ const docTemplate = `{
                     "description": "\"oauth\" or \"setup_token\"",
                     "type": "string"
                 },
+                "delegated_org_ids": {
+                    "description": "DelegatedOrgIDs lists the organizations whose agent sessions may\nauthenticate with this subscription on the owner's behalf, even when the\nsession itself is owned by someone else (a service account dispatching\nwork for this person — see SpecTask.CredentialOwnerID).\n\nThis is the consent gate. Without it, any member who can create a task\ncould name another user as credential owner and spend their Claude quota.\nEmpty (the default) means the subscription is only ever used for sessions\nits owner owns, which is the pre-existing behaviour.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "id": {
                     "type": "string"
                 },
@@ -28929,6 +29006,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.CodeAgentRuntime"
                         }
                     ]
+                },
+                "uses_subscription": {
+                    "description": "UsesSubscription is true when the agent authenticates against the upstream\nprovider with the user's own subscription (Claude Pro/Max, ChatGPT) instead\nof an API key routed through the Helix proxy. It mirrors the assistant's\nCodeAgentCredentialType and is what gates credential injection into the\ncontainer — an api_key agent must never receive subscription credentials,\nbecause the CLI prefers them over the proxy and would silently bypass it.",
+                    "type": "boolean"
                 }
             }
         },
@@ -29456,6 +29537,10 @@ const docTemplate = `{
                     "description": "For new mode: user-specified prefix (task# appended)",
                     "type": "string"
                 },
+                "credential_owner_id": {
+                    "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate this task's agent, for orchestrators dispatching work on a\nhuman's behalf under one service API key. Credential resolution only — the\ntask is still created by, owned by, and attributed to the caller. Ignored\nunless that user has delegated their subscription to this organization.",
+                    "type": "string"
+                },
                 "depends_on": {
                     "description": "Optional: IDs of tasks this task depends on",
                     "type": "array",
@@ -29569,6 +29654,10 @@ const docTemplate = `{
                 },
                 "callback_url": {
                     "description": "Webhook URL to POST on completion",
+                    "type": "string"
+                },
+                "credential_owner_id": {
+                    "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate the agent this trigger starts. An orchestrator writing triggers\non people's behalf under one service API key sets it so a scheduled run\nauthenticates as the person it acts for, exactly as CreateTaskRequest does\nfor a run dispatched by hand. Credential resolution only: the task is still\ncreated by, owned by, and attributed to the trigger's app owner, and the\nnamed user must have delegated their subscription to this organization or it\nis ignored. Currently honoured by the spec_task action.",
                     "type": "string"
                 },
                 "emails": {
@@ -31621,12 +31710,14 @@ const docTemplate = `{
             "enum": [
                 "text",
                 "image",
-                "file"
+                "file",
+                "video"
             ],
             "x-enum-varnames": [
                 "ModalityText",
                 "ModalityImage",
-                "ModalityFile"
+                "ModalityFile",
+                "ModalityVideo"
             ]
         },
         "types.Model": {
@@ -33604,6 +33695,7 @@ const docTemplate = `{
                 "openai",
                 "togetherai",
                 "anthropic",
+                "minimax",
                 "helix",
                 "vllm"
             ],
@@ -33611,13 +33703,33 @@ const docTemplate = `{
                 "ProviderOpenAI",
                 "ProviderTogetherAI",
                 "ProviderAnthropic",
+                "ProviderMiniMax",
                 "ProviderHelix",
                 "ProviderVLLM"
+            ]
+        },
+        "types.ProviderAPIFormat": {
+            "type": "string",
+            "enum": [
+                "openai",
+                "anthropic"
+            ],
+            "x-enum-varnames": [
+                "ProviderAPIFormatOpenAI",
+                "ProviderAPIFormatAnthropic"
             ]
         },
         "types.ProviderEndpoint": {
             "type": "object",
             "properties": {
+                "api_format": {
+                    "description": "openai or anthropic; empty preserves legacy detection",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProviderAPIFormat"
+                        }
+                    ]
+                },
                 "api_key": {
                     "type": "string"
                 },
@@ -35604,6 +35716,10 @@ const docTemplate = `{
                     "description": "Container fields (Hydra executor)",
                     "type": "string"
                 },
+                "credential_owner_id": {
+                    "description": "CredentialOwnerID mirrors SpecTask.CredentialOwnerID onto the session: the\nuser whose Claude subscription authenticates this session's agent, when\nthat differs from Owner. Affects credential resolution ONLY — Owner still\nowns and is attributed the session. Honoured only with an explicit\ndelegation grant; see ResolveClaudeCredentialOwner.",
+                    "type": "string"
+                },
                 "dev_container_id": {
                     "description": "Dev container ID for streaming",
                     "type": "string"
@@ -36198,6 +36314,10 @@ const docTemplate = `{
                 },
                 "created_by": {
                     "description": "Metadata",
+                    "type": "string"
+                },
+                "credential_owner_id": {
+                    "description": "CredentialOwnerID names the user whose Claude subscription authenticates\nthis task's agent sessions, when that differs from CreatedBy. It changes\nONLY credential resolution — the task and its sessions are still owned by,\nand attributed to, CreatedBy. Nothing \"runs as\" the credential owner.\n\nThis exists for orchestrators (HelixOS) that dispatch every task with one\nservice API key but run work on behalf of different humans: without it the\nservice account's subscription authenticates everyone's bots, so one\nperson's expired token breaks all of them and no one can use their own\nClaude account.\n\nHonoured only when the named user has delegated their subscription to this\norganization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able\nto create a task could spend another user's Claude quota. See\nResolveClaudeCredentialOwner.",
                     "type": "string"
                 },
                 "depends_on": {
@@ -36996,6 +37116,10 @@ const docTemplate = `{
                 },
                 "created_by": {
                     "description": "Metadata",
+                    "type": "string"
+                },
+                "credential_owner_id": {
+                    "description": "CredentialOwnerID names the user whose Claude subscription authenticates\nthis task's agent sessions, when that differs from CreatedBy. It changes\nONLY credential resolution — the task and its sessions are still owned by,\nand attributed to, CreatedBy. Nothing \"runs as\" the credential owner.\n\nThis exists for orchestrators (HelixOS) that dispatch every task with one\nservice API key but run work on behalf of different humans: without it the\nservice account's subscription authenticates everyone's bots, so one\nperson's expired token breaks all of them and no one can use their own\nClaude account.\n\nHonoured only when the named user has delegated their subscription to this\norganization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able\nto create a task could spend another user's Claude quota. See\nResolveClaudeCredentialOwner.",
                     "type": "string"
                 },
                 "depends_on": {
@@ -38466,6 +38590,9 @@ const docTemplate = `{
         "types.UpdateProviderEndpoint": {
             "type": "object",
             "properties": {
+                "api_format": {
+                    "$ref": "#/definitions/types.ProviderAPIFormat"
+                },
                 "api_key": {
                     "type": "string"
                 },

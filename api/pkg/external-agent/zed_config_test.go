@@ -37,6 +37,8 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 		dbScalewayPrime = ProviderRef{ID: dbScalewayID, Name: "scaleway-prime"} // same ID, renamed
 		dbGLMID         = "pe_glm_01"
 		dbGLM           = ProviderRef{ID: dbGLMID, Name: "glm-helix"}
+		dbMiniMaxID     = "pe_minimax_01"
+		dbMiniMax       = ProviderRef{ID: dbMiniMaxID, Name: "minimax", APIFormat: types.ProviderAPIFormatAnthropic}
 	)
 
 	cases := []struct {
@@ -132,6 +134,18 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5"},
 			wantMisconfig:    false,
 			why:              "control case: env-baked global (no ID) resolves by canonical name; anthropic model id passes through verbatim to match Zed's /v1/models listing",
+		},
+		{
+			name: "explicit Anthropic-compatible provider passes through",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				GenerationModelProvider: dbMiniMaxID,
+				GenerationModel:         types.MiniMaxModelM3,
+			}},
+			snapshot:         []ProviderRef{dbMiniMax},
+			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: types.MiniMaxModelM3},
+			wantMisconfig:    false,
+			why:              "the saved API format controls Zed routing independently of the provider name",
 		},
 		{
 			name: "legacy_name_match_still_works_for_unsaved_agents",
@@ -238,6 +252,7 @@ func TestMapHelixToZedProvider(t *testing.T) {
 		name         string
 		provider     string
 		model        string
+		apiFormat    types.ProviderAPIFormat
 		wantProvider string
 		wantModel    string
 	}{
@@ -249,11 +264,13 @@ func TestMapHelixToZedProvider(t *testing.T) {
 		// OpenAI-compatible providers — prefixed so Helix routes to the backend.
 		{name: "openai prefixed", provider: "openai", model: "gpt-4o", wantProvider: "openai", wantModel: "openai/gpt-4o"},
 		{name: "nebius prefixed", provider: "nebius", model: "Qwen/Qwen3-Coder", wantProvider: "openai", wantModel: "nebius/Qwen/Qwen3-Coder"},
+		{name: "explicit Anthropic-compatible format", provider: "minimax", model: types.MiniMaxModelM3, apiFormat: types.ProviderAPIFormatAnthropic, wantProvider: "anthropic", wantModel: types.MiniMaxModelM3},
+		{name: "explicit OpenAI-compatible format", provider: "anthropic", model: "custom-model", apiFormat: types.ProviderAPIFormatOpenAI, wantProvider: "openai", wantModel: "anthropic/custom-model"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotProvider, gotModel := mapHelixToZedProvider(tt.provider, tt.model)
+			gotProvider, gotModel := mapHelixToZedProvider(tt.provider, tt.model, tt.apiFormat)
 			assert.Equal(t, tt.wantProvider, gotProvider)
 			assert.Equal(t, tt.wantModel, gotModel)
 		})
@@ -470,6 +487,17 @@ func TestBuildLanguageModels(t *testing.T) {
 			snapshot: []ProviderRef{
 				{Name: "Anthropic"},
 				{Name: "OpenAI"},
+			},
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+				"openai":    {APIURL: helixURL + "/v1"},
+			},
+		},
+		{
+			name: "explicit API formats override provider names",
+			snapshot: []ProviderRef{
+				{Name: "minimax", APIFormat: types.ProviderAPIFormatAnthropic},
+				{Name: "anthropic", APIFormat: types.ProviderAPIFormatOpenAI},
 			},
 			want: map[string]LanguageModelConfig{
 				"anthropic": {APIURL: helixURL},

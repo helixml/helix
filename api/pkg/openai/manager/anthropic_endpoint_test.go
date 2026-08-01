@@ -21,6 +21,8 @@ func TestIsAnthropicAPIEndpoint(t *testing.T) {
 		{"base url match", types.ProviderEndpoint{Name: "custom", BaseURL: "https://api.anthropic.com/v1"}, true},
 		{"lookalike host not matched", types.ProviderEndpoint{Name: "custom", BaseURL: "https://api.anthropic.com.proxy.evil.com/v1"}, false},
 		{"openai", types.ProviderEndpoint{Name: "openai", BaseURL: "https://api.openai.com/v1"}, false},
+		{"explicit anthropic format", types.ProviderEndpoint{Name: "custom", BaseURL: "https://api.example/anthropic", APIFormat: types.ProviderAPIFormatAnthropic}, true},
+		{"explicit openai format overrides name", types.ProviderEndpoint{Name: "anthropic", BaseURL: "https://api.anthropic.com/v1", APIFormat: types.ProviderAPIFormatOpenAI}, false},
 		{"renamed proxy (known gap)", types.ProviderEndpoint{Name: "claude-prod", BaseURL: "https://gw.internal/anthropic"}, false},
 		{"vertex anthropic excluded", types.ProviderEndpoint{Name: "anthropic", VertexProjectID: "proj-1"}, false},
 		{"vertex googleapis not matched", types.ProviderEndpoint{Name: "x", BaseURL: "https://anthropic.googleapis.com"}, false},
@@ -46,6 +48,7 @@ func (suite *MultiClientManagerTestSuite) Test_InitializeClient_AnthropicAuth() 
 		{"anthropic by name", types.ProviderEndpoint{Name: "anthropic", APIKey: "test-key"}, true},
 		{"Anthropic display name", types.ProviderEndpoint{Name: "Anthropic", APIKey: "test-key"}, true},
 		{"openai falls through to bearer", types.ProviderEndpoint{Name: "openai", APIKey: "test-key"}, false},
+		{"explicit Anthropic-compatible endpoint uses bearer", types.ProviderEndpoint{Name: "minimax", APIKey: "test-key", APIFormat: types.ProviderAPIFormatAnthropic}, false},
 		{"vertex excluded -> bearer", types.ProviderEndpoint{Name: "anthropic", VertexProjectID: "proj-1", APIKey: "test-key"}, false},
 	}
 

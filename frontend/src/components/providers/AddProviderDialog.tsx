@@ -12,12 +12,13 @@ import {
   Alert,
   IconButton,
   InputAdornment,
+  MenuItem,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 import { useCreateProviderEndpoint, useUpdateProviderEndpoint, useDeleteProviderEndpoint } from '../../services/providersService';
-import { TypesProviderEndpointType } from '../../api/api';
+import { TypesProviderAPIFormat, TypesProviderEndpointType } from '../../api/api';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 
@@ -38,6 +39,14 @@ interface AddProviderDialogProps {
     configurable_base_url?: boolean;
     optional_api_key?: boolean; // If provider doesn't need an API key
     is_custom?: boolean; // If true, the user picks the endpoint name
+    api_format?: 'openai' | 'anthropic';
+    endpoints?: Array<{
+      id: string;
+      label: string;
+      base_url: string;
+      api_format: 'openai' | 'anthropic';
+    }>;
+    models?: string[];
     setup_instructions: string;
   };
   // Only set if we are editing an existing provider
@@ -79,6 +88,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
 
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  const [apiFormat, setApiFormat] = useState<'openai' | 'anthropic' | undefined>();
   const [customName, setCustomName] = useState('');
   const [customNameError, setCustomNameError] = useState<string | null>(null);
   const [modelName, setModelName] = useState('');
@@ -95,7 +105,13 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const isPending = isCreating || isUpdating || isDeleting;
 
   useEffect(() => {
-    setBaseUrl(existingProvider?.base_url ?? provider.base_url)
+    const existingFormat = existingProvider?.api_format as 'openai' | 'anthropic' | undefined;
+    const selectedEndpoint = provider.endpoints?.find((endpoint) =>
+      endpoint.base_url === existingProvider?.base_url &&
+      (!existingFormat || endpoint.api_format === existingFormat)
+    ) ?? provider.endpoints?.[0];
+    setBaseUrl(existingProvider?.base_url ?? selectedEndpoint?.base_url ?? provider.base_url)
+    setApiFormat(existingFormat ?? selectedEndpoint?.api_format ?? provider.api_format)
     setCustomName(existingProvider?.name ?? '')
     setCustomNameError(null)
     setModelName(existingProvider?.models?.[0] ?? '')
@@ -119,6 +135,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
 
   const handleClose = () => {
     setApiKey('');
+    setApiFormat(provider.api_format);
     setCustomName('');
     setCustomNameError(null);
     setBaseUrlError(null);
@@ -182,7 +199,12 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
       // Custom providers can pin a single preset model. When set, this is the
       // only model the endpoint exposes (no /v1/models lookup needed upstream).
       const trimmedModel = modelName.trim();
-      const presetModels = provider.is_custom && trimmedModel ? [trimmedModel] : undefined;
+      const presetModels = provider.models ?? (provider.is_custom && trimmedModel ? [trimmedModel] : undefined);
+      const serializedAPIFormat = apiFormat === 'anthropic'
+        ? TypesProviderAPIFormat.ProviderAPIFormatAnthropic
+        : apiFormat === 'openai'
+          ? TypesProviderAPIFormat.ProviderAPIFormatOpenAI
+          : undefined;
 
       if (isEditing && existingProvider?.id) {
         // Update existing provider
@@ -190,10 +212,11 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           id: existingProvider.id,
           body: {
             base_url: baseUrl,
+            ...(serializedAPIFormat ? { api_format: serializedAPIFormat } : {}),
             api_key: apiKeyToUse,
             endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
             description: provider.description,
-            ...(provider.is_custom ? { models: presetModels ?? [] } : {}),
+            ...((provider.is_custom || provider.models) ? { models: presetModels ?? [] } : {}),
           },
         });
         snackbarSuccess('Provider updated successfully');
@@ -202,6 +225,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
         await createProviderEndpoint({
           name: endpointName,
           base_url: baseUrl,
+          ...(serializedAPIFormat ? { api_format: serializedAPIFormat } : {}),
           api_key: apiKey,
           endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
           description: provider.description,
@@ -299,6 +323,32 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
               />
             </Box>
             </>) : (<></>)}
+            { provider.endpoints?.length ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Typography variant="body2" sx={{ minWidth: 80, mr: 2, color: 'text.primary', fontWeight: 500 }}>
+                Endpoint
+              </Typography>
+              <TextField
+                select
+                fullWidth
+                value={provider.endpoints.find((endpoint) => endpoint.base_url === baseUrl && endpoint.api_format === apiFormat)?.id ?? ''}
+                onChange={(event) => {
+                  const endpoint = provider.endpoints?.find((candidate) => candidate.id === event.target.value);
+                  if (endpoint) {
+                    setBaseUrl(endpoint.base_url);
+                    setApiFormat(endpoint.api_format);
+                  }
+                }}
+                sx={{ flex: 1 }}
+              >
+                {provider.endpoints.map((endpoint) => (
+                  <MenuItem key={endpoint.id} value={endpoint.id}>
+                    {endpoint.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Box>
+            ) : null}
             { provider.is_custom ? (
             <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2 }}>
               <Typography variant="body2" sx={{ minWidth: 80, mr: 2, mt: 1, color: 'text.primary', fontWeight: 500 }}>

@@ -137,6 +137,9 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 // /v1/messages API format. Currently only the built-in "anthropic" provider and
 // endpoints whose base URL points to Anthropic's API (or a Vertex AI proxy) qualify.
 func isAnthropicCompatible(ep *types.ProviderEndpoint) bool {
+	if ep.APIFormat != "" {
+		return ep.APIFormat == types.ProviderAPIFormatAnthropic
+	}
 	if ep.Name == string(types.ProviderAnthropic) {
 		return true
 	}
@@ -301,7 +304,35 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 // — and the synthetic carries enough (Name, EndpointType=Global) to drive that
 // branch instead of the cryptic "provider %q not found" error.
 func (s *HelixAPIServer) getBuiltInProviderEndpoint(ctx context.Context, provider string) (*types.ProviderEndpoint, error) {
-	if provider != string(types.ProviderAnthropic) {
+	if strings.EqualFold(provider, string(types.ProviderMiniMax)) {
+		apiKey := s.Cfg.Providers.MiniMax.APIKey
+		if apiKey == "" && s.Cfg.Providers.MiniMax.APIKeyFromFile != "" {
+			data, err := os.ReadFile(s.Cfg.Providers.MiniMax.APIKeyFromFile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read MINIMAX_API_KEY_FILE: %w", err)
+			}
+			apiKey = strings.TrimSpace(string(data))
+		}
+		if apiKey == "" {
+			return nil, fmt.Errorf("minimax provider not configured: set MINIMAX_API_KEY or MINIMAX_API_KEY_FILE")
+		}
+
+		return &types.ProviderEndpoint{
+			ID:             string(types.ProviderMiniMax),
+			Name:           string(types.ProviderMiniMax),
+			Description:    "Built-in MiniMax provider",
+			BaseURL:        s.Cfg.Providers.MiniMax.ResolvedBaseURL(),
+			APIFormat:      s.Cfg.Providers.MiniMax.ResolvedAPIFormat(),
+			APIKey:         apiKey,
+			Models:         s.Cfg.Providers.MiniMax.ResolvedModels(),
+			EndpointType:   types.ProviderEndpointTypeGlobal,
+			Owner:          string(types.OwnerTypeSystem),
+			OwnerType:      types.OwnerTypeSystem,
+			BillingEnabled: s.Cfg.Providers.BillingEnabled,
+		}, nil
+	}
+
+	if !strings.EqualFold(provider, string(types.ProviderAnthropic)) {
 		// Resolve env-baked globals (openai etc.) from the provider manager so
 		// callers get a real endpoint they can interrogate, not a "not found".
 		if s.providerManager != nil {

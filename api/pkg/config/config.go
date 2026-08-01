@@ -472,6 +472,7 @@ type Providers struct {
 	OpenAI                    OpenAI
 	TogetherAI                TogetherAI
 	Anthropic                 Anthropic
+	MiniMax                   MiniMax
 	Helix                     Helix
 	VLLM                      VLLM
 	EnableCustomUserProviders bool   `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
@@ -523,6 +524,58 @@ type Anthropic struct {
 	// Users can connect their Claude Pro/Max subscription via OAuth
 	OAuthClientID     string `envconfig:"ANTHROPIC_OAUTH_CLIENT_ID"`
 	OAuthClientSecret string `envconfig:"ANTHROPIC_OAUTH_CLIENT_SECRET"`
+}
+
+type MiniMax struct {
+	Region                string                  `envconfig:"MINIMAX_REGION" default:"global"`
+	APIFormat             types.ProviderAPIFormat `envconfig:"MINIMAX_API_FORMAT" default:"openai"`
+	OpenAIBaseURL         string                  `envconfig:"MINIMAX_OPENAI_BASE_URL"`
+	AnthropicBaseURL      string                  `envconfig:"MINIMAX_ANTHROPIC_BASE_URL"`
+	APIKey                string                  `envconfig:"MINIMAX_API_KEY"`
+	APIKeyFromFile        string                  `envconfig:"MINIMAX_API_KEY_FILE"`
+	APIKeyRefreshInterval time.Duration           `envconfig:"MINIMAX_API_KEY_REFRESH_INTERVAL" default:"3s"`
+	Models                []string                `envconfig:"MINIMAX_MODELS"`
+}
+
+func (c MiniMax) ResolvedAPIFormat() types.ProviderAPIFormat {
+	if c.APIFormat == types.ProviderAPIFormatAnthropic {
+		return types.ProviderAPIFormatAnthropic
+	}
+	return types.ProviderAPIFormatOpenAI
+}
+
+func (c MiniMax) ResolvedOpenAIBaseURL() string {
+	if c.OpenAIBaseURL != "" {
+		return strings.TrimSuffix(c.OpenAIBaseURL, "/")
+	}
+	if strings.EqualFold(c.Region, "cn") {
+		return types.MiniMaxCNOpenAIBaseURL
+	}
+	return types.MiniMaxGlobalOpenAIBaseURL
+}
+
+func (c MiniMax) ResolvedAnthropicBaseURL() string {
+	if c.AnthropicBaseURL != "" {
+		return strings.TrimSuffix(c.AnthropicBaseURL, "/")
+	}
+	if strings.EqualFold(c.Region, "cn") {
+		return types.MiniMaxCNAnthropicBaseURL
+	}
+	return types.MiniMaxGlobalAnthropicBaseURL
+}
+
+func (c MiniMax) ResolvedBaseURL() string {
+	if c.ResolvedAPIFormat() == types.ProviderAPIFormatAnthropic {
+		return c.ResolvedAnthropicBaseURL()
+	}
+	return c.ResolvedOpenAIBaseURL()
+}
+
+func (c MiniMax) ResolvedModels() []string {
+	if len(c.Models) > 0 {
+		return append([]string(nil), c.Models...)
+	}
+	return append([]string(nil), types.MiniMaxModels...)
 }
 
 type Helix struct {

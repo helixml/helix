@@ -7,6 +7,7 @@ import AWSLogo from './logos/aws';
 import XaiLogo from './logos/xai';
 import NvidiaLogo from './logos/nvidia';
 import CustomLogo from './logos/custom';
+import MiniMaxLogo from './logos/minimax';
 
 // Direct image imports
 import togetheraiLogo from '../../../assets/img/together-logo.png'
@@ -23,6 +24,15 @@ export interface Provider {
   
   base_url: string;
   configurable_base_url?: boolean;
+
+  api_format?: 'openai' | 'anthropic';
+  endpoints?: Array<{
+    id: string;
+    label: string;
+    base_url: string;
+    api_format: 'openai' | 'anthropic';
+  }>;
+  models?: string[];
 
   optional_api_key?: boolean; // If provider doesn't need an API key
 
@@ -68,6 +78,43 @@ export const PROVIDERS: Provider[] = [
     base_url: "https://api.anthropic.com/v1",
     setup_instructions: "Get your API key from https://platform.claude.com/settings/keys",
     api_key_url: "https://platform.claude.com/settings/keys"
+  },
+  {
+    id: 'user/minimax',
+    alias: ['minimax', 'minimax-api'],
+    name: 'MiniMax',
+    description: 'Use MiniMax models through OpenAI-compatible or Anthropic-compatible APIs.',
+    logo: MiniMaxLogo,
+    base_url: 'https://api.minimax.io/v1',
+    api_format: 'openai',
+    endpoints: [
+      {
+        id: 'global-openai',
+        label: 'Global - OpenAI-compatible',
+        base_url: 'https://api.minimax.io/v1',
+        api_format: 'openai',
+      },
+      {
+        id: 'global-anthropic',
+        label: 'Global - Anthropic-compatible',
+        base_url: 'https://api.minimax.io/anthropic',
+        api_format: 'anthropic',
+      },
+      {
+        id: 'cn-openai',
+        label: 'China - OpenAI-compatible',
+        base_url: 'https://api.minimaxi.com/v1',
+        api_format: 'openai',
+      },
+      {
+        id: 'cn-anthropic',
+        label: 'China - Anthropic-compatible',
+        base_url: 'https://api.minimaxi.com/anthropic',
+        api_format: 'anthropic',
+      },
+    ],
+    models: ['MiniMax-M3', 'MiniMax-M2.7'],
+    setup_instructions: 'Create an API key in the MiniMax platform and select the endpoint that matches your account region and client API format.',
   },
   {
     id: 'user/nvidia',

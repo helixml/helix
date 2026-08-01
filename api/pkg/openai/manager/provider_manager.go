@@ -149,6 +149,23 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 		clients[types.ProviderAnthropic] = &providerClient{client: loggedClient}
 	}
 
+	if cfg.Providers.MiniMax.APIKey != "" {
+		baseURL := cfg.Providers.MiniMax.ResolvedOpenAIBaseURL()
+		log.Info().
+			Str("base_url", baseURL).
+			Msg("using MiniMax provider for controller inference")
+
+		miniMaxClient := openai.NewWithOptions(
+			cfg.Providers.MiniMax.APIKey,
+			baseURL,
+			cfg.Stripe.BillingEnabled,
+			tlsOpts,
+			cfg.Providers.MiniMax.ResolvedModels()...)
+
+		loggedClient := logger.Wrap(cfg, types.ProviderMiniMax, miniMaxClient, modelInfoProvider, billingLogger, logStores...)
+		clients[types.ProviderMiniMax] = &providerClient{client: loggedClient}
+	}
+
 	// For VLLM, as long as the base URL is set, we can use it
 	if cfg.Providers.VLLM.BaseURL != "" {
 		log.Info().
@@ -204,6 +221,13 @@ func (m *MultiClientManager) StartRefresh(ctx context.Context) {
 		err := m.watchAndUpdateClient(ctx, types.ProviderAnthropic, m.cfg.Providers.Anthropic.APIKeyRefreshInterval, m.cfg.Providers.Anthropic.BaseURL, m.cfg.Providers.Anthropic.APIKeyFromFile)
 		if err != nil {
 			log.Error().Err(err).Msg("error watching and updating Anthropic client")
+		}
+	}
+
+	if m.cfg.Providers.MiniMax.APIKeyFromFile != "" {
+		err := m.watchAndUpdateClient(ctx, types.ProviderMiniMax, m.cfg.Providers.MiniMax.APIKeyRefreshInterval, m.cfg.Providers.MiniMax.ResolvedOpenAIBaseURL(), m.cfg.Providers.MiniMax.APIKeyFromFile)
+		if err != nil {
+			log.Error().Err(err).Msg("error watching and updating MiniMax client")
 		}
 	}
 
@@ -283,9 +307,13 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 	}
 
 	// Recreate the client with the new key
+	var models []string
+	if provider == types.ProviderMiniMax {
+		models = m.cfg.Providers.MiniMax.ResolvedModels()
+	}
 	openaiClient := openai.NewWithOptions(newKey, baseURL, m.cfg.Stripe.BillingEnabled, openai.ClientOptions{
 		TLSSkipVerify: m.cfg.Tools.TLSSkipVerify,
-	})
+	}, models...)
 
 	// Preserve x-api-key auth across key rotation for the Anthropic global provider.
 	if provider == types.ProviderAnthropic {
@@ -355,10 +383,16 @@ func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner st
 	m.globalClientsMu.RLock()
 	endpoints := make([]*types.ProviderEndpoint, 0, len(m.globalClients))
 	for provider := range m.globalClients {
-		endpoints = append(endpoints, &types.ProviderEndpoint{
+		endpoint := &types.ProviderEndpoint{
 			Name:         string(provider),
 			EndpointType: types.ProviderEndpointTypeGlobal,
-		})
+		}
+		if provider == types.ProviderMiniMax {
+			endpoint.BaseURL = m.cfg.Providers.MiniMax.ResolvedBaseURL()
+			endpoint.APIFormat = m.cfg.Providers.MiniMax.ResolvedAPIFormat()
+			endpoint.Models = m.cfg.Providers.MiniMax.ResolvedModels()
+		}
+		endpoints = append(endpoints, endpoint)
 	}
 	m.globalClientsMu.RUnlock()
 
@@ -439,6 +473,9 @@ func isAnthropicAPIEndpoint(endpoint *types.ProviderEndpoint) bool {
 	if endpoint.VertexProjectID != "" {
 		return false
 	}
+	if endpoint.APIFormat != "" {
+		return endpoint.APIFormat == types.ProviderAPIFormatAnthropic
+	}
 	if strings.EqualFold(endpoint.Name, string(types.ProviderAnthropic)) {
 		return true
 	}
@@ -448,6 +485,13 @@ func isAnthropicAPIEndpoint(endpoint *types.ProviderEndpoint) bool {
 		return strings.EqualFold(u.Hostname(), "api.anthropic.com")
 	}
 	return false
+}
+
+func isNativeAnthropicAPIEndpoint(endpoint *types.ProviderEndpoint) bool {
+	if u, err := url.Parse(endpoint.BaseURL); err == nil && u.Hostname() != "" {
+		return strings.EqualFold(u.Hostname(), "api.anthropic.com")
+	}
+	return endpoint.APIFormat == "" && strings.EqualFold(endpoint.Name, string(types.ProviderAnthropic))
 }
 
 func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) (openai.Client, error) {
@@ -477,7 +521,11 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 	// DB/UI-configured Anthropic providers must use x-api-key auth (not Bearer) for
 	// /v1/models. See isAnthropicAPIEndpoint.
 	if isAnthropicAPIEndpoint(endpoint) {
-		openaiClient.SetIsAnthropic(true)
+		if endpoint.APIFormat == types.ProviderAPIFormatAnthropic && !isNativeAnthropicAPIEndpoint(endpoint) {
+			openaiClient.SetAnthropicBearerAuth(true)
+		} else {
+			openaiClient.SetIsAnthropic(true)
+		}
 	}
 
 	// If it's a personal endpoint, replace the billing logger with a NoopBillingLogger

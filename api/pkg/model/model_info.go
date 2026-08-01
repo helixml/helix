@@ -77,12 +77,70 @@ func NewBaseModelInfoProvider() (*BaseModelInfoProvider, error) {
 		}
 	}
 
+	for _, mi := range miniMaxModelInfo() {
+		data[mi.ProviderModelID] = mi
+	}
+	for _, baseURL := range []string{
+		types.MiniMaxGlobalOpenAIBaseURL,
+		types.MiniMaxGlobalAnthropicBaseURL,
+		types.MiniMaxCNOpenAIBaseURL,
+		types.MiniMaxCNAnthropicBaseURL,
+	} {
+		providers[baseURL] = string(types.ProviderMiniMax)
+	}
+
 	return &BaseModelInfoProvider{
 		dataMu:     &sync.RWMutex{},
 		data:       data,
 		normalized: normalized,
 		providers:  providers,
 	}, nil
+}
+
+func miniMaxModelInfo() []types.ModelInfo {
+	return []types.ModelInfo{
+		{
+			ProviderSlug:    string(types.ProviderMiniMax),
+			ProviderModelID: types.MiniMaxModelM3,
+			Slug:            string(types.ProviderMiniMax) + "/" + types.MiniMaxModelM3,
+			Permaslug:       string(types.ProviderMiniMax) + "/" + types.MiniMaxModelM3,
+			Name:            "MiniMax: MiniMax-M3",
+			Author:          string(types.ProviderMiniMax),
+			Description:     "MiniMax-M3 with adaptive reasoning and multimodal input.",
+			InputModalities: []types.Modality{
+				types.ModalityText,
+				types.ModalityImage,
+				types.ModalityVideo,
+			},
+			OutputModalities:  []types.Modality{types.ModalityText},
+			SupportsReasoning: true,
+			ContextLength:     1000000,
+			Pricing: types.Pricing{
+				Prompt:         "0.0000006",
+				Completion:     "0.0000024",
+				InputCacheRead: "0.00000012",
+			},
+		},
+		{
+			ProviderSlug:      string(types.ProviderMiniMax),
+			ProviderModelID:   types.MiniMaxModelM27,
+			Slug:              string(types.ProviderMiniMax) + "/" + types.MiniMaxModelM27,
+			Permaslug:         string(types.ProviderMiniMax) + "/" + types.MiniMaxModelM27,
+			Name:              "MiniMax: MiniMax-M2.7",
+			Author:            string(types.ProviderMiniMax),
+			Description:       "MiniMax-M2.7 with always-on reasoning.",
+			InputModalities:   []types.Modality{types.ModalityText},
+			OutputModalities:  []types.Modality{types.ModalityText},
+			SupportsReasoning: true,
+			ContextLength:     204800,
+			Pricing: types.Pricing{
+				Prompt:          "0.0000003",
+				Completion:      "0.0000012",
+				InputCacheRead:  "0.00000006",
+				InputCacheWrite: "0.000000375",
+			},
+		},
+	}
 }
 
 func toModelInfo(m ModelInfoData) types.ModelInfo {

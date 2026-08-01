@@ -290,3 +290,50 @@ func Test_stripDateFromModelName(t *testing.T) {
 		})
 	}
 }
+
+func TestAnthropicAPIProxyDirector_EndpointProtocol(t *testing.T) {
+	tests := []struct {
+		name       string
+		endpoint   *types.ProviderEndpoint
+		wantPath   string
+		wantBearer string
+		wantAPIKey string
+	}{
+		{
+			name: "MiniMax path and bearer authentication",
+			endpoint: &types.ProviderEndpoint{
+				Name:      string(types.ProviderMiniMax),
+				BaseURL:   types.MiniMaxGlobalAnthropicBaseURL,
+				APIFormat: types.ProviderAPIFormatAnthropic,
+				APIKey:    "provider-key",
+			},
+			wantPath:   "/anthropic/v1/messages",
+			wantBearer: "Bearer provider-key",
+		},
+		{
+			name: "native base does not duplicate v1",
+			endpoint: &types.ProviderEndpoint{
+				Name:    string(types.ProviderAnthropic),
+				BaseURL: "https://api.anthropic.com/v1",
+				APIKey:  "provider-key",
+			},
+			wantPath:   "/v1/messages",
+			wantAPIKey: "provider-key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "http://helix.example/v1/messages", nil)
+			req.Header.Set("Authorization", "Bearer helix-token")
+			req = SetRequestProviderEndpoint(req, tt.endpoint)
+
+			proxy := &Proxy{}
+			proxy.anthropicAPIProxyDirector(req)
+
+			assert.Equal(t, tt.wantPath, req.URL.Path)
+			assert.Equal(t, tt.wantBearer, req.Header.Get("Authorization"))
+			assert.Equal(t, tt.wantAPIKey, req.Header.Get("x-api-key"))
+		})
+	}
+}

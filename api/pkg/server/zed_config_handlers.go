@@ -640,6 +640,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	if modelName == "" {
 		modelName = assistant.GenerationModel
 	}
+	var providerAPIFormat types.ProviderAPIFormat
 
 	// Resolve the agent's stored provider token (ID or legacy name) to the
 	// provider's current canonical name. Required so the model prefix here
@@ -648,6 +649,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	if providerSnapshot != nil && providerName != "" {
 		if resolved, _, ok := external_agent.ResolveProvider(providerName, providerSnapshot); ok {
 			providerName = resolved.Name
+			providerAPIFormat = resolved.APIFormat
 		}
 	}
 
@@ -728,11 +730,17 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			agentName = "zed-agent"
 			model = modelName
 		default:
-			// For other providers (OpenAI, OpenRouter, etc.), use OpenAI-compatible API
-			baseURL = helixURL + "/v1"
-			apiType = "openai"
-			agentName = "zed-agent"
-			model = fmt.Sprintf("%s/%s", providerName, modelName)
+			if providerAPIFormat == types.ProviderAPIFormatAnthropic {
+				baseURL = helixURL + "/v1"
+				apiType = "anthropic"
+				agentName = "zed-agent"
+				model = modelName
+			} else {
+				baseURL = helixURL + "/v1"
+				apiType = "openai"
+				agentName = "zed-agent"
+				model = fmt.Sprintf("%s/%s", providerName, modelName)
+			}
 		}
 	}
 
@@ -982,7 +990,7 @@ func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorI
 	}
 	refs := make([]external_agent.ProviderRef, 0, len(endpoints))
 	for _, ep := range endpoints {
-		refs = append(refs, external_agent.ProviderRef{ID: ep.ID, Name: ep.Name})
+		refs = append(refs, external_agent.ProviderRef{ID: ep.ID, Name: ep.Name, APIFormat: ep.APIFormat})
 	}
 	return refs, nil
 }

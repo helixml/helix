@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -131,6 +132,34 @@ func Test_GetOpenAIo3Mini_CustomUserProvider(t *testing.T) {
 
 	assert.Equal(t, "OpenAI: o3 Mini", modelInfo.Name)
 	assert.Equal(t, "0.0000044", modelInfo.Pricing.Completion)
+}
+
+func Test_GetMiniMaxModels(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	m3, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		BaseURL: types.MiniMaxGlobalAnthropicBaseURL,
+		Model:   types.MiniMaxModelM3,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1000000, m3.ContextLength)
+	assert.Equal(t, []types.Modality{types.ModalityText, types.ModalityImage, types.ModalityVideo}, m3.InputModalities)
+	assert.Equal(t, "0.0000006", m3.Pricing.Prompt)
+	assert.Equal(t, "0.0000024", m3.Pricing.Completion)
+	assert.Equal(t, "0.00000012", m3.Pricing.InputCacheRead)
+
+	m27, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		BaseURL: types.MiniMaxCNOpenAIBaseURL,
+		Model:   types.MiniMaxModelM27,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 204800, m27.ContextLength)
+	assert.Equal(t, []types.Modality{types.ModalityText}, m27.InputModalities)
+	assert.Equal(t, "0.0000003", m27.Pricing.Prompt)
+	assert.Equal(t, "0.0000012", m27.Pricing.Completion)
+	assert.Equal(t, "0.00000006", m27.Pricing.InputCacheRead)
+	assert.Equal(t, "0.000000375", m27.Pricing.InputCacheWrite)
 }
 
 func Test_GetClaudeSonnet4(t *testing.T) {

@@ -127,6 +127,7 @@ func GenerateZedMCPConfig(
 	// real pick — doing so made GLM/Goose agents boot as openai/gpt-4o while a
 	// sibling Claude agent (empty GenerationModel) worked.
 	var provider, model string
+	var providerAPIFormat types.ProviderAPIFormat
 	if assistant != nil {
 		provider = assistant.Provider
 		if provider == "" {
@@ -208,6 +209,7 @@ func GenerateZedMCPConfig(
 				Msg("zed-config: agent stores provider by name (legacy); re-save the agent so it stores the immutable provider ID")
 		}
 		provider = resolved.Name
+		providerAPIFormat = resolved.APIFormat
 	}
 
 	// Configure agent. AlwaysAllowToolActions / ShowOnboarding / AutoOpenPanel
@@ -222,7 +224,7 @@ func GenerateZedMCPConfig(
 		// Map Helix provider to Zed's provider type and format model name
 		// Zed only knows: anthropic, openai, google, ollama, copilot, lmstudio, deepseek
 		// All other providers (nebius, together, openrouter, etc.) use OpenAI-compatible API
-		zedProvider, zedModel := mapHelixToZedProvider(provider, model)
+		zedProvider, zedModel := mapHelixToZedProvider(provider, model, providerAPIFormat)
 		// Set feature-specific models to prevent Zed from using its hardcoded
 		// gpt-4.1-mini default for "fast" operations (see
 		// zed-industries/zed#31420). If not set, these fall back to
@@ -539,8 +541,9 @@ func getAPIKeyForProvider(provider string) string {
 // stored IDs. After such a fallback the agent should be re-saved so it picks
 // up the immutable reference.
 type ProviderRef struct {
-	ID   string // empty for env-baked global providers (openai, anthropic, ...)
-	Name string // current canonical name; for DB-backed providers this is the admin-set label
+	ID        string // empty for env-baked global providers
+	Name      string // current canonical name; for DB-backed providers this is the admin-set label
+	APIFormat types.ProviderAPIFormat
 }
 
 // FindZedExternalAssistant returns the assistant config that owns the
@@ -723,7 +726,7 @@ func buildLanguageModels(snapshot []ProviderRef, helixAPIURL string) map[string]
 	hasAnthropic := false
 	hasOpenAICompat := false
 	for _, p := range snapshot {
-		if strings.EqualFold(p.Name, "anthropic") {
+		if providerUsesAnthropicAPI(p.Name, p.APIFormat) {
 			hasAnthropic = true
 		} else {
 			hasOpenAICompat = true
@@ -754,11 +757,13 @@ func buildLanguageModels(snapshot []ProviderRef, helixAPIURL string) map[string]
 //	helixProvider="anthropic", model="claude-opus-4-8" → zedProvider="anthropic", zedModel="claude-opus-4-8"
 //	helixProvider="openai", model="gpt-4o" → zedProvider="openai", zedModel="openai/gpt-4o"
 //	helixProvider="nebius", model="Qwen/Qwen3-Coder" → zedProvider="openai", zedModel="nebius/Qwen/Qwen3-Coder"
-func mapHelixToZedProvider(helixProvider, model string) (zedProvider, zedModel string) {
-	provider := strings.ToLower(helixProvider)
+func mapHelixToZedProvider(helixProvider, model string, apiFormats ...types.ProviderAPIFormat) (zedProvider, zedModel string) {
+	var apiFormat types.ProviderAPIFormat
+	if len(apiFormats) > 0 {
+		apiFormat = apiFormats[0]
+	}
 
-	switch provider {
-	case "anthropic":
+	if providerUsesAnthropicAPI(helixProvider, apiFormat) {
 		// Zed discovers Anthropic models from the provider's /v1/models listing
 		// (Helix's proxy) and resolves agent.default_model by exact id. The stored
 		// model id already comes from that same listing (the picker sources it), so
@@ -767,13 +772,17 @@ func mapHelixToZedProvider(helixProvider, model string) (zedProvider, zedModel s
 		// form matches nothing, and Zed silently falls back to its built-in default
 		// (gpt-5-mini) — which has no Helix route, so the agent returns empty.
 		return "anthropic", model
-
-	default:
-		// All other providers (openai, nebius, together, openrouter, azure, google, etc.)
-		// route through Zed's OpenAI provider → Helix's OpenAI-compatible proxy.
-		// Model is prefixed with provider name so Helix can route to the correct backend.
-		return "openai", fmt.Sprintf("%s/%s", helixProvider, model)
 	}
+
+	// OpenAI-compatible endpoints route through Helix's chat-completions proxy.
+	return "openai", fmt.Sprintf("%s/%s", helixProvider, model)
+}
+
+func providerUsesAnthropicAPI(provider string, apiFormat types.ProviderAPIFormat) bool {
+	if apiFormat != "" {
+		return apiFormat == types.ProviderAPIFormatAnthropic
+	}
+	return strings.EqualFold(provider, string(types.ProviderAnthropic))
 }
 
 // GetZedConfigForSession retrieves Zed MCP config for a session

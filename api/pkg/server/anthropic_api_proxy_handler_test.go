@@ -326,7 +326,25 @@ func Test_isAnthropicCompatible(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "empty endpoint is not anthropic compatible",
+			name: "explicit Anthropic-compatible format",
+			endpoint: &types.ProviderEndpoint{
+				Name:      string(types.ProviderMiniMax),
+				BaseURL:   types.MiniMaxGlobalAnthropicBaseURL,
+				APIFormat: types.ProviderAPIFormatAnthropic,
+			},
+			want: true,
+		},
+		{
+			name: "explicit OpenAI-compatible format overrides name",
+			endpoint: &types.ProviderEndpoint{
+				Name:      string(types.ProviderAnthropic),
+				BaseURL:   "https://api.anthropic.com/v1",
+				APIFormat: types.ProviderAPIFormatOpenAI,
+			},
+			want: false,
+		},
+		{
+			name:     "empty endpoint is not anthropic compatible",
 			endpoint: &types.ProviderEndpoint{},
 			want:     false,
 		},
@@ -338,6 +356,26 @@ func Test_isAnthropicCompatible(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func Test_getBuiltInProviderEndpoint_MiniMax(t *testing.T) {
+	server := &HelixAPIServer{Cfg: &config.ServerConfig{
+		Providers: config.Providers{
+			BillingEnabled: true,
+			MiniMax: config.MiniMax{
+				APIKey:    "test-key",
+				Region:    "cn",
+				APIFormat: types.ProviderAPIFormatAnthropic,
+			},
+		},
+	}}
+
+	endpoint, err := server.getBuiltInProviderEndpoint(context.Background(), string(types.ProviderMiniMax))
+	require.NoError(t, err)
+	assert.Equal(t, types.MiniMaxCNAnthropicBaseURL, endpoint.BaseURL)
+	assert.Equal(t, types.ProviderAPIFormatAnthropic, endpoint.APIFormat)
+	assert.Equal(t, types.MiniMaxModels, []string(endpoint.Models))
+	assert.True(t, endpoint.BillingEnabled)
 }
 
 func Test_getBuiltInProviderEndpoint_envBakedNonAnthropic(t *testing.T) {
