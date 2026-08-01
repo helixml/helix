@@ -139,10 +139,15 @@ create prints the public key that must be installed on the target server.
 “New asset” is the final toolbar and right-click menu option. Create and edit use
 one shared side-drawer surface matching the processor create/edit pattern. The
 drawer selects the asset type first (only Server today), then shows its typed
-fields. Agent notes are the final data field. Server nodes show independent
-network and authenticated-SSH health lights. The top navigation has a final
-Assets tab with a `SimpleTable` registry view, health, endpoint, linked-agent
-count, and the same create/edit drawer.
+fields. Agent notes are the final data field. Server nodes show one combined
+health light: green only when both network and authenticated SSH checks pass,
+yellow otherwise. The top navigation has a final Assets tab with a `SimpleTable`
+registry view, health, endpoint, linked-agent count, and the same create/edit
+drawer.
+
+Asset-to-agent links render as blue “available to” edges. Asset cards carry an
+invisible React Flow handle so persisted links have a resolvable endpoint even
+though users cannot draw arbitrary connections from the card.
 
 Right-click creation records the click in React Flow coordinates and persists a
 centered `org_chart_positions` row after the entity is created. Agents, topics,
@@ -173,8 +178,27 @@ camera that can leave a newly added node off-screen.
 - `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` and targeted org tests.
 - `./stack update_openapi`, then `cd frontend && yarn build`.
 - Inner Helix browser: right-click the chart, confirm New asset is last, toggle
-  password/key auth, create a server, see its public key and red health, verify
+  password/key auth, create a server, see its public key and yellow health, verify
   its click-centered position through the chart-position API, see it without
   using Fit View, list it in the Assets tab, remount the chart, and clean it up.
 - After explicit user approval: connect to the supplied remote host and test the
   immediately following operation through both MCP and `ssh asset@proxy`.
+
+### Live remote verification (2026-08-02)
+
+`ubuntu-1` was linked to `chief-of-staff` in `unmanned-org`. The live agent used
+the MCP tools to list/get the asset and its notes, run a foreground command,
+run/list/get/kill a detached command, write/list/read/delete a UTF-8 file, and
+verify cleanup. The detached command reached `killed` without its end marker.
+
+The initial proxy test found that the listener was running inside the API
+container but its host binding had not been applied to the existing container.
+After applying the compose binding, ordinary SSH succeeded. The durable routing
+fix derives the advertised proxy hostname from `SANDBOX_API_URL` before falling
+back to `SERVER_URL`; the agent then received `api:2224` and successfully ran an
+ordinary SSH command through that internal endpoint.
+
+The same test exposed a startup race: external-agent execution queried Hydra
+before waiting for the agent WebSocket. The lookup now occurs after the existing
+readiness hook. A live stop, automatic start, MCP call, and following chat all
+completed without the prior session-not-found error.

@@ -423,17 +423,34 @@ func LoadServerConfig() (ServerConfig, error) {
 	if cfg.Notifications.AppURL == "" {
 		cfg.Notifications.AppURL = cfg.WebServer.URL
 	}
-	if cfg.WebServer.AssetSSHProxyAddress == "" && cfg.WebServer.URL != "" {
-		serverURL, err := url.Parse(cfg.WebServer.URL)
+	if cfg.WebServer.AssetSSHProxyAddress == "" {
+		address, err := inferAssetSSHProxyAddress(cfg.WebServer.SandboxAPIURL, cfg.WebServer.URL)
 		if err != nil {
-			return ServerConfig{}, fmt.Errorf("parse SERVER_URL for asset SSH proxy: %w", err)
+			return ServerConfig{}, err
 		}
-		if serverURL.Hostname() == "" {
-			return ServerConfig{}, fmt.Errorf("SERVER_URL must include a hostname for the asset SSH proxy")
-		}
-		cfg.WebServer.AssetSSHProxyAddress = net.JoinHostPort(serverURL.Hostname(), "2224")
+		cfg.WebServer.AssetSSHProxyAddress = address
 	}
 	return cfg, nil
+}
+
+func inferAssetSSHProxyAddress(sandboxAPIURL, serverURL string) (string, error) {
+	endpoint := sandboxAPIURL
+	name := "SANDBOX_API_URL"
+	if endpoint == "" {
+		endpoint = serverURL
+		name = "SERVER_URL"
+	}
+	if endpoint == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("parse %s for asset SSH proxy: %w", name, err)
+	}
+	if parsed.Hostname() == "" {
+		return "", fmt.Errorf("%s must include a hostname for the asset SSH proxy", name)
+	}
+	return net.JoinHostPort(parsed.Hostname(), "2224"), nil
 }
 
 type Inference struct {

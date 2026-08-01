@@ -107,11 +107,9 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
   const currentPublicKey = created?.server?.public_key ?? asset?.server?.public_key
   const healthStatus = useMemo(() => {
     if (!isEdit) return null
+    const reachable = Boolean(health?.tcp_reachable && health?.ssh_reachable)
     return (
-      <Stack direction="row" spacing={0.75}>
-        <Chip label={health?.tcp_reachable ? 'Network reachable' : 'Network unreachable'} color={health?.tcp_reachable ? 'success' : 'error'} size="small" />
-        <Chip label={health?.ssh_reachable ? 'SSH connected' : 'SSH not connected'} color={health?.ssh_reachable ? 'success' : 'error'} size="small" />
-      </Stack>
+      <Chip label={reachable ? 'Connected' : 'Connection degraded'} color={reachable ? 'success' : 'warning'} size="small" />
     )
   }, [health, isEdit])
 

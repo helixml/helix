@@ -39,10 +39,19 @@ type assetView struct {
 }
 
 type assetServerView struct {
-	Address  string         `json:"address"`
-	Port     uint16         `json:"port"`
-	User     string         `json:"user"`
-	AuthType asset.AuthType `json:"auth_type"`
+	Address      string             `json:"address"`
+	Port         uint16             `json:"port"`
+	User         string             `json:"user"`
+	AuthType     asset.AuthType     `json:"auth_type"`
+	Capabilities []string           `json:"capabilities"`
+	SSHAccess    assetSSHAccessView `json:"ssh_access"`
+}
+
+type assetSSHAccessView struct {
+	Available    bool   `json:"available"`
+	Tool         string `json:"tool"`
+	Target       string `json:"target"`
+	Instructions string `json:"instructions"`
 }
 
 func viewAsset(a asset.Asset) assetView {
@@ -51,6 +60,13 @@ func viewAsset(a asset.Asset) assetView {
 		view.Server = &assetServerView{
 			Address: a.Config.Server.Address, Port: a.Config.Server.Port,
 			User: a.Config.Server.User, AuthType: a.Config.Server.AuthType,
+			Capabilities: []string{
+				"run_commands", "manage_detached_commands", "read_write_files", "ssh_via_helix_proxy",
+			},
+			SSHAccess: assetSSHAccessView{
+				Available: true, Tool: string(ServerSSHAccessName), Target: a.Name + "@<helix-ssh-proxy>",
+				Instructions: "Call server_ssh_access to mint a short-lived identity and receive the exact SSH setup command.",
+			},
 		}
 	}
 	return view
@@ -74,7 +90,7 @@ const ListAssetsName tool.Name = "list_assets"
 func (t *ListAssets) Name() tool.Name                 { return ListAssetsName }
 func (t *ListAssets) InputSchema() *jsonschema.Schema { return mustSchema[struct{}]() }
 func (t *ListAssets) Description() string {
-	return "List server assets linked to this agent, including connection coordinates and operator notes."
+	return "List server assets linked to this agent, including connection coordinates, operator notes, command/file capabilities, and SSH proxy guidance."
 }
 func (t *ListAssets) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	orgID, agentID, err := assetCaller(inv, ListAssetsName)
@@ -106,7 +122,7 @@ const GetAssetName tool.Name = "get_asset"
 func (t *GetAsset) Name() tool.Name                 { return GetAssetName }
 func (t *GetAsset) InputSchema() *jsonschema.Schema { return mustSchema[assetRefArgs]() }
 func (t *GetAsset) Description() string {
-	return "Get a linked server asset by ID or name, including its notes for agents."
+	return "Get a linked server asset by ID or name, including its notes, command/file capabilities, and SSH proxy guidance."
 }
 func (t *GetAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args assetRefArgs

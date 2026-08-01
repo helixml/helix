@@ -31,9 +31,8 @@ import {
 
 const AssetStatusBadge: FC<{ health?: AssetHealthDTO }> = ({ health }) => {
   if (!health) return <Chip size="small" label="Checking" color="default" />
-  if (health.ssh_reachable) return <Chip size="small" label="SSH connected" color="success" />
-  if (health.tcp_reachable) return <Chip size="small" label="Network reachable" color="warning" />
-  return <Chip size="small" label="Offline" color="error" />
+  if (health.tcp_reachable && health.ssh_reachable) return <Chip size="small" label="Connected" color="success" />
+  return <Chip size="small" label="Connection degraded" color="warning" />
 }
 
 const HelixOrgAssets: FC = () => {

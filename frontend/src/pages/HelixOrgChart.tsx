@@ -427,7 +427,7 @@ const AssetNode: FC<NodeProps<Node<AssetNodeData>>> = ({ data }) => {
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.58)' : 'rgba(255,255,255,0.6)'
   const tcp = Boolean(data.health?.tcp_reachable)
   const ssh = Boolean(data.health?.ssh_reachable)
-  const dot = (ok: boolean) => ok ? 'rgb(46,160,67)' : 'rgb(210,55,55)'
+  const reachable = tcp && ssh
   return (
     <Box
       onClick={(e) => { e.stopPropagation(); data.onSelectAsset(data.asset.id ?? '') }}
@@ -438,6 +438,12 @@ const AssetNode: FC<NodeProps<Node<AssetNodeData>>> = ({ data }) => {
         '&:hover': { backgroundColor: hoverBg }, '&:active': { cursor: 'grabbing' },
       }}
     >
+      <Handle
+        type="source"
+        position={RFPosition.Right}
+        isConnectable={false}
+        style={{ background: 'transparent', border: 'none', width: 1, height: 1 }}
+      />
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
         <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
           <DnsOutlinedIcon sx={{ fontSize: 18, color: muted }} />
@@ -446,8 +452,9 @@ const AssetNode: FC<NodeProps<Node<AssetNodeData>>> = ({ data }) => {
           </Typography>
         </Stack>
         <Stack direction="row" spacing={0.5} alignItems="center" className={NO_DRAG_NO_PAN} onClick={(e) => e.stopPropagation()}>
-          <Tooltip title={tcp ? 'Network reachable' : 'Network unreachable'}><Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: dot(tcp) }} /></Tooltip>
-          <Tooltip title={ssh ? 'Helix SSH connected' : 'Helix SSH not connected'}><Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: dot(ssh) }} /></Tooltip>
+          <Tooltip title={reachable ? 'Network and SSH reachable' : 'Network or SSH unavailable'}>
+            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: reachable ? 'rgb(46,160,67)' : 'rgb(202,138,4)' }} />
+          </Tooltip>
           <IconButton size="small" onClick={(e) => { e.stopPropagation(); setMenuEl(e.currentTarget) }} sx={{ p: 0.25, color: muted }}>
             <MoreVertIcon sx={{ fontSize: 16 }} />
           </IconButton>
@@ -1109,6 +1116,12 @@ const buildGraph = (
         type: 'closest',
         data: { kind: 'asset_link', assetId: id, botId: agentID, label: 'available to' },
         style: { stroke: isLight ? 'rgba(25,118,210,0.6)' : 'rgba(100,181,246,0.7)', strokeWidth: 1.25 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 20,
+          height: 20,
+          color: isLight ? 'rgba(25,118,210,0.6)' : 'rgba(100,181,246,0.7)',
+        },
       })
     }
   })

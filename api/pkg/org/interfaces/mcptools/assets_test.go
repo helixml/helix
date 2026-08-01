@@ -57,6 +57,22 @@ func TestAssetDiscoveryOnlyReturnsLinkedAssetsAndAgentNotes(t *testing.T) {
 	if !strings.Contains(string(raw), `"notes_for_agents":"Deploy only after checking the runbook."`) {
 		t.Fatalf("agent notes missing from list_assets: %s", raw)
 	}
+	var listed struct {
+		Assets []assetView `json:"assets"`
+	}
+	if err := json.Unmarshal(raw, &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Assets) != 1 || listed.Assets[0].Server == nil {
+		t.Fatalf("server view missing from list_assets: %s", raw)
+	}
+	server := listed.Assets[0].Server
+	if len(server.Capabilities) != 4 || server.Capabilities[3] != "ssh_via_helix_proxy" {
+		t.Fatalf("server capabilities = %v", server.Capabilities)
+	}
+	if !server.SSHAccess.Available || server.SSHAccess.Tool != "server_ssh_access" || server.SSHAccess.Target != "production@<helix-ssh-proxy>" {
+		t.Fatalf("SSH proxy guidance = %+v", server.SSHAccess)
+	}
 	if strings.Contains(string(raw), "encrypted") {
 		t.Fatalf("encrypted credential leaked through list_assets: %s", raw)
 	}
