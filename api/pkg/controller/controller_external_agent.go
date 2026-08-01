@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	defaultExternalAgentModel = "gpt-4"
+	defaultExternalAgentModel        = "gpt-4"
 	defaultExternalAgentReadyTimeout = 300 * time.Second
 	// Idle bound for an in-flight external-agent turn. Each stream chunk and
 	// each recent DB update (message_added / tool_call streaming) resets the
@@ -98,11 +98,6 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 		return nil, fmt.Errorf("external agent hooks are incomplete")
 	}
 
-	agentSession, err := c.Options.ExternalAgentExecutor.GetSession(req.Session.ID)
-	if err != nil {
-		return nil, fmt.Errorf("external agent session not found: %w", err)
-	}
-
 	if req.ChatCompletionRequest.Model == "" {
 		req.ChatCompletionRequest.Model = defaultExternalAgentModel
 	}
@@ -114,17 +109,21 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 
 	interaction := req.Session.Interactions[len(req.Session.Interactions)-1]
 
+	if err := hooks.WaitForExternalAgentReady(ctx, req.Session.ID, req.ReadyTimeout); err != nil {
+		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, fmt.Sprintf("External agent not ready: %s", err.Error()), "")
+		return nil, fmt.Errorf("external agent not ready: %w", err)
+	}
+	agentSession, err := c.Options.ExternalAgentExecutor.GetSession(req.Session.ID)
+	if err != nil {
+		return nil, fmt.Errorf("external agent session not found after readiness: %w", err)
+	}
+
 	log.Info().
 		Str("session_id", req.Session.ID).
 		Str("user_message", userMessage).
 		Str("agent_session_status", agentSession.Status).
 		Str("mode", string(req.Mode)).
 		Msg("sending message to external agent")
-
-	if err := hooks.WaitForExternalAgentReady(ctx, req.Session.ID, req.ReadyTimeout); err != nil {
-		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, fmt.Sprintf("External agent not ready: %s", err.Error()), "")
-		return nil, fmt.Errorf("external agent not ready: %w", err)
-	}
 
 	// Use the interaction ID as request_id so completion events map 1:1 with
 	// the waiter channels and with NotifyExternalAgentOfNewInteraction's

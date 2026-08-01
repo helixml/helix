@@ -276,10 +276,6 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 			},
 		}
 
-		mockExecutor.EXPECT().
-			GetSession("session-3").
-			Return(&external_agent.ZedSession{SessionID: "session-3", Status: "ready"}, nil)
-
 		c.SetExternalAgentHooks(ExternalAgentHooks{
 			WaitForExternalAgentReady:    func(_ context.Context, _ string, _ time.Duration) error { return nil },
 			SendCommand:                  func(_ string, _ types.ExternalAgentCommand) error { return nil },
@@ -367,6 +363,49 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to send command to external agent")
 	})
+}
+
+func TestRunExternalAgentWaitsBeforeExecutorLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockExecutor := external_agent.NewMockExecutor(ctrl)
+	c := &Controller{Options: Options{Store: mockStore, ExternalAgentExecutor: mockExecutor}}
+	session := &types.Session{
+		ID: "session-starting",
+		Interactions: []*types.Interaction{{
+			ID: "interaction-starting", SessionID: "session-starting", UserID: "user-starting",
+		}},
+	}
+	ready := false
+	mockExecutor.EXPECT().GetSession("session-starting").DoAndReturn(func(string) (*external_agent.ZedSession, error) {
+		require.True(t, ready, "executor session was queried before readiness completed")
+		return &external_agent.ZedSession{SessionID: "session-starting", Status: "ready"}, nil
+	})
+	mockStore.EXPECT().GetInteraction(gomock.Any(), "interaction-starting").Return(&types.Interaction{
+		ID: "interaction-starting", SessionID: "session-starting", UserID: "user-starting",
+	}, nil)
+	mockStore.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(&types.Interaction{}, nil)
+	c.SetExternalAgentHooks(ExternalAgentHooks{
+		WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error {
+			ready = true
+			return nil
+		},
+		SendCommand:                  func(_ string, _ types.ExternalAgentCommand) error { return fmt.Errorf("stop after ordering assertion") },
+		StoreResponseChannel:         func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
+		CleanupResponseChannel:       func(_ string, _ string) {},
+		SetRequestInteractionMapping: func(_, _ string) {},
+		SetRequestSessionMapping:     func(_, _ string) {},
+	})
+
+	_, err := c.RunExternalAgent(context.Background(), RunExternalAgentRequest{
+		Session: session,
+		ChatCompletionRequest: openai.ChatCompletionRequest{Messages: []openai.ChatCompletionMessage{{
+			Role: openai.ChatMessageRoleUser, Content: "hello",
+		}}},
+	})
+	require.ErrorContains(t, err, "stop after ordering assertion")
 }
 
 // TestRunExternalAgentUsesInteractionIDAsRequestID pins the request_id
