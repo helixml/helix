@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
@@ -175,6 +176,12 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
+	}
+	// Seeded nodes carry their built-in prompt so the UI can offer a
+	// reset to it; operator-created nodes have none and the field stays
+	// empty, which is the UI's signal to hide the affordance.
+	if def, ok := seedprompts.Default(id); ok {
+		dto.DefaultInstructions = def
 	}
 	dto.AgentStatus = "stopped"
 	// Populate the agent app id + project id from the helix-runtime

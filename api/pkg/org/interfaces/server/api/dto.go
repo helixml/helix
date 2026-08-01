@@ -77,6 +77,13 @@ type BotDTO struct {
 	ReasoningEffort         string                        `json:"reasoning_effort,omitempty"`
 	CreatedAt               string                        `json:"created_at,omitempty"`
 	UpdatedAt               string                        `json:"updated_at,omitempty"`
+	// DefaultInstructions is the built-in seed prompt for this node, when
+	// one exists (currently only the Chief of Staff every org is seeded
+	// with). It lets the UI offer "reset instructions" and hide that
+	// affordance for operator-created nodes, which have no default to
+	// reset to. Detail-only: GET /bots/{id} populates it, the list does
+	// not (it would repeat kilobytes of prompt per row).
+	DefaultInstructions string `json:"default_instructions,omitempty"`
 }
 
 func (d BotDTO) MarshalJSON() ([]byte, error) {

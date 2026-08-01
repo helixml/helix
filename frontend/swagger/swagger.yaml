@@ -28,6 +28,15 @@ definitions:
         type: string
       created_at:
         type: string
+      default_instructions:
+        description: |-
+          DefaultInstructions is the built-in seed prompt for this node, when
+          one exists (currently only the Chief of Staff every org is seeded
+          with). It lets the UI offer "reset instructions" and hide that
+          affordance for operator-created nodes, which have no default to
+          reset to. Detail-only: GET /bots/{id} populates it, the list does
+          not (it would repeat kilobytes of prompt per row).
+        type: string
       helix_user_id:
         type: string
       id:
@@ -129,6 +138,15 @@ definitions:
       content:
         type: string
       created_at:
+        type: string
+      default_instructions:
+        description: |-
+          DefaultInstructions is the built-in seed prompt for this node, when
+          one exists (currently only the Chief of Staff every org is seeded
+          with). It lets the UI offer "reset instructions" and hide that
+          affordance for operator-created nodes, which have no default to
+          reset to. Detail-only: GET /bots/{id} populates it, the list does
+          not (it would repeat kilobytes of prompt per row).
         type: string
       helix_user_id:
         type: string
@@ -3066,6 +3084,14 @@ definitions:
       technical_design:
         type: string
     type: object
+  server.UpdateClaudeSubscriptionDelegationRequest:
+    description: Disconnect a Claude subscription
+    properties:
+      delegated_org_ids:
+        items:
+          type: string
+        type: array
+    type: object
   server.VideoStreamingStats:
     properties:
       client_buffers:
@@ -4389,6 +4415,20 @@ definitions:
       credential_type:
         description: '"oauth" or "setup_token"'
         type: string
+      delegated_org_ids:
+        description: |-
+          DelegatedOrgIDs lists the organizations whose agent sessions may
+          authenticate with this subscription on the owner's behalf, even when the
+          session itself is owned by someone else (a service account dispatching
+          work for this person — see SpecTask.CredentialOwnerID).
+
+          This is the consent gate. Without it, any member who can create a task
+          could name another user as credential owner and spend their Claude quota.
+          Empty (the default) means the subscription is only ever used for sessions
+          its owner owns, which is the pre-existing behaviour.
+        items:
+          type: string
+        type: array
       id:
         type: string
       last_error:
@@ -4662,6 +4702,15 @@ definitions:
         - $ref: '#/definitions/types.CodeAgentRuntime'
         description: 'Runtime specifies which code agent runtime to use: "zed_agent"
           or "qwen_code"'
+      uses_subscription:
+        description: |-
+          UsesSubscription is true when the agent authenticates against the upstream
+          provider with the user's own subscription (Claude Pro/Max, ChatGPT) instead
+          of an API key routed through the Helix proxy. It mirrors the assistant's
+          CodeAgentCredentialType and is what gates credential injection into the
+          container — an api_key agent must never receive subscription credentials,
+          because the CLI prefers them over the proxy and would silently bypass it.
+        type: boolean
     type: object
   types.CodeAgentCredentialType:
     enum:
@@ -5029,6 +5078,14 @@ definitions:
       branch_prefix:
         description: 'For new mode: user-specified prefix (task# appended)'
         type: string
+      credential_owner_id:
+        description: |-
+          CredentialOwnerID optionally names the user whose Claude subscription should
+          authenticate this task's agent, for orchestrators dispatching work on a
+          human's behalf under one service API key. Credential resolution only — the
+          task is still created by, owned by, and attributed to the caller. Ignored
+          unless that user has delegated their subscription to this organization.
+        type: string
       depends_on:
         description: 'Optional: IDs of tasks this task depends on'
         items:
@@ -5112,6 +5169,17 @@ definitions:
         type: string
       callback_url:
         description: Webhook URL to POST on completion
+        type: string
+      credential_owner_id:
+        description: |-
+          CredentialOwnerID optionally names the user whose Claude subscription should
+          authenticate the agent this trigger starts. An orchestrator writing triggers
+          on people's behalf under one service API key sets it so a scheduled run
+          authenticates as the person it acts for, exactly as CreateTaskRequest does
+          for a run dispatched by hand. Credential resolution only: the task is still
+          created by, owned by, and attributed to the trigger's app owner, and the
+          named user must have delegated their subscription to this organization or it
+          is ignored. Currently honoured by the spec_task action.
         type: string
       emails:
         items:
@@ -9542,6 +9610,14 @@ definitions:
       container_name:
         description: Container fields (Hydra executor)
         type: string
+      credential_owner_id:
+        description: |-
+          CredentialOwnerID mirrors SpecTask.CredentialOwnerID onto the session: the
+          user whose Claude subscription authenticates this session's agent, when
+          that differs from Owner. Affects credential resolution ONLY — Owner still
+          owns and is attributed the session. Honoured only with an explicit
+          delegation grant; see ResolveClaudeCredentialOwner.
+        type: string
       dev_container_id:
         description: Dev container ID for streaming
         type: string
@@ -9972,6 +10048,24 @@ definitions:
         type: string
       created_by:
         description: Metadata
+        type: string
+      credential_owner_id:
+        description: |-
+          CredentialOwnerID names the user whose Claude subscription authenticates
+          this task's agent sessions, when that differs from CreatedBy. It changes
+          ONLY credential resolution — the task and its sessions are still owned by,
+          and attributed to, CreatedBy. Nothing "runs as" the credential owner.
+
+          This exists for orchestrators (HelixOS) that dispatch every task with one
+          service API key but run work on behalf of different humans: without it the
+          service account's subscription authenticates everyone's bots, so one
+          person's expired token breaks all of them and no one can use their own
+          Claude account.
+
+          Honoured only when the named user has delegated their subscription to this
+          organization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able
+          to create a task could spend another user's Claude quota. See
+          ResolveClaudeCredentialOwner.
         type: string
       depends_on:
         items:
@@ -10577,6 +10671,24 @@ definitions:
         type: string
       created_by:
         description: Metadata
+        type: string
+      credential_owner_id:
+        description: |-
+          CredentialOwnerID names the user whose Claude subscription authenticates
+          this task's agent sessions, when that differs from CreatedBy. It changes
+          ONLY credential resolution — the task and its sessions are still owned by,
+          and attributed to, CreatedBy. Nothing "runs as" the credential owner.
+
+          This exists for orchestrators (HelixOS) that dispatch every task with one
+          service API key but run work on behalf of different humans: without it the
+          service account's subscription authenticates everyone's bots, so one
+          person's expired token breaks all of them and no one can use their own
+          Claude account.
+
+          Honoured only when the named user has delegated their subscription to this
+          organization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able
+          to create a task could spend another user's Claude quota. See
+          ResolveClaudeCredentialOwner.
         type: string
       depends_on:
         items:
@@ -12921,6 +13033,32 @@ paths:
       summary: Delete a user (Admin only)
       tags:
       - users
+  /api/v1/admin/users/{id}/api-keys:
+    post:
+      description: Create (or return the existing) named API key owned by another
+        user, so a trusted orchestrator can act as the people it runs work for instead
+        of putting the whole fleet on one shared account. Idempotent per (user, name).
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Key name, e.g. the orchestrator's slug
+        in: query
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ApiKey'
+      security:
+      - BearerAuth: []
+      summary: Mint an API key for a user (Admin only)
+      tags:
+      - users
   /api/v1/admin/users/{id}/approve:
     post:
       description: Approve a waitlisted user, removing them from the waitlist. Only
@@ -14460,38 +14598,6 @@ paths:
       tags:
       - Claude
   /api/v1/claude-subscriptions/{id}:
-    delete:
-      description: Disconnect a Claude subscription
-      parameters:
-      - description: Subscription ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Delete a Claude subscription
-      tags:
-      - Claude
     get:
       description: Get details of a specific Claude subscription (no secrets)
       parameters:
@@ -14522,6 +14628,53 @@ paths:
       security:
       - BearerAuth: []
       summary: Get a Claude subscription
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/{id}/delegation:
+    put:
+      consumes:
+      - application/json
+      description: Grant (or revoke) permission for an organization's orchestrated
+        agents to authenticate as the subscription owner. Only the subscription owner
+        may change this.
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Delegated organizations
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.UpdateClaudeSubscriptionDelegationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ClaudeSubscription'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Set which orgs may use a Claude subscription for delegated agent runs
       tags:
       - Claude
   /api/v1/claude-subscriptions/models:
