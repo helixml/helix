@@ -60,6 +60,39 @@ export interface ApiAgentDetailDTO {
   updated_at?: string;
 }
 
+export interface ApiAssetDTO {
+  agent_ids?: string[];
+  created_at?: string;
+  description?: string;
+  id?: string;
+  kind?: AssetKind;
+  name?: string;
+  notes_for_agents?: string;
+  organization_id?: string;
+  server?: ApiServerAssetDTO;
+  updated_at?: string;
+}
+
+export interface ApiAssetHealthDTO {
+  checked_at?: string;
+  error?: string;
+  latency_ms?: number;
+  ssh_reachable?: boolean;
+  tcp_reachable?: boolean;
+}
+
+export interface ApiAssetLinkRequest {
+  agent_id?: string;
+}
+
+export interface ApiAssetLinksResponse {
+  agent_ids?: string[];
+}
+
+export interface ApiAssetsResponse {
+  assets?: ApiAssetDTO[];
+}
+
 export interface ApiBotActivateDTO {
   activation_id?: string;
   agent_app_id?: string;
@@ -152,6 +185,14 @@ export interface ApiChartPositionDTO {
 
 export interface ApiChartPositionsResponse {
   positions?: ApiChartPositionDTO[];
+}
+
+export interface ApiCreateAssetRequest {
+  description?: string;
+  kind?: AssetKind;
+  name?: string;
+  notes_for_agents?: string;
+  server?: ApiServerAssetWriteRequest;
 }
 
 export interface ApiCreateBotRequest {
@@ -390,6 +431,25 @@ export interface ApiPublishResponse {
   event_id?: string;
 }
 
+export interface ApiServerAssetDTO {
+  address?: string;
+  auth_type?: AssetAuthType;
+  host_key_fingerprint?: string;
+  password_configured?: boolean;
+  port?: number;
+  public_key?: string;
+  user?: string;
+}
+
+export interface ApiServerAssetWriteRequest {
+  address?: string;
+  auth_type?: AssetAuthType;
+  host_key?: string;
+  password?: string;
+  port?: number;
+  user?: string;
+}
+
 export interface ApiSetSettingRequest {
   value?: string;
 }
@@ -443,6 +503,13 @@ export interface ApiTransportRequestField {
   kind?: string;
 }
 
+export interface ApiUpdateAssetRequest {
+  description?: string;
+  name?: string;
+  notes_for_agents?: string;
+  server?: ApiUpdateServerAssetRequest;
+}
+
 export interface ApiUpdateBotRequest {
   code_agent_credential_type?: TypesCodeAgentCredentialType;
   code_agent_runtime?: TypesCodeAgentRuntime;
@@ -462,6 +529,15 @@ export interface ApiUpdateBotRequest {
   tools?: string[];
 }
 
+export interface ApiUpdateServerAssetRequest {
+  address?: string;
+  auth_type?: AssetAuthType;
+  host_key?: string;
+  password?: string;
+  port?: number;
+  user?: string;
+}
+
 export interface ApiUpdateTopicRequest {
   description?: string;
   name?: string;
@@ -470,6 +546,22 @@ export interface ApiUpdateTopicRequest {
 
 export interface ApiUpsertChartPositionsRequest {
   positions?: ApiChartPositionDTO[];
+}
+
+export enum AssetAuthType {
+  AuthSSHKey = "ssh_key",
+  AuthPassword = "password",
+}
+
+export enum AssetKind {
+  KindServer = "server",
+}
+
+export interface AssetLink {
+  agent_id?: string;
+  asset_id?: string;
+  created_at?: string;
+  organization_id?: string;
 }
 
 export interface FilestoreConfig {
@@ -1967,6 +2059,11 @@ export interface ServerTaskSpecsResponse {
   technical_design?: string;
 }
 
+/** Disconnect a Claude subscription */
+export interface ServerUpdateClaudeSubscriptionDelegationRequest {
+  delegated_org_ids?: string[];
+}
+
 export interface ServerVideoStreamingStats {
   client_buffers?: ServerClientBufferStats[];
   client_count?: number;
@@ -2793,6 +2890,18 @@ export interface TypesClaudeSubscription {
   created_by?: string;
   /** "oauth" or "setup_token" */
   credential_type?: string;
+  /**
+   * DelegatedOrgIDs lists the organizations whose agent sessions may
+   * authenticate with this subscription on the owner's behalf, even when the
+   * session itself is owned by someone else (a service account dispatching
+   * work for this person — see SpecTask.CredentialOwnerID).
+   *
+   * This is the consent gate. Without it, any member who can create a task
+   * could name another user as credential owner and spend their Claude quota.
+   * Empty (the default) means the subscription is only ever used for sessions
+   * its owner owns, which is the pre-existing behaviour.
+   */
+  delegated_org_ids?: string[];
   id?: string;
   last_error?: string;
   last_refreshed_at?: string;
@@ -2967,6 +3076,15 @@ export interface TypesCodeAgentConfig {
   reasoning_effort?: string;
   /** Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code" */
   runtime?: TypesCodeAgentRuntime;
+  /**
+   * UsesSubscription is true when the agent authenticates against the upstream
+   * provider with the user's own subscription (Claude Pro/Max, ChatGPT) instead
+   * of an API key routed through the Helix proxy. It mirrors the assistant's
+   * CodeAgentCredentialType and is what gates credential injection into the
+   * container — an api_key agent must never receive subscription credentials,
+   * because the CLI prefers them over the proxy and would silently bypass it.
+   */
+  uses_subscription?: boolean;
 }
 
 export enum TypesCodeAgentCredentialType {
@@ -3204,6 +3322,14 @@ export interface TypesCreateTaskRequest {
   branch_mode?: TypesBranchMode;
   /** For new mode: user-specified prefix (task# appended) */
   branch_prefix?: string;
+  /**
+   * CredentialOwnerID optionally names the user whose Claude subscription should
+   * authenticate this task's agent, for orchestrators dispatching work on a
+   * human's behalf under one service API key. Credential resolution only — the
+   * task is still created by, owned by, and attributed to the caller. Ignored
+   * unless that user has delegated their subscription to this organization.
+   */
+  credential_owner_id?: string;
   /** Optional: IDs of tasks this task depends on */
   depends_on?: string[];
   /**
@@ -3259,6 +3385,17 @@ export interface TypesCronTrigger {
   agent_type?: string;
   /** Webhook URL to POST on completion */
   callback_url?: string;
+  /**
+   * CredentialOwnerID optionally names the user whose Claude subscription should
+   * authenticate the agent this trigger starts. An orchestrator writing triggers
+   * on people's behalf under one service API key sets it so a scheduled run
+   * authenticates as the person it acts for, exactly as CreateTaskRequest does
+   * for a run dispatched by hand. Credential resolution only: the task is still
+   * created by, owned by, and attributed to the trigger's app owner, and the
+   * named user must have delegated their subscription to this organization or it
+   * is ignored. Currently honoured by the spec_task action.
+   */
+  credential_owner_id?: string;
   emails?: string[];
   enabled?: boolean;
   input?: string;
@@ -6016,6 +6153,14 @@ export interface TypesSessionMetadata {
   container_ip?: string;
   /** Container fields (Hydra executor) */
   container_name?: string;
+  /**
+   * CredentialOwnerID mirrors SpecTask.CredentialOwnerID onto the session: the
+   * user whose Claude subscription authenticates this session's agent, when
+   * that differs from Owner. Affects credential resolution ONLY — Owner still
+   * owns and is attributed the session. Honoured only with an explicit
+   * delegation grant; see ResolveClaudeCredentialOwner.
+   */
+  credential_owner_id?: string;
   /** Dev container ID for streaming */
   dev_container_id?: string;
   document_group_id?: string;
@@ -6277,6 +6422,24 @@ export interface TypesSpecTask {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  /**
+   * CredentialOwnerID names the user whose Claude subscription authenticates
+   * this task's agent sessions, when that differs from CreatedBy. It changes
+   * ONLY credential resolution — the task and its sessions are still owned by,
+   * and attributed to, CreatedBy. Nothing "runs as" the credential owner.
+   *
+   * This exists for orchestrators (HelixOS) that dispatch every task with one
+   * service API key but run work on behalf of different humans: without it the
+   * service account's subscription authenticates everyone's bots, so one
+   * person's expired token breaks all of them and no one can use their own
+   * Claude account.
+   *
+   * Honoured only when the named user has delegated their subscription to this
+   * organization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able
+   * to create a task could spend another user's Claude quota. See
+   * ResolveClaudeCredentialOwner.
+   */
+  credential_owner_id?: string;
   depends_on?: TypesSpecTask[];
   description?: string;
   design_doc_path?: string;
@@ -6623,6 +6786,24 @@ export interface TypesSpecTaskWithProject {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  /**
+   * CredentialOwnerID names the user whose Claude subscription authenticates
+   * this task's agent sessions, when that differs from CreatedBy. It changes
+   * ONLY credential resolution — the task and its sessions are still owned by,
+   * and attributed to, CreatedBy. Nothing "runs as" the credential owner.
+   *
+   * This exists for orchestrators (HelixOS) that dispatch every task with one
+   * service API key but run work on behalf of different humans: without it the
+   * service account's subscription authenticates everyone's bots, so one
+   * person's expired token breaks all of them and no one can use their own
+   * Claude account.
+   *
+   * Honoured only when the named user has delegated their subscription to this
+   * organization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able
+   * to create a task could spend another user's Claude quota. See
+   * ResolveClaudeCredentialOwner.
+   */
+  credential_owner_id?: string;
   depends_on?: TypesSpecTask[];
   description?: string;
   design_doc_path?: string;
@@ -8234,6 +8415,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Create (or return the existing) named API key owned by another user, so a trusted orchestrator can act as the people it runs work for instead of putting the whole fleet on one shared account. Idempotent per (user, name).
+     *
+     * @tags users
+     * @name V1AdminUsersApiKeysCreate
+     * @summary Mint an API key for a user (Admin only)
+     * @request POST:/api/v1/admin/users/{id}/api-keys
+     * @secure
+     */
+    v1AdminUsersApiKeysCreate: (
+      id: string,
+      query: {
+        /** Key name, e.g. the orchestrator's slug */
+        name: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesApiKey, any>({
+        path: `/api/v1/admin/users/${id}/api-keys`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Approve a waitlisted user, removing them from the waitlist. Only admins can use this endpoint.
      *
      * @tags users
@@ -9412,23 +9618,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Disconnect a Claude subscription
-     *
-     * @tags Claude
-     * @name V1ClaudeSubscriptionsDelete
-     * @summary Delete a Claude subscription
-     * @request DELETE:/api/v1/claude-subscriptions/{id}
-     * @secure
-     */
-    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Get details of a specific Claude subscription (no secrets)
      *
      * @tags Claude
@@ -9442,6 +9631,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/claude-subscriptions/${id}`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDelegationUpdate
+     * @summary Set which orgs may use a Claude subscription for delegated agent runs
+     * @request PUT:/api/v1/claude-subscriptions/{id}/delegation
+     * @secure
+     */
+    v1ClaudeSubscriptionsDelegationUpdate: (
+      id: string,
+      body: ServerUpdateClaudeSubscriptionDelegationRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}/delegation`,
+        method: "PUT",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -12759,6 +12972,174 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1OrgsAgentsSubscriptionsDelete: (org: string, id: string, topicId: string, params: RequestParams = {}) =>
       this.request<void, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/agents/${id}/subscriptions/${topicId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsDetail
+     * @summary Helix-org: list assets
+     * @request GET:/api/v1/orgs/{org}/assets
+     * @secure
+     */
+    v1OrgsAssetsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiAssetsResponse, any>({
+        path: `/api/v1/orgs/${org}/assets`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsCreate
+     * @summary Helix-org: create an asset
+     * @request POST:/api/v1/orgs/{org}/assets
+     * @secure
+     */
+    v1OrgsAssetsCreate: (org: string, payload: ApiCreateAssetRequest, params: RequestParams = {}) =>
+      this.request<ApiAssetDTO, any>({
+        path: `/api/v1/orgs/${org}/assets`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsDelete
+     * @summary Helix-org: delete an asset
+     * @request DELETE:/api/v1/orgs/{org}/assets/{id}
+     * @secure
+     */
+    v1OrgsAssetsDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsDetail2
+     * @summary Helix-org: get an asset
+     * @request GET:/api/v1/orgs/{org}/assets/{id}
+     * @originalName v1OrgsAssetsDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrgsAssetsDetail2: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAssetDTO, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsPartialUpdate
+     * @summary Helix-org: update an asset
+     * @request PATCH:/api/v1/orgs/{org}/assets/{id}
+     * @secure
+     */
+    v1OrgsAssetsPartialUpdate: (org: string, id: string, payload: ApiUpdateAssetRequest, params: RequestParams = {}) =>
+      this.request<ApiAssetDTO, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}`,
+        method: "PATCH",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsHealthDetail
+     * @summary Helix-org: check asset health
+     * @request GET:/api/v1/orgs/{org}/assets/{id}/health
+     * @secure
+     */
+    v1OrgsAssetsHealthDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAssetHealthDTO, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}/health`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsLinksDetail
+     * @summary Helix-org: list asset links
+     * @request GET:/api/v1/orgs/{org}/assets/{id}/links
+     * @secure
+     */
+    v1OrgsAssetsLinksDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAssetLinksResponse, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}/links`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsLinksCreate
+     * @summary Helix-org: link an asset to an agent
+     * @request POST:/api/v1/orgs/{org}/assets/{id}/links
+     * @secure
+     */
+    v1OrgsAssetsLinksCreate: (org: string, id: string, payload: ApiAssetLinkRequest, params: RequestParams = {}) =>
+      this.request<AssetLink, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}/links`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsLinksDelete
+     * @summary Helix-org: unlink an asset from an agent
+     * @request DELETE:/api/v1/orgs/{org}/assets/{id}/links/{agent_id}
+     * @secure
+     */
+    v1OrgsAssetsLinksDelete: (org: string, id: string, agentId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}/links/${agentId}`,
         method: "DELETE",
         secure: true,
         ...params,

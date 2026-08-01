@@ -268,8 +268,13 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
-		if _, err := s.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
+		membership, err := s.authorizeOrgMember(r.Context(), user, org.ID)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if isHelixOrgAssetMutation(r) && !isAdmin(user) && membership.Role != types.OrganizationRoleOwner {
+			http.Error(w, "only organization owners and administrators can modify assets", http.StatusForbidden)
 			return
 		}
 		ctx := helixorgserver.WithOrgID(r.Context(), org.ID)
@@ -287,6 +292,17 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 		r = r.WithContext(ctx)
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isHelixOrgAssetMutation(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+	default:
+		return false
+	}
+	orgSegment := mux.Vars(r)["org"]
+	assetsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/assets"
+	return r.URL.Path == assetsPath || strings.HasPrefix(r.URL.Path, assetsPath+"/")
 }
 
 // stripOrgScopedPrefix strips "/api/v1/orgs/{org}" off the request

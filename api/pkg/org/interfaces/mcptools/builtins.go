@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
+	"github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
@@ -86,7 +87,11 @@ type Deps struct {
 	// Processors owns create/update/delete/list of Topic processors
 	// (template, truncate, filter, js). Same service as the REST
 	// /processors handlers. nil → processor tools report "not wired".
-	Processors *processors.Processors
+	Processors           *processors.Processors
+	Assets               *assets.Service
+	AssetSSH             ServerAssetRuntime
+	AssetSSHIssuer       AssetSSHIdentityIssuer
+	AssetSSHProxyAddress string
 
 	// Workspace is the per-runtime file-mirror port: set_bot_content calls
 	// MirrorFile after the service persists, so the running session sees
@@ -176,8 +181,12 @@ type Config struct {
 	// Processors, when set, is used by create/list/get/update/delete
 	// processor tools. Built at the composition root (needs topics
 	// provisioners). nil → Build() constructs one from Store when possible.
-	Processors *processors.Processors
-	Publishing *publishing.Publishing
+	Processors           *processors.Processors
+	Assets               *assets.Service
+	AssetSSH             ServerAssetRuntime
+	AssetSSHIssuer       AssetSSHIdentityIssuer
+	AssetSSHProxyAddress string
+	Publishing           *publishing.Publishing
 	// HumanDelivery sends ask_human messages through the person's configured route.
 	HumanDelivery HumanDelivery
 }
@@ -186,25 +195,29 @@ type Config struct {
 // the lean tool Deps. Reads from the store happen only here.
 func (c Config) Build() Deps {
 	return Deps{
-		Queries:             c.Queries,
-		Nodes:               c.botsService(),
-		Topics:              c.topicsService(),
-		Subscriptions:       c.subscriptionsService(),
-		Publishing:          c.Publishing,
-		Lifecycle:           c.lifecycleService(),
-		Activations:         c.Activations,
-		Processors:          c.processorsService(),
-		Workspace:           c.Workspace,
-		AgentContentUpdater: c.AgentContentUpdater,
-		AgentProfileReader:  c.AgentProfileReader,
-		ProjectConfig:       c.ProjectConfig,
-		SpecTasks:           c.specTasksService(),
-		Projects:            c.projectsService(),
-		Repositories:        c.repositoriesPort(),
-		CredentialProviders: c.CredentialProviders,
-		RecordCredential:    c.RecordCredential,
-		Hub:                 c.Hub,
-		HumanDelivery:       c.HumanDelivery,
+		Queries:              c.Queries,
+		Nodes:                c.botsService(),
+		Topics:               c.topicsService(),
+		Subscriptions:        c.subscriptionsService(),
+		Publishing:           c.Publishing,
+		Lifecycle:            c.lifecycleService(),
+		Activations:          c.Activations,
+		Processors:           c.processorsService(),
+		Assets:               c.Assets,
+		AssetSSH:             c.AssetSSH,
+		AssetSSHIssuer:       c.AssetSSHIssuer,
+		AssetSSHProxyAddress: c.AssetSSHProxyAddress,
+		Workspace:            c.Workspace,
+		AgentContentUpdater:  c.AgentContentUpdater,
+		AgentProfileReader:   c.AgentProfileReader,
+		ProjectConfig:        c.ProjectConfig,
+		SpecTasks:            c.specTasksService(),
+		Projects:             c.projectsService(),
+		Repositories:         c.repositoriesPort(),
+		CredentialProviders:  c.CredentialProviders,
+		RecordCredential:     c.RecordCredential,
+		Hub:                  c.Hub,
+		HumanDelivery:        c.HumanDelivery,
 	}
 }
 
@@ -452,6 +465,16 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&BotLog{deps: deps},
 		&ListProcessors{deps: deps},
 		&GetProcessor{deps: deps},
+		&ListAssets{deps: deps},
+		&GetAsset{deps: deps},
+		&ServerRunCommand{deps: deps},
+		&ServerListCommands{deps: deps},
+		&ServerGetCommand{deps: deps},
+		&ServerKillCommand{deps: deps},
+		&ServerListFiles{deps: deps},
+		&ServerReadFile{deps: deps},
+		&ServerWriteFile{deps: deps},
+		&ServerSSHAccess{deps: deps},
 	}
 	for _, tool := range builtins {
 		if err := reg.Register(tool); err != nil {

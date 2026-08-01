@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/asset"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
 	"github.com/helixml/helix/api/pkg/org/domain/domainevent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -36,6 +37,7 @@ import (
 func New() *store.Store {
 	subs := &subscriptionsRepo{rows: map[subKey]streaming.Subscription{}}
 	lines := &reportingLinesRepo{rows: map[lineKey]struct{}{}}
+	assetLinks := &assetLinksRepo{rows: map[assetLinkKey]asset.Link{}}
 	bots := &nodesRepo{rows: map[orgKey]orgchart.Node{}, subs: subs, lines: lines}
 	topics := &topicsRepo{rows: map[orgKey]streaming.Topic{}, subs: subs}
 	return &store.Store{
@@ -48,6 +50,8 @@ func New() *store.Store {
 		Configs:          &configsRepo{rows: map[orgKey]config.Config{}},
 		Activations:      &activationsRepo{rows: map[orgKey]*activation.Activation{}},
 		Processors:       &processorsRepo{rows: map[orgKey]processor.Processor{}},
+		Assets:           &assetsRepo{rows: map[orgKey]asset.Asset{}, links: assetLinks},
+		AssetLinks:       assetLinks,
 		ChartPositions:   &chartPositionsRepo{rows: map[chartPosKey]orgchart.ChartPosition{}},
 		DomainEvents:     &domainEventsRepo{},
 	}

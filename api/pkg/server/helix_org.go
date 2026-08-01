@@ -16,7 +16,9 @@ import (
 	"github.com/gorilla/mux"
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
+	assetapp "github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
@@ -36,6 +38,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/assetssh"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -124,6 +127,7 @@ type helixOrgHandlers struct {
 	// then redirects to the install page. The installation id is reconciled
 	// later via GET /app/installations (no Setup-URL redirect needed).
 	publicGitHubManifestCallback http.Handler
+	assetSSHProxyRun             func(ctx context.Context) error
 }
 
 // initHelixOrgHandler builds the in-process helix-org HTTP handler;
@@ -326,6 +330,13 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 		go func() {
 			if err := orgHandlers.streamCron.Start(ctx); err != nil {
 				log.Error().Err(err).Msg("streamcron scheduler exited with error")
+			}
+		}()
+	}
+	if orgHandlers.assetSSHProxyRun != nil {
+		go func() {
+			if err := orgHandlers.assetSSHProxyRun(ctx); err != nil {
+				log.Error().Err(err).Msg("asset SSH proxy exited with error")
 			}
 		}()
 	}
@@ -903,6 +914,45 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// the same auto-provision + cycle-check path as REST /processors.
 	deps.Processors = svc.Processors
 
+	encryptionKey, err := cfg.APIServer.getEncryptionKey()
+	if err != nil {
+		return nil, fmt.Errorf("load asset encryption key: %w", err)
+	}
+	assetsSvc, err := assetapp.New(assetapp.Deps{
+		Assets: st.Assets,
+		Links:  st.AssetLinks,
+		Nodes:  st.Nodes,
+		GenerateKey: func() (string, string, error) {
+			return crypto.GenerateSSHKeyPair("ed25519")
+		},
+		Encrypt: func(plaintext []byte) (string, error) {
+			return crypto.EncryptAES256GCM(plaintext, encryptionKey)
+		},
+		Now:   deps.Now,
+		NewID: deps.NewID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("init assets service: %w", err)
+	}
+	assetSSH, err := assetssh.New(assetsSvc, func(ciphertext string) ([]byte, error) {
+		return crypto.DecryptAES256GCM(ciphertext, encryptionKey)
+	}, deps.NewID)
+	if err != nil {
+		return nil, fmt.Errorf("init asset SSH client: %w", err)
+	}
+	assetSSHIssuer, err := assetssh.NewIssuer(assetsSvc, encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("init asset SSH certificate issuer: %w", err)
+	}
+	assetSSHProxy, err := assetssh.NewProxy(assetsSvc, assetSSH, encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("init asset SSH proxy: %w", err)
+	}
+	deps.Assets = assetsSvc
+	deps.AssetSSH = assetSSH
+	deps.AssetSSHIssuer = assetSSHIssuer
+	deps.AssetSSHProxyAddress = cfg.APIServer.Cfg.WebServer.AssetSSHProxyAddress
+
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		return nil, fmt.Errorf("register helix-org builtins: %w", err)
@@ -911,6 +961,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	slackAutoRouter := &slackAutoRouter{procs: svc.Processors, routes: slackRouteReconciler, logger: logger}
 	apiDeps := helixorgapi.Deps{
+		Assets:        assetsSvc,
 		Topics:        svc.Topics,
 		Messages:      svc.Messages,
 		Nodes:         svc.Nodes,
@@ -993,6 +1044,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// auto-installed GitHub webhook should POST back to. Helix's
 		// SERVER_URL env var is the canonical place it lives.
 		PublicServerURL: cfg.APIServer.Cfg.WebServer.URL,
+		AssetHealth: func(ctx context.Context, orgID, id string) helixorgapi.AssetHealthDTO {
+			health := assetSSH.Health(ctx, orgID, id)
+			return helixorgapi.AssetHealthDTO{
+				TCPReachable: health.TCPReachable,
+				SSHReachable: health.SSHReachable,
+				LatencyMS:    health.LatencyMS,
+				Error:        health.Error,
+				CheckedAt:    health.CheckedAt,
+			}
+		},
 	}
 	apiRoutes := helixorgapi.Routes(apiDeps)
 	extras := make([]helixorgserver.Route, 0, len(apiRoutes))
@@ -1139,6 +1200,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		slackTopics:                  slackTopics,
 		slackAutoRouter:              slackAutoRouter,
 		slackSocket:                  slackSocket,
+		assetSSHProxyRun: func(ctx context.Context) error {
+			return assetSSHProxy.Serve(ctx, cfg.APIServer.Cfg.WebServer.AssetSSHProxyListen)
+		},
 	}, nil
 }
 

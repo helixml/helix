@@ -61,6 +61,7 @@ require (
 	github.com/nikoksr/notify v0.41.0
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/olekukonko/tablewriter v1.0.9
+	github.com/pkg/sftp v1.13.7
 	github.com/prometheus/client_golang v1.23.0
 	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e
 	github.com/rs/zerolog v1.35.0
@@ -166,6 +167,7 @@ require (
 	github.com/klippa-app/go-pdfium v1.18.0 // indirect
 	github.com/knights-analytics/hugot v0.7.0 // indirect
 	github.com/knights-analytics/ortgenai v0.2.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/ktrysmt/go-bitbucket v0.9.80 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.7 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.0 // indirect

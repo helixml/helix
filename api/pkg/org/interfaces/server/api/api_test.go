@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
+	"github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
@@ -69,6 +70,15 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: topo,
 		Now: clock, NewID: newID, BaseTools: mcptools.BaseReadTools,
 	})
+	assetsSvc, err := assets.New(assets.Deps{
+		Assets: st.Assets, Links: st.AssetLinks, Nodes: st.Nodes,
+		GenerateKey: func() (string, string, error) { return "private-key", "ssh-ed25519 public-key", nil },
+		Encrypt:     func(plaintext []byte) (string, error) { return "encrypted:" + string(plaintext), nil },
+		Now:         clock, NewID: newID,
+	})
+	if err != nil {
+		t.Fatalf("new assets service: %v", err)
+	}
 
 	deps := orgapi.Deps{
 		Topics:   topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
@@ -86,6 +96,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		Publishing:    publishing.New(publishing.Deps{Topics: st.Topics, Events: st.Events, Hub: hub, Now: clock, NewID: newID}),
 		Queries:       queries.New(queries.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
 		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: clock, NewID: newID}),
+		Assets:        assetsSvc,
 		Processors: processors.New(processors.Deps{
 			Processors: st.Processors,
 			Topics:     topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
