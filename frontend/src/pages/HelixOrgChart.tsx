@@ -418,7 +418,7 @@ const BotTaskStatsRow: FC<{ stats: BotTaskStats; isLight: boolean }> = ({ stats,
   )
 }
 
-const AssetNode: FC<NodeProps<Node<AssetNodeData>>> = ({ data }) => {
+export const AssetNode: FC<NodeProps<Node<AssetNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
   const border = lightTheme.isLight ? 'rgba(25,118,210,0.42)' : 'rgba(100,181,246,0.5)'
@@ -453,7 +453,11 @@ const AssetNode: FC<NodeProps<Node<AssetNodeData>>> = ({ data }) => {
         </Stack>
         <Stack direction="row" spacing={0.5} alignItems="center" className={NO_DRAG_NO_PAN} onClick={(e) => e.stopPropagation()}>
           <Tooltip title={reachable ? 'Network and SSH reachable' : 'Network or SSH unavailable'}>
-            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: reachable ? 'rgb(46,160,67)' : 'rgb(202,138,4)' }} />
+            <Box
+              role="status"
+              aria-label={reachable ? 'Network and SSH reachable' : 'Network or SSH unavailable'}
+              sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: reachable ? 'rgb(46,160,67)' : 'rgb(202,138,4)' }}
+            />
           </Tooltip>
           <IconButton size="small" onClick={(e) => { e.stopPropagation(); setMenuEl(e.currentTarget) }} sx={{ p: 0.25, color: muted }}>
             <MoreVertIcon sx={{ fontSize: 16 }} />
@@ -916,7 +920,7 @@ const layoutTopicColumns = (
   return out
 }
 
-const buildGraph = (
+export const buildGraph = (
   flat: FlatBot[],
   handlers: {
     onSelectBot: (botId: string) => void
