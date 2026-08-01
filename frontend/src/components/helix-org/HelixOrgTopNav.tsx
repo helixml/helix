@@ -1,4 +1,4 @@
-// Elegant top-bar nav for helix-org (Chart / Bots / Topics).
+// Elegant top-bar nav for helix-org (Chart / Agents / Topics / Assets).
 // Renders next to theme + notifications on the Page AppBar.
 
 import { FC } from 'react'
@@ -6,6 +6,7 @@ import Box from '@mui/material/Box'
 import ButtonBase from '@mui/material/ButtonBase'
 import Tooltip from '@mui/material/Tooltip'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
+import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
 import { Bot, Network } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
@@ -42,6 +43,13 @@ const ITEMS: NavItem[] = [
     // Same hub glyph as topic cards on the org chart.
     icon: <HubOutlinedIcon sx={{ fontSize: 16 }} />,
     isActive: (n) => n === 'helix_org_topics' || n === 'helix_org_topic_detail',
+  },
+  {
+    id: 'assets',
+    label: 'Assets',
+    route: 'helix_org_assets',
+    icon: <DnsOutlinedIcon sx={{ fontSize: 16 }} />,
+    isActive: (n) => n === 'helix_org_assets',
   },
 ]
 

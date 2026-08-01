@@ -23138,7 +23138,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "kind": {
-                    "description": "Kind is bot | topic | processor (matches the ReactFlow node id prefix).",
+                    "description": "Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix).",
                     "type": "string"
                 },
                 "x": {

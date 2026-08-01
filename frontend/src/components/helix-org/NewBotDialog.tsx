@@ -18,11 +18,12 @@ import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 export type NewBotDialogProps = {
   open: boolean
   onClose: () => void
+  onCreated?: (id: string) => void
   // When set, the Reports-to field is prefilled with this parent bot id.
   presetParentId?: string
 }
 
-const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) => {
+const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, onCreated, presetParentId }) => {
   const snackbar = useSnackbar()
   const create = useCreateBot()
   const { data: botsData } = useListHelixOrgBots({ enabled: open })
@@ -95,6 +96,7 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
         content,
         ...(parentId ? { parent_id: parentId } : {}),
       })
+      onCreated?.(res.id ?? trimmedId)
       if (parentId) {
         snackbar.success(`agent ${res.id ?? trimmedId} created, reporting to ${parentId}`)
       } else {

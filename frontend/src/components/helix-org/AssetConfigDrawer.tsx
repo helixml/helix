@@ -60,6 +60,7 @@ export type AssetConfigDrawerProps = {
   health?: AssetHealthDTO
   agents: BotDTO[]
   onClose: () => void
+  onCreated?: (id: string) => void
   onDelete: (id: string) => void
 }
 
@@ -75,7 +76,7 @@ const formFromAsset = (asset: AssetDTO): AssetForm => ({
   notes: asset.notes_for_agents ?? '',
 })
 
-const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, agents, onClose, onDelete }) => {
+const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, agents, onClose, onCreated, onDelete }) => {
   const snackbar = useSnackbar()
   const createAsset = useCreateAsset()
   const updateAsset = useUpdateAsset()
@@ -135,6 +136,7 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
           notes_for_agents: form.notes.trim(),
         })
         setCreated(value)
+        if (value.id) onCreated?.(value.id)
         snackbar.success(`Added asset ${value.name}`)
         return
       }

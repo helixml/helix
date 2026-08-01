@@ -46,9 +46,10 @@ const defaultCronSchedule = () =>
 export type NewTopicDrawerProps = {
   open: boolean
   onClose: () => void
+  onCreated?: (id: string) => void
 }
 
-const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
+const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose, onCreated }) => {
   const snackbar = useSnackbar()
   const create = useCreateHelixOrgTopic()
   const installWebhook = useInstallGitHubWebhook()
@@ -201,6 +202,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
         description: description.trim() || undefined,
         transport: { kind, config },
       })
+      if (created?.id) onCreated?.(created.id)
       if (kind === 'github' && created?.id) {
         // Auto-install a per-repo webhook on GitHub. The backend uses the
         // installed Helix App's installation token (repository_hooks

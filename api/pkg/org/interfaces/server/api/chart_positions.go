@@ -9,7 +9,7 @@ import (
 
 // ChartPositionDTO is one free-placed node on the org chart canvas.
 type ChartPositionDTO struct {
-	// Kind is bot | topic | processor (matches the ReactFlow node id prefix).
+	// Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix).
 	Kind string  `json:"kind"`
 	ID   string  `json:"id"`
 	X    float64 `json:"x"`

@@ -86,7 +86,19 @@ import NewTopicDrawer from '../components/helix-org/NewTopicDrawer'
 import AssetConfigDrawer from '../components/helix-org/AssetConfigDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import TopicDetailDrawer from '../components/helix-org/TopicDetailDrawer'
-import ProcessorNode, { ProcessorNodeData, PROC_W, procNodeHeight } from '../components/helix-org/ProcessorNode'
+import ProcessorNode, { ProcessorNodeData } from '../components/helix-org/ProcessorNode'
+import {
+  ASSET_H,
+  ASSET_W,
+  BOT_H,
+  BOT_W,
+  centeredCreatedNodePosition,
+  ChartNodeKind,
+  PROC_W,
+  procNodeHeight,
+  STREAM_H,
+  STREAM_W,
+} from '../components/helix-org/chartNodeGeometry'
 import AgentRuntimeProviderIcon from '../components/helix-org/AgentRuntimeProviderIcon'
 import { isTranscriptTopic } from '../components/helix-org/helixOrgTopics'
 import { BotTaskStats, summarizeBotTasks } from '../components/helix-org/botTaskStats'
@@ -148,15 +160,8 @@ import { generateCronShortSummary } from '../utils/cronUtils'
 // saved row stay on the auto-layout position. Camera (pan/zoom) is
 // personal — localStorage keyed by user id + org id, not shared.
 
-const BOT_W = 220
-const BOT_H = 96
 const BOT_GAP_X = 32
 const BOT_GAP_Y = 90
-const STREAM_W = 180
-// Minimum topic card height; actual height grows with wrapped name/id.
-const STREAM_H = 80
-const ASSET_W = 220
-const ASSET_H = 100
 
 // Rough height used by auto-layout before RF measures the real node.
 // Keeps stacked topics from overlapping when names wrap to multiple lines.
@@ -1682,7 +1687,7 @@ const ChartCanvas: FC<{
   // the bot; pinning everything freezes the layout.
   onLayoutSnapshot: (positions: { kind: string; id: string; x: number; y: number }[]) => void
   // Right-click on empty pane (or a node) → create menu in parent.
-  onCanvasContextMenu: (clientX: number, clientY: number) => void
+  onCanvasContextMenu: (clientX: number, clientY: number, flowX: number, flowY: number) => void
   topics: TopicSummary[]
   messageCounts: Record<string, number>
   processors: ProcessorSummary[]
@@ -1701,7 +1706,7 @@ const ChartCanvas: FC<{
   const userId = account.user?.id ?? ''
   // Canonical org id (not the URL slug) so a rename doesn't lose the camera.
   const orgId = account.organizationTools.organization?.id ?? ''
-  const { fitView, setViewport } = useReactFlow()
+  const { fitView, screenToFlowPosition, setViewport } = useReactFlow()
   // Apply camera once after the first graph build: restore this user's
   // saved pan/zoom for the org, or fitView when nothing is stored yet.
   // Node-drag persistence must not re-run this (would yank the camera).
@@ -1744,7 +1749,8 @@ const ChartCanvas: FC<{
     }
     if (didInitViewportRef.current || computedNodes.length === 0 || !userId || !orgId) return
     didInitViewportRef.current = true
-    const saved = loadChartViewport(userId, orgId)
+    const nodeIds = computedNodes.map((node) => node.id)
+    const saved = loadChartViewport(userId, orgId, nodeIds)
     requestAnimationFrame(() => {
       if (saved) {
         setViewport(saved, { duration: 0 })
@@ -1758,9 +1764,9 @@ const ChartCanvas: FC<{
   const onMoveEnd = useCallback(
     (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
       if (!userId || !orgId) return
-      saveChartViewport(userId, orgId, viewport)
+      saveChartViewport(userId, orgId, viewport, nodes.map((node) => node.id))
     },
-    [userId, orgId],
+    [nodes, userId, orgId],
   )
 
   // xyflow's OnNodeDrag first arg is a native MouseEvent|TouchEvent — do not
@@ -1983,15 +1989,18 @@ const ChartCanvas: FC<{
         zoomOnScroll
         onPaneContextMenu={(e) => {
           e.preventDefault()
-          onCanvasContextMenu(e.clientX, e.clientY)
+          const point = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+          onCanvasContextMenu(e.clientX, e.clientY, point.x, point.y)
         }}
         onNodeContextMenu={(e) => {
           e.preventDefault()
-          onCanvasContextMenu(e.clientX, e.clientY)
+          const point = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+          onCanvasContextMenu(e.clientX, e.clientY, point.x, point.y)
         }}
         onEdgeContextMenu={(e) => {
           e.preventDefault()
-          onCanvasContextMenu(e.clientX, e.clientY)
+          const point = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+          onCanvasContextMenu(e.clientX, e.clientY, point.x, point.y)
         }}
       >
         <Background gap={20} size={1} />
@@ -2304,11 +2313,33 @@ const HelixOrgChart: FC = () => {
     | null
   >(null)
   // Right-click create menu (client coords for MUI Menu positioning).
-  const [ctxMenu, setCtxMenu] = useState<{ mouseX: number; mouseY: number } | null>(null)
-  const openCtxMenu = useCallback((clientX: number, clientY: number) => {
-    setCtxMenu({ mouseX: clientX, mouseY: clientY })
+  const [ctxMenu, setCtxMenu] = useState<{ mouseX: number; mouseY: number; flowX: number; flowY: number } | null>(null)
+  const [pendingCreatePosition, setPendingCreatePosition] = useState<{ x: number; y: number }>()
+  const openCtxMenu = useCallback((clientX: number, clientY: number, flowX: number, flowY: number) => {
+    setCtxMenu({ mouseX: clientX, mouseY: clientY, flowX, flowY })
   }, [])
   const closeCtxMenu = useCallback(() => setCtxMenu(null), [])
+
+  const openCreateFromContext = useCallback((open: () => void) => {
+    if (!ctxMenu) return
+    setPendingCreatePosition({ x: ctxMenu.flowX, y: ctxMenu.flowY })
+    closeCtxMenu()
+    open()
+  }, [closeCtxMenu, ctxMenu])
+
+  const saveCreatedPosition = useCallback((kind: ChartNodeKind, id: string) => {
+    const point = pendingCreatePosition
+    setPendingCreatePosition(undefined)
+    if (!point || !id) return
+    const position = centeredCreatedNodePosition(kind, point)
+    upsertPositions.mutate([
+      { kind, id, x: position.x, y: position.y },
+    ], {
+      onError: (err: any) => {
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'created item, but could not save its chart position')
+      },
+    })
+  }, [pendingCreatePosition, snackbar, upsertPositions])
 
   const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.87)' : 'rgba(255,255,255,0.95)'
   const subtitleColor = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
@@ -2363,7 +2394,10 @@ const HelixOrgChart: FC = () => {
     },
     [router, orgSlug],
   )
-  const onNewBot = useCallback((parentBotId: string) => setSelection({ kind: 'newBot', parentBotId }), [])
+  const onNewBot = useCallback((parentBotId: string) => {
+    setPendingCreatePosition(undefined)
+    setSelection({ kind: 'newBot', parentBotId })
+  }, [])
   const onDeleteBot = useCallback((botId: string) => setConfirmDelete({ kind: 'bot', id: botId }), [])
   const onStartBot = useCallback(async (botId: string) => {
     try {
@@ -2620,7 +2654,10 @@ const HelixOrgChart: FC = () => {
               size="small"
               variant="outlined"
               startIcon={<TransformIcon sx={{ fontSize: 16 }} />}
-              onClick={() => setProcessorDrawer({ open: true, processor: null })}
+              onClick={() => {
+                setPendingCreatePosition(undefined)
+                setProcessorDrawer({ open: true, processor: null })
+              }}
               sx={chartToolbarButtonSx}
             >
               Processor
@@ -2629,7 +2666,10 @@ const HelixOrgChart: FC = () => {
               size="small"
               variant="outlined"
               startIcon={<HubOutlinedIcon sx={{ fontSize: 16 }} />}
-              onClick={() => setTopicDrawerOpen(true)}
+              onClick={() => {
+                setPendingCreatePosition(undefined)
+                setTopicDrawerOpen(true)
+              }}
               sx={chartToolbarButtonSx}
             >
               Topic
@@ -2639,7 +2679,10 @@ const HelixOrgChart: FC = () => {
               variant="contained"
               color="secondary"
               startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-              onClick={() => setBotDialogOpen(true)}
+              onClick={() => {
+                setPendingCreatePosition(undefined)
+                setBotDialogOpen(true)
+              }}
               sx={chartToolbarButtonSizeSx}
             >
               New agent
@@ -2647,8 +2690,12 @@ const HelixOrgChart: FC = () => {
             <Button
               size="small"
               variant="outlined"
-              startIcon={<DnsOutlinedIcon />}
-              onClick={() => setAssetDrawer({ open: true })}
+              startIcon={<DnsOutlinedIcon sx={{ fontSize: 16 }} />}
+              onClick={() => {
+                setPendingCreatePosition(undefined)
+                setAssetDrawer({ open: true })
+              }}
+              sx={chartToolbarButtonSx}
             >
               New asset
             </Button>
@@ -2661,7 +2708,8 @@ const HelixOrgChart: FC = () => {
               sx={{ p: 4, height: '100%', boxSizing: 'border-box' }}
               onContextMenu={(e) => {
                 e.preventDefault()
-                openCtxMenu(e.clientX, e.clientY)
+                const rect = e.currentTarget.getBoundingClientRect()
+                openCtxMenu(e.clientX, e.clientY, e.clientX - rect.left, e.clientY - rect.top)
               }}
             >
               <Typography variant="body1" sx={{ color: subtitleColor }}>
@@ -2716,8 +2764,7 @@ const HelixOrgChart: FC = () => {
       >
         <MenuItem
           onClick={() => {
-            closeCtxMenu()
-            setBotDialogOpen(true)
+            openCreateFromContext(() => setBotDialogOpen(true))
           }}
         >
           <ListItemIcon><SmartToyOutlinedIcon fontSize="small" /></ListItemIcon>
@@ -2725,8 +2772,7 @@ const HelixOrgChart: FC = () => {
         </MenuItem>
         <MenuItem
           onClick={() => {
-            closeCtxMenu()
-            setTopicDrawerOpen(true)
+            openCreateFromContext(() => setTopicDrawerOpen(true))
           }}
         >
           <ListItemIcon><HubOutlinedIcon fontSize="small" /></ListItemIcon>
@@ -2734,8 +2780,7 @@ const HelixOrgChart: FC = () => {
         </MenuItem>
         <MenuItem
           onClick={() => {
-            closeCtxMenu()
-            setProcessorDrawer({ open: true, processor: null })
+            openCreateFromContext(() => setProcessorDrawer({ open: true, processor: null }))
           }}
         >
           <ListItemIcon><TransformIcon fontSize="small" /></ListItemIcon>
@@ -2743,8 +2788,7 @@ const HelixOrgChart: FC = () => {
         </MenuItem>
         <MenuItem
           onClick={() => {
-            closeCtxMenu()
-            setAssetDrawer({ open: true })
+            openCreateFromContext(() => setAssetDrawer({ open: true }))
           }}
         >
           <ListItemIcon><DnsOutlinedIcon fontSize="small" /></ListItemIcon>
@@ -2754,7 +2798,8 @@ const HelixOrgChart: FC = () => {
 
       <NewBotDialog
         open={botDialogOpen || selection.kind === 'newBot'}
-        onClose={() => { setBotDialogOpen(false); setSelection({ kind: 'none' }) }}
+        onClose={() => { setBotDialogOpen(false); setSelection({ kind: 'none' }); setPendingCreatePosition(undefined) }}
+        onCreated={(id) => saveCreatedPosition('bot', id)}
         presetParentId={selection.kind === 'newBot' ? selection.parentBotId : undefined}
       />
       <AssetConfigDrawer
@@ -2762,12 +2807,14 @@ const HelixOrgChart: FC = () => {
         asset={assetsData.find((asset) => asset.id === assetDrawer.assetID)}
         health={assetDrawer.assetID ? assetHealth[assetDrawer.assetID] : undefined}
         agents={(botsData ?? []).filter((bot) => bot.kind !== 'human')}
-        onClose={() => setAssetDrawer({ open: false })}
+        onClose={() => { setAssetDrawer({ open: false }); setPendingCreatePosition(undefined) }}
+        onCreated={(id) => saveCreatedPosition('asset', id)}
         onDelete={onDeleteAsset}
       />
       <NewTopicDrawer
         open={topicDrawerOpen}
-        onClose={() => setTopicDrawerOpen(false)}
+        onClose={() => { setTopicDrawerOpen(false); setPendingCreatePosition(undefined) }}
+        onCreated={(id) => saveCreatedPosition('topic', id)}
       />
       <TopicDetailDrawer
         topicId={selectedTopicId}
@@ -2794,7 +2841,8 @@ const HelixOrgChart: FC = () => {
       <ProcessorConfigDrawer
         open={processorDrawer.open}
         processor={processorDrawer.processor}
-        onClose={() => setProcessorDrawer({ open: false, processor: null })}
+        onClose={() => { setProcessorDrawer({ open: false, processor: null }); setPendingCreatePosition(undefined) }}
+        onCreated={(id) => saveCreatedPosition('processor', id)}
       />
     </HelixOrgShell>
   )

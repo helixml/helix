@@ -21,6 +21,7 @@ import TransformIcon from '@mui/icons-material/Transform'
 import { Handle, Node, NodeProps, Position } from '@xyflow/react'
 
 import useLightTheme from '../../hooks/useLightTheme'
+import { PROC_HEADER_H as HEADER_H, PROC_ROW_H as ROW_H, PROC_W, procNodeHeight } from './chartNodeGeometry'
 
 // React Flow swallows pointer events on elements with these classes, so
 // dragging the node body doesn't fire on icon buttons / scroll.
@@ -46,11 +47,7 @@ export type ProcessorNodeData = {
 }
 
 // Fixed geometry so handle positions and row positions line up exactly.
-export const PROC_W = 220
-const HEADER_H = 50
-const ROW_H = 28
 const PORT = 12 // handle diameter
-export const procNodeHeight = (outputCount: number) => HEADER_H + Math.max(1, outputCount) * ROW_H
 
 const ProcessorNode: FC<NodeProps<Node<ProcessorNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()

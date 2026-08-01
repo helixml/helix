@@ -7,18 +7,19 @@ import (
 
 // Chart node kinds stored in org_chart_positions. Values match the
 // ReactFlow node id prefix used by the chart UI (bot:…, topic:…,
-// processor:…).
+// processor:…, asset:…).
 const (
 	ChartNodeKindBot       = "bot"
 	ChartNodeKindTopic     = "topic"
 	ChartNodeKindProcessor = "processor"
+	ChartNodeKindAsset     = "asset"
 )
 
 // ValidChartNodeKind reports whether kind is one of the chart node
 // kinds the UI can place.
 func ValidChartNodeKind(kind string) bool {
 	switch kind {
-	case ChartNodeKindBot, ChartNodeKindTopic, ChartNodeKindProcessor:
+	case ChartNodeKindBot, ChartNodeKindTopic, ChartNodeKindProcessor, ChartNodeKindAsset:
 		return true
 	default:
 		return false
@@ -32,7 +33,7 @@ func ValidChartNodeKind(kind string) bool {
 // (dagre + topic columns).
 type ChartPosition struct {
 	OrganizationID string
-	// Kind is bot | topic | processor.
+	// Kind is bot | topic | processor | asset.
 	Kind string
 	// ID is the entity handle (bot id, topic id, processor id) without
 	// the kind prefix.

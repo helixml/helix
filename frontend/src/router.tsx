@@ -52,6 +52,7 @@ import HelixOrgBots from './pages/HelixOrgBots'
 import HelixOrgBotDetail from './pages/HelixOrgBotDetail'
 import HelixOrgHumanDetail from './pages/HelixOrgHumanDetail'
 import HelixOrgTopics from './pages/HelixOrgTopics'
+import HelixOrgAssets from './pages/HelixOrgAssets'
 import HelixOrgTopicDetail from './pages/HelixOrgTopicDetail'
 import HelixOrgProcessorDetail from './pages/HelixOrgProcessorDetail'
 import useRouter from './hooks/useRouter'
@@ -634,6 +635,11 @@ const routes: IApplicationRoute[] = [
   path: '/orgs/:org_id/helix-org/topics',
   meta: { drawer: false, title: 'Helix Org · Topics' },
   render: () => <HelixOrgTopics />,
+}, {
+  name: 'helix_org_assets',
+  path: '/orgs/:org_id/helix-org/assets',
+  meta: { drawer: false, title: 'Helix Org · Assets' },
+  render: () => <HelixOrgAssets />,
 }, {
   name: 'helix_org_processor_detail',
   path: '/orgs/:org_id/helix-org/processors/:processor_id',

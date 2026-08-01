@@ -140,7 +140,16 @@ create prints the public key that must be installed on the target server.
 one shared side-drawer surface matching the processor create/edit pattern. The
 drawer selects the asset type first (only Server today), then shows its typed
 fields. Agent notes are the final data field. Server nodes show independent
-network and authenticated-SSH health lights.
+network and authenticated-SSH health lights. The top navigation has a final
+Assets tab with a `SimpleTable` registry view, health, endpoint, linked-agent
+count, and the same create/edit drawer.
+
+Right-click creation records the click in React Flow coordinates and persists a
+centered `org_chart_positions` row after the entity is created. Agents, topics,
+processors, and assets all use this path. The position domain accepts all four
+node kinds. Personal viewport records also include the current graph node IDs;
+when the graph changes, the chart fits the new graph instead of restoring a
+camera that can leave a newly added node off-screen.
 
 ## Delivery order
 
@@ -164,7 +173,8 @@ network and authenticated-SSH health lights.
 - `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` and targeted org tests.
 - `./stack update_openapi`, then `cd frontend && yarn build`.
 - Inner Helix browser: right-click the chart, confirm New asset is last, toggle
-  password/key auth, create a server, see its public key and red health, open the
-  same drawer in edit mode, verify notes, see the server node, and clean it up.
+  password/key auth, create a server, see its public key and red health, verify
+  its click-centered position through the chart-position API, see it without
+  using Fit View, list it in the Assets tab, remount the chart, and clean it up.
 - After explicit user approval: connect to the supplied remote host and test the
   immediately following operation through both MCP and `ssh asset@proxy`.

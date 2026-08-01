@@ -195,7 +195,7 @@ export interface ApiBotSubscriptionsResponse {
 
 export interface ApiChartPositionDTO {
   id?: string;
-  /** Kind is bot | topic | processor (matches the ReactFlow node id prefix). */
+  /** Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix). */
   kind?: string;
   x?: number;
   y?: number;

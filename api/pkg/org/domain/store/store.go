@@ -214,7 +214,7 @@ type Configs interface {
 }
 
 // ChartPositions persists free-placed (x, y) canvas coordinates for
-// org-chart nodes (bots, topics, processors). Keyed by
+// org-chart nodes (bots, topics, processors, assets). Keyed by
 // (orgID, kind, id). Pure UI layout — the chart falls back to
 // auto-layout when no row exists for a node.
 type ChartPositions interface {

@@ -31,6 +31,18 @@ describe('chartViewportStorage', () => {
     expect(window.localStorage.getItem(key)).toContain('"zoom":0.85')
   })
 
+  it('rejects a saved viewport when the graph node set changed', () => {
+    saveChartViewport(userId, orgId, { x: 10, y: 20, zoom: 0.9 }, ['bot:owner'])
+    expect(loadChartViewport(userId, orgId, ['bot:owner'])).toEqual({ x: 10, y: 20, zoom: 0.9 })
+    expect(loadChartViewport(userId, orgId, ['bot:owner', 'asset:server'])).toBeNull()
+    expect(loadChartViewport(userId, orgId, [])).toBeNull()
+  })
+
+  it('rejects legacy viewport records when graph-aware loading is requested', () => {
+    saveChartViewport(userId, orgId, { x: 1, y: 2, zoom: 1 })
+    expect(loadChartViewport(userId, orgId, ['asset:server'])).toBeNull()
+  })
+
   it('scopes by user and org', () => {
     saveChartViewport(userId, orgId, { x: 1, y: 2, zoom: 1 })
     expect(loadChartViewport('other_user', orgId)).toBeNull()
