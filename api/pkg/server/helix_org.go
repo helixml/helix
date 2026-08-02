@@ -560,6 +560,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 	deps.Projects = projectsPort
 
+	// Sandboxes backs the Chief of Staff's standalone sandbox discovery and
+	// CRUD tools. It delegates to the same controller as the REST/UI surface,
+	// while the adapter derives the human owner and hard-scopes every row to
+	// the caller's organization.
+	sandboxesPort, err := runtimehelix.NewSandboxes(st, cfg.APIServer.sandboxController, helixStore)
+	if err != nil {
+		return nil, fmt.Errorf("init sandboxes: %w", err)
+	}
+	deps.Sandboxes = sandboxesPort
+
 	// Repositories backs list_repositories / attach_repository /
 	// detach_repository — org git repos attached to Bot projects so
 	// sandboxes can clone the code. Chief of Staff gets these by default.

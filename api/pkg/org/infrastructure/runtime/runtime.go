@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -383,6 +384,94 @@ func (NoopProjects) Get(_ context.Context, _, _ string) (ProjectView, error) {
 // ErrProjectsUnsupported is what the noop impl returns. Tools translate it
 // into a friendly MCP error.
 var ErrProjectsUnsupported = errors.New("project access not wired on this runtime")
+
+// Sandboxes is the port the org MCP sandbox tools use to manage standalone
+// Sandboxes API containers in the caller's organization. Implementations must
+// scope every row by orgID and derive the human owner for Create from the
+// authenticated caller/runtime state rather than accepting it as tool input.
+type Sandboxes interface {
+	ListRuntimes(ctx context.Context) (SandboxRuntimeCatalog, error)
+	List(ctx context.Context, orgID, projectID string) ([]SandboxView, error)
+	Get(ctx context.Context, orgID, sandboxID string) (SandboxView, error)
+	Create(ctx context.Context, orgID string, botID orgchart.NodeID, in CreateSandboxInput) (SandboxView, error)
+	Update(ctx context.Context, orgID, sandboxID string, in UpdateSandboxInput) (SandboxView, error)
+	Delete(ctx context.Context, orgID, sandboxID string) error
+}
+
+type SandboxRuntimeCatalog struct {
+	Runtimes       []string `json:"runtimes"`
+	DefaultRuntime string   `json:"default_runtime"`
+}
+
+type CreateSandboxInput struct {
+	Name           string            `json:"name,omitempty"`
+	Runtime        string            `json:"runtime,omitempty"`
+	Image          string            `json:"image,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
+	VCPUs          int               `json:"vcpus,omitempty"`
+	MemoryMB       int               `json:"memory_mb,omitempty"`
+	DisplayWidth   int               `json:"display_width,omitempty"`
+	DisplayHeight  int               `json:"display_height,omitempty"`
+	DisplayFPS     int               `json:"display_fps,omitempty"`
+	ProjectID      string            `json:"project_id,omitempty"`
+	Persistent     bool              `json:"persistent,omitempty"`
+}
+
+type UpdateSandboxInput struct {
+	Name           *string            `json:"name,omitempty"`
+	TimeoutSeconds *int               `json:"timeout_seconds,omitempty"`
+	Tags           *map[string]string `json:"tags,omitempty"`
+}
+
+// SandboxView intentionally excludes environment variables: list/get tool
+// results are fed back into an LLM transcript, so echoing sandbox secrets by
+// default would turn routine inventory into credential disclosure.
+type SandboxView struct {
+	ID             string            `json:"id"`
+	Name           string            `json:"name,omitempty"`
+	OrganizationID string            `json:"organization_id"`
+	ProjectID      string            `json:"project_id,omitempty"`
+	Owner          string            `json:"owner"`
+	Runtime        string            `json:"runtime"`
+	Image          string            `json:"image,omitempty"`
+	Status         string            `json:"status"`
+	StatusMessage  string            `json:"status_message,omitempty"`
+	VCPUs          int               `json:"vcpus"`
+	MemoryMB       int               `json:"memory_mb"`
+	Persistent     bool              `json:"persistent"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+	StartedAt      *time.Time        `json:"started_at,omitempty"`
+	StoppedAt      *time.Time        `json:"stopped_at,omitempty"`
+	ExpiresAt      *time.Time        `json:"expires_at,omitempty"`
+}
+
+type NoopSandboxes struct{}
+
+func (NoopSandboxes) ListRuntimes(_ context.Context) (SandboxRuntimeCatalog, error) {
+	return SandboxRuntimeCatalog{}, ErrSandboxesUnsupported
+}
+func (NoopSandboxes) List(_ context.Context, _, _ string) ([]SandboxView, error) {
+	return nil, ErrSandboxesUnsupported
+}
+func (NoopSandboxes) Get(_ context.Context, _, _ string) (SandboxView, error) {
+	return SandboxView{}, ErrSandboxesUnsupported
+}
+func (NoopSandboxes) Create(_ context.Context, _ string, _ orgchart.NodeID, _ CreateSandboxInput) (SandboxView, error) {
+	return SandboxView{}, ErrSandboxesUnsupported
+}
+func (NoopSandboxes) Update(_ context.Context, _, _ string, _ UpdateSandboxInput) (SandboxView, error) {
+	return SandboxView{}, ErrSandboxesUnsupported
+}
+func (NoopSandboxes) Delete(_ context.Context, _, _ string) error {
+	return ErrSandboxesUnsupported
+}
+
+var ErrSandboxesUnsupported = errors.New("sandbox access not wired on this runtime")
 
 // Repositories is the port the org MCP repository tools use to list the
 // Helix git repositories in the caller's org and attach/detach them on a

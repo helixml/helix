@@ -16,6 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
+	orgsandboxes "github.com/helixml/helix/api/pkg/org/application/sandboxes"
 	"github.com/helixml/helix/api/pkg/org/application/spectasks"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
@@ -112,6 +113,9 @@ type Deps struct {
 	// project-discovery tools (list_projects/get_project), scoped to the
 	// caller's org.
 	Projects *projects.Service
+	// Sandboxes is the front-of-house application service backing standalone
+	// sandbox discovery and CRUD, scoped to the caller's org.
+	Sandboxes *orgsandboxes.Service
 	// Repositories backs list_repositories / list_bot_repositories /
 	// attach_repository / detach_repository — org git repos attached to
 	// Bot projects so sandboxes can clone the code.
@@ -163,6 +167,9 @@ type Config struct {
 	// nil → Build defaults to runtime.NoopProjects{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
 	Projects runtime.Projects
+	// Sandboxes is the runtime port for standalone org sandbox management.
+	// nil → Build defaults to runtime.NoopSandboxes{}.
+	Sandboxes runtime.Sandboxes
 	// ProjectAccess resolves the caller Bot's own runtime project so project
 	// discovery can combine it with the explicit per-Bot allowlist.
 	ProjectAccess projects.OwnProjectResolver
@@ -217,12 +224,25 @@ func (c Config) Build() Deps {
 		ProjectConfig:        c.ProjectConfig,
 		SpecTasks:            c.specTasksService(),
 		Projects:             c.projectsService(),
+		Sandboxes:            c.sandboxesService(),
 		Repositories:         c.repositoriesPort(),
 		CredentialProviders:  c.CredentialProviders,
 		RecordCredential:     c.RecordCredential,
 		Hub:                  c.Hub,
 		HumanDelivery:        c.HumanDelivery,
 	}
+}
+
+func (c Config) sandboxesService() *orgsandboxes.Service {
+	port := c.Sandboxes
+	if port == nil {
+		port = runtime.NoopSandboxes{}
+	}
+	var members orgsandboxes.MemberVerifier
+	if c.Queries != nil {
+		members = c.Queries
+	}
+	return orgsandboxes.New(port, members)
 }
 
 // processorsService returns the pre-built Processors service when the
@@ -361,6 +381,7 @@ func DefaultDeps(s *store.Store) Config {
 		ProjectConfig:       runtime.NoopProjectConfig{},
 		SpecTasks:           runtime.NoopSpecTasks{},
 		Projects:            runtime.NoopProjects{},
+		Sandboxes:           runtime.NoopSandboxes{},
 		Repositories:        runtime.NoopRepositories{},
 		CredentialProviders: map[string]credential.Provider{},
 	}
@@ -452,6 +473,14 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		// per-Role (not in BaseReadTools).
 		NewListProjects(deps),
 		NewGetProject(deps),
+		// Standalone org sandboxes — discovery and CRUD. Chief of Staff gets
+		// these through OwnerBotTools; other Bots may receive them explicitly.
+		NewListSandboxRuntimes(deps),
+		NewListSandboxes(deps),
+		NewGetSandbox(deps),
+		NewCreateSandbox(deps),
+		NewUpdateSandbox(deps),
+		NewDeleteSandbox(deps),
 		// Git repositories — list org repos and attach/detach them on Bot
 		// projects so sandboxes clone the code. OwnerBotTools grants these
 		// to Chief of Staff by default.

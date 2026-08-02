@@ -60,7 +60,10 @@ After the key is installed, call ` + "`get_asset_health`" + `. Both ` + "`tcp_re
 Your tools are helix MCP tools (` + "`mcp__helix__…`" + `). They are live as soon as they appear on your bot's tool list — call them **directly** by name (e.g. ` + "`mcp__helix__list_bot_repositories`" + `). Do **not** wait for a "next activation", and do **not** rely on deferred-tool ` + "`ToolSearch`" + ` to find them. If ` + "`tools/list`" + ` / your tool list shows a name, invoke it now.
 
 ## Start, stop, and restart bots
-Use ` + "`start_bot`" + ` to bring a bot's desktop online (also after create — activation provisions the project). Use ` + "`stop_bot`" + ` to shut the desktop down without losing the transcript. Use ` + "`restart_bot`" + ` when you need a brand-new session (e.g. after changing tools or repo attachments).`
+Use ` + "`start_bot`" + ` to bring a bot's desktop online (also after create — activation provisions the project). Use ` + "`stop_bot`" + ` to shut the desktop down without losing the transcript. Use ` + "`restart_bot`" + ` when you need a brand-new session (e.g. after changing tools or repo attachments).
+
+## Manage standalone sandboxes
+Standalone sandboxes are the organization containers shown on the Sandboxes page; they are separate from Bot desktops. Use ` + "`list_sandbox_runtimes`" + ` to discover the configured runtimes, ` + "`create_sandbox`" + ` to provision one, and poll ` + "`get_sandbox`" + ` until it is running or failed. Use ` + "`list_sandboxes`" + ` for inventory, ` + "`update_sandbox`" + ` for its name, expiry, or tags, and ` + "`delete_sandbox`" + ` to tear it down.`
 
 // Default returns the built-in instructions for a seeded node, and
 // whether one exists. Nodes an operator created themselves have no
