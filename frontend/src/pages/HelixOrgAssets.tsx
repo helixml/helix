@@ -29,7 +29,8 @@ import {
   useListHelixOrgBots,
 } from '../services/helixOrgService'
 
-const AssetStatusBadge: FC<{ health?: AssetHealthDTO }> = ({ health }) => {
+const AssetStatusBadge: FC<{ enabled: boolean; health?: AssetHealthDTO }> = ({ enabled, health }) => {
+  if (!enabled) return <Chip size="small" label="Disabled" color="default" />
   if (!health) return <Chip size="small" label="Checking" color="default" />
   if (health.tcp_reachable && health.ssh_reachable) return <Chip size="small" label="Connected" color="success" />
   return <Chip size="small" label="Connection degraded" color="warning" />
@@ -40,7 +41,7 @@ const HelixOrgAssets: FC = () => {
   const breadcrumbs = useHelixOrgBreadcrumbs()
   const { data: assets = [], isLoading } = useListAssets()
   const { data: agents = [] } = useListHelixOrgBots()
-  const assetIDs = useMemo(() => assets.map((asset) => asset.id ?? '').filter(Boolean), [assets])
+  const assetIDs = useMemo(() => assets.filter((asset) => asset.enabled !== false).map((asset) => asset.id ?? '').filter(Boolean), [assets])
   const health = useAssetHealth(assetIDs, { refetchInterval: 15000 })
   const deleteAsset = useDeleteAsset()
 
@@ -114,7 +115,7 @@ const HelixOrgAssets: FC = () => {
         {asset.server ? `${asset.server.user}@${asset.server.address}:${asset.server.port ?? 22}` : '—'}
       </Typography>
     ),
-    status: <AssetStatusBadge health={asset.id ? health[asset.id] : undefined} />,
+    status: <AssetStatusBadge enabled={asset.enabled !== false} health={asset.id ? health[asset.id] : undefined} />,
     agents: <Typography variant="body2" color="text.secondary">{asset.agent_ids?.length ?? 0}</Typography>,
     updated: (
       <Typography variant="body2" color="text.secondary">

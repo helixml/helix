@@ -76,6 +76,9 @@ func TestAssetDiscoveryOnlyReturnsLinkedAssetsAndAgentNotes(t *testing.T) {
 	if strings.Contains(string(raw), "encrypted") {
 		t.Fatalf("encrypted credential leaked through list_assets: %s", raw)
 	}
+	if !listed.Assets[0].Enabled {
+		t.Fatalf("new asset unexpectedly disabled: %s", raw)
+	}
 
 	raw, err = (&GetAsset{deps: deps}).Invoke(ctx, tool.Invocation{Caller: caller, Args: json.RawMessage(`{"asset":"production"}`)})
 	if err != nil {
@@ -83,6 +86,25 @@ func TestAssetDiscoveryOnlyReturnsLinkedAssetsAndAgentNotes(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"name":"production"`) {
 		t.Fatalf("get_asset did not resolve by name: %s", raw)
+	}
+
+	enabled := false
+	if _, err := svc.UpdateServer(ctx, "org-1", a.ID, assetapp.UpdateServerParams{Enabled: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = (&ListAssets{deps: deps}).Invoke(ctx, tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Assets[0].Enabled || listed.Assets[0].Server.SSHAccess.Available || len(listed.Assets[0].Server.Capabilities) != 0 {
+		t.Fatalf("disabled asset advertised as usable: %s", raw)
+	}
+	_, err = (&GetAsset{deps: deps}).Invoke(ctx, tool.Invocation{Caller: caller, Args: json.RawMessage(`{"asset":"production"}`)})
+	if err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("disabled asset remained callable: %v", err)
 	}
 
 	_, err = (&GetAsset{deps: deps}).Invoke(ctx, tool.Invocation{

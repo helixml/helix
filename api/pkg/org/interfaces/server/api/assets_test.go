@@ -32,6 +32,7 @@ func TestAssetsAPIKeyAuthCreateUpdateAndSecretRedaction(t *testing.T) {
 	require.Equal(t, "a-test-id", dto.ID)
 	require.Equal(t, "ssh-ed25519 public-key", dto.Server.PublicKey)
 	require.Equal(t, "Do not restart during deploys.", dto.NotesForAgents)
+	require.True(t, dto.Enabled)
 
 	address := "prod.internal"
 	port := uint16(2222)
@@ -45,6 +46,12 @@ func TestAssetsAPIKeyAuthCreateUpdateAndSecretRedaction(t *testing.T) {
 	require.Equal(t, "prod.internal", dto.Server.Address)
 	require.Equal(t, uint16(2222), dto.Server.Port)
 	require.Equal(t, notes, dto.NotesForAgents)
+
+	enabled := false
+	disabled := do(t, h, http.MethodPatch, "/assets/"+dto.ID, orgapi.UpdateAssetRequest{Enabled: &enabled})
+	require.Equal(t, http.StatusOK, disabled.Code, disabled.Body.String())
+	decode(t, disabled, &dto)
+	require.False(t, dto.Enabled)
 
 	listed := do(t, h, http.MethodGet, "/assets", nil)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())

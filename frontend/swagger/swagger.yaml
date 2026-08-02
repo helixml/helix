@@ -98,6 +98,8 @@ definitions:
         type: string
       description:
         type: string
+      enabled:
+        type: boolean
       id:
         type: string
       kind:
@@ -784,6 +786,8 @@ definitions:
     properties:
       description:
         type: string
+      enabled:
+        type: boolean
       name:
         type: string
       notes_for_agents:

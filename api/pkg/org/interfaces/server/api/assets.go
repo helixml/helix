@@ -30,6 +30,7 @@ type AssetDTO struct {
 	Name           string          `json:"name"`
 	Description    string          `json:"description,omitempty"`
 	NotesForAgents string          `json:"notes_for_agents,omitempty"`
+	Enabled        bool            `json:"enabled"`
 	Kind           asset.Kind      `json:"kind"`
 	Server         *ServerAssetDTO `json:"server,omitempty"`
 	AgentIDs       []string        `json:"agent_ids"`
@@ -71,6 +72,7 @@ type UpdateAssetRequest struct {
 	Name           *string                   `json:"name,omitempty"`
 	Description    *string                   `json:"description,omitempty"`
 	NotesForAgents *string                   `json:"notes_for_agents,omitempty"`
+	Enabled        *bool                     `json:"enabled,omitempty"`
 	Server         *UpdateServerAssetRequest `json:"server,omitempty"`
 }
 
@@ -113,7 +115,7 @@ func (a *apiHandler) assetDTO(ctxOrg string, value asset.Asset, agentIDs []strin
 	dto := AssetDTO{
 		ID: value.ID, OrganizationID: ctxOrg, Name: value.Name,
 		Description: value.Description, NotesForAgents: value.NotesForAgents,
-		Kind: value.Kind, AgentIDs: agentIDs, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+		Enabled: !value.Disabled, Kind: value.Kind, AgentIDs: agentIDs, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
 	if value.Config.Server != nil {
 		s := value.Config.Server
@@ -258,7 +260,7 @@ func (a *apiHandler) updateAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	params := assetapp.UpdateServerParams{Name: req.Name, Description: req.Description, NotesForAgents: req.NotesForAgents}
+	params := assetapp.UpdateServerParams{Name: req.Name, Description: req.Description, NotesForAgents: req.NotesForAgents, Enabled: req.Enabled}
 	if req.Server != nil {
 		params.Address = req.Server.Address
 		params.Port = req.Server.Port

@@ -139,6 +139,7 @@ type UpdateServerParams struct {
 	Name           *string
 	Description    *string
 	NotesForAgents *string
+	Enabled        *bool
 	Address        *string
 	Port           *uint16
 	User           *string
@@ -165,6 +166,9 @@ func (s *Service) UpdateServer(ctx context.Context, orgID string, id asset.ID, p
 	}
 	if p.NotesForAgents != nil {
 		a.NotesForAgents = strings.TrimSpace(*p.NotesForAgents)
+	}
+	if p.Enabled != nil {
+		a.Disabled = !*p.Enabled
 	}
 	if p.Address != nil {
 		address := strings.TrimSpace(*p.Address)
@@ -364,7 +368,14 @@ func (s *Service) Authorize(ctx context.Context, orgID, agentID string, assetID 
 		}
 		return asset.Asset{}, err
 	}
-	return s.assets.Get(ctx, orgID, assetID)
+	a, err := s.assets.Get(ctx, orgID, assetID)
+	if err != nil {
+		return asset.Asset{}, err
+	}
+	if a.Disabled {
+		return asset.Asset{}, fmt.Errorf("asset %q is disabled", a.Name)
+	}
+	return a, nil
 }
 
 func (s *Service) AuthorizeRef(ctx context.Context, orgID, agentID, idOrName string) (asset.Asset, error) {

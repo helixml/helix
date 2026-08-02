@@ -35,6 +35,7 @@ type managedAssetView struct {
 	Name           string             `json:"name"`
 	Description    string             `json:"description,omitempty"`
 	NotesForAgents string             `json:"notes_for_agents,omitempty"`
+	Enabled        bool               `json:"enabled"`
 	Kind           asset.Kind         `json:"kind"`
 	Server         *managedServerView `json:"server,omitempty"`
 	AgentIDs       []string           `json:"agent_ids"`
@@ -103,7 +104,7 @@ func managedAsset(t Deps, ctx context.Context, orgID string, value asset.Asset) 
 	view := managedAssetView{
 		ID: value.ID, OrganizationID: orgID, Name: value.Name,
 		Description: value.Description, NotesForAgents: value.NotesForAgents,
-		Kind: value.Kind, AgentIDs: agentIDs,
+		Enabled: !value.Disabled, Kind: value.Kind, AgentIDs: agentIDs,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
 	if value.Config.Server != nil {
@@ -296,6 +297,7 @@ type updateServerAssetArgs struct {
 	Name           *string         `json:"name,omitempty"`
 	Description    *string         `json:"description,omitempty"`
 	NotesForAgents *string         `json:"notes_for_agents,omitempty"`
+	Enabled        *bool           `json:"enabled,omitempty"`
 	Address        *string         `json:"address,omitempty"`
 	Port           *uint16         `json:"port,omitempty"`
 	User           *string         `json:"user,omitempty"`
@@ -309,7 +311,7 @@ func (t *UpdateServerAsset) InputSchema() *jsonschema.Schema {
 	return mustSchema[updateServerAssetArgs]()
 }
 func (t *UpdateServerAsset) Description() string {
-	return "Patch a server asset by ID or name. Only supplied fields change. Switching to ssh_key generates a new key and returns its install_command; switching to password requires password."
+	return "Patch a server asset by ID or name. Only supplied fields change. Set enabled=false to block agent MCP and proxy SSH access without removing agent links. Switching to ssh_key generates a new key and returns its install_command; switching to password requires password."
 }
 func (t *UpdateServerAsset) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args updateServerAssetArgs
@@ -326,6 +328,7 @@ func (t *UpdateServerAsset) Invoke(ctx context.Context, inv tool.Invocation) (js
 	}
 	value, err := t.deps.Assets.UpdateServer(ctx, orgID, current.ID, assetapp.UpdateServerParams{
 		Name: args.Name, Description: args.Description, NotesForAgents: args.NotesForAgents,
+		Enabled: args.Enabled,
 		Address: args.Address, Port: args.Port, User: args.User, AuthType: args.AuthType,
 		Password: args.Password, HostKey: args.HostKey,
 	})
