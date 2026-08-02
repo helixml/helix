@@ -234,6 +234,9 @@ func (p *Proxy) proxySession(ctx context.Context, conn *ssh.ServerConn, incoming
 func (p *Proxy) forwardClientRequests(ctx context.Context, permissions map[string]string, requests <-chan *ssh.Request, channel ssh.Channel) {
 	for request := range requests {
 		ok, err := channel.SendRequest(request.Type, request.WantReply, request.Payload)
+		if request.WantReply {
+			_ = request.Reply(ok && err == nil, nil)
+		}
 		if request.Type == "exec" {
 			command, decodeErr := decodeExecRequest(request.Payload)
 			status := orgaudit.StatusAttempted
@@ -262,9 +265,6 @@ func (p *Proxy) forwardClientRequests(ctx context.Context, permissions map[strin
 				Status:         status,
 				Metadata:       metadata,
 			})
-		}
-		if request.WantReply {
-			_ = request.Reply(ok && err == nil, nil)
 		}
 	}
 }

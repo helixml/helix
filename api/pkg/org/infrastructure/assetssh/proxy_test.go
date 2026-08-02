@@ -18,7 +18,8 @@ import (
 )
 
 type recordingAudit struct {
-	entries chan orgaudit.Entry
+	entries      chan orgaudit.Entry
+	beforeRecord func(orgaudit.Entry)
 }
 
 func newRecordingAudit() *recordingAudit {
@@ -26,6 +27,9 @@ func newRecordingAudit() *recordingAudit {
 }
 
 func (r *recordingAudit) Record(_ context.Context, entry orgaudit.Entry) error {
+	if r.beforeRecord != nil {
+		r.beforeRecord(entry)
+	}
 	r.entries <- entry
 	return nil
 }
@@ -211,6 +215,17 @@ func TestProxyForwardsAuthorizedAgentSessionAndRejectsRevokedLink(t *testing.T) 
 		t.Fatal(err)
 	}
 	auditLog := newRecordingAudit()
+	auditStarted := make(chan struct{})
+	auditRelease := make(chan struct{})
+	var releaseAudit sync.Once
+	release := func() { releaseAudit.Do(func() { close(auditRelease) }) }
+	t.Cleanup(release)
+	auditLog.beforeRecord = func(entry orgaudit.Entry) {
+		if entry.EventType == orgaudit.EventSSHCommand {
+			close(auditStarted)
+			<-auditRelease
+		}
+	}
 	proxy.WithAudit(auditLog, func(_ context.Context, orgID, agentID string) (string, error) {
 		if orgID != "org-1" || agentID != "agent-1" {
 			return "", errors.New("unexpected audit project scope")
@@ -239,11 +254,34 @@ func TestProxyForwardsAuthorizedAgentSessionAndRejectsRevokedLink(t *testing.T) 
 		cancel()
 		t.Fatal(err)
 	}
-	output, err := session.CombinedOutput("printf proxy-ok")
-	if err != nil {
-		cancel()
-		t.Fatal(err)
+	type commandResult struct {
+		output []byte
+		err    error
 	}
+	resultCh := make(chan commandResult, 1)
+	go func() {
+		output, err := session.CombinedOutput("printf proxy-ok")
+		resultCh <- commandResult{output: output, err: err}
+	}()
+	select {
+	case <-auditStarted:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("SSH command audit did not start")
+	}
+	var output []byte
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			cancel()
+			t.Fatalf("SSH command failed while audit persistence was blocked: %v", result.err)
+		}
+		output = result.output
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("SSH command reply was blocked by audit persistence")
+	}
+	release()
 	_ = proxyClient.Close()
 	if string(output) != "proxied:printf proxy-ok" {
 		t.Fatalf("proxy output = %q", output)
