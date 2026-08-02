@@ -88,6 +88,63 @@ definitions:
       updated_at:
         type: string
     type: object
+  api.AssetDTO:
+    properties:
+      agent_ids:
+        items:
+          type: string
+        type: array
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      kind:
+        $ref: '#/definitions/asset.Kind'
+      name:
+        type: string
+      notes_for_agents:
+        type: string
+      organization_id:
+        type: string
+      server:
+        $ref: '#/definitions/api.ServerAssetDTO'
+      updated_at:
+        type: string
+    type: object
+  api.AssetHealthDTO:
+    properties:
+      checked_at:
+        type: string
+      error:
+        type: string
+      latency_ms:
+        type: integer
+      ssh_reachable:
+        type: boolean
+      tcp_reachable:
+        type: boolean
+    type: object
+  api.AssetLinkRequest:
+    properties:
+      agent_id:
+        type: string
+    type: object
+  api.AssetLinksResponse:
+    properties:
+      agent_ids:
+        items:
+          type: string
+        type: array
+    type: object
+  api.AssetsResponse:
+    properties:
+      assets:
+        items:
+          $ref: '#/definitions/api.AssetDTO'
+        type: array
+    type: object
   api.BotActivateDTO:
     properties:
       activation_id:
@@ -230,8 +287,8 @@ definitions:
       id:
         type: string
       kind:
-        description: Kind is bot | topic | processor (matches the ReactFlow node id
-          prefix).
+        description: Kind is bot | topic | processor | asset (matches the ReactFlow
+          node id prefix).
         type: string
       x:
         type: number
@@ -244,6 +301,19 @@ definitions:
         items:
           $ref: '#/definitions/api.ChartPositionDTO'
         type: array
+    type: object
+  api.CreateAssetRequest:
+    properties:
+      description:
+        type: string
+      kind:
+        $ref: '#/definitions/asset.Kind'
+      name:
+        type: string
+      notes_for_agents:
+        type: string
+      server:
+        $ref: '#/definitions/api.ServerAssetWriteRequest'
     type: object
   api.CreateBotRequest:
     properties:
@@ -584,6 +654,38 @@ definitions:
       event_id:
         type: string
     type: object
+  api.ServerAssetDTO:
+    properties:
+      address:
+        type: string
+      auth_type:
+        $ref: '#/definitions/asset.AuthType'
+      host_key_fingerprint:
+        type: string
+      password_configured:
+        type: boolean
+      port:
+        type: integer
+      public_key:
+        type: string
+      user:
+        type: string
+    type: object
+  api.ServerAssetWriteRequest:
+    properties:
+      address:
+        type: string
+      auth_type:
+        $ref: '#/definitions/asset.AuthType'
+      host_key:
+        type: string
+      password:
+        type: string
+      port:
+        type: integer
+      user:
+        type: string
+    type: object
   api.SetSettingRequest:
     properties:
       value:
@@ -678,6 +780,17 @@ definitions:
       kind:
         type: string
     type: object
+  api.UpdateAssetRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      notes_for_agents:
+        type: string
+      server:
+        $ref: '#/definitions/api.UpdateServerAssetRequest'
+    type: object
   api.UpdateBotRequest:
     properties:
       code_agent_credential_type:
@@ -713,6 +826,21 @@ definitions:
           type: string
         type: array
     type: object
+  api.UpdateServerAssetRequest:
+    properties:
+      address:
+        type: string
+      auth_type:
+        $ref: '#/definitions/asset.AuthType'
+      host_key:
+        type: string
+      password:
+        type: string
+      port:
+        type: integer
+      user:
+        type: string
+    type: object
   api.UpdateTopicRequest:
     properties:
       description:
@@ -728,6 +856,31 @@ definitions:
         items:
           $ref: '#/definitions/api.ChartPositionDTO'
         type: array
+    type: object
+  asset.AuthType:
+    enum:
+    - ssh_key
+    - password
+    type: string
+    x-enum-varnames:
+    - AuthSSHKey
+    - AuthPassword
+  asset.Kind:
+    enum:
+    - server
+    type: string
+    x-enum-varnames:
+    - KindServer
+  asset.Link:
+    properties:
+      agent_id:
+        type: string
+      asset_id:
+        type: string
+      created_at:
+        type: string
+      organization_id:
+        type: string
     type: object
   filestore.Config:
     properties:
@@ -19123,6 +19276,147 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: unsubscribe an agent from a topic'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/assets:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AssetsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list assets'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Asset spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateAssetRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.AssetDTO'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: create an asset'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/assets/{id}:
+    delete:
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete an asset'
+      tags:
+      - HelixOrg
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AssetDTO'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get an asset'
+      tags:
+      - HelixOrg
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Asset patch
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateAssetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AssetDTO'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update an asset'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/assets/{id}/health:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AssetHealthDTO'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: check asset health'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/assets/{id}/links:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AssetLinksResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list asset links'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Agent link
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.AssetLinkRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/asset.Link'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: link an asset to an agent'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/assets/{id}/links/{agent_id}:
+    delete:
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: unlink an asset from an agent'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/bots:

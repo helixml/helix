@@ -10,6 +10,7 @@ import (
 	"errors"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/asset"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
 	"github.com/helixml/helix/api/pkg/org/domain/domainevent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -185,6 +186,23 @@ type Processors interface {
 	Delete(ctx context.Context, orgID string, id processor.ProcessorID) error
 }
 
+type Assets interface {
+	Create(ctx context.Context, a asset.Asset) error
+	Get(ctx context.Context, orgID string, id asset.ID) (asset.Asset, error)
+	GetByName(ctx context.Context, orgID, name string) (asset.Asset, error)
+	List(ctx context.Context, orgID string) ([]asset.Asset, error)
+	Update(ctx context.Context, a asset.Asset) error
+	Delete(ctx context.Context, orgID string, id asset.ID) error
+}
+
+type AssetLinks interface {
+	Create(ctx context.Context, link asset.Link) error
+	Delete(ctx context.Context, orgID string, assetID asset.ID, agentID string) error
+	Find(ctx context.Context, orgID string, assetID asset.ID, agentID string) (asset.Link, error)
+	ListForAsset(ctx context.Context, orgID string, assetID asset.ID) ([]asset.Link, error)
+	ListForAgent(ctx context.Context, orgID, agentID string) ([]asset.Link, error)
+}
+
 // Configs persists operational-config rows: transport credentials,
 // model selection, runtime knobs, etc. Keyed by (orgID, key) so each
 // helix tenant has its own settings.
@@ -196,7 +214,7 @@ type Configs interface {
 }
 
 // ChartPositions persists free-placed (x, y) canvas coordinates for
-// org-chart nodes (bots, topics, processors). Keyed by
+// org-chart nodes (bots, topics, processors, assets). Keyed by
 // (orgID, kind, id). Pure UI layout — the chart falls back to
 // auto-layout when no row exists for a node.
 type ChartPositions interface {
@@ -233,6 +251,8 @@ type Store struct {
 	Configs          Configs
 	Activations      activation.Repository
 	Processors       Processors
+	Assets           Assets
+	AssetLinks       AssetLinks
 	// ChartPositions is the free-placed canvas layout for the org chart UI.
 	ChartPositions ChartPositions
 	// DomainEvents is the append-only decision/audit log (e.g. Slack

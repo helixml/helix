@@ -26,11 +26,13 @@ func TestChartPositions_UpsertListClear(t *testing.T) {
 	deps, _, _ := newDeps(t)
 	h := orgapi.Handler(deps)
 
-	// Upsert two nodes.
+	// Every first-class chart node kind uses the same position store.
 	rec := do(t, h, "PUT", "/chart/positions", orgapi.UpsertChartPositionsRequest{
 		Positions: []orgapi.ChartPositionDTO{
 			{Kind: "bot", ID: "b-owner", X: 120, Y: 40},
 			{Kind: "topic", ID: "s-inbox", X: 400, Y: 80},
+			{Kind: "processor", ID: "proc-route", X: 500, Y: 160},
+			{Kind: "asset", ID: "server-one", X: -200, Y: 120},
 		},
 	})
 	if rec.Code != http.StatusOK {
@@ -38,8 +40,8 @@ func TestChartPositions_UpsertListClear(t *testing.T) {
 	}
 	var putResp orgapi.ChartPositionsResponse
 	decode(t, rec, &putResp)
-	if len(putResp.Positions) != 2 {
-		t.Fatalf("put returned %d positions, want 2", len(putResp.Positions))
+	if len(putResp.Positions) != 4 {
+		t.Fatalf("put returned %d positions, want 4", len(putResp.Positions))
 	}
 
 	// List returns both.
@@ -49,8 +51,8 @@ func TestChartPositions_UpsertListClear(t *testing.T) {
 	}
 	var list orgapi.ChartPositionsResponse
 	decode(t, rec, &list)
-	if len(list.Positions) != 2 {
-		t.Fatalf("list returned %d, want 2: %+v", len(list.Positions), list.Positions)
+	if len(list.Positions) != 4 {
+		t.Fatalf("list returned %d, want 4: %+v", len(list.Positions), list.Positions)
 	}
 	byKey := map[string]orgapi.ChartPositionDTO{}
 	for _, p := range list.Positions {
@@ -61,6 +63,12 @@ func TestChartPositions_UpsertListClear(t *testing.T) {
 	}
 	if p := byKey["topic:s-inbox"]; p.X != 400 || p.Y != 80 {
 		t.Fatalf("topic position = %+v, want x=400 y=80", p)
+	}
+	if p := byKey["processor:proc-route"]; p.X != 500 || p.Y != 160 {
+		t.Fatalf("processor position = %+v, want x=500 y=160", p)
+	}
+	if p := byKey["asset:server-one"]; p.X != -200 || p.Y != 120 {
+		t.Fatalf("asset position = %+v, want x=-200 y=120", p)
 	}
 
 	// Re-drag the bot — replaces coordinates.

@@ -1,21 +1,27 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/mux"
 
+	"github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/asset"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
+	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -46,6 +52,8 @@ func (s *failingBootstrapHelixStore) GetOrganization(context.Context, *helixstor
 
 type helixOrgRouteTestStore struct {
 	helixstore.Store
+	role          types.OrganizationRole
+	membershipErr error
 }
 
 type bootstrapActivationDispatcher struct {
@@ -84,11 +92,55 @@ func (s *helixOrgRouteTestStore) GetOrganization(_ context.Context, query *helix
 }
 
 func (s *helixOrgRouteTestStore) GetOrganizationMembership(_ context.Context, query *helixstore.GetOrganizationMembershipQuery) (*types.OrganizationMembership, error) {
+	if s.membershipErr != nil {
+		return nil, s.membershipErr
+	}
+	role := s.role
+	if role == "" {
+		role = types.OrganizationRoleMember
+	}
 	return &types.OrganizationMembership{
 		OrganizationID: query.OrganizationID,
 		UserID:         query.UserID,
-		Role:           types.OrganizationRoleMember,
+		Role:           role,
 	}, nil
+}
+
+func newAssetRBACIntegrationHandler(t *testing.T, routeStore *helixOrgRouteTestStore) http.Handler {
+	t.Helper()
+	st := orgmemory.New()
+	service, err := assets.New(assets.Deps{
+		Assets: st.Assets, Links: st.AssetLinks, Nodes: st.Nodes,
+		GenerateKey: func() (string, string, error) { return "private-key", "ssh-ed25519 public-key", nil },
+		Encrypt:     func(value []byte) (string, error) { return "encrypted:" + string(value), nil },
+		Now:         func() time.Time { return time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC) },
+		NewID:       func() string { return "asset-test" },
+	})
+	if err != nil {
+		t.Fatalf("new assets service: %v", err)
+	}
+	downstream := orgapi.Handler(orgapi.Deps{Assets: service})
+	server := &HelixAPIServer{Store: routeStore}
+	return server.withHelixOrgIdentity(stripOrgScopedPrefix(downstream))
+}
+
+func assetRBACRequest(t *testing.T, handler http.Handler, user *types.User, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var payload bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&payload).Encode(body); err != nil {
+			t.Fatalf("encode request: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &payload)
+	req.Header.Set("Content-Type", "application/json")
+	req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+	if user != nil {
+		req = req.WithContext(setRequestUser(req.Context(), *user))
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
 }
 
 func newHelixOrgRouteTestHandler(t *testing.T) (http.Handler, *helixOrgScope) {
@@ -151,6 +203,107 @@ func TestHelixOrgSettingsRoutesDoNotBootstrap(t *testing.T) {
 	}
 	if scope.bootstrapped["org_acme"] {
 		t.Fatal("settings request bootstrapped org graph")
+	}
+}
+
+func TestHelixOrgAssetRBAC(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		role       types.OrganizationRole
+		admin      bool
+		wantStatus int
+	}{
+		{name: "member can list", method: http.MethodGet, path: "/api/v1/orgs/acme/assets", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
+		{name: "member can view", method: http.MethodGet, path: "/api/v1/orgs/acme/assets/a-server", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
+		{name: "member cannot create", method: http.MethodPost, path: "/api/v1/orgs/acme/assets", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "member cannot update", method: http.MethodPatch, path: "/api/v1/orgs/acme/assets/a-server", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "member cannot delete", method: http.MethodDelete, path: "/api/v1/orgs/acme/assets/a-server", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden},
+		{name: "owner can create", method: http.MethodPost, path: "/api/v1/orgs/acme/assets", role: types.OrganizationRoleOwner, wantStatus: http.StatusNoContent},
+		{name: "admin can update", method: http.MethodPatch, path: "/api/v1/orgs/acme/assets/a-server", role: types.OrganizationRoleMember, admin: true, wantStatus: http.StatusNoContent},
+		{name: "unrelated route keeps member mutation access", method: http.MethodPost, path: "/api/v1/orgs/acme/workers", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &helixOrgRouteTestStore{role: tt.role}
+			server := &HelixAPIServer{Store: store}
+			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+			handler := server.withHelixOrgIdentity(next)
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req = mux.SetURLVars(req, map[string]string{"org": "acme"})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1", Admin: tt.admin}))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestHelixOrgAssetsAPIIntegrationRBAC(t *testing.T) {
+	member := types.User{ID: "user-member"}
+	owner := types.User{ID: "user-owner"}
+
+	memberHandler := newAssetRBACIntegrationHandler(t, &helixOrgRouteTestStore{role: types.OrganizationRoleMember})
+	response := assetRBACRequest(t, memberHandler, &member, http.MethodGet, "/api/v1/orgs/acme/assets", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("member list status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	response = assetRBACRequest(t, memberHandler, &member, http.MethodPost, "/api/v1/orgs/acme/assets", orgapi.CreateAssetRequest{
+		Name: "production", Kind: asset.KindServer,
+		Server: &orgapi.ServerAssetWriteRequest{Address: "10.0.0.8", User: "ubuntu", AuthType: asset.AuthSSHKey},
+	})
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("member create status = %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+
+	ownerStore := &helixOrgRouteTestStore{role: types.OrganizationRoleOwner}
+	ownerHandler := newAssetRBACIntegrationHandler(t, ownerStore)
+	response = assetRBACRequest(t, ownerHandler, &owner, http.MethodPost, "/api/v1/orgs/acme/assets", orgapi.CreateAssetRequest{
+		Name: "production", NotesForAgents: "Deploy only after draining traffic.", Kind: asset.KindServer,
+		Server: &orgapi.ServerAssetWriteRequest{Address: "10.0.0.8", User: "ubuntu", AuthType: asset.AuthSSHKey},
+	})
+	if response.Code != http.StatusCreated {
+		t.Fatalf("owner create status = %d, want %d; body=%s", response.Code, http.StatusCreated, response.Body.String())
+	}
+	var created orgapi.AssetDTO
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created asset: %v", err)
+	}
+	if created.Server == nil || created.Server.PublicKey == "" || strings.Contains(response.Body.String(), "private-key") {
+		t.Fatalf("create response did not expose only the server public key: %s", response.Body.String())
+	}
+
+	ownerStore.role = types.OrganizationRoleMember
+	response = assetRBACRequest(t, ownerHandler, &member, http.MethodGet, "/api/v1/orgs/acme/assets/"+created.ID, nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("member view status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	description := "updated"
+	response = assetRBACRequest(t, ownerHandler, &member, http.MethodPatch, "/api/v1/orgs/acme/assets/"+created.ID, orgapi.UpdateAssetRequest{Description: &description})
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("member update status = %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+	ownerStore.role = types.OrganizationRoleOwner
+	response = assetRBACRequest(t, ownerHandler, &owner, http.MethodPatch, "/api/v1/orgs/acme/assets/"+created.ID, orgapi.UpdateAssetRequest{Description: &description})
+	if response.Code != http.StatusOK {
+		t.Fatalf("owner update status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	nonMemberHandler := newAssetRBACIntegrationHandler(t, &helixOrgRouteTestStore{membershipErr: errors.New("not a member")})
+	response = assetRBACRequest(t, nonMemberHandler, &member, http.MethodGet, "/api/v1/orgs/acme/assets", nil)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("non-member list status = %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+	response = assetRBACRequest(t, ownerHandler, nil, http.MethodGet, "/api/v1/orgs/acme/assets", nil)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated list status = %d, want %d; body=%s", response.Code, http.StatusUnauthorized, response.Body.String())
 	}
 }
 

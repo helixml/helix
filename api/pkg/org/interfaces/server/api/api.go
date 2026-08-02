@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
+	"github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
@@ -83,6 +84,8 @@ type Deps struct {
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
 	Activations   *activations.Activations
+	Assets        *assets.Service
+	AssetHealth   func(ctx context.Context, orgID, idOrName string) AssetHealthDTO
 	// Processors owns the processor CRUD + preview use cases. nil →
 	// the /processors routes return 503 (test wirings that skip it).
 	Processors *processors.Processors
@@ -367,6 +370,15 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /processors/{id}", Handler: http.HandlerFunc(a.getProcessor)},
 		{Pattern: "PUT /processors/{id}", Handler: http.HandlerFunc(a.updateProcessor)},
 		{Pattern: "DELETE /processors/{id}", Handler: http.HandlerFunc(a.deleteProcessor)},
+		{Pattern: "GET /assets", Handler: http.HandlerFunc(a.listAssets)},
+		{Pattern: "POST /assets", Handler: http.HandlerFunc(a.createAsset)},
+		{Pattern: "GET /assets/{id}", Handler: http.HandlerFunc(a.getAsset)},
+		{Pattern: "PATCH /assets/{id}", Handler: http.HandlerFunc(a.updateAsset)},
+		{Pattern: "DELETE /assets/{id}", Handler: http.HandlerFunc(a.deleteAsset)},
+		{Pattern: "GET /assets/{id}/health", Handler: http.HandlerFunc(a.assetHealth)},
+		{Pattern: "GET /assets/{id}/links", Handler: http.HandlerFunc(a.listAssetLinks)},
+		{Pattern: "POST /assets/{id}/links", Handler: http.HandlerFunc(a.linkAsset)},
+		{Pattern: "DELETE /assets/{id}/links/{agent_id}", Handler: http.HandlerFunc(a.unlinkAsset)},
 		// Chart free-placed layout (bots / topics / processors).
 		{Pattern: "GET /chart/positions", Handler: http.HandlerFunc(a.getChartPositions)},
 		{Pattern: "PUT /chart/positions", Handler: http.HandlerFunc(a.putChartPositions)},

@@ -14,6 +14,7 @@ export type HelixOrgOverviewCardProps = {
 
 const HelixOrgOverviewCard: FC<HelixOrgOverviewCardProps> = ({ title, id, icon, status, idAction, children }) => (
   <Box
+    data-testid="helix-org-overview-card"
     sx={{
       p: 2,
       borderRadius: 1.5,
@@ -31,18 +32,18 @@ const HelixOrgOverviewCard: FC<HelixOrgOverviewCardProps> = ({ title, id, icon, 
           <Typography variant="h6" sx={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {title}
           </Typography>
-          {id && (
-            <Stack direction="row" spacing={0.25} alignItems="center" sx={{ minWidth: 0 }}>
-              <Typography variant="caption" sx={{ opacity: 0.78, fontFamily: 'monospace', overflowWrap: 'anywhere' }}>
-                {id}
-              </Typography>
-              {idAction}
-            </Stack>
-          )}
         </Box>
       </Stack>
       {status}
     </Stack>
+    {id && (
+      <Stack data-testid="helix-org-overview-id-row" direction="row" spacing={0.25} alignItems="flex-start" sx={{ minWidth: 0, width: '100%', mt: 1 }}>
+        <Typography variant="caption" sx={{ flex: 1, minWidth: 0, opacity: 0.78, fontFamily: 'monospace', overflowWrap: 'anywhere' }}>
+          {id}
+        </Typography>
+        {idAction}
+      </Stack>
+    )}
     {children && (
       <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap', rowGap: 1 }}>
         {children}

@@ -1,6 +1,9 @@
 package config
 
 import (
+	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -420,7 +423,34 @@ func LoadServerConfig() (ServerConfig, error) {
 	if cfg.Notifications.AppURL == "" {
 		cfg.Notifications.AppURL = cfg.WebServer.URL
 	}
+	if cfg.WebServer.AssetSSHProxyAddress == "" {
+		address, err := inferAssetSSHProxyAddress(cfg.WebServer.SandboxAPIURL, cfg.WebServer.URL)
+		if err != nil {
+			return ServerConfig{}, err
+		}
+		cfg.WebServer.AssetSSHProxyAddress = address
+	}
 	return cfg, nil
+}
+
+func inferAssetSSHProxyAddress(sandboxAPIURL, serverURL string) (string, error) {
+	endpoint := sandboxAPIURL
+	name := "SANDBOX_API_URL"
+	if endpoint == "" {
+		endpoint = serverURL
+		name = "SERVER_URL"
+	}
+	if endpoint == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("parse %s for asset SSH proxy: %w", name, err)
+	}
+	if parsed.Hostname() == "" {
+		return "", fmt.Errorf("%s must include a hostname for the asset SSH proxy", name)
+	}
+	return net.JoinHostPort(parsed.Hostname(), "2224"), nil
 }
 
 type Inference struct {
@@ -816,9 +846,11 @@ type PGVectorStore struct {
 }
 
 type WebServer struct {
-	URL  string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
-	Host string `envconfig:"SERVER_HOST" default:"0.0.0.0" description:"The host to bind the api server to."`
-	Port int    `envconfig:"SERVER_PORT" default:"80" description:""`
+	URL                  string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
+	Host                 string `envconfig:"SERVER_HOST" default:"0.0.0.0" description:"The host to bind the api server to."`
+	Port                 int    `envconfig:"SERVER_PORT" default:"80" description:""`
+	AssetSSHProxyListen  string `envconfig:"ASSET_SSH_PROXY_LISTEN" default:":2224" description:"Address for the Helix asset SSH proxy to listen on."`
+	AssetSSHProxyAddress string `envconfig:"ASSET_SSH_PROXY_ADDRESS" description:"Public host:port for agents to reach the Helix asset SSH proxy."`
 	// Can either be a URL to frontend (for dev proxy) or a path to static files (for prod)
 	// Default is dev proxy; Dockerfile sets FRONTEND_URL=/www for production
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:"URL to proxy to or filesystem path to serve from"`

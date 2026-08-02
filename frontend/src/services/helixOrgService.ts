@@ -3,6 +3,9 @@ import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/rea
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import {
+  ApiAssetDTO,
+  ApiAssetHealthDTO,
+  ApiCreateAssetRequest,
   ApiBotActivateDTO,
   ApiAgentDetailDTO,
   ApiBotBadge,
@@ -29,6 +32,7 @@ import {
   ApiTopicsResponse,
   ApiToolDTO,
   ApiUpdateBotRequest,
+  ApiUpdateAssetRequest,
   ApiUpdateTopicRequest,
 } from '../api/api'
 
@@ -58,6 +62,10 @@ export type InstallGitLabWebhookResponse = ApiInstallGitLabWebhookResponse
 export type BotSubscription = ApiBotSubscriptionDTO
 export type BotSubscriptionsResponse = ApiBotSubscriptionsResponse
 export type OrgOverview = ApiOrgOverview
+export type AssetDTO = ApiAssetDTO
+export type AssetHealthDTO = ApiAssetHealthDTO
+export type CreateAssetRequest = ApiCreateAssetRequest
+export type UpdateAssetRequest = ApiUpdateAssetRequest
 
 export type CreateBotRequest = ApiCreateBotRequest & { id: string; content: string }
 export type CreateBotResponse = ApiCreateBotResponse
@@ -88,6 +96,116 @@ export const QUERY_KEYS = {
   processors: (orgID: string) => ['helix-org', orgID, 'processors'] as const,
   processor: (orgID: string, id: string) => ['helix-org', orgID, 'processors', id] as const,
   chartPositions: (orgID: string) => ['helix-org', orgID, 'chart-positions'] as const,
+  assets: (orgID: string) => ['helix-org', orgID, 'assets'] as const,
+  asset: (orgID: string, id: string) => ['helix-org', orgID, 'assets', id] as const,
+  assetHealth: (orgID: string, id: string) => ['helix-org', orgID, 'assets', id, 'health'] as const,
+}
+
+export function useListAssets(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.assets(orgID),
+    queryFn: async () => {
+      const res = await api.getApiClient().v1OrgsAssetsDetail(orgID)
+      return (res.data.assets ?? []) as AssetDTO[]
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+  })
+}
+
+export function useAssetHealth(assetIDs: string[], options?: { enabled?: boolean; refetchInterval?: number | false }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  const enabled = !!orgID && (options?.enabled ?? true)
+  const results = useQueries({
+    queries: assetIDs.map((id) => ({
+      queryKey: QUERY_KEYS.assetHealth(orgID, id),
+      queryFn: async () => {
+        const res = await api.getApiClient().v1OrgsAssetsHealthDetail(orgID, id)
+        return res.data as AssetHealthDTO
+      },
+      enabled: enabled && !!id,
+      refetchInterval: options?.refetchInterval,
+      retry: false,
+    })),
+  })
+  return assetIDs.reduce<Record<string, AssetHealthDTO | undefined>>((health, id, index) => {
+    health[id] = results[index]?.data as AssetHealthDTO | undefined
+    return health
+  }, {})
+}
+
+export function useCreateAsset() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (payload: CreateAssetRequest) => {
+      const res = await api.getApiClient().v1OrgsAssetsCreate(orgID, payload)
+      return res.data as AssetDTO
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) }),
+  })
+}
+
+export function useUpdateAsset() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (payload: { id: string } & UpdateAssetRequest) => {
+      const { id, ...body } = payload
+      const res = await api.getApiClient().v1OrgsAssetsPartialUpdate(orgID, id, body)
+      return res.data as AssetDTO
+    },
+    onSuccess: (_data, payload) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.asset(orgID, payload.id) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.assetHealth(orgID, payload.id) })
+    },
+  })
+}
+
+export function useDeleteAsset() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (id: string) => api.getApiClient().v1OrgsAssetsDelete(orgID, id),
+    onSuccess: (_data, id) => {
+      qc.removeQueries({ queryKey: QUERY_KEYS.asset(orgID, id) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) })
+    },
+  })
+}
+
+export function useLinkAsset() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ assetID, agentID }: { assetID: string; agentID: string }) =>
+      api.getApiClient().v1OrgsAssetsLinksCreate(orgID, assetID, { agent_id: agentID }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+    },
+  })
+}
+
+export function useUnlinkAsset() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ assetID, agentID }: { assetID: string; agentID: string }) =>
+      api.getApiClient().v1OrgsAssetsLinksDelete(orgID, assetID, agentID),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+    },
+  })
 }
 
 // ---- Processors ---------------------------------------------------------

@@ -1,5 +1,6 @@
 import { FC } from 'react'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
+import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
 import { Bot, Network } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
@@ -8,7 +9,7 @@ import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
 // HelixOrgSidebar is the secondary navigation column for the
 // helix-org alpha. Sits between the primary org-menu rail and the
-// page body. Today: chart + bots + topics.
+// page body. Today: chart + agents + topics + assets.
 const HelixOrgSidebar: FC = () => {
   const router = useRouter()
   const account = useAccount()
@@ -49,6 +50,13 @@ const HelixOrgSidebar: FC = () => {
           icon: <HubOutlinedIcon sx={{ fontSize: 18 }} />,
           isActive: currentRouteName === 'helix_org_topics',
           onClick: () => navigateTo('helix_org_topics'),
+        },
+        {
+          id: 'assets',
+          label: 'Assets',
+          icon: <DnsOutlinedIcon sx={{ fontSize: 18 }} />,
+          isActive: currentRouteName === 'helix_org_assets',
+          onClick: () => navigateTo('helix_org_assets'),
         },
       ],
     },

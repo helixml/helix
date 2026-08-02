@@ -291,7 +291,7 @@ func chatCompletions(t *testing.T, apiKey string, request *openai.ChatCompletion
 	t.Helper()
 
 	config := openai.DefaultConfig(apiKey)
-	config.BaseURL = "http://localhost:8080/v1"
+	config.BaseURL = integrationServerURL() + "/v1"
 
 	client := openai.NewClientWithConfig(config)
 

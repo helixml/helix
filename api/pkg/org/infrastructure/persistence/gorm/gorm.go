@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/helixml/helix/api/pkg/org/domain/asset"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -31,6 +32,8 @@ var orgRowTypes = []any{
 	&configRow{},
 	&activationRow{},
 	&processorRow{},
+	&asset.Asset{},
+	&asset.Link{},
 	&chartPositionRow{},
 	&domainEventRow{},
 }
@@ -52,6 +55,8 @@ var orgTableNames = []string{
 	"org_configs",
 	"org_activations",
 	"org_processors",
+	"org_assets",
+	"org_asset_links",
 	"org_chart_positions",
 	"org_domain_events",
 }
@@ -85,6 +90,9 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := renameLegacyTables(db); err != nil {
 		return nil, fmt.Errorf("rename legacy tables: %w", err)
 	}
+	if err := renameLegacyAssetLinkAgentColumn(db); err != nil {
+		return nil, fmt.Errorf("rename legacy asset-link agent column: %w", err)
+	}
 
 	if err := db.AutoMigrate(orgRowTypes...); err != nil {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
@@ -114,6 +122,9 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := installReportingLineFKs(db); err != nil {
 		return nil, fmt.Errorf("install reporting-line FKs: %w", err)
 	}
+	if err := installAssetLinkFKs(db); err != nil {
+		return nil, fmt.Errorf("install asset-link FKs: %w", err)
+	}
 	if err := installAgentAppLinks(db); err != nil {
 		return nil, fmt.Errorf("install agent app links: %w", err)
 	}
@@ -129,9 +140,59 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		Configs:          newConfigsRepo(db),
 		Activations:      newActivationsRepo(db),
 		Processors:       newProcessorsRepo(db),
+		Assets:           newAssetsRepo(db),
+		AssetLinks:       newAssetLinksRepo(db),
 		ChartPositions:   newChartPositionsRepo(db),
 		DomainEvents:     newDomainEventsRepo(db),
 	}, nil
+}
+
+func renameLegacyAssetLinkAgentColumn(db *gorm.DB) error {
+	migrator := db.Migrator()
+	if !migrator.HasTable("org_asset_links") || !migrator.HasColumn("org_asset_links", "bot_id") {
+		return nil
+	}
+	if migrator.HasColumn("org_asset_links", "agent_id") {
+		if migrator.HasConstraint("org_asset_links", "fk_org_asset_links_agent") {
+			if err := migrator.DropConstraint(&asset.Link{}, "fk_org_asset_links_agent"); err != nil {
+				return fmt.Errorf("drop transitional agent FK: %w", err)
+			}
+		}
+		if err := migrator.DropColumn(&asset.Link{}, "AgentID"); err != nil {
+			return fmt.Errorf("drop transitional agent_id column: %w", err)
+		}
+	}
+	if migrator.HasConstraint("org_asset_links", "fk_org_asset_links_bot") {
+		if err := migrator.DropConstraint(&asset.Link{}, "fk_org_asset_links_bot"); err != nil {
+			return fmt.Errorf("drop legacy bot FK: %w", err)
+		}
+	}
+	if err := migrator.RenameColumn("org_asset_links", "bot_id", "agent_id"); err != nil {
+		return fmt.Errorf("rename bot_id to agent_id: %w", err)
+	}
+	return nil
+}
+
+func installAssetLinkFKs(db *gorm.DB) error {
+	if !db.Migrator().HasTable("org_asset_links") || !db.Migrator().HasTable("org_assets") || !db.Migrator().HasTable("org_bots") {
+		return nil
+	}
+	type fk struct{ name, cols, target string }
+	for _, f := range []fk{
+		{"fk_org_asset_links_asset", "org_id, asset_id", "org_assets(org_id, id)"},
+		{"fk_org_asset_links_agent", "org_id, agent_id", "org_bots(org_id, id)"},
+	} {
+		stmt := fmt.Sprintf(`DO $$ BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '%s') THEN
+				ALTER TABLE org_asset_links ADD CONSTRAINT %s
+				FOREIGN KEY (%s) REFERENCES %s ON DELETE CASCADE;
+			END IF;
+		END $$;`, f.name, f.name, f.cols, f.target)
+		if err := db.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("add FK %s: %w", f.name, err)
+		}
+	}
+	return nil
 }
 
 func installAgentAppLinks(db *gorm.DB) error {

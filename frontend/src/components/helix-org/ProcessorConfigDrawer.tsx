@@ -42,6 +42,7 @@ import {
 export type ProcessorConfigDrawerProps = {
   open: boolean
   onClose: () => void
+  onCreated?: (id: string) => void
   // Edit mode when set; otherwise create.
   processor?: ProcessorDTO | null
   // Prefill the input topic (e.g. opened from a topic context).
@@ -246,7 +247,7 @@ const SyntaxHelp: FC<{ kind: string }> = ({ kind }) => {
   )
 }
 
-const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, processor, presetInputTopicId }) => {
+const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, onCreated, processor, presetInputTopicId }) => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const isEdit = Boolean(processor)
@@ -361,6 +362,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
           config,
           outputs,
         })
+        onCreated?.(created.id)
         snackbar.success(`created ${created.id} → ${created.outputs?.[0]?.topic_id ?? 'output topic'}`)
       }
       onClose()

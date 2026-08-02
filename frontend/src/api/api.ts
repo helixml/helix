@@ -69,6 +69,39 @@ export interface ApiAgentDetailDTO {
   updated_at?: string;
 }
 
+export interface ApiAssetDTO {
+  agent_ids?: string[];
+  created_at?: string;
+  description?: string;
+  id?: string;
+  kind?: AssetKind;
+  name?: string;
+  notes_for_agents?: string;
+  organization_id?: string;
+  server?: ApiServerAssetDTO;
+  updated_at?: string;
+}
+
+export interface ApiAssetHealthDTO {
+  checked_at?: string;
+  error?: string;
+  latency_ms?: number;
+  ssh_reachable?: boolean;
+  tcp_reachable?: boolean;
+}
+
+export interface ApiAssetLinkRequest {
+  agent_id?: string;
+}
+
+export interface ApiAssetLinksResponse {
+  agent_ids?: string[];
+}
+
+export interface ApiAssetsResponse {
+  assets?: ApiAssetDTO[];
+}
+
 export interface ApiBotActivateDTO {
   activation_id?: string;
   agent_app_id?: string;
@@ -162,7 +195,7 @@ export interface ApiBotSubscriptionsResponse {
 
 export interface ApiChartPositionDTO {
   id?: string;
-  /** Kind is bot | topic | processor (matches the ReactFlow node id prefix). */
+  /** Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix). */
   kind?: string;
   x?: number;
   y?: number;
@@ -170,6 +203,14 @@ export interface ApiChartPositionDTO {
 
 export interface ApiChartPositionsResponse {
   positions?: ApiChartPositionDTO[];
+}
+
+export interface ApiCreateAssetRequest {
+  description?: string;
+  kind?: AssetKind;
+  name?: string;
+  notes_for_agents?: string;
+  server?: ApiServerAssetWriteRequest;
 }
 
 export interface ApiCreateBotRequest {
@@ -408,6 +449,25 @@ export interface ApiPublishResponse {
   event_id?: string;
 }
 
+export interface ApiServerAssetDTO {
+  address?: string;
+  auth_type?: AssetAuthType;
+  host_key_fingerprint?: string;
+  password_configured?: boolean;
+  port?: number;
+  public_key?: string;
+  user?: string;
+}
+
+export interface ApiServerAssetWriteRequest {
+  address?: string;
+  auth_type?: AssetAuthType;
+  host_key?: string;
+  password?: string;
+  port?: number;
+  user?: string;
+}
+
 export interface ApiSetSettingRequest {
   value?: string;
 }
@@ -461,6 +521,13 @@ export interface ApiTransportRequestField {
   kind?: string;
 }
 
+export interface ApiUpdateAssetRequest {
+  description?: string;
+  name?: string;
+  notes_for_agents?: string;
+  server?: ApiUpdateServerAssetRequest;
+}
+
 export interface ApiUpdateBotRequest {
   code_agent_credential_type?: TypesCodeAgentCredentialType;
   code_agent_runtime?: TypesCodeAgentRuntime;
@@ -480,6 +547,15 @@ export interface ApiUpdateBotRequest {
   tools?: string[];
 }
 
+export interface ApiUpdateServerAssetRequest {
+  address?: string;
+  auth_type?: AssetAuthType;
+  host_key?: string;
+  password?: string;
+  port?: number;
+  user?: string;
+}
+
 export interface ApiUpdateTopicRequest {
   description?: string;
   name?: string;
@@ -488,6 +564,22 @@ export interface ApiUpdateTopicRequest {
 
 export interface ApiUpsertChartPositionsRequest {
   positions?: ApiChartPositionDTO[];
+}
+
+export enum AssetAuthType {
+  AuthSSHKey = "ssh_key",
+  AuthPassword = "password",
+}
+
+export enum AssetKind {
+  KindServer = "server",
+}
+
+export interface AssetLink {
+  agent_id?: string;
+  asset_id?: string;
+  created_at?: string;
+  organization_id?: string;
 }
 
 export interface FilestoreConfig {
@@ -12898,6 +12990,174 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1OrgsAgentsSubscriptionsDelete: (org: string, id: string, topicId: string, params: RequestParams = {}) =>
       this.request<void, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/agents/${id}/subscriptions/${topicId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsDetail
+     * @summary Helix-org: list assets
+     * @request GET:/api/v1/orgs/{org}/assets
+     * @secure
+     */
+    v1OrgsAssetsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiAssetsResponse, any>({
+        path: `/api/v1/orgs/${org}/assets`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsCreate
+     * @summary Helix-org: create an asset
+     * @request POST:/api/v1/orgs/{org}/assets
+     * @secure
+     */
+    v1OrgsAssetsCreate: (org: string, payload: ApiCreateAssetRequest, params: RequestParams = {}) =>
+      this.request<ApiAssetDTO, any>({
+        path: `/api/v1/orgs/${org}/assets`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsDelete
+     * @summary Helix-org: delete an asset
+     * @request DELETE:/api/v1/orgs/{org}/assets/{id}
+     * @secure
+     */
+    v1OrgsAssetsDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsDetail2
+     * @summary Helix-org: get an asset
+     * @request GET:/api/v1/orgs/{org}/assets/{id}
+     * @originalName v1OrgsAssetsDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrgsAssetsDetail2: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAssetDTO, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsPartialUpdate
+     * @summary Helix-org: update an asset
+     * @request PATCH:/api/v1/orgs/{org}/assets/{id}
+     * @secure
+     */
+    v1OrgsAssetsPartialUpdate: (org: string, id: string, payload: ApiUpdateAssetRequest, params: RequestParams = {}) =>
+      this.request<ApiAssetDTO, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}`,
+        method: "PATCH",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsHealthDetail
+     * @summary Helix-org: check asset health
+     * @request GET:/api/v1/orgs/{org}/assets/{id}/health
+     * @secure
+     */
+    v1OrgsAssetsHealthDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAssetHealthDTO, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}/health`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsLinksDetail
+     * @summary Helix-org: list asset links
+     * @request GET:/api/v1/orgs/{org}/assets/{id}/links
+     * @secure
+     */
+    v1OrgsAssetsLinksDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAssetLinksResponse, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}/links`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsLinksCreate
+     * @summary Helix-org: link an asset to an agent
+     * @request POST:/api/v1/orgs/{org}/assets/{id}/links
+     * @secure
+     */
+    v1OrgsAssetsLinksCreate: (org: string, id: string, payload: ApiAssetLinkRequest, params: RequestParams = {}) =>
+      this.request<AssetLink, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}/links`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAssetsLinksDelete
+     * @summary Helix-org: unlink an asset from an agent
+     * @request DELETE:/api/v1/orgs/{org}/assets/{id}/links/{agent_id}
+     * @secure
+     */
+    v1OrgsAssetsLinksDelete: (org: string, id: string, agentId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/assets/${id}/links/${agentId}`,
         method: "DELETE",
         secure: true,
         ...params,

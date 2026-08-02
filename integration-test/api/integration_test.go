@@ -71,17 +71,19 @@ func startAPIServer() *bytes.Buffer {
 
 	// Define the rest env variables, similarly to what we set in docker-compose.dev.yaml
 	serverCmd.Env = append(serverCmd.Env,
-		"SERVER_PORT=8080",
+		"SERVER_PORT="+integrationServerPort(),
 		"LOG_LEVEL=debug",
-		"APP_URL=http://localhost:8080",
+		"APP_URL="+integrationServerURL(),
 		"RUNNER_TOKEN=oh-hallo-insecure-token",
-		"SERVER_URL=http://localhost:8080",
+		"SERVER_URL="+integrationServerURL(),
+		"ASSET_SSH_PROXY_LISTEN=127.0.0.1:"+integrationAssetSSHProxyPort(),
+		"ASSET_SSH_PROXY_ADDRESS=127.0.0.1:"+integrationAssetSSHProxyPort(),
 		"FILESTORE_LOCALFS_PATH=/tmp",
 		"FRONTEND_URL=/tmp", // No frontend here but doesn't matter for API integration tests
 		"FILESTORE_AVATARS_PATH=/tmp/avatars",
 	)
 
-	fmt.Println("Starting API server on port 8080")
+	fmt.Printf("Starting API server on port %s\n", integrationServerPort())
 
 	if err := serverCmd.Start(); err != nil {
 		log.Printf("Failed to start API server: %v (%s)", err, buf.String())
@@ -114,7 +116,7 @@ func waitForAPIServer(serverLogs *bytes.Buffer) error {
 		case <-timeout:
 			return fmt.Errorf("timeout waiting for API server to start")
 		case <-tick.C:
-			resp, err := httpClient.Get("http://localhost:8080/api/v1/config")
+			resp, err := httpClient.Get(integrationServerURL() + "/api/v1/config")
 			if err != nil {
 				log.Printf("API not ready yet: %v", err)
 				continue
@@ -130,11 +132,29 @@ func waitForAPIServer(serverLogs *bytes.Buffer) error {
 }
 
 func getAPIClient(userAPIKey string) (*client.HelixClient, error) {
-	apiClient, err := client.NewClient("http://localhost:8080", userAPIKey, false)
+	apiClient, err := client.NewClient(integrationServerURL(), userAPIKey, false)
 	if err != nil {
 		return nil, err
 	}
 	return apiClient, nil
+}
+
+func integrationServerPort() string {
+	if value := os.Getenv("HELIX_INTEGRATION_SERVER_PORT"); value != "" {
+		return value
+	}
+	return "8080"
+}
+
+func integrationServerURL() string {
+	return "http://localhost:" + integrationServerPort()
+}
+
+func integrationAssetSSHProxyPort() string {
+	if value := os.Getenv("HELIX_INTEGRATION_ASSET_SSH_PROXY_PORT"); value != "" {
+		return value
+	}
+	return "2224"
 }
 
 func getStoreClient() (*store.PostgresStore, error) {
@@ -177,7 +197,7 @@ func createUser(t *testing.T, db *store.PostgresStore, authenticator auth.Authen
 		return nil, "", fmt.Errorf("failed to generate API key: %w", err)
 	}
 
-	t.Logf("generated API key for user %s: %s", createdUser.ID, apiKey)
+	t.Logf("generated API key for user %s", createdUser.ID)
 
 	_, err = db.CreateAPIKey(context.Background(), &types.ApiKey{
 		Name:      "first-test-key",

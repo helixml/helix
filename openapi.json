@@ -12411,6 +12411,242 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/assets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list assets",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AssetsResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create an asset",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.CreateAssetRequest"
+                            }
+                        }
+                    },
+                    "description": "Asset spec",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AssetDTO"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/assets/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get an asset",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AssetDTO"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete an asset",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update an asset",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.UpdateAssetRequest"
+                            }
+                        }
+                    },
+                    "description": "Asset patch",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AssetDTO"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/assets/{id}/health": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: check asset health",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AssetHealthDTO"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/assets/{id}/links": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list asset links",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AssetLinksResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: link an asset to an agent",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.AssetLinkRequest"
+                            }
+                        }
+                    },
+                    "description": "Agent link",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/asset.Link"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/assets/{id}/links/{agent_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: unlink an asset from an agent",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots": {
             "get": {
                 "security": [
@@ -27191,6 +27427,94 @@
                     }
                 }
             },
+            "api.AssetDTO": {
+                "type": "object",
+                "properties": {
+                    "agent_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/asset.Kind"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "notes_for_agents": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "server": {
+                        "$ref": "#/components/schemas/api.ServerAssetDTO"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.AssetHealthDTO": {
+                "type": "object",
+                "properties": {
+                    "checked_at": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "latency_ms": {
+                        "type": "integer"
+                    },
+                    "ssh_reachable": {
+                        "type": "boolean"
+                    },
+                    "tcp_reachable": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "api.AssetLinkRequest": {
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.AssetLinksResponse": {
+                "type": "object",
+                "properties": {
+                    "agent_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "api.AssetsResponse": {
+                "type": "object",
+                "properties": {
+                    "assets": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.AssetDTO"
+                        }
+                    }
+                }
+            },
             "api.BotActivateDTO": {
                 "type": "object",
                 "properties": {
@@ -27377,7 +27701,7 @@
                         "type": "string"
                     },
                     "kind": {
-                        "description": "Kind is bot | topic | processor (matches the ReactFlow node id prefix).",
+                        "description": "Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix).",
                         "type": "string"
                     },
                     "x": {
@@ -27396,6 +27720,26 @@
                         "items": {
                             "$ref": "#/components/schemas/api.ChartPositionDTO"
                         }
+                    }
+                }
+            },
+            "api.CreateAssetRequest": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/asset.Kind"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "notes_for_agents": {
+                        "type": "string"
+                    },
+                    "server": {
+                        "$ref": "#/components/schemas/api.ServerAssetWriteRequest"
                     }
                 }
             },
@@ -27846,6 +28190,55 @@
                     }
                 }
             },
+            "api.ServerAssetDTO": {
+                "type": "object",
+                "properties": {
+                    "address": {
+                        "type": "string"
+                    },
+                    "auth_type": {
+                        "$ref": "#/components/schemas/asset.AuthType"
+                    },
+                    "host_key_fingerprint": {
+                        "type": "string"
+                    },
+                    "password_configured": {
+                        "type": "boolean"
+                    },
+                    "port": {
+                        "type": "integer"
+                    },
+                    "public_key": {
+                        "type": "string"
+                    },
+                    "user": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.ServerAssetWriteRequest": {
+                "type": "object",
+                "properties": {
+                    "address": {
+                        "type": "string"
+                    },
+                    "auth_type": {
+                        "$ref": "#/components/schemas/asset.AuthType"
+                    },
+                    "host_key": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string"
+                    },
+                    "port": {
+                        "type": "integer"
+                    },
+                    "user": {
+                        "type": "string"
+                    }
+                }
+            },
             "api.SetSettingRequest": {
                 "type": "object",
                 "properties": {
@@ -27990,6 +28383,23 @@
                     }
                 }
             },
+            "api.UpdateAssetRequest": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "notes_for_agents": {
+                        "type": "string"
+                    },
+                    "server": {
+                        "$ref": "#/components/schemas/api.UpdateServerAssetRequest"
+                    }
+                }
+            },
             "api.UpdateBotRequest": {
                 "type": "object",
                 "properties": {
@@ -28038,6 +28448,29 @@
                     }
                 }
             },
+            "api.UpdateServerAssetRequest": {
+                "type": "object",
+                "properties": {
+                    "address": {
+                        "type": "string"
+                    },
+                    "auth_type": {
+                        "$ref": "#/components/schemas/asset.AuthType"
+                    },
+                    "host_key": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string"
+                    },
+                    "port": {
+                        "type": "integer"
+                    },
+                    "user": {
+                        "type": "string"
+                    }
+                }
+            },
             "api.UpdateTopicRequest": {
                 "type": "object",
                 "properties": {
@@ -28060,6 +28493,43 @@
                         "items": {
                             "$ref": "#/components/schemas/api.ChartPositionDTO"
                         }
+                    }
+                }
+            },
+            "asset.AuthType": {
+                "type": "string",
+                "enum": [
+                    "ssh_key",
+                    "password"
+                ],
+                "x-enum-varnames": [
+                    "AuthSSHKey",
+                    "AuthPassword"
+                ]
+            },
+            "asset.Kind": {
+                "type": "string",
+                "enum": [
+                    "server"
+                ],
+                "x-enum-varnames": [
+                    "KindServer"
+                ]
+            },
+            "asset.Link": {
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string"
+                    },
+                    "asset_id": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
                     }
                 }
             },
