@@ -32,6 +32,9 @@ const SimpleTable: FC<{
   onRowClick?: {
     (row: Record<string, any>): void,
   },
+  onRowContextMenu?: {
+    (event: React.MouseEvent<HTMLTableRowElement>, row: Record<string, any>): void,
+  },
   getActions?: {
     (row: Record<string, any>): JSX.Element,
   },
@@ -53,6 +56,7 @@ const SimpleTable: FC<{
   actionsFieldClassname,
   loading = false,
   onRowClick,
+  onRowContextMenu,
   getActions,
   getRowId,
 }) => {
@@ -110,6 +114,7 @@ const SimpleTable: FC<{
                 if(!onRowClick) return
                 onRowClick(dataRow)
               }}
+              onContextMenu={e => onRowContextMenu?.(e, dataRow)}
               tabIndex={-1}
               key={ i }
               id={ getRowId?.(dataRow) }

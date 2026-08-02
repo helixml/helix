@@ -9,8 +9,10 @@ import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
+import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined'
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 
 import AssetConfigDrawer from '../components/helix-org/AssetConfigDrawer'
@@ -27,6 +29,7 @@ import {
   useDeleteAsset,
   useListAssets,
   useListHelixOrgBots,
+  useUpdateAsset,
 } from '../services/helixOrgService'
 
 const AssetStatusBadge: FC<{ enabled: boolean; health?: AssetHealthDTO }> = ({ enabled, health }) => {
@@ -44,11 +47,13 @@ const HelixOrgAssets: FC = () => {
   const assetIDs = useMemo(() => assets.filter((asset) => asset.enabled !== false).map((asset) => asset.id ?? '').filter(Boolean), [assets])
   const health = useAssetHealth(assetIDs, { refetchInterval: 15000 })
   const deleteAsset = useDeleteAsset()
+  const updateAsset = useUpdateAsset()
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editing, setEditing] = useState<AssetDTO>()
   const [deleting, setDeleting] = useState<AssetDTO>()
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
+  const [anchorPosition, setAnchorPosition] = useState<{ top: number; left: number }>()
   const [currentAsset, setCurrentAsset] = useState<AssetDTO>()
 
   const openCreate = () => {
@@ -63,13 +68,35 @@ const HelixOrgAssets: FC = () => {
 
   const openMenu = (event: MouseEvent<HTMLElement>, asset: AssetDTO) => {
     event.stopPropagation()
+    setAnchorPosition(undefined)
     setAnchorEl(event.currentTarget)
+    setCurrentAsset(asset)
+  }
+
+  const openContextMenu = (event: MouseEvent<HTMLTableRowElement>, asset: AssetDTO) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setAnchorEl(null)
+    setAnchorPosition({ top: event.clientY, left: event.clientX })
     setCurrentAsset(asset)
   }
 
   const closeMenu = () => {
     setAnchorEl(null)
+    setAnchorPosition(undefined)
     setCurrentAsset(undefined)
+  }
+
+  const toggleAssetAccess = async (asset: AssetDTO) => {
+    if (!asset.id) return
+    const enabled = asset.enabled === false
+    closeMenu()
+    try {
+      await updateAsset.mutateAsync({ id: asset.id, enabled })
+      snackbar.success(`${asset.name ?? asset.id} ${enabled ? 'enabled' : 'disabled'}`)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'Could not update asset access')
+    }
   }
 
   const confirmDelete = async () => {
@@ -169,12 +196,19 @@ const HelixOrgAssets: FC = () => {
                 ]}
                 data={tableData}
                 getActions={getActions}
+                onRowContextMenu={(event, row) => openContextMenu(event, row._data as AssetDTO)}
               />
             )}
           </Stack>
         </Container>
 
-        <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu}>
+        <Menu
+          anchorEl={anchorEl}
+          anchorReference={anchorPosition ? 'anchorPosition' : 'anchorEl'}
+          anchorPosition={anchorPosition}
+          open={Boolean(anchorEl || anchorPosition)}
+          onClose={closeMenu}
+        >
           <MenuItem
             onClick={(event) => {
               event.stopPropagation()
@@ -183,8 +217,21 @@ const HelixOrgAssets: FC = () => {
               if (asset) openEdit(asset)
             }}
           >
-            <EditOutlinedIcon sx={{ mr: 1, fontSize: 20 }} />
-            Edit
+            <InfoOutlinedIcon sx={{ mr: 1, fontSize: 20 }} />
+            Details
+          </MenuItem>
+          <MenuItem
+            disabled={updateAsset.isPending}
+            onClick={(event) => {
+              event.stopPropagation()
+              const asset = currentAsset
+              if (asset) void toggleAssetAccess(asset)
+            }}
+          >
+            {currentAsset?.enabled === false
+              ? <CheckCircleOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+              : <BlockOutlinedIcon sx={{ mr: 1, fontSize: 20 }} />}
+            {currentAsset?.enabled === false ? 'Enable access' : 'Disable access'}
           </MenuItem>
           <MenuItem
             onClick={(event) => {
