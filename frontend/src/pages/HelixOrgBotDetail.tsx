@@ -4,8 +4,8 @@
 // A Bot is the merge of the former Role and Worker: its markdown
 // `content` is its identity/prompt, its `tools` list is its MCP tool
 // surface, it carries topic subscriptions, and it reports to other bots
-// (parent_ids). Content + tools are edited here via Monaco + a tools
-// multi-select and saved in one step through useUpdateBot (there is no
+// (parent_ids). Content + tools are edited here via Monaco + a grouped tools
+// dialog and saved in one step through useUpdateBot (there is no
 // separate identity field). Subscriptions are managed in the panel below.
 //
 // This page deliberately carries NO inline transcript or desktop viewer —
@@ -43,6 +43,7 @@ import Typography from '@mui/material/Typography'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
@@ -55,6 +56,7 @@ import Tooltip from '@mui/material/Tooltip'
 
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import AgentConfigForm, { AgentConfigValue } from '../components/helix-org/BotRuntimeForm'
+import ToolPickerDialog from '../components/helix-org/ToolPickerDialog'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
@@ -108,6 +110,7 @@ const HelixOrgBotDetail: FC = () => {
   const { data: toolCatalogue } = useListHelixOrgTools()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [confirmingResetInstructions, setConfirmingResetInstructions] = useState(false)
+  const [editingTools, setEditingTools] = useState(false)
   const [agentMenuEl, setAgentMenuEl] = useState<null | HTMLElement>(null)
   // The bot owns one durable exploratory session. Runtime edits must switch
   // that session through the canonical lifecycle instead of leaving it bound
@@ -592,63 +595,48 @@ const HelixOrgBotDetail: FC = () => {
                 </Box>
 
                 <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Tools</Typography>
-                  <Autocomplete
-                    multiple
-                    disableCloseOnSelect
-                    options={toolOptions}
-                    value={toolOptions.filter((o) => tools.includes(o.name))}
-                    onChange={(_e, value) => setTools(value.map((v) => v.name))}
-                    getOptionLabel={(o) => o.name}
-                    isOptionEqualToValue={(a, b) => a.name === b.name}
-                    renderOption={(props, option, { selected }) => {
-                      // Pass key explicitly rather than via the props
-                      // spread — React 18.3 warns when a spread object
-                      // carries a key.
-                      const { key, ...liProps } = props as typeof props & { key?: Key }
-                      return (
-                        <li key={key ?? option.name} {...liProps}>
-                          <Checkbox
-                            icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
-                            checkedIcon={<CheckBoxIcon fontSize="small" />}
-                            style={{ marginRight: 8 }}
-                            checked={selected}
-                          />
-                          <Box sx={{ minWidth: 0 }}>
-                            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                              {option.name}
-                            </Typography>
-                            {option.description && (
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                                {option.description}
-                              </Typography>
-                            )}
-                          </Box>
-                        </li>
-                      )
-                    }}
-                    renderTags={(value, getTagProps) =>
-                      value.map((option, index) => {
-                        const { key, ...tagProps } = getTagProps({ index })
-                        return (
-                          <Chip
-                            key={key ?? option.name}
-                            {...tagProps}
-                            label={option.name}
-                            size="small"
-                            sx={{ fontFamily: 'monospace' }}
-                          />
-                        )
-                      })
-                    }
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        placeholder={tools.length === 0 ? 'Pick the tools this agent can call' : ''}
-                        helperText="MCP tools this agent can call. Empty = no tools (the agent can still receive owner-chat)."
-                      />
-                    )}
-                  />
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Stack spacing={1.5}>
+                      <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+                        <Box>
+                          <Typography variant="subtitle2">Tools</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {tools.length} MCP {tools.length === 1 ? 'capability' : 'capabilities'} enabled
+                          </Typography>
+                        </Box>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<EditOutlinedIcon />}
+                          onClick={() => setEditingTools(true)}
+                        >
+                          Edit tools
+                        </Button>
+                      </Stack>
+                      {tools.length > 0 ? (
+                        <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+                          {[...tools].sort().slice(0, 8).map((toolName) => (
+                            <Chip
+                              key={toolName}
+                              label={toolName}
+                              size="small"
+                              sx={{ fontFamily: 'monospace' }}
+                            />
+                          ))}
+                          {tools.length > 8 && (
+                            <Chip label={`+${tools.length - 8} more`} size="small" variant="outlined" />
+                          )}
+                        </Stack>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No tools selected. The agent can still receive owner chat, but cannot call Helix Org MCP capabilities.
+                        </Typography>
+                      )}
+                      <Typography variant="caption" color="text.secondary">
+                        Changes made in the tool picker are saved with the rest of this agent configuration.
+                      </Typography>
+                    </Stack>
+                  </Paper>
                 </Box>
 
                 <Box>
@@ -840,6 +828,14 @@ const HelixOrgBotDetail: FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <ToolPickerDialog
+        open={editingTools}
+        tools={toolOptions}
+        selectedTools={tools}
+        onClose={() => setEditingTools(false)}
+        onApply={setTools}
+      />
 
       {confirmingDelete && botId && (
         <DeleteConfirmWindow
