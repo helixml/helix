@@ -56,7 +56,6 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
-  useUpdateNodeInternals,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -349,6 +348,25 @@ const fallbackSizeForNode = (n: Node): { w: number; h: number } => {
     return { w: PROC_W, h: procNodeHeight(outs) }
   }
   return { w: BOT_W, h: BOT_H }
+}
+
+// Server refreshes replace the graph projection, but React Flow adds measured
+// node geometry to its controlled node objects after rendering. Dropping that
+// geometry clears the internal handle bounds, so every edge becomes
+// temporarily unresolvable. In a background tab the re-measure animation
+// frame may not run until much later, leaving the chart with no visible edges.
+export const reconcileGraphNodes = (current: Node[], computed: Node[]): Node[] => {
+  const currentByID = new Map(current.map((node) => [node.id, node]))
+  return computed.map((node) => {
+    const previous = currentByID.get(node.id)
+    if (!previous) return node
+    return {
+      ...node,
+      ...(previous.measured ? { measured: previous.measured } : {}),
+      ...(previous.selected !== undefined ? { selected: previous.selected } : {}),
+      ...(previous.dragging ? { position: previous.position, dragging: true } : {}),
+    }
+  })
 }
 
 // Invisible handles on all four sides so the user can still drag a
@@ -1755,7 +1773,6 @@ const ChartCanvas: FC<{
   // Canonical org id (not the URL slug) so a rename doesn't lose the camera.
   const orgId = account.organizationTools.organization?.id ?? ''
   const { fitView, screenToFlowPosition, setViewport } = useReactFlow()
-  const updateNodeInternals = useUpdateNodeInternals()
   // Apply camera once after the first graph build: restore this user's
   // saved pan/zoom for the org, or fitView when nothing is stored yet.
   // Node-drag persistence must not re-run this (would yank the camera).
@@ -1784,10 +1801,9 @@ const ChartCanvas: FC<{
   )
 
   useEffect(() => {
-    setNodes(computedNodes)
+    setNodes((current) => reconcileGraphNodes(current, computedNodes))
     setEdges(computedEdges)
     const nodeIds = computedNodes.map((node) => node.id)
-    requestAnimationFrame(() => updateNodeInternals(nodeIds))
     if (fitViewRequest !== fitViewRequestRef.current) {
       fitViewRequestRef.current = fitViewRequest
       requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
@@ -1808,7 +1824,7 @@ const ChartCanvas: FC<{
         fitView({ padding: 0.2, duration: 250 })
       }
     })
-  }, [computedNodes, computedEdges, fitView, fitViewRequest, setViewport, setNodes, setEdges, updateNodeInternals, userId, orgId])
+  }, [computedNodes, computedEdges, fitView, fitViewRequest, setViewport, setNodes, setEdges, userId, orgId])
 
   // Personal camera: pan/zoom only — node layout is server-side shared.
   const onMoveEnd = useCallback(
