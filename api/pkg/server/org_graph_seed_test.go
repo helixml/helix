@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
@@ -40,6 +41,11 @@ func TestSeedChiefOfStaffPreservesContextForNewBotOnly(t *testing.T) {
 	if !created.PreserveContext {
 		t.Fatal("new chief of staff must preserve conversation context")
 	}
+	for _, name := range mcptools.AssetManagementTools {
+		if !slices.Contains(created.Tools, name) {
+			t.Errorf("new chief of staff missing asset management tool %q", name)
+		}
+	}
 	if len(dispatcher.ids) != 0 {
 		t.Fatalf("seed dispatched bots = %v, want none before runtime selection", dispatcher.ids)
 	}
@@ -67,5 +73,10 @@ func TestSeedChiefOfStaffPreservesContextForNewBotOnly(t *testing.T) {
 	}
 	if existing.PreserveContext {
 		t.Fatal("reseed must not override an existing chief of staff's context preference")
+	}
+	for _, name := range mcptools.AssetManagementTools {
+		if !slices.Contains(existing.Tools, name) {
+			t.Errorf("reseeded chief of staff missing asset management tool %q", name)
+		}
 	}
 }

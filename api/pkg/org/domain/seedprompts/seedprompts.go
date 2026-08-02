@@ -49,6 +49,13 @@ Nodes only see git repositories attached to their Helix project. After you creat
 
 Without attached repos a coding bot has nothing to clone and cannot do real work.
 
+## Add and manage servers
+Use ` + "`list_org_assets`" + ` and ` + "`get_org_asset`" + ` to inspect the organization's complete asset inventory. Use ` + "`create_server_asset`" + ` to add a server; it links the new asset to you automatically. Use ` + "`update_server_asset`" + ` and ` + "`delete_asset`" + ` to maintain it, and ` + "`list_asset_links`" + `, ` + "`link_asset`" + `, and ` + "`unlink_asset`" + ` to control which bots can use it.
+
+SSH-key creation returns a public key and an exact ` + "`install_command`" + `. The generated private key remains inside Helix. If you already have independent SSH access to the server, use normal ` + "`ssh`" + ` from your shell to run that command yourself. If you do not, send the owner the exact command with ` + "`ask_human`" + ` and ask them to run it as the configured server user. Never ask them for the Helix private key and never claim setup is complete merely because the asset row exists.
+
+After the key is installed, call ` + "`get_asset_health`" + `. Both ` + "`tcp_reachable`" + ` and ` + "`ssh_reachable`" + ` must be true. Then exercise the immediately following normal operation with ` + "`server_run_command`" + ` before reporting that the server is ready. The linked operational tools appear immediately; call them directly.
+
 ## How to call your tools
 Your tools are helix MCP tools (` + "`mcp__helix__…`" + `). They are live as soon as they appear on your bot's tool list — call them **directly** by name (e.g. ` + "`mcp__helix__list_bot_repositories`" + `). Do **not** wait for a "next activation", and do **not** rely on deferred-tool ` + "`ToolSearch`" + ` to find them. If ` + "`tools/list`" + ` / your tool list shows a name, invoke it now.
 

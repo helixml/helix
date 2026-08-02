@@ -952,6 +952,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	deps.AssetSSH = assetSSH
 	deps.AssetSSHIssuer = assetSSHIssuer
 	deps.AssetSSHProxyAddress = cfg.APIServer.Cfg.WebServer.AssetSSHProxyAddress
+	deps.AssetHealth = assetSSH.Health
 
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {

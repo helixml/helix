@@ -105,11 +105,15 @@ or encrypted credentials.
 - `server_list_commands`, `server_get_command`, `server_kill_command`
 - `server_list_files`, `server_read_file`, `server_write_file`
 - `server_ssh_access`
+- owner management: `list_org_assets`, `get_org_asset`,
+  `create_server_asset`, `update_server_asset`, `delete_asset`,
+  `list_asset_links`, `link_asset`, `unlink_asset`, `get_asset_health`
 
 All server tools select an asset by ID or org-scoped name and require a live
-link from the invoking agent. The owner can manage assets through REST in this
-slice; mutation MCP tools can be added later if there is a concrete agent-driven
-workflow.
+link from the invoking agent. The initial slice limited management to REST. The
+2026-08-02 follow-up in `design/2026-08-02-org-asset-mcp-management.md` adds the
+owner-management MCP surface to Chief of Staff without widening the linked
+operational tools.
 
 ## SSH proxy
 
