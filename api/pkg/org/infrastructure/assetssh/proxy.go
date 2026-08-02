@@ -16,7 +16,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
+
+	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
 )
 
 const (
@@ -90,9 +93,11 @@ func (i *Issuer) Mint(ctx context.Context, orgID, agentID, assetRef string) (Pro
 }
 
 type Proxy struct {
-	assets Assets
-	client *Client
-	config *ssh.ServerConfig
+	assets   Assets
+	client   *Client
+	config   *ssh.ServerConfig
+	audit    orgaudit.Recorder
+	projects orgaudit.ProjectResolver
 }
 
 func NewProxy(assets Assets, client *Client, encryptionKey []byte) (*Proxy, error) {
@@ -127,10 +132,14 @@ func NewProxy(assets Assets, client *Client, encryptionKey []byte) (*Proxy, erro
 		}
 		a, err := assets.AuthorizeRef(context.Background(), orgID, agentID, assetID)
 		if err != nil {
-			return nil, fmt.Errorf("authorize asset proxy: %w", err)
+			authErr := fmt.Errorf("authorize asset proxy: %w", err)
+			p.recordRejectedConnection(meta, orgID, agentID, assetID, authErr)
+			return nil, authErr
 		}
 		if meta.User() != a.Name {
-			return nil, errors.New("SSH username must match the linked asset name")
+			authErr := errors.New("SSH username must match the linked asset name")
+			p.recordRejectedConnection(meta, orgID, agentID, assetID, authErr)
+			return nil, authErr
 		}
 		return &ssh.Permissions{Extensions: map[string]string{
 			certOrgID: orgID, certAgentID: agentID, certAssetID: assetID,
@@ -138,6 +147,12 @@ func NewProxy(assets Assets, client *Client, encryptionKey []byte) (*Proxy, erro
 	}}
 	p.config.AddHostKey(host)
 	return p, nil
+}
+
+func (p *Proxy) WithAudit(recorder orgaudit.Recorder, projects orgaudit.ProjectResolver) *Proxy {
+	p.audit = recorder
+	p.projects = projects
+	return p
 }
 
 func (p *Proxy) Serve(ctx context.Context, address string) error {
@@ -173,6 +188,7 @@ func (p *Proxy) handle(ctx context.Context, raw net.Conn) {
 		return
 	}
 	defer conn.Close()
+	p.recordConnection(ctx, conn, orgaudit.StatusSucceeded, nil)
 	go ssh.DiscardRequests(requests)
 	for newChannel := range channels {
 		if newChannel.ChannelType() != "session" {
@@ -205,7 +221,7 @@ func (p *Proxy) proxySession(ctx context.Context, conn *ssh.ServerConn, incoming
 
 	go func() { _, _ = io.Copy(upstreamChannel, clientChannel) }()
 	go func() { _, _ = io.Copy(clientChannel.Stderr(), upstreamChannel.Stderr()) }()
-	go forwardRequests(clientRequests, upstreamChannel)
+	go p.forwardClientRequests(ctx, conn.Permissions.Extensions, clientRequests, upstreamChannel)
 	upstreamRequestsDone := make(chan struct{})
 	go func() {
 		forwardRequests(upstreamRequests, clientChannel)
@@ -213,6 +229,119 @@ func (p *Proxy) proxySession(ctx context.Context, conn *ssh.ServerConn, incoming
 	}()
 	_, _ = io.Copy(clientChannel, upstreamChannel)
 	<-upstreamRequestsDone
+}
+
+func (p *Proxy) forwardClientRequests(ctx context.Context, permissions map[string]string, requests <-chan *ssh.Request, channel ssh.Channel) {
+	for request := range requests {
+		ok, err := channel.SendRequest(request.Type, request.WantReply, request.Payload)
+		if request.Type == "exec" {
+			command, decodeErr := decodeExecRequest(request.Payload)
+			status := orgaudit.StatusAttempted
+			commandErr := err
+			if decodeErr != nil {
+				status = orgaudit.StatusFailed
+				commandErr = decodeErr
+			} else if err != nil || !ok {
+				status = orgaudit.StatusFailed
+				if commandErr == nil {
+					commandErr = errors.New("upstream SSH server rejected command")
+				}
+			}
+			metadata := orgaudit.Metadata{Command: command}
+			if commandErr != nil {
+				metadata.Error = commandErr.Error()
+			}
+			p.recordAudit(ctx, orgaudit.Entry{
+				OrganizationID: permissions[certOrgID],
+				ProjectID:      p.projectID(ctx, permissions[certOrgID], permissions[certAgentID]),
+				ActorID:        permissions[certAgentID],
+				ActorType:      orgaudit.ActorBot,
+				AssetID:        permissions[certAssetID],
+				EventType:      orgaudit.EventSSHCommand,
+				Action:         "exec",
+				Status:         status,
+				Metadata:       metadata,
+			})
+		}
+		if request.WantReply {
+			_ = request.Reply(ok && err == nil, nil)
+		}
+	}
+}
+
+func decodeExecRequest(payload []byte) (string, error) {
+	var request struct {
+		Command string
+	}
+	if err := ssh.Unmarshal(payload, &request); err != nil {
+		return "", fmt.Errorf("decode SSH exec request: %w", err)
+	}
+	return request.Command, nil
+}
+
+func (p *Proxy) recordConnection(ctx context.Context, conn *ssh.ServerConn, status orgaudit.Status, connectionErr error) {
+	permissions := conn.Permissions.Extensions
+	metadata := orgaudit.Metadata{
+		RemoteAddress: conn.RemoteAddr().String(),
+		LocalAddress:  conn.LocalAddr().String(),
+		SSHUser:       conn.User(),
+		ClientVersion: string(conn.ClientVersion()),
+	}
+	if connectionErr != nil {
+		metadata.Error = connectionErr.Error()
+	}
+	p.recordAudit(ctx, orgaudit.Entry{
+		OrganizationID: permissions[certOrgID],
+		ProjectID:      p.projectID(ctx, permissions[certOrgID], permissions[certAgentID]),
+		ActorID:        permissions[certAgentID],
+		ActorType:      orgaudit.ActorBot,
+		AssetID:        permissions[certAssetID],
+		EventType:      orgaudit.EventSSHConnection,
+		Action:         "connect",
+		Status:         status,
+		Metadata:       metadata,
+	})
+}
+
+func (p *Proxy) recordRejectedConnection(meta ssh.ConnMetadata, orgID, agentID, assetID string, connectionErr error) {
+	p.recordAudit(context.Background(), orgaudit.Entry{
+		OrganizationID: orgID,
+		ProjectID:      p.projectID(context.Background(), orgID, agentID),
+		ActorID:        agentID,
+		ActorType:      orgaudit.ActorBot,
+		AssetID:        assetID,
+		EventType:      orgaudit.EventSSHConnection,
+		Action:         "connect",
+		Status:         orgaudit.StatusFailed,
+		Metadata: orgaudit.Metadata{
+			RemoteAddress: meta.RemoteAddr().String(),
+			LocalAddress:  meta.LocalAddr().String(),
+			SSHUser:       meta.User(),
+			ClientVersion: string(meta.ClientVersion()),
+			Error:         connectionErr.Error(),
+		},
+	})
+}
+
+func (p *Proxy) projectID(ctx context.Context, orgID, agentID string) string {
+	if p.projects == nil {
+		return ""
+	}
+	projectID, err := p.projects(ctx, orgID, agentID)
+	if err != nil {
+		log.Error().Err(err).Str("organization_id", orgID).Str("actor_id", agentID).Msg("failed to resolve org audit project")
+		return ""
+	}
+	return projectID
+}
+
+func (p *Proxy) recordAudit(ctx context.Context, entry orgaudit.Entry) {
+	if p.audit == nil {
+		return
+	}
+	if err := p.audit.Record(ctx, entry); err != nil {
+		log.Error().Err(err).Str("organization_id", entry.OrganizationID).Str("event_type", string(entry.EventType)).Msg("failed to create org audit log")
+	}
 }
 
 func forwardRequests(requests <-chan *ssh.Request, channel ssh.Channel) {

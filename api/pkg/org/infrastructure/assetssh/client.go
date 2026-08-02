@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/pkg/sftp"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
 )
 
 type Assets interface {
@@ -83,14 +85,22 @@ type FileEntry struct {
 }
 
 type Client struct {
-	assets  Assets
-	decrypt Decrypt
-	newID   func() string
-	now     func() time.Time
-	timeout time.Duration
+	assets   Assets
+	decrypt  Decrypt
+	newID    func() string
+	now      func() time.Time
+	timeout  time.Duration
+	audit    orgaudit.Recorder
+	projects orgaudit.ProjectResolver
 
 	mu       sync.RWMutex
 	commands map[commandKey]*trackedCommand
+}
+
+func (c *Client) WithAudit(recorder orgaudit.Recorder, projects orgaudit.ProjectResolver) *Client {
+	c.audit = recorder
+	c.projects = projects
+	return c
 }
 
 type commandKey struct{ orgID, assetID, commandID string }
@@ -188,11 +198,15 @@ func (c *Client) Run(ctx context.Context, orgID, agentID, idOrName string, req R
 	}
 	client, err := c.dial(ctx, a)
 	if err != nil {
+		c.recordConnection(ctx, orgID, agentID, a, orgaudit.StatusFailed, err)
+		c.recordCommand(ctx, orgID, agentID, a.ID, "", remote, orgaudit.StatusFailed, err)
 		return Command{}, err
 	}
+	c.recordConnection(ctx, orgID, agentID, a, orgaudit.StatusSucceeded, nil)
 	session, err := client.NewSession()
 	if err != nil {
 		_ = client.Close()
+		c.recordCommand(ctx, orgID, agentID, a.ID, "", remote, orgaudit.StatusFailed, err)
 		return Command{}, fmt.Errorf("create SSH session: %w", err)
 	}
 	tracked := &trackedCommand{command: Command{
@@ -210,8 +224,10 @@ func (c *Client) Run(ctx context.Context, orgID, agentID, idOrName string, req R
 		_ = session.Close()
 		_ = client.Close()
 		c.finish(tracked, err)
+		c.recordCommand(ctx, orgID, agentID, a.ID, tracked.command.ID, remote, orgaudit.StatusFailed, err)
 		return tracked.snapshot(), fmt.Errorf("start server command: %w", err)
 	}
+	c.recordCommand(ctx, orgID, agentID, a.ID, tracked.command.ID, remote, orgaudit.StatusAttempted, nil)
 	if req.Detached {
 		go func() {
 			err := session.Wait()
@@ -328,7 +344,7 @@ func (c *Client) ListFiles(ctx context.Context, orgID, agentID, idOrName, direct
 		return nil, err
 	}
 	var entries []FileEntry
-	err = c.withSFTP(ctx, a, func(client *sftp.Client) error {
+	err = c.withSFTP(ctx, orgID, agentID, a, func(client *sftp.Client) error {
 		infos, err := client.ReadDir(directory)
 		if err != nil {
 			return err
@@ -361,7 +377,7 @@ func (c *Client) ReadFile(ctx context.Context, orgID, agentID, idOrName, filenam
 		maxBytes = 1024 * 1024
 	}
 	var data []byte
-	err = c.withSFTP(ctx, a, func(client *sftp.Client) error {
+	err = c.withSFTP(ctx, orgID, agentID, a, func(client *sftp.Client) error {
 		file, err := client.Open(filename)
 		if err != nil {
 			return err
@@ -391,7 +407,7 @@ func (c *Client) WriteFile(ctx context.Context, orgID, agentID, idOrName, filena
 	if err != nil {
 		return err
 	}
-	return c.withSFTP(ctx, a, func(client *sftp.Client) error {
+	return c.withSFTP(ctx, orgID, agentID, a, func(client *sftp.Client) error {
 		if err := client.MkdirAll(path.Dir(filename)); err != nil {
 			return fmt.Errorf("create parent directories: %w", err)
 		}
@@ -415,11 +431,13 @@ func (c *Client) WriteFile(ctx context.Context, orgID, agentID, idOrName, filena
 	})
 }
 
-func (c *Client) withSFTP(ctx context.Context, a asset.Asset, fn func(*sftp.Client) error) error {
+func (c *Client) withSFTP(ctx context.Context, orgID, agentID string, a asset.Asset, fn func(*sftp.Client) error) error {
 	client, err := c.dial(ctx, a)
 	if err != nil {
+		c.recordConnection(ctx, orgID, agentID, a, orgaudit.StatusFailed, err)
 		return err
 	}
+	c.recordConnection(ctx, orgID, agentID, a, orgaudit.StatusSucceeded, nil)
 	defer client.Close()
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
@@ -427,6 +445,64 @@ func (c *Client) withSFTP(ctx context.Context, a asset.Asset, fn func(*sftp.Clie
 	}
 	defer sftpClient.Close()
 	return fn(sftpClient)
+}
+
+func (c *Client) recordConnection(ctx context.Context, orgID, agentID string, a asset.Asset, status orgaudit.Status, connectionErr error) {
+	server, _ := serverConfig(a)
+	metadata := orgaudit.Metadata{RemoteAddress: serverAddress(server), SSHUser: server.User}
+	if connectionErr != nil {
+		metadata.Error = connectionErr.Error()
+	}
+	c.recordAudit(ctx, orgaudit.Entry{
+		OrganizationID: orgID,
+		ProjectID:      c.projectID(ctx, orgID, agentID),
+		ActorID:        agentID,
+		ActorType:      orgaudit.ActorBot,
+		AssetID:        string(a.ID),
+		EventType:      orgaudit.EventSSHConnection,
+		Action:         "connect",
+		Status:         status,
+		Metadata:       metadata,
+	})
+}
+
+func (c *Client) recordCommand(ctx context.Context, orgID, agentID string, assetID asset.ID, commandID, command string, status orgaudit.Status, commandErr error) {
+	metadata := orgaudit.Metadata{Command: command, CommandID: commandID}
+	if commandErr != nil {
+		metadata.Error = commandErr.Error()
+	}
+	c.recordAudit(ctx, orgaudit.Entry{
+		OrganizationID: orgID,
+		ProjectID:      c.projectID(ctx, orgID, agentID),
+		ActorID:        agentID,
+		ActorType:      orgaudit.ActorBot,
+		AssetID:        string(assetID),
+		EventType:      orgaudit.EventSSHCommand,
+		Action:         "exec",
+		Status:         status,
+		Metadata:       metadata,
+	})
+}
+
+func (c *Client) projectID(ctx context.Context, orgID, agentID string) string {
+	if c.projects == nil {
+		return ""
+	}
+	projectID, err := c.projects(ctx, orgID, agentID)
+	if err != nil {
+		log.Error().Err(err).Str("organization_id", orgID).Str("actor_id", agentID).Msg("failed to resolve org audit project")
+		return ""
+	}
+	return projectID
+}
+
+func (c *Client) recordAudit(ctx context.Context, entry orgaudit.Entry) {
+	if c.audit == nil {
+		return
+	}
+	if err := c.audit.Record(ctx, entry); err != nil {
+		log.Error().Err(err).Str("organization_id", entry.OrganizationID).Str("event_type", string(entry.EventType)).Msg("failed to create org audit log")
+	}
 }
 
 func (c *Client) dial(ctx context.Context, a asset.Asset) (*ssh.Client, error) {

@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
+	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
@@ -32,6 +33,9 @@ type Server struct {
 	registry   *mcptools.Registry
 	prompts    *prompts.Registry
 	logger     *slog.Logger
+	audit      orgaudit.Recorder
+	projects   orgaudit.ProjectResolver
+	assets     store.Assets
 }
 
 // New returns a Server bound to the read facade, the publishing service,
@@ -72,7 +76,15 @@ func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wake
 	if dispatcher != nil {
 		pd.Dispatcher = dispatcher
 	}
-	return New(q, publishing.New(pd), registry, logger)
+	server := New(q, publishing.New(pd), registry, logger)
+	server.assets = s.Assets
+	return server
+}
+
+func (s *Server) WithAudit(recorder orgaudit.Recorder, projects orgaudit.ProjectResolver) *Server {
+	s.audit = recorder
+	s.projects = projects
+	return s
 }
 
 // WithPrompts attaches a prompts.Registry so the per-bot MCP server
