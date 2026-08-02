@@ -16,6 +16,7 @@ import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import AddIcon from '@mui/icons-material/Add'
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
@@ -55,6 +56,7 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useUpdateNodeInternals,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -71,7 +73,7 @@ import {
   loadChartTopicVisibility,
   saveChartTopicVisibility,
 } from '../components/helix-org/chartTopicVisibility'
-import ChartTopicVisibilityMenu, { chartToolbarButtonSizeSx, chartToolbarButtonSx } from '../components/helix-org/ChartTopicVisibilityMenu'
+import ChartTopicVisibilityMenu, { chartToolbarButtonSizeSx } from '../components/helix-org/ChartTopicVisibilityMenu'
 import {
   CHAT_BOT_FOCUS_EVENT,
   ChatBotFocusDetail,
@@ -122,6 +124,7 @@ import {
   useDeleteHelixOrgTopic,
   useListChartPositions,
   useListAssets,
+  useLinkAsset,
   useListHelixOrgBots,
   useListHelixOrgBotDetails,
   useListHelixOrgTopics,
@@ -425,6 +428,7 @@ export const AssetNode: FC<NodeProps<Node<AssetNodeData>>> = ({ data }) => {
   const bg = lightTheme.isLight ? '#eef6ff' : '#1e2c3a'
   const hoverBg = lightTheme.isLight ? '#e2f0ff' : '#26394a'
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.58)' : 'rgba(255,255,255,0.6)'
+  const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
   const tcp = Boolean(data.health?.tcp_reachable)
   const ssh = Boolean(data.health?.ssh_reachable)
   const reachable = tcp && ssh
@@ -438,12 +442,22 @@ export const AssetNode: FC<NodeProps<Node<AssetNodeData>>> = ({ data }) => {
         '&:hover': { backgroundColor: hoverBg }, '&:active': { cursor: 'grabbing' },
       }}
     >
-      <Handle
-        type="source"
-        position={RFPosition.Right}
-        isConnectable={false}
-        style={{ background: 'transparent', border: 'none', width: 1, height: 1 }}
-      />
+      {([
+        [RFPosition.Left, 'left'],
+        [RFPosition.Right, 'right'],
+        [RFPosition.Top, 'top'],
+        [RFPosition.Bottom, 'bottom'],
+      ] as const).map(([position, side]) => (
+        <Handle
+          key={side}
+          id={`asset-${side}`}
+          type="source"
+          position={position}
+          isConnectable
+          aria-label={`Connect asset to an agent from the ${side}`}
+          style={{ background: handleColor, border: `2px solid ${bg}`, width: 10, height: 10 }}
+        />
+      ))}
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
         <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
           <DnsOutlinedIcon sx={{ fontSize: 18, color: muted }} />
@@ -539,7 +553,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
       <Handle
         type="target"
         position={RFPosition.Top}
-        style={{ background: handleColor, width: 12, height: 12 }}
+        style={{ background: handleColor, width: 10, height: 10 }}
       />
       <SubSideHandles size={16} />
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={0.5}>
@@ -672,7 +686,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
       <Handle
         type="source"
         position={RFPosition.Bottom}
-        style={{ background: handleColor, width: 12, height: 12 }}
+        style={{ background: handleColor, width: 10, height: 10 }}
       />
     </Box>
   )
@@ -999,6 +1013,8 @@ export const buildGraph = (
       id: `bot:${b.id}`,
       type: 'bot',
       position: pos,
+      initialWidth: BOT_W,
+      initialHeight: BOT_H,
       data: {
         botId: b.id,
         botName: b.name,
@@ -1102,6 +1118,8 @@ export const buildGraph = (
       id: `asset:${id}`,
       type: 'asset',
       position: place('asset', id, auto),
+      initialWidth: ASSET_W,
+      initialHeight: ASSET_H,
       data: {
         asset: a,
         health: assetHealth[id],
@@ -1109,7 +1127,7 @@ export const buildGraph = (
         onDeleteAsset: handlers.onDeleteAsset,
       } as AssetNodeData,
       draggable: true,
-      connectable: false,
+      connectable: true,
     })
     for (const agentID of a.agent_ids ?? []) {
       if (!flatByID.has(agentID)) continue
@@ -1181,6 +1199,8 @@ export const buildGraph = (
         id: `topic:${s.id}`,
         type: 'topic',
         position: pos,
+        initialWidth: STREAM_W,
+        initialHeight: estimateTopicCardHeight(s.name, topicCardSubtitle(s)),
         data: {
           topicId: s.id,
           name: s.name,
@@ -1278,6 +1298,8 @@ export const buildGraph = (
         id: `processor:${p.id}`,
         type: 'processor',
         position: pos,
+        initialWidth: PROC_W,
+        initialHeight: h,
         data: {
           processorId: p.id,
           name: p.name,
@@ -1666,6 +1688,14 @@ const ClosestSideEdge: FC<EdgeProps> = ({
 
 const edgeTypes = { deletable: DeletableEdge, closest: ClosestSideEdge }
 
+export const assetLinkFromConnection = (source: string, target: string): { assetId: string; agentId: string } | null => {
+  if (!source.startsWith('asset:') || !target.startsWith('bot:')) return null
+  const assetId = source.slice('asset:'.length)
+  const agentId = target.slice('bot:'.length)
+  if (!assetId || !agentId) return null
+  return { assetId, agentId }
+}
+
 // ---- ReactFlow canvas --------------------------------------------------
 
 const ChartCanvas: FC<{
@@ -1694,6 +1724,7 @@ const ChartCanvas: FC<{
   // pseudo-node; onUnsubscribeBot fires when they delete that edge.
   onSubscribeBot: (botId: string, topicId: string) => void
   onUnsubscribeBot: (botId: string, topicId: string) => void
+  onLinkAsset: (assetId: string, agentId: string) => void
   onUnlinkAsset: (assetId: string, agentId: string) => void
   // onSetProcessorInput fires when the user wires a Topic (or another
   // processor's output branch) into a processor's IN port.
@@ -1717,13 +1748,14 @@ const ChartCanvas: FC<{
   fitViewRequest: number
   /** Bot id currently focused in the left chat rail. */
   selectedBotId: string
-}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onUnlinkAsset, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, assets, assetHealth, savedPositions, visibleTopicIds, onResetLayout, resetLayoutPending, fitViewRequest, selectedBotId }) => {
+}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onLinkAsset, onUnlinkAsset, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, assets, assetHealth, savedPositions, visibleTopicIds, onResetLayout, resetLayoutPending, fitViewRequest, selectedBotId }) => {
   const lightTheme = useLightTheme()
   const account = useAccount()
   const userId = account.user?.id ?? ''
   // Canonical org id (not the URL slug) so a rename doesn't lose the camera.
   const orgId = account.organizationTools.organization?.id ?? ''
   const { fitView, screenToFlowPosition, setViewport } = useReactFlow()
+  const updateNodeInternals = useUpdateNodeInternals()
   // Apply camera once after the first graph build: restore this user's
   // saved pan/zoom for the org, or fitView when nothing is stored yet.
   // Node-drag persistence must not re-run this (would yank the camera).
@@ -1754,6 +1786,8 @@ const ChartCanvas: FC<{
   useEffect(() => {
     setNodes(computedNodes)
     setEdges(computedEdges)
+    const nodeIds = computedNodes.map((node) => node.id)
+    requestAnimationFrame(() => updateNodeInternals(nodeIds))
     if (fitViewRequest !== fitViewRequestRef.current) {
       fitViewRequestRef.current = fitViewRequest
       requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
@@ -1766,7 +1800,6 @@ const ChartCanvas: FC<{
     }
     if (didInitViewportRef.current || computedNodes.length === 0 || !userId || !orgId) return
     didInitViewportRef.current = true
-    const nodeIds = computedNodes.map((node) => node.id)
     const saved = loadChartViewport(userId, orgId, nodeIds)
     requestAnimationFrame(() => {
       if (saved) {
@@ -1775,7 +1808,7 @@ const ChartCanvas: FC<{
         fitView({ padding: 0.2, duration: 250 })
       }
     })
-  }, [computedNodes, computedEdges, fitView, fitViewRequest, setViewport, setNodes, setEdges, userId, orgId])
+  }, [computedNodes, computedEdges, fitView, fitViewRequest, setViewport, setNodes, setEdges, updateNodeInternals, userId, orgId])
 
   // Personal camera: pan/zoom only — node layout is server-side shared.
   const onMoveEnd = useCallback(
@@ -1815,11 +1848,18 @@ const ChartCanvas: FC<{
   //   - bot→bot:     drag manager → report creates a "reports to" line
   //                  (stored as subordinate reports_to manager; drawn
   //                  subordinate → manager with arrow + label)
+  //   - asset→bot:   grant the agent access to the asset
   //   - bot→topic OR topic→bot: subscribe (either direction)
   //   - topic→processor / processor-branch→…: processor wiring
   const onConnect = useCallback(
     ({ source, sourceHandle, target }: { source: string | null; sourceHandle?: string | null; target: string | null }) => {
       if (!source || !target) return
+
+      const assetLink = assetLinkFromConnection(source, target)
+      if (assetLink) {
+        onLinkAsset(assetLink.assetId, assetLink.agentId)
+        return
+      }
 
       // Processor OUT branch → (Bot | Processor). The branch handle id IS
       // the branch's output topic id (see buildGraph), so the wire carries
@@ -1869,7 +1909,7 @@ const ChartCanvas: FC<{
         onAddParent(reportId, managerId)
       }
     },
-    [onAddParent, onSubscribeBot, onSetProcessorInput],
+    [onAddParent, onLinkAsset, onSubscribeBot, onSetProcessorInput],
   )
 
   const edgeEndpointLabel = useCallback(
@@ -2141,6 +2181,7 @@ const HelixOrgChart: FC = () => {
   const removeParent = useRemoveBotParent()
   const subscribe = useSubscribeBotAtChart()
   const unsubscribe = useUnsubscribeBotAtChart()
+  const linkAsset = useLinkAsset()
   const unlinkAsset = useUnlinkAsset()
   const activateBot = useActivateBot()
   const stopBot = useStopBotAgent()
@@ -2317,6 +2358,7 @@ const HelixOrgChart: FC = () => {
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [botDialogOpen, setBotDialogOpen] = useState(false)
+  const [newMenuEl, setNewMenuEl] = useState<null | HTMLElement>(null)
   const [assetDrawer, setAssetDrawer] = useState<{ open: boolean; assetID?: string }>({ open: false })
   const [topicDrawerOpen, setTopicDrawerOpen] = useState(false)
   const [selectedTopicId, setSelectedTopicId] = useState<string>()
@@ -2525,6 +2567,18 @@ const HelixOrgChart: FC = () => {
     [unlinkAsset, snackbar],
   )
 
+  const onLinkAsset = useCallback(
+    async (assetId: string, agentId: string) => {
+      try {
+        await linkAsset.mutateAsync({ assetID: assetId, agentID: agentId })
+        snackbar.success(`${agentId} can now use ${assetId}`)
+      } catch (err: any) {
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'link asset failed')
+      }
+    },
+    [linkAsset, snackbar],
+  )
+
   // onSetProcessorInput re-points a processor at a new input topic (from
   // wiring a Topic — or another processor's output branch — into its IN
   // port). Preserves the processor's name/kind/config; only the input
@@ -2669,53 +2723,36 @@ const HelixOrgChart: FC = () => {
             <ChartTopicVisibilityMenu selected={visibleTopicFilters} onChange={onTopicFiltersChange} />
             <Button
               size="small"
-              variant="outlined"
-              startIcon={<TransformIcon sx={{ fontSize: 16 }} />}
-              onClick={() => {
-                setPendingCreatePosition(undefined)
-                setProcessorDrawer({ open: true, processor: null })
-              }}
-              sx={chartToolbarButtonSx}
-            >
-              Processor
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<HubOutlinedIcon sx={{ fontSize: 16 }} />}
-              onClick={() => {
-                setPendingCreatePosition(undefined)
-                setTopicDrawerOpen(true)
-              }}
-              sx={chartToolbarButtonSx}
-            >
-              Topic
-            </Button>
-            <Button
-              size="small"
               variant="contained"
               color="secondary"
               startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-              onClick={() => {
-                setPendingCreatePosition(undefined)
-                setBotDialogOpen(true)
-              }}
+              endIcon={<ArrowDropDownIcon sx={{ fontSize: 18 }} />}
+              onClick={(event) => setNewMenuEl(event.currentTarget)}
+              aria-label="Create new chart item"
+              aria-haspopup="menu"
+              aria-expanded={Boolean(newMenuEl)}
               sx={chartToolbarButtonSizeSx}
             >
-              New agent
+              New
             </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<DnsOutlinedIcon sx={{ fontSize: 16 }} />}
-              onClick={() => {
-                setPendingCreatePosition(undefined)
-                setAssetDrawer({ open: true })
-              }}
-              sx={chartToolbarButtonSx}
-            >
-              New asset
-            </Button>
+            <Menu anchorEl={newMenuEl} open={Boolean(newMenuEl)} onClose={() => setNewMenuEl(null)}>
+              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setBotDialogOpen(true) }}>
+                <ListItemIcon><SmartToyOutlinedIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Agent</ListItemText>
+              </MenuItem>
+              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setTopicDrawerOpen(true) }}>
+                <ListItemIcon><HubOutlinedIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Topic</ListItemText>
+              </MenuItem>
+              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setProcessorDrawer({ open: true, processor: null }) }}>
+                <ListItemIcon><TransformIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Processor</ListItemText>
+              </MenuItem>
+              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setAssetDrawer({ open: true }) }}>
+                <ListItemIcon><DnsOutlinedIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Asset</ListItemText>
+              </MenuItem>
+            </Menu>
           </Stack>
 
           {isLoading || assetsLoading ? (
@@ -2742,6 +2779,7 @@ const HelixOrgChart: FC = () => {
                 onRemoveParent={onRemoveParent}
                 onSubscribeBot={onSubscribeBot}
                 onUnsubscribeBot={onUnsubscribeBot}
+                onLinkAsset={onLinkAsset}
                 onUnlinkAsset={onUnlinkAsset}
                 onSetProcessorInput={onSetProcessorInput}
                 onLayoutSnapshot={onLayoutSnapshot}

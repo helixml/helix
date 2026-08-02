@@ -136,18 +136,22 @@ create prints the public key that must be installed on the target server.
 
 ## Chart UI
 
-“New asset” is the final toolbar and right-click menu option. Create and edit use
-one shared side-drawer surface matching the processor create/edit pattern. The
-drawer selects the asset type first (only Server today), then shows its typed
-fields. Agent notes are the final data field. Server nodes show one combined
-health light: green only when both network and authenticated SSH checks pass,
-yellow otherwise. The top navigation has a final Assets tab with a `SimpleTable`
-registry view, health, endpoint, linked-agent count, and the same create/edit
-drawer.
+“New” is the chart toolbar's single create action, with Agent, Topic, Processor,
+and Asset entries. “New asset” remains the final right-click menu option. Create
+and edit use one shared side-drawer surface matching the processor create/edit
+pattern. The drawer selects the asset type first (only Server today), then shows
+its typed fields. Agent notes are the final data field. Server nodes show one
+combined health light: green only when both network and authenticated SSH checks
+pass, yellow otherwise. The top navigation has a final Assets tab with a
+`SimpleTable` registry view, health, endpoint, linked-agent count, and the same
+create/edit drawer.
 
-Asset-to-agent links render as blue “available to” edges. Asset cards carry an
-invisible React Flow handle so persisted links have a resolvable endpoint even
-though users cannot draw arbitrary connections from the card.
+Asset-to-agent links render as blue “available to” edges. Asset cards expose a
+compact connection handle on all four sides; dragging any handle onto an agent
+creates the same authorization link as the edit drawer. Asset and agent handles
+share the same neutral color and size. The graph refreshes each node's measured
+handle bounds after server data changes so a newly rendered handle is immediately
+connectable.
 
 Right-click creation records the click in React Flow coordinates and persists a
 centered `org_chart_positions` row after the entity is created. Agents, topics,

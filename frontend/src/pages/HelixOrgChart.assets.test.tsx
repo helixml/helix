@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { AssetAuthType, AssetKind } from '../api/api'
 import type { AssetDTO } from '../services/helixOrgService'
-import { AssetNode, buildGraph } from './HelixOrgChart'
+import { AssetNode, assetLinkFromConnection, buildGraph } from './HelixOrgChart'
 
 const handlers = {
   onSelectBot: vi.fn(),
@@ -48,7 +48,12 @@ describe('HelixOrgChart server assets', () => {
       { 'asset:a-server': { x: 123, y: 456 } },
     )
 
-    expect(graph.nodes.find((node) => node.id === 'asset:a-server')?.position).toEqual({ x: 123, y: 456 })
+    const assetNode = graph.nodes.find((node) => node.id === 'asset:a-server')
+    const agentNode = graph.nodes.find((node) => node.id === 'bot:chief-of-staff')
+    expect(assetNode?.position).toEqual({ x: 123, y: 456 })
+    expect(assetNode?.connectable).toBe(true)
+    expect(assetNode).toMatchObject({ initialWidth: 220, initialHeight: 100 })
+    expect(agentNode).toMatchObject({ initialWidth: 220, initialHeight: 96 })
     expect(graph.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'asset-link:a-server->chief-of-staff',
@@ -57,6 +62,14 @@ describe('HelixOrgChart server assets', () => {
         markerEnd: expect.objectContaining({ color: 'rgba(25,118,210,0.6)' }),
       }),
     ]))
+  })
+
+  it('routes connections dragged from an asset into an agent', () => {
+    expect(assetLinkFromConnection('asset:a-server', 'bot:chief-of-staff')).toEqual({
+      assetId: 'a-server',
+      agentId: 'chief-of-staff',
+    })
+    expect(assetLinkFromConnection('bot:chief-of-staff', 'asset:a-server')).toBeNull()
   })
 
   it('renders one combined network and SSH health indicator', () => {
@@ -75,6 +88,10 @@ describe('HelixOrgChart server assets', () => {
     )
 
     expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(screen.getAllByLabelText(/Connect asset to an agent from the/)).toHaveLength(4)
+    for (const side of ['left', 'right', 'top', 'bottom']) {
+      expect(screen.getByLabelText(`Connect asset to an agent from the ${side}`)).toHaveStyle({ width: '10px', height: '10px' })
+    }
     expect(screen.getByRole('status')).toHaveAccessibleName('Network or SSH unavailable')
     expect(screen.getByText('1 allowed agent')).toBeInTheDocument()
   })
