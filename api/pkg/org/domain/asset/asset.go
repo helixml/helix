@@ -43,6 +43,7 @@ type Asset struct {
 	Name           string    `json:"name" gorm:"not null;uniqueIndex:idx_asset_org_name,priority:2"`
 	Description    string    `json:"description,omitempty" gorm:"not null;default:''"`
 	NotesForAgents string    `json:"notes_for_agents,omitempty" gorm:"not null;default:''"`
+	Disabled       bool      `json:"disabled" gorm:"not null;default:false"`
 	Kind           Kind      `json:"kind" gorm:"not null;index"`
 	Config         Config    `json:"config" gorm:"serializer:json;type:jsonb;not null"`
 	CreatedAt      time.Time `json:"created_at"`

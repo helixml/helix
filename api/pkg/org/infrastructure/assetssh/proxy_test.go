@@ -31,12 +31,20 @@ func (p *proxyAssets) AuthorizeRef(_ context.Context, orgID, agentID, ref string
 	if !p.allowed || orgID != p.value.OrganizationID || agentID != "agent-1" || (ref != p.value.ID && ref != p.value.Name) {
 		return asset.Asset{}, errors.New("asset is not linked to agent")
 	}
+	if p.value.Disabled {
+		return asset.Asset{}, errors.New("asset is disabled")
+	}
 	return p.value, nil
 }
 func (*proxyAssets) PinHostKey(context.Context, string, asset.ID, string) error { return nil }
 func (p *proxyAssets) setAllowed(value bool) {
 	p.mu.Lock()
 	p.allowed = value
+	p.mu.Unlock()
+}
+func (p *proxyAssets) setDisabled(value bool) {
+	p.mu.Lock()
+	p.value.Disabled = value
 	p.mu.Unlock()
 }
 
@@ -92,6 +100,14 @@ func TestProxyCertificateEnforcesAgentLinkAndAssetUsername(t *testing.T) {
 	}
 	if _, err := proxy.config.PublicKeyCallback(connMetadata{user: "staging"}, cert); err == nil {
 		t.Fatal("certificate accepted for a different asset username")
+	}
+	assets.setDisabled(true)
+	if _, err := proxy.config.PublicKeyCallback(connMetadata{user: "production"}, cert); err == nil {
+		t.Fatal("certificate remained usable after the asset was disabled")
+	}
+	assets.setDisabled(false)
+	if _, err := proxy.config.PublicKeyCallback(connMetadata{user: "production"}, cert); err != nil {
+		t.Fatalf("certificate did not become usable after the asset was re-enabled: %v", err)
 	}
 	assets.setAllowed(false)
 	if _, err := proxy.config.PublicKeyCallback(connMetadata{user: "production"}, cert); err == nil {

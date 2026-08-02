@@ -141,6 +141,10 @@ func (c *Client) Health(ctx context.Context, orgID, idOrName string) Health {
 		h.Error = err.Error()
 		return h
 	}
+	if a.Disabled {
+		h.Error = fmt.Sprintf("asset %q is disabled", a.Name)
+		return h
+	}
 	server, err := serverConfig(a)
 	if err != nil {
 		h.Error = err.Error()

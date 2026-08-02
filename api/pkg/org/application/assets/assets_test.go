@@ -2,6 +2,7 @@ package assets
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,7 @@ func TestCreateServerEncryptsPrivateKey(t *testing.T) {
 	require.Equal(t, uint16(22), a.Config.Server.Port)
 	require.Equal(t, "ssh-ed25519 public", a.Config.Server.PublicKey)
 	require.Equal(t, "encrypted-private", a.Config.Server.EncryptedPrivateKey)
+	require.False(t, a.Disabled)
 }
 
 func TestLinkDerivesAndRevokesServerTools(t *testing.T) {
@@ -62,4 +64,36 @@ func TestLinkDerivesAndRevokesServerTools(t *testing.T) {
 	for _, name := range ServerTools {
 		require.NotContains(t, bot.Tools, name)
 	}
+}
+
+func TestAuthorizeRequiresLinkAndEnabledAsset(t *testing.T) {
+	svc, _, orgID := newTestService(t)
+	ctx := context.Background()
+	a, err := svc.CreateServer(ctx, orgID, CreateServerParams{
+		Name: "production", Address: "10.0.0.8", User: "ubuntu",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Authorize(ctx, orgID, "b-agent", a.ID)
+	require.ErrorContains(t, err, "not linked")
+
+	_, err = svc.Link(ctx, orgID, a.ID, "b-agent")
+	require.NoError(t, err)
+	enabled := false
+	a, err = svc.UpdateServer(ctx, orgID, a.ID, UpdateServerParams{Enabled: &enabled})
+	require.NoError(t, err)
+	require.True(t, a.Disabled)
+
+	linked, err := svc.ListForAgent(ctx, orgID, "b-agent")
+	require.NoError(t, err)
+	require.Len(t, linked, 1)
+	_, err = svc.AuthorizeRef(ctx, orgID, "b-agent", "production")
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "asset \"production\" is disabled"), err.Error())
+
+	enabled = true
+	_, err = svc.UpdateServer(ctx, orgID, a.ID, UpdateServerParams{Enabled: &enabled})
+	require.NoError(t, err)
+	_, err = svc.AuthorizeRef(ctx, orgID, "b-agent", "production")
+	require.NoError(t, err)
 }

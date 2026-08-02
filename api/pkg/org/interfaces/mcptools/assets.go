@@ -34,6 +34,7 @@ type assetView struct {
 	Name           string           `json:"name"`
 	Description    string           `json:"description,omitempty"`
 	NotesForAgents string           `json:"notes_for_agents,omitempty"`
+	Enabled        bool             `json:"enabled"`
 	Kind           asset.Kind       `json:"kind"`
 	Server         *assetServerView `json:"server,omitempty"`
 }
@@ -55,18 +56,25 @@ type assetSSHAccessView struct {
 }
 
 func viewAsset(a asset.Asset) assetView {
-	view := assetView{ID: a.ID, Name: a.Name, Description: a.Description, NotesForAgents: a.NotesForAgents, Kind: a.Kind}
+	view := assetView{ID: a.ID, Name: a.Name, Description: a.Description, NotesForAgents: a.NotesForAgents, Enabled: !a.Disabled, Kind: a.Kind}
 	if a.Config.Server != nil {
+		capabilities := []string{
+			"run_commands", "manage_detached_commands", "read_write_files", "ssh_via_helix_proxy",
+		}
+		sshAccess := assetSSHAccessView{
+			Available: true, Tool: string(ServerSSHAccessName), Target: a.Name + "@<helix-ssh-proxy>",
+			Instructions: "Call server_ssh_access to mint a short-lived identity and receive the exact SSH setup command.",
+		}
+		if a.Disabled {
+			capabilities = nil
+			sshAccess.Available = false
+			sshAccess.Instructions = "This asset is disabled. An organization owner must enable it before agents can use MCP or SSH access."
+		}
 		view.Server = &assetServerView{
 			Address: a.Config.Server.Address, Port: a.Config.Server.Port,
 			User: a.Config.Server.User, AuthType: a.Config.Server.AuthType,
-			Capabilities: []string{
-				"run_commands", "manage_detached_commands", "read_write_files", "ssh_via_helix_proxy",
-			},
-			SSHAccess: assetSSHAccessView{
-				Available: true, Tool: string(ServerSSHAccessName), Target: a.Name + "@<helix-ssh-proxy>",
-				Instructions: "Call server_ssh_access to mint a short-lived identity and receive the exact SSH setup command.",
-			},
+			Capabilities: capabilities,
+			SSHAccess:    sshAccess,
 		}
 	}
 	return view
@@ -90,7 +98,7 @@ const ListAssetsName tool.Name = "list_assets"
 func (t *ListAssets) Name() tool.Name                 { return ListAssetsName }
 func (t *ListAssets) InputSchema() *jsonschema.Schema { return mustSchema[struct{}]() }
 func (t *ListAssets) Description() string {
-	return "List server assets linked to this agent, including connection coordinates, operator notes, command/file capabilities, and SSH proxy guidance."
+	return "List server assets linked to this agent, including enabled or disabled status, connection coordinates, operator notes, command/file capabilities, and SSH proxy guidance."
 }
 func (t *ListAssets) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	orgID, agentID, err := assetCaller(inv, ListAssetsName)

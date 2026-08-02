@@ -10,7 +10,9 @@ import ListItemText from '@mui/material/ListItemText'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
+import Switch from '@mui/material/Switch'
 import TextField from '@mui/material/TextField'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
@@ -85,6 +87,7 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
   const [form, setForm] = useState<AssetForm>(emptyForm)
   const [savedForm, setSavedForm] = useState<AssetForm | null>(null)
   const [created, setCreated] = useState<AssetDTO | null>(null)
+  const [enabled, setEnabled] = useState(true)
   const isEdit = Boolean(asset)
 
   useEffect(() => {
@@ -93,6 +96,7 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
     setForm(next)
     setSavedForm(asset ? next : null)
     setCreated(null)
+    setEnabled(asset?.enabled !== false)
   }, [asset, open])
 
   const dirty = !isEdit || !savedForm || JSON.stringify(form) !== JSON.stringify(savedForm)
@@ -106,12 +110,13 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
 
   const currentPublicKey = created?.server?.public_key ?? asset?.server?.public_key
   const healthStatus = useMemo(() => {
+    if (!enabled) return <Chip label="Disabled" color="default" size="small" />
     if (!isEdit) return null
     const reachable = Boolean(health?.tcp_reachable && health?.ssh_reachable)
     return (
       <Chip label={reachable ? 'Connected' : 'Connection degraded'} color={reachable ? 'success' : 'warning'} size="small" />
     )
-  }, [health, isEdit])
+  }, [enabled, health, isEdit])
 
   const submit = async () => {
     if (!canSubmit) {
@@ -134,6 +139,7 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
           notes_for_agents: form.notes.trim(),
         })
         setCreated(value)
+        setEnabled(value.enabled !== false)
         if (value.id) onCreated?.(value.id)
         snackbar.success(`Added asset ${value.name}`)
         return
@@ -173,6 +179,20 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
     snackbar.success('Public key copied')
   }
 
+  const toggleEnabled = async (nextEnabled: boolean) => {
+    const current = created ?? asset
+    if (!current?.id) return
+    setEnabled(nextEnabled)
+    try {
+      const updated = await updateAsset.mutateAsync({ id: current.id, enabled: nextEnabled })
+      if (created) setCreated(updated)
+      snackbar.success(`${current.name ?? current.id} ${nextEnabled ? 'enabled' : 'disabled'}`)
+    } catch (err: any) {
+      setEnabled(!nextEnabled)
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'Could not update asset access')
+    }
+  }
+
   return (
     <HelixOrgSideDrawer
       open={open}
@@ -186,7 +206,43 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
           id={created?.id || asset?.id || 'new asset'}
           idAction={(created?.id || asset?.id) ? <CopyButtonWithCheck text={(created?.id || asset?.id) ?? ''} /> : undefined}
           icon={<DnsOutlinedIcon sx={{ fontSize: 20 }} />}
-          status={healthStatus ?? <Chip label="Server" size="small" sx={{ color: 'common.white', backgroundColor: 'rgba(255,255,255,0.11)', border: '1px solid rgba(255,255,255,0.22)' }} />}
+          status={(
+            <Stack direction="row" spacing={0.75} alignItems="center">
+              {healthStatus ?? <Chip label="Server" size="small" sx={{ color: 'common.white', backgroundColor: 'rgba(255,255,255,0.11)', border: '1px solid rgba(255,255,255,0.22)' }} />}
+              {(created || asset) && (
+                <Tooltip
+                  arrow
+                  placement="bottom-end"
+                  title={(
+                    <Box sx={{ maxWidth: 280, py: 0.25 }}>
+                      <Typography variant="subtitle2" color="inherit">
+                        {enabled ? 'Disable asset access' : 'Enable asset access'}
+                      </Typography>
+                      <Typography variant="caption" color="inherit" sx={{ display: 'block', mt: 0.25, opacity: 0.85 }}>
+                        {enabled
+                          ? 'Blocks agents from using this asset through MCP or proxy SSH. Agent assignments stay connected.'
+                          : 'Allows assigned agents to use this asset through MCP and proxy SSH again.'}
+                      </Typography>
+                    </Box>
+                  )}
+                >
+                  <span>
+                    <Switch
+                      size="small"
+                      checked={enabled}
+                      disabled={updateAsset.isPending}
+                      onChange={(event) => void toggleEnabled(event.target.checked)}
+                      inputProps={{ 'aria-label': enabled ? 'Disable asset access' : 'Enable asset access' }}
+                      sx={{
+                        '& .MuiSwitch-switchBase.Mui-checked': { color: 'common.white' },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: 'common.white' },
+                      }}
+                    />
+                  </span>
+                </Tooltip>
+              )}
+            </Stack>
+          )}
         >
           {(created || asset) && <Chip label={`${form.agentIDs.length} allowed agents`} size="small" sx={{ color: 'common.white', backgroundColor: 'rgba(255,255,255,0.11)' }} />}
         </HelixOrgOverviewCard>

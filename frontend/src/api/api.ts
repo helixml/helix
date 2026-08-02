@@ -73,6 +73,7 @@ export interface ApiAssetDTO {
   agent_ids?: string[];
   created_at?: string;
   description?: string;
+  enabled?: boolean;
   id?: string;
   kind?: AssetKind;
   name?: string;
@@ -523,6 +524,7 @@ export interface ApiTransportRequestField {
 
 export interface ApiUpdateAssetRequest {
   description?: string;
+  enabled?: boolean;
   name?: string;
   notes_for_agents?: string;
   server?: ApiUpdateServerAssetRequest;

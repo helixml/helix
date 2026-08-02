@@ -101,6 +101,25 @@ func TestChiefOfStaffManagesServerAssetLifecycle(t *testing.T) {
 	assert.Equal(t, "Primary production API", updated.Asset.Description)
 	require.NotNil(t, updated.Asset.Server)
 	assert.Equal(t, "10.0.0.9", updated.Asset.Server.Address)
+	assert.True(t, updated.Asset.Enabled)
+
+	raw = invokeManagedAssetTool(t, &UpdateServerAsset{deps: deps}, caller,
+		`{"asset":"production","enabled":false}`)
+	require.NoError(t, json.Unmarshal(raw, &updated))
+	assert.False(t, updated.Asset.Enabled)
+	linkedAssets, err := service.ListForAgent(ctx, "org-1", "chief-of-staff")
+	require.NoError(t, err)
+	require.Len(t, linkedAssets, 1)
+	_, err = service.AuthorizeRef(ctx, "org-1", "chief-of-staff", "production")
+	require.ErrorContains(t, err, "disabled")
+
+	// Exercise the immediately following normal operation: re-enable the asset
+	// and verify that the existing link becomes usable again.
+	raw = invokeManagedAssetTool(t, &UpdateServerAsset{deps: deps}, caller,
+		`{"asset":"production","enabled":true}`)
+	require.NoError(t, json.Unmarshal(raw, &updated))
+	_, err = service.AuthorizeRef(ctx, "org-1", "chief-of-staff", "production")
+	require.NoError(t, err)
 
 	raw = invokeManagedAssetTool(t, &GetAssetHealth{deps: deps}, caller,
 		`{"asset":"production"}`)
