@@ -214,6 +214,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.TopUp{},
 		&types.Project{},
 		&types.ProjectAuditLog{}, // Audit trail for project activity
+		&types.OrgAuditLog{},     // Audit trail for Helix org activity
 		&types.SampleProject{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},

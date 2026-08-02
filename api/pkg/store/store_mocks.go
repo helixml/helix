@@ -687,6 +687,20 @@ func (mr *MockStoreMockRecorder) CreateOAuthRequestToken(ctx, token any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOAuthRequestToken", reflect.TypeOf((*MockStore)(nil).CreateOAuthRequestToken), ctx, token)
 }
 
+// CreateOrgAuditLog mocks base method.
+func (m *MockStore) CreateOrgAuditLog(ctx context.Context, log *types.OrgAuditLog) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateOrgAuditLog", ctx, log)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateOrgAuditLog indicates an expected call of CreateOrgAuditLog.
+func (mr *MockStoreMockRecorder) CreateOrgAuditLog(ctx, log any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrgAuditLog", reflect.TypeOf((*MockStore)(nil).CreateOrgAuditLog), ctx, log)
+}
+
 // CreateOrganization mocks base method.
 func (m *MockStore) CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error) {
 	m.ctrl.T.Helper()
@@ -4760,6 +4774,21 @@ func (m *MockStore) ListOAuthProviders(ctx context.Context, query *ListOAuthProv
 func (mr *MockStoreMockRecorder) ListOAuthProviders(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOAuthProviders", reflect.TypeOf((*MockStore)(nil).ListOAuthProviders), ctx, query)
+}
+
+// ListOrgAuditLogs mocks base method.
+func (m *MockStore) ListOrgAuditLogs(ctx context.Context, filters *types.OrgAuditLogFilters) (*types.OrgAuditLogResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOrgAuditLogs", ctx, filters)
+	ret0, _ := ret[0].(*types.OrgAuditLogResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOrgAuditLogs indicates an expected call of ListOrgAuditLogs.
+func (mr *MockStoreMockRecorder) ListOrgAuditLogs(ctx, filters any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrgAuditLogs", reflect.TypeOf((*MockStore)(nil).ListOrgAuditLogs), ctx, filters)
 }
 
 // ListOrganizationInvitations mocks base method.

@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
+	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -108,7 +111,7 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 			s.logger.Info("mcp.unknown_tool_on_bot", "bot", botID, "tool", toolName)
 			continue
 		}
-		registerToolForBot(srv, t, caller, s.logger.With("bot", botID, "tool", toolName))
+		s.registerToolForBot(srv, t, caller, s.logger.With("bot", botID, "tool", toolName))
 	}
 
 	if s.prompts != nil {
@@ -128,7 +131,7 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 // the right Invocation without re-querying the store. Authorisation is
 // by virtue of the tool appearing in the Bot's Tools; there is no
 // separate tool record to consult at call time.
-func registerToolForBot(srv *mcp.Server, t tool.Tool, caller tool.Caller, logger interface {
+func (s *Server) registerToolForBot(srv *mcp.Server, t tool.Tool, caller tool.Caller, logger interface {
 	Info(msg string, args ...any)
 }) {
 	srv.AddTool(&mcp.Tool{
@@ -140,20 +143,85 @@ func registerToolForBot(srv *mcp.Server, t tool.Tool, caller tool.Caller, logger
 		if len(args) == 0 {
 			args = json.RawMessage(`{}`)
 		}
+		auditEntry := s.newMCPAuditEntry(ctx, caller, string(t.Name()), args)
+		started := time.Now()
 		result, err := t.Invoke(ctx, tool.Invocation{
 			Caller: caller,
 			Args:   args,
 		})
 		if err != nil {
+			auditEntry.Status = orgaudit.StatusFailed
+			auditEntry.Metadata.Error = err.Error()
+			auditEntry.Metadata.DurationMS = time.Since(started).Milliseconds()
+			s.recordAudit(ctx, auditEntry)
 			logger.Info("mcp.tool_error", "err", err.Error())
 			out := &mcp.CallToolResult{}
 			out.SetError(err)
 			return out, nil
 		}
+		auditEntry.Status = orgaudit.StatusSucceeded
+		auditEntry.Metadata.DurationMS = time.Since(started).Milliseconds()
+		s.recordAudit(ctx, auditEntry)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: string(result)}},
 		}, nil
 	})
+}
+
+type mcpAuditArgs struct {
+	ProjectID string `json:"project_id"`
+	Asset     string `json:"asset"`
+	AssetID   string `json:"asset_id"`
+}
+
+func (s *Server) newMCPAuditEntry(ctx context.Context, caller tool.Caller, action string, args json.RawMessage) orgaudit.Entry {
+	entry := orgaudit.Entry{
+		OrganizationID: caller.OrganizationID(),
+		UserID:         runtimehelix.UserIDFromContext(ctx),
+		ActorID:        caller.ID(),
+		ActorType:      orgaudit.ActorBot,
+		EventType:      orgaudit.EventMCPCall,
+		Action:         action,
+		Status:         orgaudit.StatusAttempted,
+		Metadata: orgaudit.Metadata{
+			Arguments: orgaudit.RedactArguments(args),
+		},
+	}
+	var parsed mcpAuditArgs
+	if err := json.Unmarshal(args, &parsed); err == nil {
+		entry.ProjectID = parsed.ProjectID
+		entry.Metadata.AssetRef = parsed.Asset
+		if entry.Metadata.AssetRef == "" {
+			entry.Metadata.AssetRef = parsed.AssetID
+		}
+	}
+	if entry.ProjectID == "" && s.projects != nil {
+		projectID, err := s.projects(ctx, entry.OrganizationID, entry.ActorID)
+		if err != nil {
+			s.logger.Info("mcp.audit_project_error", "bot", entry.ActorID, "err", err.Error())
+		} else {
+			entry.ProjectID = projectID
+		}
+	}
+	if entry.Metadata.AssetRef != "" && s.assets != nil {
+		value, err := s.assets.Get(ctx, entry.OrganizationID, asset.ID(entry.Metadata.AssetRef))
+		if err != nil {
+			value, err = s.assets.GetByName(ctx, entry.OrganizationID, entry.Metadata.AssetRef)
+		}
+		if err == nil {
+			entry.AssetID = string(value.ID)
+		}
+	}
+	return entry
+}
+
+func (s *Server) recordAudit(ctx context.Context, entry orgaudit.Entry) {
+	if s.audit == nil {
+		return
+	}
+	if err := s.audit.Record(ctx, entry); err != nil {
+		s.logger.Error("mcp.audit_write_error", "event_type", entry.EventType, "action", entry.Action, "err", err.Error())
+	}
 }
 
 // registerPromptForBot binds a single prompt onto the per-bot MCP

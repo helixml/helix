@@ -764,6 +764,10 @@ type Store interface {
 	CreateProjectAuditLog(ctx context.Context, log *types.ProjectAuditLog) error
 	ListProjectAuditLogs(ctx context.Context, filters *types.ProjectAuditLogFilters) (*types.ProjectAuditLogResponse, error)
 
+	// Org Audit Log methods - append-only audit trail for Helix org activity
+	CreateOrgAuditLog(ctx context.Context, log *types.OrgAuditLog) error
+	ListOrgAuditLogs(ctx context.Context, filters *types.OrgAuditLogFilters) (*types.OrgAuditLogResponse, error)
+
 	// Sample Project methods
 	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)
 	GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error)

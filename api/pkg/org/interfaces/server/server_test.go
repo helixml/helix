@@ -9,15 +9,26 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
 
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	"github.com/helixml/helix/api/pkg/org/interfaces/server"
 )
+
+type auditRecorder struct {
+	entries chan orgaudit.Entry
+}
+
+func (r *auditRecorder) Record(_ context.Context, entry orgaudit.Entry) error {
+	r.entries <- entry
+	return nil
+}
 
 // newTestServer seeds a CEO Bot whose Tools list both ping and
 // create_bot — but only ping is actually registered with the server.
@@ -118,6 +129,42 @@ func TestMCPListToolsFromBot(t *testing.T) {
 	}
 	if !got["ping"] {
 		t.Errorf("ping missing from bot-derived list: %+v", got)
+	}
+}
+
+func TestMCPToolCallIsAudited(t *testing.T) {
+	st := orggorm.GetOrgTestDB(t)
+	reg := mcptools.NewRegistry()
+	require.NoError(t, reg.Register(mcptools.Ping{}))
+	recorder := &auditRecorder{entries: make(chan orgaudit.Entry, 1)}
+	orgServer := server.NewFromStore(st, reg, nil, nil, nil).WithAudit(
+		recorder,
+		func(context.Context, string, string) (string, error) { return "project-1", nil },
+	)
+	httpServer := httptest.NewServer(orgServer.Handler())
+	t.Cleanup(httpServer.Close)
+
+	bot, err := orgchart.NewNode("b-audited", "# Audited", []tool.Name{mcptools.PingName}, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, st.Nodes.Create(context.Background(), bot))
+	session := connectMCP(t, httpServer.URL, bot.ID)
+	_, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      mcptools.PingName,
+		Arguments: map[string]string{"message": "hello"},
+	})
+	require.NoError(t, err)
+
+	select {
+	case entry := <-recorder.entries:
+		require.Equal(t, "org-test", entry.OrganizationID)
+		require.Equal(t, "project-1", entry.ProjectID)
+		require.Equal(t, "b-audited", entry.ActorID)
+		require.Equal(t, orgaudit.EventMCPCall, entry.EventType)
+		require.Equal(t, mcptools.PingName, entry.Action)
+		require.Equal(t, orgaudit.StatusSucceeded, entry.Status)
+		require.JSONEq(t, `{"message":"hello"}`, string(entry.Metadata.Arguments))
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for MCP audit entry")
 	}
 }
 

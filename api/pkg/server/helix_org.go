@@ -58,6 +58,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/services"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -948,6 +949,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	if err != nil {
 		return nil, fmt.Errorf("init asset SSH proxy: %w", err)
 	}
+	orgAudit := services.NewOrgAuditLogService(helixStore)
+	auditProjects := func(ctx context.Context, orgID, actorID string) (string, error) {
+		state, err := runtimehelix.LoadState(ctx, st, orgID, orgchart.NodeID(actorID))
+		if err != nil {
+			return "", err
+		}
+		return state.ProjectID, nil
+	}
+	assetSSH.WithAudit(orgAudit, auditProjects)
+	assetSSHProxy.WithAudit(orgAudit, auditProjects)
 	deps.Assets = assetsSvc
 	deps.AssetSSH = assetSSH
 	deps.AssetSSHIssuer = assetSSHIssuer
@@ -958,7 +969,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		return nil, fmt.Errorf("register helix-org builtins: %w", err)
 	}
-	orgServer := helixorgserver.NewFromStore(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
+	orgServer := helixorgserver.NewFromStore(st, reg, bc, dispatcher, logger).
+		WithPrompts(promptReg).
+		WithAudit(orgAudit, auditProjects)
 
 	slackAutoRouter := &slackAutoRouter{procs: svc.Processors, routes: slackRouteReconciler, logger: logger}
 	apiDeps := helixorgapi.Deps{

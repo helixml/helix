@@ -14,7 +14,25 @@ import (
 
 	helixcrypto "github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
 )
+
+type recordingAudit struct {
+	entries      chan orgaudit.Entry
+	beforeRecord func(orgaudit.Entry)
+}
+
+func newRecordingAudit() *recordingAudit {
+	return &recordingAudit{entries: make(chan orgaudit.Entry, 16)}
+}
+
+func (r *recordingAudit) Record(_ context.Context, entry orgaudit.Entry) error {
+	if r.beforeRecord != nil {
+		r.beforeRecord(entry)
+	}
+	r.entries <- entry
+	return nil
+}
 
 type proxyAssets struct {
 	value   asset.Asset
@@ -95,6 +113,8 @@ func TestProxyCertificateEnforcesAgentLinkAndAssetUsername(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	auditLog := newRecordingAudit()
+	proxy.WithAudit(auditLog, func(context.Context, string, string) (string, error) { return "project-1", nil })
 	if _, err := proxy.config.PublicKeyCallback(connMetadata{user: "production"}, cert); err != nil {
 		t.Fatalf("valid certificate rejected: %v", err)
 	}
@@ -112,6 +132,14 @@ func TestProxyCertificateEnforcesAgentLinkAndAssetUsername(t *testing.T) {
 	assets.setAllowed(false)
 	if _, err := proxy.config.PublicKeyCallback(connMetadata{user: "production"}, cert); err == nil {
 		t.Fatal("certificate remained usable after the agent link was revoked")
+	}
+	select {
+	case entry := <-auditLog.entries:
+		if entry.EventType != orgaudit.EventSSHConnection || entry.Status != orgaudit.StatusFailed || entry.OrganizationID != "org-1" || entry.ProjectID != "project-1" || entry.AssetID != "a-prod" || entry.Metadata.SSHUser != "production" {
+			t.Fatalf("unexpected rejected connection audit: %+v", entry)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("rejected SSH connection was not audited")
 	}
 }
 
@@ -186,6 +214,24 @@ func TestProxyForwardsAuthorizedAgentSessionAndRejectsRevokedLink(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	auditLog := newRecordingAudit()
+	auditStarted := make(chan struct{})
+	auditRelease := make(chan struct{})
+	var releaseAudit sync.Once
+	release := func() { releaseAudit.Do(func() { close(auditRelease) }) }
+	t.Cleanup(release)
+	auditLog.beforeRecord = func(entry orgaudit.Entry) {
+		if entry.EventType == orgaudit.EventSSHCommand {
+			close(auditStarted)
+			<-auditRelease
+		}
+	}
+	proxy.WithAudit(auditLog, func(_ context.Context, orgID, agentID string) (string, error) {
+		if orgID != "org-1" || agentID != "agent-1" {
+			return "", errors.New("unexpected audit project scope")
+		}
+		return "project-1", nil
+	})
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -208,11 +254,34 @@ func TestProxyForwardsAuthorizedAgentSessionAndRejectsRevokedLink(t *testing.T) 
 		cancel()
 		t.Fatal(err)
 	}
-	output, err := session.CombinedOutput("printf proxy-ok")
-	if err != nil {
-		cancel()
-		t.Fatal(err)
+	type commandResult struct {
+		output []byte
+		err    error
 	}
+	resultCh := make(chan commandResult, 1)
+	go func() {
+		output, err := session.CombinedOutput("printf proxy-ok")
+		resultCh <- commandResult{output: output, err: err}
+	}()
+	select {
+	case <-auditStarted:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("SSH command audit did not start")
+	}
+	var output []byte
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			cancel()
+			t.Fatalf("SSH command failed while audit persistence was blocked: %v", result.err)
+		}
+		output = result.output
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("SSH command reply was blocked by audit persistence")
+	}
+	release()
 	_ = proxyClient.Close()
 	if string(output) != "proxied:printf proxy-ok" {
 		t.Fatalf("proxy output = %q", output)
@@ -224,6 +293,27 @@ func TestProxyForwardsAuthorizedAgentSessionAndRejectsRevokedLink(t *testing.T) 
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("upstream did not receive proxied command")
+	}
+
+	audited := make(map[orgaudit.EventType]orgaudit.Entry)
+	for len(audited) < 2 {
+		select {
+		case entry := <-auditLog.entries:
+			audited[entry.EventType] = entry
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for SSH audit entries: %+v", audited)
+		}
+	}
+	connection := audited[orgaudit.EventSSHConnection]
+	if connection.OrganizationID != "org-1" || connection.ProjectID != "project-1" || connection.ActorID != "agent-1" || connection.AssetID != "a-prod" || connection.Status != orgaudit.StatusSucceeded {
+		t.Fatalf("unexpected connection audit: %+v", connection)
+	}
+	if connection.Metadata.RemoteAddress == "" || connection.Metadata.SSHUser != "production" {
+		t.Fatalf("connection metadata missing: %+v", connection.Metadata)
+	}
+	commandAudit := audited[orgaudit.EventSSHCommand]
+	if commandAudit.Metadata.Command != "printf proxy-ok" || commandAudit.Status != orgaudit.StatusAttempted {
+		t.Fatalf("unexpected command audit: %+v", commandAudit)
 	}
 
 	assets.setAllowed(false)
