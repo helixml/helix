@@ -31,6 +31,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
+	orgsandboxes "github.com/helixml/helix/api/pkg/org/application/sandboxes"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
@@ -569,6 +570,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("init sandboxes: %w", err)
 	}
 	deps.Sandboxes = sandboxesPort
+	sandboxAccess := orgsandboxes.New(sandboxesPort, deps.Queries)
 
 	// Repositories backs list_repositories / attach_repository /
 	// detach_repository — org git repos attached to Bot projects so
@@ -959,6 +961,11 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	if err != nil {
 		return nil, fmt.Errorf("init asset SSH proxy: %w", err)
 	}
+	sandboxSSHIssuer, err := assetssh.NewSandboxIssuer(sandboxAccess, encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("init sandbox SSH certificate issuer: %w", err)
+	}
+	assetSSHProxy.WithSandboxes(sandboxAccess)
 	orgAudit := services.NewOrgAuditLogService(helixStore)
 	auditProjects := func(ctx context.Context, orgID, actorID string) (string, error) {
 		state, err := runtimehelix.LoadState(ctx, st, orgID, orgchart.NodeID(actorID))
@@ -972,6 +979,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	deps.Assets = assetsSvc
 	deps.AssetSSH = assetSSH
 	deps.AssetSSHIssuer = assetSSHIssuer
+	deps.SandboxSSHIssuer = sandboxSSHIssuer
 	deps.AssetSSHProxyAddress = cfg.APIServer.Cfg.WebServer.AssetSSHProxyAddress
 	deps.AssetHealth = assetSSH.Health
 

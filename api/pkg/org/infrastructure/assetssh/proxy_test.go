@@ -3,18 +3,22 @@ package assetssh
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/ssh"
 
 	helixcrypto "github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
 	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 )
 
 type recordingAudit struct {
@@ -320,6 +324,173 @@ func TestProxyForwardsAuthorizedAgentSessionAndRejectsRevokedLink(t *testing.T) 
 	if revokedClient, err := ssh.Dial("tcp", listener.Addr().String(), config); err == nil {
 		_ = revokedClient.Close()
 		t.Fatal("revoked agent link still opened the SSH proxy")
+	}
+	cancel()
+	select {
+	case err := <-proxyDone:
+		if err != nil {
+			t.Fatalf("proxy shutdown: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("proxy did not stop after context cancellation")
+	}
+}
+
+type sandboxTerminalFrame struct {
+	messageType int
+	data        []byte
+}
+
+type proxySandboxTerminal struct {
+	reads  chan sandboxTerminalFrame
+	writes chan sandboxTerminalFrame
+}
+
+func (t *proxySandboxTerminal) ReadMessage() (int, []byte, error) {
+	frame, ok := <-t.reads
+	if !ok {
+		return 0, nil, io.EOF
+	}
+	return frame.messageType, frame.data, nil
+}
+func (t *proxySandboxTerminal) WriteMessage(messageType int, data []byte) error {
+	t.writes <- sandboxTerminalFrame{messageType: messageType, data: append([]byte(nil), data...)}
+	return nil
+}
+func (*proxySandboxTerminal) Close() error { return nil }
+
+type proxySandboxes struct {
+	mu      sync.RWMutex
+	allowed bool
+	opened  chan string
+	writes  chan sandboxTerminalFrame
+}
+
+func (s *proxySandboxes) AuthorizeSSH(_ context.Context, orgID, agentID, sandboxID string) (runtime.SandboxView, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.allowed || orgID != "org-1" || agentID != "agent-1" || sandboxID != "sbx-1" {
+		return runtime.SandboxView{}, errors.New("sandbox access denied")
+	}
+	return runtime.SandboxView{ID: sandboxID, OrganizationID: orgID, Status: "running"}, nil
+}
+func (s *proxySandboxes) OpenSSHTerminal(_ context.Context, orgID, agentID, sandboxID, shell string) (runtime.SandboxTerminal, error) {
+	if _, err := s.AuthorizeSSH(context.Background(), orgID, agentID, sandboxID); err != nil {
+		return nil, err
+	}
+	s.opened <- shell
+	reads := make(chan sandboxTerminalFrame, 2)
+	reads <- sandboxTerminalFrame{messageType: websocket.BinaryMessage, data: []byte("sandbox-ok")}
+	reads <- sandboxTerminalFrame{messageType: websocket.TextMessage, data: []byte(`{"type":"exit","code":0}`)}
+	return &proxySandboxTerminal{reads: reads, writes: s.writes}, nil
+}
+func (s *proxySandboxes) setAllowed(value bool) {
+	s.mu.Lock()
+	s.allowed = value
+	s.mu.Unlock()
+}
+
+func TestProxyBridgesNativeSSHToAuthorizedSandboxTerminal(t *testing.T) {
+	assets := &proxyAssets{allowed: true, value: asset.Asset{
+		ID: "unused", OrganizationID: "org-1", Name: "unused", Kind: asset.KindServer,
+	}}
+	client, err := New(assets, func(string) ([]byte, error) { return nil, nil }, func() string { return "cmd" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandboxes := &proxySandboxes{
+		allowed: true,
+		opened:  make(chan string, 1),
+		writes:  make(chan sandboxTerminalFrame, 4),
+	}
+	key := []byte("01234567890123456789012345678901")
+	issuer, err := NewSandboxIssuer(sandboxes, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := issuer.Mint(context.Background(), "org-1", "agent-1", "sbx-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateSigner, err := ssh.ParsePrivateKey([]byte(identity.PrivateKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificateKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(identity.Certificate))
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate, ok := certificateKey.(*ssh.Certificate)
+	if !ok {
+		t.Fatal("minted sandbox identity is not an SSH certificate")
+	}
+	certificateSigner, err := ssh.NewCertSigner(certificate, privateSigner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy, err := NewProxy(assets, client, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy.WithSandboxes(sandboxes)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	proxyDone := make(chan error, 1)
+	go func() { proxyDone <- proxy.serve(ctx, listener) }()
+
+	config := &ssh.ClientConfig{
+		User: "sandbox", Auth: []ssh.AuthMethod{ssh.PublicKeys(certificateSigner)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second,
+	}
+	proxyClient, err := ssh.Dial("tcp", listener.Addr().String(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := proxyClient.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.RequestPty("xterm-256color", 24, 80, ssh.TerminalModes{}); err != nil {
+		t.Fatal(err)
+	}
+	output, err := session.CombinedOutput("printf 'sandbox-ok'")
+	if err != nil {
+		t.Fatalf("sandbox SSH command failed: %v", err)
+	}
+	if string(output) != "sandbox-ok" {
+		t.Fatalf("sandbox SSH output = %q", output)
+	}
+	select {
+	case shell := <-sandboxes.opened:
+		if shell != "exec /bin/sh -c "+shellQuote("printf 'sandbox-ok'") {
+			t.Fatalf("sandbox terminal shell = %q", shell)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("sandbox terminal was not opened")
+	}
+	select {
+	case frame := <-sandboxes.writes:
+		var resize struct {
+			Type string `json:"type"`
+			Cols uint32 `json:"cols"`
+			Rows uint32 `json:"rows"`
+		}
+		if frame.messageType != websocket.TextMessage || json.Unmarshal(frame.data, &resize) != nil || resize.Type != "resize" || resize.Cols != 80 || resize.Rows != 24 {
+			t.Fatalf("sandbox resize frame = type %d data %s", frame.messageType, frame.data)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("sandbox terminal did not receive PTY dimensions")
+	}
+	_ = proxyClient.Close()
+
+	sandboxes.setAllowed(false)
+	if revokedClient, err := ssh.Dial("tcp", listener.Addr().String(), config); err == nil {
+		_ = revokedClient.Close()
+		t.Fatal("revoked sandbox certificate still opened the SSH proxy")
 	}
 	cancel()
 	select {

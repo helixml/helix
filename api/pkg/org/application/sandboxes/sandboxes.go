@@ -92,3 +92,26 @@ func (s *Service) Delete(ctx context.Context, caller tool.Caller, sandboxID stri
 	}
 	return s.port.Delete(ctx, orgID, sandboxID)
 }
+
+// AuthorizeSSH revalidates a certificate's org, agent, and sandbox scope at
+// connection time. This means removing the Bot or deleting/moving the sandbox
+// revokes an already-minted certificate immediately.
+func (s *Service) AuthorizeSSH(ctx context.Context, orgID, agentID, sandboxID string) (runtime.SandboxView, error) {
+	if orgID == "" || agentID == "" || sandboxID == "" {
+		return runtime.SandboxView{}, errors.New("sandbox SSH scope is incomplete")
+	}
+	if s.members == nil {
+		return runtime.SandboxView{}, errors.New("sandbox SSH member verification is not configured")
+	}
+	if _, err := s.members.GetBot(ctx, orgID, orgchart.NodeID(agentID)); err != nil {
+		return runtime.SandboxView{}, fmt.Errorf("authorize sandbox SSH agent: %w", err)
+	}
+	return s.port.Get(ctx, orgID, sandboxID)
+}
+
+func (s *Service) OpenSSHTerminal(ctx context.Context, orgID, agentID, sandboxID, shell string) (runtime.SandboxTerminal, error) {
+	if _, err := s.AuthorizeSSH(ctx, orgID, agentID, sandboxID); err != nil {
+		return nil, err
+	}
+	return s.port.OpenTerminal(ctx, orgID, sandboxID, shell)
+}

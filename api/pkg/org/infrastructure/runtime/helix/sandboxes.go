@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
@@ -22,6 +23,7 @@ type SandboxController interface {
 	Create(ctx context.Context, orgID, owner string, req *types.CreateSandboxRequest) (*types.Sandbox, error)
 	Update(ctx context.Context, id string, req *types.UpdateSandboxRequest) (*types.Sandbox, error)
 	Delete(ctx context.Context, id string) error
+	HydraClient(sandbox *types.Sandbox) (*hydra.RevDialClient, error)
 }
 
 type SandboxProjectStore interface {
@@ -151,6 +153,25 @@ func (s *Sandboxes) Delete(ctx context.Context, orgID, sandboxID string) error {
 		return fmt.Errorf("delete sandbox: %w", err)
 	}
 	return nil
+}
+
+func (s *Sandboxes) OpenTerminal(ctx context.Context, orgID, sandboxID, shell string) (runtime.SandboxTerminal, error) {
+	value, err := s.ownedSandbox(ctx, orgID, sandboxID)
+	if err != nil {
+		return nil, err
+	}
+	if value.Status != types.SandboxStatusRunning {
+		return nil, fmt.Errorf("sandbox %s is not running (status=%s)", sandboxID, value.Status)
+	}
+	client, err := s.control.HydraClient(value)
+	if err != nil {
+		return nil, fmt.Errorf("connect to sandbox host: %w", err)
+	}
+	terminal, err := client.OpenSandboxTerminal(ctx, value.ID, shell)
+	if err != nil {
+		return nil, fmt.Errorf("open sandbox terminal: %w", err)
+	}
+	return terminal, nil
 }
 
 func (s *Sandboxes) ownedSandbox(ctx context.Context, orgID, sandboxID string) (*types.Sandbox, error) {

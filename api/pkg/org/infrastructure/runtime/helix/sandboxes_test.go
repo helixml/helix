@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/types"
@@ -63,6 +64,9 @@ func (f *fakeSandboxController) Delete(_ context.Context, id string) error {
 	f.deleted = id
 	delete(f.sandboxes, id)
 	return nil
+}
+func (f *fakeSandboxController) HydraClient(*types.Sandbox) (*hydra.RevDialClient, error) {
+	return nil, errors.New("terminal not configured in CRUD test")
 }
 
 type fakeSandboxProjects map[string]*types.Project

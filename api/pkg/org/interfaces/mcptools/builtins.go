@@ -93,6 +93,7 @@ type Deps struct {
 	Assets               *assets.Service
 	AssetSSH             ServerAssetRuntime
 	AssetSSHIssuer       AssetSSHIdentityIssuer
+	SandboxSSHIssuer     SandboxSSHIdentityIssuer
 	AssetSSHProxyAddress string
 	AssetHealth          func(ctx context.Context, orgID, assetRef string) assetssh.Health
 
@@ -194,6 +195,7 @@ type Config struct {
 	Assets               *assets.Service
 	AssetSSH             ServerAssetRuntime
 	AssetSSHIssuer       AssetSSHIdentityIssuer
+	SandboxSSHIssuer     SandboxSSHIdentityIssuer
 	AssetSSHProxyAddress string
 	AssetHealth          func(ctx context.Context, orgID, assetRef string) assetssh.Health
 	Publishing           *publishing.Publishing
@@ -216,6 +218,7 @@ func (c Config) Build() Deps {
 		Assets:               c.Assets,
 		AssetSSH:             c.AssetSSH,
 		AssetSSHIssuer:       c.AssetSSHIssuer,
+		SandboxSSHIssuer:     c.SandboxSSHIssuer,
 		AssetSSHProxyAddress: c.AssetSSHProxyAddress,
 		AssetHealth:          c.AssetHealth,
 		Workspace:            c.Workspace,
@@ -481,6 +484,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		NewCreateSandbox(deps),
 		NewUpdateSandbox(deps),
 		NewDeleteSandbox(deps),
+		NewSandboxSSHAccess(deps),
 		// Git repositories — list org repos and attach/detach them on Bot
 		// projects so sandboxes clone the code. OwnerBotTools grants these
 		// to Chief of Staff by default.

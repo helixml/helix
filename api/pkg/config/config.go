@@ -849,8 +849,8 @@ type WebServer struct {
 	URL                  string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
 	Host                 string `envconfig:"SERVER_HOST" default:"0.0.0.0" description:"The host to bind the api server to."`
 	Port                 int    `envconfig:"SERVER_PORT" default:"80" description:""`
-	AssetSSHProxyListen  string `envconfig:"ASSET_SSH_PROXY_LISTEN" default:":2224" description:"Address for the Helix asset SSH proxy to listen on."`
-	AssetSSHProxyAddress string `envconfig:"ASSET_SSH_PROXY_ADDRESS" description:"Public host:port for agents to reach the Helix asset SSH proxy."`
+	AssetSSHProxyListen  string `envconfig:"ASSET_SSH_PROXY_LISTEN" default:":2224" description:"Address for the Helix managed-resource SSH proxy to listen on."`
+	AssetSSHProxyAddress string `envconfig:"ASSET_SSH_PROXY_ADDRESS" description:"Public host:port for agents to reach the Helix asset and sandbox SSH proxy."`
 	// Can either be a URL to frontend (for dev proxy) or a path to static files (for prod)
 	// Default is dev proxy; Dockerfile sets FRONTEND_URL=/www for production
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:"URL to proxy to or filesystem path to serve from"`

@@ -2,6 +2,7 @@ package mcptools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/assetssh"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 )
 
@@ -19,7 +21,12 @@ const (
 	CreateSandboxName       tool.Name = "create_sandbox"
 	UpdateSandboxName       tool.Name = "update_sandbox"
 	DeleteSandboxName       tool.Name = "delete_sandbox"
+	SandboxSSHAccessName    tool.Name = "sandbox_ssh_access"
 )
+
+type SandboxSSHIdentityIssuer interface {
+	Mint(ctx context.Context, orgID, agentID, sandboxID string) (assetssh.SandboxProxyIdentity, error)
+}
 
 type sandboxTool struct{ deps Deps }
 
@@ -211,6 +218,53 @@ func (t *DeleteSandbox) Name() tool.Name                 { return DeleteSandboxN
 func (t *DeleteSandbox) InputSchema() *jsonschema.Schema { return sandboxIDSchema }
 func (t *DeleteSandbox) Description() string {
 	return "Delete a standalone sandbox in your organization and tear down its container. This is irreversible."
+}
+
+type SandboxSSHAccess struct{ sandboxTool }
+
+func NewSandboxSSHAccess(deps Deps) *SandboxSSHAccess {
+	return &SandboxSSHAccess{sandboxTool{deps: deps}}
+}
+func (t *SandboxSSHAccess) Name() tool.Name                 { return SandboxSSHAccessName }
+func (t *SandboxSSHAccess) InputSchema() *jsonschema.Schema { return sandboxIDSchema }
+func (t *SandboxSSHAccess) Description() string {
+	return "Mint a one-hour SSH certificate for this agent to a running standalone sandbox and return the exact setup command. The connection uses Helix's audited proxy and native ssh; the sandbox does not need sshd or an exposed port."
+}
+func (t *SandboxSSHAccess) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	args, err := parseSandboxID(inv.Args)
+	if err != nil {
+		return nil, err
+	}
+	if inv.Caller == nil || inv.Caller.OrganizationID() == "" || inv.Caller.ID() == "" {
+		return nil, errors.New("sandbox SSH caller scope is missing")
+	}
+	if t.deps.SandboxSSHIssuer == nil || t.deps.AssetSSHProxyAddress == "" {
+		return nil, errors.New("sandbox SSH proxy is not configured")
+	}
+	identity, err := t.deps.SandboxSSHIssuer.Mint(ctx, inv.Caller.OrganizationID(), inv.Caller.ID(), args.SandboxID)
+	if err != nil {
+		return nil, fmt.Errorf("mint sandbox SSH access: %w", err)
+	}
+	host, port, err := assetssh.ParseProxyAddress(t.deps.AssetSSHProxyAddress)
+	if err != nil {
+		return nil, err
+	}
+	identityPath := "$HOME/.ssh/helix-sandbox-" + identity.SandboxID
+	usage := fmt.Sprintf(
+		"install -d -m 700 \"$HOME/.ssh\" && printf '%%s' '%s' | base64 -d > \"%s\" && printf '%%s' '%s' | base64 -d > \"%s-cert.pub\" && chmod 600 \"%s\" \"%s-cert.pub\"; ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -i \"%s\" -p %d sandbox@%s",
+		base64.StdEncoding.EncodeToString([]byte(identity.PrivateKey)), identityPath,
+		base64.StdEncoding.EncodeToString([]byte(identity.Certificate+"\n")), identityPath,
+		identityPath, identityPath, identityPath, port, host,
+	)
+	return json.Marshal(map[string]any{
+		"sandbox_id":  identity.SandboxID,
+		"proxy_host":  host,
+		"proxy_port":  port,
+		"private_key": identity.PrivateKey,
+		"certificate": identity.Certificate,
+		"expires_at":  identity.ExpiresAt,
+		"usage":       usage,
+	})
 }
 func (t *DeleteSandbox) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	args, err := parseSandboxID(inv.Args)

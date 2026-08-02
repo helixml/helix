@@ -286,7 +286,8 @@ func (s *Server) handleSandboxTerminal(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	cmd := []string{"/bin/bash"}
-	if shell := r.URL.Query().Get("shell"); shell != "" {
+	shell := r.URL.Query().Get("shell")
+	if shell != "" {
 		// A shell value containing whitespace is treated as a /bin/sh -c
 		// expression so callers can pass multi-arg commands like
 		// "tmux new-session -A -s foo". A bare value like "/bin/zsh" is
@@ -308,16 +309,19 @@ func (s *Server) handleSandboxTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	created, err := dockerClient.ContainerExecCreate(r.Context(), dc.ContainerID, cfg)
 	if err != nil {
-		// Try /bin/sh as fallback.
+		conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"failed to create exec"}`))
+		return
+	}
+	attach, err := dockerClient.ContainerExecAttach(r.Context(), created.ID, dockertypes.ExecStartCheck{Tty: true})
+	if err != nil && shell == "" {
+		// Minimal/custom images may not include bash. The attach/start call is
+		// where Docker reports a missing executable, so retry the full exec with sh.
 		cfg.Cmd = []string{"/bin/sh"}
 		created, err = dockerClient.ContainerExecCreate(r.Context(), dc.ContainerID, cfg)
-		if err != nil {
-			conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"failed to create exec"}`))
-			return
+		if err == nil {
+			attach, err = dockerClient.ContainerExecAttach(r.Context(), created.ID, dockertypes.ExecStartCheck{Tty: true})
 		}
 	}
-
-	attach, err := dockerClient.ContainerExecAttach(r.Context(), created.ID, dockertypes.ExecStartCheck{Tty: true})
 	if err != nil {
 		conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"failed to attach exec"}`))
 		return
@@ -361,6 +365,14 @@ func (s *Server) handleSandboxTerminal(w http.ResponseWriter, r *http.Request) {
 	if _, err := stdcopyOrTty(&wsWriter, attach.Reader, true); err != nil && err != io.EOF {
 		log.Debug().Err(err).Msg("terminal stream ended")
 	}
+	inspectCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+	defer cancel()
+	inspect, err := dockerClient.ContainerExecInspect(inspectCtx, created.ID)
+	if err != nil {
+		_ = conn.WriteJSON(map[string]interface{}{"type": "exit", "code": 255})
+		return
+	}
+	_ = conn.WriteJSON(map[string]interface{}{"type": "exit", "code": inspect.ExitCode})
 }
 
 // wsBinaryWriter writes bytes as websocket binary frames.

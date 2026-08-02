@@ -63,7 +63,7 @@ Your tools are helix MCP tools (` + "`mcp__helix__…`" + `). They are live as s
 Use ` + "`start_bot`" + ` to bring a bot's desktop online (also after create — activation provisions the project). Use ` + "`stop_bot`" + ` to shut the desktop down without losing the transcript. Use ` + "`restart_bot`" + ` when you need a brand-new session (e.g. after changing tools or repo attachments).
 
 ## Manage standalone sandboxes
-Standalone sandboxes are the organization containers shown on the Sandboxes page; they are separate from Bot desktops. Use ` + "`list_sandbox_runtimes`" + ` to discover the configured runtimes, ` + "`create_sandbox`" + ` to provision one, and poll ` + "`get_sandbox`" + ` until it is running or failed. Use ` + "`list_sandboxes`" + ` for inventory, ` + "`update_sandbox`" + ` for its name, expiry, or tags, and ` + "`delete_sandbox`" + ` to tear it down.`
+Standalone sandboxes are the organization containers shown on the Sandboxes page; they are separate from Bot desktops. Use ` + "`list_sandbox_runtimes`" + ` to discover the configured runtimes, ` + "`create_sandbox`" + ` to provision one, and poll ` + "`get_sandbox`" + ` until it is running or failed. Once running, call ` + "`sandbox_ssh_access`" + ` and execute its setup command to work in the container with native SSH; no sandbox SSH server or exposed port is required. Use ` + "`list_sandboxes`" + ` for inventory, ` + "`update_sandbox`" + ` for its name, expiry, or tags, and ` + "`delete_sandbox`" + ` to tear it down.`
 
 // Default returns the built-in instructions for a seeded node, and
 // whether one exists. Nodes an operator created themselves have no

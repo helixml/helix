@@ -396,6 +396,16 @@ type Sandboxes interface {
 	Create(ctx context.Context, orgID string, botID orgchart.NodeID, in CreateSandboxInput) (SandboxView, error)
 	Update(ctx context.Context, orgID, sandboxID string, in UpdateSandboxInput) (SandboxView, error)
 	Delete(ctx context.Context, orgID, sandboxID string) error
+	OpenTerminal(ctx context.Context, orgID, sandboxID, shell string) (SandboxTerminal, error)
+}
+
+// SandboxTerminal is the message-oriented interactive terminal transport used
+// by the native SSH proxy. Implementations preserve binary stdin/stdout frames
+// and JSON text control frames (resize, error, exit) from the sandbox runtime.
+type SandboxTerminal interface {
+	ReadMessage() (messageType int, data []byte, err error)
+	WriteMessage(messageType int, data []byte) error
+	Close() error
 }
 
 type SandboxRuntimeCatalog struct {
@@ -469,6 +479,9 @@ func (NoopSandboxes) Update(_ context.Context, _, _ string, _ UpdateSandboxInput
 }
 func (NoopSandboxes) Delete(_ context.Context, _, _ string) error {
 	return ErrSandboxesUnsupported
+}
+func (NoopSandboxes) OpenTerminal(_ context.Context, _, _, _ string) (SandboxTerminal, error) {
+	return nil, ErrSandboxesUnsupported
 }
 
 var ErrSandboxesUnsupported = errors.New("sandbox access not wired on this runtime")

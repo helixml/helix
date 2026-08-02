@@ -107,6 +107,7 @@ func OwnerBotTools() []tool.Name {
 		CreateSandboxName,
 		UpdateSandboxName,
 		DeleteSandboxName,
+		SandboxSSHAccessName,
 	}
 	// Org assets: create/configure inventory and grant/revoke Bot access.
 	ownerMutations = append(ownerMutations, AssetManagementTools...)
