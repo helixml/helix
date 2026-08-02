@@ -106,14 +106,24 @@ func redactValue(raw json.RawMessage) (json.RawMessage, bool) {
 }
 
 func sensitiveKey(key string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(key))
+	normalized := strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, strings.TrimSpace(key))
 	switch normalized {
-	case "authorization", "credential", "credentials", "encrypted_password", "encrypted_private_key", "password", "private_key", "secret", "token":
+	case "auth", "authorization", "credential", "credentials", "encryptedpassword", "encryptedprivatekey", "password", "passphrase", "privatekey", "secret", "token":
 		return true
 	default:
-		return strings.HasSuffix(normalized, "_password") ||
-			strings.HasSuffix(normalized, "_private_key") ||
-			strings.HasSuffix(normalized, "_secret") ||
-			strings.HasSuffix(normalized, "_token")
+		return strings.HasSuffix(normalized, "apikey") ||
+			strings.HasSuffix(normalized, "password") ||
+			strings.HasSuffix(normalized, "passphrase") ||
+			strings.HasSuffix(normalized, "privatekey") ||
+			strings.HasSuffix(normalized, "secret") ||
+			strings.HasSuffix(normalized, "token")
 	}
 }
