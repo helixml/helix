@@ -48,6 +48,21 @@ var BaseReadTools = []tool.Name{
 	GetProcessorName,
 }
 
+// AssetManagementTools is the org-wide asset inventory and mutation surface.
+// It is granted to the owner Bot, not to every Bot. Link-derived operational
+// asset tools live in assets.ServerTools and remain a separate capability.
+var AssetManagementTools = []tool.Name{
+	ListOrgAssetsName,
+	GetOrgAssetName,
+	CreateServerAssetName,
+	UpdateServerAssetName,
+	DeleteAssetName,
+	ListAssetLinksName,
+	LinkAssetName,
+	UnlinkAssetName,
+	GetAssetHealthName,
+}
+
 // OwnerBotTools is the canonical tool set the bootstrap owner Bot
 // (Chief of Staff) receives: every mutation in the system plus the
 // universal base read set (via MergeBaseReadTools). It lives here —
@@ -86,6 +101,8 @@ func OwnerBotTools() []tool.Name {
 		StopBotName,
 		RestartBotName,
 	}
+	// Org assets: create/configure inventory and grant/revoke Bot access.
+	ownerMutations = append(ownerMutations, AssetManagementTools...)
 	return MergeBaseReadTools(ownerMutations)
 }
 

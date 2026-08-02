@@ -25,6 +25,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/assetssh"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 )
@@ -92,6 +93,7 @@ type Deps struct {
 	AssetSSH             ServerAssetRuntime
 	AssetSSHIssuer       AssetSSHIdentityIssuer
 	AssetSSHProxyAddress string
+	AssetHealth          func(ctx context.Context, orgID, assetRef string) assetssh.Health
 
 	// Workspace is the per-runtime file-mirror port: set_bot_content calls
 	// MirrorFile after the service persists, so the running session sees
@@ -186,6 +188,7 @@ type Config struct {
 	AssetSSH             ServerAssetRuntime
 	AssetSSHIssuer       AssetSSHIdentityIssuer
 	AssetSSHProxyAddress string
+	AssetHealth          func(ctx context.Context, orgID, assetRef string) assetssh.Health
 	Publishing           *publishing.Publishing
 	// HumanDelivery sends ask_human messages through the person's configured route.
 	HumanDelivery HumanDelivery
@@ -207,6 +210,7 @@ func (c Config) Build() Deps {
 		AssetSSH:             c.AssetSSH,
 		AssetSSHIssuer:       c.AssetSSHIssuer,
 		AssetSSHProxyAddress: c.AssetSSHProxyAddress,
+		AssetHealth:          c.AssetHealth,
 		Workspace:            c.Workspace,
 		AgentContentUpdater:  c.AgentContentUpdater,
 		AgentProfileReader:   c.AgentProfileReader,
@@ -465,6 +469,15 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&BotLog{deps: deps},
 		&ListProcessors{deps: deps},
 		&GetProcessor{deps: deps},
+		&ListOrgAssets{deps: deps},
+		&GetOrgAsset{deps: deps},
+		&CreateServerAsset{deps: deps},
+		&UpdateServerAsset{deps: deps},
+		&DeleteAsset{deps: deps},
+		&ListAssetLinks{deps: deps},
+		&LinkAsset{deps: deps},
+		&UnlinkAsset{deps: deps},
+		&GetAssetHealth{deps: deps},
 		&ListAssets{deps: deps},
 		&GetAsset{deps: deps},
 		&ServerRunCommand{deps: deps},
