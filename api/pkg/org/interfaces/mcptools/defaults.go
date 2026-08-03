@@ -100,6 +100,14 @@ func OwnerBotTools() []tool.Name {
 		StartBotName,
 		StopBotName,
 		RestartBotName,
+		// Standalone Sandboxes API lifecycle for the organization.
+		ListSandboxRuntimesName,
+		ListSandboxesName,
+		GetSandboxName,
+		CreateSandboxName,
+		UpdateSandboxName,
+		DeleteSandboxName,
+		SandboxSSHAccessName,
 	}
 	// Org assets: create/configure inventory and grant/revoke Bot access.
 	ownerMutations = append(ownerMutations, AssetManagementTools...)

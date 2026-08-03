@@ -23,9 +23,13 @@ import (
 )
 
 const (
-	certOrgID   = "helix.org_id"
-	certAgentID = "helix.agent_id"
-	certAssetID = "helix.asset_id"
+	certOrgID         = "helix.org_id"
+	certAgentID       = "helix.agent_id"
+	certAssetID       = "helix.asset_id"
+	certSandboxID     = "helix.sandbox_id"
+	certTargetKind    = "helix.target_kind"
+	targetKindAsset   = "asset"
+	targetKindSandbox = "sandbox"
 )
 
 type ProxyIdentity struct {
@@ -74,7 +78,7 @@ func (i *Issuer) Mint(ctx context.Context, orgID, agentID, assetRef string) (Pro
 		ValidAfter:      uint64(now.Add(-time.Minute).Unix()),
 		ValidBefore:     uint64(expiresAt.Unix()),
 		Permissions: ssh.Permissions{Extensions: map[string]string{
-			certOrgID: orgID, certAgentID: agentID, certAssetID: a.ID,
+			certOrgID: orgID, certAgentID: agentID, certAssetID: a.ID, certTargetKind: targetKindAsset,
 		}},
 	}
 	if err := cert.SignCert(rand.Reader, i.ca); err != nil {
@@ -93,11 +97,12 @@ func (i *Issuer) Mint(ctx context.Context, orgID, agentID, assetRef string) (Pro
 }
 
 type Proxy struct {
-	assets   Assets
-	client   *Client
-	config   *ssh.ServerConfig
-	audit    orgaudit.Recorder
-	projects orgaudit.ProjectResolver
+	assets    Assets
+	sandboxes SandboxAccess
+	client    *Client
+	config    *ssh.ServerConfig
+	audit     orgaudit.Recorder
+	projects  orgaudit.ProjectResolver
 }
 
 func NewProxy(assets Assets, client *Client, encryptionKey []byte) (*Proxy, error) {
@@ -126,6 +131,28 @@ func NewProxy(assets Assets, client *Client, encryptionKey []byte) (*Proxy, erro
 		}
 		orgID := cert.Extensions[certOrgID]
 		agentID := cert.Extensions[certAgentID]
+		if cert.Extensions[certTargetKind] == targetKindSandbox || cert.Extensions[certSandboxID] != "" {
+			sandboxID := cert.Extensions[certSandboxID]
+			if orgID == "" || agentID == "" || sandboxID == "" {
+				return nil, errors.New("Helix sandbox proxy certificate is missing scope")
+			}
+			if p.sandboxes == nil {
+				return nil, errors.New("Helix sandbox SSH proxy is not configured")
+			}
+			if _, err := p.sandboxes.AuthorizeSSH(context.Background(), orgID, agentID, sandboxID); err != nil {
+				authErr := fmt.Errorf("authorize sandbox proxy: %w", err)
+				p.recordRejectedConnection(meta, orgID, agentID, "", "sandbox:"+sandboxID, authErr)
+				return nil, authErr
+			}
+			if meta.User() != sandboxSSHUser {
+				authErr := fmt.Errorf("SSH username must be %q for sandbox access", sandboxSSHUser)
+				p.recordRejectedConnection(meta, orgID, agentID, "", "sandbox:"+sandboxID, authErr)
+				return nil, authErr
+			}
+			return &ssh.Permissions{Extensions: map[string]string{
+				certOrgID: orgID, certAgentID: agentID, certSandboxID: sandboxID, certTargetKind: targetKindSandbox,
+			}}, nil
+		}
 		assetID := cert.Extensions[certAssetID]
 		if orgID == "" || agentID == "" || assetID == "" {
 			return nil, errors.New("Helix asset proxy certificate is missing scope")
@@ -133,12 +160,12 @@ func NewProxy(assets Assets, client *Client, encryptionKey []byte) (*Proxy, erro
 		a, err := assets.AuthorizeRef(context.Background(), orgID, agentID, assetID)
 		if err != nil {
 			authErr := fmt.Errorf("authorize asset proxy: %w", err)
-			p.recordRejectedConnection(meta, orgID, agentID, assetID, authErr)
+			p.recordRejectedConnection(meta, orgID, agentID, assetID, "", authErr)
 			return nil, authErr
 		}
 		if meta.User() != a.Name {
 			authErr := errors.New("SSH username must match the linked asset name")
-			p.recordRejectedConnection(meta, orgID, agentID, assetID, authErr)
+			p.recordRejectedConnection(meta, orgID, agentID, assetID, "", authErr)
 			return nil, authErr
 		}
 		return &ssh.Permissions{Extensions: map[string]string{
@@ -147,6 +174,11 @@ func NewProxy(assets Assets, client *Client, encryptionKey []byte) (*Proxy, erro
 	}}
 	p.config.AddHostKey(host)
 	return p, nil
+}
+
+func (p *Proxy) WithSandboxes(sandboxes SandboxAccess) *Proxy {
+	p.sandboxes = sandboxes
+	return p
 }
 
 func (p *Proxy) WithAudit(recorder orgaudit.Recorder, projects orgaudit.ProjectResolver) *Proxy {
@@ -183,24 +215,30 @@ func (p *Proxy) serve(ctx context.Context, listener net.Listener) error {
 
 func (p *Proxy) handle(ctx context.Context, raw net.Conn) {
 	defer raw.Close()
+	connectionCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	conn, channels, requests, err := ssh.NewServerConn(raw, p.config)
 	if err != nil {
 		return
 	}
 	defer conn.Close()
-	p.recordConnection(ctx, conn, orgaudit.StatusSucceeded, nil)
+	p.recordConnection(connectionCtx, conn, orgaudit.StatusSucceeded, nil)
 	go ssh.DiscardRequests(requests)
 	for newChannel := range channels {
 		if newChannel.ChannelType() != "session" {
 			_ = newChannel.Reject(ssh.UnknownChannelType, "only SSH session channels are supported")
 			continue
 		}
-		go p.proxySession(ctx, conn, newChannel)
+		go p.proxySession(connectionCtx, conn, newChannel)
 	}
 }
 
 func (p *Proxy) proxySession(ctx context.Context, conn *ssh.ServerConn, incoming ssh.NewChannel) {
 	permissions := conn.Permissions.Extensions
+	if permissions[certTargetKind] == targetKindSandbox || permissions[certSandboxID] != "" {
+		p.proxySandboxSession(ctx, conn, incoming)
+		return
+	}
 	upstream, err := p.client.DialAuthorized(ctx, permissions[certOrgID], permissions[certAgentID], permissions[certAssetID])
 	if err != nil {
 		_ = incoming.Reject(ssh.ConnectionFailed, err.Error())
@@ -290,12 +328,16 @@ func (p *Proxy) recordConnection(ctx context.Context, conn *ssh.ServerConn, stat
 	if connectionErr != nil {
 		metadata.Error = connectionErr.Error()
 	}
+	assetID := permissions[certAssetID]
+	if permissions[certSandboxID] != "" {
+		metadata.AssetRef = "sandbox:" + permissions[certSandboxID]
+	}
 	p.recordAudit(ctx, orgaudit.Entry{
 		OrganizationID: permissions[certOrgID],
 		ProjectID:      p.projectID(ctx, permissions[certOrgID], permissions[certAgentID]),
 		ActorID:        permissions[certAgentID],
 		ActorType:      orgaudit.ActorBot,
-		AssetID:        permissions[certAssetID],
+		AssetID:        assetID,
 		EventType:      orgaudit.EventSSHConnection,
 		Action:         "connect",
 		Status:         status,
@@ -303,7 +345,7 @@ func (p *Proxy) recordConnection(ctx context.Context, conn *ssh.ServerConn, stat
 	})
 }
 
-func (p *Proxy) recordRejectedConnection(meta ssh.ConnMetadata, orgID, agentID, assetID string, connectionErr error) {
+func (p *Proxy) recordRejectedConnection(meta ssh.ConnMetadata, orgID, agentID, assetID, resourceRef string, connectionErr error) {
 	p.recordAudit(context.Background(), orgaudit.Entry{
 		OrganizationID: orgID,
 		ProjectID:      p.projectID(context.Background(), orgID, agentID),
@@ -314,6 +356,7 @@ func (p *Proxy) recordRejectedConnection(meta ssh.ConnMetadata, orgID, agentID, 
 		Action:         "connect",
 		Status:         orgaudit.StatusFailed,
 		Metadata: orgaudit.Metadata{
+			AssetRef:      resourceRef,
 			RemoteAddress: meta.RemoteAddr().String(),
 			LocalAddress:  meta.LocalAddr().String(),
 			SSHUser:       meta.User(),
@@ -367,7 +410,7 @@ func deterministicSigner(key []byte, purpose string) (ssh.Signer, error) {
 func ParseProxyAddress(value string) (host string, port int, err error) {
 	host, rawPort, err := net.SplitHostPort(value)
 	if err != nil {
-		return "", 0, fmt.Errorf("asset SSH proxy address must be host:port: %w", err)
+		return "", 0, fmt.Errorf("SSH proxy address must be host:port: %w", err)
 	}
 	port, err = strconv.Atoi(rawPort)
 	if err != nil || port < 1 || port > 65535 {

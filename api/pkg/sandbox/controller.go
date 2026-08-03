@@ -200,6 +200,12 @@ func (c *Controller) waitProvisions() {
 // expose a discovery endpoint and validate requests synchronously.
 func (c *Controller) Runtimes() *RuntimeRegistry { return c.runtimes }
 
+// RuntimeNames and DefaultRuntimeName expose the discovery slice needed by
+// non-HTTP adapters without leaking RuntimeRegistry through their interfaces.
+func (c *Controller) RuntimeNames() []string { return c.runtimes.Names() }
+
+func (c *Controller) DefaultRuntimeName() string { return c.runtimes.DefaultRuntimeName() }
+
 // Get returns a sandbox by id. Soft-deleted rows are not returned.
 func (c *Controller) Get(ctx context.Context, id string) (*types.Sandbox, error) {
 	return c.store.GetSandbox(ctx, id)

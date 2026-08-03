@@ -31,6 +31,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
+	orgsandboxes "github.com/helixml/helix/api/pkg/org/application/sandboxes"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
@@ -560,6 +561,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 	deps.Projects = projectsPort
 
+	// Sandboxes backs the Chief of Staff's standalone sandbox discovery and
+	// CRUD tools. It delegates to the same controller as the REST/UI surface,
+	// while the adapter derives the human owner and hard-scopes every row to
+	// the caller's organization.
+	sandboxesPort, err := runtimehelix.NewSandboxes(st, cfg.APIServer.sandboxController, helixStore)
+	if err != nil {
+		return nil, fmt.Errorf("init sandboxes: %w", err)
+	}
+	deps.Sandboxes = sandboxesPort
+	sandboxAccess := orgsandboxes.New(sandboxesPort, deps.Queries)
+
 	// Repositories backs list_repositories / attach_repository /
 	// detach_repository — org git repos attached to Bot projects so
 	// sandboxes can clone the code. Chief of Staff gets these by default.
@@ -949,6 +961,11 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	if err != nil {
 		return nil, fmt.Errorf("init asset SSH proxy: %w", err)
 	}
+	sandboxSSHIssuer, err := assetssh.NewSandboxIssuer(sandboxAccess, encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("init sandbox SSH certificate issuer: %w", err)
+	}
+	assetSSHProxy.WithSandboxes(sandboxAccess)
 	orgAudit := services.NewOrgAuditLogService(helixStore)
 	auditProjects := func(ctx context.Context, orgID, actorID string) (string, error) {
 		state, err := runtimehelix.LoadState(ctx, st, orgID, orgchart.NodeID(actorID))
@@ -962,6 +979,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	deps.Assets = assetsSvc
 	deps.AssetSSH = assetSSH
 	deps.AssetSSHIssuer = assetSSHIssuer
+	deps.SandboxSSHIssuer = sandboxSSHIssuer
 	deps.AssetSSHProxyAddress = cfg.APIServer.Cfg.WebServer.AssetSSHProxyAddress
 	deps.AssetHealth = assetSSH.Health
 
