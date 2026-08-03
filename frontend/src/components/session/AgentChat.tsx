@@ -108,7 +108,7 @@ const AgentChat: FC<AgentChatProps> = ({
         backgroundColor: (theme) => getChatColors(theme).canvas,
       }}
     >
-      <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex' }}>
+      <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, width: '100%', overflow: 'hidden', display: 'flex' }}>
         <EmbeddedSessionView
           ref={sessionViewRef}
           sessionId={sessionId}
@@ -122,7 +122,11 @@ const AgentChat: FC<AgentChatProps> = ({
       <Box
         sx={{
           flexShrink: 0,
-          px: { xs: 1.5, sm: 2.5 },
+          pl: { xs: 1.5, sm: 2.5 },
+          pr: { xs: 1.5, sm: 2.5 },
+          '@media (pointer: fine)': {
+            pl: 4.5,
+          },
           pt: 1.25,
           pb: { xs: 1.25, sm: 1.75 },
           borderTop: '1px solid',

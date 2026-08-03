@@ -53,6 +53,13 @@ import { TypesInteraction, TypesInteractionState } from "../../api/api";
 import useLightTheme from "../../hooks/useLightTheme";
 import { SESSION_TYPE_TEXT } from "../../types";
 import { getChatColors } from "./chatStyles";
+import ChatTurnNavigator from "./ChatTurnNavigator";
+import {
+  ChatTurnNavigatorItem,
+  compactChatTurnPreview,
+  resolveChatTurnAssistantPreview,
+} from "./ChatTurnNavigator.logic";
+import { splitSystemPrefix } from "./CollapsibleSystemPrefix";
 
 interface EmbeddedSessionViewProps {
   sessionId: string;
@@ -177,6 +184,8 @@ const EmbeddedSessionView = forwardRef<
   // so the resulting onScroll event sees no delta and doesn't falsely
   // re-enable auto-scroll.
   const lastScrollTopRef = useRef(0);
+  const navigatorScrollSequenceRef = useRef(0);
+  const isNavigatorScrollingRef = useRef(false);
 
   // Pagination state: track which page we've loaded up to (page 0 = newest)
   const [oldestPageLoaded, setOldestPageLoaded] = useState(0);
@@ -209,6 +218,7 @@ const EmbeddedSessionView = forwardRef<
     const currScrollTop = container.scrollTop;
     lastScrollTopRef.current = currScrollTop;
 
+    if (isNavigatorScrollingRef.current) return;
     if (autoScrollRef.current) return;
     if (!isNearBottom()) return;
 
@@ -577,6 +587,38 @@ const EmbeddedSessionView = forwardRef<
     return [...olderInteractions, ...newestInteractions];
   }, [olderInteractions, newestInteractions]);
 
+  const navigatorItems = useMemo<ChatTurnNavigatorItem[]>(() => {
+    return visibleInteractions.flatMap((interaction) => {
+      if (!interaction.id || interaction.trigger === "fork_seed") return [];
+      const contentText = interaction.prompt_message_content?.parts?.find(
+        (part): part is { text: string } =>
+          typeof part === "object" &&
+          part !== null &&
+          "text" in part &&
+          typeof part.text === "string",
+      )?.text;
+      const rawUserText = interaction.display_message || interaction.prompt_message || contentText;
+      const splitUserText = splitSystemPrefix(rawUserText || "");
+      const userText = compactChatTurnPreview(
+        splitUserText.prefix
+          ? splitUserText.userText ||
+            (splitUserText.kind === "approval"
+              ? "Spec approved · Implementation instructions"
+              : splitUserText.label || "Planning Instructions")
+          : rawUserText,
+      );
+      if (!userText) return [];
+      return [{
+        id: interaction.id,
+        userText,
+        assistantText: resolveChatTurnAssistantPreview(
+          interaction.response_message,
+          interaction.response_entries as unknown as Array<{ type?: string; content?: string }>,
+        ),
+      }];
+    });
+  }, [visibleInteractions]);
+
   const totalInteractions = visibleInteractions.length;
 
   // Check if there are more pages to load
@@ -586,6 +628,38 @@ const EmbeddedSessionView = forwardRef<
   const remainingOlderCount = Math.max(0, totalCount - totalInteractions);
 
   const isOwner = account.user?.id === session?.owner;
+
+  const handleNavigateToTurn = useCallback((item: ChatTurnNavigatorItem) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const target = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-chat-turn]"),
+    ).find((element) => element.dataset.chatTurn === item.id);
+    if (!target) return;
+
+    setAutoScroll(false);
+    autoScrollRef.current = false;
+    upwardAccumRef.current = 0;
+    isNavigatorScrollingRef.current = true;
+    const navigationSequence = ++navigatorScrollSequenceRef.current;
+    const viewport = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    container.scrollTo({
+      top: container.scrollTop + targetRect.top - viewport.top - 24,
+      behavior: "smooth",
+    });
+    const finishNavigation = () => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (navigatorScrollSequenceRef.current === navigationSequence) {
+          isNavigatorScrollingRef.current = false;
+          lastScrollTopRef.current = container.scrollTop;
+        }
+      }));
+    };
+    container.addEventListener("scrollend", finishNavigation, { once: true });
+    const targetIndex = navigatorItems.findIndex((candidate) => candidate.id === item.id);
+    setHasNewBelow(targetIndex >= 0 && targetIndex < navigatorItems.length - 1);
+  }, [navigatorItems, setAutoScroll]);
 
   // Show loading state while fetching session
   // Error state — a failed session fetch (no data) degrades to a clear
@@ -662,9 +736,12 @@ const EmbeddedSessionView = forwardRef<
       sx={{
         flex: 1,
         minHeight: 0,
+        minWidth: 0,
+        width: "100%",
         position: "relative",
         display: "flex",
         flexDirection: "column",
+        overflow: "hidden",
         backgroundColor: (theme) => getChatColors(theme).canvas,
       }}
     >
@@ -692,7 +769,8 @@ const EmbeddedSessionView = forwardRef<
           // Without height: 0, the container may expand to fit content on iOS
           height: 0,
           flex: 1,
-          overflow: "auto",
+          overflowY: "auto",
+          overflowX: "hidden",
           display: "flex",
           flexDirection: "column",
           minHeight: 0,
@@ -708,7 +786,11 @@ const EmbeddedSessionView = forwardRef<
             width: "100%",
             maxWidth: 768,
             mx: "auto",
-            px: { xs: 1.5, sm: 2.5 },
+            pl: { xs: 1.5, sm: 2.5 },
+            pr: { xs: 1.5, sm: 2.5 },
+            "@media (pointer: fine)": {
+              pl: 4.5,
+            },
             py: 2.5,
             display: "flex",
             flexDirection: "column",
@@ -772,6 +854,12 @@ const EmbeddedSessionView = forwardRef<
           })}
         </Box>
       </Box>
+
+      <ChatTurnNavigator
+        items={navigatorItems}
+        scrollContainer={scrollContainerEl}
+        onSelect={handleNavigateToTurn}
+      />
 
       {/* Auto-scroll toggle (bottom-right) — stark filled/outlined treatment
           so the on/off state is visible at a glance. */}

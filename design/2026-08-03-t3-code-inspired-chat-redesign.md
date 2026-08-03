@@ -161,7 +161,7 @@ Add chat-scoped semantic tokens rather than changing the global MUI palette.
 
 | Token | Dark value | Use |
 |---|---|---|
-| `chat.canvas` | `#0a0a0a` | transcript and composer dock |
+| `chat.canvas` | application `background.default` (`#0a0a0a` in dark mode) | transcript and composer dock; the literal is defined once as `DARK_APP_BACKGROUND` in `themeTokens.ts` |
 | `chat.text` | `#f5f5f5` | user message text |
 | `chat.assistantText` | `rgba(245,245,245,0.80)` | assistant markdown; the opacity is applied at the message container so nested Markdown inherits it consistently |
 | `chat.mutedText` | `#818181` | timestamps and secondary metadata |
@@ -308,6 +308,12 @@ Unbound draft attachments should be garbage-collected after a bounded interval. 
 
 ## Implementation plan
 
+### Transcript turn navigator
+
+The shared transcript includes a desktop-only turn navigator modeled on T3 Code's minimap. Each visible user turn gets an evenly spaced marker in the reserved left gutter. Hovering the rail expands the nearest marker and shows one line of user text plus up to three lines of the final assistant prose. Clicking, Enter, or Space smooth-scrolls to that turn and pauses auto-follow; Arrow keys and Home/End move between previews. Markers for turns intersecting the viewport use the foreground color.
+
+The navigator is absent on coarse pointers and when fewer than two turns exist. Its collapsed hit area stays inside the 36 px transcript gutter so it does not block message selection. The transcript root and every intervening flex item use `min-width: 0`; horizontal overflow is clipped at the transcript scroller so narrow split panes retain their 20 px right content margin.
+
 ### 1. Shared visual foundation
 
 - Add bundled DM Sans Variable and JetBrains Mono.
@@ -354,10 +360,11 @@ Unbound draft attachments should be garbage-collected after a bounded interval. 
 - Direct org sends and queued spec-task sends preserve the same attachment metadata and retry semantics.
 - No raw frontend request is added where a generated API client method can be used.
 - Existing light mode, system prefixes, tool calls, prompt queueing, interrupt mode, auto-scroll, and live streaming still work.
+- Desktop chats expose a keyboard-accessible turn navigator with T3-style hover previews and manual navigation pauses auto-follow.
 
 ## Explicit non-goals
 
 - Replacing the global Helix application theme or typography.
-- Copying T3's provider/model controls, minimap, prompt stash, or review-annotation system.
+- Copying T3's provider/model controls, prompt stash, or review-annotation system.
 - General document/PDF attachment cards in the first pass.
 - Sending authenticated preview URLs directly to the external agent. The agent receives server-built workspace paths; the UI receives authorized filestore previews.
