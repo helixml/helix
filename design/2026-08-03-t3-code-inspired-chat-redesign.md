@@ -131,7 +131,7 @@ Both requested surfaces share the transcript renderer and composer primitives bu
 | Area | Helix today | T3 direction |
 |---|---|---|
 | Sans font | IBM Plex declaration without a bundled font; practical fallback is Helvetica/Arial | Bundled DM Sans Variable |
-| Chat background | Helix `#121214` app background | scoped neutral-black canvas |
+| Chat background | T3 `neutral-950` (`#0a0a0a`) | exact scoped dark-mode canvas |
 | Transcript width | 700 px | 768 px |
 | User width | fit-content up to nearly the full 700 px | maximum 80% |
 | User bubble | 16 px radius, 1 px `#33373a` border, 16 px horizontal/4 px vertical padding | borderless 4% white surface, 12 px padding |
