@@ -10015,6 +10015,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Streams one file from the external agent's incoming attachment directory.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsFileDetail
+     * @summary Read an uploaded chat attachment
+     * @request GET:/api/v1/external-agents/{sessionID}/file
+     * @secure
+     */
+    v1ExternalAgentsFileDetail: (
+      sessionId: string,
+      query: {
+        /** Uploaded attachment filename */
+        name: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/file`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Send keyboard and mouse input events to the remote desktop. Supports single events or batches.
      *
      * @tags ExternalAgents
@@ -16252,7 +16277,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the interaction state update (interrupted) flows to the frontend via WebSocket.
+     * @description Sends cancel_current_turn to the active Zed agent and waits for acknowledgement.
      *
      * @tags Sessions
      * @name V1SessionsCancelCreate

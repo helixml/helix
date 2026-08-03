@@ -24,7 +24,6 @@ import {
   ListItemText,
   ListItemIcon,
   Typography,
-  Chip,
   alpha,
   Collapse,
   LinearProgress,
@@ -39,11 +38,9 @@ import {
   CheckCircle,
   Hourglass,
   CloudOff,
-  Cloud,
   Pencil,
   Check,
   X,
-  CirclePause,
   GripVertical,
   Zap,
   Pin,
@@ -106,9 +103,11 @@ interface RobustPromptInputProps {
   // Deprecated: use onFileUpload instead
   onImagePaste?: (file: File) => Promise<string | null>
   // Called when user clicks the cancel button to stop the agent's current turn
-  onCancel?: () => void
+  onCancel?: () => void | Promise<void>
   // Whether the agent is currently processing (has a waiting interaction)
   isAgentBusy?: boolean
+  // Whether cancellation is waiting for acknowledgement from the agent
+  isCancelling?: boolean
   // Fires synchronously inside handleSend the moment the user submits a
   // prompt, before the local queue persist or the backend sync POST. The
   // parent uses this hook to do optimistic UI updates (e.g. flip the cached
@@ -201,15 +200,15 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
       sx={{
         display: 'flex',
         alignItems: isEditing ? 'flex-start' : 'center',
-        gap: 0.5,
-        px: 1,
-        py: isEditing ? 1 : 0.5,
+        gap: 0.75,
+        px: 1.5,
+        py: isEditing ? 1 : 0.75,
         borderBottom: index < totalCount - 1 ? '1px solid' : 'none',
-        borderColor: 'divider',
+        borderColor: (theme) => getChatColors(theme).border,
         bgcolor: isDragging
           ? (theme) => alpha(theme.palette.primary.main, 0.12)
           : isEditing
-            ? (theme) => alpha(theme.palette.info.main, 0.12)
+            ? (theme) => alpha(theme.palette.text.primary, 0.05)
             : isFailed
               ? (theme) => alpha(
                   (isTransientFailure && !showRestart) ? theme.palette.warning.main : theme.palette.error.main,
@@ -218,7 +217,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               : 'transparent',
         transition: 'background-color 0.2s',
         '&:hover': !isEditing && !isSending && !isDragging ? {
-          bgcolor: (theme) => alpha(theme.palette.action.hover, 0.04),
+          bgcolor: (theme) => alpha(theme.palette.text.primary, 0.025),
           '& .drag-handle': { opacity: 1 },
         } : undefined,
       }}
@@ -234,7 +233,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             alignItems: 'center',
             cursor: 'grab',
             color: 'text.secondary',
-            opacity: 0.4,
+            opacity: 0.3,
             transition: 'opacity 0.15s',
             '&:hover': { opacity: 1, color: 'text.primary' },
             '&:active': { cursor: 'grabbing' },
@@ -255,7 +254,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
       ) : isEditing ? (
         <Pencil size={16} style={{ flexShrink: 0, marginTop: 4, marginLeft: 20 }} />
       ) : (
-        <Hourglass size={16} style={{ flexShrink: 0 }} />
+        <Hourglass size={14} style={{ flexShrink: 0, opacity: 0.58 }} />
       )}
 
       {/* Message content - either edit mode or display mode */}
@@ -339,6 +338,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
                 color: isFailed ? failColor : 'text.primary',
+                fontSize: '0.8125rem',
                 flex: 1,
                 minWidth: 0,
               }}
@@ -458,8 +458,8 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               }}
               sx={{
                 p: 0.5,
-                color: entry.interrupt !== false ? 'warning.main' : 'info.main',
-                opacity: 0.7,
+                color: entry.interrupt !== false ? 'warning.main' : 'text.secondary',
+                opacity: 0.62,
                 '&:hover': { opacity: 1 },
               }}
             >
@@ -504,6 +504,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   onImagePaste,
   onCancel,
   isAgentBusy = false,
+  isCancelling = false,
   onWillSend,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -1183,6 +1184,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   })
   const sentHistory = history.filter(h => h.status === 'sent')
   const hasHistory = sentHistory.length > 0
+  const hasVisibleQueue = backendQueueEnabled && showQueue && queuedMessages.length > 0
 
   return (
     <Box
@@ -1198,16 +1200,15 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           backend-backed queue (spec-task). For plain sessions (org-chat,
           team desktop) the local queue is a non-authoritative ghost — the
           session-keyed SessionPromptQueue is the single source there. */}
-      <Collapse in={backendQueueEnabled && showQueue && queuedMessages.length > 0}>
+      <Collapse in={hasVisibleQueue}>
         <Box
           sx={{
-            mb: 1.5,
-            borderRadius: 1.5,
+            borderRadius: '20px 20px 0 0',
             border: '1px solid',
-            borderColor: editingId ? 'info.main' : isOnline ? 'primary.dark' : 'warning.dark',
-            bgcolor: (theme) => alpha(theme.palette.background.paper, 0.5),
+            borderBottom: 0,
+            borderColor: (theme) => getChatColors(theme).border,
+            bgcolor: (theme) => getChatColors(theme).composerSurface,
             overflow: 'hidden',
-            transition: 'border-color 0.2s',
           }}
         >
           {/* Queue header */}
@@ -1215,34 +1216,24 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             sx={{
               display: 'flex',
               alignItems: 'center',
-              gap: 1,
-              px: 1.5,
-              py: 0.75,
-              bgcolor: editingId ? 'info.dark' : isOnline ? 'primary.dark' : 'warning.dark',
-              color: editingId ? 'info.contrastText' : isOnline ? 'primary.contrastText' : 'warning.contrastText',
+              gap: 0.75,
+              px: 2,
+              pt: 1.25,
+              pb: 0.75,
+              bgcolor: 'transparent',
+              color: 'text.secondary',
               borderBottom: '1px solid',
-              borderColor: 'divider',
+              borderColor: (theme) => getChatColors(theme).border,
             }}
           >
-            {editingId ? (
-              <CirclePause size={16} />
-            ) : isOnline ? (
-              <Cloud size={16} />
-            ) : (
-              <CloudOff size={16} />
-            )}
-            <Typography variant="caption" sx={{ flex: 1, fontWeight: 600 }}>
+            <ListStart size={14} />
+            <Typography variant="caption" sx={{ flex: 1, fontWeight: 500, letterSpacing: '0.01em' }}>
               {editingId
-                ? 'Editing - paused from here'
+                ? 'Editing queued message'
                 : isOnline
-                  ? 'Message queue (saved locally)'
-                  : 'Offline - saved locally, will send when connected'}
+                  ? `${queuedMessages.length} queued`
+                  : `${queuedMessages.length} queued · offline`}
             </Typography>
-            <Chip
-              label={queuedMessages.length}
-              size="small"
-              sx={{ height: 18, fontSize: '0.7rem' }}
-            />
           </Box>
 
           {/* Queue items with drag and drop */}
@@ -1328,7 +1319,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           display: 'flex',
           flexDirection: 'column',
           bgcolor: (theme) => getChatColors(theme).composerSurface,
-          borderRadius: '22px',
+          borderRadius: hasVisibleQueue ? '0 0 22px 22px' : '22px',
           border: '1px solid',
           borderColor: isDraggingOver
             ? 'primary.main'
@@ -1491,9 +1482,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             </Tooltip>
           )}
 
-          {/* Spacer */}
-          <Box sx={{ flex: 1 }} />
-
           {/* Offline indicator */}
           {!isOnline && (
             <Tooltip title="You're offline - messages will queue and send when connected">
@@ -1529,16 +1517,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 flexShrink: 0,
                 width: 28,
                 height: 28,
-                color: interruptMode ? 'warning.main' : 'info.main',
-                bgcolor: (theme) => alpha(
-                  interruptMode ? theme.palette.warning.main : theme.palette.info.main,
-                  0.1
-                ),
+                color: interruptMode ? 'warning.main' : 'text.secondary',
+                bgcolor: interruptMode
+                  ? (theme) => alpha(theme.palette.warning.main, 0.1)
+                  : 'transparent',
                 '&:hover': {
-                  bgcolor: (theme) => alpha(
-                    interruptMode ? theme.palette.warning.main : theme.palette.info.main,
-                    0.2
-                  ),
+                  color: interruptMode ? 'warning.main' : 'text.primary',
+                  bgcolor: (theme) => alpha(theme.palette.text.primary, 0.06),
                 },
               }}
             >
@@ -1550,31 +1535,46 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             </IconButton>
           </Tooltip>
 
+          <Box sx={{ flex: 1 }} />
+
           {/* Cancel button - visible when agent is busy */}
           {isAgentBusy && onCancel && (
-            <Tooltip title="Interrupt current turn">
-              <IconButton
-                onClick={onCancel}
-                aria-label="Interrupt current turn"
-                sx={{
-                  flexShrink: 0,
-                  width: 32,
-                  height: 32,
-                  color: '#fff',
-                  bgcolor: 'error.main',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.28)',
-                  '&:hover': {
-                    bgcolor: 'error.dark',
-                  },
-                }}
-              >
-                <Square size={12} fill="currentColor" strokeWidth={0} />
-              </IconButton>
+            <Tooltip title={isCancelling ? 'Stopping generation…' : 'Stop generation'}>
+              <Box component="span" sx={{ display: 'flex', flexShrink: 0 }}>
+                <IconButton
+                  onClick={onCancel}
+                  aria-label={isCancelling ? 'Stopping generation' : 'Stop generation'}
+                  disabled={isCancelling}
+                  sx={{
+                    flexShrink: 0,
+                    width: 32,
+                    height: 32,
+                    color: '#fff',
+                    bgcolor: 'error.main',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.28)',
+                    '&:hover': {
+                      bgcolor: 'error.dark',
+                    },
+                    '&.Mui-disabled': {
+                      color: '#fff',
+                      bgcolor: 'error.main',
+                      opacity: 0.72,
+                    },
+                    '& svg': {
+                      pointerEvents: 'none',
+                    },
+                  }}
+                >
+                  {isCancelling
+                    ? <CircularProgress size={14} thickness={5} color="inherit" />
+                    : <Square size={12} fill="currentColor" strokeWidth={0} />}
+                </IconButton>
+              </Box>
             </Tooltip>
           )}
 
           {/* Send button */}
-          {(() => {
+          {!isAgentBusy && (() => {
             const hasContent = draft.trim().length > 0
             const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded')
             const pendingUploads = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')

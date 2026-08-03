@@ -483,11 +483,12 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/screenshot", s.handleScreenshot)
 	mux.HandleFunc("/clipboard", s.handleClipboard)
 	mux.HandleFunc("/upload", s.handleUpload)
+	mux.HandleFunc("/file", s.handleFile)
 	mux.HandleFunc("/input", s.handleInput)
-	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input
-	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming
-	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
-	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
+	mux.HandleFunc("/ws/input", s.handleWSInput)      // Direct WebSocket input
+	mux.HandleFunc("/ws/stream", s.handleWSStream)    // Direct WebSocket video streaming
+	mux.HandleFunc("/exec", s.handleExec)             // Execute command in container (for benchmarking)
+	mux.HandleFunc("/diff", s.handleDiff)             // Git diff for live file changes
 	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
 	// Workspace git plumbing used by the fork-and-pause safety net.
 	// Kept as dedicated endpoints (not /exec) because /exec is

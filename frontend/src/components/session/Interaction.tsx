@@ -11,6 +11,7 @@ import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
 import CollapsibleSystemPrefix, {
   splitSystemPrefix,
 } from "./CollapsibleSystemPrefix";
+import { parseMessageWithAttachments } from "../common/chatAttachments";
 
 import useAccount from "../../hooks/useAccount";
 
@@ -265,12 +266,14 @@ export const Interaction: FC<InteractionProps> = ({
       });
     }
 
-    const split = splitSystemPrefix(userMessage);
+    const parsedUserMessage = parseMessageWithAttachments(userMessage);
+    const split = splitSystemPrefix(parsedUserMessage.message);
 
     return {
       userMessage,
       assistantMessage,
       imageURLs,
+      workspaceAttachments: parsedUserMessage.attachments,
       isLoading,
       systemPrefix: split.prefix,
       userMessageBody: split.userText,
@@ -416,7 +419,8 @@ export const Interaction: FC<InteractionProps> = ({
                   session={session}
                   interaction={interaction}
                   imageURLs={imageURLs}
-                  message={systemPrefix && !isEditing ? userMessageBody : userMessage}
+                  workspaceAttachments={displayData.workspaceAttachments}
+                  message={isEditing ? userMessage : userMessageBody}
                   error={interaction?.error}
                   isFromAssistant={false}
                   onFilterDocument={onFilterDocument}

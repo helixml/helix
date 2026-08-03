@@ -2258,7 +2258,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingZedThreadReplaysDirectIn
 			return nil
 		},
 	)
-	s.store.EXPECT().GetInteraction(gomock.Any(), "int-prime").Return(interaction, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-prime").Return(interaction, nil).Times(2)
 
 	s.server.externalAgentWSManager.initReadinessState("ses_prime", false, nil)
 	defer s.server.externalAgentWSManager.cleanupReadinessState("ses_prime")
@@ -3301,6 +3301,53 @@ func (s *WebSocketSyncSuite) TestLateJoinerCatchUp_ActiveStreamingContext() {
 // pickupWaitingInteraction tests
 // ──────────────────────────────────────────────────────────────────────────────
 
+func (s *WebSocketSyncSuite) TestCancelActiveTurn_InterruptsQueuedTurnBeforeDispatch() {
+	session := &types.Session{ID: "ses_queued", Owner: "usr_test", GenerationID: 1}
+	waiting := &types.Interaction{
+		ID: "int_queued", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting,
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{waiting}, int64(1), nil,
+	)
+	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			s.Equal(types.InteractionStateInterrupted, interaction.State)
+			s.False(interaction.Completed.IsZero())
+			return interaction, nil
+		},
+	)
+
+	status, err := s.server.cancelActiveTurn(context.Background(), session.ID)
+	s.NoError(err)
+	s.Equal("cancelled", status)
+}
+
+func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_SkipsTurnCancelledWhileBooting() {
+	session := &types.Session{ID: "ses_cancelled_boot", GenerationID: 1}
+	staleWaiting := &types.Interaction{
+		ID: "int_cancelled_boot", SessionID: session.ID, GenerationID: 1,
+		State: types.InteractionStateWaiting,
+	}
+	interrupted := *staleWaiting
+	interrupted.State = types.InteractionStateInterrupted
+
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{staleWaiting}, int64(1), nil,
+	)
+	s.store.EXPECT().GetInteraction(gomock.Any(), staleWaiting.ID).Return(&interrupted, nil)
+
+	s.server.externalAgentWSManager.initReadinessState(session.ID, false, nil)
+	defer s.server.externalAgentWSManager.cleanupReadinessState(session.ID)
+
+	requestID := s.server.pickupWaitingInteraction(context.Background(), session.ID, session, "agent-booting")
+	s.Empty(requestID)
+	s.Empty(s.server.requestToSessionMapping)
+}
+
 func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_FallbackCreatesMapping() {
 	// Scenario: session created via session handler (NOT sendMessageToSpecTaskAgent),
 	// so requestToSessionMapping has no entry. The fallback should create one
@@ -3320,6 +3367,7 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_FallbackCreatesMapping
 	}
 
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(interactions, int64(2), nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).Return(interactions[1], nil)
 
 	// Init readiness state so queueOrSend queues the command (not ready yet)
 	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
@@ -3365,6 +3413,7 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_UsesExistingMapping() 
 	}
 
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(interactions, int64(1), nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).Return(interactions[0], nil)
 
 	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
 	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
@@ -3441,6 +3490,7 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_WithSystemPrompt() {
 	}
 
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(interactions, int64(1), nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).Return(interactions[0], nil)
 
 	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
 	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
@@ -3474,6 +3524,7 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_ResumesExistingThread(
 	}
 
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(interactions, int64(1), nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).Return(interactions[0], nil)
 
 	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
 	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)

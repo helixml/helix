@@ -4843,6 +4843,103 @@
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/file": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams one file from the external agent's incoming attachment directory.",
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Read an uploaded chat attachment",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Uploaded attachment filename",
+                        "name": "name",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/input": {
             "post": {
                 "security": [
@@ -20980,7 +21077,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the\ninteraction state update (interrupted) flows to the frontend via WebSocket.",
+                "description": "Sends cancel_current_turn to the active Zed agent and waits for acknowledgement.",
                 "tags": [
                     "Sessions"
                 ],
@@ -20997,8 +21094,8 @@
                     }
                 ],
                 "responses": {
-                    "202": {
-                        "description": "Accepted",
+                    "200": {
+                        "description": "OK",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -21032,6 +21129,16 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "content": {
                             "application/json": {
                                 "schema": {

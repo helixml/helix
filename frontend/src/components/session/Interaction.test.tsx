@@ -13,11 +13,19 @@ vi.mock("./InteractionInference", () => ({
   default: ({
     enableDebugCopy,
     isFromAssistant,
+    message,
+    workspaceAttachments,
   }: {
     enableDebugCopy?: boolean;
     isFromAssistant?: boolean;
+    message?: string;
+    workspaceAttachments?: Array<{ name: string }>;
   }) => (
     <div data-testid={isFromAssistant ? "agent-reply" : "user-message"}>
+      {message}
+      {workspaceAttachments?.map((attachment) => (
+        <span key={attachment.name}>{attachment.name}</span>
+      ))}
       {enableDebugCopy && <button aria-label="agent debug copy" />}
     </div>
   ),
@@ -86,5 +94,26 @@ describe("Interaction debug copy placement", () => {
       "data-chat-turn",
       "int_waiting",
     );
+  });
+
+  it("renders workspace attachments without exposing the transport manifest", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_attachment",
+          prompt_message: [
+            "What is in this screenshot?",
+            "",
+            "Attachments available in the agent workspace:",
+            '- Image: "/home/retro/work/incoming/image.png"',
+          ].join("\n"),
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("user-message")).toHaveTextContent("What is in this screenshot?");
+    expect(screen.getByTestId("user-message")).toHaveTextContent("image.png");
+    expect(screen.queryByText("Attachments available in the agent workspace:")).not.toBeInTheDocument();
   });
 });

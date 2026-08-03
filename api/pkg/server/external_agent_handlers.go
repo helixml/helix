@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -1161,6 +1162,94 @@ func desktopUploadURL(rawQuery string) string {
 		Host:     "localhost:9876",
 		Path:     "/upload",
 		RawQuery: rawQuery,
+	}).String()
+}
+
+// @Summary Read an uploaded chat attachment
+// @Description Streams one file from the external agent's incoming attachment directory.
+// @Tags ExternalAgents
+// @Produce application/octet-stream
+// @Param sessionID path string true "Session ID"
+// @Param name query string true "Uploaded attachment filename"
+// @Success 200 {file} binary
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/file [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getExternalAgentFile(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	sessionID := mux.Vars(req)["sessionID"]
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+	if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet); err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	filename := req.URL.Query().Get("name")
+	if !validWorkspaceAttachmentFilename(filename) {
+		http.Error(res, "invalid attachment filename", http.StatusBadRequest)
+		return
+	}
+
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		http.Error(res, "Sandbox not connected", http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	httpReq, err := http.NewRequestWithContext(req.Context(), http.MethodGet, desktopFileURL(filename), nil)
+	if err != nil {
+		http.Error(res, "Failed to create attachment request", http.StatusInternalServerError)
+		return
+	}
+	if err := httpReq.Write(revDialConn); err != nil {
+		http.Error(res, "Failed to request attachment", http.StatusBadGateway)
+		return
+	}
+
+	fileResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		http.Error(res, "Failed to read attachment response", http.StatusBadGateway)
+		return
+	}
+	defer fileResp.Body.Close()
+
+	for _, header := range []string{"Content-Type", "Content-Length", "Content-Disposition", "Last-Modified", "Cache-Control", "X-Content-Type-Options"} {
+		if value := fileResp.Header.Get(header); value != "" {
+			res.Header().Set(header, value)
+		}
+	}
+	res.WriteHeader(fileResp.StatusCode)
+	if _, err := io.Copy(res, fileResp.Body); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to stream chat attachment")
+	}
+}
+
+func validWorkspaceAttachmentFilename(filename string) bool {
+	return filename != "" && filename != "." && filename != ".." &&
+		!strings.ContainsAny(filename, `/\\`)
+}
+
+func desktopFileURL(filename string) string {
+	return (&url.URL{
+		Scheme:   "http",
+		Host:     "localhost:9876",
+		Path:     "/file",
+		RawQuery: url.Values{"name": []string{filename}}.Encode(),
 	}).String()
 }
 

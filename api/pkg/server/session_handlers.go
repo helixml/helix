@@ -2166,15 +2166,15 @@ func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID str
 
 // cancelSessionTurn godoc
 // @Summary Cancel the current agent turn
-// @Description Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the
-// @Description interaction state update (interrupted) flows to the frontend via WebSocket.
+// @Description Sends cancel_current_turn to the active Zed agent and waits for acknowledgement.
 // @Tags Sessions
 // @Produce json
 // @Param id path string true "Session ID"
-// @Success 202 {object} map[string]string
+// @Success 200 {object} map[string]string
 // @Failure 401 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
 // @Router /api/v1/sessions/{id}/cancel [post]
 func (s *HelixAPIServer) cancelSessionTurn(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
@@ -2193,10 +2193,12 @@ func (s *HelixAPIServer) cancelSessionTurn(_ http.ResponseWriter, r *http.Reques
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// Fire cancel in background — don't block the HTTP response
-	go s.cancelCurrentTurnIfActive(context.Background(), sessionID)
+	status, err := s.cancelActiveTurn(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
 
-	return map[string]string{"status": "accepted"}, nil
+	return map[string]string{"status": status}, nil
 }
 
 // stopExternalAgentSession godoc

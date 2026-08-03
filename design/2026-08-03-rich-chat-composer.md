@@ -36,7 +36,15 @@ The queued prompt carries a short attachment manifest containing the returned
 absolute paths. This is required because prompt history and the external-agent
 message protocol currently transport text, not structured file parts. The
 uploaded file remains the source of truth; no base64 payload is placed in the
-prompt or database.
+prompt or database. On read, the shared interaction renderer separates that
+trailing manifest from the visible user text and renders the corresponding
+image preview or file card. The agent still receives the complete manifest.
+
+Historical previews use an authenticated same-origin endpoint that accepts
+only a direct filename from the incoming directory. The API authorizes access
+to the session and proxies the response over RevDial; the desktop bridge
+independently rejects traversal, nested paths, symlinks outside the incoming
+directory, and non-regular files.
 
 ## Helix behavior
 
@@ -46,6 +54,16 @@ prompt or database.
   to images, allowing copied PDFs and other files to work.
 - Images get an immediate local thumbnail and lightbox. Other files get a
   compact name/type/size card. All previews live inside the composer surface.
+- Sent messages retain those previews in chat history without showing the
+  agent-facing workspace manifest or absolute path.
+- Queued prompts are rendered as a muted extension of the composer instead of
+  a separate colored status card. During generation, the primary action is a
+  single red stop button rather than simultaneous stop and disabled-send
+  controls.
+- Stop waits for the external agent's cancellation acknowledgement, shows an
+  in-progress state, and refreshes the latest interaction before becoming
+  clickable again. A turn cancelled while the desktop is still booting is
+  marked interrupted before dispatch, so it cannot be picked up later.
 - Pending uploads disable send. Failed uploads remain visible and must be
   retried or removed, preventing silent attachment loss.
 - Uploading to a stopped external-agent session starts its desktop and waits
@@ -57,3 +75,11 @@ prompt or database.
   chat does not steal focus by opening the desktop file manager.
 - Multipart bodies are streamed through the API rather than read entirely into
   API memory.
+
+## Cancellation verification
+
+The CLI E2E creates a live spec-task sandbox, waits for a connected Zed thread
+with an in-flight interaction, calls the same cancellation endpoint as the chat
+button, and requires the interaction to become `interrupted`. It then sends a
+normal follow-up and requires it to complete, covering the lifecycle seam after
+cancellation.

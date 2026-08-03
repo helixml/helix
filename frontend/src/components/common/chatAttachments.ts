@@ -1,5 +1,6 @@
 export const CHAT_ATTACHMENT_MAX_COUNT = 10
 export const CHAT_ATTACHMENT_MAX_BYTES = 500 * 1024 * 1024
+export const CHAT_ATTACHMENT_MANIFEST_HEADER = 'Attachments available in the agent workspace:'
 
 export type ChatAttachmentType = 'image' | 'text' | 'file'
 export type ChatAttachmentUploadStatus = 'pending' | 'uploading' | 'uploaded' | 'failed'
@@ -15,6 +16,12 @@ export interface PendingChatAttachment {
   previewUrl?: string
   uploadStatus: ChatAttachmentUploadStatus
   error?: string
+}
+
+export interface ChatWorkspaceAttachment {
+  type: 'image' | 'file'
+  path: string
+  name: string
 }
 
 const TEXT_FILE_EXTENSION = /\.(txt|md|json|xml|csv|log|js|jsx|ts|tsx|py|java|c|cpp|h|hpp|css|html|yaml|yml|toml|ini|sql|sh)$/i
@@ -91,11 +98,62 @@ export function buildMessageWithAttachments(
   if (uploaded.length === 0) return content
 
   const attachmentBlock = [
-    'Attachments available in the agent workspace:',
+    CHAT_ATTACHMENT_MANIFEST_HEADER,
     ...uploaded.map((attachment) =>
       `- ${attachment.type === 'image' ? 'Image' : 'File'}: ${JSON.stringify(attachment.path)}`,
     ),
   ].join('\n')
 
   return content ? `${content}\n\n${attachmentBlock}` : attachmentBlock
+}
+
+export function parseMessageWithAttachments(content: string): {
+  message: string
+  attachments: ChatWorkspaceAttachment[]
+} {
+  const markerIndex = content.lastIndexOf(CHAT_ATTACHMENT_MANIFEST_HEADER)
+  if (markerIndex < 0) return { message: content, attachments: [] }
+
+  const prefix = content.slice(0, markerIndex)
+  if (prefix && !prefix.endsWith('\n\n')) return { message: content, attachments: [] }
+
+  const lines = content.slice(markerIndex + CHAT_ATTACHMENT_MANIFEST_HEADER.length).trim().split('\n')
+  if (lines.length === 0 || lines.some((line) => !line.trim())) {
+    return { message: content, attachments: [] }
+  }
+
+  const attachments: ChatWorkspaceAttachment[] = []
+  for (const line of lines) {
+    const match = line.match(/^- (Image|File): (.+)$/)
+    if (!match) return { message: content, attachments: [] }
+
+    let path: unknown
+    try {
+      path = JSON.parse(match[2])
+    } catch {
+      return { message: content, attachments: [] }
+    }
+    if (typeof path !== 'string' || !path.startsWith('/home/retro/work/incoming/')) {
+      return { message: content, attachments: [] }
+    }
+
+    const name = path.slice('/home/retro/work/incoming/'.length)
+    if (!name || name.includes('/') || name.includes('\\')) {
+      return { message: content, attachments: [] }
+    }
+
+    attachments.push({
+      type: match[1] === 'Image' ? 'image' : 'file',
+      path,
+      name,
+    })
+  }
+
+  return { message: prefix.trimEnd(), attachments }
+}
+
+export function workspaceAttachmentURL(sessionId: string, path: string): string {
+  const name = path.split('/').pop() || ''
+  const query = new URLSearchParams({ name })
+  return `/api/v1/external-agents/${encodeURIComponent(sessionId)}/file?${query.toString()}`
 }

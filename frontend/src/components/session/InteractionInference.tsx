@@ -32,7 +32,7 @@ import CopyButtonWithCheck from "./CopyButtonWithCheck";
 import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
 import ToolStepsWidget from "./ToolStepsWidget";
 
-import { ThumbsUp, ThumbsDown, Download } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Download, FileText, Paperclip } from "lucide-react";
 
 import ExportDocument from "../export/ExportDocument";
 import ToPDF from "../export/ToPDF";
@@ -45,6 +45,10 @@ import { useUpdateInteractionFeedback } from "../../services/interactionsService
 import { TypesServerConfigForFrontend } from "../../api/api";
 
 import { TypesInteraction, TypesSession, TypesFeedback } from "../../api/api";
+import {
+  ChatWorkspaceAttachment,
+  workspaceAttachmentURL,
+} from "../common/chatAttachments";
 
 /**
  * Renders a message that may contain tool call blocks.
@@ -256,6 +260,7 @@ export const MessageWithToolCalls: FC<{
 
 export const InteractionInference: FC<{
   imageURLs?: string[];
+  workspaceAttachments?: ChatWorkspaceAttachment[];
   message?: string;
   error?: string;
   serverConfig?: TypesServerConfigForFrontend;
@@ -274,6 +279,7 @@ export const InteractionInference: FC<{
   enableDebugCopy?: boolean;
 }> = ({
   imageURLs = [],
+  workspaceAttachments = [],
   message,
   error,
   serverConfig,
@@ -388,7 +394,7 @@ export const InteractionInference: FC<{
     return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`;
   };
 
-  const lightboxImages: LightboxImage[] = imageURLs
+  const contentImages: LightboxImage[] = imageURLs
     .filter(() => !!account.user)
     .map((imageURL, index) => {
       const path = imageURL.split("?")[0];
@@ -406,6 +412,14 @@ export const InteractionInference: FC<{
         name: imageName,
       };
     });
+  const workspaceImages: LightboxImage[] = workspaceAttachments
+    .filter((attachment) => attachment.type === "image")
+    .map((attachment) => ({
+      src: workspaceAttachmentURL(session.id || "", attachment.path),
+      name: attachment.name,
+    }));
+  const lightboxImages = [...workspaceImages, ...contentImages];
+  const workspaceFiles = workspaceAttachments.filter((attachment) => attachment.type === "file");
 
   return (
     <>
@@ -461,6 +475,59 @@ export const InteractionInference: FC<{
               />
             </Box>
           ))}
+        </Box>
+      )}
+      {workspaceFiles.length > 0 && (
+        <Box
+          sx={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 1,
+            width: "min(100%, 440px)",
+            mb: message ? 1.25 : 0,
+          }}
+        >
+          {workspaceFiles.map((attachment) => {
+            const isDocument = /\.(pdf|txt|md|docx?|rtf)$/i.test(attachment.name);
+            return (
+              <Box
+                key={attachment.path}
+                component="a"
+                href={workspaceAttachmentURL(session.id || "", attachment.path)}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Open attachment ${attachment.name}`}
+                sx={{
+                  width: { xs: "100%", sm: 210 },
+                  minWidth: 0,
+                  height: 56,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  px: 1.25,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  color: "text.primary",
+                  textDecoration: "none",
+                  backgroundColor: "rgba(255,255,255,0.025)",
+                  "&:hover": { borderColor: "text.secondary", backgroundColor: "action.hover" },
+                }}
+              >
+                <Box sx={{ display: "flex", flexShrink: 0, color: "text.secondary" }}>
+                  {isDocument ? <FileText size={19} /> : <Paperclip size={19} />}
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Box sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.8rem" }}>
+                    {attachment.name}
+                  </Box>
+                  <Box sx={{ color: "text.secondary", fontSize: "0.68rem", lineHeight: 1.4 }}>
+                    Open attachment
+                  </Box>
+                </Box>
+              </Box>
+            );
+          })}
         </Box>
       )}
       {toolSteps.length > 0 && isFromAssistant && (

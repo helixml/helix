@@ -4080,6 +4080,77 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/file": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams one file from the external agent's incoming attachment directory.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Read an uploaded chat attachment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Uploaded attachment filename",
+                        "name": "name",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/input": {
             "post": {
                 "security": [
@@ -17547,7 +17618,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the\ninteraction state update (interrupted) flows to the frontend via WebSocket.",
+                "description": "Sends cancel_current_turn to the active Zed agent and waits for acknowledgement.",
                 "produces": [
                     "application/json"
                 ],
@@ -17565,8 +17636,8 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "202": {
-                        "description": "Accepted",
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -17588,6 +17659,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }

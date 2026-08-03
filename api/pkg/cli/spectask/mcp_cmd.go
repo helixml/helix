@@ -1,15 +1,18 @@
 package spectask
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -572,10 +575,11 @@ This command:
   1. Creates a new spec task
   2. Starts the sandbox
   3. Waits for the agent to be ready
-  4. Sends a test prompt
-  5. Verifies screenshot works
-  6. Tests Session MCP tools
-  7. Optionally cleans up
+  4. Cancels a live turn and verifies the interaction is interrupted
+  5. Sends a follow-up and verifies the session still works
+  6. Verifies screenshot works
+  7. Tests Session MCP tools
+  8. Optionally cleans up
 
 Examples:
   helix spectask e2e --project prj_xxx --agent app_xxx --prompt "List files"
@@ -600,6 +604,8 @@ Examples:
 			if taskPrompt == "" {
 				taskPrompt = "E2E test: List files in current directory"
 			}
+			taskPrompt = "E2E cancellation probe: immediately run the shell command `sleep 60` before doing any other work. " +
+				"After it finishes, continue with this request: " + taskPrompt
 
 			task, err := createSpecTask(apiURL, token, "E2E Test Task", taskPrompt, projectID, agentID)
 			if err != nil {
@@ -616,14 +622,39 @@ Examples:
 
 			// Step 3: Wait for session
 			fmt.Printf("   ⏳ Waiting for sandbox to start...\n")
-			session, err := waitForTaskSession(apiURL, token, task.ID, 90*time.Second)
+			session, err := waitForTaskSession(apiURL, token, task.ID, 5*time.Minute)
 			if err != nil {
 				return fmt.Errorf("failed waiting for session: %w", err)
 			}
 			fmt.Printf("   ✅ Session ready: %s\n", session.ID)
 
-			// Step 4: Test screenshot
-			fmt.Printf("\n3️⃣  Testing screenshot...\n")
+			// Step 4: Cancel a real in-flight turn and verify acknowledgement/state propagation.
+			fmt.Printf("\n3️⃣  Testing live turn cancellation...\n")
+			waitingInteraction, err := waitForActiveAgentInteraction(apiURL, token, session.ID, 60*time.Second)
+			if err != nil {
+				return fmt.Errorf("failed waiting for cancellable turn: %w", err)
+			}
+			status, err := cancelE2ETurn(apiURL, token, session.ID)
+			if err != nil {
+				return fmt.Errorf("failed to cancel turn: %w", err)
+			}
+			if status != "cancelled" {
+				return fmt.Errorf("cancel returned unexpected status %q", status)
+			}
+			if err := waitForInteractionState(apiURL, token, session.ID, waitingInteraction.ID, types.InteractionStateInterrupted, 15*time.Second); err != nil {
+				return fmt.Errorf("cancellation did not propagate: %w", err)
+			}
+			fmt.Printf("   ✅ Agent acknowledged cancellation and interaction %s is interrupted\n", waitingInteraction.ID)
+
+			// A lifecycle test is incomplete until the next normal turn succeeds.
+			fmt.Printf("\n4️⃣  Testing the next turn after cancellation...\n")
+			if err := testPostCancellationTurn(apiURL, token, session.ID, 2*time.Minute); err != nil {
+				return fmt.Errorf("post-cancellation turn failed: %w", err)
+			}
+			fmt.Printf("   ✅ Session accepted and completed the next turn\n")
+
+			// Step 5: Test screenshot
+			fmt.Printf("\n5️⃣  Testing screenshot...\n")
 			screenshotResult := testScreenshot(apiURL, token, session.ID, 30)
 			if screenshotResult.Passed {
 				fmt.Printf("   ✅ Screenshot works\n")
@@ -631,8 +662,8 @@ Examples:
 				fmt.Printf("   ❌ Screenshot failed: %s\n", screenshotResult.Error)
 			}
 
-			// Step 5: Test Session MCP
-			fmt.Printf("\n4️⃣  Testing Session MCP tools...\n")
+			// Step 6: Test Session MCP
+			fmt.Printf("\n6️⃣  Testing Session MCP tools...\n")
 
 			mcpResult := testMCPTool(apiURL, token, session.ID, "current_session", nil, 30)
 			if mcpResult.Passed {
@@ -648,16 +679,16 @@ Examples:
 				fmt.Printf("   ❌ session_toc failed: %s\n", mcpResult.Error)
 			}
 
-			// Step 6: Cleanup
+			// Step 7: Cleanup
 			if cleanup {
-				fmt.Printf("\n5️⃣  Cleaning up...\n")
+				fmt.Printf("\n7️⃣  Cleaning up...\n")
 				if err := stopSession(apiURL, token, session.ID); err != nil {
 					fmt.Printf("   ⚠️  Cleanup warning: %v\n", err)
 				} else {
 					fmt.Printf("   ✅ Session stopped\n")
 				}
 			} else {
-				fmt.Printf("\n5️⃣  Session left running for inspection\n")
+				fmt.Printf("\n7️⃣  Session left running for inspection\n")
 				fmt.Printf("   To interact: helix spectask interact %s\n", session.ID)
 				fmt.Printf("   To stop:     helix spectask stop %s\n", session.ID)
 			}
@@ -677,6 +708,154 @@ Examples:
 	cmd.Flags().BoolVar(&cleanup, "cleanup", false, "Stop session after test")
 
 	return cmd
+}
+
+func waitForActiveAgentInteraction(apiURL, token, sessionID string, timeout time.Duration) (*types.Interaction, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		session, sessionErr := getSessionDetails(apiURL, token, sessionID)
+		if sessionErr != nil || session.Metadata.ZedThreadID == "" {
+			time.Sleep(time.Second)
+			continue
+		}
+		interactions, err := getInteractions(apiURL, token, sessionID, 20)
+		if err == nil {
+			for _, interaction := range interactions {
+				if interaction.State == types.InteractionStateWaiting {
+					return interaction, nil
+				}
+			}
+		}
+		time.Sleep(time.Second)
+	}
+	return nil, fmt.Errorf("timeout waiting for an active agent interaction")
+}
+
+func cancelE2ETurn(apiURL, token, sessionID string) (string, error) {
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/sessions/%s/cancel", apiURL, sessionID), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("cancel API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var result map[string]string
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("decode cancel response: %w", err)
+	}
+	return result["status"], nil
+}
+
+func waitForInteractionState(apiURL, token, sessionID, interactionID string, expected types.InteractionState, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastState types.InteractionState
+	for time.Now().Before(deadline) {
+		interactions, err := getInteractions(apiURL, token, sessionID, 20)
+		if err == nil {
+			for _, interaction := range interactions {
+				if interaction.ID != interactionID {
+					continue
+				}
+				lastState = interaction.State
+				if interaction.State == expected {
+					return nil
+				}
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("interaction %s state is %q, expected %q", interactionID, lastState, expected)
+}
+
+func testPostCancellationTurn(apiURL, token, sessionID string, timeout time.Duration) error {
+	marker := fmt.Sprintf("CANCEL_E2E_RECOVERY_%d", time.Now().UnixNano())
+	prompt := "Reply with exactly " + marker + " and do not call tools."
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- sendE2EChat(apiURL, token, sessionID, prompt, timeout)
+	}()
+
+	deadline := time.Now().Add(timeout)
+	var interactionID string
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-sendDone:
+			if err != nil {
+				return err
+			}
+		default:
+		}
+
+		interactions, err := getInteractions(apiURL, token, sessionID, 20)
+		if err == nil {
+			for _, interaction := range interactions {
+				if !strings.Contains(interaction.PromptMessage, marker) {
+					continue
+				}
+				interactionID = interaction.ID
+				switch interaction.State {
+				case types.InteractionStateComplete:
+					return nil
+				case types.InteractionStateError, types.InteractionStateInterrupted:
+					return fmt.Errorf("interaction %s ended in state %q: %s", interaction.ID, interaction.State, interaction.Error)
+				}
+			}
+		}
+		time.Sleep(time.Second)
+	}
+	if interactionID == "" {
+		return fmt.Errorf("follow-up interaction was not created")
+	}
+	return fmt.Errorf("follow-up interaction %s did not complete", interactionID)
+}
+
+func sendE2EChat(apiURL, token, sessionID, prompt string, timeout time.Duration) error {
+	payload := map[string]interface{}{
+		"session_id": sessionID,
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": map[string]interface{}{
+					"content_type": "text",
+					"parts":        []string{prompt},
+				},
+			},
+		},
+		"stream": false,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, apiURL+"/api/v1/sessions/chat", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		responseBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("chat API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+	return nil
 }
 
 // Utility to check if containers are healthy

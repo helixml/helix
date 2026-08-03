@@ -15281,6 +15281,53 @@ paths:
       summary: Execute command in sandbox
       tags:
       - ExternalAgents
+  /api/v1/external-agents/{sessionID}/file:
+    get:
+      description: Streams one file from the external agent's incoming attachment
+        directory.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Uploaded attachment filename
+        in: query
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Read an uploaded chat attachment
+      tags:
+      - ExternalAgents
   /api/v1/external-agents/{sessionID}/input:
     post:
       consumes:
@@ -23879,9 +23926,8 @@ paths:
       - sessions
   /api/v1/sessions/{id}/cancel:
     post:
-      description: |-
-        Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the
-        interaction state update (interrupted) flows to the frontend via WebSocket.
+      description: Sends cancel_current_turn to the active Zed agent and waits for
+        acknowledgement.
       parameters:
       - description: Session ID
         in: path
@@ -23891,8 +23937,8 @@ paths:
       produces:
       - application/json
       responses:
-        "202":
-          description: Accepted
+        "200":
+          description: OK
           schema:
             additionalProperties:
               type: string
@@ -23907,6 +23953,10 @@ paths:
             $ref: '#/definitions/system.HTTPError'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
           schema:
             $ref: '#/definitions/system.HTTPError'
       security:

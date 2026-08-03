@@ -1141,6 +1141,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")                // Read remote desktop clipboard to sync locally
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")               // Write local clipboard to remote desktop
 	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")                        // Upload files to sandbox container
+	authRouter.HandleFunc("/external-agents/{sessionID}/file", apiServer.getExternalAgentFile).Methods(http.MethodGet)                 // Read uploaded chat attachments
 	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")                          // Send keyboard/mouse input to desktop
 	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST")                                // Execute safe commands (vkcube, glxgears for benchmarks)
 	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")                       // WebSocket: keyboard/mouse input stream
