@@ -20,7 +20,6 @@ import Alert from '@mui/material/Alert'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import Menu from '@mui/material/Menu'
-import { styled } from '@mui/material/styles'
 
 import { useQuery } from '@tanstack/react-query'
 
@@ -53,6 +52,7 @@ import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import useRouter from '../../hooks/useRouter'
 import { useGetOrgByName } from '../../services/orgService'
+import MonacoEditor from '../widgets/MonacoEditor'
 
 // Recommended models configuration
 const RECOMMENDED_MODELS = {
@@ -176,35 +176,6 @@ const BarsIcon = ({ effort }: { effort: string }) => {
     </Box>
   )
 }
-
-// Add styled resizable textarea component
-const ResizableTextarea = styled('textarea')(({ theme }) => ({
-  width: '100%',
-  minHeight: '200px', // Increased from 120px to 200px
-  padding: '16.5px 14px',
-  fontSize: '1rem',
-  fontFamily: 'inherit',
-  lineHeight: '1.4375em',
-  border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.23)' : 'rgba(255, 255, 255, 0.23)'}`,
-  borderRadius: '4px',
-  backgroundColor: 'transparent',
-  color: theme.palette.text.primary,
-  resize: 'vertical',
-  outline: 'none',
-  transition: theme.transitions.create(['border-color', 'box-shadow']),
-  '&:focus': {
-    borderColor: theme.palette.primary.main,
-    boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`,
-  },
-  '&:disabled': {
-    backgroundColor: theme.palette.action.disabledBackground,
-    color: theme.palette.action.disabled,
-    cursor: 'not-allowed',
-  },
-  '&::placeholder': {
-    color: theme.palette.text.disabled,
-  },
-}));
 
 const AppSettings: FC<AppSettingsProps> = ({
   id,
@@ -620,21 +591,30 @@ const AppSettings: FC<AppSettingsProps> = ({
 
         </Typography>
         <Box sx={{ mb: 3, mt: 1 }}>
-          <ResizableTextarea
+          <MonacoEditor
             value={system_prompt}
-            onChange={(e) => {
-              setSystemPrompt(e.target.value)
-              debouncedUpdate('system_prompt', e.target.value)
+            onChange={(value: string) => {
+              setSystemPrompt(value)
+              debouncedUpdate('system_prompt', value)
             }}
-            disabled={readOnly}
-            placeholder="What does this agent do? How does it behave? What should it avoid doing?"
-            style={{
-              minHeight: '200px',
-              resize: 'vertical'
+            onSave={() => {
+              debouncedUpdate.cancel()
+              void onUpdate({ system_prompt })
+            }}
+            language="markdown"
+            readOnly={readOnly}
+            minHeight={240}
+            maxHeight={600}
+            autoHeight
+            theme="helix-dark"
+            options={{
+              overviewRulerLanes: 0,
+              overviewRulerBorder: false,
+              hideCursorInOverviewRuler: true,
             }}
           />
           <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            What does this agent do? How does it behave? What should it avoid doing?
+            Markdown supported. Cmd/Ctrl+S saves immediately.
           </Typography>
         </Box>
 

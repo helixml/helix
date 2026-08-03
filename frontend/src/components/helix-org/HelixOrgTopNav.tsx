@@ -32,9 +32,9 @@ const ITEMS: NavItem[] = [
   {
     id: 'agents',
     label: 'Agents',
-    route: 'helix_org_bots',
+    route: 'org_agents',
     icon: <Bot size={16} />,
-    isActive: (n) => n === 'helix_org_bots' || n === 'helix_org_bot_detail' || n === 'helix_org_human_detail',
+    isActive: (n) => n === 'org_agents' || n === 'org_agent',
   },
   {
     id: 'topics',
