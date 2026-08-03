@@ -29,7 +29,8 @@ import {
 } from '../../api/api'
 
 import {  
-  getAppName,  
+  getAppName,
+  isHelixOrgChartAgent,
 } from '../../utils/apps'
 
 import {
@@ -238,7 +239,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             </Cell>
             <Cell grow>
               <Box>
-                <Typography variant="body1">                
+                <Typography variant="body1" component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <a
                     style={{
                       textDecoration: 'none',
@@ -249,11 +250,14 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
                     onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      account.orgNavigate('new', { app_id: app.id, resource_type: 'apps' })
+                      onEdit(app)
                     }}
                   >
                     { getAppName(app) }
                   </a>
+                  {isHelixOrgChartAgent(app) && (
+                    <Chip label="Org Chart" size="small" color="primary" variant="outlined" />
+                  )}
                 </Typography>
                 {description && (
                   <Typography
@@ -436,7 +440,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       }, 
       {
         name: 'skills',
-        title: 'MCPs & APIs',
+        title: 'Tools',
       },
       {
         name: 'triggers',

@@ -1043,6 +1043,9 @@ func (s *HelixAPIServer) getAgent(_ http.ResponseWriter, r *http.Request) (*type
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	if httpErr := s.markHelixOrgAgents(r.Context(), app.OrganizationID, []*types.Agent{app}); httpErr != nil {
+		return nil, httpErr
+	}
 
 	return app, nil
 }
@@ -1173,6 +1176,9 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	err = s.ensureTriggerConfigurations(r.Context(), updated)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
+	}
+	if httpErr := s.markHelixOrgAgents(r.Context(), updated.OrganizationID, []*types.Agent{updated}); httpErr != nil {
+		return nil, httpErr
 	}
 
 	return updated, nil

@@ -105,6 +105,56 @@ func TestUpdateAppRejectsMismatchedBodyID(t *testing.T) {
 	require.Contains(t, httpErr.Message, "does not match URL")
 }
 
+func TestUpdateAppResponseMarksLinkedOrgAgent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+
+	node, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), node.WithAgentID("app-linked")))
+
+	existing := &types.App{
+		ID:             "app-linked",
+		Owner:          "user-test",
+		OrganizationID: "org-test",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Name:       "Linked",
+			Assistants: []types.AssistantConfig{{Name: "Linked"}},
+		}},
+	}
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID:         existing.Owner,
+		OrganizationID: existing.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	helixStore.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, updated *types.App) (*types.App, error) {
+		return updated, nil
+	})
+	helixStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store: orgStore,
+		},
+	}
+	body, err := json.Marshal(existing)
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/apps/"+existing.ID, bytes.NewReader(body))
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
+
+	updated, httpErr := server.updateAgent(nil, req)
+
+	require.Nil(t, httpErr)
+	require.NotNil(t, updated)
+	assert.True(t, updated.IsHelixOrgAgent)
+}
+
 func Test_markHelixOrgAgents_UsesNodesRepository(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	orgStore := orgmemory.New()
