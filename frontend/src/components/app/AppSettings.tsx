@@ -14,11 +14,14 @@ import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
+import Collapse from '@mui/material/Collapse'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
 import Alert from '@mui/material/Alert'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import Menu from '@mui/material/Menu'
 
 import { useQuery } from '@tanstack/react-query'
@@ -204,6 +207,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   }, [showAdvanced])
 
   // State for form fields
+  const [name, setName] = useState(app.name || '')
   const [system_prompt, setSystemPrompt] = useState(app.system_prompt || '')
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
@@ -338,6 +342,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   useEffect(() => {
     // Only initialize values if not already initialized
     if (!isInitialized.current) {
+      setName(app.name || '')
       setSystemPrompt(app.system_prompt || DEFAULT_SYSTEM_PROMPT)
       setGlobal(app.global || false)
       setModel(app.model || '')
@@ -583,6 +588,21 @@ const AppSettings: FC<AppSettingsProps> = ({
         <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
           Configuration
         </Typography>
+        <TextField
+          id="app-name"
+          name="app-name"
+          label="Agent name"
+          value={name}
+          error={showErrors && !name}
+          helperText="Use a name that makes this agent easy to identify."
+          disabled={readOnly}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => {
+            if (name !== app.name) void onUpdate({ name })
+          }}
+          fullWidth
+          sx={{ mb: 3 }}
+        />
         <Stack direction="row" alignItems="center">
           <Typography gutterBottom>System Instructions</Typography>
           <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
@@ -1149,7 +1169,19 @@ const AppSettings: FC<AppSettingsProps> = ({
         {/* Multi-Turn Agent Configuration */}
         {default_agent_type === AGENT_TYPE_HELIX_AGENT && (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="subtitle1" sx={{ mb: 2 }}>Multi-Turn Agent Configuration</Typography>
+            <Button
+              variant="text"
+              onClick={() => setShowAdvanced((value) => !value)}
+              endIcon={showAdvanced ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              aria-expanded={showAdvanced}
+              aria-controls="advanced-model-settings"
+              sx={{ px: 0, textTransform: 'none' }}
+            >
+              Advanced model settings
+            </Button>
+            <Collapse in={showAdvanced}>
+              <Box id="advanced-model-settings" sx={{ mt: 2 }}>
+                <Typography variant="subtitle1" sx={{ mb: 2 }}>Multi-Turn Agent Configuration</Typography>
 
             <Box sx={{ mb: 3 }}>
               <Typography gutterBottom>Main Reasoning Model (tool calling)</Typography>
@@ -1456,6 +1488,8 @@ const AppSettings: FC<AppSettingsProps> = ({
                 inputProps={{ min: 1 }}
               />
             </Box>
+              </Box>
+            </Collapse>
           </Box>
         )}
       </Box>
