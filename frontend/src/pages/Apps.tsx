@@ -16,6 +16,7 @@ import useRouter from '../hooks/useRouter'
 import useCreateBlankAgent from '../hooks/useCreateBlankAgent'
 import useSubscriptionGate from '../hooks/useSubscriptionGate'
 import Paywall from '../components/subscription/Paywall'
+import HelixOrgTopNav from '../components/helix-org/HelixOrgTopNav'
 
 import {
   IApp,
@@ -30,7 +31,6 @@ const Apps: FC = () => {
 
   const {
     params,
-    navigate,
   } = useRouter()
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
@@ -95,6 +95,7 @@ const Apps: FC = () => {
       organizationId={account.organizationTools.organization?.id}
       topbarContent={(
         <>
+          <HelixOrgTopNav />
           <Button
             id="secrets-button"
             variant="contained"

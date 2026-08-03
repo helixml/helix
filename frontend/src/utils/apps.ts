@@ -90,8 +90,8 @@ export const isExternalAgent = (app: IApp): boolean => {
 
 // True when this app backs a Helix org-chart Worker (flagged server-side).
 // These belong to the org chart, not to spec tasks.
-export const isHelixOrgChartAgent = (app: IApp): boolean => {
-  return app.is_helix_org_agent === true
+export const isHelixOrgChartAgent = (app: IApp | null | undefined): boolean => {
+  return app?.is_helix_org_agent === true
 }
 
 // Agents you can switch a spec task to: external agents that are not part of

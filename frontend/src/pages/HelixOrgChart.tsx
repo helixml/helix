@@ -2582,13 +2582,12 @@ const HelixOrgChart: FC = () => {
     [orgSlug],
   )
   // Agent menu Details / card double-click → agent detail page.
-  const onOpenBotDetails = useCallback(
-    (botId: string) => {
-      if (!orgSlug) return
-      router.navigate('helix_org_bot_detail', { org_id: orgSlug, bot_id: botId })
-    },
-    [router, orgSlug],
-  )
+  const onOpenBotDetails = (botId: string) => {
+    const bot = botsData?.find((candidate) => candidate.id === botId)
+    const agentID = bot?.agent_id ?? bot?.agent_app_id
+    if (!orgSlug || !agentID) return
+    router.navigate('org_agent', { org_id: orgSlug, app_id: agentID })
+  }
   const onViewProject = useCallback(
     (projectId: string) => {
       if (!orgSlug || !projectId) return

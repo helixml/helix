@@ -39314,7 +39314,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "alpha_features": {
-                    "description": "AlphaFeatures lists the feature flags this user has been granted\naccess to. Server-enforced via requireFeature middleware — the\nfrontend uses it only to decide whether to render the entry\npoint. Granted per-user via SQL (no deploy).",
+                    "description": "AlphaFeatures lists feature flags granted to this user.\nGranted per-user via SQL (no deploy).",
                     "type": "array",
                     "items": {
                         "type": "string"

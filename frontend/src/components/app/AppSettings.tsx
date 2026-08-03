@@ -14,13 +14,15 @@ import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
+import Collapse from '@mui/material/Collapse'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
 import Alert from '@mui/material/Alert'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import Menu from '@mui/material/Menu'
-import { styled } from '@mui/material/styles'
 
 import { useQuery } from '@tanstack/react-query'
 
@@ -53,6 +55,7 @@ import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import useRouter from '../../hooks/useRouter'
 import { useGetOrgByName } from '../../services/orgService'
+import MonacoEditor from '../widgets/MonacoEditor'
 
 // Recommended models configuration
 const RECOMMENDED_MODELS = {
@@ -177,35 +180,6 @@ const BarsIcon = ({ effort }: { effort: string }) => {
   )
 }
 
-// Add styled resizable textarea component
-const ResizableTextarea = styled('textarea')(({ theme }) => ({
-  width: '100%',
-  minHeight: '200px', // Increased from 120px to 200px
-  padding: '16.5px 14px',
-  fontSize: '1rem',
-  fontFamily: 'inherit',
-  lineHeight: '1.4375em',
-  border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.23)' : 'rgba(255, 255, 255, 0.23)'}`,
-  borderRadius: '4px',
-  backgroundColor: 'transparent',
-  color: theme.palette.text.primary,
-  resize: 'vertical',
-  outline: 'none',
-  transition: theme.transitions.create(['border-color', 'box-shadow']),
-  '&:focus': {
-    borderColor: theme.palette.primary.main,
-    boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`,
-  },
-  '&:disabled': {
-    backgroundColor: theme.palette.action.disabledBackground,
-    color: theme.palette.action.disabled,
-    cursor: 'not-allowed',
-  },
-  '&::placeholder': {
-    color: theme.palette.text.disabled,
-  },
-}));
-
 const AppSettings: FC<AppSettingsProps> = ({
   id,
   app,
@@ -233,6 +207,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   }, [showAdvanced])
 
   // State for form fields
+  const [name, setName] = useState(app.name || '')
   const [system_prompt, setSystemPrompt] = useState(app.system_prompt || '')
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
@@ -367,6 +342,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   useEffect(() => {
     // Only initialize values if not already initialized
     if (!isInitialized.current) {
+      setName(app.name || '')
       setSystemPrompt(app.system_prompt || DEFAULT_SYSTEM_PROMPT)
       setGlobal(app.global || false)
       setModel(app.model || '')
@@ -612,6 +588,21 @@ const AppSettings: FC<AppSettingsProps> = ({
         <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
           Configuration
         </Typography>
+        <TextField
+          id="app-name"
+          name="app-name"
+          label="Agent name"
+          value={name}
+          error={showErrors && !name}
+          helperText="Use a name that makes this agent easy to identify."
+          disabled={readOnly}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => {
+            if (name !== app.name) void onUpdate({ name })
+          }}
+          fullWidth
+          sx={{ mb: 3 }}
+        />
         <Stack direction="row" alignItems="center">
           <Typography gutterBottom>System Instructions</Typography>
           <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
@@ -620,21 +611,30 @@ const AppSettings: FC<AppSettingsProps> = ({
 
         </Typography>
         <Box sx={{ mb: 3, mt: 1 }}>
-          <ResizableTextarea
+          <MonacoEditor
             value={system_prompt}
-            onChange={(e) => {
-              setSystemPrompt(e.target.value)
-              debouncedUpdate('system_prompt', e.target.value)
+            onChange={(value: string) => {
+              setSystemPrompt(value)
+              debouncedUpdate('system_prompt', value)
             }}
-            disabled={readOnly}
-            placeholder="What does this agent do? How does it behave? What should it avoid doing?"
-            style={{
-              minHeight: '200px',
-              resize: 'vertical'
+            onSave={() => {
+              debouncedUpdate.cancel()
+              void onUpdate({ system_prompt })
+            }}
+            language="markdown"
+            readOnly={readOnly}
+            minHeight={240}
+            maxHeight={600}
+            autoHeight
+            theme="helix-dark"
+            options={{
+              overviewRulerLanes: 0,
+              overviewRulerBorder: false,
+              hideCursorInOverviewRuler: true,
             }}
           />
           <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            What does this agent do? How does it behave? What should it avoid doing?
+            Markdown supported. Cmd/Ctrl+S saves immediately.
           </Typography>
         </Box>
 
@@ -1169,7 +1169,19 @@ const AppSettings: FC<AppSettingsProps> = ({
         {/* Multi-Turn Agent Configuration */}
         {default_agent_type === AGENT_TYPE_HELIX_AGENT && (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="subtitle1" sx={{ mb: 2 }}>Multi-Turn Agent Configuration</Typography>
+            <Button
+              variant="text"
+              onClick={() => setShowAdvanced((value) => !value)}
+              endIcon={showAdvanced ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              aria-expanded={showAdvanced}
+              aria-controls="advanced-model-settings"
+              sx={{ px: 0, textTransform: 'none' }}
+            >
+              Advanced model settings
+            </Button>
+            <Collapse in={showAdvanced}>
+              <Box id="advanced-model-settings" sx={{ mt: 2 }}>
+                <Typography variant="subtitle1" sx={{ mb: 2 }}>Multi-Turn Agent Configuration</Typography>
 
             <Box sx={{ mb: 3 }}>
               <Typography gutterBottom>Main Reasoning Model (tool calling)</Typography>
@@ -1476,6 +1488,8 @@ const AppSettings: FC<AppSettingsProps> = ({
                 inputProps={{ min: 1 }}
               />
             </Box>
+              </Box>
+            </Collapse>
           </Box>
         )}
       </Box>

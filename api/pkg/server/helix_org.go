@@ -133,8 +133,7 @@ type helixOrgHandlers struct {
 }
 
 // initHelixOrgHandler builds the in-process helix-org HTTP handler;
-// mounted at /api/v1/orgs/{org}/, gated per-user by the `helix-org`
-// alpha feature flag.
+// mounted at /api/v1/orgs/{org}/.
 //
 // Storage: the org-graph rows land in the same Postgres database
 // helix uses for its primary state — no separate connection pool,
@@ -303,8 +302,7 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 // callbacks on the insecure router, the org-scoped Slack endpoints and
 // the /orgs/{org}/ catch-all on the auth router, the org MCP backend,
 // plus the long-lived stream-cron and Socket Mode goroutines. Every
-// org-shaped route + lifecycle hook lives here. Org-graph access is gated
-// per-user by the `helix-org` alpha feature.
+// org-shaped route + lifecycle hook lives here.
 func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
 	orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
 		LocalFSPath:          s.Cfg.FileStore.LocalFSPath,
@@ -426,13 +424,10 @@ func (s *HelixAPIServer) registerHelixOrgAuthenticatedRoutes(authRouter *mux.Rou
 	authRouter.Handle("/orgs/{org}/github/app-installation", identityOnly).Methods(http.MethodGet)
 	authRouter.Handle("/orgs/{org}/github/app-manifest", identityOnly).Methods(http.MethodPost)
 
-	// All remaining per-tenant org-graph routes require the alpha feature
-	// and bootstrap the graph before dispatch.
+	// All remaining per-tenant org-graph routes bootstrap the graph before dispatch.
 	authRouter.PathPrefix("/orgs/{org}/").Handler(
-		requireFeature(helixorg.AlphaFeature)(
-			s.withHelixOrgScope(orgHandlers.scope,
-				stripOrgScopedPrefix(orgHandlers.api),
-			),
+		s.withHelixOrgScope(orgHandlers.scope,
+			stripOrgScopedPrefix(orgHandlers.api),
 		),
 	)
 }
@@ -1426,7 +1421,7 @@ func workerRuntimeSupportsSubscription(runtime string) bool {
 // API key configured. HelixOrgURL points at our embedded MCP gateway
 // so the Zed sandbox can reach helix-org without external tunneling;
 // the service api_key is forwarded as the MCP Authorization header
-// so the gateway's alpha-feature check passes.
+// so the gateway can authenticate the request.
 //
 // BearerForUser resolves the hiring user's id (persisted on the
 // Worker's runtime state by hire_worker) to a current api_key at

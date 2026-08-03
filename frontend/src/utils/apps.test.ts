@@ -42,6 +42,7 @@ describe('isSpecTaskSwitchableAgent', () => {
 
   it('drops an external agent that backs an org-chart Worker', () => {
     const app = makeApp({ agentType: AGENT_TYPE_ZED_EXTERNAL, isHelixOrgAgent: true })
+    expect(isHelixOrgChartAgent(null)).toBe(false)
     expect(isHelixOrgChartAgent(app)).toBe(true)
     expect(isSpecTaskSwitchableAgent(app)).toBe(false)
   })

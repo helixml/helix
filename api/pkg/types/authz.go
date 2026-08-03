@@ -277,10 +277,8 @@ type User struct {
 	// Updated (throttled) from auth middleware so the column isn't hammered on every request.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 
-	// AlphaFeatures lists the feature flags this user has been granted
-	// access to. Server-enforced via requireFeature middleware — the
-	// frontend uses it only to decide whether to render the entry
-	// point. Granted per-user via SQL (no deploy).
+	// AlphaFeatures lists feature flags granted to this user.
+	// Granted per-user via SQL (no deploy).
 	AlphaFeatures pq.StringArray `gorm:"type:text[];default:'{}'" json:"alpha_features"`
 }
 

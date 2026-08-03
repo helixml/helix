@@ -2,7 +2,6 @@ import { FC } from 'react'
 
 import {
   Settings,
-  Palette,
   Webhook,
   LibraryBig,
   Lightbulb,
@@ -18,12 +17,13 @@ import {
 
 import useRouter from '../../hooks/useRouter'
 import useApp from '../../hooks/useApp'
+import { isHelixOrgChartAgent } from '../../utils/apps'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
 const AppSidebar: FC = () => {
   const router = useRouter()
   const { tab, app_id } = router.params
-  const currentTab = tab || 'appearance'
+  const currentTab = tab === 'appearance' ? 'settings' : tab || 'settings'
   
   // Get app data and user access information
   const appTools = useApp(app_id)
@@ -38,15 +38,8 @@ const AppSidebar: FC = () => {
       title: 'Agent Configuration',
       items: [
         {
-          id: 'appearance',
-          label: 'Appearance',
-          icon: <Palette size={20} /> ,
-          isActive: currentTab === 'appearance',
-          onClick: () => handleNavigationClick('appearance')
-        },
-        {
           id: 'settings',
-          label: 'Settings',
+          label: 'Instructions & Runtime',
           icon: <Settings size={20} />,
           isActive: currentTab === 'settings',
           onClick: () => handleNavigationClick('settings')
@@ -72,7 +65,7 @@ const AppSidebar: FC = () => {
         },
         {
           id: 'skills',
-          label: 'MCPs & APIs',
+          label: app && isHelixOrgChartAgent(app) ? 'Org Tools & APIs' : 'Tools',
           icon: <Lightbulb size={20} />,
           isActive: currentTab === 'skills',
           onClick: () => handleNavigationClick('skills')
@@ -159,4 +152,4 @@ const AppSidebar: FC = () => {
   )
 }
 
-export default AppSidebar 
+export default AppSidebar

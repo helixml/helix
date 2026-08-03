@@ -7562,10 +7562,8 @@ export interface TypesUser {
   /** if the ID of the user is contained in the env setting */
   admin?: boolean;
   /**
-   * AlphaFeatures lists the feature flags this user has been granted
-   * access to. Server-enforced via requireFeature middleware — the
-   * frontend uses it only to decide whether to render the entry
-   * point. Granted per-user via SQL (no deploy).
+   * AlphaFeatures lists feature flags granted to this user.
+   * Granted per-user via SQL (no deploy).
    */
   alpha_features?: string[];
   /** if the token is associated with an app */

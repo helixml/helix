@@ -25,6 +25,7 @@ import useApp from '../../hooks/useApp'
 import { useCreateFilestoreFolder, useUploadFilestoreFiles, useFilestoreConfig } from '../../services/filestoreService'
 import DarkDialog from '../dialog/DarkDialog'
 import useSnackbar from '../../hooks/useSnackbar'
+import { isHelixOrgChartAgent } from '../../utils/apps'
 
 import SlideMenuContainer from './SlideMenuContainer'
 import SidebarContextHeader from './SidebarContextHeader'
@@ -263,7 +264,9 @@ const SidebarContentInner: React.FC<{
           }}
         >
           {
-            showTopLinks && (router.name === 'org_chat' || router.name === 'org_session' || router.name === 'org_qa-results' || router.name === 'org_agent' || router.name === 'org_new') && (
+            showTopLinks &&
+            (router.name !== 'org_agent' || (!!appTools.app && !isHelixOrgChartAgent(appTools.app))) &&
+            (router.name === 'org_chat' || router.name === 'org_session' || router.name === 'org_qa-results' || router.name === 'org_agent' || router.name === 'org_new') && (
               <List disablePadding>
 
                 {/* New resource creation button */}

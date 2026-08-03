@@ -287,7 +287,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     if (!firstAccessibleOrg) return
     const firstOrgSlug = firstAccessibleOrg.name
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, firstOrgSlug)
-    const useRouteName = router.name.startsWith('org_') ? router.name : orgLandingRoute(account.user)
+    const useRouteName = router.name.startsWith('org_') ? router.name : orgLandingRoute()
     const useParams = Object.assign({}, router.params, { org_id: firstOrgSlug })
     router.navigate(useRouteName, useParams)
   }, [listOrgs, account.user])
@@ -295,7 +295,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   // Handle org select, also remember the last org user has been in
   const handleOrgSelect = (orgSlug: string) => {
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
-    router.navigate(orgLandingRoute(account.user), { org_id: orgSlug })
+    router.navigate(orgLandingRoute(), { org_id: orgSlug })
     setDialogOpen(false)
   }
 
@@ -388,21 +388,16 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     postNavigateTo()
   }
 
-  const helixOrgEnabled = account.user?.alpha_features?.includes('helix-org') ?? false
-
   // Navigation buttons configuration
   const navigationButtons = useMemo(() => {
     const baseButtons = [
-      // Helix Org overview. Alpha-gated: only rendered for users granted
-      // the 'helix-org' alpha_features flag. Leads the rail as the primary
-      // org-level surface.
-      ...(helixOrgEnabled ? [{
+      {
         icon: <Network size={NAV_BUTTON_SIZE} />,
         tooltip: "View org chart",
         isActive: router.name.startsWith('helix_org'),
         onClick: handleHelixOrgClick,
         label: "Chart",
-      }] : []),
+      },
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
         tooltip: "View projects",
@@ -482,7 +477,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, currentOrgSlug, helixOrgEnabled, router.name])
+  }, [isActive, currentOrgSlug, router.name])
 
   const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
 

@@ -206,8 +206,9 @@ const HelixOrgChatPanel: FC = () => {
 
   const handleOpenSettings = () => {
     closeMenu()
-    if (!orgId || !selectedBotId) return
-    router.navigate('helix_org_bot_detail', { org_id: orgId, bot_id: selectedBotId })
+    const agentID = botDetail?.agent_id ?? botDetail?.agent_app_id
+    if (!orgId || !agentID) return
+    router.navigate('org_agent', { org_id: orgId, app_id: agentID })
   }
 
   // Selecting in the dropdown also broadcasts so other surfaces stay in sync.
