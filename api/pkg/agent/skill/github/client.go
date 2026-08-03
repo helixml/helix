@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-github/v57/github"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
+	"golang.org/x/sync/errgroup"
 )
 
 // Client wraps the GitHub API client
@@ -169,21 +170,11 @@ func MintInstallationCredential(ctx context.Context, appID, installationID int64
 	return InstallationCredential{Token: tok, ExpiresAt: expiresAt}, nil
 }
 
-// ListRepositories lists all repositories accessible to the authenticated user
-// including personal repos, collaborator repos, and organization repos (both public and private).
-//
-// GitHub's GET /user/repos with affiliation=organization_member may not return
-// public org repos, so we supplement with per-org repo listing. We discover orgs
-// from two sources because each misses cases the other catches:
-//   - GET /user/orgs returns orgs the user is a *member* of, but not orgs where
-//     the user is only an outside collaborator on individual repos.
-//   - The owners of repos returned by /user/repos surface those collaborator orgs,
-//     but only if the user has access to at least one repo in them.
-//
-// Unioning both gives us every org we can plausibly enumerate public repos for.
+// ListRepositories lists repositories the authenticated user can access directly:
+// owned repositories, collaborator repositories, and organization repositories.
+// Public repositories outside those affiliations can still be linked by URL; walking
+// every repository in every organization makes this interactive endpoint unbounded.
 func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, error) {
-	// Step 1: Get user repos (personal, collaborator, org-member)
-	var allRepos []*github.Repository
 	opt := &github.RepositoryListOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 		Sort:        "updated",
@@ -191,80 +182,45 @@ func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, er
 		Visibility:  "all",
 	}
 
-	for {
-		repos, resp, err := c.client.Repositories.List(ctx, "", opt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list repositories: %w", err)
-		}
-		allRepos = append(allRepos, repos...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
-	}
-
-	log.Info().Int("user_repos_count", len(allRepos)).Msg("Step 1: fetched user repos")
-
-	// Collect orgs from owners of org-owned repos in Step 1. This catches orgs
-	// where the user is an outside collaborator and so doesn't appear in /user/orgs.
-	orgsFromRepos := make(map[string]bool)
-	for _, repo := range allRepos {
-		owner := repo.GetOwner()
-		if owner == nil {
-			continue
-		}
-		if owner.GetType() == "Organization" {
-			orgsFromRepos[owner.GetLogin()] = true
-		}
-	}
-
-	// Step 2: List user's organizations (orgs the user is a member of).
-	// May fail if read:org scope is missing — in that case we still proceed
-	// using only the orgs derived from Step 1.
-	memberOrgs, err := c.listUserOrganizations(ctx)
+	firstPage, response, err := c.client.Repositories.List(ctx, "", opt)
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to list user organizations (needs read:org scope) — falling back to orgs derived from user repos")
+		return nil, fmt.Errorf("failed to list repositories: %w", err)
+	}
+	if response.NextPage == 0 {
+		return firstPage, nil
+	}
+	if response.LastPage < response.NextPage {
+		return nil, fmt.Errorf("GitHub repository pagination response omitted the last page")
 	}
 
-	allOrgs := make(map[string]bool, len(orgsFromRepos)+len(memberOrgs))
-	for org := range orgsFromRepos {
-		allOrgs[org] = true
+	pages := make([][]*github.Repository, response.LastPage)
+	pages[0] = firstPage
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(8)
+	for page := response.NextPage; page <= response.LastPage; page++ {
+		page := page
+		group.Go(func() error {
+			pageOptions := *opt
+			pageOptions.Page = page
+			repositories, _, err := c.client.Repositories.List(groupCtx, "", &pageOptions)
+			if err != nil {
+				return fmt.Errorf("failed to list repositories page %d: %w", page, err)
+			}
+			pages[page-1] = repositories
+			return nil
+		})
 	}
-	for _, org := range memberOrgs {
-		allOrgs[org.GetLogin()] = true
-	}
-
-	memberOrgNames := make([]string, len(memberOrgs))
-	for i, org := range memberOrgs {
-		memberOrgNames[i] = org.GetLogin()
-	}
-	collaboratorOnlyOrgs := make([]string, 0)
-	for org := range orgsFromRepos {
-		if _, isMember := lookupOrgInList(memberOrgs, org); !isMember {
-			collaboratorOnlyOrgs = append(collaboratorOnlyOrgs, org)
-		}
-	}
-	log.Info().
-		Strs("member_orgs", memberOrgNames).
-		Strs("collaborator_only_orgs", collaboratorOnlyOrgs).
-		Int("total_orgs_to_query", len(allOrgs)).
-		Msg("Step 2: assembled org list (members + collaborator-only)")
-
-	// Step 3: For each org, list all visible repos (includes public ones)
-	for orgLogin := range allOrgs {
-		orgRepos, err := c.listOrgRepositories(ctx, orgLogin)
-		if err != nil {
-			log.Warn().Err(err).Str("org", orgLogin).Msg("Step 3: failed to list org repos, skipping")
-			continue
-		}
-		log.Info().Str("org", orgLogin).Int("repo_count", len(orgRepos)).Msg("Step 3: fetched org repos")
-		allRepos = append(allRepos, orgRepos...)
+	if err := group.Wait(); err != nil {
+		return nil, err
 	}
 
-	// Step 4: Deduplicate by repo ID
-	deduped := deduplicateRepos(allRepos)
-	log.Info().Int("total_before_dedup", len(allRepos)).Int("total_after_dedup", len(deduped)).Msg("Step 4: deduplicated repos")
-	return deduped, nil
+	allRepos := make([]*github.Repository, 0, response.LastPage*opt.PerPage)
+	for _, page := range pages {
+		allRepos = append(allRepos, page...)
+	}
+
+	log.Info().Int("repository_count", len(allRepos)).Msg("Fetched repositories accessible to user")
+	return allRepos, nil
 }
 
 // HasWriteAccess returns true when the authenticated user can push to the repo.
@@ -277,74 +233,6 @@ func HasWriteAccess(repo *github.Repository) bool {
 		return true
 	}
 	return perms["admin"] || perms["maintain"] || perms["push"]
-}
-
-// lookupOrgInList returns the matching org and true if login appears in orgs.
-func lookupOrgInList(orgs []*github.Organization, login string) (*github.Organization, bool) {
-	for _, o := range orgs {
-		if o.GetLogin() == login {
-			return o, true
-		}
-	}
-	return nil, false
-}
-
-// listUserOrganizations returns all organizations the authenticated user belongs to.
-func (c *Client) listUserOrganizations(ctx context.Context) ([]*github.Organization, error) {
-	var allOrgs []*github.Organization
-	opt := &github.ListOptions{PerPage: 100}
-
-	for {
-		orgs, resp, err := c.client.Organizations.List(ctx, "", opt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list organizations: %w", err)
-		}
-		allOrgs = append(allOrgs, orgs...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
-	}
-
-	return allOrgs, nil
-}
-
-// listOrgRepositories returns all repositories in an organization visible to the authenticated user.
-func (c *Client) listOrgRepositories(ctx context.Context, orgLogin string) ([]*github.Repository, error) {
-	var allRepos []*github.Repository
-	opt := &github.RepositoryListByOrgOptions{
-		ListOptions: github.ListOptions{PerPage: 100},
-		Sort:        "updated",
-		Type:        "all",
-	}
-
-	for {
-		repos, resp, err := c.client.Repositories.ListByOrg(ctx, orgLogin, opt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list org repositories for %s: %w", orgLogin, err)
-		}
-		allRepos = append(allRepos, repos...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
-	}
-
-	return allRepos, nil
-}
-
-// deduplicateRepos removes duplicate repositories by ID.
-func deduplicateRepos(repos []*github.Repository) []*github.Repository {
-	seen := make(map[int64]bool)
-	var result []*github.Repository
-	for _, repo := range repos {
-		id := repo.GetID()
-		if !seen[id] {
-			seen[id] = true
-			result = append(result, repo)
-		}
-	}
-	return result
 }
 
 // CreatePullRequest creates a new pull request

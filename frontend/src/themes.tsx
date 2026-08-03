@@ -1,5 +1,6 @@
 import React, { ReactElement } from 'react'
 import Box from '@mui/material/Box'
+import { DARK_APP_BACKGROUND } from './styles/themeTokens'
 
 const DEFAULT_THEME_NAME = 'helix'
 
@@ -104,8 +105,8 @@ export const THEMES: Record<string, ITheme> = {
     darkScrollbar: '#23232e',
     darkScrollbarThumb: '#35354a',
     darkScrollbarHover: '#505070',
-    darkBackgroundColor: "#121214",
-    darkBackgroundImage: "linear-gradient(135deg, #101014 0%, #18181c 100%)",
+    darkBackgroundColor: DARK_APP_BACKGROUND,
+    darkBackgroundImage: "none",
     darkBorder: "1px solid #282838",
     darkText: "#e0e0e0",
     darkTextFaded: "#a0a0b0",

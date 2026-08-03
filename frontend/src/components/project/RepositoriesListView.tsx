@@ -22,7 +22,7 @@ import {
 import WarningIcon from '@mui/icons-material/Warning'
 import SearchIcon from '@mui/icons-material/Search'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import { GitBranch, Link as LinkIcon, Brain, RefreshCw, Trash, Plus, FolderSearch } from 'lucide-react'
+import { GitBranch, Link as LinkIcon, RefreshCw, Trash, Plus, FolderSearch } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import SimpleTable from '../widgets/SimpleTable'
@@ -37,7 +37,6 @@ import type { TypesGitRepository } from '../../api/api'
 
 interface RepositoriesListViewProps {
   repositories: TypesGitRepository[]
-  ownerSlug: string
   searchQuery: string
   onSearchChange: (query: string) => void
   page: number
@@ -54,7 +53,6 @@ interface RepositoriesListViewProps {
 
 const RepositoriesListView: FC<RepositoriesListViewProps> = ({
   repositories,
-  ownerSlug,
   searchQuery,
   onSearchChange,
   page,
@@ -164,7 +162,7 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
                     onViewRepository(repo)
                   }}
                 >
-                  {ownerSlug}/{repo.name || repo.id}
+                  {repo.name || repo.id}
                 </a>
               </Typography>
               {repo.description && (
@@ -181,15 +179,6 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
                     sx={{ height: 20, fontSize: '0.75rem' }}
                   />
                 )}
-                {repo.kodit_indexing && (
-                  <Chip
-                    icon={<Brain size={12} />}
-                    label="Code Intelligence"
-                    size="small"
-                    color="success"
-                    sx={{ height: 20, fontSize: '0.75rem' }}
-                  />
-                )}
               </Box>
             </Cell>
           </Row>
@@ -201,7 +190,7 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
         ),
       }
     })
-  }, [paginatedRepositories, ownerSlug, theme, onViewRepository])
+  }, [paginatedRepositories, theme, onViewRepository])
 
   const getActions = useCallback((repo: any) => {
     return (
@@ -232,13 +221,11 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
 
   return (
     <>
-      {/* GitHub-style header with owner/repositories */}
+      {/* Repository page header */}
       <Box sx={{ mb: 3, pb: 2 }}>
         <Box sx={{ mb: 2 }}>
           <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <span style={{ color: theme.palette.secondary.main, cursor: 'pointer' }}>{ownerSlug}</span>
-            <span style={{ color: 'text.secondary', fontWeight: 300 }}>/</span>
-            <span style={{ fontWeight: 600 }}>repositories</span>
+            <span style={{ fontWeight: 600 }}>Repositories</span>
           </Typography>
         </Box>
       </Box>

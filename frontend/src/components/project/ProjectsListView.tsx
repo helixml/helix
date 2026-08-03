@@ -152,7 +152,12 @@ const ProjectCard: FC<{
         backgroundColor: 'background.paper',
         border: '1px solid',
         borderColor: isPinned ? 'rgba(167, 139, 250, 0.3)' : 'rgba(0, 0, 0, 0.08)',
-        borderLeft: isPinned ? '3px solid #a78bfa' : '3px solid transparent',
+        borderLeft: isPinned ? '3px solid #a78bfa' : '1px solid',
+        borderLeftColor: isPinned
+          ? '#a78bfa'
+          : lightTheme.isLight
+            ? 'rgba(0, 0, 0, 0.08)'
+            : 'rgba(255, 255, 255, 0.08)',
         borderRadius: 1,
         boxShadow: 'none',
         transition: 'all 0.15s ease-in-out',

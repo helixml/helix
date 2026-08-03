@@ -237,7 +237,7 @@ const HelixOrgChatPanel: FC = () => {
           justifyContent: 'center',
           gap: 0.25,
           flexShrink: 0,
-          backgroundColor: 'background.paper',
+          backgroundColor: 'background.default',
         }}
       >
         <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>

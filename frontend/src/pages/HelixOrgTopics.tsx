@@ -115,26 +115,30 @@ const HelixOrgTopics: FC = () => {
     _data: s,
     _isHighlighted: highlightId === s.id,
     name: (
-      <Typography variant="body1">
+      <Stack spacing={0.25}>
         <a
           href="#"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); openTopicDetail(s.id) }}
           style={{
-            fontWeight: 'bold',
-            color: highlightId === s.id
-              ? theme.palette.warning.main
-              : theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-            fontFamily: 'monospace',
+            fontWeight: 600,
+            color: highlightId === s.id ? theme.palette.warning.main : 'inherit',
             textDecoration: 'none',
             cursor: 'pointer',
           }}
         >
-          {s.id}
+          {s.name}
         </a>
-      </Typography>
-    ),
-    nameField: (
-      <Typography variant="body2" color="text.secondary">{s.name}</Typography>
+        <Typography
+          variant="caption"
+          sx={{
+            fontFamily: 'monospace',
+            fontSize: '0.7rem',
+            color: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.5)' : 'text.secondary',
+          }}
+        >
+          {s.id}
+        </Typography>
+      </Stack>
     ),
     kind: (
       <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>{s.kind}</Typography>
@@ -204,8 +208,7 @@ const HelixOrgTopics: FC = () => {
             <SimpleTable
               authenticated={true}
               fields={[
-                { name: 'name', title: 'ID' },
-                { name: 'nameField', title: 'Name' },
+                { name: 'name', title: 'Name' },
                 { name: 'kind', title: 'Transport' },
                 { name: 'subscribers', title: 'Subscribers' },
                 { name: 'created', title: 'Created' },

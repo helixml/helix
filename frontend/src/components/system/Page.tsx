@@ -307,10 +307,14 @@ const Page: React.FC<{
                   }}
                   sx={{
                     width: 200,
+                    height: 32,
                     mr: 2,
                     flexShrink: 0,
                     cursor: 'pointer',
                     '& .MuiOutlinedInput-root': {
+                      height: 32,
+                      minHeight: 32,
+                      py: 0,
                       cursor: 'pointer',
                       background: lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.03)',
                       '& fieldset': {
@@ -325,6 +329,7 @@ const Page: React.FC<{
                       },
                     },
                     '& .MuiInputBase-input': {
+                      py: 0,
                       cursor: 'pointer',
                       color: lightTheme.textColor,
                       fontWeight: lightTheme.isLight ? 500 : 400,
@@ -336,7 +341,21 @@ const Page: React.FC<{
                   }}
                 />
               )}
-              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+              <Box
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  '& .MuiButton-root': {
+                    minHeight: 32,
+                    height: 32,
+                    py: 0,
+                  },
+                  '& .MuiButtonGroup-root': {
+                    height: 32,
+                  },
+                }}
+              >
                 { topbarContent }
                 <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
                   <IconButton onClick={toggleMode} size="small" sx={{ color: lightTheme.textColorFaded }}>
