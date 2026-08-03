@@ -54,7 +54,7 @@ func TestAPIKeys_User_MintsWhenNone(t *testing.T) {
 	st.EXPECT().ListAPIKeys(gomock.Any(), gomock.Any()).Return([]*types.ApiKey{}, nil)
 	st.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, k *types.ApiKey) (*types.ApiKey, error) {
-			if k.Owner != "usr-2" || k.Type != types.APIkeytypeAPI {
+			if k.Owner != "usr-2" || k.Type != types.APIkeytypeAPI || k.Name != "helix-org (per-user)" {
 				t.Errorf("unexpected key: %+v", k)
 			}
 			return k, nil
@@ -77,25 +77,17 @@ func TestAPIKeys_Service_MintsForOrganizationOwner(t *testing.T) {
 	defer ctrl.Finish()
 	st := store.NewMockStore(ctrl)
 
-	owner := &types.User{ID: "usr-owner", Email: "owner@test"}
+	owner := &types.User{ID: "usr-owner", Email: "owner@test", AlphaFeatures: []string{"other-feature"}}
 	st.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org-test"}).
 		Return(&types.Organization{ID: "org-test", Owner: owner.ID}, nil)
 	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: owner.ID}).Return(owner, nil)
-	st.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, u *types.User) (*types.User, error) {
-			var granted bool
-			for _, f := range u.AlphaFeatures {
-				if f == AlphaFeature {
-					granted = true
-				}
-			}
-			if !granted {
-				t.Errorf("alpha flag not granted: %+v", u.AlphaFeatures)
-			}
-			return u, nil
-		})
 	st.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, k *types.ApiKey) (*types.ApiKey, error) { return k, nil })
+		func(_ context.Context, k *types.ApiKey) (*types.ApiKey, error) {
+			if k.Name != "helix-org service (auto-provisioned)" {
+				t.Errorf("unexpected key name: %q", k.Name)
+			}
+			return k, nil
+		})
 
 	reg := newTestConfigs(t)
 	k := NewHelixAPIKeys(st, reg)
@@ -105,6 +97,9 @@ func TestAPIKeys_Service_MintsForOrganizationOwner(t *testing.T) {
 	}
 	if got == "" {
 		t.Fatal("expected a minted service key")
+	}
+	if len(owner.AlphaFeatures) != 1 || owner.AlphaFeatures[0] != "other-feature" {
+		t.Fatalf("owner alpha features mutated: %+v", owner.AlphaFeatures)
 	}
 	// Cached in config for next time.
 	if v, _ := reg.GetString(context.Background(), "org-test", "helix.api_key"); v != got {

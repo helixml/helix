@@ -8,7 +8,7 @@ import useAccount from '../../hooks/useAccount'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
 // HelixOrgSidebar is the secondary navigation column for the
-// helix-org alpha. Sits between the primary org-menu rail and the
+// helix-org surface. Sits between the primary org-menu rail and the
 // page body. Today: chart + agents + topics + assets.
 const HelixOrgSidebar: FC = () => {
   const router = useRouter()

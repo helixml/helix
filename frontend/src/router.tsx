@@ -562,7 +562,7 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <AdminRunnerLogsPage />,
 }, {
-  // helix-org alpha - Other resources (bots and topics) are
+  // Other resources (bots and topics) are
   // operated via MCP tools / API; the overview is the visual entry
   // point.
   // drawer: false - secondary context sidebar is unused; Chart/Bots/Topics

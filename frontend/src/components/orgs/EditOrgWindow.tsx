@@ -10,7 +10,6 @@ import Divider from '@mui/material/Divider'
 import Typography from '@mui/material/Typography'
 
 import { TypesOrganization } from '../../api/api'
-import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -38,11 +37,9 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
   onClose,
   onSubmit,
 }) => {
-  const account = useAccount()
   const api = useApi()
   const router = useRouter()
   const snackbar = useSnackbar()
-  const helixOrgEnabled = account.user?.alpha_features?.includes('helix-org') ?? false
 
   const [slug, setSlug] = useState('')
   const [name, setName] = useState('')
@@ -151,7 +148,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
 
       // New org + operator picked a default agent config: persist it against
       // the real created slug (the backend may have suffixed it for uniqueness).
-      if (!org && agentDefaultsDirty && helixOrgEnabled && created && created.name) {
+      if (!org && agentDefaultsDirty && created && created.name) {
         try {
           await persistAgentDefaults(created.name)
         } catch (e) {
@@ -163,11 +160,10 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
       // backend on org create — see api/pkg/server/org_graph_seed.go. The
       // frontend no longer creates it.
 
-      // Land the operator on the freshly created org: the org chart when
-      // helix-org is enabled, otherwise projects.
+      // Land the operator on the freshly created org chart.
       if (!org && created && created.name) {
         localStorage.setItem(SELECTED_ORG_STORAGE_KEY, created.name)
-        router.navigate(orgLandingRoute(account.user), { org_id: created.name })
+        router.navigate(orgLandingRoute(), { org_id: created.name })
       }
 
       onClose()
@@ -214,9 +210,8 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
             helperText={errors.slug || "Unique identifier for the organization (no spaces allowed)"}
           />
 
-          {/* Default Agent Configuration - only when creating, and only for helix-org
-              alpha users. Optional: leave untouched to configure later. */}
-          {!org && helixOrgEnabled && (
+          {/* Default Agent Configuration - only when creating. */}
+          {!org && (
             <Box sx={{ mt: 3 }}>
               <Divider sx={{ mb: 2 }} />
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>

@@ -12074,10 +12074,8 @@ definitions:
         type: boolean
       alpha_features:
         description: |-
-          AlphaFeatures lists the feature flags this user has been granted
-          access to. Server-enforced via requireFeature middleware — the
-          frontend uses it only to decide whether to render the entry
-          point. Granted per-user via SQL (no deploy).
+          AlphaFeatures lists feature flags granted to this user.
+          Granted per-user via SQL (no deploy).
         items:
           type: string
         type: array
