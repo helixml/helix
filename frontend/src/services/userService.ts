@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesUserChatSettings } from '../api/api';
+import { TypesAccountUpdateRequest, TypesUserChatSettings } from '../api/api';
 
 export const userChatSettingsQueryKey = () => ["user", "chat-settings"];
+export const currentUserQueryKey = () => ["user", "current"];
 
 export const userQueryKey = (id: string) => [
   "user",
@@ -42,6 +43,18 @@ export function useGetConfig() {
     queryKey: ["config"],
     queryFn: async () => {
       const response = await apiClient.v1ConfigList()
+      return response.data
+    },
+  })
+}
+
+export function useGetCurrentUser() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: currentUserQueryKey(),
+    queryFn: async () => {
+      const response = await apiClient.v1AuthUserList()
       return response.data
     },
   })
@@ -185,8 +198,8 @@ export function useUpdateAccount() {
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (data: { full_name?: string }) => {
-      const response = await apiClient.v1AuthUpdateCreate({ full_name: data.full_name })
+    mutationFn: async (data: TypesAccountUpdateRequest) => {
+      const response = await apiClient.v1AuthUpdateCreate(data)
       return response.data
     },
     onSuccess: () => {
@@ -194,4 +207,3 @@ export function useUpdateAccount() {
     },
   })
 }
-

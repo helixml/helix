@@ -234,6 +234,14 @@ type User struct {
 	Username string    `json:"username"`
 	FullName string    `json:"full_name"`
 
+	// GitCommitName and GitCommitEmail override the account identity for commits.
+	// Empty values inherit FullName/Username and Email respectively.
+	GitCommitName  string `json:"git_commit_name"`
+	GitCommitEmail string `json:"git_commit_email"`
+	// PRFooterTemplate is nullable so nil can inherit the Helix default while an
+	// explicit empty string disables the footer.
+	PRFooterTemplate *string `json:"pr_footer_template" gorm:"type:text"`
+
 	AuthProvider AuthProvider `json:"auth_provider"`
 
 	Password           string `json:"-" gorm:"-"`           // Temporary field for password input, not persisted

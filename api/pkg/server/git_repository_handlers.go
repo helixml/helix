@@ -1035,11 +1035,11 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 	authorEmail := request.Email
 
 	if authorName == "" {
-		authorName = user.FullName
+		authorName = user.GitAuthorName()
 	}
 
 	if authorEmail == "" {
-		authorEmail = user.Email
+		authorEmail = user.GitAuthorEmail()
 	}
 
 	content := []byte(request.Content)

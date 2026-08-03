@@ -2645,7 +2645,11 @@ type PasswordUpdateRequest struct {
 }
 
 type AccountUpdateRequest struct {
-	FullName string `json:"full_name"`
+	FullName         *string `json:"full_name,omitempty"`
+	GitCommitName    *string `json:"git_commit_name,omitempty"`
+	GitCommitEmail   *string `json:"git_commit_email,omitempty"`
+	PRFooterTemplate *string `json:"pr_footer_template,omitempty"`
+	ResetPRFooter    bool    `json:"reset_pr_footer,omitempty"`
 }
 
 type AdminCreateUserRequest struct {
@@ -2664,6 +2668,10 @@ type UserResponse struct {
 	Email               string   `json:"email"`
 	Token               string   `json:"token"`
 	Name                string   `json:"name"`
+	GitCommitName       string   `json:"git_commit_name"`
+	GitCommitEmail      string   `json:"git_commit_email"`
+	PRFooterTemplate    *string  `json:"pr_footer_template"`
+	DefaultPRFooter     string   `json:"default_pr_footer"`
 	Admin               bool     `json:"admin"`
 	OnboardingCompleted bool     `json:"onboarding_completed"`
 	Waitlisted          bool     `json:"waitlisted"`

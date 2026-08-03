@@ -2241,6 +2241,10 @@ export interface TypesAccessGrant {
 
 export interface TypesAccountUpdateRequest {
   full_name?: string;
+  git_commit_email?: string;
+  git_commit_name?: string;
+  pr_footer_template?: string;
+  reset_pr_footer?: boolean;
 }
 
 export enum TypesAction {
@@ -7574,6 +7578,12 @@ export interface TypesUser {
   deleted_at?: GormDeletedAt;
   email?: string;
   full_name?: string;
+  git_commit_email?: string;
+  /**
+   * GitCommitName and GitCommitEmail override the account identity for commits.
+   * Empty values inherit FullName/Username and Email respectively.
+   */
+  git_commit_name?: string;
   id?: string;
   /**
    * LastSeenAt is the most recent time the user authenticated against the API.
@@ -7601,6 +7611,11 @@ export interface TypesUser {
    * the trial intent, then cleared.
    */
   plan_on_first_org?: string;
+  /**
+   * PRFooterTemplate is nullable so nil can inherit the Helix default while an
+   * explicit empty string disables the footer.
+   */
+  pr_footer_template?: string;
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;
@@ -7697,10 +7712,14 @@ export interface TypesUserModelUsage {
 export interface TypesUserResponse {
   admin?: boolean;
   alpha_features?: string[];
+  default_pr_footer?: string;
   email?: string;
+  git_commit_email?: string;
+  git_commit_name?: string;
   id?: string;
   name?: string;
   onboarding_completed?: boolean;
+  pr_footer_template?: string;
   token?: string;
   waitlisted?: boolean;
 }

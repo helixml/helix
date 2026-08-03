@@ -120,8 +120,41 @@ describe('HelixOrgChart agent actions', () => {
     )
 
     fireEvent.contextMenu(screen.getByText('Chief of Staff'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Settings' }))
+    expect(handlers.onOpenBotDetails).toHaveBeenCalledWith('chief-of-staff')
+
+    fireEvent.contextMenu(screen.getByText('Chief of Staff'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'View project' }))
 
+    expect(handlers.onViewProject).toHaveBeenCalledWith('project-1')
+  })
+
+  it('renders quick settings and project actions on the node', () => {
+    render(
+      <ReactFlowProvider>
+        <BotNode {...({
+          id: 'bot:chief-of-staff',
+          data: {
+            botId: 'chief-of-staff',
+            botName: 'Chief of Staff',
+            agentStatus: 'running',
+            agentRuntime: 'zed_external',
+            agentModel: 'test',
+            projectId: 'project-1',
+            taskStats: { backlog: 0, inProgress: 0, done: 0 },
+            selected: true,
+            ...handlers,
+          },
+        } as any)} />
+      </ReactFlowProvider>,
+    )
+
+    expect(screen.getByRole('group', { name: 'Chief of Staff navigation' })).toBeInTheDocument()
+    expect(getComputedStyle(screen.getByRole('group', { name: 'Chief of Staff navigation' })).opacity).toBe('1')
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Project' }))
+
+    expect(handlers.onOpenBotDetails).toHaveBeenCalledWith('chief-of-staff')
     expect(handlers.onViewProject).toHaveBeenCalledWith('project-1')
   })
 })

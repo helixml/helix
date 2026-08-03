@@ -163,11 +163,11 @@ func (s *SpecDrivenTaskService) commitAttachmentsToHelixSpecs(
 	if err != nil {
 		return fmt.Errorf("get user: %w", err)
 	}
-	authorName := user.FullName
+	authorName := user.GitAuthorName()
 	if authorName == "" {
 		authorName = "Helix"
 	}
-	authorEmail := user.Email
+	authorEmail := user.GitAuthorEmail()
 	if authorEmail == "" {
 		authorEmail = "helix@helix.ml"
 	}

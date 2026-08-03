@@ -164,7 +164,11 @@ Small frequent pushes are better than one big push at the end.
 
 ` + "```bash" + `
 cd /home/retro/work/helix-specs
-git add -A && git commit -m "chore(specs): update progress" && git push origin helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "chore(specs): update progress"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 ` + "```" + `
 
 ## Steps
@@ -184,7 +188,33 @@ git add -A && git commit -m "chore(specs): update progress" && git push origin h
 
 **Do NOT run any of these to "debug" a push failure:** ` + "`gh`" + ` (any subcommand), ` + "`ssh-add`" + `, ` + "`ssh-keygen`" + `, ` + "`ssh-agent`" + `, ` + "`eval $(ssh-agent)`" + `, or anything that touches ` + "`~/.ssh/`" + `. None of those tools or files exist or apply here. Running them is a waste of turns and produces misleading output.
 
-If ` + "`git push`" + ` fails: paste the full verbatim stderr to the user in the chat, then stop. Do not guess at the cause, do not invent "SSH authentication issues" or "credential" explanations, and do not retry with alternative tools. The user (or a Helix engineer) will diagnose the underlying issue from the actual error message.
+## Recovering a Shared helix-specs Push
+
+` + "`helix-specs`" + ` is shared by concurrent agents and by Helix progress updates. A
+` + "`fetch first`" + `, ` + "`non-fast-forward`" + `, or ` + "`rejected`" + ` push on that branch is a
+normal race and is recoverable. Do not stop and do not force-push. First make sure
+your progress is committed, then replay your local commit(s) on the latest remote
+branch and retry:
+
+` + "```bash" + `
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "chore(specs): update progress"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+# If there are conflicts: edit the files, git add <resolved-files>, then git rebase --continue.
+git push origin helix-specs
+` + "```" + `
+
+If the push races another writer again, repeat the fetch/rebase/push sequence. Never
+use ` + "`git push --force`" + ` or ` + "`--force-with-lease`" + ` on ` + "`helix-specs`" + `: other agents'
+progress must be preserved. Once the specs push succeeds, continue with the code
+changes; a failed specs push is not a reason to abandon otherwise valid local work.
+
+For any other push failure (authentication, permission, server, or a repository hook),
+preserve the local commits, paste the full verbatim stderr to the user, and stop.
+Do not guess at the cause or use unrelated tools such as ` + "`gh`" + `, SSH tooling, or
+alternative remotes.
 
 {{if .KoditSection}}
 {{.KoditSection}}
@@ -308,7 +338,10 @@ What changed in {{.}} and why.
 - Key change 2
 EOF
 {{end}}
-cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): add PR descriptions" && git push origin helix-specs
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "docs(specs): add PR descriptions"; fi
+git fetch origin helix-specs && git rebase origin/helix-specs && git push origin helix-specs
 ` + "```" + `
 {{else}}
 ` + "```bash" + `
@@ -325,7 +358,10 @@ Brief description of what this PR does and why.
 ## Testing
 How this was tested (if applicable).
 EOF
-cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): add PR description" && git push origin helix-specs
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "docs(specs): add PR description"; fi
+git fetch origin helix-specs && git rebase origin/helix-specs && git push origin helix-specs
 ` + "```" + `
 {{end}}
 **Tips for good PR descriptions:**
@@ -381,7 +417,12 @@ Speak English.
 
 If changes are needed, update /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/ and push:
 ` + "```bash" + `
-cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): address feedback" && git push origin helix-specs
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "docs(specs): address feedback"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 ` + "```" + `
 `))
 
@@ -399,7 +440,12 @@ Update your design based on this feedback:
 
 After updating, push immediately:
 ` + "```bash" + `
-cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): address feedback" && git push origin helix-specs
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "docs(specs): address feedback"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 ` + "```" + `
 `))
 
@@ -678,4 +724,3 @@ func (s *AgentInstructionService) buildRepositorySectionForTask(ctx context.Cont
 
 	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
 }
-

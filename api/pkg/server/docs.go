@@ -3087,7 +3087,7 @@ const docTemplate = `{
                 "summary": "Update Account",
                 "parameters": [
                     {
-                        "description": "Request body with full name.",
+                        "description": "Account settings",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -27731,6 +27731,18 @@ const docTemplate = `{
             "properties": {
                 "full_name": {
                     "type": "string"
+                },
+                "git_commit_email": {
+                    "type": "string"
+                },
+                "git_commit_name": {
+                    "type": "string"
+                },
+                "pr_footer_template": {
+                    "type": "string"
+                },
+                "reset_pr_footer": {
+                    "type": "boolean"
                 }
             }
         },
@@ -39419,6 +39431,13 @@ const docTemplate = `{
                 "full_name": {
                     "type": "string"
                 },
+                "git_commit_email": {
+                    "type": "string"
+                },
+                "git_commit_name": {
+                    "description": "GitCommitName and GitCommitEmail override the account identity for commits.\nEmpty values inherit FullName/Username and Email respectively.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -39446,6 +39465,10 @@ const docTemplate = `{
                 },
                 "plan_on_first_org": {
                     "description": "PlanOnFirstOrg, when set (\"pro\"), grants a paid plan override to the\nuser's first owned org's wallet on creation — admin \"Activate\" with a\npaid (non-Stripe) plan for a user who has no org yet. Consumed alongside\nthe trial intent, then cleared.",
+                    "type": "string"
+                },
+                "pr_footer_template": {
+                    "description": "PRFooterTemplate is nullable so nil can inherit the Helix default while an\nexplicit empty string disables the footer.",
                     "type": "string"
                 },
                 "project_id": {
@@ -39643,7 +39666,16 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "default_pr_footer": {
+                    "type": "string"
+                },
                 "email": {
+                    "type": "string"
+                },
+                "git_commit_email": {
+                    "type": "string"
+                },
+                "git_commit_name": {
                     "type": "string"
                 },
                 "id": {
@@ -39654,6 +39686,9 @@ const docTemplate = `{
                 },
                 "onboarding_completed": {
                     "type": "boolean"
+                },
+                "pr_footer_template": {
+                    "type": "string"
                 },
                 "token": {
                     "type": "string"

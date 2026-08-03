@@ -18,4 +18,7 @@ func TestImplementationApprovedPushInstruction(t *testing.T) {
 	assert.Contains(t, prompt, "Your implementation has been approved")
 	assert.Contains(t, prompt, "git fetch origin main")
 	assert.Contains(t, prompt, "git merge origin/main")
+	assert.Contains(t, prompt, "git fetch origin helix-specs")
+	assert.Contains(t, prompt, "git rebase origin/helix-specs")
+	assert.Contains(t, prompt, "git push origin helix-specs")
 }
