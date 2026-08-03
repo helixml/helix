@@ -1,14 +1,16 @@
-import React, { FC, useState, useMemo } from "react";
+import React, { FC, useState } from "react";
 import Box from "@mui/material/Box";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import BuildIcon from "@mui/icons-material/Build";
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
-import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
-import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  CircleAlert,
+  LoaderCircle,
+  Wrench,
+} from "lucide-react";
 import { preserveDisclosureExpansion } from "./disclosureScroll";
 
 /**
@@ -110,13 +112,13 @@ export function parseToolCallBlocks(text: string): MessageSegment[] {
 const statusIcon = (status: string) => {
   const lower = status.toLowerCase();
   if (lower === "completed") {
-    return <CheckCircleOutlineIcon sx={{ fontSize: 16, color: "success.main" }} />;
+    return <CheckCircle2 size={15} strokeWidth={1.8} color="#66bb6a" aria-hidden="true" />;
   }
   if (lower === "failed" || lower === "rejected" || lower === "canceled") {
-    return <ErrorOutlineIcon sx={{ fontSize: 16, color: "error.main" }} />;
+    return <CircleAlert size={15} strokeWidth={1.8} color="#ef5350" aria-hidden="true" />;
   }
   // Pending, InProgress, etc.
-  return <HourglassEmptyIcon sx={{ fontSize: 16, color: "warning.main" }} />;
+  return <LoaderCircle size={15} strokeWidth={1.8} color="#ffb74d" aria-hidden="true" />;
 };
 
 interface CollapsibleToolCallProps {
@@ -125,6 +127,8 @@ interface CollapsibleToolCallProps {
   body: string;
   /** If true, render expanded by default (e.g. during streaming) */
   defaultExpanded?: boolean;
+  /** Use the tighter row sizing needed inside a Work Log. */
+  dense?: boolean;
 }
 
 export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
@@ -132,6 +136,7 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
   status,
   body,
   defaultExpanded = false,
+  dense = false,
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const theme = useTheme();
@@ -140,10 +145,7 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
   return (
     <Box
       sx={{
-        my: 1,
-        borderLeft: `3px solid ${isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
-        borderRadius: "4px",
-        overflow: "hidden",
+        my: dense ? 0.25 : 0.75,
       }}
     >
       {/* Collapsed header — always visible */}
@@ -156,45 +158,39 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
           display: "flex",
           alignItems: "center",
           gap: 0.75,
-          px: 1.5,
-          py: 0.75,
+          px: 0,
+          py: dense ? 0.25 : 0.5,
           cursor: "pointer",
-          backgroundColor: isDark
-            ? "rgba(255,255,255,0.04)"
-            : "rgba(0,0,0,0.03)",
+          backgroundColor: "transparent",
           "&:hover": {
-            backgroundColor: isDark
-              ? "rgba(255,255,255,0.08)"
-              : "rgba(0,0,0,0.06)",
+            backgroundColor: "transparent",
           },
-          transition: "background-color 0.15s ease",
           userSelect: "none",
         }}
       >
-        <BuildIcon
-          sx={{
-            fontSize: 16,
-            color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.45)",
-          }}
+        <Wrench
+          size={15}
+          strokeWidth={1.8}
+          color={isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.45)"}
+          aria-hidden="true"
         />
         <Typography
           variant="body2"
           sx={{
             flex: 1,
-            fontSize: "0.82rem",
-            color: isDark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.6)",
+            fontSize: dense ? "0.76rem" : "0.82rem",
+            color: isDark ? "rgba(255,255,255,0.65)" : "text.secondary",
             fontFamily: "monospace",
           }}
         >
           {toolName}
         </Typography>
         {statusIcon(status)}
-        <IconButton size="small" sx={{ p: 0, ml: 0.5 }}>
-          {expanded ? (
-            <ExpandLessIcon sx={{ fontSize: 18 }} />
-          ) : (
-            <ExpandMoreIcon sx={{ fontSize: 18 }} />
-          )}
+        <IconButton
+          size="small"
+          sx={{ p: 0, ml: 0.5, "&:hover": { backgroundColor: "transparent" } }}
+        >
+          {expanded ? <ChevronUp size={15} strokeWidth={1.8} /> : <ChevronDown size={15} strokeWidth={1.8} />}
         </IconButton>
       </Box>
 
@@ -202,17 +198,15 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
       {expanded && body && (
         <Box
           sx={{
-            px: 1.5,
+            pl: dense ? 2.5 : 2.75,
+            pr: 0,
             py: 1,
             fontSize: "0.8rem",
             fontFamily: "monospace",
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
-            color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.55)",
-            backgroundColor: isDark
-              ? "rgba(255,255,255,0.02)"
-              : "rgba(0,0,0,0.015)",
-            borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
+            color: isDark ? "rgba(255,255,255,0.55)" : "text.secondary",
+            backgroundColor: "transparent",
             maxHeight: "300px",
             overflow: "auto",
           }}

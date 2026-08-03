@@ -10,7 +10,7 @@ import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
 import StreamingIndicator from "./StreamingIndicator";
-import { CollapsibleToolCall } from "./CollapsibleToolCall";
+import WorkLog from "./WorkLog";
 
 /**
  * A structured response entry from the Go API.
@@ -73,10 +73,6 @@ const ImagePreview = styled("img")({
  * field), renders each entry with the correct component in the correct order.
  * Otherwise falls back to regex parsing of the flat text (for old interactions).
  */
-// Maximum entries to render initially. Older entries are collapsed behind a button
-// to prevent the browser from choking on 500+ Markdown/tool-call components.
-const VISIBLE_ENTRIES_LIMIT = 50;
-
 export const MessageWithToolCalls: FC<{
   text: string;
   responseEntries?: ResponseEntry[];
@@ -96,41 +92,37 @@ export const MessageWithToolCalls: FC<{
   onFilterDocument,
   compactThinking = false,
 }) => {
-  const [showAll, setShowAll] = useState(false);
-
   // Structured path: use response_entries from the Go API (preserves type + order)
   if (responseEntries && responseEntries.length > 0) {
-    const hiddenCount = showAll ? 0 : Math.max(0, responseEntries.length - VISIBLE_ENTRIES_LIMIT);
-    const visibleEntries = showAll
-      ? responseEntries
-      : responseEntries.slice(hiddenCount);
+    const toolCallEntries = responseEntries
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) => entry.type === "tool_call");
+    const lastToolCallIndex = toolCallEntries[toolCallEntries.length - 1]?.index;
+    const lastResponseEntryIndex = responseEntries.length - 1;
 
     return (
       <>
-        {hiddenCount > 0 && (
-          <Button
-            size="small"
-            onClick={() => setShowAll(true)}
-            sx={{ mb: 1, textTransform: "none" }}
-          >
-            Show {hiddenCount} earlier entries
-          </Button>
-        )}
-        {visibleEntries.map((entry, vi) => {
-          const i = showAll ? vi : vi + hiddenCount;
+        {responseEntries.map((entry, i) => {
           if (entry.type === "tool_call") {
-            const isLast = i === responseEntries.length - 1;
-            const toolName = entry.tool_name || "Tool Call";
-            const status = entry.tool_status || (isLast && isStreaming ? "Running" : "Completed");
-            const body = entry.content || "";
+            if (i !== lastToolCallIndex) return null;
+
             return (
-              <React.Fragment key={`tc-${i}`}>
-                <CollapsibleToolCall
-                  toolName={toolName}
-                  status={status}
-                  body={body}
+              <React.Fragment key="work-log">
+                <WorkLog
+                  entries={toolCallEntries.map(({ entry: toolEntry, index }) => ({
+                    id: `${toolEntry.message_id || "tool-call"}-${index}`,
+                    toolName: toolEntry.tool_name || "Tool Call",
+                    status:
+                      toolEntry.tool_status ||
+                      (index === lastResponseEntryIndex && isStreaming
+                        ? "Running"
+                        : "Completed"),
+                    body: toolEntry.content || "",
+                  }))}
                 />
-                {isLast && showBlinker && isStreaming && <StreamingIndicator />}
+                {i === lastResponseEntryIndex && showBlinker && isStreaming && (
+                  <StreamingIndicator />
+                )}
               </React.Fragment>
             );
           }
@@ -372,7 +364,7 @@ export const InteractionInference: FC<{
                 <Box
                   sx={{
                     position: "relative",
-                    "&:hover .action-buttons": {
+                    "&:hover .action-buttons, &:focus-within .action-buttons": {
                       opacity: 1,
                     },
                   }}
@@ -395,10 +387,10 @@ export const InteractionInference: FC<{
                         alignItems: "center",
                         mt: 1,
                         gap: 1,
-                        opacity: isLastInteraction ? 1 : 0,
+                        opacity: 0,
                         transition: "opacity 0.2s ease-in-out",
                         position: "relative",
-                        "&:hover": {
+                        "&:hover, &:focus-within": {
                           opacity: 1,
                         },
                       }}
