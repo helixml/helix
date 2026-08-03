@@ -347,9 +347,10 @@ export const Interaction: FC<InteractionProps> = ({
           {systemPrefix && !isEditing && (
             <CollapsibleSystemPrefix
               prefix={systemPrefix}
+              tone={systemPrefixKind === "approval" ? "success" : "neutral"}
               label={
                 systemPrefixKind === "approval"
-                  ? "Spec Approved — Implementation Instructions"
+                  ? "Spec approved · Implementation instructions"
                   : systemPrefixLabel?.startsWith("Original Request")
                     ? "Planning Instructions (cloned task)"
                     : "Planning Instructions"
