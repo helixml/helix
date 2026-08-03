@@ -9,6 +9,7 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	openailogger "github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type acpTurnUsage struct {
@@ -27,11 +28,8 @@ func (s *HelixAPIServer) recordACPUsage(
 ) error {
 	var usage acpTurnUsage
 	usageKnown := false
-	rawUsage, hasUsage := syncMsg.Data["usage"]
+	rawUsage := syncMsg.Data["usage"]
 	agentName, _ := syncMsg.Data["agent_name"].(string)
-	if !hasUsage && agentName == "" {
-		return nil
-	}
 	if rawUsage != nil {
 		encoded, err := json.Marshal(rawUsage)
 		if err != nil {
@@ -56,6 +54,17 @@ func (s *HelixAPIServer) recordACPUsage(
 	}
 
 	provider, model := acpUsageProviderAndModel(assistant)
+	if !usageKnown {
+		// The turn still gets a metric row (request counts stay accurate), but
+		// token totals will read zero. The usual cause is a Zed build predating
+		// the `usage` field on message_completed — see sandbox-versions.txt.
+		log.Warn().
+			Str("session_id", session.ID).
+			Str("interaction_id", interaction.ID).
+			Str("agent_name", agentName).
+			Str("code_agent_runtime", string(assistant.CodeAgentRuntime)).
+			Msg("ACP turn completed without usage data; recording metric with usage_known=false")
+	}
 	durationMs := interaction.DurationMs
 	if durationMs == 0 && !interaction.Created.IsZero() && !interaction.Completed.IsZero() {
 		durationMs = int(interaction.Completed.Sub(interaction.Created).Milliseconds())
