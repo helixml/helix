@@ -339,7 +339,6 @@ const App: FC = () => {
                         <Grid item xs={12} md={4}>
                           <AgentInfoPanel
                             app={appTools.app}
-                            settings={appTools.flatApp}
                             orgAgent={linkedOrgAgent}
                           />
                         </Grid>
