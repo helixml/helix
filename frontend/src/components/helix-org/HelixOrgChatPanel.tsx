@@ -2,7 +2,7 @@
 // spec-task chat (AgentChat), scoped to one
 // bot at a time. Header shows which bot you are talking to.
 
-import { FC, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FC, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -57,6 +57,7 @@ const HelixOrgChatPanel: FC = () => {
   const snackbar = useSnackbar()
   const streaming = useStreaming()
   const orgId = (router.params.org_id as string) || ''
+  const queryBotId = (router.params.bot_id as string) || ''
 
   const { data: botsData } = useListHelixOrgBots({ refetchInterval: 5000 })
   const agents = useMemo(
@@ -66,6 +67,7 @@ const HelixOrgChatPanel: FC = () => {
 
   const [selectedBotId, setSelectedBotId] = useState<string>('')
   const [view, setView] = useState<HelixOrgBotPanelView>('chat')
+  const queryFocusRef = useRef('')
   // Persist only bot ids that exist in this org's agent list and match the
   // chart-handle charset (CodeQL: no free-form / secret-like localStorage).
   const persistSelection = useCallback((botId: string) => {
@@ -77,6 +79,15 @@ const HelixOrgChatPanel: FC = () => {
   // Restore last-used bot (or pick a sensible default once the list loads).
   useEffect(() => {
     if (agents.length === 0) return
+    const queryFocusKey = `${orgId}:${queryBotId}`
+    if (isValidBotId(queryBotId) && agents.some((b) => b.id === queryBotId) && queryFocusRef.current !== queryFocusKey) {
+      queryFocusRef.current = queryFocusKey
+      setSelectedBotId(queryBotId)
+      setView('chat')
+      focusChatBot(orgId, queryBotId)
+      return
+    }
+    if (!queryBotId) queryFocusRef.current = ''
     const saved = orgId ? loadFocusedBotId(orgId) : null
     // Only restore ids that still exist in this org's bot list.
     if (saved && agents.some((b) => b.id === saved)) {
@@ -91,7 +102,7 @@ const HelixOrgChatPanel: FC = () => {
       setSelectedBotId(id)
       if (id) persistSelection(id)
     }
-  }, [agents, orgId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agents, orgId, queryBotId, persistSelection]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Chart node click (and any other focusChatBot caller) switches the rail.
   useEffect(() => {

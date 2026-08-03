@@ -13,7 +13,6 @@ export interface AttentionEvent {
   description?: string
   created_at: string
   acknowledged_at?: string | null
-  replied_at?: string | null
   dismissed_at?: string | null
   snoozed_until?: string | null
   idempotency_key?: string
@@ -82,15 +81,6 @@ export function useAttentionEvents(enabled: boolean = true, filterMine: boolean 
     onSuccess: invalidate,
   })
 
-  const replyMutation = useMutation({
-    mutationFn: async (eventId: string) => {
-      await api.put(`/api/v1/attention-events/${eventId}`, { reply: true }, undefined, {
-        snackbar: false,
-      })
-    },
-    onSuccess: invalidate,
-  })
-
   const dismissMutation = useMutation({
     mutationFn: async (eventId: string) => {
       await api.put(`/api/v1/attention-events/${eventId}`, { dismiss: true }, undefined, {
@@ -126,11 +116,6 @@ export function useAttentionEvents(enabled: boolean = true, filterMine: boolean 
     [acknowledgeMutation],
   )
 
-  const markReplied = useCallback(
-    (eventId: string) => replyMutation.mutateAsync(eventId),
-    [replyMutation],
-  )
-
   const dismiss = useCallback(
     (eventId: string) => dismissMutation.mutate(eventId),
     [dismissMutation],
@@ -156,7 +141,6 @@ export function useAttentionEvents(enabled: boolean = true, filterMine: boolean 
     unreadCount: (query.data ?? []).filter(e => !e.acknowledged_at).length,
     hasNew: (query.data ?? []).some(e => !e.acknowledged_at),
     acknowledge,
-    markReplied,
     dismiss,
     snooze,
     dismissAll,
