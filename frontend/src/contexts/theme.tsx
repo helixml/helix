@@ -115,11 +115,13 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
           styleOverrides: {
             html: {
               fontFamily: APP_FONT_FAMILY,
-              WebkitFontSmoothing: 'antialiased',
-              MozOsxFontSmoothing: 'grayscale',
+              WebkitFontSmoothing: 'auto',
+              MozOsxFontSmoothing: 'auto',
             },
             body: {
               fontFamily: APP_FONT_FAMILY,
+              WebkitFontSmoothing: 'auto',
+              MozOsxFontSmoothing: 'auto',
               backgroundColor: bg,
               ...scrollbarStyles,
             },

@@ -173,7 +173,7 @@ Add chat-scoped semantic tokens rather than changing the global MUI palette.
 
 Light mode retains the existing Helix light palette in the first change. The new tokens must still define a legible light equivalent so the components do not contain mode checks.
 
-Bundle `@fontsource-variable/dm-sans` and `@fontsource-variable/jetbrains-mono`. Apply DM Sans through the root MUI theme and `CssBaseline`; plain form controls inherit the root face, while deliberate monospace overrides remain intact.
+Bundle `@fontsource-variable/dm-sans` and `@fontsource-variable/jetbrains-mono`. Apply DM Sans through the root MUI theme and `CssBaseline`; plain form controls inherit the root face, while deliberate monospace overrides remain intact. Override MUI's forced grayscale font smoothing with the browser default (`auto`) to match T3's rendering rather than making DM Sans artificially thin on macOS/Chromium.
 
 ### Shared component boundary
 
