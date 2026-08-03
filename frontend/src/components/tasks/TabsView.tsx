@@ -121,9 +121,7 @@ const useAgentActivityCheck = (
   return { isActive, needsAttention, markAsSeen };
 };
 
-// Generate unique panel IDs using timestamp + random to avoid collisions
-const generatePanelId = () =>
-  `panel-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+const generatePanelId = () => `panel-${crypto.randomUUID()}`;
 
 interface TabData {
   id: string;
