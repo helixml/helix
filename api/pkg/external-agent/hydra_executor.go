@@ -141,6 +141,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("project_path", agent.ProjectPath).
 		Msg("Starting dev container via Hydra")
 
+	// Reject subscription-mode agents with no reachable subscription before
+	// spending two minutes booting a desktop that can never create a thread.
+	if err := h.verifySubscriptionCredentials(ctx, agent); err != nil {
+		return nil, err
+	}
+
 	// Check if session already exists and is running
 	h.mutex.RLock()
 	existingSession, exists := h.sessions[agent.SessionID]
