@@ -227,9 +227,15 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
       onClose={onClose}
       maxWidth="md"
       fullWidth
-      PaperProps={{ sx: { bgcolor: 'background.paper' } }}
+      PaperProps={{
+        sx: {
+          bgcolor: 'background.paper',
+          height: '80vh',
+          maxHeight: 'calc(100% - 32px)',
+        },
+      }}
     >
-      <DialogTitle component="div" sx={{ pb: 1 }}>
+      <DialogTitle component="div" sx={{ pb: 1, flexShrink: 0 }}>
         <Typography variant="h6">Agent tools</Typography>
         <Typography variant="body2" color="text.secondary">
           Choose the MCP capabilities this agent can call. Section checkboxes enable or disable an entire capability area.
@@ -238,8 +244,28 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
           Applying a selection updates this form; use Save agent to persist the configuration.
         </Typography>
       </DialogTitle>
-      <DialogContent dividers sx={{ p: 2 }}>
-        <Stack spacing={2}>
+      <DialogContent
+        dividers
+        sx={{
+          p: 0,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        <Box
+          sx={{
+            p: 2,
+            flexShrink: 0,
+            bgcolor: 'background.paper',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            position: 'sticky',
+            top: 0,
+            zIndex: 1,
+          }}
+        >
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
             <TextField
               value={search}
@@ -264,124 +290,128 @@ const ToolPickerDialog: FC<ToolPickerDialogProps> = ({
               </Button>
             </Stack>
           </Stack>
+        </Box>
 
-          {visibleGroups.length === 0 ? (
-            <Box sx={{ py: 6, textAlign: 'center' }}>
-              <Typography variant="body2" color="text.secondary">
-                No tools match “{search}”.
-              </Typography>
-            </Box>
-          ) : visibleGroups.map((visibleGroup) => {
-            const fullGroup = groupedTools.find((group) => group.key === visibleGroup.key) ?? visibleGroup
-            const groupNames = fullGroup.tools.map((tool) => tool.name ?? '').filter(Boolean)
-            const enabledCount = groupNames.filter((name) => selected.has(name)).length
-            const allEnabled = enabledCount === groupNames.length
-            const someEnabled = enabledCount > 0 && !allEnabled
-            return (
-              <Accordion
-                key={visibleGroup.key}
-                disableGutters
-                elevation={0}
-                sx={{
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: '8px !important',
-                  bgcolor: 'transparent',
-                  '&:before': { display: 'none' },
-                }}
-              >
-                <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 1.5 }}>
-                  <Checkbox
-                    checked={allEnabled}
-                    indeterminate={someEnabled}
-                    onClick={(event) => event.stopPropagation()}
-                    onFocus={(event) => event.stopPropagation()}
-                    onChange={() => toggleGroup(fullGroup)}
-                    inputProps={{ 'aria-label': `Toggle all ${fullGroup.title} tools` }}
-                    sx={{ alignSelf: 'flex-start', mt: -0.25, mr: 0.75 }}
-                  />
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Typography variant="subtitle2" sx={{ fontSize: '0.8rem' }}>{fullGroup.title}</Typography>
-                      <Chip
-                        label={`${enabledCount}/${groupNames.length}`}
-                        size="small"
-                        sx={{ height: 20, fontSize: '0.65rem' }}
-                      />
-                    </Stack>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ display: 'block', mt: 0.25, fontSize: '0.68rem' }}
-                    >
-                      {fullGroup.description}
-                    </Typography>
-                  </Box>
-                </AccordionSummary>
-                <AccordionDetails sx={{ pt: 0, px: 1.5, pb: 1.5 }}>
-                  <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
-                    {visibleGroup.tools.map((tool) => {
-                      const name = tool.name ?? ''
-                      const enabled = selected.has(name)
-                      return (
-                        <Box
-                          component="label"
-                          key={name}
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1.5,
-                            py: 1.25,
-                            px: 0.5,
-                            borderBottom: '1px solid',
-                            borderColor: 'divider',
-                            bgcolor: 'transparent',
-                            cursor: 'pointer',
-                            '&:last-child': { borderBottom: 0 },
-                          }}
-                        >
-                          <Box sx={{ minWidth: 0, flex: 1 }}>
-                            <Typography
-                              variant="body2"
-                              sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 600, wordBreak: 'break-word' }}
-                            >
-                              {name}
-                            </Typography>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              title={tool.description || undefined}
-                              sx={{
-                                display: '-webkit-box',
-                                mt: 0.25,
-                                fontSize: '0.68rem',
-                                lineHeight: 1.4,
-                                overflow: 'hidden',
-                                WebkitBoxOrient: 'vertical',
-                                WebkitLineClamp: 2,
-                              }}
-                            >
-                              {tool.description || 'No description is available for this tool.'}
-                            </Typography>
+        <Box sx={{ minHeight: 0, flex: 1, overflowY: 'auto', p: 2 }}>
+          <Stack spacing={2}>
+            {visibleGroups.length === 0 ? (
+              <Box sx={{ py: 6, textAlign: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  No tools match “{search}”.
+                </Typography>
+              </Box>
+            ) : visibleGroups.map((visibleGroup) => {
+              const fullGroup = groupedTools.find((group) => group.key === visibleGroup.key) ?? visibleGroup
+              const groupNames = fullGroup.tools.map((tool) => tool.name ?? '').filter(Boolean)
+              const enabledCount = groupNames.filter((name) => selected.has(name)).length
+              const allEnabled = enabledCount === groupNames.length
+              const someEnabled = enabledCount > 0 && !allEnabled
+              return (
+                <Accordion
+                  key={visibleGroup.key}
+                  disableGutters
+                  elevation={0}
+                  sx={{
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: '8px !important',
+                    bgcolor: 'transparent',
+                    '&:before': { display: 'none' },
+                  }}
+                >
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 1.5 }}>
+                    <Checkbox
+                      checked={allEnabled}
+                      indeterminate={someEnabled}
+                      onClick={(event) => event.stopPropagation()}
+                      onFocus={(event) => event.stopPropagation()}
+                      onChange={() => toggleGroup(fullGroup)}
+                      inputProps={{ 'aria-label': `Toggle all ${fullGroup.title} tools` }}
+                      sx={{ alignSelf: 'flex-start', mt: -0.25, mr: 0.75 }}
+                    />
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Typography variant="subtitle2" sx={{ fontSize: '0.8rem' }}>{fullGroup.title}</Typography>
+                        <Chip
+                          label={`${enabledCount}/${groupNames.length}`}
+                          size="small"
+                          sx={{ height: 20, fontSize: '0.65rem' }}
+                        />
+                      </Stack>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ display: 'block', mt: 0.25, fontSize: '0.68rem' }}
+                      >
+                        {fullGroup.description}
+                      </Typography>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ pt: 0, px: 1.5, pb: 1.5 }}>
+                    <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
+                      {visibleGroup.tools.map((tool) => {
+                        const name = tool.name ?? ''
+                        const enabled = selected.has(name)
+                        return (
+                          <Box
+                            component="label"
+                            key={name}
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 1.5,
+                              py: 1.25,
+                              px: 0.5,
+                              borderBottom: '1px solid',
+                              borderColor: 'divider',
+                              bgcolor: 'transparent',
+                              cursor: 'pointer',
+                              '&:last-child': { borderBottom: 0 },
+                            }}
+                          >
+                            <Box sx={{ minWidth: 0, flex: 1 }}>
+                              <Typography
+                                variant="body2"
+                                sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 600, wordBreak: 'break-word' }}
+                              >
+                                {name}
+                              </Typography>
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                title={tool.description || undefined}
+                                sx={{
+                                  display: '-webkit-box',
+                                  mt: 0.25,
+                                  fontSize: '0.68rem',
+                                  lineHeight: 1.4,
+                                  overflow: 'hidden',
+                                  WebkitBoxOrient: 'vertical',
+                                  WebkitLineClamp: 2,
+                                }}
+                              >
+                                {tool.description || 'No description is available for this tool.'}
+                              </Typography>
+                            </Box>
+                            <Checkbox
+                              checked={enabled}
+                              onChange={() => toggleTool(name)}
+                              inputProps={{ 'aria-label': `Enable ${name}` }}
+                              size="small"
+                              sx={{ flexShrink: 0 }}
+                            />
                           </Box>
-                          <Checkbox
-                            checked={enabled}
-                            onChange={() => toggleTool(name)}
-                            inputProps={{ 'aria-label': `Enable ${name}` }}
-                            size="small"
-                            sx={{ flexShrink: 0 }}
-                          />
-                        </Box>
-                      )
-                    })}
-                  </Box>
-                </AccordionDetails>
-              </Accordion>
-            )
-          })}
-        </Stack>
+                        )
+                      })}
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
+              )
+            })}
+          </Stack>
+        </Box>
       </DialogContent>
-      <DialogActions sx={{ px: 2, py: 1.5 }}>
+      <DialogActions sx={{ px: 2, py: 1.5, flexShrink: 0 }}>
         <Typography variant="body2" color="text.secondary" sx={{ mr: 'auto' }}>
           {draftTools.length} of {tools.length} enabled
         </Typography>
