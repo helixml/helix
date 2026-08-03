@@ -29,8 +29,12 @@ export const InteractionContainer: FC<{
       sx={{
         px: 2,
         py: 0.5,
-        borderRadius: 4,
-        backgroundColor: background ? theme.palette.background.default : 'transparent',
+        borderRadius: isAssistant ? 0 : 4,
+        backgroundColor: background
+          ? isAssistant && theme.palette.mode === 'dark'
+            ? '#0d0d0d'
+            : theme.palette.background.default
+          : 'transparent',
         border: border ? '1px solid #33373a' : 'none',
         // User messages: fit content but don't exceed container width
         // Assistant messages: take full width

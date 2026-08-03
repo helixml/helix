@@ -2,10 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import { useStreaming } from "../contexts/streaming";
 import { TypesInteraction, TypesInteractionState } from "../api/api";
 import { ResponseEntry } from "../components/session/InteractionInference";
+import { getInteractionDurationMs } from "../components/session/interactionDuration";
 
 interface LiveInteractionResult {
   message: string;
   responseEntries: ResponseEntry[] | undefined;
+  durationMs: number | undefined;
   status: string;
   isComplete: boolean;
   stepInfos: any[];
@@ -146,6 +148,7 @@ const useLiveInteraction = (
     // This prevents blank screen when streaming context clears during completion
     message,
     responseEntries,
+    durationMs: getInteractionDurationMs(interaction),
     status: interaction?.state || "",
     isComplete:
       interaction?.state === TypesInteractionState.InteractionStateComplete,

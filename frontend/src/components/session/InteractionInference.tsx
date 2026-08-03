@@ -9,8 +9,9 @@ import ClickLink from "../widgets/ClickLink";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
-import StreamingIndicator from "./StreamingIndicator";
-import { CollapsibleToolCall } from "./CollapsibleToolCall";
+import WorkLog from "./WorkLog";
+import ActivitySummary from "./ActivitySummary";
+import { getInteractionDurationMs } from "./interactionDuration";
 
 /**
  * A structured response entry from the Go API.
@@ -73,10 +74,6 @@ const ImagePreview = styled("img")({
  * field), renders each entry with the correct component in the correct order.
  * Otherwise falls back to regex parsing of the flat text (for old interactions).
  */
-// Maximum entries to render initially. Older entries are collapsed behind a button
-// to prevent the browser from choking on 500+ Markdown/tool-call components.
-const VISIBLE_ENTRIES_LIMIT = 50;
-
 export const MessageWithToolCalls: FC<{
   text: string;
   responseEntries?: ResponseEntry[];
@@ -86,6 +83,9 @@ export const MessageWithToolCalls: FC<{
   isStreaming: boolean;
   onFilterDocument?: (docId: string) => void;
   compactThinking?: boolean;
+  durationMs?: number;
+  activityStartedAt?: number;
+  showActivitySummary?: boolean;
 }> = ({
   text,
   responseEntries,
@@ -95,74 +95,183 @@ export const MessageWithToolCalls: FC<{
   isStreaming,
   onFilterDocument,
   compactThinking = false,
+  durationMs = 0,
+  activityStartedAt,
+  showActivitySummary = true,
 }) => {
-  const [showAll, setShowAll] = useState(false);
+  const hasThinking = (content: string) => /<(?:think|thinking)>/i.test(content);
+
+  if (!showActivitySummary) {
+    return (
+      <Markdown
+        text={text}
+        session={session}
+        getFileURL={getFileURL}
+        showBlinker={showBlinker}
+        isStreaming={isStreaming}
+        onFilterDocument={onFilterDocument}
+        compactThinking={compactThinking}
+      />
+    );
+  }
 
   // Structured path: use response_entries from the Go API (preserves type + order)
   if (responseEntries && responseEntries.length > 0) {
-    const hiddenCount = showAll ? 0 : Math.max(0, responseEntries.length - VISIBLE_ENTRIES_LIMIT);
-    const visibleEntries = showAll
-      ? responseEntries
-      : responseEntries.slice(hiddenCount);
+    const toolCallEntries = responseEntries
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) => entry.type === "tool_call");
+    const lastToolCallIndex = toolCallEntries[toolCallEntries.length - 1]?.index;
+    const lastResponseEntryIndex = responseEntries.length - 1;
+    const hasActivity = responseEntries.some(
+      (entry) => entry.type === "tool_call" || hasThinking(entry.content),
+    );
+    const workLogEntries = toolCallEntries.map(({ entry: toolEntry, index }) => ({
+      id: `${toolEntry.message_id || "tool-call"}-${index}`,
+      toolName: toolEntry.tool_name || "Tool Call",
+      status:
+        toolEntry.tool_status ||
+        (index === lastResponseEntryIndex && isStreaming ? "Running" : "Completed"),
+      body: toolEntry.content || "",
+    }));
 
-    return (
+    const activity = responseEntries.map((entry, i) => {
+      if (entry.type === "tool_call") {
+        if (i !== lastToolCallIndex) return null;
+        return <WorkLog key="work-log" entries={workLogEntries} showAll />;
+      }
+      if (!hasThinking(entry.content)) return null;
+      return (
+        <Markdown
+          key={`thought-${i}`}
+          text={entry.content}
+          session={session}
+          getFileURL={getFileURL}
+          showBlinker={false}
+          isStreaming={false}
+          onFilterDocument={onFilterDocument}
+          compactThinking={compactThinking}
+          renderThinkingWidget
+          renderContent={false}
+        />
+      );
+    });
+    const latestThought = [...responseEntries]
+      .map((entry, index) => ({ entry, index }))
+      .reverse()
+      .find(({ entry }) => entry.type === "text" && hasThinking(entry.content));
+    const streamingPreview = workLogEntries.length > 0 ? (
+      <WorkLog entries={workLogEntries} />
+    ) : latestThought ? (
+      <Markdown
+        text={latestThought.entry.content}
+        session={session}
+        getFileURL={getFileURL}
+        showBlinker={false}
+        isStreaming={false}
+        onFilterDocument={onFilterDocument}
+        compactThinking={compactThinking}
+        renderThinkingWidget
+        renderContent={false}
+      />
+    ) : null;
+
+    const finalContent = responseEntries.map((entry, i) => {
+      if (entry.type === "tool_call") return null;
+      return (
+        <Markdown
+          key={`md-${i}`}
+          text={entry.content}
+          session={session}
+          getFileURL={getFileURL}
+          showBlinker={false}
+          isStreaming={isStreaming && i === responseEntries.length - 1}
+          onFilterDocument={onFilterDocument}
+          compactThinking={compactThinking}
+          renderThinkingWidget={false}
+        />
+      );
+    });
+
+    return isStreaming ? (
       <>
-        {hiddenCount > 0 && (
-          <Button
-            size="small"
-            onClick={() => setShowAll(true)}
-            sx={{ mb: 1, textTransform: "none" }}
-          >
-            Show {hiddenCount} earlier entries
-          </Button>
-        )}
-        {visibleEntries.map((entry, vi) => {
-          const i = showAll ? vi : vi + hiddenCount;
-          if (entry.type === "tool_call") {
-            const isLast = i === responseEntries.length - 1;
-            const toolName = entry.tool_name || "Tool Call";
-            const status = entry.tool_status || (isLast && isStreaming ? "Running" : "Completed");
-            const body = entry.content || "";
-            return (
-              <React.Fragment key={`tc-${i}`}>
-                <CollapsibleToolCall
-                  toolName={toolName}
-                  status={status}
-                  body={body}
-                />
-                {isLast && showBlinker && isStreaming && <StreamingIndicator />}
-              </React.Fragment>
-            );
-          }
-          // text entry
-          return (
-            <Markdown
-              key={`md-${i}`}
-              text={entry.content}
-              session={session}
-              getFileURL={getFileURL}
-              showBlinker={showBlinker && i === responseEntries.length - 1}
-              isStreaming={isStreaming && i === responseEntries.length - 1}
-              onFilterDocument={onFilterDocument}
-              compactThinking={compactThinking}
-            />
-          );
-        })}
+        {streamingPreview}
+        {finalContent}
+        <ActivitySummary
+          durationMs={durationMs}
+          hasActivity={hasActivity}
+          isStreaming
+          startedAt={activityStartedAt}
+        >
+          {activity}
+        </ActivitySummary>
+      </>
+    ) : (
+      <>
+        <ActivitySummary
+          durationMs={durationMs}
+          hasActivity={hasActivity}
+          isStreaming={false}
+          startedAt={activityStartedAt}
+        >
+          {activity}
+        </ActivitySummary>
+        {finalContent}
       </>
     );
   }
 
   // Plain markdown for text-only interactions
-  return (
+  const plainHasThinking = hasThinking(text);
+  const finalContent = (
     <Markdown
       text={text}
       session={session}
       getFileURL={getFileURL}
-      showBlinker={showBlinker}
+      showBlinker={false}
       isStreaming={isStreaming}
       onFilterDocument={onFilterDocument}
       compactThinking={compactThinking}
+      renderThinkingWidget={false}
     />
+  );
+  const activityContent = plainHasThinking ? (
+    <Markdown
+      text={text}
+      session={session}
+      getFileURL={getFileURL}
+      showBlinker={false}
+      isStreaming={false}
+      onFilterDocument={onFilterDocument}
+      compactThinking={compactThinking}
+      renderThinkingWidget
+      renderContent={false}
+    />
+  ) : null;
+
+  return isStreaming ? (
+    <>
+      {finalContent}
+      <ActivitySummary
+        durationMs={durationMs}
+        hasActivity={plainHasThinking}
+        isStreaming
+        startedAt={activityStartedAt}
+      >
+        {activityContent}
+      </ActivitySummary>
+    </>
+  ) : (
+    <>
+      <ActivitySummary
+        durationMs={durationMs}
+        hasActivity={plainHasThinking}
+        isStreaming={false}
+        startedAt={activityStartedAt}
+      >
+        {activityContent}
+      </ActivitySummary>
+      {finalContent}
+    </>
   );
 };
 
@@ -372,7 +481,7 @@ export const InteractionInference: FC<{
                 <Box
                   sx={{
                     position: "relative",
-                    "&:hover .action-buttons": {
+                    "&:hover .action-buttons, &:focus-within .action-buttons": {
                       opacity: 1,
                     },
                   }}
@@ -384,6 +493,8 @@ export const InteractionInference: FC<{
                     getFileURL={getFileURL}
                     showBlinker={false}
                     isStreaming={false}
+                    durationMs={getInteractionDurationMs(interaction)}
+                    showActivitySummary={isFromAssistant}
                     onFilterDocument={onFilterDocument}
                   />
                   {isFromAssistant && onRegenerate && (
@@ -395,10 +506,10 @@ export const InteractionInference: FC<{
                         alignItems: "center",
                         mt: 1,
                         gap: 1,
-                        opacity: isLastInteraction ? 1 : 0,
+                        opacity: 0,
                         transition: "opacity 0.2s ease-in-out",
                         position: "relative",
-                        "&:hover": {
+                        "&:hover, &:focus-within": {
                           opacity: 1,
                         },
                       }}

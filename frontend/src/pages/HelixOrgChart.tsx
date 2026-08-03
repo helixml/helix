@@ -19,6 +19,7 @@ import AddIcon from '@mui/icons-material/Add'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
+import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
@@ -72,7 +73,15 @@ import {
   loadChartTopicVisibility,
   saveChartTopicVisibility,
 } from '../components/helix-org/chartTopicVisibility'
-import ChartTopicVisibilityMenu, { chartToolbarButtonSizeSx } from '../components/helix-org/ChartTopicVisibilityMenu'
+import ChartTopicVisibilityMenu from '../components/helix-org/ChartTopicVisibilityMenu'
+import ChartVisibilityMenu, { chartToolbarButtonSizeSx } from '../components/helix-org/ChartVisibilityMenu'
+import {
+  ChartEntityKind,
+  EMPTY_HIDDEN_CHART_ENTITY_IDS,
+  HiddenChartEntityIDs,
+  loadHiddenChartEntityIDs,
+  saveHiddenChartEntityIDs,
+} from '../components/helix-org/chartEntityVisibility'
 import {
   CHAT_BOT_FOCUS_EVENT,
   ChatBotFocusDetail,
@@ -198,6 +207,7 @@ type FlatBot = {
   agentStatus: 'running' | 'stopped'
   agentRuntime: string
   agentModel: string
+  projectId?: string
   taskStats: BotTaskStats
 }
 
@@ -210,6 +220,7 @@ type BotNodeData = {
   agentStatus: 'running' | 'stopped'
   agentRuntime: string
   agentModel: string
+  projectId: string
   taskStats: BotTaskStats
   /** True when the left chat rail is focused on this bot. */
   selected: boolean
@@ -217,6 +228,7 @@ type BotNodeData = {
   onSelectBot: (botId: string) => void
   /** Open the bot detail page from the menu or a card double-click. */
   onOpenBotDetails: (botId: string) => void
+  onViewProject: (projectId: string) => void
   onNewBot: (parentBotId: string) => void
   onDeleteBot: (botId: string) => void
   onStartBot: (botId: string) => void
@@ -510,7 +522,7 @@ export const AssetNode: FC<NodeProps<Node<AssetNodeData>>> = ({ data }) => {
   )
 }
 
-const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
+export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
   const idleBorder = lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
@@ -634,6 +646,16 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
             >
               <OpenInNewIcon sx={{ mr: 1, fontSize: 20 }} />
               Details
+            </MenuItem>
+            <MenuItem
+              disabled={!data.projectId}
+              onClick={() => {
+                closeMenu()
+                data.onViewProject(data.projectId)
+              }}
+            >
+              <FolderOpenOutlinedIcon sx={{ mr: 1, fontSize: 20 }} />
+              View project
             </MenuItem>
             {online ? (
               <>
@@ -957,6 +979,7 @@ export const buildGraph = (
   handlers: {
     onSelectBot: (botId: string) => void
     onOpenBotDetails: (botId: string) => void
+    onViewProject: (projectId: string) => void
     onNewBot: (parentBotId: string) => void
     onDeleteBot: (botId: string) => void
     onStartBot: (botId: string) => void
@@ -1039,10 +1062,12 @@ export const buildGraph = (
         agentStatus: b.agentStatus,
         agentRuntime: b.agentRuntime,
         agentModel: b.agentModel,
+        projectId: b.projectId ?? '',
         taskStats: b.taskStats,
         selected: selectedBotId !== '' && selectedBotId === b.id,
         onSelectBot: handlers.onSelectBot,
         onOpenBotDetails: handlers.onOpenBotDetails,
+        onViewProject: handlers.onViewProject,
         onNewBot: handlers.onNewBot,
         onDeleteBot: handlers.onDeleteBot,
         onStartBot: handlers.onStartBot,
@@ -1721,6 +1746,7 @@ const ChartCanvas: FC<{
   handlers: {
     onSelectBot: (botId: string) => void
     onOpenBotDetails: (botId: string) => void
+    onViewProject: (projectId: string) => void
     onNewBot: (parentBotId: string) => void
     onDeleteBot: (botId: string) => void
     onStartBot: (botId: string) => void
@@ -2253,6 +2279,15 @@ const HelixOrgChart: FC = () => {
     return stats
   }, [tasksByBotId])
 
+  const projectIDByBotID = useMemo(() => {
+    const projectIDs = new Map<string, string>()
+    botDetails.forEach((detail, index) => {
+      const botID = botIds[index]
+      if (botID && detail?.project_id) projectIDs.set(botID, detail.project_id)
+    })
+    return projectIDs
+  }, [botDetails, botIds])
+
   const flat = useMemo<FlatBot[]>(
     () => (botsData ?? [])
       // People (kind=human) are managed in the People tab, not on the agent
@@ -2265,9 +2300,10 @@ const HelixOrgChart: FC = () => {
         agentStatus: b.agent_status === 'running' ? 'running' as const : 'stopped' as const,
         agentRuntime: b.agent_runtime ?? '',
         agentModel: b.agent_model ?? '',
+        projectId: projectIDByBotID.get(b.id ?? '') ?? '',
         taskStats: taskStatsByBotId.get(b.id ?? '') ?? { backlog: 0, inProgress: 0, done: 0 },
       })),
-    [taskStatsByBotId, botsData],
+    [botsData, projectIDByBotID, taskStatsByBotId],
   )
 
   // People (kind=human) — shown in the docked PeoplePanel on the chart, not
@@ -2325,19 +2361,92 @@ const HelixOrgChart: FC = () => {
     [topics, processorConsumerCounts],
   )
 
-  const topicVisibilityScopeRef = useRef('')
-  const [visibleTopicFilters, setVisibleTopicFilters] = useState<ChartTopicFilter[]>(() => [...DEFAULT_CHART_TOPIC_FILTERS])
+  const agentOptions = useMemo(
+    () => flat
+      .map((agent) => ({ id: agent.id, label: agent.name || agent.id }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [flat],
+  )
+  const processorOptions = useMemo(
+    () => (processorsData ?? [])
+      .filter((processor) => !!processor.id)
+      .map((processor) => ({ id: processor.id, label: processor.name || processor.id }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [processorsData],
+  )
+  const assetOptions = useMemo(
+    () => assetsData
+      .filter((asset) => !!asset.id)
+      .map((asset) => ({ id: asset.id ?? '', label: asset.name || asset.id || '' }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [assetsData],
+  )
+
+  const visibilityScope = userID && orgID ? `${userID}:${orgID}` : ''
+  const entityVisibilityScopeRef = useRef(visibilityScope)
+  const [hiddenEntityIDs, setHiddenEntityIDs] = useState<HiddenChartEntityIDs>(() => (
+    visibilityScope
+      ? loadHiddenChartEntityIDs(userID, orgID) ?? { ...EMPTY_HIDDEN_CHART_ENTITY_IDS }
+      : { ...EMPTY_HIDDEN_CHART_ENTITY_IDS }
+  ))
   useEffect(() => {
-    const scope = userID && orgID ? `${userID}:${orgID}` : ''
-    if (!scope) {
+    if (!visibilityScope) {
+      entityVisibilityScopeRef.current = ''
+      setHiddenEntityIDs({ ...EMPTY_HIDDEN_CHART_ENTITY_IDS })
+      return
+    }
+    if (visibilityScope === entityVisibilityScopeRef.current) return
+    entityVisibilityScopeRef.current = visibilityScope
+    setHiddenEntityIDs(loadHiddenChartEntityIDs(userID, orgID) ?? { ...EMPTY_HIDDEN_CHART_ENTITY_IDS })
+  }, [userID, orgID, visibilityScope])
+
+  const selectedAgentIDs = useMemo(() => {
+    const hidden = new Set(hiddenEntityIDs.agents)
+    return agentOptions.map((option) => option.id).filter((id) => !hidden.has(id))
+  }, [agentOptions, hiddenEntityIDs.agents])
+  const selectedProcessorIDs = useMemo(() => {
+    const hidden = new Set(hiddenEntityIDs.processors)
+    return processorOptions.map((option) => option.id).filter((id) => !hidden.has(id))
+  }, [processorOptions, hiddenEntityIDs.processors])
+  const selectedAssetIDs = useMemo(() => {
+    const hidden = new Set(hiddenEntityIDs.assets)
+    return assetOptions.map((option) => option.id).filter((id) => !hidden.has(id))
+  }, [assetOptions, hiddenEntityIDs.assets])
+
+  const updateEntityVisibility = (
+    kind: ChartEntityKind,
+    options: readonly { id: string }[],
+    selectedIDs: string[],
+  ) => {
+    const selected = new Set(selectedIDs)
+    const next = {
+      ...hiddenEntityIDs,
+      [kind]: options.map((option) => option.id).filter((id) => !selected.has(id)),
+    }
+    setHiddenEntityIDs(next)
+    saveHiddenChartEntityIDs(userID, orgID, next)
+  }
+
+  const topicVisibilityScopeRef = useRef(visibilityScope)
+  const [visibleTopicFilters, setVisibleTopicFilters] = useState<ChartTopicFilter[]>(() => (
+    visibilityScope
+      ? loadChartTopicVisibility(userID, orgID) ?? [...DEFAULT_CHART_TOPIC_FILTERS]
+      : [...DEFAULT_CHART_TOPIC_FILTERS]
+  ))
+  useEffect(() => {
+    if (!visibilityScope) {
       topicVisibilityScopeRef.current = ''
       setVisibleTopicFilters([...DEFAULT_CHART_TOPIC_FILTERS])
       return
     }
-    if (scope === topicVisibilityScopeRef.current) return
-    topicVisibilityScopeRef.current = scope
+    if (visibilityScope === topicVisibilityScopeRef.current) return
+    topicVisibilityScopeRef.current = visibilityScope
     setVisibleTopicFilters(loadChartTopicVisibility(userID, orgID) ?? [...DEFAULT_CHART_TOPIC_FILTERS])
-  }, [userID, orgID])
+  }, [userID, orgID, visibilityScope])
+
+  const visibilityReady = visibilityScope !== ''
+    && entityVisibilityScopeRef.current === visibilityScope
+    && topicVisibilityScopeRef.current === visibilityScope
 
   const onTopicFiltersChange = useCallback((filters: ChartTopicFilter[]) => {
     setVisibleTopicFilters(filters)
@@ -2346,10 +2455,12 @@ const HelixOrgChart: FC = () => {
 
   const visibleTopicIds = useMemo(() => {
     const selected = new Set(visibleTopicFilters)
+    const visibleProcessors = new Set(selectedProcessorIDs)
     return new Set(topics
       .filter((topic) => selected.has(chartTopicFilterFor(topic)))
+      .filter((topic) => !topic.ownedByProcessor || visibleProcessors.has(topic.ownedByProcessor))
       .map((topic) => topic.id))
-  }, [topics, visibleTopicFilters])
+  }, [topics, visibleTopicFilters, selectedProcessorIDs])
 
   // Retained-message counts only run for cards currently shown on the chart.
   const visibleTopicIdList = useMemo(() => Array.from(visibleTopicIds), [visibleTopicIds])
@@ -2370,6 +2481,22 @@ const HelixOrgChart: FC = () => {
       })),
     })),
     [processorsData],
+  )
+
+  const visibleAgentIDs = useMemo(() => new Set(selectedAgentIDs), [selectedAgentIDs])
+  const visibleProcessorIDs = useMemo(() => new Set(selectedProcessorIDs), [selectedProcessorIDs])
+  const visibleAssetIDs = useMemo(() => new Set(selectedAssetIDs), [selectedAssetIDs])
+  const visibleFlat = useMemo(
+    () => flat.filter((agent) => visibleAgentIDs.has(agent.id)),
+    [flat, visibleAgentIDs],
+  )
+  const visibleProcessorSummaries = useMemo(
+    () => processorSummaries.filter((processor) => visibleProcessorIDs.has(processor.id)),
+    [processorSummaries, visibleProcessorIDs],
+  )
+  const visibleAssets = useMemo(
+    () => assetsData.filter((asset) => visibleAssetIDs.has(asset.id ?? '')),
+    [assetsData, visibleAssetIDs],
   )
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
@@ -2462,6 +2589,13 @@ const HelixOrgChart: FC = () => {
     },
     [router, orgSlug],
   )
+  const onViewProject = useCallback(
+    (projectId: string) => {
+      if (!orgSlug || !projectId) return
+      router.navigate('org_project-specs', { org_id: orgSlug, id: projectId })
+    },
+    [router, orgSlug],
+  )
   const onSelectPerson = useCallback(
     (botId: string) => {
       if (!orgSlug) return
@@ -2517,10 +2651,10 @@ const HelixOrgChart: FC = () => {
   const onDeleteAsset = useCallback((assetId: string) => setConfirmDelete({ kind: 'asset', id: assetId }), [])
   const handlers = useMemo(
     () => ({
-      onSelectBot, onOpenBotDetails, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot,
+      onSelectBot, onOpenBotDetails, onViewProject, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot,
       onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor, onSelectAsset, onDeleteAsset,
     }),
-    [onSelectBot, onOpenBotDetails, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor, onSelectAsset, onDeleteAsset],
+    [onSelectBot, onOpenBotDetails, onViewProject, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor, onSelectAsset, onDeleteAsset],
   )
 
   const onAddParent = useCallback(
@@ -2735,8 +2869,29 @@ const HelixOrgChart: FC = () => {
             overflow: 'hidden',
           }}
         >
-          <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
+          {visibilityReady && <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
             <ChartTopicVisibilityMenu selected={visibleTopicFilters} onChange={onTopicFiltersChange} />
+            <ChartVisibilityMenu
+              label="Agents"
+              icon={<SmartToyOutlinedIcon />}
+              options={agentOptions}
+              selected={selectedAgentIDs}
+              onChange={(selected) => updateEntityVisibility('agents', agentOptions, selected)}
+            />
+            <ChartVisibilityMenu
+              label="Processors"
+              icon={<TransformIcon />}
+              options={processorOptions}
+              selected={selectedProcessorIDs}
+              onChange={(selected) => updateEntityVisibility('processors', processorOptions, selected)}
+            />
+            <ChartVisibilityMenu
+              label="Assets"
+              icon={<DnsOutlinedIcon />}
+              options={assetOptions}
+              selected={selectedAssetIDs}
+              onChange={(selected) => updateEntityVisibility('assets', assetOptions, selected)}
+            />
             <Button
               size="small"
               variant="contained"
@@ -2769,9 +2924,9 @@ const HelixOrgChart: FC = () => {
                 <ListItemText>Asset</ListItemText>
               </MenuItem>
             </Menu>
-          </Stack>
+          </Stack>}
 
-          {isLoading || assetsLoading ? (
+          {!visibilityReady || isLoading || assetsLoading ? (
             <Box sx={{ p: 4 }}><LoadingSpinner /></Box>
           ) : flat.length === 0 && assetsData.length === 0 ? (
             <Box
@@ -2789,7 +2944,7 @@ const HelixOrgChart: FC = () => {
           ) : (
             <ReactFlowProvider>
               <ChartCanvas
-                flat={flat}
+                flat={visibleFlat}
                 handlers={handlers}
                 onAddParent={onAddParent}
                 onRemoveParent={onRemoveParent}
@@ -2802,8 +2957,8 @@ const HelixOrgChart: FC = () => {
                 onCanvasContextMenu={openCtxMenu}
                 topics={topicsWithConsumerCounts}
                 messageCounts={messageCounts}
-                processors={processorSummaries}
-                assets={assetsData}
+                processors={visibleProcessorSummaries}
+                assets={visibleAssets}
                 assetHealth={assetHealth}
                 savedPositions={savedPositions}
                 visibleTopicIds={visibleTopicIds}

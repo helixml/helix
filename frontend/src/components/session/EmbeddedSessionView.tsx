@@ -819,7 +819,23 @@ const EmbeddedSessionView = forwardRef<
             zIndex: 3,
             textTransform: "none",
             borderRadius: 999,
-            boxShadow: 3,
+            px: 1.5,
+            py: 0.65,
+            minHeight: 32,
+            fontWeight: 600,
+            backgroundColor: lightTheme.isDark ? "#000000" : "#ffffff",
+            color: lightTheme.isDark ? "#ffffff" : "#111111",
+            border: `1px solid ${lightTheme.isDark ? "rgba(255,255,255,0.72)" : "rgba(0,0,0,0.62)"}`,
+            boxShadow: lightTheme.isDark
+              ? "0 2px 10px rgba(0,0,0,0.45)"
+              : "0 2px 10px rgba(0,0,0,0.18)",
+            "&:hover": {
+              backgroundColor: lightTheme.isDark ? "#111111" : "#f3f3f3",
+              borderColor: lightTheme.isDark ? "#ffffff" : "#000000",
+              boxShadow: lightTheme.isDark
+                ? "0 3px 12px rgba(0,0,0,0.55)"
+                : "0 3px 12px rgba(0,0,0,0.24)",
+            },
           }}
         >
           Jump to latest

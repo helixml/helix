@@ -1,14 +1,15 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { AssetAuthType, AssetKind } from '../api/api'
 import type { AssetDTO } from '../services/helixOrgService'
-import { AssetNode, assetLinkFromConnection, buildGraph } from './HelixOrgChart'
+import { AssetNode, assetLinkFromConnection, BotNode, buildGraph } from './HelixOrgChart'
 
 const handlers = {
   onSelectBot: vi.fn(),
   onOpenBotDetails: vi.fn(),
+  onViewProject: vi.fn(),
   onNewBot: vi.fn(),
   onDeleteBot: vi.fn(),
   onStartBot: vi.fn(),
@@ -94,5 +95,33 @@ describe('HelixOrgChart server assets', () => {
     }
     expect(screen.getByRole('status')).toHaveAccessibleName('Network or SSH unavailable')
     expect(screen.getByText('1 allowed agent')).toBeInTheDocument()
+  })
+})
+
+describe('HelixOrgChart agent actions', () => {
+  it('opens the agent project from the node menu', () => {
+    render(
+      <ReactFlowProvider>
+        <BotNode {...({
+          id: 'bot:chief-of-staff',
+          data: {
+            botId: 'chief-of-staff',
+            botName: 'Chief of Staff',
+            agentStatus: 'running',
+            agentRuntime: 'zed_external',
+            agentModel: 'test',
+            projectId: 'project-1',
+            taskStats: { backlog: 0, inProgress: 0, done: 0 },
+            selected: false,
+            ...handlers,
+          },
+        } as any)} />
+      </ReactFlowProvider>,
+    )
+
+    fireEvent.contextMenu(screen.getByText('Chief of Staff'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'View project' }))
+
+    expect(handlers.onViewProject).toHaveBeenCalledWith('project-1')
   })
 })

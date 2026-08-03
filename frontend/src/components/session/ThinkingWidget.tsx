@@ -4,9 +4,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
+import { ChevronDown, ChevronUp, Lightbulb } from 'lucide-react'
 import { preserveDisclosureExpansion } from './disclosureScroll'
 
 interface ThinkingWidgetProps {
@@ -27,6 +25,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
   const [expanded, setExpanded] = useState(false)
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
+  const isMultiline = text.trim().includes('\n')
   const startedAt = useRef(
     typeof startTime === 'number'
       ? startTime
@@ -43,70 +42,87 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
     return () => window.clearInterval(interval)
   }, [isStreaming])
 
-  const borderColor = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'
   const iconColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'
-  const textColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)'
+  const textColor = isDark ? 'rgba(255,255,255,0.65)' : 'text.secondary'
 
   return (
     <Box
       sx={{
-        my: 1,
-        borderLeft: `3px solid ${borderColor}`,
-        borderRadius: '4px',
-        overflow: 'hidden',
+        my: 0.75,
       }}
     >
       <Box
-        onClick={(event) => {
+        onClick={isMultiline ? (event) => {
           if (!expanded) preserveDisclosureExpansion(event.currentTarget)
           setExpanded((value) => !value)
-        }}
+        } : undefined}
         sx={{
           display: 'flex',
           alignItems: 'center',
           gap: 0.75,
-          px: 1.5,
-          py: 0.75,
-          cursor: 'pointer',
-          backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+          px: 0,
+          py: 0.5,
+          cursor: isMultiline ? 'pointer' : 'default',
+          backgroundColor: 'transparent',
           '&:hover': {
-            backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+            backgroundColor: 'transparent',
           },
-          transition: 'background-color 0.15s ease',
           userSelect: 'none',
         }}
       >
-        <LightbulbOutlinedIcon sx={{ fontSize: 16, color: iconColor }} />
+        <Lightbulb size={15} strokeWidth={1.8} color={iconColor} aria-hidden="true" />
         <Typography
           variant="body2"
-          sx={{ flex: 1, fontSize: '0.82rem', color: textColor, fontFamily: 'monospace' }}
+          sx={{
+            flex: isMultiline ? 1 : '0 0 auto',
+            fontSize: '0.76rem',
+            color: textColor,
+            fontFamily: 'monospace',
+          }}
         >
           {isStreaming ? `Thinking ${formatDuration(elapsed)}` : 'Thoughts'}
         </Typography>
+        {!isStreaming && !isMultiline && (
+          <Typography
+            variant="body2"
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: '0.76rem',
+              color: isDark ? 'rgba(255,255,255,0.5)' : 'text.secondary',
+              fontFamily: 'monospace',
+            }}
+          >
+            {text.trim()}
+          </Typography>
+        )}
         {isStreaming && <CircularProgress size={16} thickness={4} color="warning" />}
-        <IconButton
-          size="small"
-          aria-label={expanded ? 'Collapse thoughts' : 'Expand thoughts'}
-          sx={{ p: 0, ml: 0.5 }}
-        >
-          {expanded
-            ? <ExpandLessIcon sx={{ fontSize: 18 }} />
-            : <ExpandMoreIcon sx={{ fontSize: 18 }} />}
-        </IconButton>
+        {isMultiline && (
+          <IconButton
+            size="small"
+            aria-label={expanded ? 'Collapse thoughts' : 'Expand thoughts'}
+            sx={{ p: 0, ml: 0.5, '&:hover': { backgroundColor: 'transparent' } }}
+          >
+            {expanded ? <ChevronUp size={15} strokeWidth={1.8} /> : <ChevronDown size={15} strokeWidth={1.8} />}
+          </IconButton>
+        )}
       </Box>
 
       {expanded && text && (
         <Box
           sx={{
-            px: 1.5,
+            pl: 2.5,
+            pr: 0,
             py: 1,
             fontSize: '0.8rem',
             fontFamily: 'monospace',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
-            color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)',
-            backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)',
-            borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+            color: isDark ? 'rgba(255,255,255,0.55)' : 'text.secondary',
+            backgroundColor: 'transparent',
             maxHeight: '300px',
             overflow: 'auto',
           }}
