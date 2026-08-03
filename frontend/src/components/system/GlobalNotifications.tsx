@@ -8,7 +8,7 @@ import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
 import Stack from '@mui/material/Stack'
 import ReactMarkdown from 'react-markdown'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink, MessageSquare } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink, MessageSquare, ArrowRight } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -310,13 +310,36 @@ const AttentionEventItem: React.FC<{
             component="a"
             href={router.buildPath('helix_org_chart', { org_id: orgForEvent.name, bot_id: botId })}
             size="small"
+            variant="outlined"
+            endIcon={<ArrowRight size={13} />}
             onClick={(e) => {
               e.preventDefault()
               onNavigate(event)
             }}
-            sx={{ mt: 1, textTransform: 'none' }}
+            sx={{
+              mt: 1,
+              px: 1.25,
+              py: 0.5,
+              minHeight: 0,
+              borderRadius: 1.5,
+              textTransform: 'none',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              color: isLight ? '#0f766e' : '#2dd4bf',
+              borderColor: isLight ? 'rgba(13,148,136,0.4)' : 'rgba(45,212,191,0.35)',
+              backgroundColor: isLight ? 'rgba(13,148,136,0.06)' : 'rgba(45,212,191,0.08)',
+              '&:hover': {
+                color: isLight ? '#115e59' : '#5eead4',
+                borderColor: isLight ? '#0d9488' : '#2dd4bf',
+                backgroundColor: isLight ? 'rgba(13,148,136,0.12)' : 'rgba(45,212,191,0.14)',
+              },
+              '&.Mui-focusVisible': {
+                outline: '2px solid rgba(20,184,166,0.55)',
+                outlineOffset: 2,
+              },
+            }}
           >
-            Open agent chat
+            Continue in agent chat
           </Button>
         )}
       </Box>
@@ -657,8 +680,8 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         }}
       >
         <Badge
-          badgeContent={deduplicatedHasNew ? deduplicatedUnreadCount : deduplicatedTotalCount}
-          color={deduplicatedHasNew ? 'error' : 'default'}
+          badgeContent={deduplicatedUnreadCount}
+          color="error"
           overlap="circular"
           sx={{
             '& .MuiBadge-badge': {
@@ -674,10 +697,6 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                   '0%, 100%': { boxShadow: '0 0 0 2px rgba(239,68,68,0.35)' },
                   '50%': { boxShadow: '0 0 0 5px rgba(239,68,68,0.0)' },
                 },
-              }),
-              ...(!deduplicatedHasNew && deduplicatedTotalCount > 0 && {
-                backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.25)',
-                color: lightTheme.isLight ? '#fff' : 'rgba(0,0,0,0.7)',
               }),
             },
           }}

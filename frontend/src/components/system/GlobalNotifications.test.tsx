@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import GlobalNotifications from './GlobalNotifications'
@@ -20,6 +20,7 @@ const event = {
   title: 'Message from Agent Two',
   description: 'Please review this.',
   created_at: new Date().toISOString(),
+  acknowledged_at: undefined as string | undefined,
   metadata: { bot_id: 'bot-two' },
 }
 
@@ -73,6 +74,7 @@ describe('org message notifications', () => {
     mocks.fireNotification.mockReset()
     mocks.navigate.mockReset()
     mocks.browserNotificationsEnabled = false
+    event.acknowledged_at = undefined
   })
 
   it('links to the agent chat and acknowledges before navigating', () => {
@@ -80,7 +82,7 @@ describe('org message notifications', () => {
     fireEvent.click(screen.getAllByRole('button')[0])
 
     expect(screen.queryByText('Respond')).not.toBeInTheDocument()
-    const link = screen.getByRole('link', { name: 'Open agent chat' })
+    const link = screen.getByRole('link', { name: 'Continue in agent chat' })
     expect(link).toHaveAttribute('href', '/orgs/acme/chart?bot_id=bot-two')
     fireEvent.click(link)
 
@@ -89,6 +91,17 @@ describe('org message notifications', () => {
       org_id: 'acme',
       bot_id: 'bot-two',
     })
+  })
+
+  it('hides the bell badge for read notifications while retaining the panel total', () => {
+    event.acknowledged_at = new Date().toISOString()
+    render(<GlobalNotifications />)
+
+    const bellButton = screen.getAllByRole('button')[0]
+    expect(within(bellButton).queryByText('1')).not.toBeInTheDocument()
+
+    fireEvent.click(bellButton)
+    expect(screen.getByText('1')).toBeInTheDocument()
   })
 
   it('opens the same agent chat from a browser notification', async () => {
