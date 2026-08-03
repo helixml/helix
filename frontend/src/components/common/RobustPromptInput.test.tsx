@@ -223,8 +223,8 @@ describe('RobustPromptInput rich attachments', () => {
     expect(saveToHistory).toHaveBeenCalledWith(
       [
         'Attachments available in the agent workspace:',
-        '- Image: `/home/retro/work/incoming/diagram.png`',
-        '- File: `/home/retro/work/incoming/requirements.pdf`',
+        '- Image: "/home/retro/work/incoming/diagram.png"',
+        '- File: "/home/retro/work/incoming/requirements.pdf"',
       ].join('\n'),
       false,
     )

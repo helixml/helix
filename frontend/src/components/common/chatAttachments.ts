@@ -80,10 +80,6 @@ export function filesFromClipboard(data: DataTransfer): File[] {
     })
 }
 
-function escapeInlineCode(value: string): string {
-  return value.replace(/`/g, '\\`')
-}
-
 export function buildMessageWithAttachments(
   content: string,
   attachments: PendingChatAttachment[],
@@ -97,7 +93,7 @@ export function buildMessageWithAttachments(
   const attachmentBlock = [
     'Attachments available in the agent workspace:',
     ...uploaded.map((attachment) =>
-      `- ${attachment.type === 'image' ? 'Image' : 'File'}: \`${escapeInlineCode(attachment.path)}\``,
+      `- ${attachment.type === 'image' ? 'Image' : 'File'}: ${JSON.stringify(attachment.path)}`,
     ),
   ].join('\n')
 

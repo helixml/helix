@@ -26,8 +26,8 @@ describe('chat attachments', () => {
       'Review these',
       '',
       'Attachments available in the agent workspace:',
-      '- Image: `/home/retro/work/incoming/screenshot.png`',
-      '- File: `/home/retro/work/incoming/spec.pdf`',
+      '- Image: "/home/retro/work/incoming/screenshot.png"',
+      '- File: "/home/retro/work/incoming/spec.pdf"',
     ].join('\n'))
   })
 
