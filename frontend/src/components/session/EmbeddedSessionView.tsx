@@ -52,6 +52,7 @@ import { useStreaming } from "../../contexts/streaming";
 import { TypesInteraction, TypesInteractionState } from "../../api/api";
 import useLightTheme from "../../hooks/useLightTheme";
 import { SESSION_TYPE_TEXT } from "../../types";
+import { CHAT_FONT_FAMILY, getChatColors } from "./chatStyles";
 
 interface EmbeddedSessionViewProps {
   sessionId: string;
@@ -100,8 +101,35 @@ const EmbeddedSessionView = forwardRef<
   const api = useApi();
   const lightTheme = useLightTheme();
   const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
+  const setScrollContainerRef = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setScrollContainerEl(el);
+  }, []);
   const queryClient = useQueryClient();
   const { NewInference } = useStreaming();
+
+  // Keep the active turn one viewport tall. When the last interaction enters
+  // Waiting, scroll-to-bottom places its user message at the top and leaves
+  // room for the response to grow beneath it. This mirrors T3's anchored-turn
+  // mechanic without fighting the existing manual-scroll lock.
+  useEffect(() => {
+    if (!scrollContainerEl) return;
+
+    const measure = () => {
+      scrollContainerEl.style.setProperty(
+        "--chat-viewport-height",
+        `${scrollContainerEl.clientHeight}px`,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scrollContainerEl);
+    return () => {
+      observer.disconnect();
+      scrollContainerEl.style.removeProperty("--chat-viewport-height");
+    };
+  }, [scrollContainerEl]);
 
   // Global on/off preference for auto-scroll. Default ON.
   const [autoScroll, setAutoScroll] = useAutoScrollPreference();
@@ -637,6 +665,8 @@ const EmbeddedSessionView = forwardRef<
         position: "relative",
         display: "flex",
         flexDirection: "column",
+        fontFamily: CHAT_FONT_FAMILY,
+        backgroundColor: (theme) => getChatColors(theme).canvas,
       }}
     >
       {session && (
@@ -650,7 +680,7 @@ const EmbeddedSessionView = forwardRef<
         </>
       )}
       <Box
-        ref={containerRef}
+        ref={setScrollContainerRef}
         data-session-scroll-container
         onScroll={handleScroll}
         onWheel={handleWheel}
@@ -677,10 +707,10 @@ const EmbeddedSessionView = forwardRef<
           ref={setContentRef}
           sx={{
             width: "100%",
-            maxWidth: 700,
+            maxWidth: 768,
             mx: "auto",
-            px: 2,
-            py: 2,
+            px: { xs: 1.5, sm: 2.5 },
+            py: 2.5,
             display: "flex",
             flexDirection: "column",
             gap: 2,
@@ -727,6 +757,7 @@ const EmbeddedSessionView = forwardRef<
                 session_id={sessionId}
                 sessionSteps={sessionSteps?.data || []}
                 enableDebugCopy={enableInteractionDebugCopy}
+                anchorToViewport={isLive}
               >
                 {isLive && (isOwner || account.admin) && (
                   <InteractionLiveStream

@@ -22,6 +22,8 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@emotion/react": "^11.7.1",
     "@emotion/styled": "^11.6.0",
+    "@fontsource-variable/dm-sans": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@hookform/resolvers": "^3.10.0",
     "@inovua/reactdatagrid-community": "^5.10.2",
     "@mui/icons-material": "^5.3.1",
