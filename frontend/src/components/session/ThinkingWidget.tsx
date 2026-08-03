@@ -25,6 +25,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
   const [expanded, setExpanded] = useState(false)
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
+  const isMultiline = text.trim().includes('\n')
   const startedAt = useRef(
     typeof startTime === 'number'
       ? startTime
@@ -51,17 +52,17 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
       }}
     >
       <Box
-        onClick={(event) => {
+        onClick={isMultiline ? (event) => {
           if (!expanded) preserveDisclosureExpansion(event.currentTarget)
           setExpanded((value) => !value)
-        }}
+        } : undefined}
         sx={{
           display: 'flex',
           alignItems: 'center',
           gap: 0.75,
           px: 0,
           py: 0.5,
-          cursor: 'pointer',
+          cursor: isMultiline ? 'pointer' : 'default',
           backgroundColor: 'transparent',
           '&:hover': {
             backgroundColor: 'transparent',
@@ -72,18 +73,42 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
         <Lightbulb size={15} strokeWidth={1.8} color={iconColor} aria-hidden="true" />
         <Typography
           variant="body2"
-          sx={{ flex: 1, fontSize: '0.76rem', color: textColor, fontFamily: 'monospace' }}
+          sx={{
+            flex: isMultiline ? 1 : '0 0 auto',
+            fontSize: '0.76rem',
+            color: textColor,
+            fontFamily: 'monospace',
+          }}
         >
           {isStreaming ? `Thinking ${formatDuration(elapsed)}` : 'Thoughts'}
         </Typography>
+        {!isStreaming && !isMultiline && (
+          <Typography
+            variant="body2"
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: '0.76rem',
+              color: isDark ? 'rgba(255,255,255,0.5)' : 'text.secondary',
+              fontFamily: 'monospace',
+            }}
+          >
+            {text.trim()}
+          </Typography>
+        )}
         {isStreaming && <CircularProgress size={16} thickness={4} color="warning" />}
-        <IconButton
-          size="small"
-          aria-label={expanded ? 'Collapse thoughts' : 'Expand thoughts'}
-          sx={{ p: 0, ml: 0.5, '&:hover': { backgroundColor: 'transparent' } }}
-        >
-          {expanded ? <ChevronUp size={15} strokeWidth={1.8} /> : <ChevronDown size={15} strokeWidth={1.8} />}
-        </IconButton>
+        {isMultiline && (
+          <IconButton
+            size="small"
+            aria-label={expanded ? 'Collapse thoughts' : 'Expand thoughts'}
+            sx={{ p: 0, ml: 0.5, '&:hover': { backgroundColor: 'transparent' } }}
+          >
+            {expanded ? <ChevronUp size={15} strokeWidth={1.8} /> : <ChevronDown size={15} strokeWidth={1.8} />}
+          </IconButton>
+        )}
       </Box>
 
       {expanded && text && (
