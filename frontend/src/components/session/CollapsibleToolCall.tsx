@@ -9,7 +9,7 @@ import {
   ChevronUp,
   CircleAlert,
   LoaderCircle,
-  Wrench,
+  Terminal,
 } from "lucide-react";
 import { preserveDisclosureExpansion } from "./disclosureScroll";
 
@@ -121,6 +121,41 @@ const statusIcon = (status: string) => {
   return <LoaderCircle size={15} strokeWidth={1.8} color="#ffb74d" aria-hidden="true" />;
 };
 
+const commandToolPattern = /^(bash|sh|zsh|shell|terminal|command)(?::\s*(.*))?$/i;
+
+const extractCommand = (body: string) => {
+  const tableCommand = body.match(/\|\s*Command\s*\|\s*`([^`]+)`\s*\|/i);
+  if (tableCommand?.[1]) return tableCommand[1].trim();
+
+  const fieldCommand = body.match(/(?:^|\n)Command:\s*(.+)$/im);
+  if (fieldCommand?.[1]) return fieldCommand[1].trim();
+
+  const firstLine = body
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith("```") && !line.startsWith("|"));
+  return firstLine || "";
+};
+
+export const getToolCallPresentation = (toolName: string, body: string) => {
+  const toolMatch = toolName.match(commandToolPattern);
+  const bodyCommand = extractCommand(body);
+  const isCommand = Boolean(toolMatch || body.match(/\|\s*Command\s*\|/i));
+
+  if (!isCommand) {
+    return { label: toolName, preview: "" };
+  }
+
+  const namedCommand = toolMatch?.[2]?.trim();
+  const preview = namedCommand
+    ? toolName.trim()
+    : bodyCommand
+      ? `${toolName.trim()}: ${bodyCommand}`
+      : toolName.trim();
+
+  return { label: "Ran command", preview };
+};
+
 interface CollapsibleToolCallProps {
   toolName: string;
   status: string;
@@ -141,6 +176,7 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
+  const presentation = getToolCallPresentation(toolName, body);
 
   return (
     <Box
@@ -168,23 +204,57 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
           userSelect: "none",
         }}
       >
-        <Wrench
+        <Terminal
           size={15}
           strokeWidth={1.8}
           color={isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.45)"}
           aria-hidden="true"
         />
-        <Typography
-          variant="body2"
+        <Box
           sx={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 0.75,
+            minWidth: 0,
             flex: 1,
-            fontSize: dense ? "0.76rem" : "0.82rem",
-            color: isDark ? "rgba(255,255,255,0.65)" : "text.secondary",
-            fontFamily: "monospace",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
           }}
         >
-          {toolName}
-        </Typography>
+          <Typography
+            variant="body2"
+            sx={{
+              flexShrink: 0,
+              fontSize: dense ? "0.76rem" : "0.82rem",
+              color: presentation.preview
+                ? isDark
+                  ? "#f5f5f5"
+                  : "text.primary"
+                : isDark
+                  ? "rgba(255,255,255,0.65)"
+                  : "text.secondary",
+              fontWeight: presentation.preview ? 600 : 400,
+              fontFamily: "monospace",
+            }}
+          >
+            {presentation.label}
+          </Typography>
+          {presentation.preview && (
+            <Typography
+              variant="body2"
+              sx={{
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                fontSize: dense ? "0.72rem" : "0.78rem",
+                color: isDark ? "rgba(255,255,255,0.42)" : "text.secondary",
+                fontFamily: "monospace",
+              }}
+            >
+              {presentation.preview}
+            </Typography>
+          )}
+        </Box>
         {statusIcon(status)}
         <IconButton
           size="small"

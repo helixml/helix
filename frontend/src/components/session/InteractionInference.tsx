@@ -9,8 +9,9 @@ import ClickLink from "../widgets/ClickLink";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
-import StreamingIndicator from "./StreamingIndicator";
 import WorkLog from "./WorkLog";
+import ActivitySummary from "./ActivitySummary";
+import { getInteractionDurationMs } from "./interactionDuration";
 
 /**
  * A structured response entry from the Go API.
@@ -82,6 +83,9 @@ export const MessageWithToolCalls: FC<{
   isStreaming: boolean;
   onFilterDocument?: (docId: string) => void;
   compactThinking?: boolean;
+  durationMs?: number;
+  activityStartedAt?: number;
+  showActivitySummary?: boolean;
 }> = ({
   text,
   responseEntries,
@@ -91,7 +95,26 @@ export const MessageWithToolCalls: FC<{
   isStreaming,
   onFilterDocument,
   compactThinking = false,
+  durationMs = 0,
+  activityStartedAt,
+  showActivitySummary = true,
 }) => {
+  const hasThinking = (content: string) => /<(?:think|thinking)>/i.test(content);
+
+  if (!showActivitySummary) {
+    return (
+      <Markdown
+        text={text}
+        session={session}
+        getFileURL={getFileURL}
+        showBlinker={showBlinker}
+        isStreaming={isStreaming}
+        onFilterDocument={onFilterDocument}
+        compactThinking={compactThinking}
+      />
+    );
+  }
+
   // Structured path: use response_entries from the Go API (preserves type + order)
   if (responseEntries && responseEntries.length > 0) {
     const toolCallEntries = responseEntries
@@ -99,62 +122,156 @@ export const MessageWithToolCalls: FC<{
       .filter(({ entry }) => entry.type === "tool_call");
     const lastToolCallIndex = toolCallEntries[toolCallEntries.length - 1]?.index;
     const lastResponseEntryIndex = responseEntries.length - 1;
+    const hasActivity = responseEntries.some(
+      (entry) => entry.type === "tool_call" || hasThinking(entry.content),
+    );
+    const workLogEntries = toolCallEntries.map(({ entry: toolEntry, index }) => ({
+      id: `${toolEntry.message_id || "tool-call"}-${index}`,
+      toolName: toolEntry.tool_name || "Tool Call",
+      status:
+        toolEntry.tool_status ||
+        (index === lastResponseEntryIndex && isStreaming ? "Running" : "Completed"),
+      body: toolEntry.content || "",
+    }));
 
-    return (
+    const activity = responseEntries.map((entry, i) => {
+      if (entry.type === "tool_call") {
+        if (i !== lastToolCallIndex) return null;
+        return <WorkLog key="work-log" entries={workLogEntries} showAll />;
+      }
+      if (!hasThinking(entry.content)) return null;
+      return (
+        <Markdown
+          key={`thought-${i}`}
+          text={entry.content}
+          session={session}
+          getFileURL={getFileURL}
+          showBlinker={false}
+          isStreaming={false}
+          onFilterDocument={onFilterDocument}
+          compactThinking={compactThinking}
+          renderThinkingWidget
+          renderContent={false}
+        />
+      );
+    });
+    const latestThought = [...responseEntries]
+      .map((entry, index) => ({ entry, index }))
+      .reverse()
+      .find(({ entry }) => entry.type === "text" && hasThinking(entry.content));
+    const streamingPreview = workLogEntries.length > 0 ? (
+      <WorkLog entries={workLogEntries} />
+    ) : latestThought ? (
+      <Markdown
+        text={latestThought.entry.content}
+        session={session}
+        getFileURL={getFileURL}
+        showBlinker={false}
+        isStreaming={false}
+        onFilterDocument={onFilterDocument}
+        compactThinking={compactThinking}
+        renderThinkingWidget
+        renderContent={false}
+      />
+    ) : null;
+
+    const finalContent = responseEntries.map((entry, i) => {
+      if (entry.type === "tool_call") return null;
+      return (
+        <Markdown
+          key={`md-${i}`}
+          text={entry.content}
+          session={session}
+          getFileURL={getFileURL}
+          showBlinker={false}
+          isStreaming={isStreaming && i === responseEntries.length - 1}
+          onFilterDocument={onFilterDocument}
+          compactThinking={compactThinking}
+          renderThinkingWidget={false}
+        />
+      );
+    });
+
+    return isStreaming ? (
       <>
-        {responseEntries.map((entry, i) => {
-          if (entry.type === "tool_call") {
-            if (i !== lastToolCallIndex) return null;
-
-            return (
-              <React.Fragment key="work-log">
-                <WorkLog
-                  entries={toolCallEntries.map(({ entry: toolEntry, index }) => ({
-                    id: `${toolEntry.message_id || "tool-call"}-${index}`,
-                    toolName: toolEntry.tool_name || "Tool Call",
-                    status:
-                      toolEntry.tool_status ||
-                      (index === lastResponseEntryIndex && isStreaming
-                        ? "Running"
-                        : "Completed"),
-                    body: toolEntry.content || "",
-                  }))}
-                />
-                {i === lastResponseEntryIndex && showBlinker && isStreaming && (
-                  <StreamingIndicator />
-                )}
-              </React.Fragment>
-            );
-          }
-          // text entry
-          return (
-            <Markdown
-              key={`md-${i}`}
-              text={entry.content}
-              session={session}
-              getFileURL={getFileURL}
-              showBlinker={showBlinker && i === responseEntries.length - 1}
-              isStreaming={isStreaming && i === responseEntries.length - 1}
-              onFilterDocument={onFilterDocument}
-              compactThinking={compactThinking}
-            />
-          );
-        })}
+        {streamingPreview}
+        {finalContent}
+        <ActivitySummary
+          durationMs={durationMs}
+          hasActivity={hasActivity}
+          isStreaming
+          startedAt={activityStartedAt}
+        >
+          {activity}
+        </ActivitySummary>
+      </>
+    ) : (
+      <>
+        <ActivitySummary
+          durationMs={durationMs}
+          hasActivity={hasActivity}
+          isStreaming={false}
+          startedAt={activityStartedAt}
+        >
+          {activity}
+        </ActivitySummary>
+        {finalContent}
       </>
     );
   }
 
   // Plain markdown for text-only interactions
-  return (
+  const plainHasThinking = hasThinking(text);
+  const finalContent = (
     <Markdown
       text={text}
       session={session}
       getFileURL={getFileURL}
-      showBlinker={showBlinker}
+      showBlinker={false}
       isStreaming={isStreaming}
       onFilterDocument={onFilterDocument}
       compactThinking={compactThinking}
+      renderThinkingWidget={false}
     />
+  );
+  const activityContent = plainHasThinking ? (
+    <Markdown
+      text={text}
+      session={session}
+      getFileURL={getFileURL}
+      showBlinker={false}
+      isStreaming={false}
+      onFilterDocument={onFilterDocument}
+      compactThinking={compactThinking}
+      renderThinkingWidget
+      renderContent={false}
+    />
+  ) : null;
+
+  return isStreaming ? (
+    <>
+      {finalContent}
+      <ActivitySummary
+        durationMs={durationMs}
+        hasActivity={plainHasThinking}
+        isStreaming
+        startedAt={activityStartedAt}
+      >
+        {activityContent}
+      </ActivitySummary>
+    </>
+  ) : (
+    <>
+      <ActivitySummary
+        durationMs={durationMs}
+        hasActivity={plainHasThinking}
+        isStreaming={false}
+        startedAt={activityStartedAt}
+      >
+        {activityContent}
+      </ActivitySummary>
+      {finalContent}
+    </>
   );
 };
 
@@ -376,6 +493,8 @@ export const InteractionInference: FC<{
                     getFileURL={getFileURL}
                     showBlinker={false}
                     isStreaming={false}
+                    durationMs={getInteractionDurationMs(interaction)}
+                    showActivitySummary={isFromAssistant}
                     onFilterDocument={onFilterDocument}
                   />
                   {isFromAssistant && onRegenerate && (

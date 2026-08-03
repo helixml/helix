@@ -18,13 +18,14 @@ export interface WorkLogEntry {
 
 interface WorkLogProps {
   entries: WorkLogEntry[];
+  showAll?: boolean;
 }
 
 /**
  * Keeps a long sequence of agent activity out of the main response flow.
  * The current entry remains visible; older entries are available on demand.
  */
-export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
+export const WorkLog: FC<WorkLogProps> = ({ entries, showAll = false }) => {
   const [expanded, setExpanded] = useState(false);
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
@@ -32,6 +33,34 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
   const previousCount = Math.max(0, entries.length - 1);
 
   if (!latestEntry) return null;
+
+  if (showAll) {
+    return (
+      <Box sx={{ my: 1 }}>
+        <Typography
+          variant="caption"
+          sx={{
+            display: "block",
+            mb: 0.25,
+            color: isDark ? "rgba(255,255,255,0.5)" : "text.secondary",
+            fontWeight: 600,
+            letterSpacing: "0.01em",
+          }}
+        >
+          Work Log
+        </Typography>
+        {entries.map((entry) => (
+          <CollapsibleToolCall
+            key={entry.id}
+            toolName={entry.toolName}
+            status={entry.status}
+            body={entry.body}
+            dense
+          />
+        ))}
+      </Box>
+    );
+  }
 
   const toggleExpanded = (event: React.MouseEvent<HTMLElement>) => {
     if (!expanded) preserveDisclosureExpansion(event.currentTarget);

@@ -102,6 +102,7 @@ const StreamingIndicator: FC<StreamingIndicatorProps> = ({ className }) => {
   return (
     <Box
       className={className}
+      data-testid="streaming-indicator"
       sx={{
         display: "flex",
         alignItems: "center",

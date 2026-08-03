@@ -2,9 +2,21 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { describe, expect, it } from 'vitest'
 
-import { CollapsibleToolCall } from './CollapsibleToolCall'
+import { CollapsibleToolCall, getToolCallPresentation } from './CollapsibleToolCall'
 
 describe('CollapsibleToolCall', () => {
+  it('presents shell calls as a compact command row', () => {
+    const presentation = getToolCallPresentation(
+      'Bash',
+      '| | |\n|---|---|\n| Command | `git status --short` |\n| Exit | 0 |',
+    )
+
+    expect(presentation).toEqual({
+      label: 'Ran command',
+      preview: 'Bash: git status --short',
+    })
+  })
+
   it('marks disclosure growth so the chat keeps the header in place', () => {
     const { container } = render(
       <div data-session-scroll-container>

@@ -763,6 +763,8 @@ export interface InteractionMarkdownProps {
   isStreaming: boolean;
   onFilterDocument?: (docId: string) => void;
   compactThinking?: boolean;
+  renderThinkingWidget?: boolean;
+  renderContent?: boolean;
 }
 
 // Add this new component for the code block with copy button
@@ -865,6 +867,8 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   isStreaming = false,
   onFilterDocument,
   compactThinking = false,
+  renderThinkingWidget = true,
+  renderContent = true,
 }) => {
   const theme = useTheme();
   const [processedContent, setProcessedContent] = useState<string>("");
@@ -1115,7 +1119,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           display: "flow-root",
         }}
       >
-        {thinkingWidgetContent && (
+        {renderThinkingWidget && thinkingWidgetContent && (
           <ThinkingWidget
             text={thinkingWidgetContent}
             isStreaming={isStreaming}
@@ -1132,7 +1136,9 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
               ragResults={session?.config?.session_rag_results || []}
             />
           )}
-        <MemoizedMarkdownRenderer processedContent={processedContent} />
+        {renderContent && (
+          <MemoizedMarkdownRenderer processedContent={processedContent} />
+        )}
         {showBlinker && isStreaming && <StreamingIndicator />}
       </Box>
     </>
