@@ -44,6 +44,7 @@ import { TypesAuthProvider } from '../../api/api'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
 import { orgLandingRoute } from '../../utils/organizations'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
+import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
 
 // Shimmer animation for login button
 const shimmer = keyframes`
@@ -104,24 +105,26 @@ interface NavButtonProps {
 const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label }) => {
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
-  const activeText = isLight ? '#000' : '#E2E8F0'
-  // Light mode = "looking at a cheap iPad in direct sunlight" — go max
-  // contrast. Inactive icons + labels are near-black so they survive glare.
-  const inactiveText = isLight ? '#000' : '#A0AEC0'
-  const activeBg = isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(226, 232, 240, 0.15)'
-  const activeBorder = isLight ? 'rgba(0, 0, 0, 0.30)' : 'rgba(226, 232, 240, 0.3)'
+  const activeText = isLight ? LIGHT_SIDEBAR_COLORS.foreground : '#E2E8F0'
+  const inactiveText = isLight ? LIGHT_SIDEBAR_COLORS.icon : '#A0AEC0'
+  const activeBg = isLight ? LIGHT_SIDEBAR_COLORS.rowSelected : 'rgba(226, 232, 240, 0.15)'
+  const activeBorder = isLight ? LIGHT_SIDEBAR_COLORS.border : 'rgba(226, 232, 240, 0.3)'
   const hoverBg = isLight
-    ? (isActive ? 'rgba(0, 0, 0, 0.16)' : 'rgba(0, 0, 0, 0.08)')
+    ? (isActive ? LIGHT_SIDEBAR_COLORS.rowSelected : LIGHT_SIDEBAR_COLORS.rowHover)
     : (isActive ? 'rgba(226, 232, 240, 0.2)' : 'rgba(226, 232, 240, 0.1)')
-  const labelInactive = isLight ? '#000' : '#6B7280'
+  const labelInactive = isLight ? LIGHT_SIDEBAR_COLORS.mutedForeground : '#6B7280'
   return (
     <Tooltip title={tooltip} placement="right">
       <Box
         onClick={onClick}
+        data-compact-nav-item={label}
         sx={{
           mt: 1,
-          width: AVATAR_SIZE + 8,
-          height: AVATAR_SIZE + 8,
+          width: 52,
+          height: 56,
+          px: 0.5,
+          py: 0.5,
+          boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -131,13 +134,11 @@ const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label
           backgroundColor: isActive ? activeBg : 'transparent',
           borderRadius: 1,
           border: isActive ? `1px solid ${activeBorder}` : '1px solid transparent',
-          transform: isActive ? 'scale(1.05)' : 'scale(1)',
           '&:hover': {
             color: activeText,
-            transform: isActive ? 'scale(1.08)' : 'scale(1.1)',
             backgroundColor: hoverBg,
           },
-          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: 'color 150ms ease, background-color 150ms ease, border-color 150ms ease',
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -145,13 +146,18 @@ const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label
         </Box>
         <Typography
           variant="caption"
+          data-compact-nav-label={label}
           sx={{
             fontSize: '0.65rem',
             color: isActive ? activeText : labelInactive,
             textAlign: 'center',
-            lineHeight: 1,
-            mt: 0.8,
-            fontWeight: isActive ? 'bold' : (isLight ? 600 : 'normal'),
+            lineHeight: 1.05,
+            mt: 0.75,
+            fontWeight: isLight ? 500 : (isActive ? 600 : 400),
+            width: '100%',
+            whiteSpace: 'normal',
+            overflowWrap: 'normal',
+            wordBreak: 'normal',
           }}
         >
           {label}
@@ -395,7 +401,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         tooltip: "View org chart",
         isActive: router.name.startsWith('helix_org'),
         onClick: handleHelixOrgClick,
-        label: "Org Chart",
+        label: "Chart",
       }] : []),
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
