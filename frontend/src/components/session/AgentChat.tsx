@@ -11,7 +11,7 @@ import { SESSION_TYPE_TEXT } from '../../types'
 import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from './EmbeddedSessionView'
 import SessionPromptQueue from './SessionPromptQueue'
-import { CHAT_FONT_FAMILY, getChatColors } from './chatStyles'
+import { getChatColors } from './chatStyles'
 
 interface AgentChatProps {
   sessionId: string
@@ -104,7 +104,6 @@ const AgentChat: FC<AgentChatProps> = ({
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        fontFamily: CHAT_FONT_FAMILY,
         color: (theme) => getChatColors(theme).foreground,
         backgroundColor: (theme) => getChatColors(theme).canvas,
       }}

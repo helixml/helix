@@ -30,7 +30,7 @@ import ThinkingWidget from "./ThinkingWidget";
 
 // Import chat stats collector for performance monitoring
 import { getGlobalStatsCollector } from "./ChatStatsOverlay";
-import { CHAT_MONO_FONT_FAMILY } from "./chatStyles";
+import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any;
 
@@ -1047,7 +1047,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           "& code": {
             backgroundColor: "transparent",
             fontSize: "0.875rem",
-            fontFamily: CHAT_MONO_FONT_FAMILY,
+            fontFamily: APP_MONO_FONT_FAMILY,
           },
           "& :not(pre) > code": {
             backgroundColor: theme.palette.mode === "light" ? "#ccc" : "#333",

@@ -74,7 +74,7 @@ import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHisto
 import { Api } from '../../api/api'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
 import ImageLightbox, { LightboxImage } from '../session/ImageLightbox'
-import { CHAT_FONT_FAMILY, getChatColors } from '../session/chatStyles'
+import { getChatColors } from '../session/chatStyles'
 
 // Attachment that's pending to be sent with the message
 // Supports offline queueing - file data is stored until upload completes
@@ -1234,7 +1234,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         position: 'relative',
         width: '100%',
         minWidth: 0,
-        fontFamily: CHAT_FONT_FAMILY,
       }}
     >
       {/* Queued messages display. Only rendered when this is an authoritative

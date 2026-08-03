@@ -52,7 +52,7 @@ import { useStreaming } from "../../contexts/streaming";
 import { TypesInteraction, TypesInteractionState } from "../../api/api";
 import useLightTheme from "../../hooks/useLightTheme";
 import { SESSION_TYPE_TEXT } from "../../types";
-import { CHAT_FONT_FAMILY, getChatColors } from "./chatStyles";
+import { getChatColors } from "./chatStyles";
 
 interface EmbeddedSessionViewProps {
   sessionId: string;
@@ -665,7 +665,6 @@ const EmbeddedSessionView = forwardRef<
         position: "relative",
         display: "flex",
         flexDirection: "column",
-        fontFamily: CHAT_FONT_FAMILY,
         backgroundColor: (theme) => getChatColors(theme).canvas,
       }}
     >

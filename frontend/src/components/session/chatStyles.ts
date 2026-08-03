@@ -1,8 +1,5 @@
 import { Theme } from '@mui/material/styles'
 
-export const CHAT_FONT_FAMILY = '"DM Sans Variable", "DM Sans", Inter, system-ui, sans-serif'
-export const CHAT_MONO_FONT_FAMILY = '"JetBrains Mono Variable", "SFMono-Regular", Consolas, monospace'
-
 export const getChatColors = (theme: Theme) => {
   const dark = theme.palette.mode === 'dark'
 

@@ -17,7 +17,7 @@ Adopt T3 Code's chat hierarchy for Helix's two agent-chat surfaces:
 - thumbnail-first image attachments in both the composer and sent message;
 - one durable attachment model shared by direct org-chat sends and queued spec-task sends.
 
-Do not restyle the whole Helix application. The font and dark palette should be scoped to the shared chat surface, with Helix cyan retained for focus and primary actions. Do not implement sent-image previews using only browser blob URLs or sandbox paths embedded in visible message text: neither is durable message data.
+Use bundled DM Sans as the application-wide UI font so root DOM, MUI components, portals, and chat render the same face. Keep the T3 dark palette scoped to the shared chat surface, with Helix cyan retained for focus and primary actions. Do not implement sent-image previews using only browser blob URLs or sandbox paths embedded in visible message text: neither is durable message data.
 
 ## Reference and method
 
@@ -173,7 +173,7 @@ Add chat-scoped semantic tokens rather than changing the global MUI palette.
 
 Light mode retains the existing Helix light palette in the first change. The new tokens must still define a legible light equivalent so the components do not contain mode checks.
 
-Bundle `@fontsource-variable/dm-sans` and `@fontsource/jetbrains-mono`. Apply DM Sans only below the shared chat root. Keep the rest of the application on its current typography until a separate global typography decision is made.
+Bundle `@fontsource-variable/dm-sans` and `@fontsource-variable/jetbrains-mono`. Apply DM Sans through the root MUI theme and `CssBaseline`; plain form controls inherit the root face, while deliberate monospace overrides remain intact.
 
 ### Shared component boundary
 
