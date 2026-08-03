@@ -478,7 +478,7 @@ export const Interaction: FC<InteractionProps> = ({
         >
           <InteractionContainer
             buttons={headerButtons}
-            background={true}
+            background={false}
             align="left"
             border={false}
             isAssistant={true}

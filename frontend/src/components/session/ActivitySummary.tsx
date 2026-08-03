@@ -6,7 +6,6 @@ import { useTheme } from "@mui/material/styles";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 import StreamingIndicator from "./StreamingIndicator";
-import { preserveDisclosureExpansion } from "./disclosureScroll";
 
 export const formatActivityDuration = (durationMs: number) => {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
@@ -63,8 +62,7 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
     return () => window.clearInterval(interval);
   }, [durationMs, isStreaming, startedAt]);
 
-  const toggleExpanded = (event: React.MouseEvent<HTMLElement>) => {
-    if (!expanded) preserveDisclosureExpansion(event.currentTarget);
+  const toggleExpanded = () => {
     setExpanded((value) => !value);
   };
 
@@ -74,6 +72,7 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
         sx={{
           display: "flex",
           alignItems: "center",
+          gap: 0.5,
           minHeight: 24,
           color: textColor,
         }}
