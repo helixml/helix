@@ -96,6 +96,49 @@ func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsUnknownUsageAsActivity() 
 	require.NoError(s.T(), err)
 }
 
+// Zed's message_completed carries neither `usage` nor `agent_name` when the
+// binary predates the ACP turn-usage change. The turn must still be recorded so
+// request counts and activity remain visible.
+func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsTurnWithoutUsageOrAgentName() {
+	app := &types.App{ID: "app_123", Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			AgentType:               types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model:                   "gpt-5.6-sol",
+		}},
+	}}}
+	s.store.EXPECT().GetApp(gomock.Any(), "app_123").Return(app, nil)
+	s.store.EXPECT().CreateUsageMetric(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
+			assert.Equal(s.T(), types.UsageMetricSourceACP, metric.Source)
+			assert.Equal(s.T(), "ses_123:int_123", metric.SourceID)
+			assert.False(s.T(), metric.UsageKnown)
+			assert.Zero(s.T(), metric.TotalTokens)
+			assert.Equal(s.T(), "prj_123", metric.ProjectID)
+			assert.Equal(s.T(), "task_123", metric.SpecTaskID)
+			return metric, nil
+		},
+	)
+
+	err := s.server.recordACPUsage(
+		context.Background(),
+		&types.Session{
+			ID:        "ses_123",
+			ParentApp: "app_123",
+			ProjectID: "prj_123",
+			Metadata:  types.SessionMetadata{SpecTaskID: "task_123"},
+		},
+		&types.Interaction{ID: "int_123"},
+		&types.SyncMessage{Data: map[string]interface{}{
+			"acp_thread_id": "019fc6c4-33b7-7671-bfc0-0358c7d225ba",
+			"message_id":    "0",
+			"request_id":    "req_123",
+		}},
+	)
+	require.NoError(s.T(), err)
+}
+
 func (s *WebSocketSyncSuite) TestRecordACPUsage_SkipsAPIKeyAgent() {
 	app := &types.App{ID: "app_123", Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
