@@ -759,6 +759,7 @@ export const InteractionInference: FC<{
             <Cell
               sx={{
                 ml: 2,
+                flexShrink: 0,
               }}
             >
               <Button
@@ -766,6 +767,10 @@ export const InteractionInference: FC<{
                 color="secondary"
                 size="small"
                 endIcon={<ReplayIcon />}
+                sx={{
+                  minWidth: 92,
+                  whiteSpace: "nowrap",
+                }}
                 onClick={() =>
                   onRegenerate(
                     interaction.id || "",
