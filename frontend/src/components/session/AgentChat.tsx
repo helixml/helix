@@ -129,9 +129,7 @@ const AgentChat: FC<AgentChatProps> = ({
           },
           pt: 1.25,
           pb: { xs: 1.25, sm: 1.75 },
-          borderTop: '1px solid',
-          borderColor: (theme) => getChatColors(theme).border,
-          backgroundColor: (theme) => alpha(getChatColors(theme).canvas, 0.96),
+          backgroundColor: (theme) => alpha(getChatColors(theme).canvas, 0.98),
         }}
       >
         <Box sx={{ width: '100%', maxWidth: 768, mx: 'auto' }}>

@@ -176,3 +176,83 @@ describe('RobustPromptInput active-turn controls', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('RobustPromptInput rich attachments', () => {
+  beforeEach(() => {
+    saveToHistory.mockClear()
+    clearDraft.mockClear()
+    pendingPrompts = []
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn((file: File) => `blob:${file.name}`),
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    })
+  })
+
+  it('previews and uploads pasted images and PDFs before sending agent-readable paths', async () => {
+    const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        onFileUpload={onFileUpload}
+      />,
+    )
+
+    const image = new File(['image'], 'diagram.png', { type: 'image/png' })
+    const pdf = new File(['pdf'], 'requirements.pdf', { type: 'application/pdf' })
+    const textarea = screen.getByPlaceholderText('Send message to agent...')
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [image, pdf],
+        items: [],
+        getData: () => '',
+      },
+    })
+
+    expect(await screen.findByRole('button', { name: 'Preview diagram.png' })).toBeInTheDocument()
+    expect(screen.getByText('requirements.pdf')).toBeInTheDocument()
+    await waitFor(() => expect(onFileUpload).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(saveToHistory).toHaveBeenCalledWith(
+      [
+        'Attachments available in the agent workspace:',
+        '- Image: `/home/retro/work/incoming/diagram.png`',
+        '- File: `/home/retro/work/incoming/requirements.pdf`',
+      ].join('\n'),
+      false,
+    )
+  })
+
+  it('keeps a failed upload visible and blocks send until it is retried', async () => {
+    const onFileUpload = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('/home/retro/work/incoming/notes.pdf')
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        onFileUpload={onFileUpload}
+      />,
+    )
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(input).toBeTruthy()
+    fireEvent.change(input!, {
+      target: { files: [new File(['pdf'], 'notes.pdf', { type: 'application/pdf' })] },
+    })
+
+    const retry = await screen.findByRole('button', { name: 'Retry upload notes.pdf' })
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+    fireEvent.click(retry)
+
+    await waitFor(() => expect(onFileUpload).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
+  })
+})
