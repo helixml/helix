@@ -163,7 +163,7 @@ Add chat-scoped semantic tokens rather than changing the global MUI palette.
 |---|---|---|
 | `chat.canvas` | `#0a0a0a` | transcript and composer dock |
 | `chat.text` | `#f5f5f5` | user message text |
-| `chat.assistantText` | `rgba(245,245,245,0.80)` | assistant markdown |
+| `chat.assistantText` | `rgba(245,245,245,0.80)` | assistant markdown; the opacity is applied at the message container so nested Markdown inherits it consistently |
 | `chat.mutedText` | `#818181` | timestamps and secondary metadata |
 | `chat.userBubble` | `rgba(255,255,255,0.04)` | user bubble |
 | `chat.raised` | `rgba(255,255,255,0.03)` | composer surface |

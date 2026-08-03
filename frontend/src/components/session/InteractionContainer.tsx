@@ -44,6 +44,11 @@ export const InteractionContainer: FC<{
               ? '#0d0d0d'
               : theme.palette.background.default
             : 'transparent',
+        color: isChatMessage
+          ? assistant
+            ? chatColors.assistantForeground
+            : chatColors.foreground
+          : undefined,
         border: isChatMessage ? 'none' : border ? '1px solid #33373a' : 'none',
         // User messages: fit content but don't exceed container width
         // Assistant messages: take full width
