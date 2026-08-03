@@ -31,10 +31,13 @@ describe("ActivitySummary", () => {
     expect(screen.queryByText("all activity")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show work log" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show work log" }));
+    fireEvent.click(screen.getByText("Worked for 2m 5s"));
 
     expect(screen.getByText("all activity")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Hide work log" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide work log" }));
+    expect(screen.queryByText("all activity")).not.toBeInTheDocument();
   });
 
   it("shows the live working label and activity indicator", () => {

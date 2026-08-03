@@ -66,15 +66,29 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
     setExpanded((value) => !value);
   };
 
+  const handleHeaderKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (!hasActivity || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    toggleExpanded();
+  };
+
   return (
     <Box sx={{ my: 0.75 }}>
       <Box
+        onClick={hasActivity ? toggleExpanded : undefined}
+        onKeyDown={handleHeaderKeyDown}
+        role={hasActivity ? "button" : undefined}
+        tabIndex={hasActivity ? 0 : undefined}
         sx={{
           display: "flex",
           alignItems: "center",
           gap: 0.5,
           minHeight: 24,
+          cursor: hasActivity ? "pointer" : "default",
           color: textColor,
+          "&:focus-visible": hasActivity
+            ? { outline: "1px solid currentColor", outlineOffset: 2 }
+            : undefined,
         }}
       >
         {isStreaming && <StreamingIndicator />}
@@ -94,7 +108,10 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
         {hasActivity && (
           <IconButton
             size="small"
-            onClick={toggleExpanded}
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleExpanded();
+            }}
             aria-expanded={expanded}
             aria-label={expanded ? "Hide work log" : "Show work log"}
             sx={{
