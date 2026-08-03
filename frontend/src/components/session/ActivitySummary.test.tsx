@@ -43,7 +43,7 @@ describe("ActivitySummary", () => {
   it("shows the live working label and activity indicator", () => {
     renderSummary(true);
 
-    expect(screen.getByText("Working… 2m 5s")).toBeInTheDocument();
+    expect(screen.getByText("Working for 2m 5s")).toBeInTheDocument();
     expect(screen.getByTestId("streaming-indicator")).toBeInTheDocument();
   });
 });

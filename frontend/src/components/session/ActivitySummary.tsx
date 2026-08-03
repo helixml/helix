@@ -82,7 +82,7 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
         sx={{
           display: "flex",
           alignItems: "center",
-          gap: 0.5,
+          gap: 1,
           minHeight: 24,
           cursor: hasActivity ? "pointer" : "default",
           color: textColor,
@@ -102,7 +102,7 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
           }}
         >
           {isStreaming
-            ? `Working… ${formatActivityDuration(elapsedMs)}`
+            ? `Working for ${formatActivityDuration(elapsedMs)}`
             : `Worked for ${formatActivityDuration(elapsedMs)}`}
         </Typography>
         {hasActivity && (

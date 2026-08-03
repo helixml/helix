@@ -45,6 +45,7 @@ export const WorkLog: FC<WorkLogProps> = ({ entries, showAll = false }) => {
             color: isDark ? "rgba(255,255,255,0.5)" : "text.secondary",
             fontWeight: 600,
             letterSpacing: "0.01em",
+            fontFamily: "monospace",
           }}
         >
           Work Log
@@ -86,7 +87,8 @@ export const WorkLog: FC<WorkLogProps> = ({ entries, showAll = false }) => {
               minHeight: 24,
               px: 0.5,
               color: isDark ? "rgba(255,255,255,0.65)" : "text.secondary",
-              fontSize: "0.72rem",
+              fontSize: "0.76rem",
+              fontFamily: "monospace",
               textTransform: "none",
               "&:hover": { backgroundColor: "transparent" },
             }}
@@ -110,7 +112,12 @@ export const WorkLog: FC<WorkLogProps> = ({ entries, showAll = false }) => {
       >
         <Typography
           variant="caption"
-          sx={{ flex: 1, fontWeight: 600, letterSpacing: "0.01em" }}
+          sx={{
+            flex: 1,
+            fontWeight: 600,
+            letterSpacing: "0.01em",
+            fontFamily: "monospace",
+          }}
         >
           Work Log
         </Typography>
@@ -123,7 +130,8 @@ export const WorkLog: FC<WorkLogProps> = ({ entries, showAll = false }) => {
             minHeight: 24,
             px: 0.5,
             color: "inherit",
-            fontSize: "0.72rem",
+            fontSize: "0.76rem",
+            fontFamily: "monospace",
             textTransform: "none",
             "&:hover": { backgroundColor: "transparent" },
           }}
