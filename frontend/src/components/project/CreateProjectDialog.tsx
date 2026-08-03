@@ -134,7 +134,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   // Fetch GitHub repos when connected with repo scope
   const { data: githubReposData, isLoading: githubReposLoading, isFetching: githubReposFetching, error: githubReposError } =
     useListOAuthConnectionRepositories(
-      githubHasRepoScope && externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub
+      open && repoMode === 'link' && githubHasRepoScope && externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub
         ? (githubConnection?.id || '')
         : ''
     )

@@ -49,11 +49,10 @@ import {
   Pin,
   PinOff,
   Search,
-  Image,
   Paperclip,
   FileText,
   Camera,
-  StopCircle,
+  Square,
 } from 'lucide-react'
 import {
   DndContext,
@@ -74,6 +73,8 @@ import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
+import ImageLightbox, { LightboxImage } from '../session/ImageLightbox'
+import { getChatColors } from '../session/chatStyles'
 
 // Attachment that's pending to be sent with the message
 // Supports offline queueing - file data is stored until upload completes
@@ -519,6 +520,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const [isRestartingAgent, setIsRestartingAgent] = useState(false)
   // Pending attachments that will be sent with the message
   const [attachments, setAttachments] = useState<PendingAttachment[]>([])
+  const [selectedAttachmentImageIndex, setSelectedAttachmentImageIndex] = useState<number | null>(null)
   const [isUploading, setIsUploading] = useState(false)
 
   // Use onFileUpload if provided, otherwise fall back to onImagePaste for backwards compat
@@ -1001,7 +1003,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       previewUrl = URL.createObjectURL(file)
     }
 
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const id = crypto.randomUUID()
     const attachment: PendingAttachment = {
       id,
       name: file.name,
@@ -1216,12 +1218,23 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   })
   const sentHistory = history.filter(h => h.status === 'sent')
   const hasHistory = sentHistory.length > 0
+  const imageAttachments = attachments.filter(
+    (attachment) => attachment.type === 'image' && attachment.previewUrl,
+  )
+  const attachmentLightboxImages: LightboxImage[] = imageAttachments.map((attachment) => ({
+    src: attachment.previewUrl!,
+    name: attachment.name,
+  }))
 
   return (
     <Box
       className="prompt-input-container"
       data-prompt-input="true"
-      sx={{ position: 'relative', width: '100%', minWidth: 0 }}
+      sx={{
+        position: 'relative',
+        width: '100%',
+        minWidth: 0,
+      }}
     >
       {/* Queued messages display. Only rendered when this is an authoritative
           backend-backed queue (spec-task). For plain sessions (org-chat,
@@ -1354,16 +1367,88 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           sx={{
             display: 'flex',
             flexWrap: 'wrap',
-            gap: 0.75,
+            alignItems: 'center',
+            gap: 1,
             mb: 1,
-            p: 1,
-            borderRadius: 1.5,
-            border: '1px solid',
-            borderColor: 'divider',
-            bgcolor: (theme) => alpha(theme.palette.background.paper, 0.5),
           }}
         >
-          {attachments.map((attachment) => (
+          {imageAttachments.map((attachment, imageIndex) => (
+            <Box
+              key={attachment.id}
+              sx={{
+                width: 64,
+                height: 64,
+                position: 'relative',
+                borderRadius: 1,
+                overflow: 'hidden',
+                border: '1px solid',
+                borderColor: attachment.uploadStatus === 'failed'
+                  ? 'error.main'
+                  : attachment.uploadStatus === 'uploaded'
+                    ? 'divider'
+                    : 'warning.main',
+                bgcolor: 'background.paper',
+              }}
+            >
+              <Box
+                component="button"
+                type="button"
+                onClick={() => setSelectedAttachmentImageIndex(imageIndex)}
+                aria-label={`Preview ${attachment.name}`}
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  p: 0,
+                  border: 0,
+                  background: 'transparent',
+                  cursor: 'zoom-in',
+                }}
+              >
+                <Box
+                  component="img"
+                  src={attachment.previewUrl}
+                  alt={attachment.name}
+                  sx={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }}
+                />
+              </Box>
+              {attachment.uploadStatus !== 'uploaded' && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    pointerEvents: 'none',
+                    bgcolor: 'rgba(0,0,0,0.46)',
+                    color: '#fff',
+                  }}
+                >
+                  {attachment.uploadStatus === 'failed'
+                    ? <CircleAlert size={18} />
+                    : <CircularProgress size={18} sx={{ color: '#fff' }} />}
+                </Box>
+              )}
+              <IconButton
+                size="small"
+                onClick={() => removeAttachment(attachment.id)}
+                aria-label={`Remove ${attachment.name}`}
+                sx={{
+                  position: 'absolute',
+                  top: 3,
+                  right: 3,
+                  width: 20,
+                  height: 20,
+                  color: '#fff',
+                  bgcolor: 'rgba(0,0,0,0.64)',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,0.82)' },
+                }}
+              >
+                <X size={13} />
+              </IconButton>
+            </Box>
+          ))}
+          {attachments.filter((attachment) => attachment.type !== 'image').map((attachment) => (
             <Chip
               key={attachment.id}
               size="small"
@@ -1372,23 +1457,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                   <CircularProgress size={14} sx={{ ml: 0.5 }} />
                 ) : attachment.uploadStatus === 'failed' ? (
                   <CircleAlert size={16} />
-                ) : attachment.type === 'image' ? (
-                  attachment.previewUrl ? (
-                    <Box
-                      component="img"
-                      src={attachment.previewUrl}
-                      alt=""
-                      sx={{
-                        width: 20,
-                        height: 20,
-                        objectFit: 'cover',
-                        borderRadius: 0.5,
-                        ml: 0.5,
-                      }}
-                    />
-                  ) : (
-                    <Image size={16} />
-                  )
                 ) : attachment.type === 'text' ? (
                   <FileText size={16} />
                 ) : (
@@ -1435,19 +1503,26 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         </Box>
       )}
 
+      <ImageLightbox
+        images={attachmentLightboxImages}
+        initialIndex={selectedAttachmentImageIndex ?? 0}
+        open={selectedAttachmentImageIndex !== null}
+        onClose={() => setSelectedAttachmentImageIndex(null)}
+      />
+
       {/* Input container */}
       <Box
         sx={{
           display: 'flex',
           flexDirection: 'column',
-          bgcolor: 'background.paper',
+          bgcolor: (theme) => getChatColors(theme).surface,
           borderRadius: 2,
           border: '1px solid',
           borderColor: !isOnline
             ? 'warning.main'
             : historyIndex >= 0
               ? 'info.main'
-              : 'divider',
+              : (theme) => getChatColors(theme).borderStrong,
           transition: 'border-color 0.2s, box-shadow 0.2s',
           boxShadow: !isOnline
             ? (theme) => `0 0 0 2px ${alpha(theme.palette.warning.main, 0.2)}`
@@ -1455,8 +1530,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               ? (theme) => `0 0 0 2px ${alpha(theme.palette.info.main, 0.2)}`
               : 'none',
           '&:focus-within': {
-            borderColor: 'primary.main',
-            boxShadow: (theme) => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.2)}`,
+            borderColor: (theme) => getChatColors(theme).borderStrong,
+            boxShadow: (theme) => `0 0 0 1px ${getChatColors(theme).borderStrong}`,
           },
           p: 1,
         }}
@@ -1485,8 +1560,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             bgcolor: isDraggingOver ? (theme) => alpha(theme.palette.primary.main, 0.08) : 'transparent',
             color: 'text.primary',
             fontFamily: 'inherit',
-            fontSize: '0.875rem',
-            lineHeight: 1.5,
+            fontSize: { xs: '1rem', sm: '0.875rem' },
+            lineHeight: 1.55,
             p: 0.5,
             minHeight: 50,
             maxHeight: maxHeight,
@@ -1614,6 +1689,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             <IconButton
               size="small"
               onClick={() => setInterruptMode(!interruptMode)}
+              aria-label={interruptMode ? 'Switch to queue mode' : 'Switch to interrupt mode'}
+              aria-pressed={interruptMode}
               sx={{
                 flexShrink: 0,
                 color: interruptMode ? 'warning.main' : 'info.main',
@@ -1639,20 +1716,23 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
           {/* Cancel button - visible when agent is busy */}
           {isAgentBusy && onCancel && (
-            <Tooltip title="Cancel current turn">
+            <Tooltip title="Interrupt current turn">
               <IconButton
                 onClick={onCancel}
+                aria-label="Interrupt current turn"
                 sx={{
                   flexShrink: 0,
-                  width: 30,
-                  height: 30,
-                  color: 'warning.main',
+                  width: 32,
+                  height: 32,
+                  color: '#fff',
+                  bgcolor: 'error.main',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.28)',
                   '&:hover': {
-                    bgcolor: (theme) => alpha(theme.palette.warning.main, 0.1),
+                    bgcolor: 'error.dark',
                   },
                 }}
               >
-                <StopCircle size={18} />
+                <Square size={12} fill="currentColor" strokeWidth={0} />
               </IconButton>
             </Tooltip>
           )}
@@ -1676,6 +1756,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                   <IconButton
                     onClick={handleSend}
                     disabled={!canSend}
+                    aria-label="Send message"
                     color={canSend ? 'secondary' : 'primary'}
                     sx={{
                       flexShrink: 0,

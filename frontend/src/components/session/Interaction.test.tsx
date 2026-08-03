@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Interaction } from "./Interaction";
+import { TypesInteractionState } from "../../api/api";
 
 vi.mock("./InteractionContainer", () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -66,5 +67,24 @@ describe("Interaction debug copy placement", () => {
 
     expect(screen.getByRole("button", { name: "user debug copy" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "agent debug copy" })).not.toBeInTheDocument();
+  });
+
+  it("marks a waiting turn as viewport-anchored", () => {
+    const { container } = render(
+      <Interaction
+        {...baseProps}
+        anchorToViewport
+        interaction={{
+          id: "int_waiting",
+          prompt_message: "Question",
+          state: TypesInteractionState.InteractionStateWaiting,
+        }}
+      />,
+    );
+
+    expect(container.querySelector('[data-active-chat-turn="true"]')).toHaveAttribute(
+      "data-chat-turn",
+      "int_waiting",
+    );
   });
 });

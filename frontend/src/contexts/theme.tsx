@@ -3,6 +3,7 @@ import { createTheme, ThemeProvider } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useApi from '../hooks/useApi'
 import { PaletteMode } from '@mui/material'
+import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY } from '../styles/typography'
 
 function getInitialMode(): PaletteMode {
   if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light'
@@ -93,7 +94,8 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
       },
       typography: {
-        fontFamily: "IBM Plex Sans, Helvetica, Arial, sans-serif",
+        fontFamily: APP_FONT_FAMILY,
+        fontFamilyMono: APP_MONO_FONT_FAMILY,
         fontSize: 14,
         // Light mode is often viewed in sunlight — bump weights for readability.
         ...(isLight && {
@@ -111,9 +113,20 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       components: {
         MuiCssBaseline: {
           styleOverrides: {
+            html: {
+              fontFamily: APP_FONT_FAMILY,
+              WebkitFontSmoothing: 'auto',
+              MozOsxFontSmoothing: 'auto',
+            },
             body: {
+              fontFamily: APP_FONT_FAMILY,
+              WebkitFontSmoothing: 'auto',
+              MozOsxFontSmoothing: 'auto',
               backgroundColor: bg,
               ...scrollbarStyles,
+            },
+            'button, input, optgroup, select, textarea': {
+              fontFamily: 'inherit',
             },
             '*': scrollbarStyles,
           },

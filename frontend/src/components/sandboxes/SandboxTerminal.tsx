@@ -39,14 +39,8 @@ interface Props {
 
 const sessionStorageKey = (sandboxId: string) => `helix.sandbox.${sandboxId}.terminalSession`
 
-const generateSessionName = (): string => {
-  // crypto.randomUUID is available in modern browsers; fall back to a
-  // timestamp+random string for older environments.
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID().replace(/-/g, '').slice(0, 12)
-  }
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-}
+const generateSessionName = (): string =>
+  crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 
 const readStoredSession = (sandboxId: string): string | undefined => {
   try {

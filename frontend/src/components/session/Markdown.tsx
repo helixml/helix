@@ -30,6 +30,7 @@ import ThinkingWidget from "./ThinkingWidget";
 
 // Import chat stats collector for performance monitoring
 import { getGlobalStatsCollector } from "./ChatStatsOverlay";
+import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any;
 
@@ -1030,8 +1031,20 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   return (
     <>
       <Box
+        data-chat-markdown
         sx={{
-          fontSize: "0.9rem",
+          fontSize: "0.875rem",
+          lineHeight: 1.625,
+          "& .interactionMessage > *": {
+            marginTop: 0,
+            marginBottom: 0,
+          },
+          "& .interactionMessage > * + *": {
+            marginTop: 1.75,
+          },
+          "& + [data-chat-markdown]": {
+            marginTop: 1.75,
+          },
           "& pre": {
             padding: "1em",
             borderRadius: "4px",
@@ -1044,7 +1057,8 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           },
           "& code": {
             backgroundColor: "transparent",
-            fontSize: "0.9rem",
+            fontSize: "0.875rem",
+            fontFamily: APP_MONO_FONT_FAMILY,
           },
           "& :not(pre) > code": {
             backgroundColor: theme.palette.mode === "light" ? "#ccc" : "#333",

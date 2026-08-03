@@ -76,7 +76,6 @@ import {
   useGetSession,
   GET_SESSION_QUERY_KEY,
 } from "../../services/sessionService";
-import { SESSION_TYPE_TEXT } from "../../types";
 import { isSpecTaskSwitchableAgent } from "../../utils/apps";
 import {
   useUpdateSpecTask,
@@ -99,11 +98,8 @@ import SpecTaskShareDialog from "./SpecTaskShareDialog";
 import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
-import RobustPromptInput from "../common/RobustPromptInput";
 import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
-import EmbeddedSessionView, {
-  EmbeddedSessionViewHandle,
-} from "../session/EmbeddedSessionView";
+import AgentChat from "../session/AgentChat";
 import SwitchAgentControl from "../session/SwitchAgentControl";
 import SharePreviewSection from "./SharePreviewSection";
 import {
@@ -350,8 +346,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     [currentView, router, syncViewWithUrl],
   );
 
-  // Ref for EmbeddedSessionView to trigger scroll on height changes
-  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null);
 
   // Design review state
   const [docViewerOpen, setDocViewerOpen] = useState(false);
@@ -596,20 +590,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId, isDesktopRunning, isSessionPaused]);
 
-  const isAgentBusy = useMemo(() => {
-    const interactions = sessionData?.interactions;
-    if (!interactions || interactions.length === 0) return false;
-    return interactions[interactions.length - 1].state === 'waiting';
-  }, [sessionData?.interactions]);
-
-  const handleCancelTurn = useCallback(async () => {
-    if (!activeSessionId) return;
-    try {
-      await api.getApiClient().v1SessionsCancelCreate(activeSessionId);
-    } catch (error: any) {
-      snackbar.error(error?.message || "Failed to cancel");
-    }
-  }, [activeSessionId, api, snackbar]);
   const taskMetadataError =
     typeof task?.metadata?.error === "string" ? task.metadata.error : "";
 
@@ -1978,37 +1958,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     </IconButton>
                   </Tooltip>
                 </Box>
-                <EmbeddedSessionView
-                  ref={sessionViewRef}
+                <AgentChat
                   sessionId={activeSessionId}
+                  specTaskId={task.id}
+                  projectId={task.project_id}
                   enableInteractionDebugCopy
+                  onWillSend={handleWillSend}
+                  placeholder={
+                    sessionData?.config?.paused
+                      ? "This session is paused — open the forked child to keep chatting"
+                      : "Send message to agent..."
+                  }
+                  disabled={!!sessionData?.config?.paused}
                 />
-                <Box sx={{ p: 1.5, flexShrink: 0 }}>
-                  <RobustPromptInput
-                    sessionId={activeSessionId}
-                    specTaskId={task.id}
-                    projectId={task.project_id}
-                    apiClient={api.getApiClient()}
-                    onSend={async (message: string, interrupt?: boolean) => {
-                      await streaming.NewInference({
-                        type: SESSION_TYPE_TEXT,
-                        message,
-                        sessionId: activeSessionId,
-                        interrupt: interrupt ?? true,
-                      });
-                    }}
-                    onWillSend={handleWillSend}
-                    onHeightChange={() =>
-                      sessionViewRef.current?.scrollToBottom()
-                    }
-                    placeholder={
-                      sessionData?.config?.paused
-                        ? "This session is paused — open the forked child to keep chatting"
-                        : "Send message to agent..."
-                    }
-                    disabled={!!sessionData?.config?.paused}
-                  />
-                </Box>
               </Box>
             </Panel>
 
@@ -2794,44 +2756,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     </Box>
                   );
                 })()}
-                <EmbeddedSessionView
-                  ref={sessionViewRef}
+                <AgentChat
                   sessionId={activeSessionId}
+                  specTaskId={task.id}
+                  projectId={task.project_id}
                   enableInteractionDebugCopy
+                  onWillSend={handleWillSend}
+                  placeholder={
+                    sessionData?.config?.paused
+                      ? "This session is paused — open the forked child to keep chatting"
+                      : "Send message to agent..."
+                  }
+                  disabled={!!sessionData?.config?.paused}
                 />
-                <Box
-                  sx={{
-                    p: 1.5,
-                    flexShrink: 0,
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 1,
-                  }}
-                >
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <RobustPromptInput
-                      sessionId={activeSessionId}
-                      specTaskId={task.id}
-                      projectId={task.project_id}
-                      apiClient={api.getApiClient()}
-                      onSend={async (message: string, interrupt?: boolean) => {
-                        await streaming.NewInference({
-                          type: SESSION_TYPE_TEXT,
-                          message,
-                          sessionId: activeSessionId,
-                          interrupt: interrupt ?? true,
-                        });
-                      }}
-                      onWillSend={handleWillSend}
-                      onHeightChange={() =>
-                        sessionViewRef.current?.scrollToBottom()
-                      }
-                      placeholder="Send message to agent..."
-                      onCancel={activeSessionId ? handleCancelTurn : undefined}
-                      isAgentBusy={isAgentBusy}
-                    />
-                  </Box>
-                </Box>
               </Box>
             )}
 

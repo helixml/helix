@@ -1,8 +1,8 @@
 // Left-rail chat for the helix-org shell — same building blocks as the
-// spec-task chat (EmbeddedSessionView + RobustPromptInput), scoped to one
+// spec-task chat (AgentChat), scoped to one
 // bot at a time. Header shows which bot you are talking to.
 
-import { FC, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FC, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -20,18 +20,13 @@ import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import StopIcon from '@mui/icons-material/Stop'
 
-import RobustPromptInput from '../common/RobustPromptInput'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
-import SessionPromptQueue from '../session/SessionPromptQueue'
-import EmbeddedSessionView, {
-  EmbeddedSessionViewHandle,
-} from '../session/EmbeddedSessionView'
+import AgentChat from '../session/AgentChat'
 import useApi from '../../hooks/useApi'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useStreaming } from '../../contexts/streaming'
-import { SESSION_TYPE_TEXT } from '../../types'
 import {
   BotDTO,
   useActivateBot,
@@ -126,7 +121,6 @@ const HelixOrgChatPanel: FC = () => {
 
   const [chatSessionId, setChatSessionId] = useState<string | null>(null)
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
-  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
 
   const chatApi: WorkerChatReader = useMemo(() => ({
     getExploratorySession: async (pid: string) => {
@@ -244,7 +238,7 @@ const HelixOrgChatPanel: FC = () => {
           justifyContent: 'center',
           gap: 0.25,
           flexShrink: 0,
-          backgroundColor: 'background.paper',
+          backgroundColor: 'background.default',
         }}
       >
         <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
@@ -420,34 +414,14 @@ const HelixOrgChatPanel: FC = () => {
             )}
           </Box>
         ) : view === 'chat' ? (
-          <>
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <EmbeddedSessionView
-                ref={sessionViewRef}
-                sessionId={chatSessionId}
-                autoScrollOnMount
-                enableInteractionDebugCopy
-              />
-            </Box>
-            <SessionPromptQueue sessionId={chatSessionId} />
-            <Box sx={{ p: 1.5, flexShrink: 0 }}>
-              <RobustPromptInput
-                sessionId={chatSessionId}
-                projectId={projectID}
-                apiClient={api.getApiClient()}
-                onSend={async (message: string, interrupt?: boolean) => {
-                  await streaming.NewInference({
-                    type: SESSION_TYPE_TEXT,
-                    message,
-                    sessionId: chatSessionId,
-                    interrupt: interrupt ?? true,
-                  })
-                }}
-                onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
-                placeholder={`Message ${selectedBot?.name || selectedBotId}…`}
-              />
-            </Box>
-          </>
+          <AgentChat
+            sessionId={chatSessionId}
+            projectId={projectID}
+            autoScrollOnMount
+            enableInteractionDebugCopy
+            showSessionPromptQueue
+            placeholder={`Message ${selectedBot?.name || selectedBotId}…`}
+          />
         ) : (
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <ExternalAgentDesktopViewer

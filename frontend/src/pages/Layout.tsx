@@ -52,6 +52,7 @@ import useThemeConfig from "../hooks/useThemeConfig";
 import useIsBigScreen from "../hooks/useIsBigScreen";
 import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
+import { LIGHT_SIDEBAR_COLORS } from "../styles/themeTokens";
 
 // Admin and Connected Services are rendered as full-screen dialog overlays
 // so the user stays within their current org-scoped URL
@@ -579,8 +580,8 @@ const Layout: FC<{
           onClose={() => account.setMobileMenuOpen(false)}
           PaperProps={{
             sx: {
-              background: lightTheme.backgroundColor,
-              backgroundColor: lightTheme.backgroundColor,
+              background: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.background : lightTheme.backgroundColor,
+              backgroundColor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.background : lightTheme.backgroundColor,
               // For mobile (temporary), let MUI handle positioning (fixed)
               // For desktop (permanent), use relative positioning
               position: isBigScreen ? "relative" : undefined,
@@ -632,11 +633,11 @@ const Layout: FC<{
                 py: 0,
                 ...(shouldShowSidebar
                   ? {
-                      borderRight: lightTheme.border,
-                      bgcolor: lightTheme.backgroundColor,
+                      borderRight: lightTheme.isLight ? `1px solid ${LIGHT_SIDEBAR_COLORS.border}` : lightTheme.border,
+                      bgcolor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.background : lightTheme.backgroundColor,
                     }
                   : {
-                      bgcolor: lightTheme.backgroundColor,
+                      bgcolor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.background : lightTheme.backgroundColor,
                     }),
               }}
             >

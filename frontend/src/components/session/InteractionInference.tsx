@@ -1,5 +1,4 @@
 import React, { FC, useState, useEffect, useMemo } from "react";
-import { styled } from "@mui/system";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -12,6 +11,7 @@ import Markdown from "./Markdown";
 import WorkLog from "./WorkLog";
 import ActivitySummary from "./ActivitySummary";
 import { getInteractionDurationMs } from "./interactionDuration";
+import ImageLightbox, { LightboxImage } from "./ImageLightbox";
 
 /**
  * A structured response entry from the Go API.
@@ -45,27 +45,6 @@ import { useUpdateInteractionFeedback } from "../../services/interactionsService
 import { TypesServerConfigForFrontend } from "../../api/api";
 
 import { TypesInteraction, TypesSession, TypesFeedback } from "../../api/api";
-
-const GeneratedImage = styled("img")({
-  cursor: "pointer",
-  transition: "transform 0.2s ease-in-out",
-  "&:hover": {
-    transform: "scale(1.05)",
-  },
-});
-
-const ImagePreview = styled("img")({
-  height: "150px",
-  width: "150px",
-  objectFit: "cover",
-  border: "1px solid #000000",
-  borderRadius: "4px",
-  cursor: "pointer",
-  transition: "transform 0.2s ease-in-out",
-  "&:hover": {
-    transform: "scale(1.05)",
-  },
-});
 
 /**
  * Renders a message that may contain tool call blocks.
@@ -316,7 +295,8 @@ export const InteractionInference: FC<{
   const router = useRouter();
   const [viewingError, setViewingError] = useState(false);
   const [viewingExport, setViewingExport] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
+  const [userMessageExpanded, setUserMessageExpanded] = useState(false);
   const [internalIsEditing, setInternalIsEditing] = useState(false);
   const [internalEditedMessage, setInternalEditedMessage] = useState(
     message || "",
@@ -364,6 +344,10 @@ export const InteractionInference: FC<{
     setCurrentFeedback(interaction.feedback);
   }, [interaction.feedback]);
 
+  useEffect(() => {
+    setUserMessageExpanded(false);
+  }, [interaction.id, message]);
+
   // Filter tool steps for this interaction
   const toolSteps = sessionSteps
     .filter((step) => step.interaction_id === interaction.id)
@@ -390,6 +374,9 @@ export const InteractionInference: FC<{
       .map((e: ResponseEntry) => e.content)
       .join("\n\n");
   }, [message, interaction]);
+  const shouldCollapseUserMessage = !isFromAssistant && !!message && (
+    message.length > 600 || message.split("\n").length > 8
+  );
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
   if (!interaction) return null;
@@ -401,32 +388,81 @@ export const InteractionInference: FC<{
     return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`;
   };
 
+  const lightboxImages: LightboxImage[] = imageURLs
+    .filter(() => !!account.user)
+    .map((imageURL, index) => {
+      const path = imageURL.split("?")[0];
+      const basename = path.split("/").pop();
+      let imageName = `Image ${index + 1}`;
+      if (basename && !basename.startsWith("data:")) {
+        try {
+          imageName = decodeURIComponent(basename);
+        } catch {
+          imageName = basename;
+        }
+      }
+      return {
+        src: getFileURL(imageURL),
+        name: imageName,
+      };
+    });
+
   return (
     <>
-      {serverConfig?.filestore_prefix &&
-        imageURLs
-          .filter((file) => {
-            return account.user ? true : false;
-          })
-          .map((imageURL: string) => {
-            const useURL = getFileURL(imageURL);
-            return (
+      {serverConfig?.filestore_prefix && lightboxImages.length > 0 && (
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: lightboxImages.length === 1
+              ? "minmax(0, 1fr)"
+              : "repeat(2, minmax(0, 1fr))",
+            gap: 1,
+            width: "min(100%, 420px)",
+            mb: message ? 1.25 : 0,
+          }}
+        >
+          {lightboxImages.map((image, index) => (
+            <Box
+              key={`${image.src}-${index}`}
+              component="button"
+              type="button"
+              onClick={() => setSelectedImageIndex(index)}
+              aria-label={`Preview ${image.name}`}
+              sx={{
+                p: 0,
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: 1,
+                overflow: "hidden",
+                background: "transparent",
+                cursor: "zoom-in",
+                minWidth: 0,
+                lineHeight: 0,
+                "&:hover img": { transform: "scale(1.02)" },
+                "&:focus-visible": {
+                  outline: "2px solid",
+                  outlineColor: "primary.main",
+                  outlineOffset: 2,
+                },
+              }}
+            >
               <Box
+                component="img"
+                src={image.src}
+                alt={image.name}
                 sx={{
-                  mb: 2,
-                  display: "flex",
-                  gap: 1,
+                  display: "block",
+                  width: "100%",
+                  height: lightboxImages.length === 1 ? "auto" : 180,
+                  maxHeight: 220,
+                  objectFit: "cover",
+                  transition: "transform 0.15s ease",
                 }}
-                key={useURL}
-              >
-                <ImagePreview
-                  src={useURL}
-                  onClick={() => setSelectedImage(useURL)}
-                  alt="Preview"
-                />
-              </Box>
-            );
-          })}
+              />
+            </Box>
+          ))}
+        </Box>
+      )}
       {toolSteps.length > 0 && isFromAssistant && (
         <ToolStepsWidget steps={toolSteps} />
       )}
@@ -486,17 +522,54 @@ export const InteractionInference: FC<{
                     },
                   }}
                 >
-                  <MessageWithToolCalls
-                    text={message || ""}
-                    responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
-                    session={session}
-                    getFileURL={getFileURL}
-                    showBlinker={false}
-                    isStreaming={false}
-                    durationMs={getInteractionDurationMs(interaction)}
-                    showActivitySummary={isFromAssistant}
-                    onFilterDocument={onFilterDocument}
-                  />
+                  <Box
+                    sx={{
+                      position: "relative",
+                      maxHeight: shouldCollapseUserMessage && !userMessageExpanded ? 176 : "none",
+                      overflow: shouldCollapseUserMessage && !userMessageExpanded ? "hidden" : "visible",
+                      "&::after": shouldCollapseUserMessage && !userMessageExpanded
+                        ? {
+                            content: '""',
+                            position: "absolute",
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: 48,
+                            pointerEvents: "none",
+                            background: (theme) => `linear-gradient(transparent, ${theme.palette.mode === "dark" ? "#1c1c1f" : "#f0f0f2"})`,
+                          }
+                        : undefined,
+                    }}
+                  >
+                    <MessageWithToolCalls
+                      text={message || ""}
+                      responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
+                      session={session}
+                      getFileURL={getFileURL}
+                      showBlinker={false}
+                      isStreaming={false}
+                      durationMs={getInteractionDurationMs(interaction)}
+                      showActivitySummary={isFromAssistant}
+                      onFilterDocument={onFilterDocument}
+                    />
+                  </Box>
+                  {shouldCollapseUserMessage && (
+                    <Button
+                      size="small"
+                      onClick={() => setUserMessageExpanded((expanded) => !expanded)}
+                      sx={{
+                        minHeight: 24,
+                        px: 0,
+                        mt: 0.5,
+                        textTransform: "none",
+                        color: "text.secondary",
+                        fontSize: "0.75rem",
+                        "&:hover": { background: "transparent", color: "text.primary" },
+                      }}
+                    >
+                      {userMessageExpanded ? "Show less" : "Show full message"}
+                    </Button>
+                  )}
                   {isFromAssistant && onRegenerate && (
                     <Box
                       className="action-buttons"
@@ -686,6 +759,7 @@ export const InteractionInference: FC<{
             <Cell
               sx={{
                 ml: 2,
+                flexShrink: 0,
               }}
             >
               <Button
@@ -693,6 +767,10 @@ export const InteractionInference: FC<{
                 color="secondary"
                 size="small"
                 endIcon={<ReplayIcon />}
+                sx={{
+                  minWidth: 92,
+                  whiteSpace: "nowrap",
+                }}
                 onClick={() =>
                   onRegenerate(
                     interaction.id || "",
@@ -728,33 +806,12 @@ export const InteractionInference: FC<{
           />
         </ExportDocument>
       )}
-      {selectedImage && (
-        <Box
-          sx={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            bgcolor: "rgba(0, 0, 0, 0.8)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
-          }}
-          onClick={() => setSelectedImage(null)}
-        >
-          <GeneratedImage
-            src={selectedImage}
-            sx={{
-              maxHeight: "90vh",
-              maxWidth: "90vw",
-              objectFit: "contain",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          />
-        </Box>
-      )}
+      <ImageLightbox
+        images={lightboxImages}
+        initialIndex={selectedImageIndex ?? 0}
+        open={selectedImageIndex !== null}
+        onClose={() => setSelectedImageIndex(null)}
+      />
     </>
   );
 };

@@ -13,8 +13,11 @@ const SlideMenuContainer: FC<SlideMenuContainerProps> = ({
     <Box
       sx={{
         width: '100%',
-        height: '100%', // Fixed height to fill available space
-        overflow: 'auto', // Prevent container from growing beyond parent
+        minWidth: 0,
+        height: '100%',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -24,4 +27,4 @@ const SlideMenuContainer: FC<SlideMenuContainerProps> = ({
   )
 }
 
-export default SlideMenuContainer 
+export default SlideMenuContainer

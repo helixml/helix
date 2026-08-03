@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, fireEvent, waitFor } from '@testing-library/react'
+import { render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
 
@@ -157,5 +157,22 @@ describe('RobustPromptInput client-side queue pump', () => {
     // Give the pump's 500ms/300ms timers room to (not) fire.
     await new Promise((r) => setTimeout(r, 800))
     expect(onSend).not.toHaveBeenCalled()
+  })
+})
+
+describe('RobustPromptInput active-turn controls', () => {
+  it('interrupts the current turn from the busy-state control', () => {
+    const onCancel = vi.fn()
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        isAgentBusy
+        onCancel={onCancel}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Interrupt current turn' }))
+    expect(onCancel).toHaveBeenCalledTimes(1)
   })
 })

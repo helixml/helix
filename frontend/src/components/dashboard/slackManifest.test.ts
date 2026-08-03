@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildManifest, BOT_EVENTS } from './slackManifest'
+import { DARK_APP_BACKGROUND } from '../../styles/themeTokens'
 
 const REDIRECT = 'https://helix.example/api/v1/slack/oauth/callback'
 const EVENTS = 'https://helix.example/api/v1/slack/events'
@@ -41,6 +42,11 @@ describe('buildManifest', () => {
       messages_tab_read_only_enabled: false,
     })
     expect(m.oauth_config.scopes.bot.length).toBeGreaterThan(0)
+  })
+
+  it('uses the application dark canvas for Slack branding', () => {
+    const m = JSON.parse(buildManifest('rest', REDIRECT, EVENTS))
+    expect(m.display_information.background_color).toBe(DARK_APP_BACKGROUND)
   })
 
   // Every subscribed message.* event must have its matching *:history scope

@@ -3,6 +3,8 @@
 // pure module so the manifest contract — the thing Slack validates — is
 // unit-testable without rendering the dialog.
 
+import { DARK_APP_BACKGROUND } from '../../styles/themeTokens'
+
 // Bot scopes the global app requests. The backend's defaultSlackBotScopes
 // (helix_org_slack.go) is authoritative — it's what the OAuth install
 // actually requests — so this manifest list must stay a superset of it.
@@ -64,9 +66,8 @@ export const buildManifest = (mode: 'rest' | 'socket', redirectURL: string, even
         'Mention a Worker or post in a connected channel and the right agent picks the message up, ' +
         'reads the surrounding thread, and replies right here in Slack — all backed by your own ' +
         'Helix deployment. Learn more at https://helix.ml.',
-      // Helix brand dark — matches the app icon background and the
-      // product's own theme (frontend/src/themes.tsx darkBackgroundColor).
-      background_color: '#121214',
+      // Keep generated Slack branding aligned with the application canvas.
+      background_color: DARK_APP_BACKGROUND,
     },
     features: {
       bot_user: { display_name: name, always_online: true },

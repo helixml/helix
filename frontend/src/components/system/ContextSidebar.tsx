@@ -9,6 +9,7 @@ import Box from '@mui/material/Box'
 
 import SlideMenuContainer from './SlideMenuContainer'
 import useLightTheme from '../../hooks/useLightTheme'
+import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
 
 export interface ContextSidebarItem {
   id: string
@@ -62,13 +63,13 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
         {section.items.map((item) => (
           <ListItem
             key={item.id}
+            data-context-sidebar-item={item.id}
             sx={{
-              borderRadius: '12px',
+              borderRadius: '8px',
               cursor: 'pointer',
-              mx: 1,
-              transition: 'all 0.2s ease-in-out',
-              '&:hover': {
-                backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
+              mb: 0.5,
+              '&:last-child': {
+                mb: 0,
               },
             }}
             disablePadding
@@ -77,34 +78,32 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
               selected={item.isActive}
               onClick={item.onClick}
               sx={{
-                borderRadius: '12px',
-                py: isCompact ? 0.875 : 1.25,
-                px: isCompact ? 1.5 : 2,
-                minHeight: isCompact ? 40 : 48,
+                borderRadius: '8px',
+                py: isCompact ? 0.875 : 0.75,
+                px: isCompact ? 1.5 : 1.25,
+                minHeight: isCompact ? 40 : 32,
                 '&.Mui-selected': {
-                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.08)',
+                  backgroundColor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.rowSelected : 'rgba(255, 255, 255, 0.08)',
                   '&:hover': {
-                    backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.10)' : 'rgba(255, 255, 255, 0.12)',
+                    backgroundColor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.rowSelected : 'rgba(255, 255, 255, 0.12)',
                   },
                 },
                 '&:hover': {
-                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
+                  backgroundColor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.rowHover : 'rgba(255, 255, 255, 0.05)',
                 },
               }}
             >
               <ListItemIcon
                 sx={{
-                  minWidth: isCompact ? 34 : 40,
-                  // Light mode = sunlit-iPad mode. Inactive icons go near-black,
-                  // not the default faded grey, so they survive glare.
+                  minWidth: isCompact ? 34 : 24,
                   color: item.isActive
-                    ? (lightTheme.isLight ? '#0e7490' : '#00E5FF')
-                    : (lightTheme.isLight ? '#000' : lightTheme.textColorFaded),
-                  transition: 'color 0.2s ease-in-out',
+                    ? (lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.foreground : '#00E5FF')
+                    : (lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.icon : lightTheme.textColorFaded),
+                  transition: 'color 150ms ease',
                   '& svg': {
-                    fontSize: isCompact ? 18 : 22,
-                    width: isCompact ? 18 : 22,
-                    height: isCompact ? 18 : 22,
+                    fontSize: isCompact ? 18 : 16,
+                    width: isCompact ? 18 : 16,
+                    height: isCompact ? 18 : 16,
                   },
                 }}
               >
@@ -113,16 +112,18 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
               <ListItemText
                 primary={item.label}
                 sx={{
+                  my: 0,
                   '& .MuiListItemText-primary': {
-                    transition: 'all 0.2s ease-in-out',
+                    transition: 'color 150ms ease',
                   }
                 }}
                 primaryTypographyProps={{
-                  fontSize: isCompact ? '0.78rem' : '0.85rem',
-                  fontWeight: item.isActive ? 700 : (lightTheme.isLight ? 700 : 500),
+                  fontSize: isCompact ? '0.78rem' : '0.875rem',
+                  lineHeight: 1.25,
+                  fontWeight: 500,
                   color: item.isActive
-                    ? lightTheme.textColor
-                    : (lightTheme.isLight ? '#000' : lightTheme.textColorFaded),
+                    ? (lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.foreground : lightTheme.textColor)
+                    : (lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.mutedForeground : lightTheme.textColorFaded),
                 }}
               />
             </ListItemButton>
@@ -136,16 +137,17 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
     <SlideMenuContainer menuType={menuType}>
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         {header && (
-          <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${lightTheme.border}` }}>
+          <Box sx={{ px: 2, py: 1.5, borderBottom: lightTheme.isLight ? `1px solid ${LIGHT_SIDEBAR_COLORS.border}` : lightTheme.border }}>
             {header}
           </Box>
         )}
         <List sx={{ 
-          py: 0, 
-          px: 1, 
+          p: 1,
           flexGrow: 1,
-          overflow: 'auto', // Enable scrollbar when content exceeds height
-          width: '100%', // Ensure it doesn't exceed container width
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          boxSizing: 'border-box',
+          width: '100%',
         }}>
           {sections.map((section, index) => renderSection(section, index))}
         </List>
@@ -154,4 +156,4 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
   )
 }
 
-export default ContextSidebar 
+export default ContextSidebar

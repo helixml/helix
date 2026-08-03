@@ -42,6 +42,7 @@ const AppBar: React.FC<{
       sx={{
         height,
         borderBottom: lightTheme.border,
+        backgroundColor: lightTheme.backgroundColor,
         width: '100%',
       }}
     >

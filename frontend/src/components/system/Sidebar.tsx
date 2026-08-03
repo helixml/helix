@@ -31,6 +31,7 @@ import SlideMenuContainer from './SlideMenuContainer'
 import SidebarContextHeader from './SidebarContextHeader'
 // import UnifiedSearchBar from '../common/UnifiedSearchBar'
 import { SidebarProvider, useSidebarContext } from '../../contexts/sidebarContext'
+import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
 
 
 const shimmer = keyframes`
@@ -246,8 +247,8 @@ const SidebarContentInner: React.FC<{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          borderRight: lightTheme.border,
-          backgroundColor: lightTheme.backgroundColor,
+          borderRight: lightTheme.isLight ? `1px solid ${LIGHT_SIDEBAR_COLORS.border}` : lightTheme.border,
+          backgroundColor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.background : lightTheme.backgroundColor,
           width: '100%',
         }}
       >
@@ -377,11 +378,13 @@ const SidebarContentInner: React.FC<{
           sx={{
             flexGrow: 1,
             width: '100%',
-            height: '100%', // Fixed height to fill available space
-            overflow: 'auto', // Enable scrollbar when content exceeds height
-            boxShadow: 'none', // Remove shadow for a more flat/minimalist design
-            borderRight: 'none', // Remove the border if present
-            mr: 3,
+            minWidth: 0,
+            height: '100%',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            boxSizing: 'border-box',
+            boxShadow: 'none',
+            borderRight: 'none',
             mt: 1,
             ...lightTheme.scrollbar,
           }}
