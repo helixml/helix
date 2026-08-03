@@ -7,20 +7,16 @@ import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
 import Stack from '@mui/material/Stack'
-import TextField from '@mui/material/TextField'
-import CircularProgress from '@mui/material/CircularProgress'
 import ReactMarkdown from 'react-markdown'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink, MessageSquare, CornerUpLeft } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink, MessageSquare } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
-import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useAttentionEvents, AttentionEvent, AttentionEventType } from '../../hooks/useAttentionEvents'
 import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
 import { useNavigationHistory, NavHistoryEntry } from '../../hooks/useNavigationHistory'
 import router from '../../router'
-import { Api } from '../../api/api'
 
 interface GlobalNotificationsProps {
   organizationId?: string
@@ -42,26 +38,6 @@ function eventIcon(eventType: AttentionEventType, color: string): React.ReactEle
 
 function timeAgoMs(ms: number): string {
   return timeAgo(new Date(ms).toISOString())
-}
-
-// replyToOrgMessage sends the human's reply to the bot that asked (via
-// ask_human) without leaving the notification. It resolves the bot's
-// exploratory session (bot → project → session) and posts the reply there —
-// the same session the agent runs in, so it lands as the agent's next turn.
-async function replyToOrgMessage(
-  apiClient: Api<unknown>['api'],
-  event: AttentionEvent,
-  text: string,
-): Promise<void> {
-  const botId = (event.metadata as { bot_id?: string } | undefined)?.bot_id
-  if (!botId || !event.organization_id) throw new Error('missing bot or org on notification')
-  const bot = await apiClient.v1OrgsBotsDetail2(botId, event.organization_id)
-  const projectId = bot.data?.project_id
-  if (!projectId) throw new Error('could not resolve the bot’s project')
-  const session = await apiClient.v1ProjectsExploratorySessionDetail(projectId)
-  const sessionId = session.data?.id
-  if (!sessionId) throw new Error('the bot has no active session yet')
-  await apiClient.v1SessionsMessagesCreate(sessionId, { content: text, interrupt: true })
 }
 
 function eventAccentColor(eventType: AttentionEventType): string {
@@ -263,8 +239,7 @@ const AttentionEventItem: React.FC<{
   groupedWith?: AttentionEvent
   onNavigate: (event: AttentionEvent) => void
   onDismiss: (eventId: string) => void
-  onReplied: (eventId: string) => Promise<void>
-}> = ({ event, groupedWith, onNavigate, onDismiss, onReplied }) => {
+}> = ({ event, groupedWith, onNavigate, onDismiss }) => {
   const accentColor = eventAccentColor(event.event_type)
   // org_message (a bot messaging a person) has no spec task/project — its
   // headline is the title ("Message from …") and the body is the message.
@@ -272,12 +247,7 @@ const AttentionEventItem: React.FC<{
   const isAcknowledged = !!event.acknowledged_at && (!groupedWith || !!groupedWith.acknowledged_at)
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
-  const api = useApi()
   const account = useAccount()
-  const snackbar = useSnackbar()
-  const [replyOpen, setReplyOpen] = useState(false)
-  const [reply, setReply] = useState('')
-  const [sending, setSending] = useState(false)
 
   // Which org this org_message is from — several orgs each have a Chief of
   // Staff, so "Message from chief-of-staff" alone is ambiguous. Resolve the
@@ -287,41 +257,15 @@ const AttentionEventItem: React.FC<{
   )
   const orgName = orgForEvent?.display_name || orgForEvent?.name
 
-  // org_message (a bot's ask_human) is read and answered inline here — the
-  // message rendered as markdown, with a Respond form that posts the reply to
-  // the bot's session. Everything stays in the notification (no navigation),
-  // which keeps it usable on mobile / small screens.
   if (isOrgMessage) {
-    const sendReply = async () => {
-      const text = reply.trim()
-      if (!text || sending) return
-      setSending(true)
-      try {
-        await replyToOrgMessage(api.getApiClient(), event, text)
-        setReply('')
-        setReplyOpen(false)
-        // Keep the message in the panel, marked "Replied", so the user has a
-        // record it came through and was answered (don't dismiss it).
-        await onReplied(event.id)
-        snackbar.success('Reply sent')
-      } catch (e: any) {
-        snackbar.error(e?.message || 'Failed to send reply')
-      } finally {
-        setSending(false)
-      }
-    }
-    const meta = event.metadata as { bot_id?: string; no_reply?: unknown } | undefined
-    const isReplied = !!event.replied_at
-    // Informational messages (e.g. "Chief of Staff is starting up") carry
-    // no_reply and have no repliable session — render them read-only.
-    const canReply = !isReplied && !!meta?.bot_id && meta?.no_reply !== true && meta?.no_reply !== 'true'
+    const botId = typeof event.metadata?.bot_id === 'string' ? event.metadata.bot_id : ''
     return (
       <Box
         sx={{
           px: 1.5,
           py: 1.25,
           borderLeft: `3px solid ${accentColor}`,
-          ...(isReplied || isAcknowledged ? { opacity: 0.7 } : {}),
+          ...(isAcknowledged ? { opacity: 0.7 } : {}),
         }}
       >
         <Stack direction="row" alignItems="flex-start" spacing={1} sx={{ mb: 0.75 }}>
@@ -361,65 +305,20 @@ const AttentionEventItem: React.FC<{
         >
           <ReactMarkdown>{event.description || ''}</ReactMarkdown>
         </Box>
-        {isReplied && (
-          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 1, color: accentColor }}>
-            <CornerUpLeft size={12} />
-            <Typography variant="caption" sx={{ fontWeight: 600 }}>
-              Replied
-            </Typography>
-          </Stack>
-        )}
-        {canReply && (!replyOpen ? (
+        {botId && orgForEvent?.name && (
           <Button
+            component="a"
+            href={router.buildPath('helix_org_chart', { org_id: orgForEvent.name, bot_id: botId })}
             size="small"
-            startIcon={<CornerUpLeft size={13} />}
-            onClick={() => setReplyOpen(true)}
+            onClick={(e) => {
+              e.preventDefault()
+              onNavigate(event)
+            }}
             sx={{ mt: 1, textTransform: 'none' }}
           >
-            Respond
+            Open agent chat
           </Button>
-        ) : (
-          <Box sx={{ mt: 1 }}>
-            <TextField
-              fullWidth
-              multiline
-              minRows={2}
-              maxRows={6}
-              size="small"
-              autoFocus
-              placeholder="Type your reply…"
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault()
-                  void sendReply()
-                }
-              }}
-              disabled={sending}
-            />
-            <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 1 }}>
-              <Button
-                size="small"
-                onClick={() => { setReplyOpen(false); setReply('') }}
-                disabled={sending}
-                sx={{ textTransform: 'none' }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="contained"
-                size="small"
-                onClick={() => void sendReply()}
-                disabled={!reply.trim() || sending}
-                startIcon={sending ? <CircularProgress size={13} color="inherit" /> : undefined}
-                sx={{ textTransform: 'none' }}
-              >
-                {sending ? 'Sending…' : 'Send reply'}
-              </Button>
-            </Stack>
-          </Box>
-        ))}
+        )}
       </Box>
     )
   }
@@ -563,7 +462,6 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     events,
     newEvents,
     acknowledge,
-    markReplied,
     dismiss,
     snooze,
     dismissAll,
@@ -610,8 +508,16 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           isOrgMessage ? (event.description || '') : `${event.spec_task_name || ''} · ${event.project_name || ''}`,
           () => {
             acknowledge(event.id)
-            // org_message is read/replied inline in the panel — just mark read.
-            if (isOrgMessage) return
+            if (isOrgMessage) {
+              const botId = typeof event.metadata?.bot_id === 'string' ? event.metadata.bot_id : ''
+              const orgSlug = account.organizationTools?.organizations?.find(
+                (org) => org.id === event.organization_id,
+              )?.name
+              if (botId && orgSlug) {
+                router.navigate('helix_org_chart', { org_id: orgSlug, bot_id: botId })
+              }
+              return
+            }
             account.orgNavigate('project-task-detail', {
               id: event.project_id,
               taskId: event.spec_task_id,
@@ -637,10 +543,16 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     // Mark as read on explicit click
     acknowledge(event.id)
 
-    // org_message (a bot messaging a person) is read and replied to inline in
-    // the notification itself (see AttentionEventItem) — clicking the row just
-    // marks it read, no navigation.
-    if (event.event_type === 'org_message') return
+    if (event.event_type === 'org_message') {
+      const botId = typeof event.metadata?.bot_id === 'string' ? event.metadata.bot_id : ''
+      const orgSlug = account.organizationTools?.organizations?.find(
+        (org) => org.id === event.organization_id,
+      )?.name
+      if (botId && orgSlug) {
+        router.navigate('helix_org_chart', { org_id: orgSlug, bot_id: botId })
+      }
+      return
+    }
 
     // Don't close the panel — user wants to keep it open while working
     if (event.event_type === 'specs_pushed') {
@@ -670,10 +582,6 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleDismiss = useCallback((eventId: string) => {
     dismiss(eventId)
   }, [dismiss])
-
-  const handleReplied = useCallback((eventId: string) => {
-    return markReplied(eventId)
-  }, [markReplied])
 
   const handleDismissAll = useCallback(() => {
     dismissAll()
@@ -965,7 +873,6 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                         dismiss(group.secondary.id)
                         handleDismiss(id)
                       }}
-                      onReplied={handleReplied}
                     />
                   )
                 }
@@ -975,7 +882,6 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                     event={group.event}
                     onNavigate={handleNavigate}
                     onDismiss={handleDismiss}
-                    onReplied={handleReplied}
                   />
                 )
               })}
