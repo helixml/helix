@@ -72,26 +72,6 @@ func (k *HelixAPIKeys) Service(ctx context.Context, orgID string) (string, error
 		return "", fmt.Errorf("organization owner %s not found", org.Owner)
 	}
 
-	// Grant the alpha-feature flag to the service owner so the MCP
-	// gateway accepts requests authenticated by this key. Without it,
-	// per-Worker MCP calls from Zed sandboxes 403 — the backend's
-	// requireFeature check applies to every authenticated caller,
-	// including service identities. Idempotent.
-	hasFlag := false
-	for _, f := range owner.AlphaFeatures {
-		if f == AlphaFeature {
-			hasFlag = true
-			break
-		}
-	}
-	if !hasFlag {
-		owner.AlphaFeatures = append(owner.AlphaFeatures, AlphaFeature)
-		if _, err := k.store.UpdateUser(ctx, owner); err != nil {
-			return "", fmt.Errorf("grant alpha flag to service owner: %w", err)
-		}
-		log.Info().Str("owner_email", owner.Email).Msg("helix-org granted alpha flag to service owner")
-	}
-
 	keyStr, err := system.GenerateAPIKey()
 	if err != nil {
 		return "", fmt.Errorf("generate api key: %w", err)
@@ -100,7 +80,7 @@ func (k *HelixAPIKeys) Service(ctx context.Context, orgID string) (string, error
 		Owner:     owner.ID,
 		OwnerType: types.OwnerTypeUser,
 		Key:       keyStr,
-		Name:      "helix-org alpha (auto-provisioned)",
+		Name:      "helix-org service (auto-provisioned)",
 		Type:      types.APIkeytypeAPI,
 	}); err != nil {
 		return "", fmt.Errorf("create api key: %w", err)
@@ -140,7 +120,7 @@ func (k *HelixAPIKeys) User(ctx context.Context, userID string) (string, error) 
 		Owner:     userID,
 		OwnerType: types.OwnerTypeUser,
 		Key:       keyStr,
-		Name:      "helix-org alpha (per-user)",
+		Name:      "helix-org (per-user)",
 		Type:      types.APIkeytypeAPI,
 	}); err != nil {
 		return "", fmt.Errorf("create api key: %w", err)

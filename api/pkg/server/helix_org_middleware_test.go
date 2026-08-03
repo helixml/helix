@@ -35,7 +35,7 @@ func (s *bootstrapHelixStore) GetOrganization(_ context.Context, _ *helixstore.G
 }
 
 func (s *bootstrapHelixStore) GetUser(_ context.Context, _ *helixstore.GetUserQuery) (*types.User, error) {
-	return &types.User{ID: "user-owner", AlphaFeatures: []string{"helix-org"}}, nil
+	return &types.User{ID: "user-owner"}, nil
 }
 
 func (s *bootstrapHelixStore) CreateAPIKey(_ context.Context, key *types.ApiKey) (*types.ApiKey, error) {
@@ -187,11 +187,33 @@ func TestHelixOrgSettingsRoutesDoNotRequireFeature(t *testing.T) {
 	}
 }
 
-func TestHelixOrgChartRouteStillRequiresFeature(t *testing.T) {
-	handler, _ := newHelixOrgRouteTestHandler(t)
+func TestHelixOrgChartRouteDoesNotRequireFeature(t *testing.T) {
+	handler, scope := newHelixOrgRouteTestHandler(t)
+	scope.bootstrapped["org_acme"] = true
 	rec := helixOrgRouteRequest(handler, http.MethodGet, "/api/v1/orgs/acme/chart/positions")
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
+func TestHelixOrgMCPBackendDoesNotRequireFeature(t *testing.T) {
+	scope := &helixOrgScope{bootstrapped: map[string]bool{"org_acme": true}}
+	downstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if orgID := helixorgserver.OrgIDFromContext(r.Context()); orgID != "org_acme" {
+			t.Errorf("org ID context = %q, want org_acme", orgID)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{}}
+	backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{api: downstream, scope: scope})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/helix-org/acme", nil)
+	req = mux.SetURLVars(req, map[string]string{"path": "acme"})
+	rec := httptest.NewRecorder()
+
+	backend.ServeHTTP(rec, req, &types.User{ID: "user-1"})
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
 	}
 }
 

@@ -892,10 +892,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminRouter.Use(requireAdmin)
 
-	// helix-org: register the helix-org HTTP surface, gated per-user by
-	// the `helix-org` alpha feature. See
-	// design/2026-05-17-helix-org-saas-alpha.md. All of its routing +
-	// lifecycle wiring lives in registerHelixOrgRoutes (helix_org.go). It
+	// helix-org: register the helix-org HTTP surface. All of its routing +
+	// lifecycle wiring lives in registerHelixOrgRoutes (helix_org.go).
 	// Route registration does not depend on a deployment-wide service user.
 	if err := apiServer.registerHelixOrgRoutes(ctx, insecureRouter, authRouter); err != nil {
 		return nil, err

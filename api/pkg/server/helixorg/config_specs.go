@@ -4,12 +4,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 )
 
-// AlphaFeature is the alpha-feature flag that gates the embedded
-// helix-org surface. Granted per-user via:
-//
-//	UPDATE users SET alpha_features = array_append(alpha_features, 'helix-org')
-const AlphaFeature = "helix-org"
-
 // RegisterConfigSpecs declares the operational-config keys the
 // embedded helix-org honours. agent.default is the user-facing default
 // copied into newly provisioned Bot apps. The worker.* keys remain readable
