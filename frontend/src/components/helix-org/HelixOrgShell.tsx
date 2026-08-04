@@ -19,6 +19,7 @@ import HelixOrgTopNav from './HelixOrgTopNav'
 import useAccount from '../../hooks/useAccount'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
+import useRouter from '../../hooks/useRouter'
 import { loadPanelLayout, savePanelLayout } from '../../lib/panelLayoutStorage'
 import { IPageBreadcrumb } from '../../types'
 
@@ -45,10 +46,16 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({
   children,
 }) => {
   const account = useAccount()
+  const router = useRouter()
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
-  const orgId = account.organizationTools.organization?.id ?? ''
+  // The route org identifier is available on the first render. Using the
+  // asynchronously resolved account org id here would briefly render the
+  // default layout before the saved layout could be loaded.
+  const orgId = (router.params.org_id as string | undefined)
+    || account.organizationTools.organization?.id
+    || ''
   const orgChatPanelIds = ['helix-org-chat', 'helix-org-content'] as const
   const orgChatLayoutKey = orgId ? `helix.orgChat.layout.${orgId}` : ''
   const savedOrgChatLayout = loadPanelLayout(orgChatLayoutKey, orgChatPanelIds)
