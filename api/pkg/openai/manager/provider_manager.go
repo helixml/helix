@@ -22,6 +22,7 @@ import (
 type GetClientRequest struct {
 	Provider string
 	Owner    string
+	UserID   string
 	AppID    string
 }
 
@@ -401,17 +402,26 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 		return client.client, nil
 	}
 
-	userProviders, err := m.store.ListProviderEndpoints(context.Background(), &store.ListProviderEndpointsQuery{
-		Owner:      req.Owner,
-		WithGlobal: true,
-	})
-	if err != nil {
-		return nil, err
+	owners := []string{req.Owner}
+	if req.UserID != "" && req.UserID != req.Owner {
+		owners = append(owners, req.UserID)
 	}
 
-	for _, provider := range userProviders {
-		if provider.Name == req.Provider || provider.ID == req.Provider {
-			return m.initializeClient(provider)
+	var userProviders []*types.ProviderEndpoint
+	for _, owner := range owners {
+		providers, err := m.store.ListProviderEndpoints(context.Background(), &store.ListProviderEndpointsQuery{
+			Owner:      owner,
+			WithGlobal: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		userProviders = append(userProviders, providers...)
+
+		for _, provider := range providers {
+			if provider.Name == req.Provider || provider.ID == req.Provider {
+				return m.initializeClient(provider)
+			}
 		}
 	}
 

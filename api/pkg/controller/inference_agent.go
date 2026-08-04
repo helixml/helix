@@ -83,6 +83,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	reasoningModel, err := c.getLLMModelConfig(ctx,
 		ownerID,
+		req.User.ID,
 		withFallbackProvider(req.Assistant.ReasoningModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.ReasoningModel)
 	if err != nil {
@@ -98,6 +99,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	generationModel, err := c.getLLMModelConfig(ctx,
 		ownerID,
+		req.User.ID,
 		withFallbackProvider(req.Assistant.GenerationModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.GenerationModel)
 	if err != nil {
@@ -112,6 +114,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	smallReasoningModel, err := c.getLLMModelConfig(ctx,
 		ownerID,
+		req.User.ID,
 		withFallbackProvider(req.Assistant.SmallReasoningModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.SmallReasoningModel)
 	if err != nil {
@@ -121,6 +124,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	smallGenerationModel, err := c.getLLMModelConfig(ctx,
 		ownerID,
+		req.User.ID,
 		withFallbackProvider(req.Assistant.SmallGenerationModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.SmallGenerationModel)
 	if err != nil {
@@ -326,10 +330,11 @@ func withFallbackProvider(provider string, assistant *types.AssistantConfig) str
 	return provider
 }
 
-func (c *Controller) getLLMModelConfig(ctx context.Context, owner, provider, model string) (*agent.LLMModelConfig, error) {
+func (c *Controller) getLLMModelConfig(ctx context.Context, owner, userID, provider, model string) (*agent.LLMModelConfig, error) {
 	client, err := c.providerManager.GetClient(ctx, &manager.GetClientRequest{
 		Provider: provider,
 		Owner:    owner,
+		UserID:   userID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client: %w", err)

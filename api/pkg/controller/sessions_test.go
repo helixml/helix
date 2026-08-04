@@ -1,8 +1,13 @@
 package controller
 
 import (
+	"context"
+
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"go.uber.org/mock/gomock"
 )
@@ -148,6 +153,34 @@ func (suite *ControllerSuite) Test_getClient_explicitProvider_skipsValidation() 
 	suite.NotNil(client)
 }
 
+func (suite *ControllerSuite) Test_getClient_personalProviderInOrgSession() {
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	suite.Require().NoError(err)
+
+	ctrl := gomock.NewController(suite.T())
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+		Owner: "org_x", WithGlobal: true,
+	}).Return([]*types.ProviderEndpoint{}, nil)
+	mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+		Owner: "user_x", WithGlobal: true,
+	}).Return([]*types.ProviderEndpoint{{
+		ID: "pe_personal", Name: "custom", Owner: "user_x", EndpointType: types.ProviderEndpointTypeUser,
+		BaseURL: "https://user.example/v1", APIKey: "user-key",
+	}}, nil)
+
+	cfg := &config.ServerConfig{}
+	providerManager := manager.NewProviderManager(cfg, mockStore, nil, modelInfoProvider)
+	controller := &Controller{
+		Options:         Options{Config: cfg},
+		providerManager: providerManager,
+	}
+
+	client, err := controller.getClient(context.Background(), "org_x", "user_x", "pe_personal", "")
+	suite.NoError(err)
+	suite.NotNil(client)
+}
+
 func (suite *ControllerSuite) Test_getClient_emptyModel_skipsValidation() {
 	// model="" is the explicit opt-out (used by bootstrap paths where the
 	// model isn't known yet). We must not call ListModels.
@@ -197,7 +230,6 @@ func (suite *ControllerSuite) Test_getClient_defaultedProvider_modelNotServed_re
 	suite.Contains(err.Error(), `prefix the model with the target provider`)
 	suite.Contains(err.Error(), `"openai/gpt-5.4"`)
 }
-
 
 // newMockProviderManagerForGetClientTest builds a ProviderManager mock whose
 // GetClient returns an openAI client whose ListModels returns the given list.

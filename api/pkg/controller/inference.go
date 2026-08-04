@@ -521,6 +521,7 @@ func (c *Controller) getClient(ctx context.Context, organizationID, userID, prov
 	client, err := c.providerManager.GetClient(ctx, &manager.GetClientRequest{
 		Provider: provider,
 		Owner:    owner,
+		UserID:   userID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client: %v", err)

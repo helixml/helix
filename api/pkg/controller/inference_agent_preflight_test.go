@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -53,4 +54,29 @@ func TestPreflightHelixAgentModelsIgnoresTopLevelProvider(t *testing.T) {
 
 	err := c.preflightHelixAgentModels(context.Background(), &types.User{ID: "user1"}, &ChatCompletionOptions{}, assistant)
 	require.NoError(t, err)
+}
+
+func TestRunAgentPassesPersonalProviderScope(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	providerManager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "pe_personal",
+		Owner:    "org_x",
+		UserID:   "user_x",
+	}).Return(nil, errors.New("stop after provider lookup"))
+
+	c := &Controller{
+		Options:         Options{Config: &config.ServerConfig{}},
+		providerManager: providerManager,
+	}
+	ctx := oai.SetContextAppID(context.Background(), "app_x")
+	_, _, err := c.runAgent(ctx, &runAgentRequest{
+		OrganizationID: "org_x",
+		Assistant: &types.AssistantConfig{
+			ReasoningModelProvider: "pe_personal",
+			ReasoningModel:         "model_x",
+		},
+		User: &types.User{ID: "user_x"},
+	})
+	require.ErrorContains(t, err, "stop after provider lookup")
 }
