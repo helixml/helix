@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { ReactFlowProvider } from '@xyflow/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { AssetAuthType, AssetKind } from '../api/api'
 import type { AssetDTO } from '../services/helixOrgService'
-import { AssetNode, assetLinkFromConnection, BotNode, buildGraph } from './HelixOrgChart'
+import { AssetNode, assetLinkFromConnection, BotNode, buildGraph, PeoplePanel } from './HelixOrgChart'
 
 const handlers = {
   onSelectBot: vi.fn(),
@@ -156,5 +157,54 @@ describe('HelixOrgChart agent actions', () => {
 
     expect(handlers.onOpenBotDetails).toHaveBeenCalledWith('chief-of-staff')
     expect(handlers.onViewProject).toHaveBeenCalledWith('project-1')
+  })
+})
+
+describe('HelixOrgChart processors and people panel', () => {
+  it('uses nearest-side edges for processor inputs, chains, and outputs', () => {
+    const graph = buildGraph(
+      [{
+        id: 'worker', name: 'Worker', parentIds: [], agentStatus: 'stopped',
+        agentRuntime: 'zed_external', agentModel: 'test', taskStats: { backlog: 0, inProgress: 0, done: 0 },
+      }],
+      handlers,
+      true,
+      [
+        { id: 'topic-input', name: 'Input', kind: 'stream', created_by: 'worker', subscribers: [] },
+        { id: 's-first', name: 'First output', kind: 'stream', subscribers: ['worker'] },
+        { id: 's-second', name: 'Second output', kind: 'stream', subscribers: [] },
+      ],
+      {},
+      [
+        { id: 'p-first', name: 'First', kind: 'template', inputTopicId: 'topic-input', outputs: [{ topicId: 's-first', label: 'default', match: '', owned: true }] },
+        { id: 'p-second', name: 'Second', kind: 'template', inputTopicId: 's-first', outputs: [{ topicId: 's-second', label: 'default', match: '', owned: true }] },
+      ],
+      [],
+      {},
+      new Set(['topic-input']),
+    )
+
+    expect(graph.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'procin:topic-input->p-first', type: 'closest' }),
+      expect.objectContaining({ id: 'procchain:p-first:s-first->p-second', type: 'closest' }),
+      expect.objectContaining({ id: 'procout:p-first:s-first->worker', type: 'closest' }),
+    ]))
+  })
+
+  it('collapses and expands the people panel', () => {
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <PeoplePanel
+          people={[{ id: 'alice', name: 'Alice', kind: 'human', identity: { email: 'alice@example.com' } } as any]}
+          onSelect={handlers.onSelectBot}
+        />
+      </ThemeProvider>,
+    )
+
+    expect(screen.getByText('Alice')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('People'))
+    expect(screen.queryByText('Alice')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('People'))
+    expect(screen.getByText('Alice')).toBeInTheDocument()
   })
 })
