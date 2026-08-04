@@ -4,12 +4,12 @@ All work in the sandbox's inner Helix at `http://localhost:8080`. Never touch me
 
 ## Phase 1 — Reproduce before changing anything
 
-- [ ] Create a spec task so a live `claude_code` / `zed_external` agent connects (a bare `agent_type=zed_external` chat session never connects one)
+- [~] Create a spec task so a live `claude_code` / `zed_external` agent connects (a bare `agent_type=zed_external` chat session never connects one)
 - [ ] Drive the trigger: send prompt → interrupt → send another → interrupt → send a third, in quick succession; let the third run to completion and send nothing afterwards
 - [ ] Confirm in the API log: `message_completed` carrying the first turn's `request_id`, and the consumed-mapping WARN at `websocket_external_agent_sync.go:2722`
 - [ ] Confirm with `psql`: interaction `state=waiting` with a full `response_message`, and `sessions.config->>'external_agent_status' = 'running'`
 - [ ] Confirm the ~2s "Session is busy (interaction waiting)" loop with a queued prompt undeliverable
-- [ ] Read `~/.local/share/zed/logs/Zed.log` in the container and confirm (or refute) the Defect B hypothesis in design.md §1 — that `last_completed_request_id` is never written on the interrupt path, freezing `turn_request_id` on turn 1
+- [~] Read `~/.local/share/zed/logs/Zed.log` in the container and confirm (or refute) the Defect B hypothesis in design.md §1 — that `last_completed_request_id` is never written on the interrupt path, freezing `turn_request_id` on turn 1
 
 ## Phase 2 — Helix: shared turn resolver
 
