@@ -106,6 +106,15 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
   // Keyed by interactionId, stores the current ResponseEntry[] built from entry_patches.
   const patchEntriesRef = useRef<Map<string, ResponseEntry[]>>(new Map());
   const patchPendingRef = useRef<boolean>(false);
+  // Last interaction_patch sequence applied per interaction. A patch whose seq is not
+  // exactly lastSeq+1 means the best-effort transport dropped one, and the missing bytes
+  // cannot be reconstructed from later deltas.
+  const patchSeqRef = useRef<Map<string, number>>(new Map());
+  // Interactions whose buffer is known-bad and is waiting for a replacement snapshot.
+  const divergedInteractionsRef = useRef<Set<string>>(new Set());
+  // Set by the socket effect so divergence recovery can force a reconnect, which makes
+  // the server send its late-joiner snapshot.
+  const forceReconnectRef = useRef<(() => void) | null>(null);
   // Track whether the WebSocket has experienced a disconnect since last connect.
   // Used to detect reconnection events (vs initial connection) so we can refresh
   // stale state missed during the outage.
@@ -140,6 +149,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
 
       // Clear all patch state (not session-keyed, so clear everything)
       patchEntriesRef.current.clear();
+      patchSeqRef.current.clear();
+      divergedInteractionsRef.current.clear();
       patchPendingRef.current = false;
 
       // Also clear stepInfos for the new session (fresh start)
@@ -203,6 +214,27 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       scheduleFlush(sessionId);
     },
     [scheduleFlush],
+  );
+
+  // Recover from a diverged entry buffer. The deltas the server sends are computed
+  // against its own accumulator, so the only safe baseline is a snapshot taken from that
+  // same accumulator — the DB row is not equivalent, it trails the accumulator. Forcing a
+  // reconnect makes the server send exactly that snapshot via its late-joiner catch-up,
+  // reusing the existing path rather than adding a second one.
+  const requestResync = useCallback(
+    (interactionId: string, reason: string) => {
+      if (divergedInteractionsRef.current.has(interactionId)) return;
+      divergedInteractionsRef.current.add(interactionId);
+      // Deliberately keep the last-good buffer on screen until the snapshot lands.
+      // Clearing it here would drop the view back to the ≤5s-stale polled row for the
+      // duration of the round trip — the same long→short flicker this change exists to
+      // remove. The snapshot replaces the buffer wholesale when it arrives.
+      console.warn(
+        `[streaming] entry patch stream diverged for ${interactionId} (${reason}) — resyncing from server snapshot`,
+      );
+      forceReconnectRef.current?.();
+    },
+    [],
   );
 
   const handleWebsocketEvent = useCallback(
@@ -379,6 +411,24 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
 
         // Clear patch entries ref since we have the full interaction now
         if (updatedInteraction.id) {
+          // ===== TEMPORARY INSTRUMENTATION (task 002552) — REMOVE BEFORE MERGE =====
+          const dbgW = window as any;
+          if (!dbgW.__evtLog) dbgW.__evtLog = [];
+          const dbgPrior = patchEntriesRef.current.get(updatedInteraction.id);
+          dbgW.__evtLog.push({
+            t: Date.now(),
+            evt: "interaction_update",
+            id: updatedInteraction.id,
+            state: updatedInteraction.state,
+            deletedEntryCount: dbgPrior?.length || 0,
+            deletedTotalLen: (dbgPrior || []).reduce(
+              (a: number, e: any) => a + (e.content?.length || 0),
+              0,
+            ),
+            serverEntryCount:
+              ((updatedInteraction as any)?.response_entries as any[])?.length || 0,
+          });
+          // ===== END TEMPORARY INSTRUMENTATION =====
           patchEntriesRef.current.delete(updatedInteraction.id);
         }
 
@@ -485,6 +535,35 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         const entryPatches = parsedData.entry_patches;
         const entryCount = parsedData.entry_count;
 
+        const patchSeq = (parsedData as any).seq as number | undefined;
+        const isSnapshot = Boolean((parsedData as any).snapshot);
+
+        // A snapshot carries the full content of every entry, computed against an empty
+        // baseline, so it replaces the buffer outright and re-establishes the sequence.
+        if (isSnapshot) {
+          patchEntriesRef.current.delete(interactionId);
+          divergedInteractionsRef.current.delete(interactionId);
+        } else if (divergedInteractionsRef.current.has(interactionId)) {
+          // Already diverged and waiting for a snapshot — applying more deltas to a
+          // known-bad buffer only corrupts it further.
+          return;
+        } else {
+          const lastSeq = patchSeqRef.current.get(interactionId);
+          if (
+            lastSeq !== undefined &&
+            patchSeq !== undefined &&
+            patchSeq !== lastSeq + 1
+          ) {
+            // A patch was dropped by the best-effort transport. Everything between
+            // lastSeq and patchSeq is unrecoverable from deltas alone.
+            requestResync(
+              interactionId,
+              `sequence gap ${lastSeq} -> ${patchSeq}`,
+            );
+            return;
+          }
+        }
+
         if (entryPatches && entryCount) {
           const currentEntries = patchEntriesRef.current.get(interactionId) || [];
           // Grow array to entry_count if new entries appeared
@@ -492,23 +571,48 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
             currentEntries.push({ type: "text", content: "", message_id: "" });
           }
           // Apply each entry patch
+          let diverged = false;
           for (const ep of entryPatches) {
             if (ep.index < currentEntries.length) {
+              const patched = applyPatch(
+                currentEntries[ep.index].content,
+                ep.patch_offset,
+                ep.patch,
+                ep.total_length,
+              );
+              if (patched === null) {
+                requestResync(
+                  interactionId,
+                  `entry ${ep.index} could not be reconstructed (offset ${ep.patch_offset}, have ${currentEntries[ep.index].content.length})`,
+                );
+                diverged = true;
+                break;
+              }
               currentEntries[ep.index] = {
                 type: ep.type as "text" | "tool_call",
-                content: applyPatch(
-                  currentEntries[ep.index].content,
-                  ep.patch_offset,
-                  ep.patch,
-                  ep.total_length,
-                ),
+                content: patched,
                 message_id: ep.message_id,
                 tool_name: ep.tool_name || currentEntries[ep.index].tool_name,
                 tool_status: ep.tool_status || currentEntries[ep.index].tool_status,
               };
             }
           }
+          if (diverged) {
+            return;
+          }
           patchEntriesRef.current.set(interactionId, currentEntries);
+          if (patchSeq !== undefined) {
+            patchSeqRef.current.set(interactionId, patchSeq);
+          }
+          // ===== TEMPORARY INSTRUMENTATION (task 002552) — REMOVE BEFORE MERGE =====
+          (window as any).__entriesDump = () =>
+            (patchEntriesRef.current.get(interactionId) || []).map((e) => ({
+              type: e.type,
+              len: e.content.length,
+              head: e.content.slice(0, 50),
+              tail: e.content.slice(-50),
+            }));
+          // ===== END TEMPORARY INSTRUMENTATION =====
         }
 
         // Batch state update via RAF to avoid per-patch re-renders
@@ -541,7 +645,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         }
       }
     },
-    [currentSessionId],
+    [currentSessionId, requestResync],
   );
 
   useEffect(() => {
@@ -552,6 +656,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
     const wsHost = window.location.host;
     const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${currentSessionId}`;
     const rws = new ReconnectingWebSocket(url);
+    // Divergence recovery reconnects to pull a fresh server snapshot.
+    forceReconnectRef.current = () => rws.reconnect();
 
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent;
@@ -598,15 +704,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
 
     const openHandler = () => {
       if (wsWasDisconnectedRef.current) {
-        // Reconnection after a dropout: clear stale streaming state and refresh
-        // from the database so any updates missed during the outage are loaded.
+        // Reconnection after a dropout. The server answers a fresh subscription with a
+        // full-state snapshot, which replaces the entry buffer wholesale, so there is
+        // nothing to clear here — and clearing would actively hurt: blanking
+        // currentResponses drops the view back to the ≤5s-stale polled row until the
+        // snapshot lands, which is a visible long→short flicker. Keep the last-good
+        // render up and let the snapshot overwrite it.
         wsWasDisconnectedRef.current = false;
-        setCurrentResponses((prev) => {
-          const next = new Map(prev);
-          next.delete(currentSessionId!);
-          return next;
-        });
-        patchEntriesRef.current.clear();
         queryClient.invalidateQueries({ queryKey: ["interactions", currentSessionId] });
         queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId!) });
       }

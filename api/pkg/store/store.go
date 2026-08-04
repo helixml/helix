@@ -313,7 +313,7 @@ type Store interface {
 	// concurrent transition written by handleTurnCancelled /
 	// handleMessageCompleted. See the lost-update fix in
 	// websocket_external_agent_sync.go.
-	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
+	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string, responseSeq uint64) error
 	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
 	// from Waiting → Complete and sets completed=now. Returns true if the row
 	// was transitioned, false if the row was already in a terminal state (no

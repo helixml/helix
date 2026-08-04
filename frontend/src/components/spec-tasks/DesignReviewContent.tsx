@@ -560,12 +560,22 @@ export default function DesignReviewContent({
           // Apply per-entry patches and capture type metadata
           for (const ep of entryPatches) {
             if (ep.index < streamEntries.length) {
-              streamEntries[ep.index].content = applyPatch(
+              const patched = applyPatch(
                 streamEntries[ep.index].content,
                 ep.patch_offset,
                 ep.patch,
                 ep.total_length,
               );
+              if (patched === null) {
+                // A dropped patch means this entry can no longer be reconstructed from
+                // deltas. Keep what we have rather than splicing across the hole; the
+                // final interaction_update carries the authoritative content.
+                console.warn(
+                  `[DRWS] entry ${ep.index} patch could not be applied — awaiting full update`,
+                );
+                continue;
+              }
+              streamEntries[ep.index].content = patched;
               if (ep.type) streamEntries[ep.index].type = ep.type as 'text' | 'tool_call';
               if (ep.tool_name) streamEntries[ep.index].tool_name = ep.tool_name;
               if (ep.tool_status) streamEntries[ep.index].tool_status = ep.tool_status;

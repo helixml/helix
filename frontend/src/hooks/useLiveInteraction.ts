@@ -143,6 +143,53 @@ const useLiveInteraction = (
     ? (streamingEntries || completedEntries)
     : (completedEntries || streamingEntries);
 
+  // ===== TEMPORARY INSTRUMENTATION (task 002552) — REMOVE BEFORE MERGE =====
+  // Hunting the clobber: the signal is msgLen or entryCount going DOWN.
+  const dbgPrevRef = useRef<{ msgLen: number; entryCount: number }>({
+    msgLen: 0,
+    entryCount: 0,
+  });
+  {
+    const cr = currentResponses.get(sessionId);
+    const guardMatched = cr?.id === initialInteraction?.id;
+    const src = cr && guardMatched ? "LIVE" : "DB";
+    const entries = (interaction as any)?.response_entries as
+      | ResponseEntry[]
+      | undefined;
+    const msgLen = (message || "").length;
+    const entryCount = entries?.length || 0;
+    const prev = dbgPrevRef.current;
+    const shrank = msgLen < prev.msgLen || entryCount < prev.entryCount;
+    const payload = {
+      src,
+      crId: cr?.id,
+      iiId: initialInteraction?.id,
+      guardMatched,
+      msgLen,
+      prevMsgLen: prev.msgLen,
+      lastKnownLen: lastKnownMessage.length,
+      entryCount,
+      prevEntryCount: prev.entryCount,
+      iiMsgLen: initialInteraction?.response_message?.length || 0,
+      iiEntryCount:
+        ((initialInteraction as any)?.response_entries as ResponseEntry[])
+          ?.length || 0,
+      crEntryCount: (cr as any)?.response_entries?.length || 0,
+      lastEntryTail: entries?.length
+        ? entries[entries.length - 1].content.slice(-40)
+        : "",
+    };
+    const w = window as any;
+    if (!w.__liveLog) w.__liveLog = [];
+    w.__liveLog.push({ t: Date.now(), shrank, ...payload });
+    if (w.__liveLog.length > 3000) w.__liveLog.shift();
+    if (shrank) {
+      console.warn("[LIVE-SHRANK]", payload);
+    }
+    dbgPrevRef.current = { msgLen, entryCount };
+  }
+  // ===== END TEMPORARY INSTRUMENTATION =====
+
   const result = {
     // Use interaction message if available, otherwise fall back to preserved message
     // This prevents blank screen when streaming context clears during completion

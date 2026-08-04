@@ -340,7 +340,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
 	)
 
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, lastZedMessageID string) error {
 			s.Equal("Hello from AI", responseMessage)
 			s.Equal("msg-1", lastZedMessageID)
@@ -381,7 +381,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_RedactsMintedCredentialBeforeStora
 	interaction := &types.Interaction{ID: "int-secret", SessionID: "ses_secret", State: types.InteractionStateWaiting}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_secret").Return(session, nil)
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{interaction}, int64(1), nil)
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), "int-secret", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "msg-secret").DoAndReturn(
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), "int-secret", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "msg-secret", gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, responseMessage string, responseEntries datatypes.JSON, _ int, _ string) error {
 			s.NotContains(responseMessage, secret)
 			s.Contains(responseMessage, `{"token":"<redacted>"}`)
@@ -447,7 +447,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUp
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
 	)
 
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, lastZedMessageID string) error {
 			// Same message_id → content replaced from offset (streaming update)
 			s.Equal("Hello, world!", responseMessage)
@@ -498,7 +498,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
 	)
 
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error {
 			// New message_id → content appended with \n\n separator
 			s.Equal("First message\n\nSecond message", responseMessage)
@@ -559,7 +559,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_TrailingDBFlush() {
 	// The trailing flush is the ONLY expected DB write; capture its content and
 	// signal when it lands.
 	written := make(chan string, 1)
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, _ string) error {
 			written <- responseMessage
 			return nil
@@ -639,7 +639,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_PriorInteractionMessageIDsAreFilte
 	// every call so we can assert msg-A never appears in int-current's
 	// response_entries.
 	var lastEntries datatypes.JSON
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, _ string, responseEntries datatypes.JSON, _ int, _ string) error {
 			lastEntries = responseEntries
 			return nil
@@ -708,7 +708,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_WrapperRestartRenumberedMessageIDs
 
 	var lastResponseMessage string
 	var updateCalled bool
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, _ string) error {
 			lastResponseMessage = responseMessage
 			updateCalled = true
@@ -2648,7 +2648,7 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 
 	// Only FIRST token writes to DB (lastDBWrite is zero, so first always flushes).
 	// Second token within 200ms is throttled — no streaming-fields call.
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, _ string) error {
 			s.Equal("Hello", responseMessage)
 			return nil
@@ -2816,7 +2816,7 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	).Times(1)
 
 	// First token writes immediately (lastDBWrite is zero)
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 
 	// First token
 	syncMsg := &types.SyncMessage{
@@ -2850,7 +2850,7 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	sctx.mu.Unlock()
 
 	// Now expect another DB write since interval expired
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, _ string) error {
 			s.Equal("Token 1 Token 2 Token 3", responseMessage)
 			return nil
@@ -2900,7 +2900,7 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 	// Column-scoped: only the content fields are written, never state, so
 	// the in-progress state stays Waiting until handleMessageCompleted's
 	// own UpdateInteraction transitions it.
-	flushUpdate := s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	flushUpdate := s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, _ string) error {
 			s.Equal("dirty unflushed content", responseMessage)
 			return nil
@@ -2973,7 +2973,7 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	).Times(1)
 
 	// First message_id writes immediately
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 
 	// First message_id: assistant text
 	syncMsg := &types.SyncMessage{
@@ -3147,7 +3147,7 @@ func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousEntriesTracked() {
 	// First token: expect DB queries (cache miss) + DB write + publish
 	s.store.EXPECT().GetSession(gomock.Any(), helixSessionID).Return(session, nil).Times(1)
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{interaction}, int64(1), nil).Times(1)
-	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
 		EventType: "message_added",
@@ -3214,7 +3214,7 @@ func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousEntriesTracked() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func (s *WebSocketSyncSuite) TestBuildFullStatePatchEvent_Empty() {
-	payload, err := buildFullStatePatchEvent("ses-1", "owner-1", "int-1", nil)
+	payload, err := buildFullStatePatchEvent("ses-1", "owner-1", "int-1", nil, 0)
 	s.NoError(err)
 	s.Nil(payload, "empty entries should return nil payload")
 }
@@ -3225,7 +3225,7 @@ func (s *WebSocketSyncSuite) TestBuildFullStatePatchEvent_FullState() {
 		{MessageID: "msg-2", Type: "tool_call", Content: "ls -la", ToolName: "bash", ToolStatus: "complete"},
 	}
 
-	payload, err := buildFullStatePatchEvent("ses-1", "owner-1", "int-1", entries)
+	payload, err := buildFullStatePatchEvent("ses-1", "owner-1", "int-1", entries, 7)
 	s.NoError(err)
 	s.NotNil(payload)
 
@@ -3278,7 +3278,7 @@ func (s *WebSocketSyncSuite) TestLateJoinerCatchUp_ActiveStreamingContext() {
 	owner := sctx.session.Owner
 	sctx.mu.Unlock()
 
-	payload, err := buildFullStatePatchEvent("ses-lj", owner, interactionID, entries)
+	payload, err := buildFullStatePatchEvent("ses-lj", owner, interactionID, entries, 11)
 	s.NoError(err)
 	s.Require().NotNil(payload)
 

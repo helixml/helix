@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -101,6 +103,14 @@ type streamingContext struct {
 	dbFlushTimer *time.Timer
 	// Per-entry delta tracking: tracks entries sent to frontend so we can compute per-entry diffs
 	previousEntries []wsprotocol.ResponseEntry
+	// publishSeq is a monotonic counter incremented once per published
+	// interaction_patch event. It is stamped on the event (so the frontend can
+	// detect a dropped best-effort NATS message as a gap) and on the interaction
+	// row at every DB flush (so a polled row can be ranked against the live
+	// stream). It deliberately never resets: continuity only has to hold within
+	// an interaction, and a counter that survives interaction transitions cannot
+	// go backwards when a transition races a flush.
+	publishSeq uint64
 	// Message accumulator: persists across handleMessageAdded calls so that
 	// out-of-order flush updates (Stopped event) can replace earlier message_ids
 	// in-place instead of appending duplicates. A new accumulator per call would
@@ -1333,7 +1343,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				// the complete text entry content from Zed's stale-pending flush) before
 				// the tool_call entry is added and entry_count increases.
 				currentEntries := acc.Entries()
-				if err := apiServer.publishEntryPatchesToFrontend(helixSessionID, helixSession.Owner, targetInteraction.ID, sctx.previousEntries, currentEntries, sctx.commenterID); err != nil {
+				if err := apiServer.publishEntryPatchesToFrontend(sctx, helixSessionID, helixSession.Owner, targetInteraction.ID, sctx.previousEntries, currentEntries, sctx.commenterID); err != nil {
 					log.Error().Err(err).
 						Str("session_id", helixSessionID).
 						Str("interaction_id", targetInteraction.ID).
@@ -1423,7 +1433,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 					sctx.flushTimer = nil
 				}
 				currentEntries := acc.Entries()
-				err := apiServer.publishEntryPatchesToFrontend(helixSessionID, helixSession.Owner, targetInteraction.ID, sctx.previousEntries, currentEntries, sctx.commenterID)
+				err := apiServer.publishEntryPatchesToFrontend(sctx, helixSessionID, helixSession.Owner, targetInteraction.ID, sctx.previousEntries, currentEntries, sctx.commenterID)
 				if err != nil {
 					log.Error().Err(err).
 						Str("session_id", helixSessionID).
@@ -1450,7 +1460,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 						return
 					}
 					currentEntries := sctx.accumulator.Entries()
-					if err := apiServer.publishEntryPatchesToFrontend(sessionID, owner, interactionID, sctx.previousEntries, currentEntries, commenterID); err != nil {
+					if err := apiServer.publishEntryPatchesToFrontend(sctx, sessionID, owner, interactionID, sctx.previousEntries, currentEntries, commenterID); err != nil {
 						log.Error().Err(err).
 							Str("session_id", sessionID).
 							Str("interaction_id", interactionID).
@@ -1652,6 +1662,7 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 						sctx.interaction.ResponseEntries,
 						sctx.interaction.LastZedMessageOffset,
 						sctx.interaction.LastZedMessageID,
+						sctx.publishSeq,
 					); err != nil {
 						log.Error().Err(err).
 							Str("interaction_id", sctx.interactionID).
@@ -1966,6 +1977,7 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 				sctx.interaction.ResponseEntries,
 				sctx.interaction.LastZedMessageOffset,
 				sctx.interaction.LastZedMessageID,
+				sctx.publishSeq,
 			)
 			if err != nil {
 				log.Error().Err(err).
@@ -1989,7 +2001,7 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 		if sctx.session != nil && sctx.accumulator != nil {
 			currentEntries := sctx.accumulator.Entries()
 			err := apiServer.publishEntryPatchesToFrontend(
-				helixSessionID, sctx.session.Owner, sctx.interaction.ID,
+				sctx, helixSessionID, sctx.session.Owner, sctx.interaction.ID,
 				sctx.previousEntries, currentEntries, sctx.commenterID,
 			)
 			if err != nil {
@@ -4319,6 +4331,11 @@ func (apiServer *HelixAPIServer) flushStreamingFieldsToDB(sctx *streamingContext
 	if entriesJSON, err := json.Marshal(acc.Entries()); err == nil {
 		_ = json.Unmarshal(entriesJSON, &it.ResponseEntries)
 	}
+	// Stamp the row with the last published patch sequence. The accumulator content
+	// written here is always >= the content of that publish, so ranking the row equal
+	// to it is safe: a tie resolves in favour of the live stream, which is at most one
+	// publishInterval behind. See design/2026-08-04-chat-message-truncation-clobber.md.
+	it.ResponseSeq = sctx.publishSeq
 	if err := apiServer.Controller.Options.Store.UpdateInteractionStreamingFields(
 		context.Background(),
 		it.ID,
@@ -4327,6 +4344,7 @@ func (apiServer *HelixAPIServer) flushStreamingFieldsToDB(sctx *streamingContext
 		it.ResponseEntries,
 		it.LastZedMessageOffset,
 		it.LastZedMessageID,
+		it.ResponseSeq,
 	); err != nil {
 		return err
 	}
@@ -4341,7 +4359,10 @@ func (apiServer *HelixAPIServer) flushStreamingFieldsToDB(sctx *streamingContext
 // per-entry to reconstruct content with correct type boundaries (text vs tool_call).
 //
 // If commenterID is provided, also publishes to the commenter's queue (for design review).
+// sctx supplies the monotonic publish sequence stamped on the event; the caller must
+// hold sctx.mu so the increment and the send stay ordered with respect to each other.
 func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
+	sctx *streamingContext,
 	sessionID, owner, interactionID string,
 	previousEntries []wsprotocol.ResponseEntry,
 	currentEntries []wsprotocol.ResponseEntry,
@@ -4388,14 +4409,31 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 	}
 
 	if len(entryPatches) == 0 {
-		return nil // Nothing changed
+		return nil // Nothing changed — do not burn a sequence number
 	}
 	event.EntryPatches = entryPatches
+	sctx.publishSeq++
+	event.Seq = sctx.publishSeq
 
 	messageBytes, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal entry patch event: %w", err)
 	}
+
+	// ===== TEMPORARY FAULT INJECTION (task 002552) — REMOVE BEFORE MERGE =====
+	// Simulates a dropped best-effort NATS message: the event is never sent, but the
+	// caller still advances previousEntries, so the server's delta baseline moves on
+	// exactly as it would after a real drop-on-slow-consumer.
+	if dropEvery := os.Getenv("HELIX_DEBUG_DROP_PATCH_EVERY"); dropEvery != "" {
+		if n, convErr := strconv.ParseUint(dropEvery, 10, 64); convErr == nil && n > 0 && event.Seq%n == 0 {
+			log.Warn().
+				Uint64("seq", event.Seq).
+				Str("interaction_id", interactionID).
+				Msg("💣 [HELIX] FAULT INJECTION: dropping entry patch publish")
+			return nil
+		}
+	}
+	// ===== END TEMPORARY FAULT INJECTION =====
 
 	if err := apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(owner, sessionID), messageBytes); err != nil {
 		return fmt.Errorf("failed to publish entry patches to pubsub: %w", err)
@@ -4425,7 +4463,10 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 // full content of all entries (computed with no previous entries, so patch_offset=0
 // for each). Used to catch up a late-joining WebSocket client that missed earlier
 // streaming patches.
-func buildFullStatePatchEvent(sessionID, owner, interactionID string, entries []wsprotocol.ResponseEntry) ([]byte, error) {
+// seq must be the publish sequence the entries snapshot corresponds to, read under the
+// same lock as the entries themselves; otherwise the client can apply a delta that is
+// already baked into the snapshot it just replaced its buffer with.
+func buildFullStatePatchEvent(sessionID, owner, interactionID string, entries []wsprotocol.ResponseEntry, seq uint64) ([]byte, error) {
 	if len(entries) == 0 {
 		return nil, nil
 	}
@@ -4435,6 +4476,8 @@ func buildFullStatePatchEvent(sessionID, owner, interactionID string, entries []
 		InteractionID: interactionID,
 		Owner:         owner,
 		EntryCount:    len(entries),
+		Seq:           seq,
+		Snapshot:      true,
 	}
 	entryPatches := make([]types.EntryPatch, 0, len(entries))
 	for i, entry := range entries {

@@ -6520,17 +6520,17 @@ func (mr *MockStoreMockRecorder) UpdateInteraction(ctx, interaction any) *gomock
 }
 
 // UpdateInteractionStreamingFields mocks base method.
-func (m *MockStore) UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error {
+func (m *MockStore) UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string, responseSeq uint64) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateInteractionStreamingFields", ctx, interactionID, generationID, responseMessage, responseEntries, lastZedMessageOffset, lastZedMessageID)
+	ret := m.ctrl.Call(m, "UpdateInteractionStreamingFields", ctx, interactionID, generationID, responseMessage, responseEntries, lastZedMessageOffset, lastZedMessageID, responseSeq)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateInteractionStreamingFields indicates an expected call of UpdateInteractionStreamingFields.
-func (mr *MockStoreMockRecorder) UpdateInteractionStreamingFields(ctx, interactionID, generationID, responseMessage, responseEntries, lastZedMessageOffset, lastZedMessageID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) UpdateInteractionStreamingFields(ctx, interactionID, generationID, responseMessage, responseEntries, lastZedMessageOffset, lastZedMessageID, responseSeq any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateInteractionStreamingFields", reflect.TypeOf((*MockStore)(nil).UpdateInteractionStreamingFields), ctx, interactionID, generationID, responseMessage, responseEntries, lastZedMessageOffset, lastZedMessageID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateInteractionStreamingFields", reflect.TypeOf((*MockStore)(nil).UpdateInteractionStreamingFields), ctx, interactionID, generationID, responseMessage, responseEntries, lastZedMessageOffset, lastZedMessageID, responseSeq)
 }
 
 // UpdateInteractionSummary mocks base method.

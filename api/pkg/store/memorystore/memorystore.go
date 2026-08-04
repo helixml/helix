@@ -251,7 +251,7 @@ func (m *MemoryStore) UpdateInteraction(_ context.Context, interaction *types.In
 // from the streaming flush path. It only touches response content / Zed
 // offset+id, so a concurrent state transition (cancel / complete) is never
 // clobbered. Matches the lost-update fix in websocket_external_agent_sync.go.
-func (m *MemoryStore) UpdateInteractionStreamingFields(_ context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error {
+func (m *MemoryStore) UpdateInteractionStreamingFields(_ context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string, responseSeq uint64) error {
 	m.mu.Lock()
 	existing, ok := m.interactions[interactionID]
 	if !ok || existing.GenerationID != generationID {
@@ -262,6 +262,7 @@ func (m *MemoryStore) UpdateInteractionStreamingFields(_ context.Context, intera
 	existing.ResponseEntries = responseEntries
 	existing.LastZedMessageOffset = lastZedMessageOffset
 	existing.LastZedMessageID = lastZedMessageID
+	existing.ResponseSeq = responseSeq
 	existing.Updated = time.Now()
 	cp := *existing
 	cb := m.OnInteractionUpdated

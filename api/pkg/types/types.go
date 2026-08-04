@@ -86,6 +86,15 @@ type Interaction struct {
 	// The frontend uses this to render entries with the correct component in the correct order.
 	ResponseEntries datatypes.JSON `json:"response_entries,omitempty" gorm:"type:jsonb"`
 
+	// ResponseSeq is the streaming sequence number that ResponseMessage/ResponseEntries
+	// correspond to. It is the value of the last interaction_patch event published for
+	// this interaction at or before the DB write, so a polled snapshot of this row can be
+	// version-compared against the live patch stream. Without it the frontend has no way
+	// to tell whether a ≤5s-stale DB row is older or newer than the entries it already
+	// holds, and a stale poll can clobber newer live content mid-word.
+	// See design/2026-08-04-chat-message-truncation-clobber.md.
+	ResponseSeq uint64 `json:"response_seq,omitempty"`
+
 	// Summary is a one-line description of this interaction for search/indexing.
 	// Generated lazily on first access or via background job.
 	Summary          string     `json:"summary,omitempty"`
@@ -965,6 +974,15 @@ type WebsocketEvent struct {
 	// its array when new entries appear.
 	EntryPatches []EntryPatch `json:"entry_patches,omitempty"`
 	EntryCount   int          `json:"entry_count,omitempty"`
+	// Seq is a per-stream monotonic sequence number for interaction_patch events,
+	// incremented once per published patch. The frontend uses it to (a) detect a gap
+	// caused by a dropped best-effort NATS message and resync, and (b) rank the live
+	// stream against the ResponseSeq stamped on the polled interaction row.
+	Seq uint64 `json:"seq,omitempty"`
+	// Snapshot marks an interaction_patch event that carries the full content of every
+	// entry rather than a delta. The frontend replaces its buffer wholesale instead of
+	// applying patches. Sent on late-join and in response to a client resync request.
+	Snapshot bool `json:"snapshot,omitempty"`
 }
 
 // EntryPatch is a per-entry delta for structured streaming. The frontend

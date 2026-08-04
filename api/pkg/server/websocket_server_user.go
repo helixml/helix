@@ -136,9 +136,12 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 				entries := sctx.accumulator.Entries()
 				interactionID := sctx.interaction.ID
 				owner := sctx.session.Owner
+				// Read the sequence under the same lock as the entries so the snapshot
+				// and its version can never disagree.
+				seq := sctx.publishSeq
 				sctx.mu.Unlock()
 				var buildErr error
-				catchUpPayload, buildErr = buildFullStatePatchEvent(sessionID, owner, interactionID, entries)
+				catchUpPayload, buildErr = buildFullStatePatchEvent(sessionID, owner, interactionID, entries, seq)
 				if buildErr != nil {
 					log.Warn().Err(buildErr).Str("session_id", sessionID).Msg("Failed to build late-joiner catch-up event")
 				}
