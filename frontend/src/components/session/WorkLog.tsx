@@ -55,15 +55,18 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
             size="small"
             onClick={toggleExpanded}
             aria-expanded={false}
-            endIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
+            startIcon={<ExpandMoreIcon sx={{ fontSize: 15 }} />}
             sx={{
               minHeight: 24,
-              px: 0.5,
-              color: isDark ? chatColors.muted : "text.secondary",
+              px: 0,
+              gap: 0.75,
+              color: isDark ? chatColors.foreground : "text.primary",
               fontSize: "0.76rem",
+              fontWeight: 600,
               fontFamily: APP_MONO_FONT_FAMILY,
               textTransform: "none",
               "&:hover": { backgroundColor: "transparent" },
+              "& .MuiButton-startIcon": { m: 0 },
             }}
           >
             +{previousCount} previous tool {previousCount === 1 ? "call" : "calls"}

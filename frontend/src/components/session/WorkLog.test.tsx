@@ -23,7 +23,11 @@ describe("WorkLog", () => {
 
     expect(screen.getByText("latest command")).toBeInTheDocument();
     expect(screen.queryByText("first command")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /\+2 previous tool calls/ })).toBeInTheDocument();
+    const disclosure = screen.getByRole("button", { name: /\+2 previous tool calls/ });
+    expect(disclosure).toBeInTheDocument();
+    expect(disclosure.querySelector(".MuiButton-startIcon")).toBeInTheDocument();
+    expect(disclosure.querySelector(".MuiButton-endIcon")).not.toBeInTheDocument();
+    expect(disclosure).toHaveStyle({ color: "rgb(245, 245, 245)" });
   });
 
   it("reveals the full log and can collapse it again", () => {

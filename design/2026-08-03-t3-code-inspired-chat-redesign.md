@@ -147,7 +147,8 @@ genuinely adjacent calls are collapsed together. The disclosure body renders as
 Markdown; bold-only thought summaries are presented as one list rather than
 showing literal Markdown punctuation. The bulb icon identifies thought rows, so
 their headers show the first summary directly without a repeated `Thoughts`
-label.
+label. The previous-tool-call disclosure uses the same high-contrast label color
+and left icon alignment as the visible tool row.
 
 Primary assistant prose uses a high-contrast near-white foreground in dark mode,
 including links. Reasoning summaries, command previews, durations, and other
