@@ -13,6 +13,8 @@ import {
   Wrench,
 } from "lucide-react";
 import { preserveDisclosureExpansion } from "./disclosureScroll";
+import { getChatColors } from "./chatStyles";
+import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 
 /**
  * Represents a parsed segment of a response message.
@@ -222,6 +224,7 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
+  const chatColors = getChatColors(theme);
   const presentation = getToolCallPresentation(toolName, body);
 
   return (
@@ -254,14 +257,14 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
           <Terminal
             size={15}
             strokeWidth={1.8}
-            color={isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.45)"}
+            color={isDark ? chatColors.subtle : "rgba(0,0,0,0.45)"}
             aria-hidden="true"
           />
         ) : (
           <Wrench
             size={15}
             strokeWidth={1.8}
-            color={isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.45)"}
+            color={isDark ? chatColors.subtle : "rgba(0,0,0,0.45)"}
             aria-hidden="true"
           />
         )}
@@ -286,10 +289,10 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
                   ? "#f5f5f5"
                   : "text.primary"
                 : isDark
-                  ? "rgba(255,255,255,0.65)"
+                  ? chatColors.muted
                   : "text.secondary",
               fontWeight: presentation.preview ? 600 : 400,
-              fontFamily: "monospace",
+              fontFamily: APP_MONO_FONT_FAMILY,
             }}
           >
             {presentation.label}
@@ -302,8 +305,8 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 fontSize: dense ? "0.72rem" : "0.78rem",
-                color: isDark ? "rgba(255,255,255,0.42)" : "text.secondary",
-                fontFamily: "monospace",
+                color: isDark ? chatColors.subtle : "text.secondary",
+                fontFamily: APP_MONO_FONT_FAMILY,
               }}
             >
               {presentation.preview}
@@ -327,10 +330,10 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
             pr: 0,
             py: 1,
             fontSize: "0.8rem",
-            fontFamily: "monospace",
+            fontFamily: APP_MONO_FONT_FAMILY,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
-            color: isDark ? "rgba(255,255,255,0.55)" : "text.secondary",
+            color: isDark ? chatColors.subtle : "text.secondary",
             backgroundColor: "transparent",
             maxHeight: "300px",
             overflow: "auto",

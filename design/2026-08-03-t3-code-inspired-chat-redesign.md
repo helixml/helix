@@ -149,7 +149,10 @@ label.
 
 Primary assistant prose uses a high-contrast near-white foreground in dark mode,
 including links. Reasoning summaries, command previews, durations, and other
-activity metadata remain muted to preserve the visual hierarchy.
+activity metadata use two brighter gray tiers rather than opacity-composited
+text: readable secondary labels and quieter tertiary details. Activity rows use
+the shared application mono font so their metrics are consistent with the T3
+Code-style work log.
 
 Shell results use `Ran command` plus the command preview. MCP calls use
 `Provider · tool` labels. This presentation is derived from the structured tool

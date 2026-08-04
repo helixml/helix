@@ -8,6 +8,8 @@ import { ChevronDown, ChevronUp, Lightbulb } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { preserveDisclosureExpansion } from './disclosureScroll'
+import { getChatColors } from './chatStyles'
+import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
 
 interface ThinkingWidgetProps {
   text: string
@@ -56,6 +58,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
   const [expanded, setExpanded] = useState(false)
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
+  const chatColors = getChatColors(theme)
   const isMultiline = text.trim().includes('\n')
   const startedAt = useRef(
     typeof startTime === 'number'
@@ -73,8 +76,8 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
     return () => window.clearInterval(interval)
   }, [isStreaming])
 
-  const iconColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'
-  const textColor = isDark ? 'rgba(255,255,255,0.65)' : 'text.secondary'
+  const iconColor = isDark ? chatColors.subtle : 'rgba(0,0,0,0.45)'
+  const textColor = isDark ? chatColors.muted : 'text.secondary'
 
   return (
     <Box
@@ -112,7 +115,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
             whiteSpace: 'nowrap',
             fontSize: '0.76rem',
             color: textColor,
-            fontFamily: 'monospace',
+            fontFamily: APP_MONO_FONT_FAMILY,
           }}
         >
           {isStreaming ? `Thinking ${formatDuration(elapsed)}` : thinkingSummary(text)}
@@ -138,7 +141,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
             fontSize: '0.8rem',
             lineHeight: 1.6,
             wordBreak: 'break-word',
-            color: isDark ? 'rgba(255,255,255,0.55)' : 'text.secondary',
+            color: isDark ? chatColors.muted : 'text.secondary',
             backgroundColor: 'transparent',
             maxHeight: '300px',
             overflow: 'auto',
@@ -147,11 +150,11 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
             '& ul, & ol': { my: 0, pl: 2.5 },
             '& li + li': { mt: 0.5 },
             '& strong': {
-              color: isDark ? 'rgba(255,255,255,0.72)' : 'text.primary',
+              color: isDark ? '#d4d4d4' : 'text.primary',
               fontWeight: 600,
             },
             '& code': {
-              fontFamily: 'monospace',
+              fontFamily: APP_MONO_FONT_FAMILY,
               fontSize: '0.76rem',
             },
           }}

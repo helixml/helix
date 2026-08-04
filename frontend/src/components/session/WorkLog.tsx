@@ -8,6 +8,8 @@ import { useTheme } from "@mui/material/styles";
 
 import { CollapsibleToolCall } from "./CollapsibleToolCall";
 import { preserveDisclosureExpansion } from "./disclosureScroll";
+import { getChatColors } from "./chatStyles";
+import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 
 export interface WorkLogEntry {
   id: string;
@@ -28,6 +30,7 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
   const [expanded, setExpanded] = useState(false);
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
+  const chatColors = getChatColors(theme);
   const latestEntry = entries[entries.length - 1];
   const previousCount = Math.max(0, entries.length - 1);
 
@@ -56,9 +59,9 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
             sx={{
               minHeight: 24,
               px: 0.5,
-              color: isDark ? "rgba(255,255,255,0.65)" : "text.secondary",
+              color: isDark ? chatColors.muted : "text.secondary",
               fontSize: "0.76rem",
-              fontFamily: "monospace",
+              fontFamily: APP_MONO_FONT_FAMILY,
               textTransform: "none",
               "&:hover": { backgroundColor: "transparent" },
             }}
@@ -77,7 +80,7 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
           display: "flex",
           alignItems: "center",
           minHeight: 28,
-          color: isDark ? "rgba(255,255,255,0.7)" : "text.secondary",
+          color: isDark ? chatColors.muted : "text.secondary",
         }}
       >
         <Typography
@@ -86,7 +89,7 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
             flex: 1,
             fontWeight: 600,
             letterSpacing: "0.01em",
-            fontFamily: "monospace",
+            fontFamily: APP_MONO_FONT_FAMILY,
           }}
         >
           Tool calls
@@ -101,7 +104,7 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
             px: 0.5,
             color: "inherit",
             fontSize: "0.76rem",
-            fontFamily: "monospace",
+            fontFamily: APP_MONO_FONT_FAMILY,
             textTransform: "none",
             "&:hover": { backgroundColor: "transparent" },
           }}
