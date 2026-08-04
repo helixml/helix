@@ -111,6 +111,7 @@ export class WebSocketStream {
   // Set when a reconnect was skipped because the page was hidden; the
   // visibilitychange handler picks it up when the tab comes back.
   private reconnectWhenVisible = false
+  private visibilityRecheckId: ReturnType<typeof setInterval> | null = null
 
   // Set by reconnect() so the next init message is flagged as a user retry.
   private pendingUserRetry = false
@@ -571,6 +572,7 @@ export class WebSocketStream {
       console.log("[WebSocketStream] Page hidden, deferring reconnect until visible")
       this.dispatchInfoEvent({ type: "reconnectDeferred", reason: "page hidden" })
       this.reconnectWhenVisible = true
+      this.startVisibilityRecheck()
       return
     }
 
@@ -2375,6 +2377,36 @@ export class WebSocketStream {
     }
   }
 
+  /**
+   * Poll `document.hidden` while a reconnect is deferred. The visibilitychange
+   * listener alone is not enough: the heartbeat is stopped on disconnect, so if
+   * that one event is ever missed the deferral is never lifted and the stream
+   * stays dead with no way back. This timer is the only thing running then.
+   */
+  private startVisibilityRecheck() {
+    if (this.visibilityRecheckId !== null) return
+    this.visibilityRecheckId = setInterval(() => {
+      if (this.closed || this.connected || !this.reconnectWhenVisible) {
+        this.stopVisibilityRecheck()
+        return
+      }
+      if (!document.hidden) {
+        this.pageVisible = true
+        this.reconnectWhenVisible = false
+        this.stopVisibilityRecheck()
+        console.log("[WebSocketStream] Page visible again (poll), resuming deferred reconnect")
+        this.connect()
+      }
+    }, 2000)
+  }
+
+  private stopVisibilityRecheck() {
+    if (this.visibilityRecheckId !== null) {
+      clearInterval(this.visibilityRecheckId)
+      this.visibilityRecheckId = null
+    }
+  }
+
   private startHeartbeat() {
     this.stopHeartbeat()
 
@@ -2394,6 +2426,7 @@ export class WebSocketStream {
         // Resume a reconnect we deferred while the tab was in the background.
         if (this.reconnectWhenVisible && !this.closed && !this.connected) {
           this.reconnectWhenVisible = false
+          this.stopVisibilityRecheck()
           console.log("[WebSocketStream] Page visible again, resuming deferred reconnect")
           this.connect()
         }
@@ -2415,17 +2448,6 @@ export class WebSocketStream {
     window.addEventListener("pageshow", this.bfcacheRestoreHandler)
 
     this.heartbeatIntervalId = setInterval(() => {
-      // Self-heal a deferred reconnect. `pageVisible` is only updated by the
-      // visibilitychange event; if that event is ever missed the deferral would
-      // never be lifted and the stream would stay dead with no way back.
-      if (this.reconnectWhenVisible && !document.hidden && !this.closed && !this.connected) {
-        this.pageVisible = true
-        this.reconnectWhenVisible = false
-        console.log("[WebSocketStream] Page is visible, resuming deferred reconnect")
-        this.connect()
-        return
-      }
-
       if (!this.connected) return
 
       // Skip stale detection when page is hidden (iOS suspends JS, time passes but no messages)
@@ -2572,6 +2594,7 @@ export class WebSocketStream {
     // in setCanvas() when the canvas actually changes.
 
     // Cancel any pending reconnection
+    this.stopVisibilityRecheck()
     if (this.reconnectTimeoutId) {
       clearTimeout(this.reconnectTimeoutId)
       this.reconnectTimeoutId = null
