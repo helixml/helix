@@ -10,7 +10,7 @@ All work in the sandbox's inner Helix at `http://localhost:8080`. Never touch me
 - [ ] Confirm with `psql`: interaction `state=waiting` with a full `response_message`, and `sessions.config->>'external_agent_status' = 'running'`
 - [ ] Confirm the ~2s "Session is busy (interaction waiting)" loop with a queued prompt undeliverable
 - [x] **Deterministic repro landed as a unit test** — `TestMessageCompleted_StaleRequestID_SettlesWaitingInteraction` reproduces the exact production log line and the dropped completion, without needing the live stack
-- [x] Read `~/.local/share/zed/logs/Zed.log` in the container and confirm (or refute) the Defect B hypothesis in design.md §1 — that `last_completed_request_id` is never written on the interrupt path, freezing `turn_request_id` on turn 1
+- [x] **Defect B root cause found — but it is NOT the planning hypothesis.** Confirmed by source analysis (see design.md "Corrected Zed root cause"): `last_completed_request_id` *is* written on the interrupt path. The real freeze is that the `Stopped` fallback updates `last_completed_request_id` to the fallback id but leaves `turn_request_id` on the old one, so the two diverge permanently and the rotation equality can never hold again
 
 ## Phase 2 — Helix: shared turn resolver
 
@@ -25,7 +25,7 @@ All work in the sandbox's inner Helix at `http://localhost:8080`. Never touch me
 ## Phase 3 — Zed: stop echoing a dead turn's id
 
 - [x] Make turn rotation fire on turn end by **any** means, including `turn_cancelled`/interrupt, not only on `message_completed`
-- [x] Move turn-boundary rotation ahead of the `is_external_originated_entry` early return at `thread_service.rs:901` (or rotate in the `chat_message` handler) so Helix-originated prompts rotate the turn id
+- [x] ~~Move turn-boundary rotation ahead of the `is_external_originated_entry` early return~~ — **not needed.** The real root cause is the divergence above; the one-line fix keeps `turn_request_id` in lockstep with the id actually reported, which restores rotation for every later turn
 - [x] Keep the existing protection: a follow-up message overwriting the global map mid-turn must not poison the in-flight turn's id
 - [ ] Verify in `Zed.log` against the Phase 1 repro that `message_completed` and `message_added` now carry the current turn's `request_id`
 
