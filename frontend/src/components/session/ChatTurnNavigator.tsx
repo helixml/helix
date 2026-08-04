@@ -232,6 +232,7 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
               top: `${activeTop}%`,
               left: 32,
               right: 0,
+              maxWidth: 150,
               transform: `translateY(${activeTranslate})`,
               cursor: 'text',
               userSelect: 'text',

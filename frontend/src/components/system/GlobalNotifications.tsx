@@ -372,34 +372,15 @@ const AttentionEventItem: React.FC<{
       </Box>
       <Tooltip
         title={
-          <Box sx={{ maxWidth: 150 }}>
-            <Typography
-              variant="body2"
-              sx={{
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                fontWeight: 600,
-              }}
-            >
-              {isOrgMessage
-                ? event.title
-                : (event.spec_task_description || event.spec_task_name || event.spec_task_id || '')}
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
-            >
-              {isOrgMessage
-                ? (event.description || '')
-                : (groupedWith ? 'Spec ready & agent finished' : event.title)}
-            </Typography>
-          </Box>
+          <span style={{ whiteSpace: 'pre-wrap' }}>
+            {isOrgMessage
+              ? `${event.title}\n${event.description || ''}`
+              : `${event.spec_task_description || event.spec_task_name || event.spec_task_id || ''}\n${groupedWith ? 'Spec ready & agent finished' : event.title}`}
+          </span>
         }
         placement="left"
         enterDelay={500}
         arrow
-        componentsProps={{ tooltip: { sx: { maxWidth: 150 } } }}
       >
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography
