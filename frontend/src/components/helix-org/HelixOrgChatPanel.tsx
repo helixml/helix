@@ -428,7 +428,6 @@ const HelixOrgChatPanel: FC = () => {
           <AgentChat
             sessionId={chatSessionId}
             projectId={projectID}
-            autoScrollOnMount
             enableInteractionDebugCopy
             showSessionPromptQueue
             placeholder={`Message ${selectedBot?.name || selectedBotId}…`}

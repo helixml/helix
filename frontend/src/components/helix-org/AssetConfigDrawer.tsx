@@ -267,7 +267,7 @@ const AssetConfigDrawer: FC<AssetConfigDrawerProps> = ({ open, asset, health, ag
         ) : (
           <>
             <Typography variant="body2" color="text.secondary">
-              Assets are organization resources that can be linked to specific agents. Server assets expose SSH command and file tools.
+              Let AI agents troubleshoot and manage your servers at your command.
             </Typography>
             <TextField
               select size="small" label="Asset type" value={AssetKind.KindServer} fullWidth

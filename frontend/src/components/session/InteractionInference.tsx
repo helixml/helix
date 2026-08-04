@@ -190,6 +190,7 @@ export const MessageWithToolCalls: FC<{
       </>
     ) : (
       <>
+        {finalContent}
         <ActivitySummary
           durationMs={durationMs}
           hasActivity={hasActivity}
@@ -198,7 +199,6 @@ export const MessageWithToolCalls: FC<{
         >
           {activity}
         </ActivitySummary>
-        {finalContent}
       </>
     );
   }
@@ -245,6 +245,7 @@ export const MessageWithToolCalls: FC<{
     </>
   ) : (
     <>
+      {finalContent}
       <ActivitySummary
         durationMs={durationMs}
         hasActivity={plainHasThinking}
@@ -253,7 +254,6 @@ export const MessageWithToolCalls: FC<{
       >
         {activityContent}
       </ActivitySummary>
-      {finalContent}
     </>
   );
 };
