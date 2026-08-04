@@ -19,6 +19,7 @@ import HelixOrgTopNav from './HelixOrgTopNav'
 import useAccount from '../../hooks/useAccount'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
+import { loadPanelLayout, savePanelLayout } from '../../lib/panelLayoutStorage'
 import { IPageBreadcrumb } from '../../types'
 
 export type HelixOrgShellProps = {
@@ -47,6 +48,10 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
+  const orgId = account.organizationTools.organization?.id ?? ''
+  const orgChatPanelIds = ['helix-org-chat', 'helix-org-content'] as const
+  const orgChatLayoutKey = orgId ? `helix.orgChat.layout.${orgId}` : ''
+  const savedOrgChatLayout = loadPanelLayout(orgChatLayoutKey, orgChatPanelIds)
 
   const content = (
     <Box
@@ -102,15 +107,18 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({
           }}
         >
           <PanelGroup
+            key={orgId || 'helix-org'}
             id="helix-org-shell"
             orientation="horizontal"
+            defaultLayout={savedOrgChatLayout ?? { 'helix-org-chat': 32, 'helix-org-content': 68 }}
+            onLayoutChange={(layout) => savePanelLayout(orgChatLayoutKey, layout, orgChatPanelIds)}
             style={{ height: '100%', width: '100%' }}
           >
             <Panel
               id="helix-org-chat"
               defaultSize="32%"
               minSize="20%"
-              maxSize="50%"
+              maxSize="75%"
               style={{ overflow: 'hidden', minWidth: 0, minHeight: 0 }}
             >
               <Box sx={{ height: '100%', width: '100%', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
@@ -132,7 +140,7 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({
             <Panel
               id="helix-org-content"
               defaultSize="68%"
-              minSize="40%"
+              minSize="25%"
               style={{ overflow: 'hidden', minWidth: 0, minHeight: 0 }}
             >
               {content}
