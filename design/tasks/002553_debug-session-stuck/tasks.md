@@ -10,7 +10,7 @@ All work in the sandbox's inner Helix at `http://localhost:8080`. Never touch me
 - [ ] Confirm with `psql`: interaction `state=waiting` with a full `response_message`, and `sessions.config->>'external_agent_status' = 'running'`
 - [ ] Confirm the ~2s "Session is busy (interaction waiting)" loop with a queued prompt undeliverable
 - [x] **Deterministic repro landed as a unit test** — `TestMessageCompleted_StaleRequestID_SettlesWaitingInteraction` reproduces the exact production log line and the dropped completion, without needing the live stack
-- [~] Read `~/.local/share/zed/logs/Zed.log` in the container and confirm (or refute) the Defect B hypothesis in design.md §1 — that `last_completed_request_id` is never written on the interrupt path, freezing `turn_request_id` on turn 1
+- [x] Read `~/.local/share/zed/logs/Zed.log` in the container and confirm (or refute) the Defect B hypothesis in design.md §1 — that `last_completed_request_id` is never written on the interrupt path, freezing `turn_request_id` on turn 1
 
 ## Phase 2 — Helix: shared turn resolver
 
@@ -24,23 +24,23 @@ All work in the sandbox's inner Helix at `http://localhost:8080`. Never touch me
 
 ## Phase 3 — Zed: stop echoing a dead turn's id
 
-- [ ] Make turn rotation fire on turn end by **any** means, including `turn_cancelled`/interrupt, not only on `message_completed`
-- [ ] Move turn-boundary rotation ahead of the `is_external_originated_entry` early return at `thread_service.rs:901` (or rotate in the `chat_message` handler) so Helix-originated prompts rotate the turn id
-- [ ] Keep the existing protection: a follow-up message overwriting the global map mid-turn must not poison the in-flight turn's id
+- [x] Make turn rotation fire on turn end by **any** means, including `turn_cancelled`/interrupt, not only on `message_completed`
+- [x] Move turn-boundary rotation ahead of the `is_external_originated_entry` early return at `thread_service.rs:901` (or rotate in the `chat_message` handler) so Helix-originated prompts rotate the turn id
+- [x] Keep the existing protection: a follow-up message overwriting the global map mid-turn must not poison the in-flight turn's id
 - [ ] Verify in `Zed.log` against the Phase 1 repro that `message_completed` and `message_added` now carry the current turn's `request_id`
 
 ## Phase 4 — Backstop (probe, never a blind timer)
 
-- [ ] Resolve Open Question 3 with the user: reuse `cancel_current_turn`→`noop` as the probe, or add a dedicated read-only `turn_status` request/response to the sync protocol
-- [ ] Add the probe path to `auto_wake_stuck_interactions.go`, covering the gap it and `desktopResumeReapStaleThreshold` both decline (agent connected + completion dropped)
-- [ ] Gate the probe on "waiting interaction AND no agent activity for the idle threshold", using Zed's `touch_activity` proof-of-life (any event), not token flow alone
-- [ ] On `status == "noop"`, settle the waiting interaction and WARN with session, interaction and both request_ids
-- [ ] On `status == "cancelled"` or no answer, leave the interaction waiting — never complete a turn the agent says is live
+- [x] Resolve Open Question 3 with the user: reuse `cancel_current_turn`→`noop` as the probe, or add a dedicated read-only `turn_status` request/response to the sync protocol
+- [x] Add the probe path to `auto_wake_stuck_interactions.go`, covering the gap it and `desktopResumeReapStaleThreshold` both decline (agent connected + completion dropped)
+- [x] Gate the probe on "waiting interaction AND no agent activity for the idle threshold", using Zed's `touch_activity` proof-of-life (any event), not token flow alone
+- [x] On `status == "noop"`, settle the waiting interaction and WARN with session, interaction and both request_ids
+- [x] On `status == "cancelled"` or no answer, leave the interaction waiting — never complete a turn the agent says is live
 
 ## Phase 5 — Surface it
 
-- [ ] WARN-level log whenever Helix has a `waiting` interaction and the agent reports no turn running
-- [ ] Publish the interaction update to the frontend so the spinner clears instead of lying
+- [x] WARN-level log whenever Helix has a `waiting` interaction and the agent reports no turn running
+- [x] Publish the interaction update to the frontend so the spinner clears instead of lying
 - [ ] Confirm with the user whether an explicit frontend banner is in scope (Open Question 6)
 
 ## Phase 6 — Tests
@@ -48,7 +48,7 @@ All work in the sandbox's inner Helix at `http://localhost:8080`. Never touch me
 - [x] Add to `websocket_external_agent_sync_test.go` (`WebSocketSyncSuite`): completion with a stale `request_id` while another interaction is waiting → the waiting interaction completes
 - [x] Add: genuine duplicate completion is still suppressed (no double-complete, no premature completion of a live turn)
 - [x] Add: a completion arriving mid-stream for a live turn is NOT applied (agent-probe based, plus an unanswered-probe fail-closed case)
-- [ ] Unit-test the backstop's decision function across the live/idle/noop/no-answer matrix
+- [x] Unit-test the backstop's decision function across the live/idle/noop/no-answer matrix
 - [ ] Run the Phase 1 repro end-to-end and confirm green: turn completes, session leaves `running`, queued prompt is delivered
 - [ ] **Test the next operation**: after the completion lands, send another message and confirm it is delivered *and answered*
 - [ ] Prove a long silent tool call is not prematurely completed by the backstop
