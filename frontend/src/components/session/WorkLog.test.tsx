@@ -23,20 +23,20 @@ describe("WorkLog", () => {
 
     expect(screen.getByText("latest command")).toBeInTheDocument();
     expect(screen.queryByText("first command")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /\+2 previous log entries/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /\+2 previous tool calls/ })).toBeInTheDocument();
   });
 
   it("reveals the full log and can collapse it again", () => {
     renderWorkLog();
 
-    fireEvent.click(screen.getByRole("button", { name: /\+2 previous log entries/ }));
+    fireEvent.click(screen.getByRole("button", { name: /\+2 previous tool calls/ }));
 
-    expect(screen.getByText("Work Log")).toBeInTheDocument();
+    expect(screen.getByText("Tool calls")).toBeInTheDocument();
     expect(screen.getByText("first command")).toBeInTheDocument();
     expect(screen.getByText("second command")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Show fewer log entries/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Show fewer tool calls/ })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Show fewer log entries/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Show fewer tool calls/ }));
 
     expect(screen.queryByText("first command")).not.toBeInTheDocument();
     expect(screen.getByText("latest command")).toBeInTheDocument();

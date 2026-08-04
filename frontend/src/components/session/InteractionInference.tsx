@@ -24,6 +24,87 @@ export interface ResponseEntry {
   tool_name?: string;
   tool_status?: string;
 }
+
+interface TextActivitySegment {
+  type: "text";
+  entry: ResponseEntry;
+  index: number;
+  thinkingOnly?: boolean;
+}
+
+interface ToolActivitySegment {
+  type: "tools";
+  entries: Array<{
+    id: string;
+    toolName: string;
+    status: string;
+    body: string;
+  }>;
+}
+
+type ActivitySegment = TextActivitySegment | ToolActivitySegment;
+
+const hasThinking = (content: string) => /<(?:think|thinking)>/i.test(content);
+
+const hasVisibleAssistantText = (content: string) => content
+  .replace(/<think>[\s\S]*?<\/think>/gi, "")
+  .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+  .replace(/<(?:think|thinking)>[\s\S]*$/gi, "")
+  .trim()
+  .length > 0;
+
+export function buildActivityTimeline(
+  responseEntries: ResponseEntry[],
+  isStreaming: boolean,
+): { activitySegments: ActivitySegment[]; finalTextIndex: number | undefined } {
+  let finalTextIndex: number | undefined;
+  if (!isStreaming) {
+    for (let index = responseEntries.length - 1; index >= 0; index -= 1) {
+      if (responseEntries[index].type === "text") {
+        finalTextIndex = index;
+        break;
+      }
+    }
+  }
+  const activitySegments: ActivitySegment[] = [];
+
+  responseEntries.forEach((entry, index) => {
+    if (index === finalTextIndex) {
+      if (hasThinking(entry.content)) {
+        activitySegments.push({ type: "text", entry, index, thinkingOnly: true });
+      }
+      return;
+    }
+
+    if (entry.type === "tool_call") {
+      const toolEntry = {
+        id: `${entry.message_id || "tool-call"}-${index}`,
+        toolName: entry.tool_name || "Tool Call",
+        status:
+          entry.tool_status ||
+          (index === responseEntries.length - 1 && isStreaming ? "Running" : "Completed"),
+        body: entry.content || "",
+      };
+      const previousSegment = activitySegments[activitySegments.length - 1];
+
+      if (previousSegment?.type === "tools") {
+        previousSegment.entries.push(toolEntry);
+      } else {
+        activitySegments.push({ type: "tools", entries: [toolEntry] });
+      }
+      return;
+    }
+
+    if (hasVisibleAssistantText(entry.content)) {
+      activitySegments.push({ type: "text", entry, index });
+    }
+  });
+
+  return {
+    activitySegments,
+    finalTextIndex,
+  };
+}
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -82,8 +163,6 @@ export const MessageWithToolCalls: FC<{
   activityStartedAt,
   showActivitySummary = true,
 }) => {
-  const hasThinking = (content: string) => /<(?:think|thinking)>/i.test(content);
-
   if (!showActivitySummary) {
     return (
       <Markdown
@@ -100,97 +179,57 @@ export const MessageWithToolCalls: FC<{
 
   // Structured path: use response_entries from the Go API (preserves type + order)
   if (responseEntries && responseEntries.length > 0) {
-    const toolCallEntries = responseEntries
-      .map((entry, index) => ({ entry, index }))
-      .filter(({ entry }) => entry.type === "tool_call");
-    const lastToolCallIndex = toolCallEntries[toolCallEntries.length - 1]?.index;
-    const lastResponseEntryIndex = responseEntries.length - 1;
-    const hasActivity = responseEntries.some(
-      (entry) => entry.type === "tool_call" || hasThinking(entry.content),
+    const { activitySegments, finalTextIndex } = buildActivityTimeline(
+      responseEntries,
+      isStreaming,
     );
-    const workLogEntries = toolCallEntries.map(({ entry: toolEntry, index }) => ({
-      id: `${toolEntry.message_id || "tool-call"}-${index}`,
-      toolName: toolEntry.tool_name || "Tool Call",
-      status:
-        toolEntry.tool_status ||
-        (index === lastResponseEntryIndex && isStreaming ? "Running" : "Completed"),
-      body: toolEntry.content || "",
-    }));
-
-    const activity = responseEntries.map((entry, i) => {
-      if (entry.type === "tool_call") {
-        if (i !== lastToolCallIndex) return null;
-        return <WorkLog key="work-log" entries={workLogEntries} showAll />;
+    const hasActivity = activitySegments.length > 0;
+    const activity = activitySegments.map((segment, segmentIndex) => {
+      if (segment.type === "tools") {
+        return <WorkLog key={`tool-run-${segmentIndex}`} entries={segment.entries} />;
       }
-      if (!hasThinking(entry.content)) return null;
+
       return (
         <Markdown
-          key={`thought-${i}`}
-          text={entry.content}
+          key={`activity-text-${segment.index}`}
+          text={segment.entry.content}
           session={session}
           getFileURL={getFileURL}
           showBlinker={false}
-          isStreaming={false}
+          isStreaming={isStreaming && segment.index === responseEntries.length - 1}
           onFilterDocument={onFilterDocument}
           compactThinking={compactThinking}
-          renderThinkingWidget
-          renderContent={false}
+          renderThinkingWidget={Boolean(segment.thinkingOnly)}
+          renderContent={!segment.thinkingOnly}
         />
       );
     });
-    const latestThought = [...responseEntries]
-      .map((entry, index) => ({ entry, index }))
-      .reverse()
-      .find(({ entry }) => entry.type === "text" && hasThinking(entry.content));
-    const streamingPreview = workLogEntries.length > 0 ? (
-      <WorkLog entries={workLogEntries} />
-    ) : latestThought ? (
+    const finalEntry = finalTextIndex === undefined ? undefined : responseEntries[finalTextIndex];
+    const finalContent = finalEntry ? (
       <Markdown
-        text={latestThought.entry.content}
+        text={finalEntry.content}
         session={session}
         getFileURL={getFileURL}
         showBlinker={false}
         isStreaming={false}
         onFilterDocument={onFilterDocument}
         compactThinking={compactThinking}
-        renderThinkingWidget
-        renderContent={false}
+        renderThinkingWidget={false}
       />
     ) : null;
 
-    const finalContent = responseEntries.map((entry, i) => {
-      if (entry.type === "tool_call") return null;
-      return (
-        <Markdown
-          key={`md-${i}`}
-          text={entry.content}
-          session={session}
-          getFileURL={getFileURL}
-          showBlinker={false}
-          isStreaming={isStreaming && i === responseEntries.length - 1}
-          onFilterDocument={onFilterDocument}
-          compactThinking={compactThinking}
-          renderThinkingWidget={false}
-        />
-      );
-    });
-
     return isStreaming ? (
       <>
-        {streamingPreview}
-        {finalContent}
+        {activity}
         <ActivitySummary
           durationMs={durationMs}
-          hasActivity={hasActivity}
+          hasActivity={false}
           isStreaming
           startedAt={activityStartedAt}
-        >
-          {activity}
-        </ActivitySummary>
+        />
       </>
     ) : (
       <>
-        {finalContent}
         <ActivitySummary
           durationMs={durationMs}
           hasActivity={hasActivity}
@@ -199,6 +238,7 @@ export const MessageWithToolCalls: FC<{
         >
           {activity}
         </ActivitySummary>
+        {finalContent}
       </>
     );
   }
