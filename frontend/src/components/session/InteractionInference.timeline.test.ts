@@ -30,15 +30,27 @@ describe("buildActivityTimeline", () => {
       "tools",
       "text",
       "tools",
+      "text",
+      "tools",
     ]);
     expect(timeline.activitySegments[1]).toMatchObject({
       type: "tools",
       entries: [
         { toolName: "first tool", body: "first output" },
-        { toolName: "second tool", body: "second output" },
       ],
     });
     expect(timeline.activitySegments[3]).toMatchObject({
+      type: "tools",
+      entries: [
+        { toolName: "second tool", body: "second output" },
+      ],
+    });
+    expect(timeline.activitySegments[4]).toMatchObject({
+      type: "text",
+      renderThinking: true,
+      renderContent: true,
+    });
+    expect(timeline.activitySegments[5]).toMatchObject({
       type: "tools",
       entries: [
         { toolName: "third tool", body: "third output" },
@@ -58,7 +70,12 @@ describe("buildActivityTimeline", () => {
     expect(timeline.finalTextIndex).toBeUndefined();
     expect(timeline.activitySegments).toMatchObject([
       { type: "tools", entries: [{ toolName: "preview_snapshot" }] },
-      { type: "text", entry: { content: "I am checking the live page" } },
+      {
+        type: "text",
+        entry: { content: "I am checking the live page" },
+        renderThinking: false,
+        renderContent: true,
+      },
     ]);
   });
 
@@ -71,7 +88,21 @@ describe("buildActivityTimeline", () => {
 
     expect(timeline.finalTextIndex).toBe(0);
     expect(timeline.activitySegments).toMatchObject([
-      { type: "text", thinkingOnly: true },
+      { type: "text", renderThinking: true, renderContent: false },
+    ]);
+  });
+
+  it("does not mistake a trailing thought-only entry for the final answer", () => {
+    const entries = [
+      entry("1", "text", "Final answer"),
+      entry("2", "text", "<thinking>Finishing checks</thinking>"),
+    ];
+
+    const timeline = buildActivityTimeline(entries, false);
+
+    expect(timeline.finalTextIndex).toBe(0);
+    expect(timeline.activitySegments).toMatchObject([
+      { type: "text", renderThinking: true, renderContent: false },
     ]);
   });
 });

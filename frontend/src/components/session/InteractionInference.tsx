@@ -29,7 +29,8 @@ interface TextActivitySegment {
   type: "text";
   entry: ResponseEntry;
   index: number;
-  thinkingOnly?: boolean;
+  renderThinking: boolean;
+  renderContent: boolean;
 }
 
 interface ToolActivitySegment {
@@ -60,7 +61,10 @@ export function buildActivityTimeline(
   let finalTextIndex: number | undefined;
   if (!isStreaming) {
     for (let index = responseEntries.length - 1; index >= 0; index -= 1) {
-      if (responseEntries[index].type === "text") {
+      if (
+        responseEntries[index].type === "text" &&
+        hasVisibleAssistantText(responseEntries[index].content)
+      ) {
         finalTextIndex = index;
         break;
       }
@@ -71,7 +75,13 @@ export function buildActivityTimeline(
   responseEntries.forEach((entry, index) => {
     if (index === finalTextIndex) {
       if (hasThinking(entry.content)) {
-        activitySegments.push({ type: "text", entry, index, thinkingOnly: true });
+        activitySegments.push({
+          type: "text",
+          entry,
+          index,
+          renderThinking: true,
+          renderContent: false,
+        });
       }
       return;
     }
@@ -95,8 +105,16 @@ export function buildActivityTimeline(
       return;
     }
 
-    if (hasVisibleAssistantText(entry.content)) {
-      activitySegments.push({ type: "text", entry, index });
+    const renderThinking = hasThinking(entry.content);
+    const renderContent = hasVisibleAssistantText(entry.content);
+    if (renderThinking || renderContent) {
+      activitySegments.push({
+        type: "text",
+        entry,
+        index,
+        renderThinking,
+        renderContent,
+      });
     }
   });
 
@@ -199,8 +217,8 @@ export const MessageWithToolCalls: FC<{
           isStreaming={isStreaming && segment.index === responseEntries.length - 1}
           onFilterDocument={onFilterDocument}
           compactThinking={compactThinking}
-          renderThinkingWidget={Boolean(segment.thinkingOnly)}
-          renderContent={!segment.thinkingOnly}
+          renderThinkingWidget={segment.renderThinking}
+          renderContent={segment.renderContent}
         />
       );
     });
