@@ -1,9 +1,10 @@
-import React, { FC, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { FC, MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import { alpha, useTheme } from '@mui/material/styles'
 
 import { getChatColors } from './chatStyles'
 import {
+  CHAT_TURN_NAVIGATOR_ITEM_SPACING,
   CHAT_TURN_NAVIGATOR_MIN_ITEMS,
   ChatTurnNavigatorItem,
   resolveChatTurnNavigatorIndexFromPointer,
@@ -27,7 +28,6 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
   const theme = useTheme()
   const colors = getChatColors(theme)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
-  const [previewWidth, setPreviewWidth] = useState(300)
   const markerRefs = useRef(new Map<string, HTMLSpanElement>())
 
   const resolvedActiveIndex = activeIndex !== null && activeIndex < items.length
@@ -43,21 +43,16 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
       ? '-100%'
       : '-50%'
 
-  const turnElements = useMemo(() => {
-    if (!scrollContainer) return new Map<string, HTMLElement>()
-    const elements = new Map<string, HTMLElement>()
-    scrollContainer.querySelectorAll<HTMLElement>('[data-chat-turn]').forEach((element) => {
-      const id = element.dataset.chatTurn
-      if (id) elements.set(id, element)
-    })
-    return elements
-  }, [items, scrollContainer])
+  const naturalHeight = Math.max(1, (items.length - 1) * CHAT_TURN_NAVIGATOR_ITEM_SPACING)
 
   const updateVisibleMarkers = useCallback(() => {
     if (!scrollContainer) return
-    const nextPreviewWidth = Math.min(300, Math.max(0, scrollContainer.clientWidth - 56))
-    setPreviewWidth((current) => current === nextPreviewWidth ? current : nextPreviewWidth)
     const viewport = scrollContainer.getBoundingClientRect()
+    const turnElements = new Map<string, HTMLElement>()
+    scrollContainer.querySelectorAll<HTMLElement>('[data-chat-turn]').forEach((element) => {
+      const id = element.dataset.chatTurn
+      if (id) turnElements.set(id, element)
+    })
     items.forEach((item) => {
       const marker = markerRefs.current.get(item.id)
       const turn = turnElements.get(item.id)
@@ -66,13 +61,10 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
       const inView = rect.top < viewport.bottom && rect.bottom > viewport.top
       marker.dataset.inView = inView ? 'true' : 'false'
     })
-  }, [items, scrollContainer, turnElements])
+  }, [items, scrollContainer])
 
   useEffect(() => {
-    if (!scrollContainer) {
-      setPreviewWidth(300)
-      return
-    }
+    if (!scrollContainer) return
     const frame = requestAnimationFrame(updateVisibleMarkers)
     const observer = new ResizeObserver(updateVisibleMarkers)
     observer.observe(scrollContainer)
@@ -162,12 +154,11 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
         sx={{
           pointerEvents: 'auto',
           position: 'absolute',
-          top: 24,
-          bottom: 24,
+          top: '50%',
           left: 12,
-          // Keep the hit area in the transcript gutter. The preview is an
-          // overflowing child so hovering it never blocks the transcript.
-          width: 24,
+          transform: 'translateY(-50%)',
+          width: activeItem ? 'calc(100% - 20px)' : 24,
+          height: `min(${naturalHeight}px, calc(100% - 48px))`,
           m: 0,
           p: 0,
           border: 0,
@@ -236,7 +227,7 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
               position: 'absolute',
               top: `${activeTop}%`,
               left: 32,
-              width: previewWidth,
+              right: 0,
               maxWidth: 300,
               transform: `translateY(${activeTranslate})`,
               cursor: 'text',
