@@ -738,12 +738,12 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 			return
 		}
-	}
-
-	// Check ownership - only allow updates to owned endpoints or if user is admin
-	if existingEndpoint.Owner != user.ID && !user.Admin {
-		http.Error(rw, "Unauthorized", http.StatusUnauthorized)
-		return
+	} else {
+		// Check ownership - only allow updates to owned endpoints or if user is admin
+		if existingEndpoint.Owner != user.ID && !user.Admin {
+			http.Error(rw, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	var updatedEndpoint types.UpdateProviderEndpoint

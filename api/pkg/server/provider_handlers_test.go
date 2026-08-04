@@ -679,6 +679,50 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchUserToGlobal() 
 	s.Equal(http.StatusOK, rr.Code)
 }
 
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_OrgOwner() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "pe_org"
+	orgID := "org_id"
+
+	existing := &types.ProviderEndpoint{
+		ID: endpointID, Name: "org-endpoint", BaseURL: "http://old.example.com",
+		Owner: orgID, OwnerType: types.OwnerTypeOrg, EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: endpointID}).Return(existing, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID,
+		UserID:         "user_id",
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: orgID,
+		UserID:         "user_id",
+		Role:           types.OrganizationRoleOwner,
+	}, nil)
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+			s.Equal(orgID, endpoint.Owner)
+			s.Equal(types.OwnerTypeOrg, endpoint.OwnerType)
+			s.Equal("http://new.example.com", endpoint.BaseURL)
+			return endpoint, nil
+		})
+
+	body, err := json.Marshal(types.UpdateProviderEndpoint{
+		Name: "org-endpoint", BaseURL: "http://new.example.com",
+	})
+	s.Require().NoError(err)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+}
+
 func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotSwitchToGlobal() {
 	s.server.Cfg.Providers.EnableCustomUserProviders = true
 	endpointID := "ep_123"
