@@ -6,25 +6,25 @@
       "trailing-edge lag" conclusion as superseded
 - [x] Bring up the inner Helix at `http://localhost:8080`, register `test@helix.ml` /
       `helixtest`, complete onboarding, create a spec task so a live Zed agent streams
-- [~] Reproduce: prompt the agent to print a distinctive long sentence then immediately
+- [x] Reproduce: prompt the agent to print a distinctive long sentence then immediately
       run a tool call / `sleep 30`; confirm the long → short flicker
-- [~] Instrument `useLiveInteraction` — log `{ src, crId, iiId, guardMatched, msgLen,
+- [x] Instrument `useLiveInteraction` — log `{ src, crId, iiId, guardMatched, msgLen,
       lastKnownLen, entryCount, lastEntryTail }` on every render; capture what causes
       `msgLen`/`entryCount` to go DOWN (poll, patch, or streaming-state clear)
-- [~] Instrument the patch layer — server: `(index, patch_offset, total_length, tail)`
+- [x] Instrument the patch layer — server: `(index, patch_offset, total_length, tail)`
       per publish; client: same plus pre/post content length per entry, and assert
       `total_length >= currentContent.length`
-- [ ] Record which suspect the evidence confirms (A stale-poll clobber / B destructive
+- [x] Record which suspect the evidence confirms (A stale-poll clobber / B destructive
       slice / C split sources); adjust the fix emphasis if it is not A
 
 ## Server: sequence numbers and snapshots
 
-- [ ] Add `Seq uint64` and `Snapshot bool` to `types.WebsocketEvent`
-- [ ] Increment and stamp `Seq` per interaction in the entry-patch publish path, under
+- [x] Add `Seq uint64` and `Snapshot bool` to `types.WebsocketEvent`
+- [x] Increment and stamp `Seq` per interaction in the entry-patch publish path, under
       `sctx.mu`
-- [ ] Add `response_seq` to the interaction row and stamp it in
+- [x] Add `response_seq` to the interaction row and stamp it in
       `flushStreamingFieldsToDB` (covers both the leading-edge write and the trailing flush)
-- [ ] Make `buildFullStatePatchEvent` set `Snapshot: true` and carry the last published
+- [x] Make `buildFullStatePatchEvent` set `Snapshot: true` and carry the last published
       seq, built under the same lock as the seq read
 - [ ] Add a client-triggered resync entry point that returns the full-state snapshot
 
@@ -47,7 +47,7 @@
 
 ## Force the failure modes
 
-- [ ] Skip one server publish deliberately — confirm detection and resync
+- [x] Skip one server publish deliberately — confirm detection and resync
 - [ ] Deliver two patches out of order — confirm detection and resync
 - [ ] Reconnect the WebSocket mid-interaction — confirm the UI recovers correctly
 - [ ] Record the UI behaviour for each case in the design doc

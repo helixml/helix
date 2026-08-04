@@ -152,6 +152,68 @@ consumer obey it. One merge rule, no state-based special cases, no fallbacks.
 - Not comparing string lengths to decide freshness. Length is not a version: a legitimate
   server-driven replacement (tool status change) can shorten content.
 
+## 2A. CONFIRMED DIAGNOSIS (live evidence, 2026-08-04) — corrects §1.3
+
+**The evidence inverts the hypothesis in §1.3. Suspect B is the root cause, not suspect A.**
+
+### What was measured
+
+Instrumented `useLiveInteraction` (every render) and the patch handler (every patch) in the
+inner Helix, then ran real Zed agent turns on the spec-task detail page.
+
+**Suspect A did NOT reproduce.** Across 200+ instrumented renders spanning three full agent
+turns, `guardMatched` was true on every render that had content, `src` was `LIVE`, and
+`entryCount`/`msgLen` **never decreased once** (`shrinkCount: 0`). The 3s poll does lag the
+live stream (observed `iiEntryCount: 3` vs `crEntryCount: 5`), but the id-guard holds, so
+`setInteraction({...prev, ...currentResponse})` keeps the live entries and the polled row
+never wins. The `else` branch is reached only once, before any content exists.
+
+`interaction_update` also does **not** fire mid-stream: exactly one arrived per turn, at
+`state: "complete"`. So the `patchEntriesRef.current.delete()` at `streaming.tsx:382` is not
+firing mid-stream either (it remains fragile — see §2.4 — but it is not the live bug).
+
+### What DID reproduce: a dropped patch silently and permanently corrupts content
+
+Fault injection (`HELIX_DEBUG_DROP_PATCH_EVERY=5`) drops the publish while the caller still
+advances `previousEntries` — exactly a lost best-effort NATS message. Nine drops produced
+nine seq gaps on the client (44→46, 39→41, …) and this content divergence:
+
+| entry | server (truth) | client | symptom |
+|---|---|---|---|
+| 8 (beekeeping) | 492 chars | **448** | tail `"…settle once more. ENDOFSENTEN"` — **cut mid-word** |
+| 10 (lighthouse) | 467 chars | **336** | head `"Albs the spiral iron stair…"` |
+
+Entry 10 is the smoking gun. Server truth begins:
+
+> "**Al**one on a wave-hammered outcrop miles from the mainland, the lighthouse keeper climbs the spiral iron stair…"
+
+The client holds `"Al"` (first chunk) spliced directly onto `"bs the spiral iron stair…"`
+(chunk after the drop) = **`"Albs the spiral iron stair…"`**. 131 characters vanished
+mid-word. **Zero errors were logged, client or server.** The gap is swallowed by the
+`patch_offset >= currentContent.length` "pure append" branch in `applyPatch`, exactly as the
+brief predicted — now verified against a real forced drop rather than reasoned about.
+
+### Why this explains the screenshot AND the flicker — with the roles reversed
+
+The reported symptom is a **mid-word cut** ("the exist") — precisely the shape produced
+above, and produced *permanently*, matching "happens often, across sessions" on a transport
+that is best-effort drop-on-slow-consumer with no redelivery. A long turn (159K chars, 118
+entries) is exactly when a consumer falls behind and NATS drops.
+
+The flicker then follows, but **opposite to §1.3's framing**: the **DB is the correct
+source** (it holds the full text) and the **live patch buffer is the corrupt, short one**.
+When the live value momentarily loses (a completion, a guard miss) the correct DB text
+paints — then the corrupted live entries win again. Long → short, repeatedly. §1.3 had the
+freshness polarity backwards: it assumed live was always newer and the poll always staler.
+
+### Consequence for the fix
+
+A version comparison **alone would not have caught this**: after the drop the client had
+applied seq 46 and the DB row was stamped 46, so the client looks perfectly current while
+holding corrupt content. **Gap detection is the load-bearing part of the fix**, with the
+snapshot resync as the repair. The seq/version work in §2.2–2.3 is still required (it is
+what makes a gap detectable at all), but the ranking rule is secondary to detection.
+
 ## 3. Verification
 
 Per CLAUDE.md, no confidence not earned. A unit test on `applyPatch` is **not** evidence.
