@@ -149,7 +149,11 @@ investigation.
   that never reaches the canvas is not a working stream — this is what
   `1a3b4902e` ("reset retry budget only when video actually flows") was reaching for.
 - **`reconnectWhenVisible`** could defer a reconnect forever if a `visibilitychange`
-  was missed. The heartbeat now self-heals it from `document.hidden`.
+  was missed. A dedicated poll now re-checks `document.hidden` while a reconnect is
+  deferred. **Gotcha:** the obvious place for this — the heartbeat interval — does not
+  work, because `stopHeartbeat()` runs in `onClose`, so the heartbeat is dead exactly
+  when a deferral is pending. The first attempt at this fix was verified to do nothing
+  for that reason; the poll is the only timer alive in that state.
 
 Neither was implicated in the incident (`reconnectAttempts:0`, `gaveUp:false`
 throughout the freeze), and neither would have produced a black screen — budget
@@ -170,6 +174,9 @@ Verified in a real browser, measured in **actual paints**:
 | Unrestorable context loss | black forever, silent | watchdog → canvas remount → 47.3 fps |
 | Chrome 2D path (stub removed) | — | 51.3 → 50.0 fps across re-attach |
 | Input after recovery | — | inputs sent, playout collapses to interactive/0 ms |
+| Desktop container restarted under viewer | silent black | real error + cause + Retry, then auto-recovers |
+| 12 forced disconnect/reconnect cycles | — | 13 sockets, no `gaveUp` latch, video live |
+| Visible again with no `visibilitychange` | deferred forever | reconnects via poll |
 
 **NOT tested: real Safari.** There is no Safari in this Linux sandbox. The WebKit
 branch was exercised under Chromium by stubbing `isAppleWebKit()` to `true` (reverted
