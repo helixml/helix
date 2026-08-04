@@ -52,11 +52,11 @@ All work in the sandbox's inner Helix at `http://localhost:8080`. Never touch me
 - [ ] Run the Phase 1 repro end-to-end and confirm green: turn completes, session leaves `running`, queued prompt is delivered
 - [ ] **Test the next operation**: after the completion lands, send another message and confirm it is delivered *and answered*
 - [ ] Prove a long silent tool call is not prematurely completed by the backstop
-- [ ] **Mandatory if the Zed WebSocket sync was touched**: run `crates/external_websocket_sync/e2e-test/run_docker_e2e.sh` — "compiles" is not acceptable evidence here
+- [x] **Mandatory e2e run — DONE and GREEN.** Installed a Rust toolchain + gcc/cmake (absent from this sandbox), rebuilt Zed via `./stack build-zed dev`, copied the binary, ran `run_docker_e2e.sh`: all 17 phases PASSED including Phase 9 "Rapid 3-turn cancel" and Phase 14 "Cancel no-op"
 
 ## Phase 7 — Ship
 
-- [ ] Write `design/2026-08-04-message-completed-stale-request-id-wedge.md`, including why `2186abcda`'s approach did not hold and why the 2026-04-28 sentinel could not simply be removed
+- [x] Write `design/2026-08-04-message-completed-stale-request-id-wedge.md`, including why `2186abcda`'s approach did not hold and why the 2026-04-28 sentinel could not simply be removed
 - [ ] Commit in the Zed repo and capture `git rev-parse HEAD`
 - [ ] Bump `ZED_COMMIT` in `sandbox-versions.txt` (currently `1bac4bf841140cf562da9ac680beb4cc0338b0bc`)
 - [ ] **Open the Helix PR before pushing the Zed branch**
