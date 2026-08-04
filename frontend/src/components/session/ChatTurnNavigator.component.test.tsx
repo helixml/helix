@@ -84,11 +84,19 @@ describe('ChatTurnNavigator interactions', () => {
       toJSON: () => ({}),
     })
 
-    fireEvent.mouseMove(button, { clientY: 140 })
+    fireEvent.mouseMove(document.querySelector('[data-chat-turn-rail-hit-target]')!, { clientY: 140 })
 
     expect(screen.getByText('Second user message')).toBeInTheDocument()
     expect(screen.getByText('Second assistant response')).toBeInTheDocument()
-    expect(document.querySelector('[data-chat-turn-preview]')).toHaveStyle({ maxWidth: '300px' })
+    expect(button).toHaveStyle({ pointerEvents: 'none' })
+    expect(document.querySelector('[data-chat-turn-rail-hit-target]')).toHaveStyle({
+      pointerEvents: 'auto',
+      width: '24px',
+    })
+    expect(document.querySelector('[data-chat-turn-preview]')).toHaveStyle({
+      pointerEvents: 'none',
+      maxWidth: '300px',
+    })
   })
 
   it('supports keyboard browsing and selection', () => {
