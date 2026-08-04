@@ -90,7 +90,8 @@ default assumption — take it, note the choice in the write-up, and keep going.
 
 - [x] Write up findings and observed values in `design/2026-08-04-black-video-stream-regression.md`, explicitly stating that real-Safari confirmation is outstanding and why (no Safari in the sandbox)
 - [x] Commit with conventional-commit messages and push the feature branch (platform opens the PR)
-- [x] Check CI: Drone build **#3274** for `feature/002546-fix-black-desktop-video` @ `283b5914` = **SUCCESS** (build-frontend, unit-test, unit-test-nocgo, api-integration-test, linters, build-zed all green). Note main itself (#3262) was already failing `zed-e2e-test` before this branch — pre-existing and unrelated to these frontend-only changes
+- [x] Merge latest `origin/main` (clean, no conflicts, none of my files touched); rebuild + re-verify stream live; CI re-run green
+- [x] Check CI: Drone build **#3275** for merge head `c4eeb24d` = **SUCCESS** (all 18 steps green). Earlier build **#3274** for `feature/002546-fix-black-desktop-video` @ `283b5914` = **SUCCESS** (build-frontend, unit-test, unit-test-nocgo, api-integration-test, linters, build-zed all green). Note main itself (#3262) was already failing `zed-e2e-test` before this branch — pre-existing and unrelated to these frontend-only changes
 
 ## Added during implementation
 
