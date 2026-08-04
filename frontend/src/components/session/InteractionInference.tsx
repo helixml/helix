@@ -74,7 +74,6 @@ export function buildActivityTimeline(
   isStreaming: boolean,
 ): { activitySegments: ActivitySegment[]; finalTextIndex: number | undefined } {
   if (isStreaming) {
-    let latestThinkingIndex = -1;
     let latestToolIndex = -1;
     const toolEntries: ToolActivitySegment["entries"] = [];
 
@@ -82,8 +81,6 @@ export function buildActivityTimeline(
       if (entry.type === "tool_call") {
         latestToolIndex = index;
         toolEntries.push(toolActivityEntry(entry, index, responseEntries.length, true));
-      } else if (hasThinking(entry.content)) {
-        latestThinkingIndex = index;
       }
     });
 
@@ -91,14 +88,13 @@ export function buildActivityTimeline(
     responseEntries.forEach((entry, index) => {
       if (entry.type !== "text") return;
 
-      const renderThinking = index === latestThinkingIndex && hasThinking(entry.content);
       const renderContent = hasVisibleAssistantText(entry.content);
-      if (renderThinking || renderContent) {
+      if (renderContent) {
         activitySegments.push({
           type: "text",
           entry,
           index,
-          renderThinking,
+          renderThinking: false,
           renderContent,
         });
       }

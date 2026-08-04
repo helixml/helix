@@ -79,7 +79,7 @@ describe("buildActivityTimeline", () => {
     ]);
   });
 
-  it("collapses the live tool history and keeps only the latest thought", () => {
+  it("collapses the live tool history and hides thoughts while working", () => {
     const entries = [
       entry("1", "text", "Visible progress update"),
       entry("2", "tool_call", "first output", "first tool"),
@@ -103,12 +103,6 @@ describe("buildActivityTimeline", () => {
           { toolName: "first tool" },
           { toolName: "second tool" },
         ],
-      },
-      {
-        type: "text",
-        entry: { content: "<thinking>Current reasoning</thinking>" },
-        renderThinking: true,
-        renderContent: false,
       },
     ]);
   });
