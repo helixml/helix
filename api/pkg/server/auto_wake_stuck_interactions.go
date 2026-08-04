@@ -350,10 +350,82 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		return
 	}
 
-	log.Debug().
+	// Gate 3 — the connected-agent backstop.
+	//
+	// Everything above has established: the agent IS connected, it has been
+	// quiescent for `threshold`, and this interaction has been waiting at least
+	// that long. Until 2026-08-04 the worker stopped here and logged "replay
+	// suppressed", deliberately leaving connected interactions waiting so a late
+	// completion could still settle them. That left one state completely
+	// unbounded: agent connected, turn finished, completion delivered but
+	// dropped. Nothing else covers it — desktopResumeReapStaleThreshold only
+	// fires when there is NO live WebSocket. A wedge in this state persists
+	// until a human forces a new prompt through (4m48s of Luke's time on
+	// ses_01kz5zgx69c2r68vy1bbeqpbr8).
+	//
+	// We still must not replay the prompt (unsafe — the agent may be processing
+	// it) and must never complete a turn that is genuinely still streaming. So
+	// don't guess: ask. Zed answers turn_status truthfully, and crucially it
+	// answers "running" for a long silent tool call — which is exactly the case
+	// the lastPublish gate above admits it cannot see inside. An unanswered
+	// probe (old ZED_COMMIT) is treated as "running", preserving today's
+	// behaviour rather than risking a live turn.
+	if !apiServer.settleIfAgentReportsNoTurn(ctx, stuck, session) {
+		log.Debug().
+			Str("interaction_id", stuck.ID).
+			Str("session_id", stuck.SessionID).
+			Msg("[AUTO_WAKE] Connected agent remained quiescent; automatic prompt replay suppressed")
+	}
+}
+
+// settleIfAgentReportsNoTurn asks a connected agent whether it still has a turn
+// running for the session's thread. If it definitively does not, the waiting
+// interaction is finished work that never got its completion applied, so we
+// complete it and unblock the prompt queue. Returns true if it settled.
+//
+// This never completes a turn the agent says is live, and never completes one
+// when the agent does not answer.
+func (apiServer *HelixAPIServer) settleIfAgentReportsNoTurn(ctx context.Context, stuck *types.Interaction, session *types.Session) bool {
+	threadID := session.Metadata.ZedThreadID
+	if threadID == "" {
+		return false
+	}
+
+	running, answered := apiServer.probeTurnRunning(stuck.SessionID, threadID)
+	if running || !answered {
+		return false
+	}
+
+	// Surfacing (US-6): Helix believed a turn was running; the agent says it is
+	// not. That disagreement burned five minutes of user time while the UI
+	// cheerfully reported "running", so it is a warning, not a debug line.
+	log.Warn().
 		Str("interaction_id", stuck.ID).
 		Str("session_id", stuck.SessionID).
-		Msg("[AUTO_WAKE] Connected agent remained quiescent; automatic prompt replay suppressed")
+		Str("acp_thread_id", threadID).
+		Dur("waiting_for", time.Since(stuck.Created)).
+		Msg("🚨 [AUTO_WAKE] Interaction is waiting but the agent reports NO turn running — completion was lost; settling it")
+
+	transitioned, err := apiServer.Store.MarkInteractionCompleteIfWaiting(ctx, stuck.ID, stuck.GenerationID)
+	if err != nil {
+		log.Error().Err(err).
+			Str("interaction_id", stuck.ID).
+			Msg("[AUTO_WAKE] Failed to settle interaction the agent reports as finished")
+		return false
+	}
+	if !transitioned {
+		// Another handler got there first — the guarded UPDATE did nothing.
+		return false
+	}
+
+	if settled, err := apiServer.Store.GetInteraction(ctx, stuck.ID); err == nil {
+		apiServer.publishInteractionUpdateToFrontend(stuck.SessionID, session.Owner, settled)
+	}
+
+	// The prompt queue has been parked behind this interaction; drain it now
+	// that the session is no longer busy.
+	apiServer.processPromptQueue(ctx, stuck.SessionID)
+	return true
 }
 
 // maybeKickColdStart handles stuck interactions on sessions with no live

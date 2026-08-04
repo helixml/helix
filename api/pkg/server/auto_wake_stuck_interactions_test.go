@@ -390,3 +390,107 @@ func (s *AutoWakeConnectedSuite) TestLeavesQuiescentInteractionWaitingWithoutRep
 	s.Zero(stuck.AutoWakeCount)
 	s.Empty(sendChan)
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Connected-agent backstop (2026-08-04)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// AutoWakeBackstopSuite covers the gap that left the 2026-08-04 wedge unbounded:
+// agent connected, turn finished, completion dropped. Before this backstop the
+// worker deliberately declined to touch connected sessions and
+// desktopResumeReapStaleThreshold only fired with no live WebSocket, so nothing
+// in the system could recover the session.
+type AutoWakeBackstopSuite struct {
+	suite.Suite
+	ctrl   *gomock.Controller
+	store  *store.MockStore
+	server *HelixAPIServer
+}
+
+func TestAutoWakeBackstopSuite(t *testing.T) {
+	suite.Run(t, new(AutoWakeBackstopSuite))
+}
+
+func (s *AutoWakeBackstopSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.store = store.NewMockStore(s.ctrl)
+	s.server = &HelixAPIServer{
+		Store:                  s.store,
+		externalAgentWSManager: NewExternalAgentWSManager(),
+		Controller: &controller.Controller{
+			Options: controller.Options{Store: s.store, PubSub: pubsub.NewNoop()},
+		},
+		streamingContexts: make(map[string]*streamingContext),
+		pubsub:            pubsub.NewNoop(),
+	}
+}
+
+func (s *AutoWakeBackstopSuite) TearDownTest() { s.ctrl.Finish() }
+
+func backstopSession() *types.Session {
+	sess := &types.Session{ID: "ses_bs", Owner: "user-1"}
+	sess.Metadata.ZedThreadID = "7f88913e-9e55-49ae-9870-dae61489c951"
+	return sess
+}
+
+// The wedge case: the agent has no turn running, so the waiting interaction is
+// finished work whose completion was lost. Settle it.
+func (s *AutoWakeBackstopSuite) TestSettlesWhenAgentReportsNoTurnRunning() {
+	stuck := stuckInteraction("int_bs", "ses_bs", 0)
+	s.server.turnStatusProbe = func(_, _ string) (bool, bool) { return false, true }
+
+	s.store.EXPECT().MarkInteractionCompleteIfWaiting(gomock.Any(), "int_bs", gomock.Any()).
+		Return(true, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int_bs").
+		Return(&types.Interaction{ID: "int_bs", SessionID: "ses_bs", State: types.InteractionStateComplete}, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_bs").Return(backstopSession(), nil).AnyTimes()
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_bs").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_bs").Return(nil, nil).AnyTimes()
+
+	s.True(s.server.settleIfAgentReportsNoTurn(context.Background(), stuck, backstopSession()))
+}
+
+// A long silent tool call is a RUNNING turn. This is the "must never kill a long
+// tool call" guarantee: no store mutation is expected, so gomock fails the test
+// if the interaction is touched.
+func (s *AutoWakeBackstopSuite) TestDoesNotSettleWhileAgentReportsTurnRunning() {
+	stuck := stuckInteraction("int_live", "ses_bs", 0)
+	s.server.turnStatusProbe = func(_, _ string) (bool, bool) { return true, true }
+
+	s.False(s.server.settleIfAgentReportsNoTurn(context.Background(), stuck, backstopSession()))
+}
+
+// Old ZED_COMMIT / no answer — fail closed, exactly as before this change.
+func (s *AutoWakeBackstopSuite) TestDoesNotSettleWhenProbeUnanswered() {
+	stuck := stuckInteraction("int_old", "ses_bs", 0)
+	s.server.turnStatusProbe = func(_, _ string) (bool, bool) { return true, false }
+
+	s.False(s.server.settleIfAgentReportsNoTurn(context.Background(), stuck, backstopSession()))
+}
+
+// No thread established yet — nothing to probe, and mid-boot turns must be left
+// alone (mirrors the thread-establishment barrier elsewhere).
+func (s *AutoWakeBackstopSuite) TestDoesNotSettleWithoutZedThreadID() {
+	stuck := stuckInteraction("int_nothread", "ses_bs", 0)
+	probed := false
+	s.server.turnStatusProbe = func(_, _ string) (bool, bool) {
+		probed = true
+		return false, true
+	}
+
+	s.False(s.server.settleIfAgentReportsNoTurn(context.Background(), stuck, &types.Session{ID: "ses_bs"}))
+	s.False(probed)
+}
+
+// A concurrent handler winning the guarded UPDATE must not be reported as a
+// settle, and must not double-publish.
+func (s *AutoWakeBackstopSuite) TestDoesNotSettleWhenAlreadyTransitioned() {
+	stuck := stuckInteraction("int_race", "ses_bs", 0)
+	s.server.turnStatusProbe = func(_, _ string) (bool, bool) { return false, true }
+
+	s.store.EXPECT().MarkInteractionCompleteIfWaiting(gomock.Any(), "int_race", gomock.Any()).
+		Return(false, nil)
+
+	s.False(s.server.settleIfAgentReportsNoTurn(context.Background(), stuck, backstopSession()))
+}
