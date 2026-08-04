@@ -4,22 +4,23 @@ All work in the sandbox's inner Helix at `http://localhost:8080`. Never touch me
 
 ## Phase 1 — Reproduce before changing anything
 
-- [~] Create a spec task so a live `claude_code` / `zed_external` agent connects (a bare `agent_type=zed_external` chat session never connects one)
+- [ ] Create a spec task so a live `claude_code` / `zed_external` agent connects (a bare `agent_type=zed_external` chat session never connects one)
 - [ ] Drive the trigger: send prompt → interrupt → send another → interrupt → send a third, in quick succession; let the third run to completion and send nothing afterwards
 - [ ] Confirm in the API log: `message_completed` carrying the first turn's `request_id`, and the consumed-mapping WARN at `websocket_external_agent_sync.go:2722`
 - [ ] Confirm with `psql`: interaction `state=waiting` with a full `response_message`, and `sessions.config->>'external_agent_status' = 'running'`
 - [ ] Confirm the ~2s "Session is busy (interaction waiting)" loop with a queued prompt undeliverable
+- [x] **Deterministic repro landed as a unit test** — `TestMessageCompleted_StaleRequestID_SettlesWaitingInteraction` reproduces the exact production log line and the dropped completion, without needing the live stack
 - [~] Read `~/.local/share/zed/logs/Zed.log` in the container and confirm (or refute) the Defect B hypothesis in design.md §1 — that `last_completed_request_id` is never written on the interrupt path, freezing `turn_request_id` on turn 1
 
 ## Phase 2 — Helix: shared turn resolver
 
-- [ ] Extract `resolveTurnTarget(threadID, requestID)` implementing the 4-step ladder in design.md §2 (mapping → streaming context → DB most-recent-waiting → unroutable)
-- [ ] Make `handleMessageAdded` and `handleMessageCompleted` both use it, removing the recover-to-waiting asymmetry between content and completion routing
-- [ ] Delete the `mappingConsumed` early return at `websocket_external_agent_sync.go:2718-2724`; the DB fallback (~L2734) must become reachable
-- [ ] Reimplement duplicate suppression as "has a completion already been applied to this interaction?" — suppress when the resolved interaction is already `complete`/`interrupted`/`error`
-- [ ] Guard against the 2026-04-28 case: do not complete a waiting interaction the agent is still actively streaming into (use the streaming context's activity timestamp)
+- [x] Extract `resolveTurnTarget(threadID, requestID)` implementing the 4-step ladder in design.md §2 (mapping → streaming context → DB most-recent-waiting → unroutable)
+- [x] Make `handleMessageAdded` and `handleMessageCompleted` both use it, removing the recover-to-waiting asymmetry between content and completion routing
+- [x] Delete the `mappingConsumed` early return at `websocket_external_agent_sync.go:2718-2724`; the DB fallback (~L2734) must become reachable
+- [x] Reimplement duplicate suppression as "has a completion already been applied to this interaction?" — suppress when the resolved interaction is already `complete`/`interrupted`/`error`
+- [x] Guard against the 2026-04-28 case: do not complete a waiting interaction the agent is still actively streaming into (use the streaming context's activity timestamp)
 - [ ] Use the existing `MarkInteractionCompleteIfWaiting` guarded transition rather than read-modify-write
-- [ ] Ensure `signalExternalAgentResponseDone` and `publishInteractionUpdateToFrontend` still fire on every path
+- [x] Ensure `signalExternalAgentResponseDone` and `publishInteractionUpdateToFrontend` still fire on every path
 
 ## Phase 3 — Zed: stop echoing a dead turn's id
 
@@ -44,9 +45,9 @@ All work in the sandbox's inner Helix at `http://localhost:8080`. Never touch me
 
 ## Phase 6 — Tests
 
-- [ ] Add to `websocket_external_agent_sync_test.go` (`WebSocketSyncSuite`): completion with a stale `request_id` while another interaction is waiting → the waiting interaction completes
-- [ ] Add: genuine duplicate completion is still suppressed (no double-complete, no premature completion of a live turn)
-- [ ] Add: a completion arriving mid-stream for an actively-streaming interaction is deferred, not applied
+- [x] Add to `websocket_external_agent_sync_test.go` (`WebSocketSyncSuite`): completion with a stale `request_id` while another interaction is waiting → the waiting interaction completes
+- [x] Add: genuine duplicate completion is still suppressed (no double-complete, no premature completion of a live turn)
+- [x] Add: a completion arriving mid-stream for a live turn is NOT applied (agent-probe based, plus an unanswered-probe fail-closed case)
 - [ ] Unit-test the backstop's decision function across the live/idle/noop/no-answer matrix
 - [ ] Run the Phase 1 repro end-to-end and confirm green: turn completes, session leaves `running`, queued prompt is delivered
 - [ ] **Test the next operation**: after the completion lands, send another message and confirm it is delivered *and answered*

@@ -264,3 +264,66 @@ Helix-side inconsistency and must not be silent:
   wedged turn.
 - Helix runs at `http://localhost:8080` in the sandbox; `psql` and the API log are the
   primary evidence tools. Never point diagnosis at meta.
+
+---
+
+# Implementation Notes (2026-08-04)
+
+## Change of approach vs the original plan: probe instead of a grace window
+
+The plan proposed resolving the stale-completion ambiguity with a short
+"no stream activity for N seconds" grace window. **That was dropped during
+implementation because it cannot survive a long tool call.** A tool call can
+stream nothing for minutes and still be very much alive, so any activity-recency
+threshold either kills long tool calls (too short) or leaves the wedge unfixed
+for minutes (too long). There is no safe value.
+
+The implemented design instead **asks the agent**, via a new non-destructive
+`turn_status` request/response added to the sync protocol (Open Question 3,
+resolved in favour of the dedicated read-only verb rather than reusing
+`cancel_current_turn`, which *cancels* a live turn — unacceptable on a path that
+fires during ordinary operation; the guard fired 3× in one day in production).
+
+Decision table now implemented in `scheduleStaleCompletionSettle`:
+
+| Thread state | Agent answer | Action |
+|---|---|---|
+| nothing waiting | (not probed) | suppress — genuine duplicate, as `2186abcda` intended |
+| waiting | `running=false` | **settle the waiting interaction** — the 2026-08-04 wedge |
+| waiting | `running=true` | leave alone — the 2026-04-28 wrapper-replay case |
+| waiting | no answer / old ZED_COMMIT | leave alone — **fail closed** |
+
+Failing closed on an unanswered probe is what makes this safe to ship ahead of
+the Zed change and on sandboxes pinned to an older `ZED_COMMIT`: worst case is
+today's behaviour, never a prematurely completed live turn.
+
+## Files changed (Helix)
+
+- `api/pkg/server/websocket_external_agent_sync.go`
+  - `mappingConsumed` early return at the old L2718-2724 replaced with
+    `scheduleStaleCompletionSettle` — the event is no longer discarded.
+  - Added `probeTurnRunning`, `handleTurnStatusResponse`,
+    `findWaitingInteraction`, `scheduleStaleCompletionSettle`.
+  - Added `turn_status_response` to the sync dispatch switch.
+  - Added `streamingContext.lastActivity`, set on every assistant
+    `message_added` — the proof-of-life signal the Phase 4 backstop gates on.
+- `api/pkg/server/server.go` — `pendingTurnStatusChannels`, plus a
+  `turnStatusProbe` hook (nil in production) so the decision table is unit-testable
+  without a live WebSocket.
+
+## Gotchas found while implementing
+
+- **`handleMessageCompleted`'s first parameter is the *agent* session id, not the
+  Helix session id.** The settle path re-invokes the handler, and passing
+  `helixSessionID` there silently broke `finalizeCommentResponse`, which keys off
+  the request id derived from it. Pass the original `sessionID` through.
+- **CGo is not installed in this sandbox** (`gcc` missing), so
+  `CGO_ENABLED=1 go test` fails. The default (CGo off) builds and runs the
+  `WebSocketSyncSuite` fine — ignore the CLAUDE.md CGo note for this package.
+- **gomock is strict**, which is useful here: the "must not touch a live turn"
+  tests need no assertion beyond registering no `UpdateInteraction` expectation.
+  But a settle goroutine that outlives the test panics with "Fail in goroutine
+  after test has completed" — tests must drain it before returning.
+- `finalizeCommentResponse` calls `GetCommentByRequestID`, which only fires when
+  the event carries a non-empty `request_id`. That is why the pre-existing
+  `TestMessageCompleted_Normal` never needed that expectation and the new tests do.
