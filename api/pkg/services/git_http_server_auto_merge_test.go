@@ -75,9 +75,22 @@ func TestTryAutoMergeAfterRebase_InternalRepoSuccess(t *testing.T) {
 	_, _, err = gitcmd.NewCommand().AddArguments("checkout", "feature/x").
 		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
 	require.NoError(t, err)
-	_, _, err = gitcmd.NewCommand().AddArguments("merge", "--no-ff", "-m", "merge main into feature").
+	// Identity must be set on the command like the commit helper does: gitcmd
+	// runs with a scrubbed environment, so a global git config is not picked up
+	// and the merge commit fails with "Committer identity unknown" on any machine
+	// whose git identity is not set in the repo itself.
+	_, _, err = gitcmd.NewCommand().
+		AddConfig("user.name", "Test Author").
+		AddConfig("user.email", "test@example.com").
+		AddArguments("merge", "--no-ff", "-m", "merge main into feature").
 		AddDynamicArguments(defaultBranch).
-		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+		RunStdString(ctx, &gitcmd.RunOpts{
+			Dir: repoPath,
+			Env: []string{
+				"GIT_AUTHOR_DATE=2026-05-08T08:00:00+00:00",
+				"GIT_COMMITTER_DATE=2026-05-08T08:00:00+00:00",
+			},
+		})
 	require.NoError(t, err)
 
 	// At this point main is an ancestor of feature/x; FF would succeed.
