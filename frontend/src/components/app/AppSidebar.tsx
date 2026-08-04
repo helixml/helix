@@ -65,7 +65,7 @@ const AppSidebar: FC = () => {
     },
     {
       id: 'skills',
-      label: app && isHelixOrgChartAgent(app) ? 'Org Tools & APIs' : 'Tools',
+      label: app && isHelixOrgChartAgent(app) ? 'MCPs & APIs' : 'Tools',
       icon: <Lightbulb size={20} />,
       isActive: currentTab === 'skills',
       onClick: () => handleNavigationClick('skills')
