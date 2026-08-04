@@ -12,8 +12,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -23,7 +25,6 @@ import (
 	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/types"
 )
-
 
 // authorizeDesktopID resolves an id to either a Helix session or a sandbox
 // and verifies the caller has access. The desktop-bridge inside the
@@ -1023,8 +1024,8 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		return
 	}
 
-	// Verify ownership
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	// Uploading mutates the agent workspace, so read-only access is insufficient.
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionUpdate)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusForbidden)
 		return
@@ -1037,29 +1038,33 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 	}
 
 	_, err = apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container for file upload")
-		http.Error(res, "External agent container not found", http.StatusNotFound)
-		return
-	}
-
-	// Read the multipart body to forward it
-	bodyBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to read upload request body")
-		http.Error(res, "Failed to read file", http.StatusBadRequest)
-		return
+	waitForDesktop := err != nil
+	if waitForDesktop {
+		if session.Metadata.AgentType != "zed_external" {
+			http.Error(res, "only external agent sessions accept workspace uploads", http.StatusBadRequest)
+			return
+		}
+		if session.Metadata.ExternalAgentStatus != "starting" {
+			log.Info().
+				Str("session_id", sessionID).
+				Msg("Starting stopped external agent for chat attachment upload")
+			if _, resumeErr := apiServer.resumeSessionInternal(req.Context(), user, session); resumeErr != nil {
+				log.Error().Err(resumeErr).Str("session_id", sessionID).Msg("Failed to start external agent for file upload")
+				http.Error(res, fmt.Sprintf("failed to start agent for upload: %v", resumeErr), http.StatusServiceUnavailable)
+				return
+			}
+		}
 	}
 
 	log.Info().
 		Str("session_id", sessionID).
-		Int("body_size", len(bodyBytes)).
+		Int64("body_size", req.ContentLength).
 		Str("content_type", req.Header.Get("Content-Type")).
 		Msg("Uploading file to sandbox via RevDial")
 
 	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	revDialConn, err := apiServer.dialDesktopForUpload(req.Context(), runnerID, waitForDesktop)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -1071,16 +1076,19 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 	}
 	defer revDialConn.Close()
 
-	// Send HTTP POST request over RevDial tunnel
-	// Important: preserve the Content-Type header with multipart boundary
-	httpReq, err := http.NewRequest("POST", "http://localhost:9876/upload", bytes.NewReader(bodyBytes))
+	// Stream the multipart body through RevDial. Buffering the entire request in
+	// API memory is unnecessary and becomes expensive for PDFs and other large
+	// chat assets. Preserve the query string as well: chat uploads explicitly set
+	// open_file_manager=false and dropping it made every paste open Files in the
+	// agent desktop.
+	httpReq, err := http.NewRequestWithContext(req.Context(), http.MethodPost, desktopUploadURL(req.URL.RawQuery), req.Body)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create upload request")
 		http.Error(res, "Failed to create upload request", http.StatusInternalServerError)
 		return
 	}
 	httpReq.Header.Set("Content-Type", req.Header.Get("Content-Type"))
-	httpReq.ContentLength = int64(len(bodyBytes))
+	httpReq.ContentLength = req.ContentLength
 
 	if err := httpReq.Write(revDialConn); err != nil {
 		log.Error().Err(err).Msg("Failed to write upload request to RevDial")
@@ -1123,6 +1131,126 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		Str("session_id", sessionID).
 		Str("response", string(respBody)).
 		Msg("Successfully uploaded file to sandbox")
+}
+
+func (apiServer *HelixAPIServer) dialDesktopForUpload(ctx context.Context, runnerID string, waitForDesktop bool) (net.Conn, error) {
+	if !waitForDesktop {
+		return apiServer.connman.Dial(ctx, runnerID)
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		conn, err := apiServer.connman.Dial(waitCtx, runnerID)
+		if err == nil {
+			return conn, nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("desktop bridge did not become ready: %w", waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func desktopUploadURL(rawQuery string) string {
+	return (&url.URL{
+		Scheme:   "http",
+		Host:     "localhost:9876",
+		Path:     "/upload",
+		RawQuery: rawQuery,
+	}).String()
+}
+
+// @Summary Read an uploaded chat attachment
+// @Description Streams one file from the external agent's incoming attachment directory.
+// @Tags ExternalAgents
+// @Produce application/octet-stream
+// @Param sessionID path string true "Session ID"
+// @Param name query string true "Uploaded attachment filename"
+// @Success 200 {file} binary
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/file [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getExternalAgentFile(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	sessionID := mux.Vars(req)["sessionID"]
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+	if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet); err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	filename := req.URL.Query().Get("name")
+	if !validWorkspaceAttachmentFilename(filename) {
+		http.Error(res, "invalid attachment filename", http.StatusBadRequest)
+		return
+	}
+
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		http.Error(res, "Sandbox not connected", http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	httpReq, err := http.NewRequestWithContext(req.Context(), http.MethodGet, desktopFileURL(filename), nil)
+	if err != nil {
+		http.Error(res, "Failed to create attachment request", http.StatusInternalServerError)
+		return
+	}
+	if err := httpReq.Write(revDialConn); err != nil {
+		http.Error(res, "Failed to request attachment", http.StatusBadGateway)
+		return
+	}
+
+	fileResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		http.Error(res, "Failed to read attachment response", http.StatusBadGateway)
+		return
+	}
+	defer fileResp.Body.Close()
+
+	for _, header := range []string{"Content-Type", "Content-Length", "Content-Disposition", "Last-Modified", "Cache-Control", "X-Content-Type-Options"} {
+		if value := fileResp.Header.Get(header); value != "" {
+			res.Header().Set(header, value)
+		}
+	}
+	res.WriteHeader(fileResp.StatusCode)
+	if _, err := io.Copy(res, fileResp.Body); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to stream chat attachment")
+	}
+}
+
+func validWorkspaceAttachmentFilename(filename string) bool {
+	return filename != "" && filename != "." && filename != ".." &&
+		!strings.ContainsAny(filename, `/\\`)
+}
+
+func desktopFileURL(filename string) string {
+	return (&url.URL{
+		Scheme:   "http",
+		Host:     "localhost:9876",
+		Path:     "/file",
+		RawQuery: url.Values{"name": []string{filename}}.Encode(),
+	}).String()
 }
 
 // ConfigurePendingSessionRequest is the request body for configuring a pending session

@@ -141,6 +141,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("project_path", agent.ProjectPath).
 		Msg("Starting dev container via Hydra")
 
+	// Reject subscription-mode agents with no reachable subscription before
+	// spending two minutes booting a desktop that can never create a thread.
+	if err := h.verifySubscriptionCredentials(ctx, agent); err != nil {
+		return nil, err
+	}
+
 	// Check if session already exists and is running
 	h.mutex.RLock()
 	existingSession, exists := h.sessions[agent.SessionID]
@@ -262,12 +268,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			return nil, fmt.Errorf("failed to get user for git config: %w", err)
 		}
 		if user != nil {
-			gitUserName = user.FullName
-			gitUserEmail = user.Email
-			// Fall back to username if full name is empty
-			if gitUserName == "" {
-				gitUserName = user.Username
-			}
+			gitUserName = user.GitAuthorName()
+			gitUserEmail = user.GitAuthorEmail()
 		}
 	}
 	if gitUserEmail == "" {

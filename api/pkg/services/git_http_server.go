@@ -1408,7 +1408,12 @@ func (s *GitHTTPServer) syncOpenPRDescriptions(ctx context.Context, task *types.
 			orgName = org.Name
 		}
 	}
-	description = description + "\n\n" + buildPRFooter(repo, task, orgName, s.serverBaseURL)
+	footer, err := s.renderPRFooter(ctx, repo, task, orgName, taskPRUserID(task))
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to render PR footer")
+		return
+	}
+	description = AppendPRFooter(description, footer)
 
 	if err := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.PRNumber, title, description); err != nil {
 		log.Error().Err(err).
@@ -1453,35 +1458,23 @@ func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string 
 	}
 }
 
-// buildPRFooter generates the PR description footer with:
-// - "Open in Helix" link to the task in Helix UI
-// - Spec doc links (if available for the repo type)
-// - Helix branding
-func buildPRFooter(repo *types.GitRepository, task *types.SpecTask, orgName, helixBaseURL string) string {
-	var parts []string
-
-	// "Open in Helix" link - always include if we have the necessary info
-	if helixBaseURL != "" && orgName != "" && task.ProjectID != "" && task.ID != "" {
-		helixTaskURL := fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
-			strings.TrimSuffix(helixBaseURL, "/"), orgName, task.ProjectID, task.ID)
-		parts = append(parts, fmt.Sprintf("🔗 [Open in Helix](%s)", helixTaskURL))
+func taskPRUserID(task *types.SpecTask) string {
+	if task.ImplementationApprovedBy != "" {
+		return task.ImplementationApprovedBy
 	}
+	return task.CreatedBy
+}
 
-	// Spec doc links (if available for this repo type)
-	specDocsURL := ""
-	if task.DesignDocPath != "" {
-		specDocsURL = getSpecDocsBaseURL(repo, task.DesignDocPath)
+func (s *GitHTTPServer) renderPRFooter(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, orgName, userID string) (string, error) {
+	footerTemplate := DefaultPRFooterTemplate
+	if userID != "" {
+		user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+		if err != nil {
+			return "", fmt.Errorf("get PR owner settings: %w", err)
+		}
+		footerTemplate = UserPRFooterTemplate(user)
 	}
-
-	if specDocsURL != "" {
-		parts = append(parts, fmt.Sprintf("📋 Spec:\n- [Requirements](%s/requirements.md)\n- [Design](%s/design.md)\n- [Tasks](%s/tasks.md)",
-			specDocsURL, specDocsURL, specDocsURL))
-	}
-
-	// Helix branding - always include
-	parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
-
-	return "---\n" + strings.Join(parts, "\n\n")
+	return RenderPRFooter(footerTemplate, repo, task, orgName, s.serverBaseURL)
 }
 
 // ensurePullRequest creates a PR if one doesn't exist
@@ -1552,8 +1545,11 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 			orgName = org.Name
 		}
 	}
-	footer := buildPRFooter(repo, task, orgName, s.serverBaseURL)
-	description = description + "\n\n" + footer
+	footer, err := s.renderPRFooter(ctx, repo, task, orgName, taskPRUserID(task))
+	if err != nil {
+		return fmt.Errorf("failed to render PR footer: %w", err)
+	}
+	description = AppendPRFooter(description, footer)
 
 	// Check for existing PR on this branch
 	sourceBranchRef := "refs/heads/" + branch

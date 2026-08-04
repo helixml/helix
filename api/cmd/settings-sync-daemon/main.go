@@ -276,6 +276,15 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			}
 		} else {
 			if _, err := os.Stat(CodexCredentialsPath); err != nil {
+				// Distinguish "creds haven't synced yet" (transient, resolves in
+				// seconds) from "there is no subscription to sync" (terminal —
+				// codex-acp never gets registered and Zed can never open a
+				// thread). The API refuses to start such a session, so this
+				// should be unreachable; log loudly if it ever is.
+				if !d.codexSubscriptionAvailable {
+					log.Printf("ERROR: codex agent server cannot be registered: no active ChatGPT subscription is available to this session; the agent will not be able to start a thread")
+					return nil
+				}
 				log.Printf("Codex credentials file not yet available, deferring codex agent server: %v", err)
 				return nil
 			}

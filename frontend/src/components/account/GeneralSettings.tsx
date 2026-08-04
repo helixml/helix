@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useState } from 'react'
+import React, { FC, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Grid from '@mui/material/Grid'
@@ -18,6 +18,7 @@ import useThemeConfig from '../../hooks/useThemeConfig'
 import { useGetQuota } from '../../services/quotaService'
 import {
   useGetConfig,
+  useGetCurrentUser,
   useGetUserUsage,
   useUpdateAccount,
 } from '../../services/userService'
@@ -36,28 +37,30 @@ const GeneralSettings: FC<GeneralSettingsProps> = ({ onOpenPasswordDialog }) => 
 
   const { data: usage } = useGetUserUsage()
   const { data: serverConfig } = useGetConfig()
+  const { data: currentUser } = useGetCurrentUser()
   const { data: quotas } = useGetQuota()
   const updateAccount = useUpdateAccount()
 
-  const [fullName, setFullName] = useState<string>(account.user?.name || '')
+  const savedFullName = currentUser?.name || account.user?.name || ''
+
+  const [fullName, setFullName] = useState<string>(savedFullName)
 
   useEffect(() => {
-    setFullName(account.user?.name || '')
-  }, [account.user?.name])
+    setFullName(savedFullName)
+  }, [savedFullName])
 
-  const handleFullNameBlur = useCallback(async () => {
-    const currentFullName = account.user?.name || ''
-    if (fullName !== currentFullName && fullName.trim() !== '') {
+  const handleFullNameBlur = async () => {
+    if (fullName !== savedFullName && fullName.trim() !== '') {
       try {
         await updateAccount.mutateAsync({ full_name: fullName.trim() })
         snackbar.success('Profile name has been updated')
       } catch (error) {
         console.error('Failed to update name:', error)
         snackbar.error('Failed to update name')
-        setFullName(currentFullName)
+        setFullName(savedFullName)
       }
     }
-  }, [fullName, account.user, updateAccount, snackbar])
+  }
 
   return (
     <>

@@ -1545,25 +1545,12 @@ func (s *SpecDrivenTaskService) syncGitIdentityToUser(ctx context.Context, task 
 		return fmt.Errorf("%w: %s %s", errIdentityUserNotFound, phaseLabel, userID)
 	}
 
-	actorEmail := actor.Email
+	actorEmail := actor.GitAuthorEmail()
 	if actorEmail == "" {
 		return fmt.Errorf("%w: %s %s", errIdentityNoEmail, phaseLabel, actor.ID)
 	}
 
-	actorName := actor.FullName
-	if actorName == "" {
-		actorName = actor.Username
-	}
-	if actorName == "" {
-		// Last-resort fallback: local-part of the email. Git config accepts
-		// an empty user.name but the resulting commits would be unreadable,
-		// so we synthesise something meaningful instead.
-		if at := strings.IndexByte(actorEmail, '@'); at > 0 {
-			actorName = actorEmail[:at]
-		} else {
-			actorName = actorEmail
-		}
-	}
+	actorName := actor.GitAuthorName()
 
 	sessionID := task.PlanningSessionID
 
@@ -2212,11 +2199,11 @@ func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task
 	if err != nil {
 		return fmt.Errorf("failed to get user: %w", err)
 	}
-	authorName := user.FullName
+	authorName := user.GitAuthorName()
 	if authorName == "" {
 		authorName = "Helix"
 	}
-	authorEmail := user.Email
+	authorEmail := user.GitAuthorEmail()
 	if authorEmail == "" {
 		authorEmail = "helix@helix.ml"
 	}

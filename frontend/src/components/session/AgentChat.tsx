@@ -1,4 +1,4 @@
-import { FC, useCallback, useMemo, useRef } from 'react'
+import { FC, useCallback, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import { alpha } from '@mui/material/styles'
 
@@ -41,9 +41,10 @@ const AgentChat: FC<AgentChatProps> = ({
   const snackbar = useSnackbar()
   const streaming = useStreaming()
   const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
+  const [isCancelling, setIsCancelling] = useState(false)
   const apiClient = api.getApiClient()
 
-  const { data: latestInteractionsResponse } = useListInteractions(
+  const { data: latestInteractionsResponse, refetch: refetchLatestInteraction } = useListInteractions(
     sessionId,
     0,
     1,
@@ -69,13 +70,21 @@ const AgentChat: FC<AgentChatProps> = ({
   }, [sessionId])
 
   const handleCancel = useCallback(async () => {
+    if (isCancelling) return
+    setIsCancelling(true)
     try {
-      await api.getApiClient().v1SessionsCancelCreate(sessionId)
+      const response = await api.getApiClient().v1SessionsCancelCreate(sessionId)
+      if (response.data?.status === 'noop') {
+        snackbar.info('The agent is no longer running a turn')
+      }
+      await refetchLatestInteraction()
     } catch (error: any) {
       snackbar.error(error?.message || 'Failed to interrupt current turn')
+    } finally {
+      setIsCancelling(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId])
+  }, [sessionId, isCancelling])
 
   const handleFileUpload = useCallback(async (file: File): Promise<string | null> => {
     try {
@@ -129,9 +138,7 @@ const AgentChat: FC<AgentChatProps> = ({
           },
           pt: 1.25,
           pb: { xs: 1.25, sm: 1.75 },
-          borderTop: '1px solid',
-          borderColor: (theme) => getChatColors(theme).border,
-          backgroundColor: (theme) => alpha(getChatColors(theme).canvas, 0.96),
+          backgroundColor: (theme) => alpha(getChatColors(theme).canvas, 0.98),
         }}
       >
         <Box sx={{ width: '100%', maxWidth: 768, mx: 'auto' }}>
@@ -146,6 +153,7 @@ const AgentChat: FC<AgentChatProps> = ({
             onFileUpload={handleFileUpload}
             onCancel={handleCancel}
             isAgentBusy={isAgentBusy}
+            isCancelling={isCancelling}
             placeholder={placeholder}
             disabled={disabled}
           />

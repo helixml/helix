@@ -24,6 +24,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func New() *cobra.Command {
@@ -455,12 +456,13 @@ func getToken() string {
 }
 
 type SpecTask struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	Status         string `json:"status"`
-	OrganizationID string `json:"organization_id"`
-	ProjectID      string `json:"project_id"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	Status            string `json:"status"`
+	OrganizationID    string `json:"organization_id"`
+	ProjectID         string `json:"project_id"`
+	PlanningSessionID string `json:"planning_session_id"`
 }
 
 // buildTaskURL returns the frontend task-detail page URL, which is known the
@@ -615,14 +617,13 @@ func triggerStartPlanning(apiURL, token, taskID string) (*SpecTask, error) {
 var errSandboxWaitTimeout = errors.New("timeout waiting for sandbox to start")
 
 // waitForTaskSession polls for a session with dev_container_id to be created for the task
-func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*Session, error) {
+func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*types.Session, error) {
 	deadline := time.Now().Add(timeout)
 	pollInterval := 2 * time.Second
 	lastStatusMsg := ""
 
 	for time.Now().Before(deadline) {
-		// Get all sessions and find one for this task
-		req, err := http.NewRequest("GET", apiURL+"/api/v1/sessions", nil)
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/spec-tasks/%s", apiURL, taskID), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -635,27 +636,36 @@ func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*S
 			continue
 		}
 
-		var response SessionsResponse
-		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		var task SpecTask
+		if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
 			resp.Body.Close()
 			time.Sleep(pollInterval)
 			continue
 		}
 		resp.Body.Close()
 
-		// Find session for this task that has a running sandbox
-		for _, s := range response.Sessions {
-			if s.Metadata.SpecTaskID == taskID {
-				// Show status message updates (e.g., "Unpacking build cache (2.1/7.0 GB)")
-				if s.Metadata.StatusMessage != "" && s.Metadata.StatusMessage != lastStatusMsg {
-					fmt.Printf("   %s\n", s.Metadata.StatusMessage)
-					lastStatusMsg = s.Metadata.StatusMessage
-				}
-				// Check for active container
-				if s.Metadata.DevContainerID != "" || s.Metadata.ContainerID != "" {
-					return &s, nil
-				}
-			}
+		if task.PlanningSessionID == "" {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		session, err := getSessionDetails(apiURL, token, task.PlanningSessionID)
+		if err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+		if session.Metadata.StatusMessage != "" && session.Metadata.StatusMessage != lastStatusMsg {
+			fmt.Printf("   %s\n", session.Metadata.StatusMessage)
+			lastStatusMsg = session.Metadata.StatusMessage
+		}
+		if session.Metadata.DevContainerID != "" || session.Metadata.ContainerID != "" {
+			return session, nil
 		}
 
 		time.Sleep(pollInterval)

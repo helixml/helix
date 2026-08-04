@@ -3087,7 +3087,7 @@ const docTemplate = `{
                 "summary": "Update Account",
                 "parameters": [
                     {
-                        "description": "Request body with full name.",
+                        "description": "Account settings",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -4073,6 +4073,77 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/file": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams one file from the external agent's incoming attachment directory.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Read an uploaded chat attachment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Uploaded attachment filename",
+                        "name": "name",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -17547,7 +17618,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the\ninteraction state update (interrupted) flows to the frontend via WebSocket.",
+                "description": "Sends cancel_current_turn to the active Zed agent and waits for acknowledgement.",
                 "produces": [
                     "application/json"
                 ],
@@ -17565,8 +17636,8 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "202": {
-                        "description": "Accepted",
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -17588,6 +17659,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -27654,6 +27731,18 @@ const docTemplate = `{
             "properties": {
                 "full_name": {
                     "type": "string"
+                },
+                "git_commit_email": {
+                    "type": "string"
+                },
+                "git_commit_name": {
+                    "type": "string"
+                },
+                "pr_footer_template": {
+                    "type": "string"
+                },
+                "reset_pr_footer": {
+                    "type": "boolean"
                 }
             }
         },
@@ -39342,6 +39431,13 @@ const docTemplate = `{
                 "full_name": {
                     "type": "string"
                 },
+                "git_commit_email": {
+                    "type": "string"
+                },
+                "git_commit_name": {
+                    "description": "GitCommitName and GitCommitEmail override the account identity for commits.\nEmpty values inherit FullName/Username and Email respectively.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -39369,6 +39465,10 @@ const docTemplate = `{
                 },
                 "plan_on_first_org": {
                     "description": "PlanOnFirstOrg, when set (\"pro\"), grants a paid plan override to the\nuser's first owned org's wallet on creation — admin \"Activate\" with a\npaid (non-Stripe) plan for a user who has no org yet. Consumed alongside\nthe trial intent, then cleared.",
+                    "type": "string"
+                },
+                "pr_footer_template": {
+                    "description": "PRFooterTemplate is nullable so nil can inherit the Helix default while an\nexplicit empty string disables the footer.",
                     "type": "string"
                 },
                 "project_id": {
@@ -39566,7 +39666,16 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "default_pr_footer": {
+                    "type": "string"
+                },
                 "email": {
+                    "type": "string"
+                },
+                "git_commit_email": {
+                    "type": "string"
+                },
+                "git_commit_name": {
                     "type": "string"
                 },
                 "id": {
@@ -39577,6 +39686,9 @@ const docTemplate = `{
                 },
                 "onboarding_completed": {
                     "type": "boolean"
+                },
+                "pr_footer_template": {
+                    "type": "string"
                 },
                 "token": {
                     "type": "string"

@@ -99,12 +99,18 @@ cd /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}
 # Create requirements.md, design.md, tasks.md here
 
 cd /home/retro/work/helix-specs
-git add -A && git commit -m "Design docs for {{.TaskName}}" && git push origin helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "Design docs for {{.TaskName}}"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 ` + "```" + `
 
-If push fails (another agent pushed first):
+If the push is rejected because another agent pushed first, resolve the shared-branch race:
 ` + "```bash" + `
-git pull origin helix-specs --rebase && git push origin helix-specs
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 ` + "```" + `
 
 ## tasks.md Format

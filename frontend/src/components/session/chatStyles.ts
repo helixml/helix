@@ -6,6 +6,7 @@ export const getChatColors = (theme: Theme) => {
   return {
     canvas: dark ? theme.palette.background.default : '#fafafa',
     surface: dark ? '#18181b' : '#ffffff',
+    composerSurface: dark ? '#111113' : '#ffffff',
     surfaceRaised: dark ? '#1f1f23' : '#f4f4f5',
     userBubble: dark ? 'rgba(255, 255, 255, 0.045)' : '#f0f0f2',
     border: dark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.09)',

@@ -486,33 +486,7 @@ func parsePullRequestMarkdownForTask(content string) (string, string, bool) {
 	return title, description, true
 }
 
-// getSpecDocsBaseURLForTask builds a URL to view spec docs in the external repo's web UI.
-func getSpecDocsBaseURLForTask(repo *types.GitRepository, designDocPath string) string {
-	if repo.ExternalURL == "" {
-		return ""
-	}
-
-	baseURL := strings.TrimSuffix(repo.ExternalURL, ".git")
-
-	switch repo.ExternalType {
-	case types.ExternalRepositoryTypeGitHub:
-		return fmt.Sprintf("%s/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
-	case types.ExternalRepositoryTypeGitLab:
-		return fmt.Sprintf("%s/-/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
-	case types.ExternalRepositoryTypeADO:
-		return fmt.Sprintf("%s?path=/design/tasks/%s&version=GBhelix-specs", baseURL, designDocPath)
-	case types.ExternalRepositoryTypeBitbucket:
-		return fmt.Sprintf("%s/src/helix-specs/design/tasks/%s", baseURL, designDocPath)
-	default:
-		return ""
-	}
-}
-
-// buildPRFooterForTask generates the PR description footer.
-func (s *HelixAPIServer) buildPRFooterForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) string {
-	var parts []string
-
-	// "Open in Helix" link
+func (s *HelixAPIServer) renderPRFooterForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, userID string) (string, error) {
 	helixBaseURL := s.Cfg.WebServer.URL
 	orgName := ""
 	if task.OrganizationID != "" {
@@ -520,24 +494,16 @@ func (s *HelixAPIServer) buildPRFooterForTask(ctx context.Context, repo *types.G
 			orgName = org.Name
 		}
 	}
-	if helixBaseURL != "" && orgName != "" && task.ProjectID != "" && task.ID != "" {
-		helixTaskURL := fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
-			strings.TrimSuffix(helixBaseURL, "/"), orgName, task.ProjectID, task.ID)
-		parts = append(parts, fmt.Sprintf("🔗 [Open in Helix](%s)", helixTaskURL))
-	}
 
-	// Spec doc links
-	if task.DesignDocPath != "" {
-		if specDocsURL := getSpecDocsBaseURLForTask(repo, task.DesignDocPath); specDocsURL != "" {
-			parts = append(parts, fmt.Sprintf("📋 Spec:\n- [Requirements](%s/requirements.md)\n- [Design](%s/design.md)\n- [Tasks](%s/tasks.md)",
-				specDocsURL, specDocsURL, specDocsURL))
+	footerTemplate := services.DefaultPRFooterTemplate
+	if userID != "" {
+		user, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+		if err != nil {
+			return "", fmt.Errorf("get PR owner settings: %w", err)
 		}
+		footerTemplate = services.UserPRFooterTemplate(user)
 	}
-
-	// Helix branding
-	parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
-
-	return "---\n" + strings.Join(parts, "\n\n")
+	return services.RenderPRFooter(footerTemplate, repo, task, orgName, helixBaseURL)
 }
 
 // ensurePullRequestForRepo creates a PR for a spec task in a specific repo if one doesn't exist
@@ -648,8 +614,11 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	}
 
 	// Append footer
-	footer := s.buildPRFooterForTask(ctx, repo, task)
-	description = description + "\n\n" + footer
+	footer, err := s.renderPRFooterForTask(ctx, repo, task, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render PR footer: %w", err)
+	}
+	description = services.AppendPRFooter(description, footer)
 
 	// Create new PR
 	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch, userID)

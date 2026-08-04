@@ -969,7 +969,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	// NOTE: Internal repos are no longer used - startup script lives in the primary code repo at .helix/startup.sh
 	if req.SampleProjectID == "helix-blog-posts" {
 		// Special case: Clone real HelixML/helix repo as code repo
-		codeRepoPath, repoErr := s.projectInternalRepoService.CloneSampleProject(ctx, createdProject, "https://github.com/helixml/helix.git", user.FullName, user.Email)
+		codeRepoPath, repoErr := s.projectInternalRepoService.CloneSampleProject(ctx, createdProject, "https://github.com/helixml/helix.git", user.GitAuthorName(), user.GitAuthorEmail())
 		if repoErr != nil {
 			log.Error().
 				Err(repoErr).
@@ -1035,14 +1035,14 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in code repo
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript, user.FullName, user.Email); err != nil {
+		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript, user.GitAuthorName(), user.GitAuthorEmail()); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	} else if req.SampleProjectID == "jupyter-financial-analysis" {
 		// Special case: Create TWO repositories - one for notebooks, one for pyforest library
 
 		// Repository 1: Jupyter notebooks
-		notebooksRepoID, notebooksPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, "jupyter-notebooks", user.FullName, user.Email)
+		notebooksRepoID, notebooksPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, "jupyter-notebooks", user.GitAuthorName(), user.GitAuthorEmail())
 		if repoErr != nil {
 			log.Error().
 				Err(repoErr).
@@ -1083,7 +1083,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Msg("✅ Notebooks repository created")
 
 		// Repository 2: pyforest library
-		pyforestRepoID, pyforestPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, "pyforest-library", user.FullName, user.Email)
+		pyforestRepoID, pyforestPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, "pyforest-library", user.GitAuthorName(), user.GitAuthorEmail())
 		if repoErr != nil {
 			log.Error().
 				Err(repoErr).
@@ -1132,7 +1132,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in primary code repo (notebooks)
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(notebooksPath, createdProject.Name, startupScript, user.FullName, user.Email); err != nil {
+		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(notebooksPath, createdProject.Name, startupScript, user.GitAuthorName(), user.GitAuthorEmail()); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	} else if req.SampleProjectID == "clone-demo-shapes" {
@@ -1215,7 +1215,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			}
 
 			// Create code repository for this shape
-			codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdShapeProject, shapeCfg.sampleCodeID, user.FullName, user.Email)
+			codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdShapeProject, shapeCfg.sampleCodeID, user.GitAuthorName(), user.GitAuthorEmail())
 			if repoErr != nil {
 				log.Error().Err(repoErr).Str("project_id", createdShapeProject.ID).Msg("Failed to initialize shape code repo")
 				continue
@@ -1256,7 +1256,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			}
 
 			// Initialize startup script
-			if scriptErr := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdShapeProject.Name, shapeSampleCode.StartupScript, user.FullName, user.Email); scriptErr != nil {
+			if scriptErr := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdShapeProject.Name, shapeSampleCode.StartupScript, user.GitAuthorName(), user.GitAuthorEmail()); scriptErr != nil {
 				log.Warn().Err(scriptErr).Msg("Failed to initialize startup script in shape repo")
 			}
 
@@ -1536,7 +1536,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}, nil
 	} else {
 		// Use hardcoded sample code for all other samples
-		codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, req.SampleProjectID, user.FullName, user.Email)
+		codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, req.SampleProjectID, user.GitAuthorName(), user.GitAuthorEmail())
 		if repoErr != nil {
 			log.Error().
 				Err(repoErr).
@@ -1605,7 +1605,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in code repo
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript, user.FullName, user.Email); err != nil {
+		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript, user.GitAuthorName(), user.GitAuthorEmail()); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	}

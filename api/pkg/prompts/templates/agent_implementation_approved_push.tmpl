@@ -4,7 +4,12 @@ Please merge the latest default branch and push any remaining uncommitted change
 
 ```bash
 # First, push any pending design doc changes (including PR descriptions)
-cd /home/retro/work/helix-specs && git add -A && git diff --cached --quiet || (git commit -m "Final updates" && git push origin helix-specs)
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "Final updates"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 
 # Then merge the default branch and push the feature branch in all repos that have changes
 cd /home/retro/work/{{ .PrimaryRepoName }} && git fetch origin {{ .BaseBranch }} && git merge origin/{{ .BaseBranch }} && git add -A && git diff --cached --quiet || git commit -m "Complete implementation"

@@ -525,11 +525,30 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 // cancelCurrentTurnIfActive finds the current waiting interaction for a session
 // and sends cancel_current_turn to Zed. It waits up to 3 seconds for acknowledgement.
 func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, sessionID string) {
+	status, err := apiServer.cancelActiveTurn(ctx, sessionID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Msg("[INTERRUPT] Cancel timed out or failed — proceeding with interrupt anyway")
+		return
+	}
+
+	if status != "noop" {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("status", status).
+			Msg("[INTERRUPT] Turn cancelled successfully")
+	}
+}
+
+// cancelActiveTurn interrupts a queued turn before dispatch, or waits for the
+// external agent to acknowledge cancellation of an active turn. A noop means
+// there is no waiting turn.
+func (apiServer *HelixAPIServer) cancelActiveTurn(ctx context.Context, sessionID string) (string, error) {
 	// Find the current waiting interaction
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("[INTERRUPT] Failed to get session for cancel")
-		return
+		return "", fmt.Errorf("get session for cancel: %w", err)
 	}
 
 	// Find the request_id for the waiting interaction
@@ -550,8 +569,77 @@ func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, 
 	apiServer.contextMappingsMutex.RUnlock()
 
 	if activeRequestID == "" {
-		log.Debug().Str("session_id", sessionID).Msg("[INTERRUPT] No active turn to cancel")
-		return
+		interactions, _, listErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    sessionID,
+			GenerationID: session.GenerationID,
+			PerPage:      1000,
+		})
+		if listErr != nil {
+			return "", fmt.Errorf("list interactions for cancel: %w", listErr)
+		}
+
+		var waitingInteraction *types.Interaction
+		for _, interaction := range interactions {
+			if interaction.State == types.InteractionStateWaiting {
+				waitingInteraction = interaction
+				break
+			}
+		}
+		if waitingInteraction == nil {
+			log.Debug().Str("session_id", sessionID).Msg("[INTERRUPT] No active turn to cancel")
+			return "noop", nil
+		}
+
+		// Serialize against pickupWaitingInteraction. If the turn has not been
+		// dispatched yet, interrupting it in the store prevents it from being
+		// picked up when the agent finishes booting.
+		apiServer.contextMappingsMutex.Lock()
+		for reqID, sessID := range apiServer.requestToSessionMapping {
+			if sessID != sessionID {
+				continue
+			}
+			interactionID, ok := apiServer.requestToInteractionMapping[reqID]
+			if !ok {
+				continue
+			}
+			mappedInteraction, getErr := apiServer.Store.GetInteraction(ctx, interactionID)
+			if getErr == nil && mappedInteraction.State == types.InteractionStateWaiting {
+				activeRequestID = reqID
+				break
+			}
+		}
+		if activeRequestID == "" {
+			current, getErr := apiServer.Store.GetInteraction(ctx, waitingInteraction.ID)
+			if getErr != nil {
+				apiServer.contextMappingsMutex.Unlock()
+				return "", fmt.Errorf("get queued interaction for cancel: %w", getErr)
+			}
+			if current.State != types.InteractionStateWaiting {
+				apiServer.contextMappingsMutex.Unlock()
+				return "noop", nil
+			}
+			current.State = types.InteractionStateInterrupted
+			current.Completed = time.Now()
+			current.Updated = time.Now()
+			if _, updateErr := apiServer.Store.UpdateInteraction(ctx, current); updateErr != nil {
+				apiServer.contextMappingsMutex.Unlock()
+				return "", fmt.Errorf("interrupt queued interaction: %w", updateErr)
+			}
+			apiServer.contextMappingsMutex.Unlock()
+
+			if publishErr := apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, current); publishErr != nil {
+				log.Warn().Err(publishErr).
+					Str("session_id", sessionID).
+					Str("interaction_id", current.ID).
+					Msg("Failed to publish queued turn cancellation")
+			}
+			log.Info().
+				Str("session_id", sessionID).
+				Str("interaction_id", current.ID).
+				Msg("[INTERRUPT] Cancelled queued turn before agent dispatch")
+			return "cancelled", nil
+		}
+		apiServer.contextMappingsMutex.Unlock()
 	}
 
 	log.Info().
@@ -561,19 +649,10 @@ func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, 
 
 	status, err := apiServer.sendCancelToExternalAgent(sessionID, activeRequestID, 3*time.Second)
 	if err != nil {
-		log.Warn().Err(err).
-			Str("session_id", sessionID).
-			Str("request_id", activeRequestID).
-			Msg("[INTERRUPT] Cancel timed out or failed — proceeding with interrupt anyway")
-	} else {
-		log.Info().
-			Str("session_id", sessionID).
-			Str("request_id", activeRequestID).
-			Str("status", status).
-			Msg("[INTERRUPT] Turn cancelled successfully")
+		return "", fmt.Errorf("cancel external agent turn %s: %w", activeRequestID, err)
 	}
 
-	_ = session // used above for getting the session
+	return status, nil
 }
 
 // @Summary List prompt history

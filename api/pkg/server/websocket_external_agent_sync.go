@@ -554,6 +554,11 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 		interactionID := interactions[i].ID
 
 		apiServer.contextMappingsMutex.Lock()
+		currentInteraction, getErr := apiServer.Controller.Options.Store.GetInteraction(ctx, interactionID)
+		if getErr != nil || currentInteraction.State != types.InteractionStateWaiting {
+			apiServer.contextMappingsMutex.Unlock()
+			continue
+		}
 		var requestID string
 		for rid, sid := range apiServer.requestToSessionMapping {
 			if sid == helixSessionID {
@@ -2217,19 +2222,6 @@ func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *
 		Str("status", status).
 		Msg("Received turn_cancelled from Zed")
 
-	// Notify any pending cancel channel
-	apiServer.contextMappingsMutex.RLock()
-	ch, exists := apiServer.pendingCancelChannels[requestID]
-	apiServer.contextMappingsMutex.RUnlock()
-
-	if exists {
-		select {
-		case ch <- status:
-		default:
-			// Channel full or already received — ignore
-		}
-	}
-
 	// If the turn was actually cancelled, mark the interaction as interrupted
 	if status == "cancelled" {
 		apiServer.contextMappingsMutex.RLock()
@@ -2253,6 +2245,19 @@ func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *
 					}
 				}
 			}
+		}
+	}
+
+	// Acknowledge the HTTP caller only after the interaction state transition is
+	// durable, so its immediate refetch observes the interrupted turn.
+	apiServer.contextMappingsMutex.RLock()
+	ch, exists := apiServer.pendingCancelChannels[requestID]
+	apiServer.contextMappingsMutex.RUnlock()
+	if exists {
+		select {
+		case ch <- status:
+		default:
+			// Channel full or already received — ignore
 		}
 	}
 

@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -24,6 +26,23 @@ var (
 	ErrNotFound = errors.New("not found")
 	ErrMultiple = errors.New("multiple found")
 )
+
+func userResponse(user *types.User, token string) types.UserResponse {
+	return types.UserResponse{
+		ID:                  user.ID,
+		Email:               user.Email,
+		Token:               token,
+		Name:                user.FullName,
+		GitCommitName:       user.GitCommitName,
+		GitCommitEmail:      user.GitCommitEmail,
+		PRFooterTemplate:    user.PRFooterTemplate,
+		DefaultPRFooter:     services.DefaultPRFooterTemplate,
+		Admin:               user.Admin,
+		OnboardingCompleted: user.OnboardingCompleted,
+		Waitlisted:          user.Waitlisted,
+		AlphaFeatures:       []string(user.AlphaFeatures),
+	}
+}
 
 // Cookies are set, used and deleted at different points in the lifecycle of the request.
 // If found it hard to line these up correctly, especially the paths, so we'll use a struct to
@@ -285,12 +304,7 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 	cookieManager.Set(w, accessTokenCookie, token)
 	cookieManager.Set(w, refreshTokenCookie, token)
 
-	response := types.UserResponse{
-		ID:    createdUser.ID,
-		Email: createdUser.Email,
-		Token: token,
-		Name:  createdUser.FullName,
-	}
+	response := userResponse(createdUser, token)
 	writeResponse(w, response, http.StatusOK)
 }
 
@@ -299,7 +313,7 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 // @Description Update the account information for the authenticated user
 // @Tags    auth
 // @Success 200 {object} types.UserResponse
-// @Param request    body types.AccountUpdateRequest true "Request body with full name."
+// @Param request body types.AccountUpdateRequest true "Account settings"
 // @Router /api/v1/auth/update [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) accountUpdate(w http.ResponseWriter, r *http.Request) {
@@ -336,7 +350,42 @@ func (s *HelixAPIServer) accountUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existingUser.FullName = accountUpdateRequest.FullName
+	if accountUpdateRequest.FullName != nil {
+		fullName := strings.TrimSpace(*accountUpdateRequest.FullName)
+		if fullName == "" {
+			http.Error(w, "Full name cannot be empty", http.StatusBadRequest)
+			return
+		}
+		existingUser.FullName = fullName
+	}
+	if accountUpdateRequest.GitCommitName != nil {
+		gitCommitName := strings.TrimSpace(*accountUpdateRequest.GitCommitName)
+		if strings.ContainsAny(gitCommitName, "\r\n") {
+			http.Error(w, "Commit username cannot contain line breaks", http.StatusBadRequest)
+			return
+		}
+		existingUser.GitCommitName = gitCommitName
+	}
+	if accountUpdateRequest.GitCommitEmail != nil {
+		gitCommitEmail := strings.TrimSpace(*accountUpdateRequest.GitCommitEmail)
+		if gitCommitEmail != "" {
+			parsed, err := mail.ParseAddress(gitCommitEmail)
+			if err != nil || parsed.Address != gitCommitEmail {
+				http.Error(w, "Commit email must be a valid email address", http.StatusBadRequest)
+				return
+			}
+		}
+		existingUser.GitCommitEmail = gitCommitEmail
+	}
+	if accountUpdateRequest.ResetPRFooter {
+		existingUser.PRFooterTemplate = nil
+	} else if accountUpdateRequest.PRFooterTemplate != nil {
+		if err := services.ValidatePRFooterTemplate(*accountUpdateRequest.PRFooterTemplate); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		existingUser.PRFooterTemplate = accountUpdateRequest.PRFooterTemplate
+	}
 
 	updatedUser, err := s.Store.UpdateUser(ctx, existingUser)
 	if err != nil {
@@ -352,12 +401,7 @@ func (s *HelixAPIServer) accountUpdate(w http.ResponseWriter, r *http.Request) {
 		accessToken = ""
 	}
 
-	response := types.UserResponse{
-		ID:    updatedUser.ID,
-		Email: updatedUser.Email,
-		Token: accessToken,
-		Name:  updatedUser.FullName,
-	}
+	response := userResponse(updatedUser, accessToken)
 	writeResponse(w, response, http.StatusOK)
 }
 
@@ -466,12 +510,7 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 	cookieManager.Set(w, accessTokenCookie, token)
 	cookieManager.Set(w, refreshTokenCookie, token)
 
-	response := types.UserResponse{
-		ID:    user.ID,
-		Email: user.Email,
-		Token: token,
-		Name:  user.FullName,
-	}
+	response := userResponse(user, token)
 	writeResponse(w, response, http.StatusOK)
 }
 
@@ -618,12 +657,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Return user info without token (frontend doesn't need it with BFF)
-		response := types.UserResponse{
-			ID:    user.ID,
-			Email: user.Email,
-			Name:  user.FullName,
-			Admin: user.Admin,
-		}
+		response := userResponse(user, "")
 		writeResponse(w, response, http.StatusOK)
 
 		return
@@ -796,16 +830,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 			if err == nil && hasUser(user) {
 				dbUser, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: user.ID})
 				if err == nil && dbUser != nil {
-					response := types.UserResponse{
-						ID:                  dbUser.ID,
-						Email:               dbUser.Email,
-						Token:               "",
-						Name:                dbUser.FullName,
-						Admin:               dbUser.Admin,
-						OnboardingCompleted: dbUser.OnboardingCompleted,
-						Waitlisted:          dbUser.Waitlisted,
-						AlphaFeatures:       []string(dbUser.AlphaFeatures),
-					}
+					response := userResponse(dbUser, "")
 					writeResponse(w, response, http.StatusOK)
 					return
 				}
@@ -830,16 +855,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 				Str("user_id", session.UserID).
 				Msg("User info retrieved via BFF session")
 
-			response := types.UserResponse{
-				ID:                  user.ID,
-				Email:               user.Email,
-				Token:               "", // No token exposed with BFF pattern
-				Name:                user.FullName,
-				Admin:               user.Admin,
-				OnboardingCompleted: user.OnboardingCompleted,
-				Waitlisted:          user.Waitlisted,
-				AlphaFeatures:       []string(user.AlphaFeatures),
-			}
+			response := userResponse(user, "")
 			writeResponse(w, response, http.StatusOK)
 			return
 		}
@@ -914,16 +930,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	response := types.UserResponse{
-		ID:                  user.ID,
-		Email:               user.Email,
-		Token:               accessToken,
-		Name:                user.FullName,
-		Admin:               user.Admin,
-		OnboardingCompleted: user.OnboardingCompleted,
-		Waitlisted:          user.Waitlisted,
-		AlphaFeatures:       []string(user.AlphaFeatures),
-	}
+	response := userResponse(user, accessToken)
 	writeResponse(w, response, http.StatusOK)
 }
 
@@ -954,12 +961,8 @@ func (s *HelixAPIServer) session(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return user info without tokens
-	response := types.UserResponse{
-		ID:    user.ID,
-		Email: user.Email,
-		Name:  user.FullName,
-		Admin: s.authMiddleware.isAdminWithContext(ctx, user.ID),
-	}
+	response := userResponse(user, "")
+	response.Admin = s.authMiddleware.isAdminWithContext(ctx, user.ID)
 	writeResponse(w, response, http.StatusOK)
 }
 

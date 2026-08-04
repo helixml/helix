@@ -171,6 +171,12 @@ func (suite *SessionClearSuite) TestClearSession_ZedDispatch() {
 	// zed backend, and for the final return — allow it any number of times.
 	suite.store.EXPECT().GetSession(gomock.Any(), "ses_zed").Return(session, nil).AnyTimes()
 	suite.store.EXPECT().ClearSessionInteractions(gomock.Any(), "ses_zed").Return(nil)
+	// cancelActiveTurn falls back to a store scan when no in-memory request
+	// mapping exists; there is nothing waiting, so return an empty list.
+	suite.store.EXPECT().
+		ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{}, int64(0), nil).
+		AnyTimes()
 	suite.store.EXPECT().
 		UpdateSessionMetadata(gomock.Any(), "ses_zed", gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, m types.SessionMetadata) error {

@@ -27,6 +27,7 @@ import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import SettingsIcon from '@mui/icons-material/Settings'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import StopIcon from '@mui/icons-material/Stop'
 import TransformIcon from '@mui/icons-material/Transform'
@@ -534,11 +535,15 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const selectedBg = lightTheme.isLight ? '#f0fafc' : '#1e2a30'
   const hoverBg = lightTheme.isLight ? '#f7f7f8' : '#323236'
   const selectedHoverBg = lightTheme.isLight ? '#e8f6f9' : '#243440'
+  const actionButtonHoverBg = lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)'
   const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
   const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
 
   const online = data.agentStatus === 'running'
   const selected = !!data.selected
+  const cardBorderColor = selected ? selectedBorder : idleBorder
+  const cardBorderWidth = selected ? 2 : 1
+  const drawerOffset = 4
   const statusColor = online ? 'rgb(46, 160, 67)' : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
   const statusLabel = online ? 'Agent sandbox online' : 'Agent sandbox stopped'
 
@@ -561,7 +566,7 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
         width: BOT_W,
         height: BOT_H,
         boxSizing: 'border-box',
-        border: selected ? `2px solid ${selectedBorder}` : `1px solid ${idleBorder}`,
+        border: `${cardBorderWidth}px solid ${cardBorderColor}`,
         borderRadius: 1.5,
         backgroundColor: selected ? selectedBg : bg,
         boxShadow: selected
@@ -573,8 +578,32 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
         gap: 1,
         cursor: 'grab',
         position: 'relative',
+        zIndex: selected ? 2 : 1,
         transition: 'border-color 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease',
         '&:hover': { backgroundColor: selected ? selectedHoverBg : hoverBg },
+        '&:hover .bot-node-actions, &:focus-within .bot-node-actions': {
+          opacity: 1,
+          pointerEvents: 'auto',
+          transform: 'translate(-50%, 0)',
+          backgroundColor: selected ? selectedHoverBg : hoverBg,
+          transition: 'opacity 0.12s ease, transform 0.12s ease',
+        },
+        '&:hover::after, &:focus-within::after': {
+          content: '""',
+          position: 'absolute',
+          top: '100%',
+          left: '50%',
+          width: 144,
+          height: cardBorderWidth + drawerOffset,
+          transform: 'translateX(-50%)',
+          pointerEvents: 'auto',
+          zIndex: 0,
+        },
+        '&:hover .bot-node-primary-source, &:focus-within .bot-node-primary-source': {
+          opacity: 0,
+          visibility: 'hidden',
+          pointerEvents: 'none',
+        },
         '&:active': { cursor: 'grabbing' },
       }}
     >
@@ -644,8 +673,8 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
                 data.onOpenBotDetails(data.botId)
               }}
             >
-              <OpenInNewIcon sx={{ mr: 1, fontSize: 20 }} />
-              Details
+              <SettingsIcon sx={{ mr: 1, fontSize: 20 }} />
+              Settings
             </MenuItem>
             <MenuItem
               disabled={!data.projectId}
@@ -726,8 +755,91 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
       <Handle
         type="source"
         position={RFPosition.Bottom}
-        style={{ background: handleColor, width: 10, height: 10 }}
+        className="bot-node-primary-source"
+        style={{
+          background: handleColor,
+          width: 10,
+          height: 10,
+          visibility: selected ? 'hidden' : 'visible',
+        }}
       />
+      <Box
+        className={`bot-node-actions ${NO_DRAG_NO_PAN}`}
+        role="group"
+        aria-label={`${data.botName || data.botId} navigation`}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        sx={{
+          position: 'absolute',
+          top: `calc(100% + ${cardBorderWidth}px)`,
+          left: '50%',
+          transform: selected ? 'translate(-50%, 0)' : 'translate(-50%, -10px)',
+          opacity: selected ? 1 : 0,
+          pointerEvents: selected ? 'auto' : 'none',
+          zIndex: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 144,
+          minHeight: 32,
+          boxSizing: 'border-box',
+          px: 1,
+          backgroundColor: selected ? selectedBg : bg,
+          border: `${cardBorderWidth}px solid ${cardBorderColor}`,
+          borderTop: 'none',
+          borderRadius: '0 0 8px 8px',
+          boxShadow: lightTheme.isLight ? '0 4px 7px rgba(0,0,0,0.14)' : '0 4px 7px rgba(0,0,0,0.45)',
+          transition: 'opacity 0.12s ease, transform 0.12s ease',
+          '& .bot-node-action-divider': {
+            position: 'relative',
+            zIndex: 1,
+            width: 0,
+            height: 16,
+            mx: 0.75,
+            borderLeft: `${cardBorderWidth}px solid ${cardBorderColor}`,
+          },
+          '& .MuiButton-root': {
+            flex: '1 1 0',
+            minWidth: 0,
+            minHeight: 26,
+            px: 1.25,
+            py: 0.35,
+            color: 'inherit',
+            fontSize: '0.7rem',
+            lineHeight: 1.2,
+            textTransform: 'none',
+            whiteSpace: 'nowrap',
+            position: 'relative',
+            zIndex: 1,
+            transition: 'background-color 0.12s ease',
+          },
+          '& .MuiButton-root:hover': {
+            backgroundColor: actionButtonHoverBg,
+            borderRadius: 0.75,
+          },
+        }}
+      >
+        <Button
+          aria-label="Settings"
+          onClick={(e) => {
+            e.stopPropagation()
+            data.onOpenBotDetails(data.botId)
+          }}
+        >
+          Settings
+        </Button>
+        <Box className="bot-node-action-divider" aria-hidden="true" />
+        <Button
+          aria-label="Project"
+          disabled={!data.projectId}
+          onClick={(e) => {
+            e.stopPropagation()
+            data.onViewProject(data.projectId)
+          }}
+        >
+          Project
+        </Button>
+      </Box>
     </Box>
   )
 }
