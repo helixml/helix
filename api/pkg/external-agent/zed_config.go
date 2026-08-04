@@ -689,6 +689,9 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		return ""
 	}
 	if _, _, ok := ResolveProvider(provider, snapshot); !ok {
+		if app.OrganizationID != "" {
+			return types.OrganizationProviderUnavailableMessage
+		}
 		return fmt.Sprintf("agent %q references provider %q which does not match any current provider — the provider may have been renamed or deleted. Open the agent settings and re-pick a provider, or restore/rename the provider in admin.", app.ID, provider)
 	}
 	return ""

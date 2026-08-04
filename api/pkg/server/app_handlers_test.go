@@ -429,7 +429,6 @@ func TestFindModelSubstitution(t *testing.T) {
 			},
 		},
 	}
-
 	t.Run("finds exact match and returns first available alternative from same class", func(t *testing.T) {
 		availableProviders := map[types.Provider]bool{
 			"helix":     true,
@@ -542,6 +541,13 @@ func TestApplyModelSubstitutions(t *testing.T) {
 			},
 		},
 	}
+	providerIDModelClasses := []ModelClass{{
+		Name: "lightweight",
+		Alternatives: []AlternativeModelOption{
+			{Provider: "pe_personal", Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"},
+			{Provider: "helix", Model: "llama3.1:8b-instruct-q8_0"},
+		},
+	}}
 
 	user := &types.User{ID: "user1"}
 	ctx := context.Background()
@@ -576,6 +582,58 @@ func TestApplyModelSubstitutions(t *testing.T) {
 		require.Equal(t, "llama3.1:8b-instruct-q8_0", substitutions[0].NewModel)
 
 		// Verify the substitution occurred
+		require.Equal(t, "helix", app.Config.Helix.Assistants[0].Provider)
+		require.Equal(t, "llama3.1:8b-instruct-q8_0", app.Config.Helix.Assistants[0].Model)
+	})
+
+	t.Run("leaves unavailable provider ID for organization validation", func(t *testing.T) {
+		mockProviderManager.EXPECT().
+			ListProviderEndpoints(ctx, "org1").
+			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil).
+			Times(2)
+
+		app := &types.App{
+			OrganizationID: "org1",
+			Config: types.AppConfig{
+				Helix: types.AppHelixConfig{
+					Assistants: []types.AssistantConfig{{
+						Name:     "test-assistant",
+						Provider: "pe_personal",
+						Model:    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+					}},
+				},
+			},
+		}
+
+		substitutions, err := server.applyModelSubstitutions(ctx, user, app, providerIDModelClasses)
+		require.NoError(t, err)
+		require.Empty(t, substitutions)
+		require.Equal(t, "pe_personal", app.Config.Helix.Assistants[0].Provider)
+		require.Equal(t, "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", app.Config.Helix.Assistants[0].Model)
+
+		err = server.validateProvidersAndModels(ctx, user, app)
+		require.EqualError(t, err, types.OrganizationProviderUnavailableMessage)
+	})
+
+	t.Run("substitutes unavailable provider ID for personal app", func(t *testing.T) {
+		mockProviderManager.EXPECT().
+			ListProviderEndpoints(ctx, user.ID).
+			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
+
+		app := &types.App{
+			Config: types.AppConfig{
+				Helix: types.AppHelixConfig{
+					Assistants: []types.AssistantConfig{{
+						Provider: "pe_personal",
+						Model:    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+					}},
+				},
+			},
+		}
+
+		substitutions, err := server.applyModelSubstitutions(ctx, user, app, providerIDModelClasses)
+		require.NoError(t, err)
+		require.Len(t, substitutions, 1)
 		require.Equal(t, "helix", app.Config.Helix.Assistants[0].Provider)
 		require.Equal(t, "llama3.1:8b-instruct-q8_0", app.Config.Helix.Assistants[0].Model)
 	})
@@ -1231,9 +1289,32 @@ func TestValidateProvidersAndModels_HelixAgentRequiresModelProviders(t *testing.
 	assert.Contains(t, err.Error(), "must have a provider for reasoning_model")
 }
 
-// TestListEndpointsForApp covers the org-aware behaviour added in the
-// snapshot-helper refactor: org-owned apps must see both the org bucket
-// and the actor's personal providers, with sensible de-dup.
+func TestValidateProvidersAndModels_UnavailableProviderMessage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockProviderManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{providerManager: mockProviderManager}
+	ctx := context.Background()
+	user := &types.User{ID: "user1"}
+	app := func(orgID string) *types.App {
+		return &types.App{
+			OrganizationID: orgID,
+			Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+				Provider: "pe_provider",
+				Model:    "model",
+			}}}},
+		}
+	}
+
+	mockProviderManager.EXPECT().ListProviderEndpoints(ctx, "org1").Return([]*types.ProviderEndpoint{}, nil)
+	err := server.validateProvidersAndModels(ctx, user, app("org1"))
+	require.EqualError(t, err, types.OrganizationProviderUnavailableMessage)
+
+	mockProviderManager.EXPECT().ListProviderEndpoints(ctx, user.ID).Return([]*types.ProviderEndpoint{}, nil)
+	err = server.validateProvidersAndModels(ctx, user, app(""))
+	require.ErrorContains(t, err, "provider 'pe_provider' is not available")
+}
+
+// TestListEndpointsForApp covers app-scoped provider snapshots.
 func TestListEndpointsForApp(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -1253,49 +1334,19 @@ func TestListEndpointsForApp(t *testing.T) {
 		require.Equal(t, "pe_user_01", eps[0].ID)
 	})
 
-	t.Run("org app merges org and user buckets and de-dups", func(t *testing.T) {
-		// Both buckets see the same env-baked global ("openai", no ID); the
-		// merge must not double-count it. The user also has a personal
-		// provider that the org bucket doesn't see — that should land.
+	t.Run("org app excludes personal bucket", func(t *testing.T) {
 		mockProviderManager.EXPECT().
 			ListProviderEndpoints(ctx, "org1").
 			Return([]*types.ProviderEndpoint{
 				{ID: "pe_org_01", Name: "org-prov"},
 				{Name: "openai"},
 			}, nil)
-		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "user1").
-			Return([]*types.ProviderEndpoint{
-				{ID: "pe_user_01", Name: "user-prov"},
-				{Name: "openai"},
-			}, nil)
-
 		app := &types.App{ID: "app1", OrganizationID: "org1"}
 		eps, err := server.listEndpointsForApp(ctx, "user1", app)
 		require.NoError(t, err)
 
-		got := map[string]bool{}
-		for _, ep := range eps {
-			got[endpointKey(ep)] = true
-		}
-		require.True(t, got["id:pe_org_01"], "org-bucket DB provider should be present")
-		require.True(t, got["id:pe_user_01"], "user-bucket DB provider should be merged in for org apps")
-		require.True(t, got["name:openai"], "global should be present exactly once")
-		require.Len(t, eps, 3, "duplicate global must not be appended twice")
-	})
-
-	t.Run("personal-bucket failure still returns org bucket", func(t *testing.T) {
-		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "org1").
-			Return([]*types.ProviderEndpoint{{ID: "pe_org_01", Name: "org-prov"}}, nil)
-		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "user1").
-			Return(nil, fmt.Errorf("transient store error"))
-
-		app := &types.App{ID: "app1", OrganizationID: "org1"}
-		eps, err := server.listEndpointsForApp(ctx, "user1", app)
-		require.NoError(t, err, "personal-bucket failure should not propagate; org bucket is still useful")
-		require.Len(t, eps, 1)
+		require.Len(t, eps, 2)
 		require.Equal(t, "pe_org_01", eps[0].ID)
+		require.Equal(t, "openai", eps[1].Name)
 	})
 }

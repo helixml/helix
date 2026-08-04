@@ -966,12 +966,8 @@ func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Contex
 // admin label). Used by zed-config code paths to resolve an agent's stored
 // provider reference to its current canonical name.
 //
-// The app argument is what makes this org-aware: when app.OrganizationID
-// is set, org-owned providers are listed first and the user's personal
-// providers are merged in (so a user running an org agent that references
-// their own personal provider still resolves). actorID may be "" when
-// there's no user context (rare; e.g. system-driven paths) — in that case
-// only the app-owner bucket is returned.
+// The app argument makes this org-aware: when app.OrganizationID is set,
+// only organization-owned and global providers are returned.
 //
 // Returning nil from this helper (e.g. when the manager isn't wired) tells
 // GenerateZedMCPConfig to skip resolution.
@@ -990,15 +986,9 @@ func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorI
 	return refs, nil
 }
 
-// listEndpointsForApp returns ProviderEndpoint records visible to the actor
-// for the given app, with the org-first + user-merge pattern that
-// validateProvidersAndModels established. Centralising it here means every
-// caller (substitution, validation, zed-config, spec-task pre-flight) sees
-// the same view of "what providers can this agent legitimately reference".
-//
-// Without the merge, an org-owned agent that references the org member's
-// personal provider would 422 at session start; with it, both buckets
-// participate in resolution.
+// listEndpointsForApp returns ProviderEndpoint records available to the app.
+// Organization apps only see their organization's and global providers;
+// personal providers must not enter organization snapshots.
 func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorID string, app *types.App) ([]*types.ProviderEndpoint, error) {
 	if apiServer.providerManager == nil {
 		return nil, nil
@@ -1007,44 +997,7 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 	if app != nil && app.OrganizationID != "" {
 		owner = app.OrganizationID
 	}
-	endpoints, err := apiServer.providerManager.ListProviderEndpoints(ctx, owner)
-	if err != nil {
-		return nil, err
-	}
-	if app == nil || app.OrganizationID == "" || actorID == "" || actorID == app.OrganizationID {
-		return endpoints, nil
-	}
-	userEndpoints, uerr := apiServer.providerManager.ListProviderEndpoints(ctx, actorID)
-	if uerr != nil {
-		// Best-effort merge: a personal-provider lookup failure shouldn't
-		// hide the org bucket we already have. Log and return what we got.
-		log.Warn().Err(uerr).Str("app_id", app.ID).Str("actor_id", actorID).Msg("listEndpointsForApp: failed to list personal providers; using org bucket only")
-		return endpoints, nil
-	}
-	seen := make(map[string]struct{}, len(endpoints))
-	for _, ep := range endpoints {
-		seen[endpointKey(ep)] = struct{}{}
-	}
-	for _, ep := range userEndpoints {
-		k := endpointKey(ep)
-		if _, ok := seen[k]; ok {
-			continue
-		}
-		seen[k] = struct{}{}
-		endpoints = append(endpoints, ep)
-	}
-	return endpoints, nil
-}
-
-// endpointKey produces a stable de-dup key for a provider endpoint. ID wins
-// when present; for env-baked globals (ID=="") the name namespace is used
-// to keep "openai" from colliding with a DB-backed provider also named
-// "openai".
-func endpointKey(ep *types.ProviderEndpoint) string {
-	if ep.ID != "" {
-		return "id:" + ep.ID
-	}
-	return "name:" + ep.Name
+	return apiServer.providerManager.ListProviderEndpoints(ctx, owner)
 }
 
 // validateSpecTaskAgentConfig pre-flights the agent's provider/model snapshot

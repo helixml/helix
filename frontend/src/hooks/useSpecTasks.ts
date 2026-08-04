@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
+import { extractErrorMessage } from './useErrorCallback'
 import {
   TypesSpecTask,
   TypesSpecTaskUpdateRequest,
@@ -78,7 +79,7 @@ export const useSpecTasks = () => {
         return result.data
       }
     } catch (error) {
-      snackbar.error('Failed to approve specifications')
+      snackbar.error(extractErrorMessage(error))
       console.error('Error approving specs:', error)
     }
     return null

@@ -891,8 +891,8 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           return;
         }
         throw new Error(
-          errorData.error ||
-            errorData.message ||
+          errorData.message ||
+            errorData.error ||
             `Failed to start planning: ${response.statusText}`,
         );
       }

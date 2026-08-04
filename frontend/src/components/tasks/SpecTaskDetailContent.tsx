@@ -705,8 +705,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           return;
         }
         throw new Error(
-          errorData.error ||
-            errorData.message ||
+          errorData.message ||
+            errorData.error ||
             `Failed to start planning: ${response.statusText}`,
         );
       }

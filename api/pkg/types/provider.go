@@ -8,6 +8,8 @@ import (
 
 type Provider string
 
+const OrganizationProviderUnavailableMessage = "This agent's provider is not available to the organization. Personal providers are no longer supported for organization agents. Configure the provider for the organization, then select it again in the agent settings."
+
 const (
 	ProviderOpenAI     Provider = "openai"
 	ProviderTogetherAI Provider = "togetherai"

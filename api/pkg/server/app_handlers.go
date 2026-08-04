@@ -68,8 +68,8 @@ type AppCreateResponse = AgentCreateResponse
 func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.Agent, modelClasses []ModelClass) ([]ModelSubstitution, error) {
 	var substitutions []ModelSubstitution
 
-	// Use the org-aware endpoint list so an org agent referencing the user's
-	// personal provider still finds it (mirrors validateProvidersAndModels).
+	// Use the app-scoped endpoint list so organization agents only consider
+	// organization and global providers.
 	availableEndpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
 	if err != nil {
 		log.Error().
@@ -126,6 +126,9 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 					Str("original_provider", originalProvider).
 					Str("original_model", originalModel).
 					Msg("Skipping substitution for empty provider or model")
+				return
+			}
+			if app.OrganizationID != "" && strings.HasPrefix(originalProvider, system.ProviderEndpointPrefix) && !providerKnown(originalProvider) {
 				return
 			}
 
@@ -702,6 +705,9 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 					Str("provider", provider).
 					Int("available_endpoints", len(endpoints)).
 					Msg("Validation failed: provider not available")
+				if app.OrganizationID != "" {
+					return errors.New(types.OrganizationProviderUnavailableMessage)
+				}
 				return fmt.Errorf("provider '%s' is not available for %s", provider, fieldName)
 			}
 		}
