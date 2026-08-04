@@ -18,8 +18,8 @@ default assumption — take it, note the choice in the write-up, and keep going.
 
 ## Setup and reproduction (inner Helix only — never meta.helix.ml)
 
-- [ ] Confirm the inner Helix stack is up at `http://localhost:8080` (poll for several minutes; `helix-api-1`, `helix-frontend-1`, `helix-postgres-1` all `Up` and 8080 returning 200)
-- [ ] Register `test@helix.ml` / `helixtest`, complete onboarding (org → project), create a spec task so a real desktop session with a live video stream exists
+- [x] Confirm the inner Helix stack is up at `http://localhost:8080` (poll for several minutes; `helix-api-1`, `helix-frontend-1`, `helix-postgres-1` all `Up` and 8080 returning 200)
+- [~] Register `test@helix.ml` / `helixtest`, complete onboarding (org → project), create a spec task so a real desktop session with a live video stream exists
 - [ ] Open the desktop viewer and confirm a healthy baseline stream (video painting, input working)
 - [ ] Temporarily stub `isAppleWebKit()` to `true` so the WebGL2 renderer runs under Chromium (local-only edit; revert before commit) — this is the substitute for Safari, and it is sufficient to drive every finding below
 
