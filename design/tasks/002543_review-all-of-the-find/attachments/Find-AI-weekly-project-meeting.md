@@ -1,1132 +1,1408 @@
 # Find-AI weekly project meeting
 
-- **Date:** Mon, 27 Jul 2026 14:00:00 UTC
-- **Duration:** 58 min
+- **Date:** Mon, 20 Jul 2026 14:00:00 UTC
 - **Participants:** luke@helix.ml, chris@helix.ml, leah.smith@linuxrecruit.co.uk, tony.chapman@linuxrecruit.co.uk, luke@mlops.consulting
 - **Source:** fireflies
 
 ## Summary
 
-- **LinkedIn Automation:** Use semi-automated evening runs with human oversight to reduce ban risk, avoiding simultaneous logins on multiple devices.  
-- **Product Development:** Multi-user job hierarchy supports several agents per job; file uploads and audio transcription enhance sourcing context.  
-- **Operational Workflow:** Projects are shared among recruiters; manual review filters candidates to focus outreach and maintain quality.  
-- **Platform Stability:** Addressed website outage promptly; agent is stable though slow, with filtering reducing workload and improving efficiency.  
-- **Business Priorities:** Target Mini Jack and Jill brand launch by early September; billing moved to credit card for $499/month subscription.  
-- **Team Coordination:** Evening agent runs require logged-out LinkedIn sessions on other devices; UI improvements planned for simpler recruiter use.
+- **Candidate Sourcing Tool:** AI scores candidates for outreach; recruiters control message sending and candidate promotion to Bullhorn database.  
+- **Workflow Handoff:** AI manages early sourcing; humans take over after conversation or CV, with manual promotion into Bullhorn.  
+- **UI Improvements Needed:** Job-based filtering and hierarchical navigation planned; better sidebar and light/dark mode support required.  
+- **Slack Integration:** Alerts for search completion and candidate approvals will enhance real-time team collaboration.  
+- **LinkedIn Automation Issues:** Login limits cause lockouts; best practice is logging out of other sessions and scheduling overnight runs.  
+- **Roadmap Focus:** Prioritize job filtering, Bullhorn promotion, Slack notifications, login stability, and event outreach use case expansion.
 
 ## Transcript
 
+Leah Smith: Sa.
 Luke Marsden: Hello.
 Leah Smith: Hello.
+Tony: Hey.
+Luke Marsden: How you doing?
+Leah Smith: Good, thank you.
 Leah Smith: How are you?
-Luke Marsden: Yeah, I'm good, thank you.
-Tony: How are you?
-Leah Smith: Yeah, good, thank you.
-Leah Smith: How was your weekend?
-Luke Marsden: It was lovely, thank you.
-Luke Marsden: Yeah, I had my co founder Chris here all of last week.
-Leah Smith: Oh yes, I remember you saying.
-Leah Smith: Did you have fun with him?
-Luke Marsden: Yeah, no, it was great fun.
-Luke Marsden: It was a good mix of working and introducing him to my friends because he introduced me to his friends when I went out to Oregon, so we all had a good time.
-Leah Smith: Is he left now?
-Luke Marsden: Yes, I think he, he, he got the coach from Bristol coach station at like 3am yesterday morning and I think he arrived home a few hours ago.
-Leah Smith: And where is.
-Leah Smith: Was.
-Leah Smith: Is it the U.S. isn't it?
-Luke Marsden: Yeah, he's.
-Luke Marsden: Oregon.
-Leah Smith: Oh yeah, Oregon.
-Luke Marsden: Yeah, he's in Bend, Oregon.
-Luke Marsden: Last I heard from him was like, oh, my flight from Seattle is delayed.
-Luke Marsden: And it's like, oh my God.
-Luke Marsden: So.
-Leah Smith: But yeah, let me message Tony and see if he's joining.
-Luke Marsden: Yeah, cool.
-Luke Marsden: Yeah.
-Luke Marsden: So I just added the Find OS bot to your Slack channel.
-Leah Smith: Oh, lovely.
-Leah Smith: I'll be able to see it.
-Leah Smith: I'm just on Slack now.
-Luke Marsden: Yeah, you should be able to see it.
-Luke Marsden: The.
-Luke Marsden: The goal of this call will be to try and make it do something.
-Leah Smith: Whereabouts would it be?
-Leah Smith: On the.
-Leah Smith: On the Slack interface.
-Luke Marsden: Oh, it.
-Luke Marsden: You should just see that it's just joined like the Helix Find AI channel or whatever that one's called.
-Leah Smith: Oh God, yeah, sorry, I did see.
-Leah Smith: Oh, was that the 1 that was 3:49am?
-Luke Marsden: No, no, that was a pull request.
-Luke Marsden: That was something random.
-Luke Marsden: You can ignore that.
-Leah Smith: Oh yeah, I've seen it now.
-Leah Smith: Sorry.
-Luke Marsden: Yeah, no, don't worry.
-Luke Marsden: I mean it hasn't done anything yet, so I wouldn't have expected you to see it.
-Luke Marsden: But um, yeah, do you want to share your screen and we can maybe try using the latest and just do some testing together?
-Leah Smith: Desktop.
-Leah Smith: No, or Slack.
-Luke Marsden: Yeah, I do share the whole desktop maybe because I'll need you to use the browser as well.
-Luke Marsden: Sorry.
-Leah Smith: Okay.
-Leah Smith: That my doing.
-Luke Marsden: Do the whole thing.
-Leah Smith: Desktop share.
-Leah Smith: There we go.
-Leah Smith: Can you see it now?
-Luke Marsden: Yeah, yeah, yeah, that's great.
-Leah Smith: Yeah, an event on Thursday so I created a video for the intro slides.
-Luke Marsden: Oh, that's nice.
-Leah Smith: I'm not a video editor by any means, but.
-Leah Smith: Yeah, it took a while but got there eventually.
-Luke Marsden: Yeah, well done.
-Leah Smith: Really hard video editing have any idea how to do it?
-Leah Smith: It's.
-Luke Marsden: I'm definitely an amateur video editor as well.
-Luke Marsden: Screencasts and stuff.
-Leah Smith: But I. I know what I want.
-Luke Marsden: Yeah.
-Leah Smith: When things come in and then the logo's animated but I feel like that's, you know, people have proper software for all that kind of stuff.
-Leah Smith: I. Yeah, Canva cap cut is my limit, I think.
-Luke Marsden: A friend of mine has been making some rap music where he's fully generating the.
-Luke Marsden: Both the audio and the video using AI and it's actually not bad.
-Leah Smith: Wow.
-Tony: Hey, Tony, are you all right?
-Luke Marsden: Yeah, good, thanks.
+Luke Marsden: Good, yeah, very well, thanks.
+Leah Smith: Just gonna check that Tony's joining us.
+Leah Smith: I. Yeah, cool.
+Leah Smith: I've just messaged.
+Leah Smith: Did you have a nice weekend?
+Luke Marsden: Yeah, I did, yeah.
+Luke Marsden: My co founder Chris is in Bristol with me at the moment.
+Leah Smith: Oh, nice.
+Luke Marsden: Yeah, yeah, we're having a lovely time.
+Leah Smith: Is he playing with you?
+Luke Marsden: Yes.
+Leah Smith: Oh, that's cute.
+Luke Marsden: I know, isn't it?
+Leah Smith: How did you two meet?
+Leah Smith: Are you like.
+Leah Smith: Have you known each other for a long time?
+Luke Marsden: Yeah, so he worked with me in my second startup and then we co founded this one together.
+Luke Marsden: So we've, we've gone to battle together before.
+Leah Smith: Have you still got your other startup then?
+Luke Marsden: No, no, I've did kind of one at a time so.
+Luke Marsden: So this is number three.
+Luke Marsden: But yeah, nice.
+Leah Smith: I have.
+Leah Smith: So you.
+Leah Smith: Did you go out at the weekend together?
+Luke Marsden: Yeah, yeah, we actually went to a friend's birthday party and then he made loads of cocktails which is pretty fun.
+Luke Marsden: So he was like a mixologist.
+Leah Smith: Oh man.
+Leah Smith: For the, for the evening?
+Luke Marsden: Yeah, yeah, it was pretty nice.
+Leah Smith: What was his speciality cocktail?
+Luke Marsden: Old fashioned.
+Leah Smith: I don't normally have those.
+Leah Smith: Is that.
+Leah Smith: Yeah, whiskey.
+Luke Marsden: It's whiskey and orange and sours.
+Luke Marsden: Yeah, it's really nice.
+Luke Marsden: He puts quite a lot of sugar in them.
+Leah Smith: So.
+Leah Smith: Was he quite hungover on Sunday?
+Luke Marsden: We were fine actually.
+Luke Marsden: Wasn't too bad.
+Luke Marsden: How was your weekend?
+Leah Smith: Yeah, what did I do?
+Leah Smith: I think I went to the beach on Saturday.
+Luke Marsden: Oh, nice.
+Leah Smith: It was quite nice.
+Leah Smith: And then yesterday just is like a house admin day, you know, meal prep, the daughter's meal prep gym.
+Leah Smith: Like just getting all the.
+Leah Smith: Yeah, so yeah, I didn't do too much the weekend before.
+Leah Smith: I. I was out at that day festival that I was saying to you.
+Tony: Yeah, yeah, yeah.
+Leah Smith: I was off on the Monday and it took a. I think it took like the whole week basically to recover.
+Leah Smith: Yeah, I was just so tired the whole week because Ada started waking up in the night.
+Leah Smith: Now I don't know why, but I.
+Luke Marsden: Mean, it's not easy.
+Luke Marsden: If you're gonna try and have a social life and a tiny baby at the same time.
+Luke Marsden: The same time, then you're going to be knackered.
+Luke Marsden: But respect, I mean, and you have to do it, you have to live your life.
+Luke Marsden: Hey, Tony.
+Leah Smith: Hey.
+Tony: You're right.
+Luke Marsden: Yeah, good.
+Luke Marsden: Thanks man.
 Luke Marsden: How are you?
 Tony: Yeah, not too bad, thank you.
 Tony: Not too bad.
-Luke Marsden: Good weekend?
-Tony: Yeah, it's good, yeah, yeah, just with the kids really down the beach and stuff.
-Tony: Yeah.
-Tony: Oh, cool.
-Luke Marsden: Yeah, I had Chris.
-Luke Marsden: I had Chris with me.
-Luke Marsden: We had a massive dinner party on Friday night.
-Luke Marsden: Oh, it's a good fun.
-Luke Marsden: Yeah, yeah, yeah.
-Tony: You guys get together often or.
-Luke Marsden: I was in Oregon like three months ago and he was here for a week just now.
-Tony: Oh, nice.
-Luke Marsden: So that's the first time we'd done that.
-Luke Marsden: So we were joking about calling it like a cultural exchange.
-Luke Marsden: Anyway.
-Luke Marsden: No, it's good.
-Luke Marsden: Um, so, yeah, um, yeah, I think I was just gonna get Leah to walk through the latest bits to test.
-Luke Marsden: I wondered if you had any questions or, or topics first, Tony, because.
-Tony: I know, No, I think the, the kind of agent thing.
-Tony: So I did the test review last week and I haven't really done anything with it since, but probably just need a solution for.
-Tony: For that.
-Tony: I don't know, setting up like a dummy.
-Tony: I mean, it's not ideal, but setting up like a. Yeah.
-Tony: Fake person that we could then just have the agent being that fake person almost.
-Luke Marsden: Yeah, yeah, No, I wanted to talk to you about exactly the same thing because like the.
-Luke Marsden: There's definite risks from using the AI automation and we kind of stumbled across that together last week and, and I've been thinking a lot about how to de.
-Luke Marsden: Risk it because I, I agree it's.
-Luke Marsden: It would be like completely unacceptable for anyone's LinkedIn account to get like disabled or LinkedIn recruiter access to be disabled because that would be counterproductive.
-Luke Marsden: Significantly counterproductive.
-Tony: Yeah, exactly.
-Luke Marsden: I do have some suggestions.
-Luke Marsden: So I think using a separate LinkedIn account is one option.
-Luke Marsden: I think the, the issues with that would be around.
-Luke Marsden: It's more likely that that account gets flagged as automation because it's a new account.
-Luke Marsden: So it's not.
-Luke Marsden: It doesn't have the history and it would probably be less effective because it doesn't have the connections that, that your team have built up over time.
-Luke Marsden: There are a couple of other ideas I have, but like, feel free to disagree.
-Luke Marsden: Obviously one of them.
-Luke Marsden: So I looked into kind of the various different signals that LinkedIn looks at in order to judge whether usage is automated or not.
-Luke Marsden: And this is kind of a gray area in terms of the terms of service, if I'm completely honest, because it's like it isn't because it is actually a human logging in and it is a human using automation to do more of what they would normally do.
-Luke Marsden: So I wouldn't call it fully automated, I would call it sort of semi automated.
-Tony: Yeah.
-Luke Marsden: So there's also I like wide sort of acceptance that some automation is accepted on the platform even though it's not officially recommended because there's so many different LinkedIn tools for like doing automatic LinkedIn connections with people like Dripify and yeah.
-Luke Marsden: Alter and things like this.
-Luke Marsden: So it, I think the, the game that, that people play with the LinkedIn platform tends to be around.
-Tony: Are you,.
-Luke Marsden: Are you being fair and are you paying them something?
-Luke Marsden: And for paid accounts they generally like, they have higher thresholds for, for what they tolerate.
-Luke Marsden: And the other thing that, that's important to bear in mind is that they don't just ban you outright, they will always give you some warnings before you get banned.
-Luke Marsden: So the first one is they'll start showing you captures like we saw when you logged in.
-Luke Marsden: I remember a big chunk of our call last week was you clicking on bicycles or something.
-Luke Marsden: So that's the signal.
-Luke Marsden: Okay.
-Luke Marsden: They think something's up.
-Luke Marsden: Like, okay, let's slow it down, let's step back from it for a minute, reassess.
-Luke Marsden: And the other one was on LinkedIn recruiter in particular because they really care about the per seat licensing.
-Luke Marsden: They don't want people sharing seats.
-Luke Marsden: They do have fairly aggressive like, do you have this like simultaneous activity on the same seat from multiple IP addresses or multiple locations?
-Tony: Yeah.
-Luke Marsden: And then the third thing is making sure that the behavior is human.
-Luke Marsden: Like which we can do with, with the way we prompt the agent.
-Luke Marsden: So all of that said, my suggestion would be because I also looked into like some of the other signals that they use to, to detect automation.
-Luke Marsden: One of them is circadian rhythm.
-Luke Marsden: So if it looks like the agent is, or it looks like the user is never sleeping, then LinkedIn is like, Aha, that must not be a human.
-Luke Marsden: Because humans do have to sleep some of the time.
-Luke Marsden: And the other thing I thought was because we have this requirement that basically the human and the agent can't use the same account at the same time.
-Luke Marsden: My suggestion is that we very carefully try doing a, what I would call a late shift.
-Luke Marsden: So after, when someone is finishing work for the day, they could kick their agent off maybe it's to start at like 7pm and work until 10 or something like this.
-Luke Marsden: And that way it looks like a human is just working late, but they're not working all the way through the night and they're doing enough useful work in that period that they can.
-Luke Marsden: That the agent can then deliver them something by the time they get to their desk at like 8 or 9 or 10am the following morning.
-Luke Marsden: So.
+Tony: Enjoying the heat?
+Leah Smith: Yeah, it feels like it's actually a bit cooler but I. I don't know whether that's because we've just come climatized to the heat now and it definitely.
+Luke Marsden: Is a bit more pleasant than it was.
+Luke Marsden: I'm.
+Luke Marsden: I'm down for that.
+Luke Marsden: 26 Is my ideal temperature, I reckon.
 Luke Marsden: Yeah.
-Luke Marsden: What, what, what do you think about that?
-Tony: Yeah, I mean, I'm happy to explore any, any kind of ideas, really.
-Tony: The only problem with the late shift is.
-Tony: Is two different IP addresses, isn't it?
-Tony: Which, which seem to be the problem because obviously I'm locked in it multiple places.
-Tony: You know, at the moment I've got my desktop behind my laptop, so I always use both.
-Tony: I just use this for calls and it's fine, it's never a problem.
-Tony: Even though I kind of flick between the two all day long.
-Luke Marsden: Yeah.
-Tony: I think the IP address thing is.
-Tony: But then I use this laptop in the office as well.
-Luke Marsden: Yeah.
-Tony: So I assume that's a different IP address.
-Luke Marsden: Is a different IP address.
-Luke Marsden: And if you think about a usage pattern where, like.
-Luke Marsden: I mean, it's a bit of a weird idea, but like, imagine I took my laptop down the pub and jumped on the pub.
-Luke Marsden: WI fi.
-Luke Marsden: I did a bit of work in the evening while I was chatting with my mates.
-Luke Marsden: I don't know if I actually would do that.
-Luke Marsden: I have done that once or twice.
-Tony: Yeah.
-Luke Marsden: Or like if.
-Luke Marsden: Just if you're on your.
-Luke Marsden: If you're on your phone and you're doing stuff and then you're on a.
-Luke Marsden: On a different mobile IP.
-Tony: Would LinkedIn know that?
-Tony: Would.
-Tony: Would LinkedIn almost like name your index your device as well?
-Tony: So it knows because sometimes it does say login on a new device.
-Tony: Is it?
-Luke Marsden: Is it?
-Luke Marsden: Yeah, yeah, yeah.
-Tony: Would LinkedIn know that?
-Tony: Oh, that's Tony's laptop.
-Tony: He's always on that kind of device.
-Luke Marsden: I think it would, but then the, the, the desktop environment that the agents run in is like, it's Chrome on Linux and it's not.
-Luke Marsden: And, and that is a valid, like, device type.
-Luke Marsden: Yeah, it doesn't show up as like.
-Tony: I just mean, like, it's a new device type for.
-Luke Marsden: Yeah, yeah, yeah.
-Luke Marsden: It would show up as a new device type, but then that session would survive as well.
-Luke Marsden: So if LinkedIn is trying to kind of profile that user, it would look like they just got a Chromebook or something, like a new laptop.
-Luke Marsden: So.
-Luke Marsden: And again, we can kind of test this by seeing, well, oh, do we start getting captchas like we did last week?
-Luke Marsden: Because you did validly log in.
-Luke Marsden: Like we did get caught out last week because you were logged in from two different places.
-Luke Marsden: Anyway, so the other thing I wanted to offer was while we're, while we're testing this and refining it, I'm happy to use my LinkedIn account which has a pretty good network and kind of take, take the risk myself.
-Luke Marsden: And, and the other thing there is that the LinkedIn recruiter seat that I have from you is only for me.
-Luke Marsden: So if that one gets like shut down, it won't affect any of the rest of your team.
-Tony: But do you mean like do some outreach from.
-Tony: Or just build product?
-Tony: Because actually what you could do is build a project, put people into that and share the project with me.
-Tony: So actually the agent does the sourcing and puts them into the project and then I just go in the next morning and go message all of these people.
-Luke Marsden: Exactly.
-Tony: Thank you.
-Tony: Message.
-Tony: Is that what you were thinking?
-Luke Marsden: Yeah, exactly.
-Luke Marsden: Yeah, yeah, yeah, I wasn't thinking that, but that's a really good idea.
-Luke Marsden: Yeah, I was thinking something simpler than that, which was just that yeah, you could use my account to find people but not actually message them from me because it probably is a bit weird if I actually start recruiting for you.
-Luke Marsden: But, but yeah we can, we can do all of that grunt work of a finance.
-Tony: That's a workaround for.
-Tony: Because the only thing about, you know, setting up a new pro, like a dummy profile.
-Luke Marsden: Yeah, it's.
-Tony: If it's, you know, John Smith started at Linux recruit yesterday.
-Tony: Zero connections.
-Tony: If so if that emails people, they're gonna think, you know, there's no credibility with that profile.
-Tony: Message me.
-Tony: But if we get John Smith to actually just do the building the project work and then actually they share that with one of the team and then yeah, or me or whatever and I just go in and so that's maybe a workaround.
-Luke Marsden: Yeah, yeah, yeah, no, I think that's good.
-Tony: Yeah.
-Luke Marsden: And like I say in the next, like through, through the next like month or so of the project, we've got like two months left, haven't we?
-Luke Marsden: I'm going to say we.
-Luke Marsden: Yeah, two months left, maybe slightly less, but I'm not really counting the,.
-Leah Smith: The.
-Luke Marsden: Yes, if we, if we use my account for it, at least for the next month or so while we get more comfortable with it, then, then we'll see how your comfort levels are in terms of either using your individual accounts or using a dummy John Smith account when we want to roll it out to the rest of the team.
-Luke Marsden: Does that sound okay?
-Tony: Yeah, I think that's.
-Tony: That sounds.
-Tony: I mean, the dummy account could actually work really well because that could just be almost like our.
-Tony: We give the AI one of our licenses.
-Luke Marsden: Yeah, yeah, yeah.
-Tony: And you know, if that gets banned, then fine.
-Luke Marsden: Yeah, yeah, no, that makes sense.
-Luke Marsden: And again, I think it won't get banned straight up, straight away.
-Luke Marsden: It.
-Luke Marsden: You'll get a few kind of warnings and so we can back off if, if it looks like we're getting, getting anything risky going on on that account.
-Luke Marsden: And then there's other things we can try as well, like non LinkedIn ways of sourcing and like.
-Luke Marsden: Yeah, yeah, yeah.
-Tony: You know, GitHub and probably the job boards, our database.
-Tony: We haven't, you know, plugged into Bullhorn as such to search that and.
-Luke Marsden: Yeah, yeah, yeah, definitely.
-Luke Marsden: Yeah.
-Tony: Because we should be able to set it up so sources Bullhorn and maybe sends them emails or automatically puts them into like a vacancy shortlist that the.
-Tony: We then have to go into.
-Tony: And so we can set it up overnight to shortlist the 15 best people for this job or whatever, and then morning, the guys can duck in and that's 15 calls for them to make straight away kind of thing.
-Luke Marsden: 100%.
-Luke Marsden: Yeah, yeah, yeah, yeah.
-Luke Marsden: I love that.
-Luke Marsden: Okay, cool.
-Luke Marsden: And we won't have similar problems with Bullhorn because, like, we've got API access there, so.
-Tony: Yeah, exactly.
-Luke Marsden: And you're paying for it.
-Luke Marsden: You're using it in the exact legitimate way it was intended.
-Tony: Yeah.
-Luke Marsden: So awesome.
-Luke Marsden: Cool.
-Luke Marsden: Okay.
-Luke Marsden: Are you comfortable with that then?
-Luke Marsden: I don't want to triple check.
-Tony: Yeah, if you're, if you're happy to do that or like I said, I'm happy to set up another, you know, a fake account or we, we probably should set up that.
-Tony: If we're going to do a fake account, we probably should do that within the AI.
-Tony: So then the IP address is always there.
-Luke Marsden: Yeah.
-Tony: Does that make sense?
-Luke Marsden: Yeah, yeah, yeah.
-Tony: Profile in there, add all the info and add all the.
-Tony: Yeah, Jazz.
-Luke Marsden: Yeah, I, I think that makes sense.
-Luke Marsden: I'm a little worried about the fake accounts because I think they're likely to get flagged much more easily.
-Tony: Yeah.
-Luke Marsden: I almost wonder if there's anyone else in or around the business that isn't directly doing outreach all the time, but would be willing to like, donate their LinkedIn account.
-Luke Marsden: It's a bit of an ask.
-Tony: I mean, there, there would have been six months ago, but we don't really have anyone kind of doing operations admin at the moment.
-Luke Marsden: Yeah.
-Tony: So Leah's obviously ending up marketing and picks up some of the op stuff because there isn't a huge amount these days.
-Tony: But obviously Leah uses her LinkedIn for.
-Tony: For stuff.
-Tony: Yeah, yeah, yeah, yeah and I will.
-Leah Smith: Obviously, yeah I'll start probably using it for maybe recruitment purposes filling its recruit soon as well.
-Luke Marsden: Yeah, maybe if that's cool.
-Luke Marsden: That makes sense.
-Luke Marsden: And it's quite personal thing to ask of people.
-Luke Marsden: Can we, can we use your LinkedIn account for outreach but for automation I mean.
-Luke Marsden: Okay, cool.
-Luke Marsden: So I think there is, I don't know, I want.
-Tony: There's probably, you know, I've got, I've got friends who don't ever use LinkedIn profile.
-Tony: So I don't know if you know, if I said to them, look, would you mind us borrowing your LinkedIn profile, changing you to an employee of Linux recruit started two years ago.
-Tony: Yeah, we could easily do that.
-Tony: And then.
-Tony: So let me see if there's a.
-Luke Marsden: Cool.
-Tony: Find someone there might be a few.
-Luke Marsden: Pints or a dinner in it.
-Tony: Yeah, exactly.
-Luke Marsden: Because I know that like farming LinkedIn accounts is a whole industry, but it's a bit of a dodgy industry that you don't really want to get involved with.
-Luke Marsden: So.
-Luke Marsden: But yeah, I don't know in your budget.
-Leah Smith: So yeah,.
-Luke Marsden: I get it all the time but minor mine are less subtle than that because you knocked.
-Tony: I couldn't believe it.
-Luke Marsden: Amazing.
-Luke Marsden: Yeah.
-Tony: And obviously the, the website.
-Tony: I've just gone onto the website and it's not working.
-Luke Marsden: Oh really?
-Tony: Oh yeah, it's saying service is starting up, be ready in a moment and then doesn't load for some reason but.
-Luke Marsden: Oh, let me.
-Luke Marsden: Yeah, we should have got alerted to that.
-Luke Marsden: Sorry about that.
-Luke Marsden: I will fix that straight after the call.
-Luke Marsden: So let's try the.
-Luke Marsden: Let's.
-Luke Marsden: Let's try out the latest then.
-Luke Marsden: Who wants to drive?
-Leah Smith: I can drive.
-Tony: Okay.
-Leah Smith: Desktop.
-Leah Smith: Did you say the whole desktop?
-Luke Marsden: Yeah, if you could show your whole desktop that'd be great.
-Luke Marsden: Cool.
-Leah Smith: Sorry it's a bit of a mess.
-Leah Smith: My desktop.
-Luke Marsden: Don't apologize.
-Luke Marsden: Right, yeah.
-Luke Marsden: So if you go to os, we find AI with a dot.
-Leah Smith: How did that not go in there?
-Leah Smith: Dot.
-Luke Marsden: Sorry, dot.
-Tony: AI.
-Luke Marsden: That's it.
-Luke Marsden: Okay, cool.
-Luke Marsden: So actually that's a bit weird.
-Luke Marsden: It just says user in the top, right?
-Luke Marsden: I saw this earlier.
-Luke Marsden: Try clicking sign out and then sign in with Google.
-Leah Smith: Would it be.
-Luke Marsden: I mean probably your.
-Luke Marsden: I mean to be honest.
-Luke Marsden: Well actually no login.
-Luke Marsden: Log into this with your Leo Smith with the top one.
-Luke Marsden: Yeah, yeah, because this is just logging into to the app.
-Luke Marsden: Yeah.
-Luke Marsden: And then if you go to candidate search and then pick one that you actually want to do a search for, we should now support uploading files.
-Luke Marsden: So let's start with files that I don't know if we have the file.
-Luke Marsden: Well, the.
-Luke Marsden: Tony emailed me a whole load of these.
-Luke Marsden: Shall I forward them to you or.
-Leah Smith: Yeah, if that'd be good.
-Tony: Is this a search?
-Tony: Another search kind of demo?
+Tony: Anything above that, you've got your vest on, Luke.
+Luke Marsden: I know.
+Luke Marsden: Oh yeah.
+Luke Marsden: I literally was doing that the other day, wasn't I?
 Luke Marsden: Yes.
-Luke Marsden: Yeah, this will be sourcing.
-Luke Marsden: It's just I've done a whole load of work to make it more robust and.
-Tony: Nice.
-Luke Marsden: Picked some bugs that we saw last time.
-Luke Marsden: So I wanted to test.
-Luke Marsden: Go through testing it.
-Leah Smith: Are you forwarding it on Slack, Luke?
-Luke Marsden: I. I'm actually wondering.
-Luke Marsden: It might be quicker for me just to upload.
-Luke Marsden: Upload them myself.
-Luke Marsden: Just going to do that now.
-Tony: I'm just going to share screen then.
-Luke Marsden: Yeah.
-Luke Marsden: Should I share my screen so you can see?
-Leah Smith: Should I stop sharing mine?
-Luke Marsden: No, it's okay.
-Luke Marsden: We can allow multiple presenters at the same time.
-Tony: Oh really?
-Luke Marsden: How fancy is that?
-Luke Marsden: Yeah.
-Luke Marsden: So here I went up to Eric.
-Luke Marsden: I'm just going to grab all of these.
-Tony: And the.
-Tony: The website has been.
-Tony: Any progress on that or is that still as is?
-Luke Marsden: That's as is.
-Luke Marsden: Yeah.
-Luke Marsden: No, I've been working on the sourcing.
-Tony: Yeah.
-Tony: Okay, cool.
-Luke Marsden: Based on kind of following along from what we did last time.
-Luke Marsden: So what I'll do here.
-Luke Marsden: So I'm in as me.
-Luke Marsden: Let me just log out and log in again.
-Luke Marsden: That one.
-Luke Marsden: There we go.
-Luke Marsden: So I'm in here with my Linux recruit email.
-Luke Marsden: I can go into conduct AI and then.
-Leah Smith: So.
-Luke Marsden: I'll just do these.
-Tony: There we go.
-Luke Marsden: So that's uploaded a whole load of context.
-Luke Marsden: That's general across all of them.
-Luke Marsden: Although actually we should probably get rid of these specific roles because they're doing Product Engineer and backend engineer as two separate roles.
-Tony: Yeah.
-Tony: Yeah.
-Tony: So I'd probably just leave one of them maybe.
-Luke Marsden: Well I'll take both of them out because then we can put them in individually because this is.
-Luke Marsden: These are files across the whole client.
-Tony: Right.
-Tony: Okay.
-Luke Marsden: And the other ones are so that.
-Tony: That the top two were like audio files.
-Tony: So would it take the audio then?
-Luke Marsden: Yeah, so actually the agent was smart enough last time I tried to use the GPU that it has access to to transcribe the audio automatically.
-Luke Marsden: Oh great.
-Luke Marsden: So that was pretty impressive.
-Luke Marsden: So let me just grab these.
-Luke Marsden: This is Product Engineer AI native.
-Leah Smith: Do I need to refresh the page or shall hold fire at the minute?
-Luke Marsden: If you hold fire for a second.
-Luke Marsden: And then the Other one was.
-Luke Marsden: Backend engineer, AI native.
-Luke Marsden: We can add those roles and then when you go into a role, you can then upload the specific bits for that role.
-Luke Marsden: So.
-Luke Marsden: So here we've got.
-Luke Marsden: We've uploaded the document there and the product engineer, there's another document here.
-Leah Smith: I can't see your screen.
-Leah Smith: Is that because I'm sharing?
-Luke Marsden: Oh, yeah, possibly.
-Luke Marsden: I think if you look at Zoom, there's a tab at the top that will show my screen.
-Luke Marsden: If you click on it, it's not very obvious or you can stop sharing.
-Leah Smith: So I just noticed that.
-Luke Marsden: Okay, so I've uploaded.
-Luke Marsden: Can you see now, Leah?
-Luke Marsden: Yeah, yeah, yeah, Great.
-Luke Marsden: Okay, so now we've got all the files for conduct here.
-Luke Marsden: And then we've got the two specs.
-Luke Marsden: We've got the two roles here and that's got the Docx file there.
-Tony: So for each company we can have like a shared area where we put in different bits and pieces of info.
-Tony: Is that.
-Luke Marsden: Yeah, exactly.
-Luke Marsden: So this is anything that's general to conduct.
-Tony: Yeah.
-Luke Marsden: And then within each job spec, you can put anything that's specific to that job that JD So then once you're in here.
-Luke Marsden: Well, actually, yeah.
-Luke Marsden: Do you want to share again, Leah?
-Luke Marsden: So I actually still are.
-Luke Marsden: So now you should be able to go hit refresh.
-Luke Marsden: A good live test.
-Luke Marsden: Okay, cool.
-Luke Marsden: So you can see that now those are the bits I uploaded.
-Luke Marsden: And then if you go into one of them at the bottom.
-Luke Marsden: Sorry, the.
-Luke Marsden: One of the job bags.
-Leah Smith: Sorry, my mouse is there like a. Oh, it's there.
-Leah Smith: Sorry, I couldn't see the draggy thing.
-Luke Marsden: Ah, yeah, no worries.
-Luke Marsden: Yep.
-Luke Marsden: Then you can see we've got the Docx file there.
-Luke Marsden: So now if you try run sourcing.
-Luke Marsden: So now we start getting a bit strict with people here.
-Tony: Okay.
-Tony: All right.
-Luke Marsden: You might want to search your name in there because there's.
-Leah Smith: Oh, is that me?
-Luke Marsden: Yeah, I hope so.
-Leah Smith: Do I need to tick?
-Luke Marsden: Yeah, but you need to actually do it as well.
-Leah Smith: Look out, I've LinkedIn.
-Leah Smith: You're out there.
-Leah Smith: So is that on the phone as well?
-Luke Marsden: Probably, or just don't use it on your phone.
-Luke Marsden: But it does say log out on your phone.
-Leah Smith: Logins are.
-Luke Marsden: Tony.
-Luke Marsden: This is the sort of safety stuff that should hopefully stop a recurrence of what happened last week.
-Leah Smith: Sign out of the one I'm logged into.
-Luke Marsden: Cool.
-Luke Marsden: Okay, so give that a second.
-Luke Marsden: And if you scroll up just a little bit, you'll notice there's that little warning message as well.
-Luke Marsden: Not there.
-Luke Marsden: Sorry, the whole.
-Luke Marsden: In the.
-Luke Marsden: Oh, wow.
-Luke Marsden: Look, it's Uploaded all those files.
-Luke Marsden: Okay, cool.
-Luke Marsden: Yeah, that's it.
-Luke Marsden: I just wanted to point out that there's also that little warning sign.
-Luke Marsden: If you scroll up the whole page a little bit, it also says, this agent is live on your LinkedIn seat.
-Luke Marsden: Don't open LinkedIn Recruiter until the run ends.
-Luke Marsden: So the idea here, by the way, is that the hierarchy is like clients, and then within clients you've got jobs, and then within jobs you can have multiple agents running on behalf of different people because you will have multiple team members that might be working on a job.
-Luke Marsden: And so each team member will be logged into their own LinkedIn.
-Luke Marsden: Ultimately, if we can get that all working safely, which I think we will.
-Luke Marsden: And.
-Luke Marsden: And yeah, so it's.
-Luke Marsden: So that's kind of the.
-Luke Marsden: The hierarchy.
-Luke Marsden: Does that make sense and does it sound like the right structure?
-Tony: Yeah, yeah, definitely.
-Luke Marsden: Okay, cool.
-Tony: Similar to last week, but actually it's got the consideration for LinkedIn and also the uploads working as well.
-Luke Marsden: Exactly.
-Luke Marsden: And also this idea of having multiple people working on one job, which separate.
-Luke Marsden: Which before we didn't.
-Luke Marsden: We didn't have.
-Luke Marsden: We just had one agent session per job, which would have not made sense if multiple people were working them at the same time.
-Luke Marsden: Yeah.
-Tony: So, yeah, yeah, it looks good.
-Tony: I think we mentioned about hiding a lot of the stuff on the left as well.
-Luke Marsden: Yes.
-Luke Marsden: To make it a bit.
-Tony: Definitely be.
-Tony: Because I think with.
-Tony: With these kind of tools to give to the team, like if there's less stuff to look at and click on, the better.
-Tony: Normally.
-Luke Marsden: Yeah.
-Luke Marsden: It is a bit hectic at the moment.
-Luke Marsden: I hear you.
-Luke Marsden: So, yeah, hiding the.
-Luke Marsden: Actually probably.
-Luke Marsden: Yeah.
-Luke Marsden: Just hiding the whole sidebar when you've gone into a job.
-Leah Smith: Yeah.
-Luke Marsden: Making it full screen.
-Tony: Okay, cool.
-Tony: So what.
-Tony: What do we need to kind of do from here?
-Tony: Just come up with a strategy for the LinkedIn stuff, but we need to decide on what we're going to do.
-Luke Marsden: Yeah, I did just want to watch this for another minute.
-Tony: Okay.
-Luke Marsden: So.
-Luke Marsden: Because in a minute it's going to ask Leah to log in and what it should also do, and this is something that I wanted to test with your real Slack users, is it should ping you on Slack to ask you to log in.
-Luke Marsden: And like I said, for testing after this, I'm happy to log in for you and actually I'll run it on my account and actually try and get you some lists.
-Luke Marsden: So literally you.
-Luke Marsden: At this point I'm like, you tell me what jobs you want lists of candidates for and I'll actually try and deliver the goods Using an agent.
-Tony: I think the.
-Tony: Can you access all the MER stuff that I uploaded last week?
-Luke Marsden: Let me try.
-Tony: Yeah, I ran that search last week.
-Tony: Can you?
-Luke Marsden: Oh look Leah, you just got pinged on Slack.
-Leah Smith: Oh yes.
-Leah Smith: So I was just trying to work out what my Password is to LinkedIn.
-Luke Marsden: Look, it pinged you.
-Tony: Okay, cool.
-Luke Marsden: And what you'll see there.
-Luke Marsden: Try clicking.
-Luke Marsden: So assume that we get these things to run automatically at like 6pm now every 6pm you'll get a ping so you won't have to remember to kick it off yourself.
-Luke Marsden: And then the Slack ping will give you the link.
-Luke Marsden: Try clicking the link.
-Luke Marsden: No, the second one.
-Luke Marsden: Sorry.
-Luke Marsden: Jump in here.
-Luke Marsden: Oh, that's interesting.
-Luke Marsden: That link is broken so I need to fix that.
-Luke Marsden: So thank you for testing it.
-Luke Marsden: I'll fix that.
-Luke Marsden: But it will in.
-Luke Marsden: The idea is it will jump you to there.
-Luke Marsden: Exactly.
-Luke Marsden: That that tab you were about to click on, it should jump you there.
-Luke Marsden: So yeah.
-Luke Marsden: Now if you could try logging in that would be great.
-Luke Marsden: And again we'll be exceptionally careful not to trigger anything here.
+Luke Marsden: Now I'm wearing proper clothes today for this professional meeting.
+Luke Marsden: Good, good, cool.
+Luke Marsden: So things are coming together quite nicely.
+Luke Marsden: I can show you kind of where I'm at.
+Luke Marsden: It is not all guaranteed to work first time when I demo it because it's all still a bit in flux but.
+Luke Marsden: But I'm, I'm happy with the direction and I'd love your feedback.
+Luke Marsden: So let me.
+Luke Marsden: And just to reiterate this is a primary focus on helping your team do kind of agent assisted candidate sourcing per your guidance Tony last week of like that's the priority for you right now.
+Luke Marsden: So with that said, let me.
+Luke Marsden: So we now have os, we find AI and if I sign out you can see only people with Linux Recruit email addresses can sign into this.
+Luke Marsden: So it's an internal tool.
+Luke Marsden: Do all of your guys have Linux Recruit email addresses?
+Tony: They do but we've obviously got find AI email addresses as well now.
+Luke Marsden: Yeah, yeah, yeah.
+Luke Marsden: Okay so I'll, I'll extend it to also yeah those.
+Luke Marsden: Are you making those separate email accounts?
+Tony: They will be separate so everyone will have.
+Tony: Everyone at the moment will have lynch groups, that's fine but there could be new people that we hire that will only have we find maybe not an issue at the moment but you know.
+Luke Marsden: Yeah, yeah that's fine.
+Luke Marsden: That's an easy thing to fix.
+Luke Marsden: I can just make it support either so I can log in.
+Luke Marsden: I'm going with my nice Linux Recruit email address and then candidate search.
+Luke Marsden: This is the, the new section that I've been working on and can you see this?
 Luke Marsden: Okay.
-Luke Marsden: Ah, captures.
-Luke Marsden: Interesting.
-Leah Smith: Let me just make this false.
-Tony: Leah, have you logged out of your LinkedIn recruiter elsewhere?
-Leah Smith: Yeah, yeah, yeah.
-Luke Marsden: Oh, you know one thing.
-Luke Marsden: Do you not have two factor auth turned on?
-Leah Smith: I should do?
-Leah Smith: Yeah, yeah I do because it asked me when I log in at other places.
-Leah Smith: Like it sends me an email.
-Leah Smith: That's weird.
-Leah Smith: It's just logged me out.
-Luke Marsden: Yeah, that's a bug that I tried to fix earlier.
-Luke Marsden: I guess it didn't actually.
-Luke Marsden: Just tell the agent for a second stop refreshing the page.
-Luke Marsden: And hit enter.
-Luke Marsden: Yeah, yeah.
-Luke Marsden: Oh, you knew how to do that?
-Luke Marsden: Yeah, you hit enter twice, didn't you?
-Luke Marsden: Okay, cool.
-Luke Marsden: Yeah.
-Luke Marsden: So try again.
-Luke Marsden: I think it's okay to fill in one captcha, But that is sort of definitely one.
-Luke Marsden: Oh, now it wants to check to a phone number.
-Tony: That's good.
-Luke Marsden: Yeah, there actually a two factor.
-Luke Marsden: And it's saying recognize this device in future, which is kind of nice.
-Luke Marsden: Okay, great.
-Luke Marsden: And you're in.
-Leah Smith: I'm in.
-Luke Marsden: So we didn't have to click on the cars in the end.
-Tony: Yeah, that was better than last week.
-Luke Marsden: Yeah.
-Luke Marsden: Okay, so now tell the agent I'm in.
-Tony: So Leah, you.
-Tony: You don't necessarily need your personal LinkedIn as much as maybe we do, do you?
-Tony: Your LinkedIn recruiter.
-Tony: It's very rare you're in LinkedIn recruiter, isn't it?
-Tony: Well, almost never.
-Leah Smith: Yeah, I mean aside for I message people about the events, but that's it.
-Tony: Yeah, but you can do that from your normal LinkedIn, you can just connect with them and then.
-Tony: Yeah, because you, you could unleash your LinkedIn recruiter now to build a project for conduct for, you know, the next however many hours and then once it's done, you can just go in there in the morning and share that with me and then I can send the.
-Tony: Or share it with like Ethan or share it Alex.
-Tony: Yeah, if it, if it works.
-Leah Smith: Yeah,.
-Luke Marsden: Yeah, that's, that's cool.
-Luke Marsden: I mean, if Leah's comfortable with it.
-Leah Smith: So what do.
-Leah Smith: I, am.
-Leah Smith: I just.
-Leah Smith: Will I just set up obviously the projects on my LinkedIn recruiter and just share it with whoever.
-Tony: This will serve the project itself.
-Leah Smith: Yeah.
-Tony: So this, this will set up a project, but then once it's, once the project's.
-Tony: Once it's allocated a bunch of people to the project, then you just go into the project on your own.
-Leah Smith: Yeah.
-Tony: Or you can just tell the bot, tell the AI, whatever we want to call it.
-Tony: Yeah.
-Tony: To share that project with Tony or share it with Alex or.
-Tony: And it will do the fullest, won't it?
-Luke Marsden: Yeah, yeah, I think that's a good idea.
-Luke Marsden: And do you.
-Luke Marsden: I think the only thing, the only question I have there is about.
-Luke Marsden: Well, I guess on a case by case basis you'll know whether you've already got a project set up for a given job or it doesn't even matter.
-Luke Marsden: I guess if you get duplicate projects.
-Tony: No, we, yeah, we can have duplicate.
-Tony: As long as we're not sending out duplicate messages.
-Tony: But I think we've kind of set some rules.
-Tony: If they've been contacted or if they've replied to an InMail within a certain period, then don't send them another one.
-Tony: Is that.
-Tony: But we can also, we can also sanity check that, you know, if it puts 50 people in a project overnight and I can just manually go through those 50, that's a lot easier for me than going through 3.7 million likes just come up on here.
-Luke Marsden: Yeah.
-Tony: You know, still, it's still giving me a short, a long list kind of thing.
-Tony: It's not.
-Tony: And I can, I can say manually say yeah or no less messages for now, let's discount them kind of thing.
-Tony: So I can just go through 50 really, really quickly rather than.
-Leah Smith: So it'll just be me logging into.
-Leah Smith: So it's not like the whole team are going to log on to.
-Leah Smith: The whole team.
-Leah Smith: Going to log on to my LinkedIn recruiter.
-Leah Smith: Or is it just me setting up the projects and then passing it over to them?
-Tony: No.
-Tony: So this, this is all Being done behind the scenes.
-Tony: You don't have to do anything, Leo, apart from tell the AI what you want it to do.
-Tony: And then the guys don't need to log into your LinkedIn.
-Tony: We can just share that project.
-Tony: So then as soon as you share it, it goes onto their own LinkedIn and they're in their LinkedIn so they've got what the, the kind of the.
-Tony: The AI has done for them over that period of time.
-Tony: Makes sense.
-Luke Marsden: Yeah.
-Luke Marsden: And there's also the possibility to draft inmails or messages to those people, which would also be a huge time save.
-Tony: Yeah.
-Luke Marsden: Because the agent does quite a good job of like getting those right.
-Tony: Yeah.
-Luke Marsden: Or getting them close enough and people can do a little edit.
-Tony: The only problem with sending them those.
-Tony: It would have to come from Leah, wouldn't it?
-Luke Marsden: Or.
-Luke Marsden: Well, no, we can figure out a way to in find OS that is this interface to allow your team to log in and get a list of.
-Luke Marsden: Of those drafts and then they can either just copy paste them one by one and at some point they'll be like, oh, can I get an agent to send them for me?
-Luke Marsden: At which point we get back into the.
-Luke Marsden: Everyone is logged in on their own accounts in a very careful way.
-Tony: So I think, I think that at the moment is.
-Tony: We just have to.
-Tony: If you want to be quick about it, if the, you know, this has built up a project of 30 and they're all really good, we'll just have to send a personalized email to all of them in one go.
-Tony: I think would probably be the most efficient way.
-Tony: So that all that.
-Tony: All the personalization would be.
-Tony: Would be the first name probably.
-Luke Marsden: Oh yeah, just send the same note to everyone.
-Tony: Yeah, yeah, yeah, yeah.
-Tony: Which is not.
-Tony: Which is the most ideal but I think at the moment, while we can't log in from two different places at the same time.
-Luke Marsden: Yeah, no, that makes sense.
-Luke Marsden: And I wonder when you put a candidate into a project in LinkedIn Recruiter, can you also set up a draft in mail for them or does it not work?
-Tony: So you can set up draft templates.
-Tony: Yeah, that, that's it.
-Leah Smith: The templates.
-Leah Smith: I don't know if you can share templates with.
-Tony: Yeah, you can share templates, that's fine, but it wouldn't be.
-Tony: Well, yeah, you could.
-Luke Marsden: Well you could actually just have a template per every candidate.
-Luke Marsden: Yeah, candidate and then that's kind of aware.
-Luke Marsden: A way of sharing the draft.
-Tony: Yeah.
-Luke Marsden: Without copy pasting.
-Luke Marsden: I do think finding ways to reduce copy pasting is probably.
-Tony: Yeah, yeah, the move.
-Luke Marsden: So yeah.
-Luke Marsden: Okay, that sounds promising.
-Tony: Yeah.
-Tony: Because it's set up a draft every time and then they just need to go on to that candidate, select the draft, send it.
-Tony: But that is manually going through each one, sending the, the personalized draft.
-Tony: So if there's 50 candidates, you've got to do that 50 times.
-Luke Marsden: It's still 50.
-Luke Marsden: It's still 50 times however many clicks.
-Luke Marsden: Yeah, so you.
-Tony: But what I mean is if you've got a template, you still gonna have to go it.
-Tony: It's still going to be a manual process to do that.
-Tony: Yeah, but whereas we could just go in and go message all bang.
-Luke Marsden: Yeah, that makes sense.
-Luke Marsden: So message all with the same message is probably the least friction.
-Luke Marsden: Yeah, let's get something working.
-Luke Marsden: Yeah, yeah.
-Tony: I think if we're able to build a project and then able to put people into that project.
-Tony: So they haven't they set up a project yet on this.
-Tony: That's the next step, I think.
-Leah Smith: Yeah.
-Leah Smith: Just going through.
-Tony: Yeah.
-Tony: So Hubert,.
-Luke Marsden: It seems to be doing the right thing in terms of noticing about the other people on the team having accepted things.
-Luke Marsden: Okay, so at this point you don't.
-Tony: Scroll up on the left hand side a bit a sec please.
-Tony: Yeah, I just want to screenshot that quickly.
-Tony: Down a little bit, down a little bit.
-Tony: Stop.
-Tony: Yeah, that's it.
-Tony: Thank you.
-Luke Marsden: So I guess the, the duplicates, you not want them in the project.
-Tony: Do I?
-Tony: I think if they've responded to a message, I would, I would say no.
-Luke Marsden: Okay.
-Luke Marsden: I don't know if we know whether they've responded.
-Luke Marsden: Says no response yet.
-Luke Marsden: Look in brackets there said if you.
-Tony: Go up a sec.
-Tony: Keep going, keep going.
-Tony: Candidate accepted in mail.
-Luke Marsden: Hold on.
-Luke Marsden: Yeah, and you can see it, it's not very big, but you can see it in the actual desktop as well.
-Luke Marsden: Like no response yet.
-Tony: Oh, okay.
-Tony: Oh, that's a different candidate.
-Luke Marsden: Oh yeah, it's moved on to the next one.
-Tony: Yeah.
-Luke Marsden: Okay, well done.
-Tony: So this one's fine.
-Tony: Viewed by and sent in mail.
-Tony: No response yet.
-Tony: They should be fair game.
-Luke Marsden: Okay, so we can tweak that because that's not the decision it's making right now.
-Tony: I think, I think we said I've lost last time.
-Luke Marsden: Yeah.
-Luke Marsden: But it's doing the wrong thing.
-Luke Marsden: So I'll take that as input and make and, and improve it.
-Luke Marsden: Cool.
-Luke Marsden: So this will be boring to watch at this point.
-Luke Marsden: It might be worth leaving it.
-Leah Smith: Yeah.
-Luke Marsden: And then, and then coming back to it.
-Tony: Is it definitely saving them to a project though?
-Tony: Is that if we got to that point yet?
-Luke Marsden: I would ask it yeah.
-Tony: Can you ask it?
-Tony: Yeah.
-Tony: Are you saving these?
-Tony: Do you have a project set up to save these two?
-Luke Marsden: Oh, we found a new one clean on both DDUBE checks.
-Leah Smith: Good question.
-Leah Smith: No, that may be straight.
-Tony: Yeah.
-Tony: I think I am surprised not.
-Tony: So what I've done is stage candidate.
-Luke Marsden: I think it probably would have done that next actually no, don't be sorry.
-Tony: I'm just found when we find a first candidate.
-Luke Marsden: Yes.
-Luke Marsden: Does it.
-Luke Marsden: Yeah.
-Luke Marsden: Yeah yeah, yeah.
-Luke Marsden: I can't.
-Luke Marsden: We could actually ask the agent what is the exact process you're following here.
-Leah Smith: Looks going quite quick.
-Luke Marsden: And the AI can type fast.
-Leah Smith: Scored.
-Tony: Yeah.
-Tony: Okay.
-Tony: We've not done third step 3D.
-Tony: Save the project.
-Tony: Yeah.
-Tony: Okay.
-Tony: No, create.
-Tony: Create an existing one.
-Tony: No, create a new one.
-Tony: Sorry, not existing.
-Leah Smith: Yeah.
-Tony: Create and use a new project.
-Leah Smith: Create a user new project.
-Tony: Create and use a new project.
-Luke Marsden: Nice.
-Leah Smith: I like interrupting it.
-Luke Marsden: I interrupt them all the time.
-Luke Marsden: It also asks question two.
-Luke Marsden: What do we think about that?
-Luke Marsden: Save only the candidates on drafting outreach for also the DD skips.
-Luke Marsden: Oh well we should.
-Luke Marsden: We should nudge it rules.
-Tony: Yeah.
-Luke Marsden: Say.
+Luke Marsden: Should I make it a bit bigger?
+Tony: Yeah, a little bit bigger but yeah.
+Tony: Perfect.
+Luke Marsden: Is that all right there?
+Luke Marsden: Okay cool.
+Luke Marsden: So the basic idea is you're going to be recruiting for different clients.
 Tony: So.
-Tony: Add.
-Tony: Add those we are drafting outreach for.
-Tony: Do not add anyone who has replied to an InMail in the last three months.
-Tony: Should we say that Le.
-Tony: Sorry.
-Luke Marsden: Yeah, whatever you think is appropriate.
-Tony: Yeah, do that for now.
-Luke Marsden: Okay, great.
-Luke Marsden: But Sebastian was meant to get.
-Luke Marsden: Oh, he in mailed less than three months ago but that's not quite right because that doesn't mean he never.
-Luke Marsden: He has.
-Luke Marsden: He has replied to an InMail in the last three months because he hasn't replied to any emails.
-Luke Marsden: Hasn't replied to that email Anyway, it's a bit of a detail.
-Tony: Not added.
-Tony: Hold on.
-Luke Marsden: Say.
-Tony: Oh, weak fit.
-Tony: Weak fit.
-Tony: Okay cool.
-Luke Marsden: Okay.
-Tony: Dg skip.
-Tony: What?
-Tony: What we.
-Luke Marsden: How's it staging the draft?
-Tony: I think the draft in mail is low priority at the moment.
-Luke Marsden: Yeah.
-Luke Marsden: Yeah.
-Luke Marsden: Because we were saying that we would just wanted them in the project and then hand them over to someone else.
-Luke Marsden: That's fine.
-Luke Marsden: Why don't you leave that with me.
-Luke Marsden: I'll take all the feedback from this call and do another pass through it.
-Luke Marsden: I suggest for now we leave this one running.
-Luke Marsden: Maybe Leah, if you want to check in on it in an hour or something, kind of keep half an eye on it.
-Luke Marsden: But I'm not too worried.
-Luke Marsden: It seems to be doing the right thing.
-Luke Marsden: And yeah, we can just chat a bit on Slack later or tomorrow morning about how.
-Luke Marsden: How this has gone and at this point we're kind of.
-Luke Marsden: I. I think the.
-Luke Marsden: The one other thing we need to take from this is the workflow that we haven't got yet of telling the agent to then pass the project along to one of the teams.
-Luke Marsden: Oh.
-Luke Marsden: But yeah, you can see it's also populating in here as we go.
-Luke Marsden: So that's pretty cool.
-Luke Marsden: Okay, great.
-Luke Marsden: I'll keep working on this then, folks.
-Leah Smith: Will it let me know, Luke, once it's.
-Leah Smith: Once it's finished, or should I go in in an hour and manually stop it if it will just keep going?
-Luke Marsden: That's a good question.
-Luke Marsden: I don't actually know.
-Luke Marsden: So go in an hour just to check.
-Luke Marsden: But.
-Luke Marsden: Yeah, but you need to stop it in an hour.
-Luke Marsden: No, I think you need to stop it.
-Luke Marsden: It's just more of a check in on it in an hour and maybe let.
-Luke Marsden: Let us know on Slack or let me know on Slack how it.
-Luke Marsden: How it's going.
-Tony: I wonder if I.
-Leah Smith: If it.
-Tony: When you could ask it when you set up a project.
-Tony: Could you please share this with Tony Chapman?
-Tony: And then I might be able to see the candidates being dropped in there live.
-Luke Marsden: Yeah, that'd be good.
-Tony: Which would probably be useful.
-Luke Marsden: Yeah.
-Luke Marsden: Yeah, that'd be great.
-Tony: And then I can check that my project's in an hour.
-Tony: Have I.
-Tony: Or whenever.
-Tony: Have I got any?
-Luke Marsden: Yeah.
-Leah Smith: Does he need to.
-Leah Smith: Does he.
-Leah Smith: Does the agent need to know?
-Leah Smith: Tony Chapman, he'll know exactly who to share it.
-Leah Smith: Share it to if I just.
-Leah Smith: Or any more details.
-Leah Smith: Does he need to know?
-Luke Marsden: I think it should be fine because it'll probably be in your recruiter account.
-Luke Marsden: You'll probably be able to see your teammates in there at a guess.
+Luke Marsden: I can put a new client in here like I don't know, Barclays and then you can upload files.
+Luke Marsden: So let me just.
+Luke Marsden: Do something like this.
+Luke Marsden: Just making this up as I go along.
 Tony: Yeah.
-Luke Marsden: Tony, you probably know the UI better than I do.
-Leah Smith: Yeah.
-Tony: When you.
-Tony: It's quite.
-Tony: It should be pretty easy today.
-Luke Marsden: Okay.
-Tony: Yeah.
-Luke Marsden: And it's doing the right thing now.
-Luke Marsden: It's like, yeah, it's gonna do.
-Luke Marsden: It's probably gonna do that.
-Luke Marsden: And then carry on would be my guess.
-Luke Marsden: Excellent.
-Luke Marsden: All right, well, it feels like some progress today.
-Leah Smith: Yeah.
-Tony: Yeah, definitely.
-Luke Marsden: Yeah.
-Tony: Thank you for that.
-Luke Marsden: Thank you both.
-Luke Marsden: Yeah.
-Luke Marsden: Let's keep chatting on Slack and if we can get.
-Luke Marsden: I'm happy to have a few more touch points with you both this week on just like getting this to be actually useful for you as soon as possible because that was the vibe last week before the LinkedIn shenanigans was like, let's actually get some value out of this now and then.
-Leah Smith: It's rate on it, just to be clear.
-Leah Smith: So I obviously signed out of my phone and everything.
-Leah Smith: If I'm at home, I can obviously sign back in on my phone and everything.
-Leah Smith: Like that.
-Leah Smith: Is that okay?
-Luke Marsden: Should be totally fine.
-Luke Marsden: I would also say.
-Luke Marsden: Yeah, this was kind of why I was thinking get them to do the late shifts because, like, after you actually want to start working for the evening is the right time to kind of hand over your account to the agent to get it to do a night shift.
-Luke Marsden: So you.
-Tony: You kind of have to leave it now while the agent is doing its thing, though.
-Tony: Leah, is that.
-Leah Smith: Yeah, that's fine.
-Leah Smith: I'm just thinking, like, can I not log into on LinkedIn on my phone then?
-Leah Smith: Like for the meantime or just while the agents.
-Tony: Ideally not.
-Leah Smith: I think that's fine.
-Leah Smith: I just didn't.
-Tony: Yeah, you think that's right, Luke?
-Luke Marsden: I. I would agree.
-Luke Marsden: And again, this is why I'd say, like, do it in the evening when you actually want to stop working.
-Leah Smith: So I can't use LinkedIn on my desktop if I needed to or for any reason, which is fine.
-Leah Smith: I just.
-Leah Smith: Just so I don't.
-Luke Marsden: Maybe.
-Luke Marsden: Yeah, just time.
-Luke Marsden: Box it to an hour.
-Luke Marsden: Say, like, stop the agent, turn it off, tell it to stop, tell it to log out or whatever.
-Tony: Yeah.
-Luke Marsden: Also, when the agent stops, naturally, it will then shut itself down an hour later.
-Luke Marsden: That's the vibe.
-Luke Marsden: So it's.
-Luke Marsden: Then it's automatically logged out, or it's at least it's not doing anything at that point.
-Luke Marsden: So then it's safe for you to.
-Leah Smith: Log back in where it says restart desktop.
-Leah Smith: That means that it's logged out and you're correct.
-Luke Marsden: Exactly.
-Luke Marsden: Yeah, yeah, yeah, yeah.
-Luke Marsden: So kind of use that.
-Tony: Use that as a signal to be like LinkedIn to.
-Tony: Just not LinkedIn recruiter.
-Luke Marsden: It's probably okay, but I think at this point we probably want to err on the side of caution for a minute.
-Luke Marsden: But again, if.
-Luke Marsden: If, Liv, you've got something you need to do on LinkedIn this afternoon, then.
-Leah Smith: No, no, I can.
-Leah Smith: For an hour or so, I can be without it.
-Leah Smith: It's fine.
-Luke Marsden: Great.
-Luke Marsden: And then we can get into this sort of rhythm of it of like getting it kicking off in the evenings.
-Luke Marsden: Evening probably works better than early morning because you need to be there for the login step.
-Luke Marsden: So you want to do it at the end of your day and then leave it on until midnight or whatever.
-Luke Marsden: And then it just looks to LinkedIn like you're working hard that day.
-Luke Marsden: Of course, you are working hard anyway, but you know what I mean?
-Luke Marsden: Even harder.
-Tony: Yeah.
-Tony: And I guess obviously Lear is keen to work on the website as well.
-Tony: Get that.
-Luke Marsden: I'll get that fixed asap.
-Luke Marsden: Yeah, I'll be Back online a bit later.
+Luke Marsden: Let's say I want a PDF of that.
+Luke Marsden: Save that to my downloads so you can upload and I, I got this idea from.
+Tony: Will it, will it improve and be better than more or is it generally.
 Luke Marsden: Yes.
-Tony: Obviously the Mini Jack and Jill stuff, if there's a way to get anywhere with that, I guess.
-Tony: Yeah, yeah, yeah, yeah, yeah.
-Tony: Because I think we're keen to.
-Tony: We haven't launched the.
-Tony: The brand or anything yet.
-Tony: We're still keeping that under wraps at the moment, but at some point, probably the next month or so, it'd be great to start pushing it out there a little bit.
-Luke Marsden: Definitely.
-Luke Marsden: Agreed.
-Luke Marsden: Yeah, no, I think that's a good.
-Luke Marsden: That's a good goal.
-Luke Marsden: Kind of by the end of August.
+Luke Marsden: Yeah, yeah, yeah.
+Luke Marsden: This is where I warned you about the life.
+Luke Marsden: No.
+Luke Marsden: So the upload.
+Luke Marsden: And then.
+Luke Marsden: Window.
+Luke Marsden: Click the run button.
+Luke Marsden: Of like.
+Luke Marsden: Contact details for someone in.
+Tony: So this is.
+Tony: Is there a number?
+Tony: Is there.
+Tony: This is the search.
+Tony: What's happened with this guy?
+Tony: Sourced it on LinkedIn and then said we've actually.
+Luke Marsden: Bullhorn is here.
+Luke Marsden: It's not in Bullhorn, but it would have found him in Bullh.
+Tony: Right.
+Tony: Oh, yeah.
+Luke Marsden: And then this is like.
+Tony: Yep.
+Luke Marsden: If it.
+Luke Marsden: I need you to log into LinkedIn form.
+Luke Marsden: In the right person on Slack or whatever.
+Tony: Yeah.
+Luke Marsden: Please find this.
+Luke Marsden: And then this is why.
+Luke Marsden: Why we think they're a fit.
+Luke Marsden: And suggests an opener.
+Tony: Where it says at the bottom there to owner Ethan Farrell, does that mean that he's already messaged that person or do you know what the context is behind that one?
+Tony: The one at the bottom.
+Luke Marsden: Here in mail was ever sent.
+Tony: Okay, so I'm looking at the.
+Tony: One of the different candidates, right?
+Luke Marsden: Yeah, this is this one here.
+Luke Marsden: Oh, yeah.
+Luke Marsden: Route to Ethan Farrell.
+Luke Marsden: Yeah, yeah, yeah.
+Tony: He's already sent him a Z.
+Luke Marsden: So.
+Luke Marsden: So some.
+Luke Marsden: So Ethan's already contacted them and moved to Ethan's private project.
+Luke Marsden: It's interesting, isn't it?
+Luke Marsden: It can see when Ethan looked at the profile and everything.
+Luke Marsden: So, Yeah, this is the kind of thing that it's doing.
+Luke Marsden: So if.
+Luke Marsden: Okay.
+Luke Marsden: The recruiter still hasn't signed in.
+Luke Marsden: Look, the agent's getting impatient.
+Luke Marsden: If.
+Tony: You say.
+Tony: Because obviously it's suggesting people to us at the moment.
 Luke Marsden: Yeah.
-Luke Marsden: I'm away for a week in August, so let me just check something on that.
-Leah Smith: Again anywhere.
-Leah Smith: Nice.
-Luke Marsden: Crete.
-Tony: Oh, lovely.
-Luke Marsden: So, yeah, should be good.
-Luke Marsden: Going with one of Rose's school friends, parents.
-Tony: Oh, nice.
-Luke Marsden: They're actually.
-Luke Marsden: Well, the dad is from Crete.
-Luke Marsden: Oh, that'd be pretty nice.
-Tony: Local knowledge.
+Tony: We just say, look, contact these people who score.
+Tony: Is it a percentage score they've given us contact or a percentage over 80 or whatever?
+Tony: Is that.
+Luke Marsden: Yeah, let me just check.
+Luke Marsden: Sorry, I'm just doing two factor.
+Luke Marsden: No, no, it's fine.
+Luke Marsden: So you can see I'm doing two factor auth here.
+Tony: Yeah.
+Luke Marsden: And okay.
+Luke Marsden: No, so now I'm in.
+Luke Marsden: Yeah, I'm not entirely sure.
+Luke Marsden: So now I'm just going to say I'm in.
+Luke Marsden: You just hit enter twice to interrupt it and.
+Luke Marsden: Yeah, I think it's.
+Luke Marsden: It's scoring like zero almost.
 Luke Marsden: Yeah.
-Luke Marsden: So I won't be around the week of 17th to 21st, but I am back the week after.
+Luke Marsden: Like out of one.
+Luke Marsden: Yeah.
+Luke Marsden: We can automate.
+Luke Marsden: I think what.
+Luke Marsden: What would be sensible would be comfortable with it.
+Luke Marsden: Where the humans hand hold the AI a bit.
+Tony: Yeah.
+Luke Marsden: To check for mistakes before we dive straight in.
+Luke Marsden: But as you and I and your team do that with it, then.
+Luke Marsden: Yeah, absolutely.
+Luke Marsden: We can start saying automate more of.
+Tony: This and we have multiple searches going on at any one time.
+Luke Marsden: Yes, I believe so.
+Luke Marsden: So here, for example, this one's running.
+Luke Marsden: Look at this one.
+Luke Marsden: I can go the runs.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: So you can open the other runs and so complaining because I never logged in.
+Luke Marsden: Oh, it's so boring.
+Luke Marsden: I'm waiting for this.
+Luke Marsden: Huge.
+Leah Smith: And then.
+Luke Marsden: Yeah, these are just some other ones I was running earlier in the background.
+Luke Marsden: So, yeah, this is.
+Tony: This one's giving it a percentage.
+Tony: That's what I saw it.
+Tony: So if you look at this guy here.
+Tony: Yeah, he's got a night go down.
+Tony: Sorry.
+Tony: So that.
+Tony: That's.
+Tony: I don't know.
+Luke Marsden: Oh, yeah, there is a percent.
+Tony: The other ones didn't have that.
+Luke Marsden: Yeah, that's the difference between the action queue and the candidates.
+Tony: Okay,.
+Luke Marsden: So it's good.
+Luke Marsden: Basic candidate queue is like a queue of candidates that haven't been added to Bullhorn yet.
+Luke Marsden: I think you told me that you don't add them to Bullhorn until you've got a cv and Adam, until we've,.
+Tony: You know, had a conversation or.
+Luke Marsden: Yeah, yeah, yeah, yeah.
+Luke Marsden: So these are candidates that we can.
+Luke Marsden: Then the idea is that I haven't built this part yet, but the idea is that you then promote them into Bullhorn once you.
+Luke Marsden: Or the AI is happy that you've got the cv, you've had enough of a chat that you think is worth following up on.
+Luke Marsden: Oh, and look, it's even done a whole bunch of InMail drafts.
+Tony: As if we want a bit more human interaction here.
+Tony: I could look at it.
+Tony: Yep, they all look good.
+Tony: Please start sending those.
+Luke Marsden: Yeah, and I think you would do that by approving them.
+Luke Marsden: And you can edit this so you can change it.
+Luke Marsden: And.
+Luke Marsden: Yeah.
+Luke Marsden: So how does this feel overall?
+Tony: Yeah, this looks great.
+Luke Marsden: Bullhorn.
+Tony: Are we able to do the same process on Bullhorn as well?
+Tony: But obviously, rather than sending a LinkedIn in mail, we send them an email about a role we've got.
+Tony: Is that.
+Luke Marsden: Ah, that's a good one.
+Luke Marsden: I hadn't thought of that.
+Tony: It will search Bullhorn and send us an alert saying, jimmy Smith looks great for this role because of xyz, I think.
+Luke Marsden: Yeah, yeah, yeah.
+Luke Marsden: Interesting.
+Tony: Or work overnight to say, right, Tony, first five course this morning should be these people, this role, these people, this role.
+Tony: Something like that.
+Tony: I don't know.
+Luke Marsden: No, I mean, that sounds really powerful, doesn't it?
+Luke Marsden: Yeah, yeah, we can definitely do that.
+Luke Marsden: We can add that in.
+Luke Marsden: I. I did have in here somewhere, the ability.
+Luke Marsden: I think it was called a sweep.
+Luke Marsden: Like you talked last week about doing a sweep of saved searches.
+Tony: Yeah, yeah.
+Tony: So all the guys have.
+Tony: Yeah.
+Tony: Have their.
+Tony: Yeah.
+Tony: Their safe searches set up on LinkedIn.
+Tony: Anyone pops up then.
+Luke Marsden: But that's a.
+Luke Marsden: That's different to what you're saying.
+Luke Marsden: You're saying, like, for a given client, can you do a search of Bullhorn as opposed to a search of LinkedIn?
+Tony: Yes.
+Tony: So the same process you're doing here, which is.
+Luke Marsden: Yeah.
+Tony: The info into the.
+Tony: It's kind of what.
+Tony: What I think I sent a couple of chat GPT examples where I hadn't.
+Luke Marsden: Looked at those yet.
+Tony: Yeah, yeah, that's cool.
+Tony: So if I, if I just talk you through that workflow quickly.
+Tony: I've pulled out like a CSV file of.
+Tony: Of candidates from Bullhorn.
+Tony: The last column of that CSV file is like a plain text whole copy their cv.
+Luke Marsden: Yeah, okay.
+Tony: He's in there as well.
+Tony: And then I've dragged in some info on that role and said, looking at this CSV file, which candidates would be suitable for this role?
+Tony: And it's pushed out like, you know.
+Luke Marsden: Okay, okay, okay, that makes sense.
+Luke Marsden: And.
+Luke Marsden: And that CSV is something you exported from Bullhorn and then added manually or.
+Tony: I just do the math.
+Tony: So I, I don't know whether we'd need to export a CSV file every week or whatever.
+Tony: And.
+Tony: Or there's a way we can just.
+Luke Marsden: Do anything manually.
+Luke Marsden: Or just use the Bullhorn API, which it already is.
+Luke Marsden: It's currently using the Bullhorn API.
+Luke Marsden: You do duplication checking.
 Tony: Okay.
-Luke Marsden: So kind of by the end of August.
-Luke Marsden: Let's aim to end of August, start of September.
-Luke Marsden: But that would be cool, actually, to launch it like when everyone's back back at work after holidays probably, I think start of September.
-Luke Marsden: Does that sound reasonable?
+Luke Marsden: And look, for example, this one, literally, they just like the agent just searched for this person's name in Bullhorn and said, not in Bullhorn.
+Luke Marsden: Yeah, save it to a project because we've already got the whole workflow like that you showed before lined up.
+Luke Marsden: So what?
+Tony: So not on Bullhorn is to ignore people who are on Bullhorn for like the Jeep reasons, Because they might be on Bullhorn, but not kind of in play, you know, in a process for us at the moment.
+Luke Marsden: Right.
+Tony: Cross reference of Bullhorn is to.
+Luke Marsden: See.
+Tony: If we've got their contact details to.
+Tony: To contact them.
+Luke Marsden: Yes.
+Luke Marsden: Okay.
+Tony: There is a DTube thing there as well.
+Tony: But what I think what I'm saying is I don't want it to discount people who've maybe been in process for us six months ago or.
+Tony: Yeah, yeah, yeah, two years ago.
+Luke Marsden: That's a really good point.
+Tony: Yeah.
+Tony: It's only if they're kind of interviewing right now, if that makes sense.
+Luke Marsden: Yeah.
+Luke Marsden: Awesome.
+Luke Marsden: Okay.
+Luke Marsden: No, that makes sense.
+Luke Marsden: So it's not like, ignore people who are in Bullhorn.
+Luke Marsden: It's just like, be aware that they're in Bullhorn.
+Luke Marsden: Don't add them to Bullhorn twice.
+Luke Marsden: Yeah.
+Luke Marsden: And kind of just bring in that context from Bullhorn, including, like the phone numbers and.
+Tony: Yeah, they're really good.
+Tony: Send us.
+Tony: Send us a message saying, you know, Johnny Smith has just started looking his number, his details on Bullhorn, his phone number.
+Luke Marsden: Yeah, yeah, yeah, yeah, yeah.
+Luke Marsden: Okay, awesome.
+Luke Marsden: Great.
+Luke Marsden: So.
+Tony: Looks amazing, though.
+Luke Marsden: Yeah, I'm really, I'm happy that it's coming together.
+Luke Marsden: Sorry.
+Tony: I'm excited to have a little play around with it.
+Luke Marsden: Well, I was going to say the next thing we can do is you can both try and log into it and actually try and use it.
+Luke Marsden: Like I said, it's not perfect yet.
+Luke Marsden: It's still very much like under construction, but it is live, so.
+Luke Marsden: So do you want to share?
+Tony: Look at it.
+Tony: Sorry, Luke, can you share screen?
+Tony: Sorry.
+Tony: Because there's obviously a number of tabs down the side in the.
+Tony: In the menu.
+Tony: Would we just ignore most of that and just focus on candidate search initially or.
+Luke Marsden: Or should we?
+Luke Marsden: Yeah, yeah.
+Luke Marsden: So we've actually been using it internally for our own sales.
+Tony: Right.
+Luke Marsden: Okay.
+Luke Marsden: So seeing a little bit Helix OS stuff with Find os.
+Luke Marsden: Yeah.
+Tony: Okay, cool.
+Tony: Yeah, that'll probably be useful.
+Luke Marsden: To be honest,.
+Tony: Things have.
+Luke Marsden: Really, really ner.
+Luke Marsden: Yeah, you could both try at the same time.
+Leah Smith: What my logging is it os?
+Luke Marsden: Yeah.
+Luke Marsden: I'm just going to paste you the link os.
+Luke Marsden: We find AI with a dash.
+Tony: So I've got some people working on my drive.
+Luke Marsden: That's all right.
+Luke Marsden: I can't hear a thing, so it's more annoying for you than for us.
+Luke Marsden: Oh, 500.
+Tony: Okay.
+Luke Marsden: Interesting.
+Leah Smith: I mean, I think although mine's a white screen, not like a dark screen.
+Leah Smith: Does that make any difference?
+Luke Marsden: Oh, funny.
+Luke Marsden: It worked the second time.
+Tony: Yeah.
+Luke Marsden: All right.
+Luke Marsden: Weird.
+Tony: I quite like the white screen.
+Tony: I was struggling to see that black screen a little bit.
+Luke Marsden: Oh, yeah.
+Luke Marsden: Well, you've got a little icon at the top, the.
+Luke Marsden: To switch between.
+Tony: Okay.
+Luke Marsden: Based on whether you're sitting outside in the sunshine or not.
+Tony: Well, I think that's the point.
+Tony: I've got a bit of glitter.
+Tony: I'm in my kitchen today, so.
+Luke Marsden: Yeah, yeah, yeah, yeah, you're good.
+Luke Marsden: Okay, cool.
+Tony: Great.
+Tony: Okay, so.
+Tony: I mean, this is so simple, isn't it?
+Tony: Let me.
+Luke Marsden: The UI probably needs some refining and tidying up, but.
+Tony: Yes, I chucked you.
+Tony: Did I check you a little info about that robotics place?
+Tony: Oh, here we go.
+Luke Marsden: Yeah, yeah,.
+Tony: I need that file.
+Tony: Right.
+Tony: What was that file?
+Tony: Shouldn't.
+Luke Marsden: I mean for testing now, you could just copy paste the overview from here into.
+Tony: Okay, cool.
+Luke Marsden: Because file uploads weren't working just now when I tested it, so.
+Tony: Oh, okay.
+Tony: Oops.
+Luke Marsden: It's interesting to see you using Notebook lm.
+Tony: Yeah.
+Tony: This is amazing.
+Tony: That one that just landed on.
+Tony: Did you see that?
+Tony: That was us.
+Tony: School report.
+Tony: So we.
+Tony: We had like an online thing.
+Tony: Eight minutes per call.
+Tony: So I just recorded all of them.
+Tony: Dragged it, dragged all the files in and then it created like a report.
+Tony: So school report.
+Tony: So this is a transcript.
+Tony: So I just copy that in?
+Tony: Yeah, yeah, that'll be better than just the notes.
+Luke Marsden: Sure.
+Tony: Oh, bollocks.
+Tony: Sorry, I've gone too far.
+Tony: Too many tabs open, haven't I?
+Tony: Which one is it?
+Luke Marsden: The one with no icon.
+Luke Marsden: We can pick an icon for it.
+Tony: New client.
+Luke Marsden: We need to make it look a bit better in light mode.
+Luke Marsden: It's kind of weird.
+Luke Marsden: Gray on white at the moment.
+Luke Marsden: That's fine.
+Luke Marsden: That's.
+Luke Marsden: That's.
+Luke Marsden: That's enough info.
+Luke Marsden: I don't even bother like editing for AI because it.
+Luke Marsden: It doesn't really matter.
+Luke Marsden: But yeah, cool.
+Luke Marsden: So try that.
+Tony: That's not the right job title though.
+Tony: Two Sex.
+Tony: I know it won't matter, but I just want to.
+Tony: AI is the right job title.
+Luke Marsden: Yep.
+Tony: Ah, should I try and upload that as well?
+Luke Marsden: Oh, the uploads aren't working yet.
+Tony: Oh, it's not working.
+Tony: Okay, cool.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: So just start with.
+Luke Marsden: With what you've got but I'll give you a shout when it's.
+Tony: I'm gonna copy the job specking as well.
+Luke Marsden: Oh yeah, yeah, yeah, that's good.
+Luke Marsden: And make that text box a bit bigger.
+Tony: Sorry.
+Luke Marsden: No, no, don't be sorry.
+Luke Marsden: This is good.
+Luke Marsden: This is good.
+Luke Marsden: User testing.
+Tony: There we go.
+Luke Marsden: Yeah, cool.
+Luke Marsden: And then just try Run Run.
+Tony: I assume I need to log into my LinkedIn.
+Luke Marsden: It will ask you to.
+Luke Marsden: Yeah, yeah, just give it.
+Luke Marsden: Oh, what happened there?
+Luke Marsden: Yeah, try reconnect.
+Luke Marsden: Okay.
+Luke Marsden: Yeah.
+Luke Marsden: We've had two instances of second time lucky.
+Luke Marsden: The login and then the video stream.
+Luke Marsden: They just give that a second because it's just kind of booting up.
+Luke Marsden: But if you scroll down below that I guess you don't have.
+Luke Marsden: Oh yeah, you can see the runs and you can.
+Luke Marsden: Oh look, those other candidates are ones that probably came in from my hypothetical Barclays.
+Tony: Yeah, yeah.
+Luke Marsden: One.
+Tony: So what.
+Tony: What can the key suggested candid stage and find the rest for last mile advanced stage.
+Tony: Where would these guys have would.
+Tony: These would be from previous searches that have been run in the agent.
+Tony: Is that.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: And so we probably want to filter them by job, don't we in the UI here.
+Luke Marsden: Otherwise they're all mixed up together.
+Leah Smith: Might be confusing as to what your.
+Leah Smith: What candidates they.
+Leah Smith: They apply to.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: I think Maybe we need to kind of restructure this bit.
+Luke Marsden: So this is.
+Luke Marsden: This currently is just like everything in one page.
+Luke Marsden: Yeah, probably it makes more sense to be like, okay, I'm going to go into job or into a client and then into the job.
+Luke Marsden: The JD for that client anyway.
+Leah Smith: Yeah, I think that would be good.
+Luke Marsden: Oh, I'm not a robot.
+Luke Marsden: It's so funny because we're like, oh.
+Tony: My God, is that a bus?
+Tony: Is that part of the bus?
+Tony: Yeah, let go as well.
+Tony: Oh my God.
+Tony: Bicycle.
+Luke Marsden: It's funny because it's like.
+Luke Marsden: Yeah,.
+Tony: Really testing me, isn't it?
+Luke Marsden: It's how.
+Luke Marsden: How much patience have you got?
+Tony: Bridges.
+Tony: All right, can anyone see a bridge?
+Luke Marsden: There's a bridge.
+Tony: Is it any more bridges?
+Luke Marsden: That bridge, if it helps, you can full screen it to make it big.
+Tony: That one?
+Luke Marsden: Yeah, yeah.
+Tony: Is that bridge?
+Luke Marsden: Yeah.
+Luke Marsden: How many humans does it take to solve a capture?
+Tony: Yes.
+Tony: The password is wrong.
+Luke Marsden: I guess that might be why it.
+Tony: I'm gonna have to do a forgot password.
+Tony: It auto signs me in.
+Luke Marsden: Yeah.
+Luke Marsden: Cool.
+Tony: Then it will give me a code.
+Luke Marsden: Oh God.
+Tony: God.
+Tony: There we go again.
+Tony: Cars go.
+Tony: 60.
+Luke Marsden: The recruiter is working through a security checkpoint.
+Tony: Very slowly.
+Luke Marsden: Where the robots start getting impatient with us.
+Luke Marsden: Yeah, that's okay.
+Tony: Signing request.
+Tony: Right, we go.
+Tony: Sorry, two sec.
+Tony: Yes, it's me.
+Luke Marsden: This is good though because at this point it really is the mechanical suit on.
+Tony: New part.
+Tony: I know what it's going to say.
+Luke Marsden: But you've already used your password.
+Tony: You can't use a password.
+Tony: You're existing password.
+Luke Marsden: No, didn't.
+Luke Marsden: Yay.
+Luke Marsden: Okay, so now you can send a message to the agent and just be like I'm in and then hit enter twice.
+Luke Marsden: You're in.
+Luke Marsden: Yeah.
+Luke Marsden: So it knows that you prefer keyword search over the AI search.
+Luke Marsden: And then it is a bit slower like using the browser than humans are, but it can do it in the background for you and it is.
+Luke Marsden: Has infinite patience.
+Luke Marsden: So.
+Tony: Yeah.
+Tony: Yeah.
+Luke Marsden: And so this is actually doing it for that magenta, isn't it?
+Tony: Yeah.
+Leah Smith: So all Tony had to do was obviously upload the job spec, type in the name of the company and it's just looking through LinkedIn actually uploaded the.
+Tony: Transcript of the meeting with them.
+Leah Smith: Yes.
+Tony: Yeah.
+Tony: And the job spec as well.
+Luke Marsden: Yeah.
+Tony: So interesting to know what is.
+Tony: What is used to do this.
+Tony: But I assume it's.
+Tony: It would just aggregate all the info together and then use what it thinks is important.
+Tony: I guess.
+Luke Marsden: Yeah.
+Luke Marsden: It's figuring out how to use the keyboard to press enter to get the location set.
+Luke Marsden: Is wild.
+Luke Marsden: Watching How AI interacts with the browser, it like writes little bits of JavaScript and executes them in order to do stuff.
+Luke Marsden: Yeah.
+Tony: Can I click on that?
+Luke Marsden: Yeah, yeah, you could, but it would probably throw it off if you did.
+Tony: Yeah, yeah.
+Luke Marsden: And are you in as well, Leah?
+Leah Smith: So I was just watching Tony.
+Leah Smith: Let me have a look.
+Leah Smith: Yes, I am.
+Leah Smith: Yes, I'm in.
+Leah Smith: I haven't put any search in, but I'm in.
+Luke Marsden: Yeah, yeah, yeah.
+Tony: Cool.
+Luke Marsden: Okay, great.
+Luke Marsden: Yeah, if you go to candidate search, like after the meeting or something, if you've got time, try it out with the real job.
+Luke Marsden: And yeah, both of you just dump feedback at me in Slack based on the user experience here.
+Luke Marsden: Because obviously this is all very raw and it's only just started working.
+Leah Smith: But so when.
+Tony: What?
+Leah Smith: Might be a bit of a silly question, but when obviously.
+Leah Smith: So Tony's logged in as Tony and the agent is obviously running loads of searches and then it will come up in the list below of all the candidates recommended.
+Luke Marsden: Yes.
+Leah Smith: Or the agent automatically, you know, we mentioned obviously progressing them to like the next stage and adding them.
+Leah Smith: Will they.
+Leah Smith: Will the agent do that automatically in addition to obviously giving you the list of the emails that they're going to send them and stuff like that on the agent as well.
+Leah Smith: Is it.
+Leah Smith: Does that make sense?
+Luke Marsden: Yeah.
+Luke Marsden: Do you mean progressing them in Bullhorn on.
+Leah Smith: So if we wanted to in mail a selection of them and then obviously they're replied, then we move them to the next stage, would that appear automatically in Tony's LinkedIn?
+Leah Smith: Is it all logged on LinkedIn in addition to the agent?
+Luke Marsden: Yeah, where he.
+Luke Marsden: Where the agent has used Link.
+Luke Marsden: Where the Agent has used LinkedIn, it has used LinkedIn as Tony.
+Luke Marsden: And so it will all be there in LinkedIn recruiter.
+Luke Marsden: Yeah, like all of those actions or whatever their impact is.
+Luke Marsden: I guess I. I guess open question, like, how do you want to represent the pipeline?
+Luke Marsden: Should Bullhorn be the source of truth for the pipeline?
+Luke Marsden: Do you want find OS to have its own version of the pipeline?
+Luke Marsden: Do you want to completely lean on LinkedIn recruiters database?
+Tony: That's a good question.
+Tony: At the moment, the guys are kind of managing their desk in two places, which isn't the most ideal.
+Tony: They're obviously using LinkedIn for outreach and stuff like that and managing conversations in there with projects.
+Tony: But they're also using Bullhorn.
+Tony: Yeah, we've always been kind of very much everything should be on Bullhorn and everything should be managed in one place.
+Tony: You know, you have your vacancies and you shortlist your candidates and all that kind of stuff.
+Tony: But obviously we don't.
+Tony: We aren't able to do that until we've got, like a proper CV and had a conversation with them.
+Luke Marsden: Yep, yep.
+Tony: We can export LinkedIn files and put them into Bullhorn, but I don't know if there's that.
+Tony: There kind of is a point to doing that because in the future we might not have LinkedIn recruiter or.
+Luke Marsden: Yeah.
+Tony: Block the use of AI like this at some point.
+Tony: Which means the more data we've got on Bullhorn, the better.
+Tony: That could be another project that we run, which is basically go on LinkedIn and try and scrape as many CV profiles as you can and put them on Bullhorn.
+Tony: You know, I don't know if I've answered your question there, but really everything should be.
+Tony: Should be on Bullhorn once we've got to the conversation.
+Tony: But that's cool.
+Tony: Before we get to that, we should be organizing it all in LinkedIn in projects.
+Luke Marsden: Yeah, okay.
+Luke Marsden: Yeah, yeah, that makes sense.
+Leah Smith: Would there be something where at the point where you've had the conversation and you've got an actual CV, not just a LinkedIn CV, that the agent recognizes it and then uploads it to Bullhorn?
+Leah Smith: I don't.
+Tony: You.
+Leah Smith: I guess you.
+Luke Marsden: Yeah.
+Luke Marsden: So for me, the next step here and what we haven't.
+Luke Marsden: What we haven't got yet, is that sort of promotion into Bullhorn.
+Leah Smith: Yeah.
+Luke Marsden: Where we will actually write a new record into the Bullhorn.
+Luke Marsden: So far, the only things that we.
+Luke Marsden: That the agents can do is like, reading out of Bullhorn.
+Luke Marsden: But yeah, we can have like a process because if you scroll down, basically, Tony, if you look.
+Luke Marsden: Yeah.
+Luke Marsden: This candidate queue kind of is.
+Luke Marsden: Is the list of candidates that might get promoted into Bullhorn.
+Luke Marsden: So we're kind of building up a database of that inside Find os.
+Tony: How would we.
+Tony: How would.
+Tony: How would they promote these guys into Bullhorn?
+Luke Marsden: Well, we can't yet that.
+Luke Marsden: Because that's like the next step.
+Tony: Because they need to have a CV or.
+Luke Marsden: Oh, that's okay.
+Luke Marsden: It's more like, what's the workflow that we want to build?
+Luke Marsden: If that makes sense.
+Luke Marsden: And probably that's a.
+Luke Marsden: There's some sort of button on here where the human or maybe the agent decides, oh, yeah, we're at the point of, we've got the cv, we've had the chat with them, we click a.
+Luke Marsden: We click.
+Luke Marsden: Click the button and then we push it into Bullhorn.
+Luke Marsden: And I for that.
+Luke Marsden: I'm actually thinking of doing that programmatically rather than with an agent, because we don't want the agents to be able to write kind of willy nilly into your database in case they up.
+Luke Marsden: So it's probably better for that to be a human gated action.
+Luke Marsden: Yeah.
+Tony: I feel the whole point of the agent is to get to that point.
+Luke Marsden: Yeah.
+Tony: Got to that point.
+Tony: We then take control of the whole process.
+Luke Marsden: That makes sense.
+Luke Marsden: Yeah.
+Tony: That's when there's a passover between the agent and us.
+Tony: That's.
+Tony: That's the way I've always thought about as soon as we get.
+Tony: Yeah, I'm happy to jump on a call or here's my cv, it might.
+Luke Marsden: Be over to the humans.
+Tony: Yeah.
+Luke Marsden: And this is what I'm thinking with sales work as well, is like.
+Luke Marsden: And there's so many parallels between what we're trying to use this for and what you are, which is really nice because at the point at which we need to have a sales conversation with a human, there's no way an agent's going to do that for us.
+Tony: No.
+Luke Marsden: And we don't want them to.
+Luke Marsden: But it's all about filling our diary with those meetings or those demos or whatever.
+Luke Marsden: So.
+Tony: Yeah.
+Luke Marsden: Yeah.
+Luke Marsden: Awesome.
+Luke Marsden: Okay.
+Luke Marsden: I think we're aligned on that.
+Luke Marsden: Yeah.
+Tony: So I guess, you know, your.
+Tony: Your use cases, meetings and demos.
+Tony: Ours at the moment is phone calls with candidates.
+Tony: So it's the same.
+Tony: Same kind of.
+Leah Smith: That's.
+Tony: That to me is a cutoff point rather than.
+Luke Marsden: Got it.
+Tony: Yeah.
+Tony: Cool.
+Luke Marsden: Okay, cool.
+Luke Marsden: I mean, I'll keep working on this.
+Luke Marsden: Yeah, sorry.
+Tony: L. I've got this.
+Tony: Got this going on.
+Tony: Okay.
+Tony: So they're creating a project now and they're going to add him, is that right?
+Luke Marsden: I think so.
+Tony: Okay, cool.
+Tony: All right.
+Tony: And then is it going to start messaging people, sending in mail?
+Tony: This guy.
+Luke Marsden: It doesn't actually send any InMails yet.
+Tony: No.
+Luke Marsden: It drafts the InMails and then asks you to approve them.
+Tony: Okay.
+Tony: Yeah.
+Luke Marsden: I don't know if you want to.
+Luke Marsden: Do you want to have like a toggle where you start out approving them manually and then you get comfortable with it and then you say go into full autopilot or something.
+Tony: Yeah, sounds good.
 Luke Marsden: Yeah.
 Luke Marsden: Okay.
-Luke Marsden: Awesome.
-Tony: Yeah, the agent looks great.
-Tony: I guess it's just the only thing is working around the restrictions on LinkedIn.
-Luke Marsden: 100%.
+Luke Marsden: And is there anything like you want to limit the number of them?
+Luke Marsden: Oh, sorry.
+Tony: I've got these here.
+Luke Marsden: Yeah, exactly.
+Tony: Sorry, sorry.
+Tony: So that's this guy that.
+Tony: So these.
+Tony: These candidates.
+Tony: So they're not in the project because they've only just set up the project.
+Luke Marsden: I think some of them were probably from the previous tests I was running.
+Luke Marsden: And that's where it's confusing that this candidate search shows, like all of the candidates across all of the jobs.
+Luke Marsden: And really we need like multi level pages where you go into a client, you go into a job and then you get the list that's filtered to that.
+Luke Marsden: So I'll sort that out like as the next pass on this so it's less confusing but it would be interesting.
 Luke Marsden: Yeah.
+Luke Marsden: So if you look at that.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: There's the draft.
+Tony: Can we.
+Luke Marsden: Oh, that's the Barclays one.
+Luke Marsden: Like the made up one that I just invented.
 Luke Marsden: Yeah.
-Luke Marsden: Thanks for navigating that with us.
-Tony: Yeah.
-Tony: Hopefully we've got a bit of a good solution where we can just share the project and.
-Tony: Yeah, let's.
-Tony: Let's see.
-Luke Marsden: Yeah, good stuff.
-Luke Marsden: And like I said, happy to use my account as well as needed.
-Leah Smith: Sorry, last question.
-Leah Smith: You might have covered it, I may have forgotten, but when, you know, you said you can leave it to run until midnight and then it will stop.
-Leah Smith: Do you have to say to the agent, like stop working at midnight kind of thing?
-Leah Smith: So then it will log off.
-Luke Marsden: I will work on that.
+Luke Marsden: So we don't want to send that.
+Luke Marsden: It's an imaginary job.
 Luke Marsden: Yeah.
-Luke Marsden: We might want to enforce that both with a sort of soft and hard limit and.
-Luke Marsden: Yeah, should be good.
-Tony: So I just draw a guy.
-Luke Marsden: Oh.
-Luke Marsden: Oh, bloody hell, it's working.
-Luke Marsden: I shouldn't sound so surprised.
-Luke Marsden: That's great.
-Luke Marsden: Awesome.
-Tony: So if I do to collaborate, so if I click here, There's one in there.
-Luke Marsden: So live.
-Tony: So, yeah, I guess that InMail thing could.
-Tony: Could work then that if it does draft an InMail, it could just send it to me and say, tony, I've just added Nishan to the.
-Tony: To the pipeline, sending this in mail.
-Luke Marsden: What we could do is put a bit of UI in the Find OS app that gives you all of those easy copy paste buttons and slacks.
-Luke Marsden: You when it's finished and just go in, copy paste all of these, please.
-Luke Marsden: Or we can do the.
-Luke Marsden: Send the same draft to everyone.
-Luke Marsden: Same template to everyone would be easier, but I guess it depends on numbers.
-Luke Marsden: We could try both.
-Luke Marsden: I don't know.
-Luke Marsden: Oh, there's one more thing, Tony.
-Luke Marsden: Did you see an email from me about the billing?
-Tony: Oh, sorry, yeah, I did, yeah.
-Tony: Let me send that to.
-Tony: Do you want to send that to accounts?
-Luke Marsden: It was more.
+Tony: But it's similar to the.
+Tony: These candles are still good for loads of roles.
+Tony: We've got to be totally honest.
 Luke Marsden: Yeah.
-Luke Marsden: I was asking if it'd be possible to switch over onto a credit card if you're open to it.
-Luke Marsden: Just for that.
-Luke Marsden: I think it's a 499amonth for the platform.
-Tony: It should be fine.
-Tony: Account to make sure that that's all fine.
-Luke Marsden: Yeah.
-Luke Marsden: If you want to keep doing invoices, that's also totally fine.
-Luke Marsden: I just wanted to make it easier.
-Tony: Okay.
-Luke Marsden: But, yeah, just give me a shout about that.
-Luke Marsden: Lovely.
-Tony: But this is promising, isn't it?
-Luke Marsden: Yeah.
-Tony: Me being logged in and it's just going to keep pushing them into my pipeline.
-Tony: Amazing.
-Luke Marsden: Awesome.
-Leah Smith: Sorry, Luke, how long do you think.
-Leah Smith: How long is a piece of string, but how long roughly does it take for the agent to put them into the.
-Leah Smith: Because obviously one's come through already.
-Leah Smith: Will they just keep coming through quite quickly, do you think, or is it like a slow burner?
-Luke Marsden: It's a really good question.
-Luke Marsden: It's looking like more of a slow burner just because the agent is a little bit slow at clicking around.
-Leah Smith: Okay.
-Luke Marsden: And a lot of them are getting filtered out because they've already been sourced by someone else or they're not a good fit.
-Luke Marsden: But it's also worth looking.
-Luke Marsden: It might actually just very quickly be worth looking at.
-Luke Marsden: Go back to the.
-Luke Marsden: To find OS and ask the agent or even just look with our eyes.
-Luke Marsden: How many is it working through?
-Luke Marsden: Was it like 3.1 million or was it 150, you know?
-Leah Smith: Yeah, 6.8 K. Okay.
+Tony: Is there a way I can.
+Tony: There's a filter.
+Tony: Have.
+Luke Marsden: It's so funny watching you explore this because, like I didn't even know we built that bit of ui.
+Luke Marsden: The agent did it.
+Tony: That.
+Tony: That could be filled if you could put in the filters job.
 Leah Smith: Yeah.
-Luke Marsden: So we might want to put some reasonable limit on that and say stop after you found how many.
-Leah Smith: Or keep going.
-Luke Marsden: Or keep going forever.
-Tony: I just think leave it personally.
-Tony: Just let us do his thing in the background.
-Luke Marsden: I would put a time limit on it.
-Tony: Would you?
-Tony: Do you need it?
-Tony: Yeah.
-Leah Smith: No, do you mean Luke can say.
-Leah Smith: And so it doesn't run throughout the night and make it look suspicious kind of thing?
-Luke Marsden: That's what I'm thinking.
+Tony: Which job it is.
+Tony: Or whatever.
+Tony: And then you could.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: Or like I was just thinking you kind of go into a job and then once you're.
+Luke Marsden: Once you're in the job, then you only see the stuff that's relevant to it.
 Luke Marsden: Yeah.
+Luke Marsden: Either way.
 Tony: Yeah.
+Tony: Yeah.
+Luke Marsden: Cool.
+Luke Marsden: So.
+Luke Marsden: Yeah.
+Luke Marsden: And it is giving them all scores and 0% poor.
+Luke Marsden: Praveen.
 Tony: Right.
-Tony: Okay.
-Luke Marsden: I think there's some sort of middle ground where, I mean, we kick this one off at like half past three, so run it until half eleven or something, but don't have them working through the night for multiple 24.
-Luke Marsden: Seven periods.
-Tony: Yeah, sorry.
-Luke Marsden: Yeah, no, no, it's fine.
-Luke Marsden: I hear where you're coming from, like, more is better up to a point.
-Luke Marsden: There probably comes a point where if I drop like a project with a thousand people on one of your colleagues, then they'll be like, I can't do all of that.
-Luke Marsden: I don't know.
-Tony: Did you get the AI to.
+Tony: So I'll just leave that to do its thing for a little bit and.
+Luke Marsden: Then basically leave it running.
+Tony: Yeah.
+Tony: And.
 Luke Marsden: Yeah.
-Tony: Filter it down again?
-Luke Marsden: Yeah, yeah, yeah, yeah.
-Luke Marsden: Well, we'll get, we'll, we'll get there.
-Luke Marsden: Good stuff, right?
+Luke Marsden: And I think the other thing is that once the Slack integration is plugged in, then you'll start getting.
+Luke Marsden: You'll find that these agents start being chatty with you on there.
+Leah Smith: Okay.
+Luke Marsden: And then they'll be like, oh, I finished this run.
+Luke Marsden: Come and review the list or something like this and they'll send you a link to what you need to do next.
+Luke Marsden: That's the idea anyway.
 Tony: Amazing.
+Tony: Yeah, that's good.
+Luke Marsden: All right.
+Tony: Yeah.
+Tony: Should I just give you a bit of an update on.
+Luke Marsden: Please.
+Tony: Yeah.
+Tony: And will this.
+Tony: If I close my laptop down, it.
+Luke Marsden: Carries on running in the background.
+Tony: Say this agent's just going to be building me a shortlist and pipelining them into a project.
+Luke Marsden: Yes.
+Tony: Yeah.
+Tony: Sweet.
+Tony: Okay.
+Tony: Until I tell it to stop or.
+Luke Marsden: Good question.
+Luke Marsden: Until it gets bored.
+Luke Marsden: I mean, open question.
+Luke Marsden: Do you want to fit.
+Luke Marsden: Fit.
+Luke Marsden: Fix the number of candidates?
+Luke Marsden: No.
+Luke Marsden: Maximum.
+Tony: Or I guess if it builds a project and shortlists 10, 000 people, then that's probably the problem as well, isn't it?
+Luke Marsden: Too much.
+Tony: I'd rather have too many than not as many.
+Tony: Maybe I could then just say.
+Tony: Okay, You've.
+Tony: You've pipelined it down to this.
+Tony: Can you pipeline it even.
+Tony: Even further?
 Luke Marsden: Yeah.
-Tony: That's really, really good.
-Luke Marsden: Thank you so much.
-Luke Marsden: Yeah, no, I'm, I'm happy with that.
-Luke Marsden: We're getting there.
+Luke Marsden: Well, here it's.
+Luke Marsden: It's restricted it down to 147, so that seems reasonable.
+Tony: Search.
+Tony: It's just changed its search by the looks of it.
+Leah Smith: And you only wanted people above the 0.8, didn't you, Tony?
+Leah Smith: Or something as well.
+Tony: Yeah, but it won't know that until it goes onto the profile.
+Tony: So we go on the profile and it will, I assume, scan the profile and say, okay, this person is good or not.
+Tony: Is it going to go.
+Tony: Do you remember we told it to go through one by one?
+Luke Marsden: Yeah, we did.
+Luke Marsden: And it seems to not be doing that with the left and right buttons like you wanted, but instead it goes back to the list.
+Luke Marsden: But it's probably fine.
+Luke Marsden: I think it's probably going to get the job done.
+Tony: Yeah.
+Tony: It doesn't matter how it does it, really.
+Luke Marsden: Exactly.
+Luke Marsden: Sausage is made.
+Tony: Exactly.
+Leah Smith: So once you've put.
+Leah Smith: Once Tony tells the agent to stop searching, how do you then.
+Leah Smith: How does the agent then start flicking through the profiles and then adding them to the.
+Leah Smith: That's the action.
+Leah Smith: It's in there.
+Leah Smith: The action queue.
 Luke Marsden: Yeah.
-Luke Marsden: All right, Cheers.
-Leah Smith: Thank you.
-Luke Marsden: Have a good evening.
-Tony: Bye.
-Luke Marsden: Bye.
+Luke Marsden: I mean, how would you like it to work?
+Luke Marsden: What's the ideal process?
+Leah Smith: What do you think, Tony?
+Tony: Sorry, what was the.
+Tony: What was the question?
+Leah Smith: When the eight.
+Leah Smith: When you say to the agent, if that's what you want to do, like, stop searching or it reaches the limit of.
+Leah Smith: Yeah, the shortlist, do we then want it to, like, what's the next in the workflow?
+Leah Smith: Do we then want it to start running in the background, going through the profiles of the people on the shortlist and building out, or how do we.
+Tony: I think it's already done.
+Tony: I think it's already done that.
+Tony: So it's going on to the profiles and deciding whether they're suitable or not, and then.
+Tony: Then it's pipelining them.
+Tony: And then we will just have to approve the.
+Tony: These drafts.
+Tony: And as soon as we do that, it'll go through and send those messages to people.
+Luke Marsden: Worth checking whether it actually does that, because I've never tested whether it.
+Luke Marsden: Click the approve button.
+Luke Marsden: Yeah.
+Luke Marsden: Make sure you pick one.
+Luke Marsden: That's for an actual job.
+Tony: I mean, it's probably better than most emails.
+Tony: All right, so this guy.
+Tony: What's his name?
+Tony: Praveen Dimoir.
+Tony: Looks pretty decent.
+Tony: Good.
+Tony: Little in mail.
+Luke Marsden: Yeah.
+Tony: Approve edited.
+Tony: Yeah.
+Luke Marsden: Let's try it.
+Tony: Bosch.
+Tony: Okay, it's disappeared.
+Tony: That's disappeared.
+Tony: Now say that's engagement queue.
+Leah Smith: So where is the left maybe, or not yet.
+Tony: Which one?
+Leah Smith: On the left.
+Leah Smith: You know, you've got outreach actions, but you go into Pipeline there.
+Luke Marsden: No, I don't think it does, but honestly, this is testing the limit of what we've just put together.
+Luke Marsden: So I leave it with me to, like, actually find out whether that works yet.
+Tony: I can look in my LinkedIn.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: Why don't you go and look in your actual LinkedIn as well?
+Tony: The only problem I can see is.
+Tony: Oh, bonus.
+Tony: Sorry.
+Luke Marsden: Is you change your password.
+Tony: Yeah, yeah, yeah, I did.
+Tony: Yeah.
+Luke Marsden: Weird.
+Luke Marsden: Try refreshing this page before clicking Sign in or go back to LinkedIn.
+Tony: There you go.
+Tony: It's gonna help me in here.
+Tony: The only problem.
+Luke Marsden: Come on.
+Tony: This is really annoying.
+Tony: LinkedIn.
+Tony: Link didn't get funny about you being locked in two places in one go.
+Luke Marsden: Yeah.
+Luke Marsden: I wonder if that's what's causing the.
+Luke Marsden: Something unexpected happened.
+Tony: I'll close that down for now.
+Tony: I don't want to mess up the search, but I'm pretty sure I have to go on LinkedIn on my phone.
+Luke Marsden: Yeah, yeah, yeah, go on your phone.
+Luke Marsden: Because you'll already be logged in there, won't you?
+Tony: Don't have LinkedIn recruit my phone.
+Tony: It should also.
+Tony: Yeah, it won't let me log in.
+Luke Marsden: Really?
+Tony: Yeah.
+Luke Marsden: Oh, interesting.
+Luke Marsden: Okay, well, can you.
+Luke Marsden: Can you go to.
+Luke Marsden: If you click on the desktop, like, just click on the little window behind the browser.
+Tony: I'm logging in with Google, see if that works.
+Tony: So I just got to go to my door quickly.
+Luke Marsden: Yeah.
+Luke Marsden: Sorry.
+Leah Smith: This looks really cool, by the way.
+Luke Marsden: Thank you.
+Leah Smith: Really good.
+Luke Marsden: Yeah, it's fun that it's working so well.
+Luke Marsden: Yeah.
+Luke Marsden: Like, just Chris earlier was like.
+Luke Marsden: Don't be.
+Luke Marsden: Don't.
+Luke Marsden: Don't sound so surprised, Luke.
+Leah Smith: I'm just thinking, like, how.
+Leah Smith: Obviously I'll test it out.
+Leah Smith: I'll have to find a job, use the test.
+Luke Marsden: Yeah, no worries.
+Tony: Yeah.
+Tony: Cheers.
+Leah Smith: I'll have to, like.
+Leah Smith: Yeah.
+Leah Smith: Use a test job or something.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: Or you can try recruiting me for something if you like.
+Leah Smith: Yeah.
+Leah Smith: But, yeah, it's really good.
+Leah Smith: Almost, like, spooky in a way, isn't it?
+Leah Smith: The AI is, like,.
+Luke Marsden: It's capable of, like, doing a lot.
+Luke Marsden: Yeah.
+Luke Marsden: Although it seems to be struggling a bit with this, like, existing project thing, But where it get.
+Luke Marsden: Where it struggles with things, we can take that feedback and figure out how to drive it better.
+Leah Smith: Is it hard for you to edit that?
+Leah Smith: I don't know if edit's the right word.
+Leah Smith: Is it hard for you to work on the agent in the background and tell, like, how does.
+Leah Smith: I wouldn't even know what to do?
+Leah Smith: How do you like do it?
+Luke Marsden: I mean we're basically just.
+Luke Marsden: I mean what I'm doing here is kind of building the system around the agent.
+Luke Marsden: So like the, like the, the concept of clients and jobs that you configure in this app and then those just feed into these runs.
+Luke Marsden: As an, as an aside, I guess you're also going to want to like run this like automatically every day probably rather than user having to come in and click Go in the morning, probably you want it to have like.
+Luke Marsden: Well, you might need the user to log in, so you probably do it at like 9am or whenever.
+Leah Smith: Actually there is something I could do.
+Leah Smith: Well, there's a use case that I could use this agent for.
+Leah Smith: We've got an event next Thursday and I use, I normally use LinkedIn Recruiter to find people that work within AI in London and I send them an email and just ask if they want to come to the next event.
+Leah Smith: So I don't know whether I can test it out that way.
+Luke Marsden: Yeah, yeah, I think so.
+Luke Marsden: I'm just wondering how is that something you do quite regularly?
+Luke Marsden: Because you put on a lot of events, don't you?
+Leah Smith: Yeah, so we've got two this month, but normally it's once a month.
+Leah Smith: So normally it's quite a manual task and I have to.
+Leah Smith: Yeah.
+Leah Smith: Physically go through or do they look like, you know.
+Leah Smith: But yeah, if the agent could identify.
+Leah Smith: Are they in London?
+Leah Smith: Do they work in AI and draft?
+Leah Smith: The InMail can be the same each.
+Leah Smith: Well, same.
+Leah Smith: Ish each time really.
+Luke Marsden: Yeah, yeah, yeah, yeah.
+Leah Smith: So those all you input into the.
+Leah Smith: Instead of uploading a job spec, would you just input maybe the event information?
+Luke Marsden: Yeah, I'm.
+Luke Marsden: I'm thinking it's probably worth having a separate top level section for that like events that you're running and then like you're kind of sourcing attendees.
+Leah Smith: Yeah.
+Luke Marsden: And we can, I can just make that be a top.
+Luke Marsden: Separate top level section.
+Leah Smith: Yes.
+Luke Marsden: Right.
+Luke Marsden: Tony, should we.
+Luke Marsden: You okay?
+Tony: Yeah, yeah, all good.
+Luke Marsden: Yeah.
+Tony: I've just got something to drainage stuff on my drive.
+Luke Marsden: Oh yeah.
+Luke Marsden: Okay.
+Luke Marsden: Should we try and get you logged into LinkedIn?
+Luke Marsden: Because I, I'm a bit worried you got locked out.
+Luke Marsden: Why don't we go slowly.
+Luke Marsden: Let's go back to LinkedIn.com because that was an old login attempt, I think.
+Luke Marsden: And then just go slowly like let's put your new password.
+Tony: I'm not pressing anywhere.
+Tony: Sorry, I'm not pressing anything.
+Luke Marsden: Oh really?
+Luke Marsden: Oh, is it just going around in a loop?
+Luke Marsden: LinkedIn.
+Luke Marsden: Okay, go back to LinkedIn.
+Luke Marsden: Dot com.
+Luke Marsden: Don't use the.
+Luke Marsden: Don't use the Google log.
+Tony: I didn't touch it.
+Tony: This is the thing.
+Tony: It automatically does it.
+Luke Marsden: No, no, I know.
+Luke Marsden: Oh, I see.
+Luke Marsden: But go back to LinkedIn.com and then you see.
+Luke Marsden: Don't click on that Google.
+Tony: Yeah, I'm not.
+Luke Marsden: Oh, you're not?
+Tony: No, no, no.
+Tony: This is the thing.
+Tony: It just does it.
+Luke Marsden: Okay, try.
+Luke Marsden: Can you use a different browser profile for a second?
+Luke Marsden: I think I feel like.
+Luke Marsden: Yeah, just use a different browser for a sec.
+Luke Marsden: And then sign in.
+Luke Marsden: And just try.
+Luke Marsden: Sign in with email because I think there's something funny going on with your Google login.
+Luke Marsden: Okay.
+Luke Marsden: Because it might.
+Luke Marsden: Because remember we sort of thrashed a bit there and like had a few.
+Luke Marsden: Had a lot of failed login attempts in a short amount of time.
+Tony: Yeah.
+Luke Marsden: And I feel like that might have triggered it to be like, oh, someone's basically thinking that you're being hacked rather than that you're being flagged for automation.
+Luke Marsden: So now.
+Luke Marsden: Now you're in now.
+Luke Marsden: Now it's good.
+Tony: So if I go to.
+Tony: Should I try and get to recruiter, though?
+Luke Marsden: Yeah, yeah, yeah, yeah, yeah.
+Tony: You.
+Luke Marsden: You're good.
+Luke Marsden: Now if that happens again, I think maybe just leave it for 10 minutes.
+Luke Marsden: Yeah.
+Luke Marsden: Is my sense.
+Luke Marsden: Rather than like hammering it.
+Tony: Waiting reply.
+Tony: No.
+Luke Marsden: So it didn't automatically send, but that's to be expected because I think I told it not to automatically send.
+Tony: Yeah.
+Tony: When you approve it is the right.
+Luke Marsden: Right.
+Luke Marsden: So again, like, we haven't got there yet.
+Luke Marsden: As in I. I haven't got to that point of even knowing whether that part is meant to work or not.
+Luke Marsden: But yeah, I will look at that this afternoon and like I said, I.
+Tony: Think, well, that guy's gone now because it found someone who looked good.
+Luke Marsden: Yeah.
+Tony: It's an over the gone.
+Tony: It looks like it's got stuck on this bit as well.
+Luke Marsden: It has got.
+Luke Marsden: Oh, no, it's not got stuck so much.
+Leah Smith: Oh, sorry, sorry.
+Tony: It's asking a question.
+Luke Marsden: Yeah, yeah.
+Tony: Oh, sorry.
+Luke Marsden: You might want to full screen that to make it a bit more.
+Tony: Right.
+Tony: So magenta.
+Tony: Magenta.
+Tony: It's magenta.
+Tony: But keywords.
+Tony: Okay, cool.
+Tony: Process six ones.
+Tony: Save the project.
+Tony: Great.
+Luke Marsden: You probably want a way to be able to collapse the sidebar here so you get a bit more horizontal space.
+Tony: This bit.
+Luke Marsden: Yeah.
+Tony: When it says rooted to owner, it'd be interesting to know what that.
+Tony: What that means.
+Luke Marsden: I don't think it's.
+Luke Marsden: I don't think it's probably actually.
+Tony: Yeah.
+Luke Marsden: Pinged Ethan.
+Luke Marsden: But what do you want it to.
+Tony: This Guy's quite a. I'm glad the.
+Tony: I always picked up on that.
+Luke Marsden: That's so funny.
+Tony: Yeah.
+Luke Marsden: The AI is now no longer hackable.
+Luke Marsden: I mean, that's probably a reason to try and hire them, to be honest.
+Tony: Yeah.
+Luke Marsden: I mean, it's not a bad thing.
+Tony: Had a ball on phone.
+Tony: Okay, that's cool.
+Tony: Two things you need.
+Tony: Add David Richard.
+Tony: Choose existing.
+Tony: It's.
+Tony: But the thing is, it's.
+Tony: It's set up a project.
+Luke Marsden: It's just asking you for help because it got stuck on some little thing on the ui.
+Tony: Right.
+Tony: So log track proven is in a ready choose project.
+Tony: If we want to scan up to keep.
+Tony: Would you rather.
+Tony: If you.
+Tony: Yeah, keep working through them, but let's.
+Luke Marsden: Yeah, you might want to make that.
+Tony: A bit bigger Project name.
+Luke Marsden: What's it saying exactly?
+Luke Marsden: It's scroll up a little bit in the chat.
+Luke Marsden: Add Rio and David to the project.
+Tony: Yeah.
+Luke Marsden: Choose existing project selector in the save rail.
+Luke Marsden: Yeah.
+Luke Marsden: It's weird.
+Luke Marsden: It looks like they're both selected.
+Tony: Yeah.
+Tony: Not seen that before.
+Luke Marsden: No, that's.
+Luke Marsden: I mean, it somehow managed to make LinkedIn buggy.
+Luke Marsden: I would maybe refresh the page inside the.
+Luke Marsden: Inside the browser.
+Tony: I can just close that down or.
+Luke Marsden: Close that down and try adding it again.
+Luke Marsden: Yeah.
+Luke Marsden: Okay.
+Luke Marsden: So obviously had trouble doing the automation and that's kind of just one of the things where we just need to get.
+Luke Marsden: Ask the agent to figure out how it does that part and then write it down for next time so it doesn't have to figure it out every time.
+Tony: Try to add an EC select automatically or straight to the project.
+Luke Marsden: Yeah, But you only added one of them and it asked you to add two.
+Luke Marsden: I think there was a David as well.
+Luke Marsden: So you might want to say, like, take me to David's page so I can add them as well.
+Luke Marsden: Or.
+Luke Marsden: Or say try again to add them to the project yourself.
+Luke Marsden: Because I can't be asked.
+Luke Marsden: Adding humans to projects for you, robot.
+Tony: This is your job.
+Leah Smith: Yeah.
+Tony: This is what I pay you for.
+Luke Marsden: Yeah.
+Luke Marsden: Pay your tokens.
+Luke Marsden: Actually, I think we're paying for the tokens at the moment.
+Luke Marsden: That's all good.
+Tony: Do you pay every time?
+Tony: Is there like a cost every time you type something or how does it work?
+Luke Marsden: Yeah, it's just based on kind of quantity of words.
+Luke Marsden: This isn't costing tremendously much at the moment.
+Luke Marsden: I think it's all go.
+Luke Marsden: It's all probably going through my Claude subscription, to be honest.
+Luke Marsden: Oh.
+Luke Marsden: Multiple sessions detects on this account.
+Tony: That's because I logged in here.
+Luke Marsden: Yeah, just close that down.
+Tony: Sorry for The.
+Luke Marsden: No, no, don't worry.
+Luke Marsden: Have you seen that before?
+Tony: No.
+Luke Marsden: Okay.
+Luke Marsden: It's definitely something we're going to manage.
+Luke Marsden: We're gonna have to manage.
+Tony: But is it.
+Luke Marsden: Oh, yeah, yeah, yeah, yeah.
+Luke Marsden: That's probably because they're just protecting their revenue.
+Luke Marsden: They don't want multiple people sharing.
+Luke Marsden: One person per license.
+Tony: That is strictly true.
+Luke Marsden: Yeah.
+Luke Marsden: I mean, you are just one person.
+Tony: I. I don't.
+Tony: This, this isn't.
+Tony: We're not doing anything against LinkedIn's terms of business.
+Tony: I don't think.
+Tony: I know they don't like this kind of thing, but we are.
+Tony: We're not like scraping data or anything like that.
+Tony: We are just automating searches.
+Tony: We're still paying for LinkedIn recruiter.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: I think it's generally like, sort of accepted by LinkedIn that there is some automation that happens on the platform.
+Luke Marsden: But I would also be careful because obviously if you lose your LinkedIn recruiter access, that would have a big impact on you.
+Luke Marsden: So it's something we just need to, like, manage together.
+Luke Marsden: I think.
+Tony: I think that'd be really bad if we did.
+Tony: So obviously that's.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: What I would say there is that it probably does make sense to have this sort of best practice where when you use Helix or when you use Find OS, you do start by logging out of LinkedIn Recruiter in all your other browsers and your other browser tabs.
+Luke Marsden: Yeah.
+Luke Marsden: And we could even add something which does a little pop up before asking you to log in that tells you to log out everywhere else.
+Tony: Yeah.
+Luke Marsden: Because then you really are just one human logging in through this browser to your account and then using some automation to like, click for you.
+Luke Marsden: And there's other.
+Luke Marsden: And I'll do a little bit more research into what else.
+Luke Marsden: What other, like, precautions.
+Tony: What does it base it on, Luke?
+Tony: So I looked into LinkedIn in loads of different, you know, devices in my house at the same time.
+Tony: Phone, my desktop, my laptop.
+Tony: I'm logged in on my desktop and my laptop at the same time.
+Tony: Would it be.
+Luke Marsden: It's probably based on IP address.
+Luke Marsden: Yeah, I was just going to say because.
+Luke Marsden: Because this IP address is.
+Luke Marsden: Is a server I have in my basement.
+Luke Marsden: Yeah.
+Luke Marsden: So it shows up as a residential IP address.
+Tony: Yeah.
+Luke Marsden: But it's not the same as your IP address.
+Luke Marsden: So they can tell like, I'm in.
+Luke Marsden: I'm in Bristol and you're in Bournemouth or whatever.
+Luke Marsden: Or rather the machine you're logging in from is in Bristol.
+Luke Marsden: So that's probably a reason to.
+Luke Marsden: But is that going to be a pain in the ass.
+Luke Marsden: If you want the agent running in the background to have to not be logged into LinkedIn in your normal browser at the same time.
+Luke Marsden: It is.
+Luke Marsden: Isn't.
+Tony: Probably is a little bit.
+Luke Marsden: Yeah.
+Tony: Because obviously we want to set the agent off to do its thing and then we want to continue working in.
+Tony: In the normal way at the same time.
+Luke Marsden: Yeah.
+Tony: But like you said, we need to be.
+Tony: We need to be careful that we're not.
+Tony: Yeah.
+Tony: Causing the issues.
+Luke Marsden: One way to solve that is that you could just open another tab in here and get whatever manual work you need to get done.
+Luke Marsden: Done.
+Luke Marsden: Yeah.
+Luke Marsden: Inside that desktop.
+Luke Marsden: It's maybe not ideal because it's a little bit.
+Luke Marsden: We need to fix that full screen as well because currently it.
+Luke Marsden: Full screen is the wrong thing.
+Luke Marsden: It should full screen the actual desktop.
+Luke Marsden: What happens if you click full screen again there, by the way?
+Tony: This one.
+Luke Marsden: Yeah.
+Luke Marsden: That's going to take you out, isn't it?
+Tony: Yeah, yeah.
+Luke Marsden: Okay, just.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: Oops.
+Tony: Is this going to make it glitch?
+Tony: Have a look.
+Luke Marsden: It should be fine because it's only.
+Luke Marsden: So the agent is only working in that first tab and it won't interfere with your second tab.
+Luke Marsden: Weird that it timed out.
+Luke Marsden: There we go.
+Luke Marsden: Okay.
+Tony: Okay, cool.
+Luke Marsden: All right.
+Luke Marsden: So you can do work in parallel with it, but maybe it's safer to do it in there because then it really is just one session.
+Luke Marsden: All right, cool.
+Tony: Great.
+Luke Marsden: All right.
+Luke Marsden: Yeah, I'll keep working on it and I will.
+Luke Marsden: I'm mindful of the worry about LinkedIn.
+Luke Marsden: Like, I've done a bit of re.
+Luke Marsden: I've done quite a bit of research into how LinkedIn detect automation.
+Luke Marsden: Yeah.
+Luke Marsden: And one of the main things is that they.
+Luke Marsden: They don't like things that like.
+Luke Marsden: Well, there are ways of making the agent appear more human.
+Luke Marsden: Like.
+Luke Marsden: Although to be honest, if you are manually doing this job, you will actually be looking at.
+Luke Marsden: You will actually look at every result, won't you?
+Luke Marsden: Like you'll click on each of them in turn.
+Luke Marsden: So that is a human activity.
+Luke Marsden: Oh, and copy paste just worked, didn't it?
+Tony: No, it didn't.
+Tony: It didn't.
+Luke Marsden: That's what I was just doing.
+Tony: Yeah.
+Tony: I was testing to see if I could copy this message into Slack to Leah.
+Luke Marsden: Yeah, Internet.
+Leah Smith: Right.
+Luke Marsden: Try Ctrl C. Yeah, I copied text.
+Luke Marsden: No, interesting.
+Tony: But let me copy and paste the other way.
+Luke Marsden: Yeah, okay.
+Luke Marsden: That might be because of the iframe, as in the way that we've embedded the widget.
+Luke Marsden: So I'll.
+Luke Marsden: I'll see if we can fix that as well.
+Luke Marsden: To be honest.
+Luke Marsden: You probably will be okay if you also now log in from your safari.
+Tony: Log into LinkedIn.
+Luke Marsden: Yeah.
+Luke Marsden: If you needed to, I would say you'd probably be fine.
+Luke Marsden: I think.
+Tony: Also I'm fine not being in it.
+Luke Marsden: The other, the other way to think of this is we can think about what, what can the agent get done overnight?
+Tony: Yeah, exactly.
+Luke Marsden: Is another way of looking at it.
+Luke Marsden: If, if, if LinkedIn really are going to be funny about, oh, each seat should really be logged in from one IP address at a time.
+Luke Marsden: Then.
+Tony: It's like, yeah, and I, I would say if we're sending emails through the night, the candidate will see that and probably think, well, this is an agent, but we can schedule.
+Tony: Send them for the next day.
+Luke Marsden: Yeah, schedule them for like 8, 55 or something.
+Luke Marsden: Or whatever.
+Tony: Yeah.
+Luke Marsden: And then those go out and then.
+Luke Marsden: Yeah, you're hammering away at your desk, like on, like working through the leads that it's given you in the morning and then you set it off in the evening to do another round and then LinkedIn's just going to be like, these people never sleep.
+Tony: Yeah,.
+Luke Marsden: But that's okay.
+Luke Marsden: I mean, and, and again, I think you can get a lot out of like, a few hours worth of like, AI automation.
+Luke Marsden: Yeah.
+Luke Marsden: Anyway, so, yeah, this is all good.
+Luke Marsden: This is all really good stuff and thank you.
+Tony: I can't log in on my email, though.
+Luke Marsden: Oh, really?
+Luke Marsden: Which one?
+Luke Marsden: On your phone?
+Tony: Log into LinkedIn on my phone.
+Leah Smith: No.
+Luke Marsden: What's it saying?
+Tony: Hold on, sign in, let me try again.
+Tony: No, it's not letting me.
+Tony: Challenge failed.
+Tony: Please try again.
+Tony: Huh.
+Tony: I'll try Google.
+Tony: Yeah, it's not.
+Tony: Let me log in.
+Luke Marsden: I would say let this finish and then log out from Helix and then try getting back in on your phone, like in an hour or so.
+Tony: Yeah.
+Luke Marsden: And, yeah, drop me a note on.
+Luke Marsden: On Slack, if, If that's still being problematic.
+Tony: I might, I might just close this.
+Tony: Where's all the people gone?
+Tony: I might just close this down and then I close it down now, if that's all right.
+Luke Marsden: Yeah, of course.
+Luke Marsden: Yeah, yeah, yeah, yeah, yeah.
+Luke Marsden: And I can carry on testing on my account so it won't affect yours.
+Tony: Yeah, that's.
+Luke Marsden: So you can click that little.
+Tony: Stop.
+Luke Marsden: Sorry.
+Tony: You've been using yours fine, haven't you?
+Luke Marsden: Yeah, yeah, mine's been.
+Luke Marsden: Okay.
+Tony: That button.
+Luke Marsden: What's that?
+Tony: This button?
+Luke Marsden: Yeah, yeah, you can click that button.
+Tony: Yeah, I'll just do that.
+Tony: That's.
+Tony: That's showing us what.
+Tony: Oh, I need to log out though, don't I?
+Luke Marsden: It doesn't really matter.
+Luke Marsden: I think you can restart it if you want to, but it's like it's turned off the computer and on again.
+Luke Marsden: So just give it a second.
+Luke Marsden: Yes.
+Luke Marsden: And now you'll need to open Chrome.
+Luke Marsden: That's it.
+Luke Marsden: And then go to LinkedIn.com.
+Luke Marsden: Maybe it's.
+Luke Marsden: Maybe it's not even kept the session, actually.
+Tony: So it doesn't look like I'm signed in.
+Luke Marsden: No.
+Luke Marsden: So you can leave it.
+Luke Marsden: Don't worry about it.
+Luke Marsden: So, yeah, you can just hit that stop button again.
+Tony: Cool.
+Luke Marsden: Yeah.
+Luke Marsden: So leave it with me.
+Luke Marsden: I'll take on board all the feedback that we've had from the call and I'll ping you when I've got an update.
+Luke Marsden: I'll have a look, see if these.
+Tony: Guys are in there.
+Luke Marsden: Yeah, yeah.
+Luke Marsden: It'd be interesting to check that they actually show up in the project.
+Luke Marsden: And it was having some trouble adding them to the project, wasn't it?
+Tony: Yeah, yeah, I'll have a look.
+Tony: I'll leave it half an hour and then have a look.
+Luke Marsden: Okay.
+Luke Marsden: Wicked.
+Tony: Yeah.
+Luke Marsden: Good stuff.
+Luke Marsden: All right.
+Tony: All right.
+Luke Marsden: Great collaboration.
+Luke Marsden: This is exciting.
+Luke Marsden: Thanks, guys.
+Luke Marsden: Appreciate it.
 
