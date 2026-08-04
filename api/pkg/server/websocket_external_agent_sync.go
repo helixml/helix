@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1662,7 +1660,6 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 						sctx.interaction.ResponseEntries,
 						sctx.interaction.LastZedMessageOffset,
 						sctx.interaction.LastZedMessageID,
-						sctx.publishSeq,
 					); err != nil {
 						log.Error().Err(err).
 							Str("interaction_id", sctx.interactionID).
@@ -1977,7 +1974,6 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 				sctx.interaction.ResponseEntries,
 				sctx.interaction.LastZedMessageOffset,
 				sctx.interaction.LastZedMessageID,
-				sctx.publishSeq,
 			)
 			if err != nil {
 				log.Error().Err(err).
@@ -4331,11 +4327,6 @@ func (apiServer *HelixAPIServer) flushStreamingFieldsToDB(sctx *streamingContext
 	if entriesJSON, err := json.Marshal(acc.Entries()); err == nil {
 		_ = json.Unmarshal(entriesJSON, &it.ResponseEntries)
 	}
-	// Stamp the row with the last published patch sequence. The accumulator content
-	// written here is always >= the content of that publish, so ranking the row equal
-	// to it is safe: a tie resolves in favour of the live stream, which is at most one
-	// publishInterval behind. See design/2026-08-04-chat-message-truncation-clobber.md.
-	it.ResponseSeq = sctx.publishSeq
 	if err := apiServer.Controller.Options.Store.UpdateInteractionStreamingFields(
 		context.Background(),
 		it.ID,
@@ -4344,7 +4335,6 @@ func (apiServer *HelixAPIServer) flushStreamingFieldsToDB(sctx *streamingContext
 		it.ResponseEntries,
 		it.LastZedMessageOffset,
 		it.LastZedMessageID,
-		it.ResponseSeq,
 	); err != nil {
 		return err
 	}
@@ -4419,21 +4409,6 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 	if err != nil {
 		return fmt.Errorf("failed to marshal entry patch event: %w", err)
 	}
-
-	// ===== TEMPORARY FAULT INJECTION (task 002552) — REMOVE BEFORE MERGE =====
-	// Simulates a dropped best-effort NATS message: the event is never sent, but the
-	// caller still advances previousEntries, so the server's delta baseline moves on
-	// exactly as it would after a real drop-on-slow-consumer.
-	if dropEvery := os.Getenv("HELIX_DEBUG_DROP_PATCH_EVERY"); dropEvery != "" {
-		if n, convErr := strconv.ParseUint(dropEvery, 10, 64); convErr == nil && n > 0 && event.Seq%n == 0 {
-			log.Warn().
-				Uint64("seq", event.Seq).
-				Str("interaction_id", interactionID).
-				Msg("💣 [HELIX] FAULT INJECTION: dropping entry patch publish")
-			return nil
-		}
-	}
-	// ===== END TEMPORARY FAULT INJECTION =====
 
 	if err := apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(owner, sessionID), messageBytes); err != nil {
 		return fmt.Errorf("failed to publish entry patches to pubsub: %w", err)

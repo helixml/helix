@@ -244,7 +244,7 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 // handleTurnCancelled or handleMessageCompleted (the lost-update race that
 // turned cancelled turns into spuriously "complete" ones — see
 // websocket_external_agent_sync.go).
-func (s *PostgresStore) UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string, responseSeq uint64) error {
+func (s *PostgresStore) UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error {
 	if interactionID == "" {
 		return errors.New("id is required")
 	}
@@ -260,7 +260,6 @@ func (s *PostgresStore) UpdateInteractionStreamingFields(ctx context.Context, in
 			"response_entries":        responseEntries,
 			"last_zed_message_offset": lastZedMessageOffset,
 			"last_zed_message_id":     lastZedMessageID,
-			"response_seq":            responseSeq,
 			"updated":                 time.Now(),
 		}).Error
 }

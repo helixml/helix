@@ -411,24 +411,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
 
         // Clear patch entries ref since we have the full interaction now
         if (updatedInteraction.id) {
-          // ===== TEMPORARY INSTRUMENTATION (task 002552) — REMOVE BEFORE MERGE =====
-          const dbgW = window as any;
-          if (!dbgW.__evtLog) dbgW.__evtLog = [];
-          const dbgPrior = patchEntriesRef.current.get(updatedInteraction.id);
-          dbgW.__evtLog.push({
-            t: Date.now(),
-            evt: "interaction_update",
-            id: updatedInteraction.id,
-            state: updatedInteraction.state,
-            deletedEntryCount: dbgPrior?.length || 0,
-            deletedTotalLen: (dbgPrior || []).reduce(
-              (a: number, e: any) => a + (e.content?.length || 0),
-              0,
-            ),
-            serverEntryCount:
-              ((updatedInteraction as any)?.response_entries as any[])?.length || 0,
-          });
-          // ===== END TEMPORARY INSTRUMENTATION =====
           patchEntriesRef.current.delete(updatedInteraction.id);
         }
 
@@ -604,15 +586,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           if (patchSeq !== undefined) {
             patchSeqRef.current.set(interactionId, patchSeq);
           }
-          // ===== TEMPORARY INSTRUMENTATION (task 002552) — REMOVE BEFORE MERGE =====
-          (window as any).__entriesDump = () =>
-            (patchEntriesRef.current.get(interactionId) || []).map((e) => ({
-              type: e.type,
-              len: e.content.length,
-              head: e.content.slice(0, 50),
-              tail: e.content.slice(-50),
-            }));
-          // ===== END TEMPORARY INSTRUMENTATION =====
         }
 
         // Batch state update via RAF to avoid per-patch re-renders
