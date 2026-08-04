@@ -482,7 +482,7 @@ The WebSocket sync protocol between Helix (Go) and Zed (Rust) has E2E tests that
 ### Architecture
 - **Go test server**: `zed-repo/crates/external_websocket_sync/e2e-test/helix-ws-test-server/main.go`
 - **Imports real code**: `server.NewTestServer()` from `api/pkg/server/test_helpers.go` + `memorystore` (in-memory, no Postgres)
-- **9-phase test**: thread creation, follow-up, new thread, follow-up to non-visible thread, simulate user input, UI state query, open_thread + follow-up, mid-stream interrupt, rapid 3-turn cancel
+- **18-phase test**: thread creation, follow-up, new thread, follow-up to non-visible thread, simulate user input, UI state query, open_thread + follow-up, mid-stream interrupt, rapid 3-turn cancel, user-created thread, spectask routing, reconnect, Helix-initiated cancel, cancel no-op, streaming patches, queue busy-defer, queue interrupt, turn_status probe
 - **Multi-agent rounds**: Tests run for both `zed-agent` and `claude` (Claude Code). Set `E2E_AGENTS` env var to control which agents are tested.
 - **Screenshots**: Periodic Xvfb screenshots captured in `/test/screenshots/`
 
@@ -535,7 +535,7 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 1. Clones Zed at commit pinned in `sandbox-versions.txt` (`ZED_COMMIT=...`)
 2. Builds Zed binary (cached by commit hash)
 3. Multi-stage Docker build: Go test server (with current helix source) + runtime
-4. Runs 9-phase E2E test for both `zed-agent` and `claude` with `ANTHROPIC_API_KEY` from Drone secrets
+4. Runs the full E2E test for both `zed-agent` and `claude` with `ANTHROPIC_API_KEY` from Drone secrets
 
 **Updating pinned Zed version**: After pushing Zed changes, update `sandbox-versions.txt` with the new commit hash. The Go test server's `go.mod` has a `replace` directive for local dev; CI overrides it to point to `/drone/src`.
 
@@ -545,7 +545,7 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 | `sandbox-versions.txt` | Pins `ZED_COMMIT` for CI builds |
 | `api/pkg/server/test_helpers.go` | `NewTestServer`, `QueueCommand`, `SetSyncEventHook` |
 | `api/pkg/store/memorystore/` | In-memory store for tests (no Postgres) |
-| `api/pkg/server/websocket_external_agent_sync_test.go` | 46 Go unit tests for handler paths |
+| `api/pkg/server/websocket_external_agent_sync_test.go` | Go unit tests for handler paths (testify `WebSocketSyncSuite`) |
 | `design/2026-03-20-multi-agent-e2e-tests.md` | Multi-agent E2E test design and roadmap |
 
 ## CLI Development
