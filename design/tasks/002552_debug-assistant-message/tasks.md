@@ -2,16 +2,16 @@
 
 ## Confirm the diagnosis
 
-- [~] Read `design/2026-07-03-spectask-live-message-truncation.md`, treating its
+- [x] Read `design/2026-07-03-spectask-live-message-truncation.md`, treating its
       "trailing-edge lag" conclusion as superseded
-- [~] Bring up the inner Helix at `http://localhost:8080`, register `test@helix.ml` /
+- [x] Bring up the inner Helix at `http://localhost:8080`, register `test@helix.ml` /
       `helixtest`, complete onboarding, create a spec task so a live Zed agent streams
-- [ ] Reproduce: prompt the agent to print a distinctive long sentence then immediately
+- [~] Reproduce: prompt the agent to print a distinctive long sentence then immediately
       run a tool call / `sleep 30`; confirm the long → short flicker
-- [ ] Instrument `useLiveInteraction` — log `{ src, crId, iiId, guardMatched, msgLen,
+- [~] Instrument `useLiveInteraction` — log `{ src, crId, iiId, guardMatched, msgLen,
       lastKnownLen, entryCount, lastEntryTail }` on every render; capture what causes
       `msgLen`/`entryCount` to go DOWN (poll, patch, or streaming-state clear)
-- [ ] Instrument the patch layer — server: `(index, patch_offset, total_length, tail)`
+- [~] Instrument the patch layer — server: `(index, patch_offset, total_length, tail)`
       per publish; client: same plus pre/post content length per entry, and assert
       `total_length >= currentContent.length`
 - [ ] Record which suspect the evidence confirms (A stale-poll clobber / B destructive
