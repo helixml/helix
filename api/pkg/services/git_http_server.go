@@ -1122,6 +1122,15 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				s.tryAutoMergeAfterRebase(context.Background(), taskID)
 			}(task.ID)
 		case types.TaskStatusPullRequest:
+			// Internal repos never get a PR, so a bot run parked here has to be
+			// landed by merging. ensurePullRequest below is a no-op for them.
+			if task.Type == specTaskTypeBotRun && !repo.IsExternal {
+				s.wg.Add(1)
+				go func(taskID string) {
+					defer s.wg.Done()
+					s.tryAutoMergeBotRun(context.Background(), taskID)
+				}(task.ID)
+			}
 			s.wg.Add(1)
 			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
 				defer s.wg.Done()
@@ -1276,7 +1285,13 @@ func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string) {
 		return
 	}
 	// Re-check under fresh state: the row may have moved since the push hook fired.
-	if task.Status != types.TaskStatusImplementation || task.Type != specTaskTypeBotRun {
+	// Both statuses matter: a bot run records pushes in `implementation`, but the
+	// just-do-it flow moves it to `pull_request` — where, on an internal repo, it
+	// would otherwise sit forever waiting for a PR that can never be created.
+	if task.Type != specTaskTypeBotRun {
+		return
+	}
+	if task.Status != types.TaskStatusImplementation && task.Status != types.TaskStatusPullRequest {
 		return
 	}
 	if task.BranchName == "" {
@@ -1310,6 +1325,12 @@ func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string) {
 	task.MergedToMain = true
 	task.MergedAt = &now
 	task.UpdatedAt = now
+	// The branch landed, so a lingering "pull request could not be created" is now
+	// actively misleading. Nothing else clears it on an internal repo, because the
+	// only existing clear-path runs when a PR is successfully created.
+	if task.Metadata != nil {
+		delete(task.Metadata, "error")
+	}
 	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("bot auto-merge: failed to record merge on task")
 		return

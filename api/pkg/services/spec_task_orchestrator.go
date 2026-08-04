@@ -863,6 +863,55 @@ func (o *SpecTaskOrchestrator) taskHasPRsForAllRepos(ctx context.Context, task *
 	return true
 }
 
+// tryMergeInternalRepoTask fast-forward merges an internal-repo task's branch into
+// the default branch and clears any stale PR error. Returns true if it merged.
+//
+// Internal repos have no PR to wait for, so this is how their work lands. Kept
+// conservative: fast-forward only (the agent is responsible for merging the base
+// branch in and resolving conflicts), and it does not complete the task — bot runs
+// are long-lived and completing them would stop the bot.
+func (o *SpecTaskOrchestrator) tryMergeInternalRepoTask(ctx context.Context, task *types.SpecTask) bool {
+	if task.BranchName == "" || task.MergedToMain {
+		return false
+	}
+	project, err := o.store.GetProject(ctx, task.ProjectID)
+	if err != nil || project.DefaultRepoID == "" {
+		return false
+	}
+	repo, err := o.store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil || repo.DefaultBranch == "" || repo.IsExternal {
+		return false
+	}
+	if _, mergeErr := MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); mergeErr != nil {
+		log.Debug().
+			Err(mergeErr).
+			Str("task_id", task.ID).
+			Str("branch", task.BranchName).
+			Msg("internal-repo merge: not a fast-forward yet, agent must merge the base branch in and push")
+		return false
+	}
+
+	now := time.Now()
+	task.MergedToMain = true
+	task.MergedAt = &now
+	task.UpdatedAt = now
+	// The branch landed, so any "could not create PR" text is now actively
+	// misleading. Nothing else clears it for an internal repo.
+	if task.Metadata != nil {
+		delete(task.Metadata, "error")
+	}
+	if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("internal-repo merge: failed to record merge")
+		return false
+	}
+	log.Info().
+		Str("task_id", task.ID).
+		Str("source_branch", task.BranchName).
+		Str("target_branch", repo.DefaultBranch).
+		Msg("internal-repo merge: fast-forward merged branch into default branch")
+	return true
+}
+
 // projectHasExternalRepo reports whether any repository in the project is external
 // (GitHub/GitLab/ADO). Pull requests are only possible for those; a project whose
 // repos are all internal (Helix-hosted) can never produce one, so a "PR could not
@@ -906,6 +955,19 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 	}
 
 	if !task.HasAnyPR() {
+		internalOnly := !o.projectHasExternalRepo(ctx, task.ProjectID)
+
+		// An internal-repo project can never produce a PR, so waiting here is
+		// pointless: land the branch by merging it instead. This is the poll-driven
+		// twin of the push-driven merge in git_http_server.tryAutoMergeBotRun —
+		// needed because a task can reach pull_request status and then sit with no
+		// further push to trigger anything.
+		if internalOnly && task.Type == specTaskTypeBotRun {
+			if merged := o.tryMergeInternalRepoTask(ctx, task); merged {
+				return nil
+			}
+		}
+
 		log.Warn().
 			Str("task_id", task.ID).
 			Msg("Task in pull_request status but no PRs tracked in RepoPullRequests")
@@ -916,17 +978,21 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 			if task.Metadata == nil {
 				task.Metadata = make(map[string]interface{})
 			}
-			if _, hasErr := task.Metadata["error"]; !hasErr {
-				// Distinguish "we cannot open a PR for this repo at all" from
-				// "the agent did not push". Blaming the agent for a push it
-				// actually made sent two people hunting a non-existent failure
-				// for most of a call: on an internal repo the branch was pushed
-				// fine, but CreatePullRequest rejects any repo with no
-				// ExternalURL, so a PR was never possible in the first place.
-				msg := "Pull request could not be created - the agent may not have pushed the feature branch. Check the agent session for errors."
-				if !o.projectHasExternalRepo(ctx, task.ProjectID) {
-					msg = "No pull request can be created for this project: its repositories are internal (Helix-hosted), and pull requests are only supported for external GitHub/GitLab/Azure DevOps repositories. The branch may well have been pushed successfully. Internal repositories land work by merging the feature branch into the default branch instead."
-				}
+			// Distinguish "we cannot open a PR for this repo at all" from "the
+			// agent did not push". Blaming the agent for a push it actually made
+			// sent two people hunting a non-existent failure for most of a call:
+			// on an internal repo the branch was pushed fine, but
+			// CreatePullRequest rejects any repo with no ExternalURL, so a PR was
+			// never possible in the first place.
+			msg := "Pull request could not be created - the agent may not have pushed the feature branch. Check the agent session for errors."
+			if internalOnly {
+				msg = "No pull request can be created for this project: its repositories are internal (Helix-hosted), and pull requests are only supported for external GitHub/GitLab/Azure DevOps repositories. The branch may well have been pushed successfully. Internal repositories land work by merging the feature branch into the default branch instead."
+			}
+			// Overwrite rather than only-set-if-absent. The error is only cleared
+			// when a PR is created (see ensurePullRequests), which for an internal
+			// repo never happens — so a stale, wrong message would otherwise stay
+			// pinned to the task forever.
+			if existing, _ := task.Metadata["error"].(string); existing != msg {
 				task.Metadata["error"] = msg
 				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
 					log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to save PR timeout error to task metadata")

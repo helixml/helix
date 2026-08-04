@@ -110,6 +110,44 @@ func TestTryAutoMergeBotRun_InternalRepoMergesWithoutCompletingTask(t *testing.T
 		"default branch should now point at the feature branch tip")
 }
 
+// Regression: a bot run reaches pull_request status (the just-do-it flow puts it
+// there), and on an internal repo no PR can ever be created. The first version of
+// this fix only handled `implementation`, so those tasks sat forever showing
+// "pull request could not be created" — which is exactly what users hit.
+func TestTryAutoMergeBotRun_PullRequestStatusAlsoMerges(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	repoPath, defaultBranch := botMergeRepo(t, ctx, true)
+
+	mockStore := store.NewMockStore(ctrl)
+	task := &types.SpecTask{
+		ID:         "spt_bot",
+		ProjectID:  "prj_test",
+		Type:       specTaskTypeBotRun,
+		Status:     types.TaskStatusPullRequest,
+		BranchName: "feature/x",
+		Metadata: map[string]interface{}{
+			"error": "Pull request could not be created - the agent may not have pushed the feature branch.",
+		},
+	}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_bot").Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), "prj_test").
+		Return(&types.Project{ID: "prj_test", DefaultRepoID: "repo_test"}, nil)
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo_test").
+		Return(&types.GitRepository{ID: "repo_test", LocalPath: repoPath, DefaultBranch: defaultBranch}, nil)
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).Return(nil)
+
+	srv := &GitHTTPServer{store: mockStore}
+	srv.tryAutoMergeBotRun(ctx, "spt_bot")
+
+	require.True(t, task.MergedToMain, "a bot run parked in pull_request must still be merged")
+	_, stillHasErr := task.Metadata["error"]
+	require.False(t, stillHasErr,
+		"the stale PR error must be cleared once the branch lands, or it stays pinned forever")
+}
+
 // If the agent skipped its pre-push merge the branch has diverged. Nothing should
 // be merged or recorded; the agent has to merge the base in and push again.
 func TestTryAutoMergeBotRun_DivergedDoesNotMerge(t *testing.T) {
