@@ -4,7 +4,6 @@ import { alpha, useTheme } from '@mui/material/styles'
 
 import { getChatColors } from './chatStyles'
 import {
-  CHAT_TURN_NAVIGATOR_ITEM_SPACING,
   CHAT_TURN_NAVIGATOR_MIN_ITEMS,
   ChatTurnNavigatorItem,
   resolveChatTurnNavigatorIndexFromPointer,
@@ -28,6 +27,7 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
   const theme = useTheme()
   const colors = getChatColors(theme)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
+  const [previewWidth, setPreviewWidth] = useState(300)
   const markerRefs = useRef(new Map<string, HTMLSpanElement>())
 
   const resolvedActiveIndex = activeIndex !== null && activeIndex < items.length
@@ -42,7 +42,6 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
     : resolvedActiveIndex === items.length - 1
       ? '-100%'
       : '-50%'
-  const naturalHeight = Math.max(1, (items.length - 1) * CHAT_TURN_NAVIGATOR_ITEM_SPACING)
 
   const turnElements = useMemo(() => {
     if (!scrollContainer) return new Map<string, HTMLElement>()
@@ -56,6 +55,8 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
 
   const updateVisibleMarkers = useCallback(() => {
     if (!scrollContainer) return
+    const nextPreviewWidth = Math.min(300, Math.max(0, scrollContainer.clientWidth - 56))
+    setPreviewWidth((current) => current === nextPreviewWidth ? current : nextPreviewWidth)
     const viewport = scrollContainer.getBoundingClientRect()
     items.forEach((item) => {
       const marker = markerRefs.current.get(item.id)
@@ -68,7 +69,10 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
   }, [items, scrollContainer, turnElements])
 
   useEffect(() => {
-    if (!scrollContainer) return
+    if (!scrollContainer) {
+      setPreviewWidth(300)
+      return
+    }
     const frame = requestAnimationFrame(updateVisibleMarkers)
     const observer = new ResizeObserver(updateVisibleMarkers)
     observer.observe(scrollContainer)
@@ -158,11 +162,12 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
         sx={{
           pointerEvents: 'auto',
           position: 'absolute',
-          top: '50%',
+          top: 24,
+          bottom: 24,
           left: 12,
-          transform: 'translateY(-50%)',
-          width: activeItem ? 'calc(100% - 20px)' : 24,
-          height: `min(${naturalHeight}px, calc(100% - 48px))`,
+          // Keep the hit area in the transcript gutter. The preview is an
+          // overflowing child so hovering it never blocks the transcript.
+          width: 24,
           m: 0,
           p: 0,
           border: 0,
@@ -231,7 +236,7 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
               position: 'absolute',
               top: `${activeTop}%`,
               left: 32,
-              right: 0,
+              width: previewWidth,
               maxWidth: 300,
               transform: `translateY(${activeTranslate})`,
               cursor: 'text',

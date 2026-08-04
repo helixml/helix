@@ -167,7 +167,7 @@ const HelixOrgAssets: FC = () => {
           <Stack spacing={2}>
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
               <Typography variant="body2" color="text.secondary">
-                Organization infrastructure available to selected agents. Server assets expose SSH command and file tools.
+                Let AI agents troubleshoot and manage your servers at your command.
               </Typography>
               <Button variant="contained" color="secondary" startIcon={<AddIcon />} onClick={openCreate} sx={{ flexShrink: 0 }}>
                 New asset

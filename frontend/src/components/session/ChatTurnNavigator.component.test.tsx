@@ -21,6 +21,12 @@ const renderNavigator = (onSelect = vi.fn()) => {
 describe('ChatTurnNavigator interactions', () => {
   it('previews the nearest turn under the pointer', () => {
     const { button } = renderNavigator()
+    expect(button).toHaveStyle({
+      top: '24px',
+      bottom: '24px',
+      width: '24px',
+    })
+
     vi.spyOn(button, 'getBoundingClientRect').mockReturnValue({
       top: 100,
       bottom: 140,
