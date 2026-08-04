@@ -8,6 +8,7 @@ import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
 import Stack from '@mui/material/Stack'
 import ReactMarkdown from 'react-markdown'
+import { useRouter as useRouter5 } from 'react-router5'
 import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink, MessageSquare, ArrowRight } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
@@ -16,7 +17,6 @@ import useLightTheme from '../../hooks/useLightTheme'
 import { useAttentionEvents, AttentionEvent, AttentionEventType } from '../../hooks/useAttentionEvents'
 import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
 import { useNavigationHistory, NavHistoryEntry } from '../../hooks/useNavigationHistory'
-import router from '../../router'
 
 interface GlobalNotificationsProps {
   organizationId?: string
@@ -145,6 +145,7 @@ function groupTimestamp(group: EventGroup): number {
 const RecentPageItem: React.FC<{
   entry: NavHistoryEntry
 }> = ({ entry }) => {
+  const router = useRouter5()
   const lightTheme = useLightTheme()
   return (
     <Box
@@ -240,6 +241,7 @@ const AttentionEventItem: React.FC<{
   onNavigate: (event: AttentionEvent) => void
   onDismiss: (eventId: string) => void
 }> = ({ event, groupedWith, onNavigate, onDismiss }) => {
+  const router = useRouter5()
   const accentColor = eventAccentColor(event.event_type)
   // org_message (a bot messaging a person) has no spec task/project — its
   // headline is the title ("Message from …") and the body is the message.
@@ -452,6 +454,7 @@ const PANEL_WIDTH = 360
 const FILTER_STORAGE_KEY = 'attention-filter-mode'
 
 const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange }) => {
+  const router = useRouter5()
   const account = useAccount()
   const api = useApi()
   const lightTheme = useLightTheme()

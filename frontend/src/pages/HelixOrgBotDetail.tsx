@@ -53,6 +53,7 @@ import SettingsBackupRestoreIcon from '@mui/icons-material/SettingsBackupRestore
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import StopIcon from '@mui/icons-material/Stop'
 import Tooltip from '@mui/material/Tooltip'
+import { useRouter as useRouter5 } from 'react-router5'
 
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import AgentConfigForm, { AgentConfigValue } from '../components/helix-org/BotRuntimeForm'
@@ -62,7 +63,6 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
-import router5 from '../router'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -89,6 +89,7 @@ import {
 import { useSwitchAgent } from '../services/sessionService'
 
 const HelixOrgBotDetail: FC = () => {
+  const router5 = useRouter5()
   const router = useRouter()
   const snackbar = useSnackbar()
   const api = useApi()
