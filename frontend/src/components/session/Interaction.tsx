@@ -112,9 +112,6 @@ const ForkSeedDivider: FC<{ interaction: TypesInteraction }> = ({
 
 // Prop comparison function for React.memo
 const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
-  if (prevProps.anchorToViewport !== nextProps.anchorToViewport) {
-    return false;
-  }
   if (prevProps.enableDebugCopy !== nextProps.enableDebugCopy) {
     return false;
   }
@@ -203,7 +200,6 @@ interface InteractionProps {
   onRegenerate?: (interactionID: string, message: string) => void;
   sessionSteps?: any[];
   enableDebugCopy?: boolean;
-  anchorToViewport?: boolean;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -217,7 +213,6 @@ export const Interaction: FC<InteractionProps> = ({
   onRegenerate,
   sessionSteps = [],
   enableDebugCopy = false,
-  anchorToViewport = false,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
@@ -335,12 +330,8 @@ export const Interaction: FC<InteractionProps> = ({
   return (
     <Box
       data-chat-turn={interaction.id}
-      data-active-chat-turn={anchorToViewport ? "true" : undefined}
       sx={{
-        mb: anchorToViewport ? 0 : 2,
-        minHeight: anchorToViewport
-          ? "calc(var(--chat-viewport-height, 0px) - 32px)"
-          : undefined,
+        mb: 2,
         display: "flex",
         flexDirection: "column",
         gap: 1,

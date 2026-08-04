@@ -116,28 +116,6 @@ const EmbeddedSessionView = forwardRef<
   const queryClient = useQueryClient();
   const { NewInference } = useStreaming();
 
-  // Keep the active turn one viewport tall. When the last interaction enters
-  // Waiting, scroll-to-bottom places its user message at the top and leaves
-  // room for the response to grow beneath it. This mirrors T3's anchored-turn
-  // mechanic without fighting the existing manual-scroll lock.
-  useEffect(() => {
-    if (!scrollContainerEl) return;
-
-    const measure = () => {
-      scrollContainerEl.style.setProperty(
-        "--chat-viewport-height",
-        `${scrollContainerEl.clientHeight}px`,
-      );
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(scrollContainerEl);
-    return () => {
-      observer.disconnect();
-      scrollContainerEl.style.removeProperty("--chat-viewport-height");
-    };
-  }, [scrollContainerEl]);
-
   // Global on/off preference for auto-scroll. Default ON.
   const [autoScroll, setAutoScroll] = useAutoScrollPreference();
   const autoScrollRef = useRef(autoScroll);
@@ -838,7 +816,6 @@ const EmbeddedSessionView = forwardRef<
                 session_id={sessionId}
                 sessionSteps={sessionSteps?.data || []}
                 enableDebugCopy={enableInteractionDebugCopy}
-                anchorToViewport={isLive}
               >
                 {isLive && (isOwner || account.admin) && (
                   <InteractionLiveStream
