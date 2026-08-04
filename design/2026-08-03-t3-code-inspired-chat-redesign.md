@@ -139,7 +139,10 @@ entry of a completed turn remains the final answer below the work disclosure.
 While streaming, every visible prose or tool entry stays in the live timeline
 because there is not yet a reliable final-answer boundary. Internal
 thinking-only entries are not promoted into visible progress rows and do not
-split an adjacent tool run.
+split an adjacent tool run. The final reasoning bundle remains behind one
+`Thoughts` disclosure after the work transcript. Its body renders as compact
+Markdown; bold-only thought summaries are presented as one list rather than
+showing literal Markdown punctuation or fragmenting the tool timeline.
 
 Shell results use `Ran command` plus the command preview. MCP calls use
 `Provider · tool` labels. This presentation is derived from the structured tool

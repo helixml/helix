@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { describe, expect, it } from 'vitest'
 
-import ThinkingWidget from './ThinkingWidget'
+import ThinkingWidget, { formatThinkingMarkdown, thinkingSummary } from './ThinkingWidget'
 
 const renderWidget = (isStreaming = false) => render(
   <ThemeProvider theme={createTheme()}>
@@ -11,6 +11,16 @@ const renderWidget = (isStreaming = false) => render(
 )
 
 describe('ThinkingWidget', () => {
+  it('formats bold-only reasoning fragments as one markdown list', () => {
+    expect(formatThinkingMarkdown(
+      '**Assessing rollout risk**\n\n**Checking CI status**\n\nSupporting detail',
+    )).toBe('- **Assessing rollout risk**\n- **Checking CI status**\n\nSupporting detail')
+  })
+
+  it('removes markdown punctuation from the inline summary', () => {
+    expect(thinkingSummary('**Check the `current` branch**')).toBe('Check the current branch')
+  })
+
   it('uses a collapsed disclosure and reveals the thought on click', () => {
     const { container } = render(
       <div data-session-scroll-container>
