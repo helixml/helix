@@ -631,11 +631,12 @@ RUN chmod +x /entrypoint.sh /etc/cont-init.d/*.sh /opt/gow/bash-lib/utils.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
 
-# GOW fixes (locale + bwrap)
+# GOW fixes (locale + non-setuid bwrap)
 RUN <<_FIXES
   set -e
   locale-gen en_US.UTF-8
-  chmod u+s /usr/bin/bwrap 2>/dev/null || true
+  chmod u-s /usr/bin/bwrap
+  test ! -u /usr/bin/bwrap
 _FIXES
 
 # GNOME/Wayland environment variables
