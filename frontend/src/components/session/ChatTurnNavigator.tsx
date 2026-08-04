@@ -1,4 +1,4 @@
-import React, { FC, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { FC, MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import { alpha, useTheme } from '@mui/material/styles'
 
@@ -42,21 +42,17 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
     : resolvedActiveIndex === items.length - 1
       ? '-100%'
       : '-50%'
-  const naturalHeight = Math.max(1, (items.length - 1) * CHAT_TURN_NAVIGATOR_ITEM_SPACING)
 
-  const turnElements = useMemo(() => {
-    if (!scrollContainer) return new Map<string, HTMLElement>()
-    const elements = new Map<string, HTMLElement>()
-    scrollContainer.querySelectorAll<HTMLElement>('[data-chat-turn]').forEach((element) => {
-      const id = element.dataset.chatTurn
-      if (id) elements.set(id, element)
-    })
-    return elements
-  }, [items, scrollContainer])
+  const naturalHeight = Math.max(1, (items.length - 1) * CHAT_TURN_NAVIGATOR_ITEM_SPACING)
 
   const updateVisibleMarkers = useCallback(() => {
     if (!scrollContainer) return
     const viewport = scrollContainer.getBoundingClientRect()
+    const turnElements = new Map<string, HTMLElement>()
+    scrollContainer.querySelectorAll<HTMLElement>('[data-chat-turn]').forEach((element) => {
+      const id = element.dataset.chatTurn
+      if (id) turnElements.set(id, element)
+    })
     items.forEach((item) => {
       const marker = markerRefs.current.get(item.id)
       const turn = turnElements.get(item.id)
@@ -65,7 +61,7 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
       const inView = rect.top < viewport.bottom && rect.bottom > viewport.top
       marker.dataset.inView = inView ? 'true' : 'false'
     })
-  }, [items, scrollContainer, turnElements])
+  }, [items, scrollContainer])
 
   useEffect(() => {
     if (!scrollContainer) return

@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import ChatTurnNavigator from './ChatTurnNavigator'
 
@@ -19,6 +19,57 @@ const renderNavigator = (onSelect = vi.fn()) => {
 }
 
 describe('ChatTurnNavigator interactions', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('resolves marker visibility from turns added after the navigator renders', async () => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    })
+
+    const scrollContainer = document.createElement('div')
+    vi.spyOn(scrollContainer, 'getBoundingClientRect').mockReturnValue({
+      top: 100,
+      bottom: 500,
+      left: 0,
+      right: 300,
+      width: 300,
+      height: 400,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    })
+
+    render(
+      <ThemeProvider theme={createTheme({ palette: { mode: 'dark' } })}>
+        <ChatTurnNavigator items={items} scrollContainer={scrollContainer} onSelect={vi.fn()} />
+      </ThemeProvider>,
+    )
+
+    const latestTurn = document.createElement('div')
+    latestTurn.dataset.chatTurn = 'second'
+    vi.spyOn(latestTurn, 'getBoundingClientRect').mockReturnValue({
+      top: 420,
+      bottom: 480,
+      left: 0,
+      right: 300,
+      width: 300,
+      height: 60,
+      x: 0,
+      y: 420,
+      toJSON: () => ({}),
+    })
+    scrollContainer.appendChild(latestTurn)
+    fireEvent.scroll(scrollContainer)
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('[data-chat-turn-marker]')[1])
+        .toHaveAttribute('data-in-view', 'true')
+    })
+  })
+
   it('previews the nearest turn under the pointer', () => {
     const { button } = renderNavigator()
     vi.spyOn(button, 'getBoundingClientRect').mockReturnValue({
