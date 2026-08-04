@@ -48,7 +48,10 @@
 ## Force the failure modes
 
 - [x] Skip one server publish deliberately — confirm detection and resync
-- [x] Deliver two patches out of order — confirm detection and resync
+- [~] Deliver two patches out of order — NOT empirically forced. Core NATS is ordered
+      per subject, so reordering is not reachable via the real transport. The seq check
+      (`seq !== lastSeq + 1`) rejects an out-of-order arrival by construction and the
+      diverged flag suppresses the follow-up, but this was reasoned, not observed.
 - [x] Reconnect the WebSocket mid-interaction — confirm the UI recovers correctly
 - [x] Record the UI behaviour for each case in the design doc
 
@@ -83,6 +86,9 @@
   shipped as an unread column plus a risky refactor.
 - **`cd frontend && yarn build`** was run as `tsc --noEmit` plus `vitest` inside the
   `helix-frontend-1` container — `node_modules` does not exist on the host in this sandbox.
+- **Out-of-order delivery was not empirically forced** — see the note in "Force the failure
+  modes". Drops and mid-stream reconnects were forced and observed; reordering is unreachable
+  through core NATS and is handled by the same seq check.
 - **A poll-racing-a-live-patch unit test was not added**; the race it would assert does not
   occur (see above). The dropped/reordered-patch divergence is covered instead, which is the
   failure that actually reproduces.
