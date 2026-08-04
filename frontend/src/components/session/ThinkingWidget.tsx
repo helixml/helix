@@ -40,10 +40,15 @@ export function formatThinkingMarkdown(text: string): string {
 }
 
 export function thinkingSummary(text: string): string {
-  return text
-    .trim()
+  const firstLine = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .find(Boolean) || ''
+
+  return firstLine
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/`([^`]+)`/g, '$1')
+    .replace(/^[-*]\s+/, '')
 }
 
 const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStreaming }) => {
@@ -100,31 +105,18 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
         <Typography
           variant="body2"
           sx={{
-            flex: isMultiline ? 1 : '0 0 auto',
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
             fontSize: '0.76rem',
             color: textColor,
             fontFamily: 'monospace',
           }}
         >
-          {isStreaming ? `Thinking ${formatDuration(elapsed)}` : 'Thoughts'}
+          {isStreaming ? `Thinking ${formatDuration(elapsed)}` : thinkingSummary(text)}
         </Typography>
-        {!isStreaming && !isMultiline && (
-          <Typography
-            variant="body2"
-            sx={{
-              flex: 1,
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              fontSize: '0.76rem',
-              color: isDark ? 'rgba(255,255,255,0.5)' : 'text.secondary',
-              fontFamily: 'monospace',
-            }}
-          >
-            {thinkingSummary(text)}
-          </Typography>
-        )}
         {isStreaming && <CircularProgress size={16} thickness={4} color="warning" />}
         {isMultiline && (
           <IconButton

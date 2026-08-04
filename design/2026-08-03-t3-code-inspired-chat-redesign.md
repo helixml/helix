@@ -143,7 +143,9 @@ than assistant prose, and do not displace the final answer. They remain at their
 original positions inside the work transcript and split tool runs, so only
 genuinely adjacent calls are collapsed together. The disclosure body renders as
 Markdown; bold-only thought summaries are presented as one list rather than
-showing literal Markdown punctuation.
+showing literal Markdown punctuation. The bulb icon identifies thought rows, so
+their headers show the first summary directly without a repeated `Thoughts`
+label.
 
 Shell results use `Ran command` plus the command preview. MCP calls use
 `Provider · tool` labels. This presentation is derived from the structured tool

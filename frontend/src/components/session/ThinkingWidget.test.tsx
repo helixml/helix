@@ -19,6 +19,7 @@ describe('ThinkingWidget', () => {
 
   it('removes markdown punctuation from the inline summary', () => {
     expect(thinkingSummary('**Check the `current` branch**')).toBe('Check the current branch')
+    expect(thinkingSummary('**First summary**\n\n**Second summary**')).toBe('First summary')
   })
 
   it('uses a collapsed disclosure and reveals the thought on click', () => {
@@ -30,10 +31,11 @@ describe('ThinkingWidget', () => {
       </div>,
     )
 
-    expect(screen.getByText('Thoughts')).toBeInTheDocument()
+    expect(screen.getByText('Inspect the current')).toBeInTheDocument()
+    expect(screen.queryByText('Thoughts')).not.toBeInTheDocument()
     expect(screen.queryByText('Inspect the current subscription state')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('Thoughts'))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand thoughts' }))
 
     expect(container.querySelector('[data-session-scroll-container]'))
       .toHaveAttribute('data-preserve-disclosure-expansion', 'true')
@@ -48,8 +50,8 @@ describe('ThinkingWidget', () => {
       </ThemeProvider>,
     )
 
-    expect(screen.getByText('Thoughts')).toBeInTheDocument()
     expect(screen.getByText('Check the current branch')).toBeInTheDocument()
+    expect(screen.queryByText('Thoughts')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Expand thoughts' })).not.toBeInTheDocument()
   })
 
