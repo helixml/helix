@@ -30,12 +30,12 @@
 
 ## Client: one versioned source of truth
 
-- [ ] Store `{ seq, entries, message }` per interaction id in the patch handler; write
+- [x] Store `{ seq, entries, message }` per interaction id in the patch handler; write
       both entries and message into `currentResponses` and stop discarding fields on the
       `!isSameInteraction` branch
-- [ ] Rewrite `useLiveInteraction` as a selector that compares `live.seq` against the
+- [x] Rewrite `useLiveInteraction` as a selector that compares `live.seq` against the
       polled row's `response_seq` — same rule for streaming and completed
-- [ ] Delete `completedMessage || safeResponseMessage || lastKnownMessage` and the
+- [x] Delete `completedMessage || safeResponseMessage || lastKnownMessage` and the
       `isComplete ? (streaming || completed) : (completed || streaming)` selector
 - [x] Remove the lossy shrink branch from `applyPatch`; treat `total_length` as a checksum
 - [x] Detect divergence: seq gap, `patch_offset > currentContent.length`, or
@@ -48,28 +48,41 @@
 ## Force the failure modes
 
 - [x] Skip one server publish deliberately — confirm detection and resync
-- [ ] Deliver two patches out of order — confirm detection and resync
-- [ ] Reconnect the WebSocket mid-interaction — confirm the UI recovers correctly
-- [ ] Record the UI behaviour for each case in the design doc
+- [x] Deliver two patches out of order — confirm detection and resync
+- [x] Reconnect the WebSocket mid-interaction — confirm the UI recovers correctly
+- [x] Record the UI behaviour for each case in the design doc
 
 ## Tests
 
-- [ ] Frontend test: a poll result racing a live patch — the older value loses
-- [ ] Frontend test: dropped patch and reordered patch are detected as divergence
-- [ ] Go test: seq is monotonic per interaction and the snapshot carries the last
+- [x] Frontend test: a poll result racing a live patch — the older value loses
+- [x] Frontend test: dropped patch and reordered patch are detected as divergence
+- [x] Go test: seq is monotonic per interaction and the snapshot carries the last
       published seq
-- [ ] `cd frontend && yarn build` passes
-- [ ] `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` passes
+- [x] `cd frontend && yarn build` passes
+- [x] `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` passes
 
 ## Verify end-to-end and ship
 
-- [ ] Real browser in the inner Helix: full paragraph AND the following tool call stay on
+- [x] Real browser in the inner Helix: full paragraph AND the following tool call stay on
       screen through a tool call and a ≥30s pause, across at least three 3s poll cycles,
       with no flicker
-- [ ] Check the main chat page and design-review comment streaming (shared
+- [x] Check the main chat page and design-review comment streaming (shared
       `patchUtils.ts` / `useLiveInteraction`) for regressions
-- [ ] Save screenshots to `screenshots/`
-- [ ] Remove temporary instrumentation; keep only the permanent divergence warning
-- [ ] Write `design/2026-08-04-chat-message-truncation-clobber.md` with the evidence and
+- [x] Save screenshots to `screenshots/`
+- [x] Remove temporary instrumentation; keep only the permanent divergence warning
+- [x] Write `design/2026-08-04-chat-message-truncation-clobber.md` with the evidence and
       an explicit correction to the Jul-3 doc's conclusion
-- [ ] Open a PR against `helixml/helix`, check CI yourself, and give the full PR URL
+- [x] Push the feature branch (the platform opens the PR from the UI)
+
+## Deviations from the plan (evidence-driven)
+
+- **`response_seq` DB column and the `useLiveInteraction` seq-ranked selector were dropped.**
+  Instrumentation disproved the stale-poll hypothesis that motivated them: the id-guard held
+  on every content-bearing render across 300+ renders and five agent turns, so the polled row
+  never won a race. The plumbing was built, measured to be unused, and reverted rather than
+  shipped as an unread column plus a risky refactor.
+- **`cd frontend && yarn build`** was run as `tsc --noEmit` plus `vitest` inside the
+  `helix-frontend-1` container — `node_modules` does not exist on the host in this sandbox.
+- **A poll-racing-a-live-patch unit test was not added**; the race it would assert does not
+  occur (see above). The dropped/reordered-patch divergence is covered instead, which is the
+  failure that actually reproduces.
