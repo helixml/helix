@@ -53,6 +53,7 @@ import useIsBigScreen from "../hooks/useIsBigScreen";
 import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
 import { LIGHT_SIDEBAR_COLORS } from "../styles/themeTokens";
+import { TOOLBAR_HEIGHT } from "../config";
 
 // Admin and Connected Services are rendered as full-screen dialog overlays
 // so the user stays within their current org-scoped URL
@@ -672,6 +673,19 @@ const Layout: FC<{
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
+            ...(isBigScreen && shouldShowSidebar && {
+              "& [data-page-toolbar]": {
+                height: TOOLBAR_HEIGHT,
+                minHeight: TOOLBAR_HEIGHT,
+              },
+              "& [data-page-toolbar] > .MuiAppBar-root": {
+                position: "fixed",
+                left: 64,
+                right: 0,
+                width: "auto",
+                zIndex: (theme) => theme.zIndex.drawer + 1,
+              },
+            }),
           }}
         >
           <Box
