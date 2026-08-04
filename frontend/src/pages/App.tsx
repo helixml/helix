@@ -68,11 +68,12 @@ const App: FC = () => {
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
   
-  const tabValue = !params.tab || params.tab === 'settings' ? 'instructions' : params.tab
+  const legacyGeneralTabs = ['settings', 'instructions', 'appearance']
+  const tabValue = !params.tab || legacyGeneralTabs.includes(params.tab) ? 'general' : params.tab
 
   useEffect(() => {
-    if (params.tab === 'settings') {
-      router.mergeParams({ tab: 'instructions' })
+    if (params.tab && legacyGeneralTabs.includes(params.tab)) {
+      router.mergeParams({ tab: 'general' })
     }
   }, [params.tab])
 
@@ -168,7 +169,7 @@ const App: FC = () => {
             }}>
               <Box sx={{ width: '100%' }}>
                 <Grid container spacing={0}>
-                  {tabValue === 'instructions' ? (
+                  {tabValue === 'general' ? (
                     <Grid item xs={12} sx={{ pb: 8 }}>
                       <Grid container spacing={4}>
                         <Grid item xs={12} md={8}>
@@ -180,8 +181,30 @@ const App: FC = () => {
                               readOnly={isReadOnly}
                               showErrors={appTools.showErrors}
                               isAdmin={account.admin}
-                              section="instructions"
+                              section="general"
+                              generalAside={(
+                                <AppearanceSettings
+                                  app={appTools.flatApp}
+                                  onUpdate={appTools.saveFlatApp}
+                                  readOnly={isReadOnly}
+                                  id={appTools.id}
+                                  section="avatar"
+                                />
+                              )}
                             />
+                          )}
+                          {appTools.flatApp && (
+                            <AppearanceSettings
+                              app={appTools.flatApp}
+                              onUpdate={appTools.saveFlatApp}
+                              readOnly={isReadOnly}
+                              showErrors={appTools.showErrors}
+                              id={appTools.id}
+                              section="conversation-starters"
+                            />
+                          )}
+                          {isOrgAgent && (
+                            <OrgAgentSettings agentID={appTools.id} section="runtime" readOnly={isReadOnly} />
                           )}
                         </Grid>
                         <Grid item xs={12} md={4}>
@@ -202,24 +225,6 @@ const App: FC = () => {
                             isAdmin={account.admin}
                             section="runtime"
                             hideAgentType={isOrgAgent}
-                          />
-                        )}
-                        {isOrgAgent && (
-                          <OrgAgentSettings agentID={appTools.id} section="runtime" readOnly={isReadOnly} />
-                        )}
-                      </Box>
-                    </Grid>
-                  ) : tabValue === 'appearance' ? (
-                    <Grid item xs={12} sx={{ pb: 8 }}>
-                      <Box sx={{ maxWidth: 960 }}>
-                        <Typography variant="h5" sx={{ mt: 2, mb: 3 }}>Appearance</Typography>
-                        {appTools.flatApp && (
-                          <AppearanceSettings
-                            app={appTools.flatApp}
-                            onUpdate={appTools.saveFlatApp}
-                            readOnly={isReadOnly}
-                            showErrors={appTools.showErrors}
-                            id={appTools.id}
                           />
                         )}
                       </Box>

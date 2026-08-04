@@ -117,8 +117,9 @@ interface AppSettingsProps {
   readOnly?: boolean,
   showErrors?: boolean,
   isAdmin?: boolean,
-  section: 'instructions' | 'runtime',
+  section: 'general' | 'runtime',
   hideAgentType?: boolean,
+  generalAside?: React.ReactNode,
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}.`
@@ -191,6 +192,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   isAdmin = false,
   section,
   hideAgentType = false,
+  generalAside,
 }) => {
   // Get initial showAdvanced value from URL
   const [showAdvanced, setShowAdvanced] = useState(() => {
@@ -588,26 +590,29 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   return (
     <Box sx={{ mt: 2, mr: 2 }}>
-      {section === 'instructions' && (
+      {section === 'general' && (
       <Box sx={{ mb: 3 }}>
         <Typography variant="h5" sx={{ mb: 3 }}>
-          Instructions
+          General
         </Typography>
-        <TextField
-          id="app-name"
-          name="app-name"
-          label="Agent name"
-          value={name}
-          error={showErrors && !name}
-          helperText="Use a name that makes this agent easy to identify."
-          disabled={readOnly}
-          onChange={(event) => setName(event.target.value)}
-          onBlur={() => {
-            if (name !== app.name) void onUpdate({ name })
-          }}
-          fullWidth
-          sx={{ mb: 3 }}
-        />
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems="flex-start" sx={{ mb: 3 }}>
+          <TextField
+            id="app-name"
+            name="app-name"
+            label="Agent name"
+            value={name}
+            error={showErrors && !name}
+            helperText="Use a name that makes this agent easy to identify."
+            disabled={readOnly}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => {
+              if (name !== app.name) void onUpdate({ name })
+            }}
+            fullWidth
+            sx={{ flex: 1 }}
+          />
+          {generalAside}
+        </Stack>
         <Stack direction="row" alignItems="center">
           <Typography gutterBottom>System Instructions</Typography>
           <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
@@ -1000,7 +1005,9 @@ const AppSettings: FC<AppSettingsProps> = ({
 
           <Divider sx={{ my: 2 }} />
 
-          {/* Display Settings - side by side */}
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Sandbox settings
+          </Typography>
           <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
             Display
           </Typography>

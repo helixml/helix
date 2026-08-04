@@ -1,9 +1,8 @@
 import { FC } from 'react'
 
 import {
-  ScrollText,
+  Settings,
   Cpu,
-  Palette,
   Webhook,
   LibraryBig,
   Lightbulb,
@@ -25,7 +24,7 @@ import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 const AppSidebar: FC = () => {
   const router = useRouter()
   const { tab, app_id } = router.params
-  const currentTab = !tab || tab === 'settings' ? 'instructions' : tab
+  const currentTab = !tab || ['settings', 'instructions', 'appearance'].includes(tab) ? 'general' : tab
   
   // Get app data and user access information
   const appTools = useApp(app_id)
@@ -37,11 +36,11 @@ const AppSidebar: FC = () => {
 
   const items: ContextSidebarSection['items'] = [
     {
-      id: 'instructions',
-      label: 'Instructions',
-      icon: <ScrollText size={20} />,
-      isActive: currentTab === 'instructions',
-      onClick: () => handleNavigationClick('instructions')
+      id: 'general',
+      label: 'General',
+      icon: <Settings size={20} />,
+      isActive: currentTab === 'general',
+      onClick: () => handleNavigationClick('general')
     },
     {
       id: 'runtime',
@@ -49,13 +48,6 @@ const AppSidebar: FC = () => {
       icon: <Cpu size={20} />,
       isActive: currentTab === 'runtime',
       onClick: () => handleNavigationClick('runtime')
-    },
-    {
-      id: 'appearance',
-      label: 'Appearance',
-      icon: <Palette size={20} />,
-      isActive: currentTab === 'appearance',
-      onClick: () => handleNavigationClick('appearance')
     },
     {
       id: 'triggers',
