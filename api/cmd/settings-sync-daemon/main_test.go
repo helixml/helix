@@ -259,8 +259,7 @@ func TestInjectAvailableModels(t *testing.T) {
 }
 
 // TestMergeAgentBlock_HelixManagedFieldsProtected verifies that the daemon's
-// client-side merge drops user-side overrides for helix-managed agent.* model
-// fields. See deviqon/P1-5-zed-overrides-clobber-helix-default-model.md.
+// client-side merge drops user-side overrides for helix-managed agent fields.
 func TestMergeAgentBlock_HelixManagedFieldsProtected(t *testing.T) {
 	helixAgent := map[string]interface{}{
 		"default_model":          map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
@@ -269,6 +268,7 @@ func TestMergeAgentBlock_HelixManagedFieldsProtected(t *testing.T) {
 		"thread_summary_model":   map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
 		"auto_open_panel":        true,
 		"show_onboarding":        false,
+		"sandbox_permissions":    map[string]interface{}{"allow_unsandboxed": true},
 	}
 
 	t.Run("user override of default_model is dropped", func(t *testing.T) {
@@ -305,6 +305,16 @@ func TestMergeAgentBlock_HelixManagedFieldsProtected(t *testing.T) {
 		}
 	})
 
+	t.Run("sandbox permissions are protected", func(t *testing.T) {
+		userAgent := map[string]interface{}{
+			"sandbox_permissions": map[string]interface{}{"allow_unsandboxed": false},
+		}
+		merged := mergeAgentBlock(helixAgent, userAgent).(map[string]interface{})
+
+		permissions := merged["sandbox_permissions"].(map[string]interface{})
+		assert.Equal(t, true, permissions["allow_unsandboxed"])
+	})
+
 	t.Run("non-model agent fields can still be user-overridden", func(t *testing.T) {
 		userAgent := map[string]interface{}{
 			"default_model":              map[string]interface{}{"provider": "anthropic", "model": "claude"},
@@ -324,13 +334,28 @@ func TestMergeAgentBlock_HelixManagedFieldsProtected(t *testing.T) {
 	})
 }
 
+func TestInjectAgentPermissions(t *testing.T) {
+	settings := map[string]interface{}{
+		"agent": map[string]interface{}{
+			"sandbox_permissions": map[string]interface{}{"allow_unsandboxed": false},
+		},
+	}
+
+	injectAgentPermissions(settings)
+
+	agent := settings["agent"].(map[string]interface{})
+	assert.Equal(t, map[string]interface{}{"allow_unsandboxed": true}, agent["sandbox_permissions"])
+	assert.Equal(t, map[string]interface{}{"default": "allow"}, agent["tool_permissions"])
+}
+
 // TestExtractUserOverrides_AgentDiffSkipsManagedFields verifies that the daemon
-// does not upload changes to helix-managed agent.* model fields.
+// does not upload changes to helix-managed agent fields.
 func TestExtractUserOverrides_AgentDiffSkipsManagedFields(t *testing.T) {
 	helix := map[string]interface{}{
 		"agent": map[string]interface{}{
-			"default_model":   map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
-			"auto_open_panel": true,
+			"default_model":       map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
+			"auto_open_panel":     true,
+			"sandbox_permissions": map[string]interface{}{"allow_unsandboxed": true},
 		},
 	}
 
@@ -339,6 +364,18 @@ func TestExtractUserOverrides_AgentDiffSkipsManagedFields(t *testing.T) {
 			"agent": map[string]interface{}{
 				"default_model":   map[string]interface{}{"provider": "anthropic", "model": "claude-sonnet-4-6-latest"},
 				"auto_open_panel": true,
+			},
+		}
+		got := extractUserOverrides(current, helix)
+		assert.NotContains(t, got, "agent")
+	})
+
+	t.Run("does not upload sandbox permission changes", func(t *testing.T) {
+		current := map[string]interface{}{
+			"agent": map[string]interface{}{
+				"default_model":       map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
+				"auto_open_panel":     true,
+				"sandbox_permissions": map[string]interface{}{"allow_unsandboxed": false},
 			},
 		}
 		got := extractUserOverrides(current, helix)

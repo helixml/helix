@@ -47,13 +47,14 @@ type WebsocketSyncConfig struct {
 }
 
 type AgentConfig struct {
-	DefaultModel           *ModelConfig `json:"default_model,omitempty"`
-	InlineAssistantModel   *ModelConfig `json:"inline_assistant_model,omitempty"`
-	CommitMessageModel     *ModelConfig `json:"commit_message_model,omitempty"`
-	ThreadSummaryModel     *ModelConfig `json:"thread_summary_model,omitempty"`
-	AlwaysAllowToolActions bool         `json:"always_allow_tool_actions"` // Deprecated: mapped to tool_permissions.default="allow" by handler
-	ShowOnboarding         bool         `json:"show_onboarding"`
-	AutoOpenPanel          bool         `json:"auto_open_panel"`
+	DefaultModel             *ModelConfig `json:"default_model,omitempty"`
+	InlineAssistantModel     *ModelConfig `json:"inline_assistant_model,omitempty"`
+	CommitMessageModel       *ModelConfig `json:"commit_message_model,omitempty"`
+	ThreadSummaryModel       *ModelConfig `json:"thread_summary_model,omitempty"`
+	AllowUnsandboxedCommands bool         `json:"-"`                         // Mapped to sandbox_permissions.allow_unsandboxed by handler
+	AlwaysAllowToolActions   bool         `json:"always_allow_tool_actions"` // Deprecated: mapped to tool_permissions.default="allow" by handler
+	ShowOnboarding           bool         `json:"show_onboarding"`
+	AutoOpenPanel            bool         `json:"auto_open_panel"`
 }
 
 type LanguageModelConfig struct {
@@ -210,13 +211,13 @@ func GenerateZedMCPConfig(
 		provider = resolved.Name
 	}
 
-	// Configure agent. AlwaysAllowToolActions / ShowOnboarding / AutoOpenPanel
-	// are always set; default_model and the feature-specific model overrides
-	// are set only when we trust the agent's configuration.
+	// Configure agent. Permissions / ShowOnboarding / AutoOpenPanel are always
+	// set; model overrides are set only when we trust the agent's configuration.
 	config.Agent = &AgentConfig{
-		AlwaysAllowToolActions: true,
-		ShowOnboarding:         false,
-		AutoOpenPanel:          true,
+		AllowUnsandboxedCommands: true,
+		AlwaysAllowToolActions:   true,
+		ShowOnboarding:           false,
+		AutoOpenPanel:            true,
 	}
 	if useAgentModel {
 		// Map Helix provider to Zed's provider type and format model name

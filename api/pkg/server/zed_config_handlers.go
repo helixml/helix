@@ -234,6 +234,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		agentConfig = map[string]interface{}{
 			"show_onboarding": zedConfig.Agent.ShowOnboarding,
 			"auto_open_panel": zedConfig.Agent.AutoOpenPanel,
+			"sandbox_permissions": map[string]interface{}{
+				"allow_unsandboxed": zedConfig.Agent.AllowUnsandboxedCommands,
+			},
 		}
 		// Use tool_permissions instead of deprecated always_allow_tool_actions
 		if zedConfig.Agent.AlwaysAllowToolActions {
