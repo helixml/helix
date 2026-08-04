@@ -396,3 +396,33 @@ a live agent turn in this sandbox must seed those model rows first.
   Locking again inside a new `case` deadlocks the whole run with no error output.
   This was caught only by running the e2e — exactly the reason CLAUDE.md makes
   running it mandatory.
+
+## Follow-up: second attempt at the live spec-task run (still blocked)
+
+Tried again after the main implementation was complete, to close the one gap.
+Went further into the cause; recording it so nobody repeats the dig.
+
+1. `agent.default_model` in the container's `~/.config/zed/settings.json` is
+   `null` — hence Zed's `configured NativeAgent model did not become available
+   within 15s`.
+2. The whole file is `{}` (2 bytes). `settings-sync-daemon` is running (pid 871)
+   but Helix pushed **no** config at all — no `language_models`, no `agent` block.
+3. The project's agent app had every model field empty
+   (`generation_model`, `reasoning_model`, … all `""`). Setting
+   `generation_model=claude-sonnet-4-6` / `generation_model_provider=anthropic`
+   directly in `apps.config` did **not** cause the daemon to write settings for
+   the already-running session.
+4. Helix's `listAnthropicModels` populates the provider's catalogue from
+   `<ANTHROPIC_BASE_URL>/v1/models`, with **no filtering**. The proxy lists only
+   `openai/*` there, so no Claude model ever registers — even though the very
+   same proxy answers `/v1/messages` for `claude-sonnet-4-6` correctly.
+   `helix-models` only ever returns the seeded ollama/vllm rows.
+
+So a live agent turn in this inner Helix needs (at minimum) a populated model
+catalogue **and** a session started *after* the agent app has models set. Both
+are environment provisioning, unrelated to this change.
+
+**Conclusion:** the dockerized e2e remains the authoritative end-to-end evidence
+here — it drives a real Zed binary (built from this branch's Rust) against real
+Helix handler code, and it bypasses the model-catalogue problem by writing Zed's
+settings directly.
