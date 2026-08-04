@@ -90,7 +90,7 @@ default assumption — take it, note the choice in the write-up, and keep going.
 
 - [x] Write up findings and observed values in `design/2026-08-04-black-video-stream-regression.md`, explicitly stating that real-Safari confirmation is outstanding and why (no Safari in the sandbox)
 - [x] Commit with conventional-commit messages and push the feature branch (platform opens the PR)
-- [~] Check CI yourself (`gh pr checks` / Drone MCP tools); fix and re-check until green
+- [x] Check CI: Drone build **#3274** for `feature/002546-fix-black-desktop-video` @ `283b5914` = **SUCCESS** (build-frontend, unit-test, unit-test-nocgo, api-integration-test, linters, build-zed all green). Note main itself (#3262) was already failing `zed-e2e-test` before this branch — pre-existing and unrelated to these frontend-only changes
 
 ## Added during implementation
 
