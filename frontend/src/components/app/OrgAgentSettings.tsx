@@ -5,7 +5,6 @@ import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
 import FormControlLabel from '@mui/material/FormControlLabel'
-import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import Switch from '@mui/material/Switch'
 import TextField from '@mui/material/TextField'
@@ -71,7 +70,8 @@ const OrgAgentSettings: FC<{
 
   if (section === 'runtime') {
     return (
-      <Paper variant="outlined" sx={{ p: 2, m: 3, mb: 0 }}>
+      <Box sx={{ mt: 3 }}>
+        <Typography variant="subtitle1">Context</Typography>
         <FormControlLabel
           control={(
             <Switch
@@ -85,14 +85,14 @@ const OrgAgentSettings: FC<{
         <Typography variant="body2" color="text.secondary">
           Keep this org agent's conversation context between triggered runs.
         </Typography>
-      </Paper>
+      </Box>
     )
   }
 
   if (section === 'tools') {
     const tools = agent.tools ?? []
     return (
-      <Paper variant="outlined" sx={{ p: 2, m: 3, mb: 0 }}>
+      <Box sx={{ mt: 3, mb: 3 }}>
         <Stack spacing={1.5}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
             <Box>
@@ -130,7 +130,7 @@ const OrgAgentSettings: FC<{
             void update({ tools: selectedTools })
           }}
         />
-      </Paper>
+      </Box>
     )
   }
 

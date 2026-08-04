@@ -117,6 +117,8 @@ interface AppSettingsProps {
   readOnly?: boolean,
   showErrors?: boolean,
   isAdmin?: boolean,
+  section: 'instructions' | 'runtime',
+  hideAgentType?: boolean,
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}.`
@@ -187,6 +189,8 @@ const AppSettings: FC<AppSettingsProps> = ({
   readOnly = false,
   showErrors = true,
   isAdmin = false,
+  section,
+  hideAgentType = false,
 }) => {
   // Get initial showAdvanced value from URL
   const [showAdvanced, setShowAdvanced] = useState(() => {
@@ -584,9 +588,10 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   return (
     <Box sx={{ mt: 2, mr: 2 }}>
+      {section === 'instructions' && (
       <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
-          Configuration
+        <Typography variant="h5" sx={{ mb: 3 }}>
+          Instructions
         </Typography>
         <TextField
           id="app-name"
@@ -637,8 +642,17 @@ const AppSettings: FC<AppSettingsProps> = ({
             Markdown supported. Cmd/Ctrl+S saves immediately.
           </Typography>
         </Box>
+      </Box>
+      )}
+
+      {section === 'runtime' && (
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" sx={{ mb: 3 }}>
+          Runtime
+        </Typography>
 
         {/* Agent Type Selection */}
+      {!hideAgentType && (
       <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Type</Typography>
         <AgentTypeSelector
@@ -649,6 +663,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           size="small"
         />
       </Box>
+      )}
 
       {/* External Agent Configuration */}
       {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
@@ -1493,6 +1508,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           </Box>
         )}
       </Box>
+      )}
 
     </Box>
   )
