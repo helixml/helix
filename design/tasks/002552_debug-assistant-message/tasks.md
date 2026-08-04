@@ -2,9 +2,9 @@
 
 ## Confirm the diagnosis
 
-- [ ] Read `design/2026-07-03-spectask-live-message-truncation.md`, treating its
+- [~] Read `design/2026-07-03-spectask-live-message-truncation.md`, treating its
       "trailing-edge lag" conclusion as superseded
-- [ ] Bring up the inner Helix at `http://localhost:8080`, register `test@helix.ml` /
+- [~] Bring up the inner Helix at `http://localhost:8080`, register `test@helix.ml` /
       `helixtest`, complete onboarding, create a spec task so a live Zed agent streams
 - [ ] Reproduce: prompt the agent to print a distinctive long sentence then immediately
       run a tool call / `sleep 30`; confirm the long → short flicker
