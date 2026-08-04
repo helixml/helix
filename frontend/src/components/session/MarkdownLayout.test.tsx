@@ -19,6 +19,9 @@ describe('Markdown chat spacing', () => {
 
     const roots = container.querySelectorAll<HTMLElement>('[data-chat-markdown]')
     roots.forEach((root) => {
+      root.setAttribute('data-chat-markdown-visible', 'true')
+    })
+    roots.forEach((root) => {
       root.innerHTML = '<div class="interactionMessage"><p>First paragraph</p><p>Last paragraph</p></div>'
     })
     const messages = container.querySelectorAll<HTMLElement>('.interactionMessage')
@@ -29,5 +32,25 @@ describe('Markdown chat spacing', () => {
     expect(messages[1].firstElementChild).toHaveStyle({ marginTop: '0px' })
     expect(messages[1].lastElementChild).toHaveStyle({ marginBottom: '0px' })
     expect(roots[1]).toHaveStyle({ marginTop: '14px' })
+  })
+
+  it('does not add spacing to empty response entries', () => {
+    const { container } = render(
+      <ThemeProvider theme={theme}>
+        <Markdown text={'Visible entry'} session={session} getFileURL={() => ''} isStreaming />
+        <Markdown
+          text={'<think>Hidden entry</think>'}
+          session={session}
+          getFileURL={() => ''}
+          isStreaming={false}
+          renderThinkingWidget={false}
+        />
+      </ThemeProvider>,
+    )
+
+    const roots = container.querySelectorAll<HTMLElement>('[data-chat-markdown]')
+    expect(roots[0]).toHaveAttribute('data-chat-markdown-visible', 'true')
+    expect(roots[1]).not.toHaveAttribute('data-chat-markdown-visible')
+    expect(roots[1]).not.toHaveStyle({ marginTop: '14px' })
   })
 })

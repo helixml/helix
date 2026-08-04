@@ -1028,10 +1028,16 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
     };
   }, [text, isStreaming, processContent]);
 
+  const hasVisibleContent =
+    (renderContent && processedContent.trim().length > 0) ||
+    (renderThinkingWidget && Boolean(thinkingWidgetContent?.trim())) ||
+    Boolean(citationData?.excerpts?.length);
+
   return (
     <>
       <Box
         data-chat-markdown
+        data-chat-markdown-visible={hasVisibleContent ? "true" : undefined}
         sx={{
           fontSize: "0.875rem",
           lineHeight: 1.625,
@@ -1042,7 +1048,9 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           "& .interactionMessage > * + *": {
             marginTop: 1.75,
           },
-          "& + [data-chat-markdown]": {
+          // Empty response entries remain in the DOM, but must not receive
+          // spacing of their own.
+          "& + [data-chat-markdown][data-chat-markdown-visible='true']": {
             marginTop: 1.75,
           },
           "& pre": {
