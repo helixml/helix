@@ -86,7 +86,10 @@ Long user messages collapse when they exceed either 600 characters or eight line
 
 ### Turn and interrupt mechanics
 
-T3 gives a newly submitted turn a viewport-sized end spacer. Scrolling to the end therefore places the new user message near the top of the transcript, with a clean response area below it. As the response exceeds that reserved area, normal tail-following resumes. Manual upward scrolling still disengages auto-scroll.
+T3 gives a newly submitted turn a viewport-sized end spacer. Helix keeps the
+streaming status in the normal transcript flow instead: reserving that height
+on the whole interaction created a large blank region and visually displaced
+the status row. Manual upward scrolling still disengages auto-scroll.
 
 During an active turn, the composer swaps in a prominent destructive stop control: a red circular button with a white square. It is absent while idle. The control cancels the current turn without clearing the composer or changing the active session, so the next normal send continues in the same thread.
 
@@ -221,9 +224,11 @@ The component owns scroll-to-bottom coordination, upload integration, attachment
 
 ### Turn mechanics
 
-- While the newest interaction is `waiting`, give that turn a minimum height of one transcript viewport minus the normal gutters.
-- Continue using the existing scroll-to-bottom operation: the minimum height makes the user message land at the viewport top without a second competing scroll algorithm.
-- Remove the reserved height when the interaction completes or is interrupted.
+- Keep the newest interaction in normal document flow while it is `waiting`.
+- Continue using the existing scroll-to-bottom operation without adding a
+  second viewport-sized layout allocation.
+- Keep the streaming activity summary adjacent to the rendered response so an
+  invisible spacer cannot push it away from the transcript.
 - Respect the existing manual-scroll unlock. Do not force the viewport back to the active turn after the operator scrolls up.
 - Derive busy state inside `AgentChat` from the newest interaction so org chat and both spec-task layouts show the same red interrupt control.
 - After interrupting, keep the composer enabled and preserve session identity; the next send is the required lifecycle seam test.
