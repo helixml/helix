@@ -33,6 +33,7 @@ type SessionClient interface {
 // The adapter always sets session_role "exploratory" so it's resolvable
 // by the mirror's GetProjectExploratorySession lookup.
 type StartSessionParams struct {
+	Name           string
 	ProjectID      string
 	OrganizationID string
 	AppID          string
@@ -66,6 +67,11 @@ type SpawnerClient interface {
 	// instead of growing one long-lived session until it hits the model
 	// limit and compacts. See SpawnerConfig.ensureSession.
 	ClearSession(ctx context.Context, sessionID string) error
+	// SyncAgentProfile updates the durable display name on an existing session
+	// and, when its desktop is running, refreshes the runtime-native instruction
+	// files before a new ACP thread is created. A stopped desktop still gets the
+	// name update; its startup path projects the canonical instruction file.
+	SyncAgentProfile(ctx context.Context, sessionID, sessionName, instructions string) error
 }
 
 // checkDesktopQuota pre-flights the desktop quota gate before
@@ -103,6 +109,7 @@ func checkDesktopQuota(ctx context.Context, client SessionClient) error {
 // itself stays free of side-effects beyond the StartChat call.
 type SendPromptParams struct {
 	SessionID      string
+	SessionName    string
 	ProjectID      string
 	OrganizationID string
 	AppID          string
@@ -146,6 +153,7 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		return "", false, err
 	}
 	sid, err := client.StartSession(ctx, StartSessionParams{
+		Name:           params.SessionName,
 		ProjectID:      params.ProjectID,
 		OrganizationID: params.OrganizationID,
 		AppID:          params.AppID,

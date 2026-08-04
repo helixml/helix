@@ -8,6 +8,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
+	"github.com/helixml/helix/api/pkg/org/domain/briefing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -73,8 +74,8 @@ func (t *SetBotContent) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 			return nil, fmt.Errorf("update linked agent content: %w", err)
 		}
 	}
-	// Mirror the new content into the bot's Environment so a running
-	// session sees it without waiting for the next activation.
-	_ = t.deps.Workspace.MirrorFile(ctx, orgID, botID, "role.md", updated.Content, fmt.Sprintf("set_bot_content: %s", botID))
+	// Keep the single canonical instruction projection current. The spawner
+	// republishes it with any org-level override before the next activation.
+	_ = t.deps.Workspace.MirrorFile(ctx, orgID, botID, "runtime-instructions.md", briefing.BuildInstructions(botID, updated.Content), fmt.Sprintf("set_bot_content: %s", botID))
 	return json.Marshal(map[string]string{"id": string(botID)})
 }

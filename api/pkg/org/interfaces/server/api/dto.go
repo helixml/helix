@@ -36,7 +36,7 @@ type ToolDTO struct {
 }
 
 // BotDTO is one row in GET /bots and the body of GET /bots/{id}. A Bot
-// IS its own job description: Content is the canonical role.md markdown,
+// IS its own job description: Content is the canonical instruction markdown,
 // Tools is its live MCP surface. ParentIDs are the Nodes this one reports
 // to (empty for the org root). Reporting is many-to-many — a Bot may
 // report to several managers. A Bot's subscriptions are not on the bot —

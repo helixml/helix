@@ -363,6 +363,19 @@ func TestInProcSpawnerClient_ClearSession_NoSession_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestInProcSpawnerClient_SyncAgentProfileRenamesStoppedSession(t *testing.T) {
+	_, store, client, _, ctx := newInProcTestSetup(t)
+	_, err := store.CreateSession(ctx, types.Session{ID: "ses_profile", Name: "You are Bot old"})
+	require.NoError(t, err)
+
+	err = client.SyncAgentProfile(ctx, "ses_profile", "Build Engineer", "instructions")
+	require.ErrorContains(t, err, "external agent executor is not configured")
+
+	got, err := store.GetSession(ctx, "ses_profile")
+	require.NoError(t, err)
+	require.Equal(t, "Build Engineer", got.Name)
+}
+
 // TestParseEnvVarsToMap pins the KEY=value split that backs
 // ListProjectSecrets / list_secrets. A value containing `=` (base64,
 // tokens, URL query strings) must survive intact — Cut on the FIRST `=`

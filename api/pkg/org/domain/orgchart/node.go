@@ -29,7 +29,7 @@ const NodeKindHuman NodeKind = "human"
 // never ID.
 //
 // Content is the canonical markdown the Node's agent reads on activation
-// (it lands in role.md inside the Node's runtime environment). Tools is
+// (it lands in the runtime instruction file). Tools is
 // the live source of truth for the Node's MCP surface: the helix-org MCP
 // server registers exactly the tools in Node.Tools on every request, so
 // editing a Node's Tools changes its capability on the next MCP request.

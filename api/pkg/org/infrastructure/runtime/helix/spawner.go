@@ -291,7 +291,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		}
 		mandate := cfg.SpecsMandate
 		if mandate == "" {
-			instructions := bot.Content
+			mandate = bot.Content
 			if bot.AgentID != "" {
 				if cfg.ProjectService == nil {
 					return errors.New("load canonical agent instructions: project service is nil")
@@ -303,12 +303,20 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 				if len(appConfig.Helix.Assistants) != 1 {
 					return fmt.Errorf("linked agent %s must contain exactly one assistant", bot.AgentID)
 				}
-				instructions = appConfig.Helix.Assistants[0].SystemPrompt
+				mandate = appConfig.Helix.Assistants[0].SystemPrompt
 			}
-			mandate = "=== Current role ===\n" + instructions
 		}
-		prompt := briefing.BuildPrompt(workerID, mandate, triggers)
-		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, prompt, bot.PreserveContext, publish)
+		sessionName := bot.Name
+		if sessionName == "" {
+			sessionName = string(workerID)
+		}
+		instructions := briefing.BuildInstructions(workerID, mandate)
+		if err := cfg.prepareAgentInstructions(startupCtx, orgID, workerID, sessionName, instructions); err != nil {
+			publish(activation.OutcomeFromError(err).Marker())
+			return err
+		}
+		prompt := briefing.BuildPrompt(triggers)
+		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, prompt, bot.PreserveContext, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
@@ -327,6 +335,37 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		publish(activation.OutcomeFromError(err).Marker())
 		return err
 	}
+}
+
+const runtimeInstructionsFile = "runtime-instructions.md"
+
+// prepareAgentInstructions publishes the canonical instructions for both
+// cold and warm activation paths. Cold desktops copy the helix-specs file to
+// AGENTS.md / CLAUDE.md during workspace setup. Warm desktops receive the
+// same content directly before ensureSession clears the old ACP thread.
+func (c SpawnerConfig) prepareAgentInstructions(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions string) error {
+	if c.Workspace == nil {
+		return errors.New("prepare agent instructions: workspace is nil")
+	}
+	state, err := LoadState(ctx, c.Store, orgID, workerID)
+	if err != nil {
+		return fmt.Errorf("prepare agent instructions: load worker state: %w", err)
+	}
+	if state.RepoID == "" {
+		return fmt.Errorf("prepare agent instructions: worker %s has no repository", workerID)
+	}
+	if err := c.Workspace.EnsureBranch(ctx, state.RepoID, "main"); err != nil {
+		return fmt.Errorf("prepare agent instructions: ensure helix-specs branch: %w", err)
+	}
+	if err := c.Workspace.WriteWorkerFile(ctx, workerID, state.RepoID, runtimeInstructionsFile, instructions, "update runtime instructions"); err != nil {
+		return fmt.Errorf("prepare agent instructions: publish canonical file: %w", err)
+	}
+	if state.SessionID != "" {
+		if err := c.Client.SyncAgentProfile(ctx, state.SessionID, sessionName, instructions); err != nil {
+			return fmt.Errorf("prepare agent instructions: sync existing session: %w", err)
+		}
+	}
+	return nil
 }
 
 // newActivationRecord builds a fresh activation.Activation for one
@@ -365,7 +404,6 @@ func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.Node
 func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID orgchart.NodeID) error {
 	a := &WorkerProject{
 		Service:        c.ProjectService,
-		Workspace:      c.Workspace,
 		Store:          c.Store,
 		HelixOrgURL:    c.HelixOrgURL,
 		OrgID:          c.OrgID,
@@ -439,7 +477,7 @@ func sanitizeLogValue(value string) string {
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, prompt string, preserveContext bool, _ func(string)) (string, string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, prompt string, preserveContext bool, _ func(string)) (string, string, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return "", "", err
@@ -508,8 +546,9 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 	// one shared primitive the two paths drift apart and develop
 	// independent stale-session bugs.
 	sid, fresh, err := EnsureAndSend(ctx, c.Client, SendPromptParams{
-		SessionID: state.SessionID,
-		ProjectID: state.ProjectID,
+		SessionID:   state.SessionID,
+		SessionName: sessionName,
+		ProjectID:   state.ProjectID,
 		// OrganizationID tags the session row with the Worker's org so
 		// authorizeUserToSession can grant access to org members (e.g. the
 		// operator viewing the inline transcript). Without it the session

@@ -28,6 +28,7 @@ import (
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -852,6 +853,12 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 	if err != nil {
 		return "", fmt.Errorf("start external agent session: %w", err)
 	}
+	if params.Name != "" && session.Name != params.Name {
+		session.Name = params.Name
+		if _, err := c.server.Store.UpdateSession(ctx, *session); err != nil {
+			return "", fmt.Errorf("name external agent session: %w", err)
+		}
+	}
 	return session.ID, nil
 }
 
@@ -891,6 +898,46 @@ func (c *inProcHelixClient) ClearSession(ctx context.Context, sessionID string) 
 	}
 	if _, herr := c.server.clearSessionHandler(nil, r); herr != nil {
 		return fmt.Errorf("clear session %s: %s", sessionID, herr.Error())
+	}
+	return nil
+}
+
+// SyncAgentProfile refreshes the display name on every existing session and
+// the instruction files read natively by Codex and Claude on running desktops.
+// The spawner calls this before clearing the existing ACP thread.
+func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, sessionName, instructions string) error {
+	if sessionID == "" {
+		return errors.New("SyncAgentProfile: sessionID is required")
+	}
+	session, err := c.server.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("get session %s: %w", sessionID, err)
+	}
+	if sessionName != "" && session.Name != sessionName {
+		session.Name = sessionName
+		if _, err := c.server.Store.UpdateSession(ctx, *session); err != nil {
+			return fmt.Errorf("name session %s: %w", sessionID, err)
+		}
+	}
+	if c.server.externalAgentExecutor == nil {
+		return errors.New("SyncAgentProfile: external agent executor is not configured")
+	}
+	if !c.server.externalAgentExecutor.HasRunningContainer(ctx, sessionID) {
+		return nil
+	}
+	runtimeSession, err := c.server.externalAgentExecutor.GetSession(sessionID)
+	if err != nil {
+		return fmt.Errorf("get running desktop session %s: %w", sessionID, err)
+	}
+	sandboxID := runtimeSession.SandboxID
+	if sandboxID == "" {
+		sandboxID = "local"
+	}
+	hydraClient := hydra.NewRevDialClient(c.server.connman, "hydra-"+sandboxID)
+	for _, path := range []string{"/home/retro/work/AGENTS.md", "/home/retro/work/CLAUDE.md"} {
+		if err := hydraClient.WriteSandboxFile(ctx, sessionID, path, []byte(instructions), 0o644); err != nil {
+			return fmt.Errorf("write %s for session %s: %w", path, sessionID, err)
+		}
 	}
 	return nil
 }

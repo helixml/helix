@@ -9,19 +9,30 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 )
 
-// BuildPrompt assembles the per-activation prompt: identity hint +
-// mandate + the triggers that woke the Worker up. The dispatcher
+// BuildInstructions assembles the durable runtime instructions loaded by
+// Codex and Claude from AGENTS.md / CLAUDE.md before an activation starts.
+// The mandate is the canonical role text resolved by the runtime.
+func BuildInstructions(workerID orgchart.NodeID, mandate string) string {
+	return fmt.Sprintf(`You are Bot %s, running inside helix-org. Your environment is
+the current working directory. Each activation is a single turn — do
+the work and exit.
+
+=== Instructions ===
+%s
+`, workerID, mandate)
+}
+
+// BuildPrompt assembles the per-activation user message from only the
+// triggers that woke the Worker up. Durable identity and role instructions
+// live in the runtime's AGENTS.md / CLAUDE.md instead of being repeated in
+// every interaction. The dispatcher
 // coalesces bursts, so a single activation may carry multiple triggers
 // — the prompt frames them as a numbered list when that happens, so
 // the agent can read all of them before deciding what to do (often the
 // most recent supersedes the earlier ones). Tools are exposed natively
 // via MCP under the "helix" server (tool names appear as
 // mcp__helix__<name>); Claude figures the rest out from tools/list.
-//
-// `mandate` is the static text the agent reads first — for the Helix
-// runtime it's a short pointer at the helix-specs branch, which carries
-// the real policy text the Worker reads before acting.
-func BuildPrompt(workerID orgchart.NodeID, mandate string, triggers []activation.Trigger) string {
+func BuildPrompt(triggers []activation.Trigger) string {
 	var ctx strings.Builder
 
 	if len(triggers) > 1 {
@@ -38,7 +49,7 @@ func BuildPrompt(workerID orgchart.NodeID, mandate string, triggers []activation
 		case activation.TriggerEvent:
 			ctx.WriteString(renderTrigger(t))
 		case activation.TriggerManual:
-			ctx.WriteString("An operator manually woke you up from the worker UI. Re-read your role and identity (per the mandate above), summarise your current state, and stand by — the operator will follow up with instructions on the next message.\n")
+			ctx.WriteString("Manual activation. An operator woke you from the worker UI. Summarise your current state and stand by — the operator will follow up with instructions on the next message.\n")
 		default:
 			fmt.Fprintf(&ctx, "Activation kind: %q.\n", t.Kind)
 		}
@@ -47,17 +58,11 @@ func BuildPrompt(workerID orgchart.NodeID, mandate string, triggers []activation
 		}
 	}
 
-	return fmt.Sprintf(`You are Bot %s, running inside helix-org. Your environment is
-the current working directory. Each activation is a single turn — do
-the work and exit.
-
-%s
-
-=== Trigger ===
+	return fmt.Sprintf(`=== Trigger ===
 %s=== end trigger ===
 
 Act now. No preamble.
-`, workerID, mandate, ctx.String())
+`, ctx.String())
 }
 
 // renderTrigger formats an event-kind activation.Trigger for the activation
