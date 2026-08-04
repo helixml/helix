@@ -1,11 +1,27 @@
 # Implementation Tasks: Fix Black Desktop Video Stream from WebGL Context Loss
 
+## Testing constraint — read first
+
+**There is no Safari in this sandbox.** The Linux desktop has Chrome/Chromium only,
+driven via the `mcp__chrome-devtools__*` MCP tools. Do not treat this as a blocker and
+do not stall waiting for a Safari result.
+
+The bug is reachable without Safari. `isAppleWebKit()` is a one-line vendor-string check,
+so stubbing it to `true` makes Chromium take the exact same WebGL2 renderer path Safari
+takes, and `WEBGL_lose_context` reproduces context loss deterministically on any engine.
+That verifies the logic, the fix, and the recovery. What it does *not* verify is WebKit's
+own context-loss timing and frequency — say so plainly in the write-up rather than
+claiming Safari coverage.
+
+Work autonomously throughout. Every open question in requirements.md has a documented
+default assumption — take it, note the choice in the write-up, and keep going.
+
 ## Setup and reproduction (inner Helix only — never meta.helix.ml)
 
 - [ ] Confirm the inner Helix stack is up at `http://localhost:8080` (poll for several minutes; `helix-api-1`, `helix-frontend-1`, `helix-postgres-1` all `Up` and 8080 returning 200)
 - [ ] Register `test@helix.ml` / `helixtest`, complete onboarding (org → project), create a spec task so a real desktop session with a live video stream exists
 - [ ] Open the desktop viewer and confirm a healthy baseline stream (video painting, input working)
-- [ ] Temporarily stub `isAppleWebKit()` to `true` so the WebGL2 renderer runs under Chromium (local-only edit; revert before commit)
+- [ ] Temporarily stub `isAppleWebKit()` to `true` so the WebGL2 renderer runs under Chromium (local-only edit; revert before commit) — this is the substitute for Safari, and it is sufficient to drive every finding below
 
 ## Instrument before guessing
 

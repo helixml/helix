@@ -105,16 +105,22 @@ Per CLAUDE.md:
       `gl.isContextLost()`, and whether `VideoFrame`s reach the renderer.
 - [ ] Before/after shown in a real browser against a real desktop session — not a DOM
       harness, not a unit test.
-- [ ] Safari cannot be run in the sandbox. Force the WebKit branch by stubbing
-      `isAppleWebKit()` to true under Chromium and drive context loss explicitly with
-      `WEBGL_lose_context`. State plainly in the write-up that real-Safari confirmation is
-      outstanding and why.
+- [ ] **There is no Safari in this sandbox — Chrome/Chromium via `mcp__chrome-devtools__*`
+      only.** This is not a blocker. Force the WebKit branch by stubbing `isAppleWebKit()`
+      to true under Chromium and drive context loss explicitly with `WEBGL_lose_context`;
+      that exercises the identical renderer path and is sufficient to verify the fix.
+- [ ] State plainly in the write-up that real-Safari confirmation is outstanding, and that
+      what remains unverified is WebKit's own context-loss timing/frequency — not the fix logic.
 
 ### US-7 — Write-up and PR
 - [ ] Findings written to `design/2026-08-04-black-video-stream-regression.md`.
 - [ ] PR opened against `helixml/helix`, referenced by full URL.
 
 ## Open Questions
+
+**None of these block implementation.** Each has a documented default below — take it,
+record the choice in the write-up, and proceed. They are listed so the user can correct a
+guess at review time, not so work stops waiting for an answer.
 
 1. **Which defect fired on prod?** Findings 1, 2 and 3 all produce an identical
    black-screen-with-no-error signature. Finding 1 (driver-initiated context loss) best fits
