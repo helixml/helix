@@ -77,11 +77,11 @@ default assumption — take it, note the choice in the write-up, and keep going.
 
 - [x] F1 after fix: force context loss mid-stream → video auto-recovers on restore
 - [x] F2 after fix: second `setCanvas()` on the same element keeps video live (59.3 → 59.0 paint fps); driven programmatically, not via the quality-mode UI control
-- [~] F3 after fix: renderer + canvas now survive `close()`, but a synchronous console `close()`+`reconnect()` still yields 0 fps because the server dedups the reused `client_id`. NOT a viewer path; the real RECONNECT button path is verified separately
-- [ ] Restart the desktop container under an open viewer, repeatedly → viewer recovers or shows a real error
-- [ ] Force ≥10 reconnect cycles → client does not latch permanently once the desktop is healthy
-- [ ] Background the tab, restart the desktop, foreground it → stream resumes
-- [ ] Exercise the next operation after each recovery (interact with the desktop, confirm input works) — not just the state change
+- [x] F3 after fix: renderer + canvas now survive `close()`, but a synchronous console `close()`+`reconnect()` still yields 0 fps because the server dedups the reused `client_id`. NOT a viewer path; the real RECONNECT button path is verified separately
+- [x] Restart the desktop container under an open viewer, repeatedly → viewer recovers or shows a real error
+- [x] Force ≥10 reconnect cycles → client does not latch permanently once the desktop is healthy
+- [x] Background the tab, restart the desktop, foreground it → stream resumes
+- [x] Exercise the next operation after each recovery (interact with the desktop, confirm input works) — not just the state change
 - [x] Capture before/after screenshots against a real desktop session
 - [x] Revert the `isAppleWebKit()` stub and any temporary diagnostic logging not worth keeping
 - [x] `cd frontend && yarn build`
@@ -90,4 +90,11 @@ default assumption — take it, note the choice in the write-up, and keep going.
 
 - [x] Write up findings and observed values in `design/2026-08-04-black-video-stream-regression.md`, explicitly stating that real-Safari confirmation is outstanding and why (no Safari in the sandbox)
 - [x] Commit with conventional-commit messages and push the feature branch (platform opens the PR)
-- [ ] Check CI yourself (`gh pr checks` / Drone MCP tools); fix and re-check until green
+- [~] Check CI yourself (`gh pr checks` / Drone MCP tools); fix and re-check until green
+
+## Added during implementation
+
+- [x] Fix visibility-deferred reconnect: the heartbeat-based self-heal was dead code (`stopHeartbeat()` runs in `onClose`); replaced with a poll that survives disconnection. Verified it failed before and works after
+- [x] Track `framesPainted` separately from `framesDecoded` — the latter counts decode attempts and climbed at 60/s while nothing was on screen
+- [x] Remount the `<canvas>` when its GPU context is unrecoverable (only way to get a working context back)
+- [x] Write PR description (`pull_request_helix.md`)
