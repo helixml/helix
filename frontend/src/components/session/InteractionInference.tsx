@@ -35,6 +35,7 @@ interface TextActivitySegment {
 
 interface ToolActivitySegment {
   type: "tools";
+  index: number;
   entries: Array<{
     id: string;
     toolName: string;
@@ -54,20 +55,71 @@ const hasVisibleAssistantText = (content: string) => content
   .trim()
   .length > 0;
 
+const toolActivityEntry = (
+  entry: ResponseEntry,
+  index: number,
+  responseEntryCount: number,
+  isStreaming: boolean,
+) => ({
+  id: `${entry.message_id || "tool-call"}-${index}`,
+  toolName: entry.tool_name || "Tool Call",
+  status:
+    entry.tool_status ||
+    (index === responseEntryCount - 1 && isStreaming ? "Running" : "Completed"),
+  body: entry.content || "",
+});
+
 export function buildActivityTimeline(
   responseEntries: ResponseEntry[],
   isStreaming: boolean,
 ): { activitySegments: ActivitySegment[]; finalTextIndex: number | undefined } {
-  let finalTextIndex: number | undefined;
-  if (!isStreaming) {
-    for (let index = responseEntries.length - 1; index >= 0; index -= 1) {
-      if (
-        responseEntries[index].type === "text" &&
-        hasVisibleAssistantText(responseEntries[index].content)
-      ) {
-        finalTextIndex = index;
-        break;
+  if (isStreaming) {
+    let latestThinkingIndex = -1;
+    let latestToolIndex = -1;
+    const toolEntries: ToolActivitySegment["entries"] = [];
+
+    responseEntries.forEach((entry, index) => {
+      if (entry.type === "tool_call") {
+        latestToolIndex = index;
+        toolEntries.push(toolActivityEntry(entry, index, responseEntries.length, true));
+      } else if (hasThinking(entry.content)) {
+        latestThinkingIndex = index;
       }
+    });
+
+    const activitySegments: ActivitySegment[] = [];
+    responseEntries.forEach((entry, index) => {
+      if (entry.type !== "text") return;
+
+      const renderThinking = index === latestThinkingIndex && hasThinking(entry.content);
+      const renderContent = hasVisibleAssistantText(entry.content);
+      if (renderThinking || renderContent) {
+        activitySegments.push({
+          type: "text",
+          entry,
+          index,
+          renderThinking,
+          renderContent,
+        });
+      }
+    });
+
+    if (toolEntries.length > 0) {
+      activitySegments.push({ type: "tools", index: latestToolIndex, entries: toolEntries });
+    }
+    activitySegments.sort((left, right) => left.index - right.index);
+
+    return { activitySegments, finalTextIndex: undefined };
+  }
+
+  let finalTextIndex: number | undefined;
+  for (let index = responseEntries.length - 1; index >= 0; index -= 1) {
+    if (
+      responseEntries[index].type === "text" &&
+      hasVisibleAssistantText(responseEntries[index].content)
+    ) {
+      finalTextIndex = index;
+      break;
     }
   }
   const activitySegments: ActivitySegment[] = [];
@@ -87,20 +139,14 @@ export function buildActivityTimeline(
     }
 
     if (entry.type === "tool_call") {
-      const toolEntry = {
-        id: `${entry.message_id || "tool-call"}-${index}`,
-        toolName: entry.tool_name || "Tool Call",
-        status:
-          entry.tool_status ||
-          (index === responseEntries.length - 1 && isStreaming ? "Running" : "Completed"),
-        body: entry.content || "",
-      };
+      const toolEntry = toolActivityEntry(entry, index, responseEntries.length, false);
       const previousSegment = activitySegments[activitySegments.length - 1];
 
       if (previousSegment?.type === "tools") {
         previousSegment.entries.push(toolEntry);
+        previousSegment.index = index;
       } else {
-        activitySegments.push({ type: "tools", entries: [toolEntry] });
+        activitySegments.push({ type: "tools", index, entries: [toolEntry] });
       }
       return;
     }

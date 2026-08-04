@@ -137,15 +137,16 @@ only adjacent tool calls into a run. Each run shows its newest call and a
 `+N previous tool calls` disclosure; later prose starts a new run. The last text
 entry of a completed turn remains the final answer below the work disclosure.
 While streaming, every visible prose or tool entry stays in the live timeline
-because there is not yet a reliable final-answer boundary. Internal
-thinking-only entries are represented by compact `Thoughts` disclosures rather
-than assistant prose, and do not displace the final answer. They remain at their
-original positions inside the work transcript and split tool runs, so only
-genuinely adjacent calls are collapsed together. The disclosure body renders as
-Markdown; bold-only thought summaries are presented as one list rather than
-showing literal Markdown punctuation. The bulb icon identifies thought rows, so
-their headers show the first summary directly without a repeated `Thoughts`
-label.
+because there is not yet a reliable final-answer boundary. The live activity
+surface is intentionally compact: it keeps visible progress prose, collapses all
+tool calls into one run whose newest call remains visible, and shows only the
+latest thought state. Once the turn completes, internal thinking entries return
+to their original positions inside the work transcript and split tool runs, so
+only genuinely adjacent calls are collapsed together. The disclosure body
+renders as Markdown; bold-only thought summaries are presented as one list
+rather than showing literal Markdown punctuation. The bulb icon identifies
+thought rows, so their headers show the first summary directly without a
+repeated `Thoughts` label.
 
 Primary assistant prose uses a high-contrast near-white foreground in dark mode,
 including links. Reasoning summaries, command previews, durations, and other

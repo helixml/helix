@@ -79,6 +79,40 @@ describe("buildActivityTimeline", () => {
     ]);
   });
 
+  it("collapses the live tool history and keeps only the latest thought", () => {
+    const entries = [
+      entry("1", "text", "Visible progress update"),
+      entry("2", "tool_call", "first output", "first tool"),
+      entry("3", "text", "<thinking>Old reasoning</thinking>"),
+      entry("4", "tool_call", "second output", "second tool"),
+      entry("5", "text", "<thinking>Current reasoning</thinking>"),
+    ];
+
+    const timeline = buildActivityTimeline(entries, true);
+
+    expect(timeline.activitySegments).toMatchObject([
+      {
+        type: "text",
+        entry: { content: "Visible progress update" },
+        renderThinking: false,
+        renderContent: true,
+      },
+      {
+        type: "tools",
+        entries: [
+          { toolName: "first tool" },
+          { toolName: "second tool" },
+        ],
+      },
+      {
+        type: "text",
+        entry: { content: "<thinking>Current reasoning</thinking>" },
+        renderThinking: true,
+        renderContent: false,
+      },
+    ]);
+  });
+
   it("keeps final-entry thinking in the work transcript", () => {
     const entries = [
       entry("1", "text", "<thinking>Check the result</thinking>Final answer"),
