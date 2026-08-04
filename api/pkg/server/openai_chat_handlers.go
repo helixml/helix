@@ -269,7 +269,6 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		}
 
 		ctx = oai.SetContextAppID(ctx, app.ID)
-		ctx = oai.SetContextOrganizationID(ctx, options.OrganizationID)
 
 		log.Debug().Str("app_id", options.AppID).Msg("using app_id from request")
 
@@ -289,6 +288,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 
 	ctx = oai.SetContextAppID(ctx, options.AppID)
+	ctx = oai.SetContextOrganizationID(ctx, options.OrganizationID)
 
 	// Non-streaming request returns the response immediately
 	if !chatCompletionRequest.Stream {
