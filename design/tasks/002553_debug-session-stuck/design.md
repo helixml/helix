@@ -327,3 +327,72 @@ today's behaviour, never a prematurely completed live turn.
 - `finalizeCommentResponse` calls `GetCommentByRequestID`, which only fires when
   the event carries a non-empty `request_id`. That is why the pre-existing
   `TestMessageCompleted_Normal` never needed that expectation and the new tests do.
+
+---
+
+# Corrected Zed root cause (found during implementation)
+
+**The planning hypothesis was wrong, and the real cause is simpler and provable
+from the source.** Recording both so a future agent does not re-derive it.
+
+**Planning hypothesis (WRONG):** that `last_completed_request_id` is never
+written on the interrupt path, because an interrupted turn emits
+`turn_cancelled` rather than `message_completed`.
+
+**Why it is wrong:** `thread.cancel(cx)` emits `Stopped(Cancelled)`
+synchronously, so the `Stopped` handler *does* run for a cancelled turn and
+*does* write `last_completed_request_id`.
+
+**Actual cause:** the `Stopped` handler has a fallback for turns that produced no
+assistant entries — it reports the id from the global `THREAD_REQUEST_MAP`
+instead of the stale held one. It wrote **only** `last_completed_request_id`,
+leaving `turn_request_id` untouched. The assistant rotation requires
+`turn_request_id == last_completed_request_id`, so once the fallback makes them
+diverge, **that equality can never hold again** and the thread is frozen on the
+first turn's id for its whole life.
+
+Trace of the incident:
+
+| Turn | id | What happens |
+|---|---|---|
+| 1 | `…akby` | streams, interrupted. `Stopped` → both values = `…akby` |
+| 2 | `…am8a` | **0 chars**, so nothing rotates `turn_request_id`. `Stopped` takes the fallback → `last_completed = …am8a`, `turn_request_id` still `…akby` — **diverged** |
+| 3 | `…ammh` | streams 182,510 chars. Rotation checks `…akby == …am8a` → false → never rotates. Everything goes out as `…akby` |
+
+Fix: one line, setting `turn_request_id` alongside `last_completed_request_id`
+when the fallback fires. The `is_external_originated_entry` reordering the plan
+proposed is **not needed**.
+
+# What was actually verified (and what was not)
+
+**Verified:**
+- Deterministic repro as a unit test — reproduces the exact production log line
+  and fails on the pre-fix code.
+- `go test ./api/pkg/server/` green, including the new decision-matrix suites.
+- `cargo test -p external_websocket_sync` — 57 passed.
+- **Dockerized e2e, all 18 phases PASSED**, against a Zed binary rebuilt from the
+  Rust changes. Includes a new phase 18 exercising the `turn_status` round trip.
+
+**NOT verified — live spec-task run in the inner Helix.** Blocked: that instance
+has **no Anthropic models registered** (`models` table holds only vllm/ollama
+rows), so Zed logs `configured NativeAgent model did not become available within
+15s` and no agent turn can start. Confirmed the proxy at `:8081` *does* serve
+`claude-sonnet-4-6` on `/v1/messages` — it simply does not list Claude models in
+`/v1/models`, which is presumably why Helix never registers them. Anyone wanting
+a live agent turn in this sandbox must seed those model rows first.
+
+# Environment gotchas (this sandbox)
+
+- **No Rust toolchain, no gcc, no cmake by default.** Installing them
+  (`rustup` + `apt-get install gcc libc6-dev cmake pkg-config libssl-dev`) is
+  required before `cargo check` or `./stack build-zed`. Do not conclude the Zed
+  changes are untestable without doing this — the e2e is runnable here.
+- **`CGO_ENABLED=1 go test` fails** (no gcc initially); the default CGo-off build
+  runs the server suite fine, contrary to the CLAUDE.md note.
+- **The `claude` e2e round cannot pass here** — the proxy serves no Claude models
+  *to the agent package*, so it times out at phase 1 thread creation, before any
+  handler code. The `zed-agent` round covers the same Helix code.
+- **`syncEventCallback` in the e2e test server already holds `d.mu` on entry.**
+  Locking again inside a new `case` deadlocks the whole run with no error output.
+  This was caught only by running the e2e — exactly the reason CLAUDE.md makes
+  running it mandatory.
