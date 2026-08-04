@@ -310,7 +310,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   wakeSignal = 0,
 }) => {
   const lightTheme = useLightTheme();
-  const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket video mode
+  const canvasRef = useRef<HTMLCanvasElement | null>(null); // Canvas for WebSocket video mode
+  // Bumped to swap in a fresh <canvas> when its GPU context is unrecoverable.
+  const [canvasGeneration, setCanvasGeneration] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null); // Hidden input for iOS/iPad virtual keyboard
   const streamRef = useRef<WebSocketStream | null>(null); // WebSocket stream instance
@@ -1053,6 +1055,33 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           setIsConnected(false);
           setStatus("Connection failed");
           onConnectionChange?.(false);
+        } else if (data.type === "renderStalled") {
+          // Frames are arriving and decoding but nothing is reaching the canvas.
+          // Nothing else watches this window, so without it the user just sees a
+          // black rectangle indefinitely. Reuses the gaveUp error surface.
+          addConnectionLog(
+            `Render stalled ${Math.round(data.stalledMs / 1000)}s (${data.reason})`,
+          );
+          console.error(
+            `[DesktopStreamViewer] Render stalled (${data.reason}) after ${data.stalledMs}ms`,
+          );
+          if (data.reason === "contextLost") {
+            // The renderer already asked the browser to restore and got nowhere,
+            // so this context is not coming back. Swap in a fresh canvas element —
+            // the only way to obtain a working context again.
+            setCanvasGeneration((g) => g + 1);
+          }
+          setError(
+            data.reason === "contextLost"
+              ? "The browser dropped the graphics context. Recovering the video stream…"
+              : "The video stream is connected but no picture is being drawn. Reconnect to restore the video stream.",
+          );
+          setIsConnecting(false);
+          setStatus("Video stalled");
+        } else if (data.type === "renderRecovered") {
+          addConnectionLog("Render recovered");
+          setError(null);
+          setStatus("Streaming active");
         } else if (data.type === "reconnectDeferred") {
           addConnectionLog(`Reconnect deferred (${data.reason})`);
           setStatus("Paused (tab in background)");
@@ -5326,9 +5355,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         />
       )}
 
-      {/* Canvas Element - centered with proper aspect ratio */}
+      {/* Canvas Element - centered with proper aspect ratio.
+          `key` is bumped to force a BRAND NEW element when the GPU context dies:
+          a canvas is bound to one context per type for its lifetime, so a lost
+          and unrestorable context can only be escaped by replacing the element. */}
       <canvas
-        ref={canvasRef}
+        key={canvasGeneration}
+        ref={(node) => {
+          canvasRef.current = node;
+          // Re-attach on remount, otherwise the stream keeps drawing into the
+          // detached old element and the new one stays blank.
+          if (node && streamRef.current && qualityMode !== "screenshot") {
+            streamRef.current.setCanvas(node);
+          }
+        }}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}

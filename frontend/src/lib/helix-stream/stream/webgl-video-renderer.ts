@@ -39,11 +39,17 @@ void main() {
 
 export class WebGLVideoRenderer {
   private gl: WebGL2RenderingContext
-  private program: WebGLProgram
-  private texture: WebGLTexture
-  private vao: WebGLVertexArrayObject
+  private program: WebGLProgram | null = null
+  private texture: WebGLTexture | null = null
+  private vao: WebGLVertexArrayObject | null = null
   private vpW = 0
   private vpH = 0
+  private contextLost = false
+  // Must be grabbed while the context is ALIVE: getExtension() returns null once
+  // the context is lost, so fetching it on demand in the loss handler is too late.
+  private loseCtxExt: WEBGL_lose_context | null = null
+  private readonly onLost: (e: Event) => void
+  private readonly onRestored: () => void
 
   constructor(private canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", {
@@ -60,13 +66,73 @@ export class WebGLVideoRenderer {
     }
     this.gl = gl
 
+    // The browser drops the GPU context routinely — tab backgrounding, a GPU
+    // process recycle, a driver reset. preventDefault() is what makes it attempt
+    // a restore; without these handlers every GL call silently becomes a no-op
+    // and the canvas stays black forever while decode keeps succeeding.
+    this.onLost = (e: Event) => {
+      e.preventDefault()
+      this.contextLost = true
+      this.program = null
+      this.texture = null
+      this.vao = null
+      this.vpW = 0
+      this.vpH = 0
+      // A real driver/GPU-process loss is restored by the browser on its own;
+      // a synthetic one (WEBGL_lose_context, and some WebKit paths) is not, and
+      // would otherwise wait forever.
+      this.requestRestore()
+    }
+    this.onRestored = () => {
+      this.initGL()
+      this.contextLost = false
+    }
+    canvas.addEventListener("webglcontextlost", this.onLost)
+    canvas.addEventListener("webglcontextrestored", this.onRestored)
+
+    if (gl.isContextLost()) {
+      // A canvas hands out one context per type for its lifetime, so there is no
+      // "get a fresh one" — the only way back is a restore. Construct in a
+      // not-ready state (draw() no-ops, the watchdog reports it) and ask the
+      // browser to restore; initGL() then runs from the restored handler.
+      this.contextLost = true
+      this.requestRestore()
+      return
+    }
+    this.initGL()
+  }
+
+  /** True while the GPU context is gone. Frames cannot be presented until restore. */
+  isContextLost(): boolean {
+    return this.contextLost || this.gl.isContextLost()
+  }
+
+  /** Ask the browser to bring the context back. Harmless if it is already
+   *  restoring on its own; the work happens in the webglcontextrestored handler. */
+  private requestRestore() {
+    // Must not run inside the webglcontextlost handler — the context is still
+    // being torn down at that point and the request is rejected. Defer a tick.
+    setTimeout(() => {
+      if (!this.gl.isContextLost()) return
+      try {
+        this.loseCtxExt?.restoreContext()
+      } catch {
+        /* browser will restore on its own, or the canvas is gone */
+      }
+    }, 0)
+  }
+
+  /** Allocate all GL objects. Runs at construction and again on context restore. */
+  private initGL() {
+    const gl = this.gl
+    this.loseCtxExt = gl.getExtension("WEBGL_lose_context")
     this.program = this.buildProgram(VERTEX_SHADER, FRAGMENT_SHADER)
 
     // A bound VAO is required to draw in WebGL2 even with no vertex attributes.
-    this.vao = gl.createVertexArray()!
+    this.vao = gl.createVertexArray()
     gl.bindVertexArray(this.vao)
 
-    this.texture = gl.createTexture()!
+    this.texture = gl.createTexture()
     gl.bindTexture(gl.TEXTURE_2D, this.texture)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
@@ -78,8 +144,13 @@ export class WebGLVideoRenderer {
     gl.activeTexture(gl.TEXTURE0)
   }
 
-  /** Upload one frame and present it. Resizes the canvas/viewport on change. */
-  draw(frame: VideoFrame, targetWidth: number, targetHeight: number) {
+  /**
+   * Upload one frame and present it. Resizes the canvas/viewport on change.
+   * Returns false if the frame could not be presented (context lost) so the
+   * caller can tell "painted" from "silently swallowed".
+   */
+  draw(frame: VideoFrame, targetWidth: number, targetHeight: number): boolean {
+    if (this.isContextLost() || !this.texture) return false
     const gl = this.gl
     if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
       this.canvas.width = targetWidth
@@ -94,18 +165,27 @@ export class WebGLVideoRenderer {
     // Re-spec the texture each frame so resolution changes mid-stream are handled.
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
+    return true
   }
 
   dispose() {
+    this.canvas.removeEventListener("webglcontextlost", this.onLost)
+    this.canvas.removeEventListener("webglcontextrestored", this.onRestored)
     const gl = this.gl
     try {
       gl.deleteTexture(this.texture)
       gl.deleteProgram(this.program)
       gl.deleteVertexArray(this.vao)
-      gl.getExtension("WEBGL_lose_context")?.loseContext()
+      // NOTE: deliberately NOT loseContext(). A canvas hands out one context per
+      // type for its lifetime, so force-losing it here permanently bricks the
+      // element — a later getContext("webgl2") returns the same dead context and
+      // getContext("2d") returns null, leaving nothing able to draw.
     } catch {
       /* noop */
     }
+    this.program = null
+    this.texture = null
+    this.vao = null
   }
 
   private buildProgram(vsSrc: string, fsSrc: string): WebGLProgram {
