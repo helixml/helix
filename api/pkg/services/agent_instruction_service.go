@@ -176,9 +176,15 @@ git push origin helix-specs
 1. Read design docs: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
 2. Verify branch: ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git branch --show-current`" + ` (should be {{.BranchName}})
 3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
-4. Before pushing code, merge the latest default branch into your feature branch in every repo that has changes:
+4. **Before pushing code, merge the base branch into your feature branch in every repo that has changes. This is not optional.**
    ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git fetch origin {{.BaseBranch}} && git merge origin/{{.BaseBranch}}`" + `
-   Resolve any conflicts and commit before pushing.
+   **Why it matters:** your branch can only land if ` + "`{{.BaseBranch}}`" + ` is an ancestor of it. Skip this and the branch diverges, the merge is refused, and your work sits on a branch nobody can land. Check with:
+   ` + "`git merge-base --is-ancestor origin/{{.BaseBranch}} HEAD && echo mergeable`" + `
+   **Resolving conflicts is your job, and you have the context to do it well:**
+   - Append-only logs and ledgers (daily logs, tracking tables): keep BOTH sides. Two people's entries for the same day are both true; picking one silently deletes someone's work.
+   - Two edits of the same rule: keep the newer structure and fold in any unique detail from the older one, rather than discarding either.
+   - Genuinely ambiguous, where choosing wrong would lose real information or change intent: **ask.** Use ` + "`request_human_attention`" + ` with the specific question. Do not guess, and do not abandon the branch.
+   Commit the merge before pushing.
 5. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
 6. **Do NOT create pull requests yourself** (no ` + "`gh pr create`" + `, no GitHub MCP tools). Pushing to the branch is sufficient. The Helix platform creates the GitHub PR automatically when the user clicks "Open PR" in the UI.
 

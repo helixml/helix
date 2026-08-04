@@ -1072,6 +1072,20 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
 				continue
 			}
+
+			// Autonomous runs have nobody to click Accept. On an internal repo
+			// there is also no PR path (CreatePullRequest rejects a repo with no
+			// ExternalURL), so without this the branch is never merged by any
+			// route: it just accumulates commits, diverges from main, and
+			// eventually cannot even fast-forward. That is how a fortnight of
+			// chris-outreach memory ended up stranded across five branches.
+			if task.Type == specTaskTypeBotRun && !repo.IsExternal {
+				s.wg.Add(1)
+				go func(taskID string) {
+					defer s.wg.Done()
+					s.tryAutoMergeBotRun(context.Background(), taskID)
+				}(task.ID)
+			}
 		case types.TaskStatusImplementationReview:
 			// A push arrived while a PR is open. Always re-sync the PR
 			// title/description from helix-specs so edits to
@@ -1231,6 +1245,81 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		Str("source_branch", task.BranchName).
 		Str("target_branch", repo.DefaultBranch).
 		Msg("auto-merge: server-side merge completed after agent rebase push")
+}
+
+// specTaskTypeBotRun is the SpecTask.Type that HelixOS sets when it dispatches an
+// autonomous bot run (see helixos api/internal/bridge/bridge.go). These runs are
+// unattended: no human ever clicks Accept, so they need the merge driven for them.
+const specTaskTypeBotRun = "bot_run"
+
+// tryAutoMergeBotRun fast-forward merges an autonomous bot run's feature branch
+// into the default branch after the agent pushes.
+//
+// Only for INTERNAL repos. External repos already have a working path (open a PR,
+// human merges it); internal repos have none, because CreatePullRequest refuses a
+// repo with no ExternalURL and the only other route, approveImplementation, waits
+// on a human click that never comes for a cron run.
+//
+// Deliberately does NOT set the task to `done`. HelixOS treats bots as
+// long-running (one persistent spec task per bot, terminated only when the bot is
+// archived), so completing the task here would stop the bot. We record the merge
+// and leave the lifecycle alone.
+//
+// If the fast-forward is not possible the branch has diverged. We do not attempt a
+// content merge server-side: the agent is told to merge the base branch into its
+// own before pushing (see agent_instruction_service.go), which is where conflict
+// resolution belongs — it can read the files, apply judgment, and ask a human.
+func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string) {
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("bot auto-merge: get task failed")
+		return
+	}
+	// Re-check under fresh state: the row may have moved since the push hook fired.
+	if task.Status != types.TaskStatusImplementation || task.Type != specTaskTypeBotRun {
+		return
+	}
+	if task.BranchName == "" {
+		return
+	}
+
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err != nil || project.DefaultRepoID == "" {
+		return
+	}
+	repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil || repo.DefaultBranch == "" {
+		return
+	}
+	// Guard again on the repo we actually resolved, not the one that was pushed to.
+	if repo.IsExternal {
+		return
+	}
+
+	if _, mergeErr := MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); mergeErr != nil {
+		log.Warn().
+			Err(mergeErr).
+			Str("task_id", task.ID).
+			Str("source_branch", task.BranchName).
+			Str("target_branch", repo.DefaultBranch).
+			Msg("bot auto-merge: branch has diverged from the default branch and cannot fast-forward - the agent must merge the base branch into its feature branch and push again")
+		return
+	}
+
+	now := time.Now()
+	task.MergedToMain = true
+	task.MergedAt = &now
+	task.UpdatedAt = now
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("bot auto-merge: failed to record merge on task")
+		return
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("source_branch", task.BranchName).
+		Str("target_branch", repo.DefaultBranch).
+		Msg("bot auto-merge: fast-forward merged autonomous run into default branch")
 }
 
 // handleMainBranchPush transitions task from implementation_review → done
