@@ -212,3 +212,83 @@ write-up must say so plainly rather than claiming Safari coverage.
 - **Order of investigation that worked here:** trust the server-side evidence in the
   brief, then read the render path bottom-up from the canvas rather than top-down from
   the socket. The socket was never the problem.
+
+---
+
+# ROOT CAUSE FOUND — corrects §2 above
+
+**The planning hypothesis (WebGL context loss) was WRONG.** Reproduced live in the inner
+Helix on 2026-08-04, the actual mechanism is an unsatisfiable-condition **deadlock in
+`PlayoutScheduler`** (`frontend/src/lib/helix-stream/stream/playout-scheduler.ts`).
+
+## Live proof
+
+Captured from the running viewer while the canvas was frozen, socket healthy:
+
+```json
+{"targetFrames":152,"prevTargetFrames":152,"prerolling":true,
+ "nominalIntervalMs":16.5,"queueLen":30,"MAX_QUEUE":30,
+ "decayAccumMs":1688,"depthMs":2508,"canEverClearPreroll":false}
+```
+
+Alongside: `framesDropped` climbing by ~44/s, `framesDecoded` frozen at 2,
+`decoderState:"configured"`, `receivedFirstKeyframe:true`, `reconnectAttempts:0`,
+`gaveUp:false`, `glContextLost:false`, rAF firing at ~53 Hz.
+
+## The mechanism
+
+`tick()` only ever clears the preroll hold with:
+
+```ts
+if (this.prerolling && q.length > target) this.prerolling = false
+```
+
+and `present()` is gated behind `if (!this.prerolling && paceReady)`.
+
+But `push()` hard-caps the queue at `MAX_QUEUE = 30`. So whenever
+`targetFrames >= MAX_QUEUE`, `q.length > target` is **unsatisfiable** — `prerolling`
+latches `true` forever, `present()` is never called again, and every arriving frame is
+dropped at the queue cap. The canvas freezes on its last painted frame (or stays black if
+none was ever painted) while the socket, decoder and encoder all stay perfectly healthy.
+
+## Why `targetFrames` reaches 152
+
+```ts
+const maxFrames = Math.max(1, Math.floor(this.MAX_DELAY_MS / median))   // MAX_DELAY_MS = 120
+raw = Math.max(1, Math.min(maxFrames, Math.round(jitter / median)))
+```
+
+`median` is the median **inter-arrival** interval, not the frame cadence. After any stall
+(reconnect, tab background/foreground, decoder hiccup, a throttled rAF period) the socket
+delivers a catch-up **burst** whose inter-arrival spacing collapses to well under 1 ms.
+With `median ≈ 0.78 ms`, `maxFrames = floor(120/0.78) = 152` — so the "cap the buffer at
+120 ms" invariant silently becomes a 152-frame buffer, which at the real 60 fps cadence is
+**2.5 seconds**, 20× the intended cap. `raw >= targetFrames` rises instantly (peak-hold),
+so a single burst latches it.
+
+Recovery is `TARGET_DECAY_MS = 2000` → **one frame per 2 seconds**. From 152 that is over
+4 minutes before `target` even falls under 30 and presentation can resume — and any new
+burst re-peaks it to the top. That is exactly Luke's 7-minute black screen.
+
+## Why it looked Safari-only and looked like a recent regression
+
+It is **engine-independent** — I reproduced it in Chromium. Safari just hits the trigger
+far more often: WebKit throttles background tabs harder, so the foreground catch-up burst
+that poisons `median` is routine there. The scheduler landed in `bcf7a34f9`
+(2026-06-17, "GL→CUDA fence + playout coalesce for 4K stale frames"), well before the two
+Jul 29 commits in the brief's suspect list. It needs a burst to fire, which is why it
+presents as intermittent and recent rather than as a clean regression at one commit.
+
+## What this means for the original hypotheses
+
+- **Hypothesis A (retry budget)** — not implicated. Observed `reconnectAttempts:0`,
+  `gaveUp:false` during the freeze. Still a latent defect; fixing separately per plan.
+- **Hypothesis B (WebGL context loss)** — not the cause. Observed `glContextLost:false`
+  throughout. The missing `webglcontextlost` handling is nevertheless a real gap that
+  produces an identical silent-black failure, so it is still worth fixing.
+- **Hypothesis C (state machine/overlay)** — resolved: the overlay correctly hides because
+  `videoStarted` genuinely fired. The canvas is genuinely frozen. Confirms the brief's
+  instinct that establishing this early splits the diagnosis.
+
+The "black screen must never be silent" requirement (US-3) is unchanged and now clearly
+the most valuable part of the fix: every one of these mechanisms is invisible today.
