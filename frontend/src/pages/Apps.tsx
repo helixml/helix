@@ -2,7 +2,8 @@ import React, { FC, useCallback, useEffect, useState } from 'react'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
-import Box from '@mui/material/Box'
+import Stack from '@mui/material/Stack'
+import Typography from '@mui/material/Typography'
 
 import Page from '../components/system/Page'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -96,10 +97,12 @@ const Apps: FC = () => {
         maxWidth="xl"
         sx={{
           mb: 4,
+          pt: 3,
         }}
       >
-        <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+        <Stack spacing={2}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+            <Typography variant="h5">Agents</Typography>
             <Button
               id="new-app-button"
               variant="contained"
@@ -109,15 +112,20 @@ const Apps: FC = () => {
             >
               New Agent
             </Button>
-          </Box>
-          <AppsTable
-            authenticated={ !!account.user }
-            data={ apps.apps }
-            onEdit={ onEditApp }
-            onDelete={ setDeletingApp }
-            orgId={ account.organizationTools.organization?.id || '' }
-          />
-        </Paywall>
+          </Stack>
+          <Typography variant="body2" color="text.secondary">
+            Agents in this org. Click an agent to edit instructions, tools and subscriptions.
+          </Typography>
+          <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+            <AppsTable
+              authenticated={ !!account.user }
+              data={ apps.apps }
+              onEdit={ onEditApp }
+              onDelete={ setDeletingApp }
+              orgId={ account.organizationTools.organization?.id || '' }
+            />
+          </Paywall>
+        </Stack>
       </Container>
       {
         deletingApp && (

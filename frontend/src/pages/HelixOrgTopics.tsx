@@ -167,25 +167,24 @@ const HelixOrgTopics: FC = () => {
       <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                Named event channels Workers can subscribe to. Each topic carries a Transport (local
-                pub/sub, GitHub webhooks, Postmark inbound email, plain webhooks). Workers subscribe via
-                the <code>subscribe</code> MCP tool; the chart shows the resulting (worker → topic)
-                edges as dashed lines.
-              </Typography>
-            </Box>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+            <Typography variant="h5">Topics</Typography>
             <Button
               variant="contained"
               color="secondary"
               startIcon={<AddIcon />}
               onClick={() => setCreateOpen(true)}
-              sx={{ flexShrink: 0, mt: 0.5 }}
+              sx={{ flexShrink: 0 }}
             >
               New topic
             </Button>
           </Stack>
+          <Typography variant="body2" color="text.secondary">
+            Named event channels Workers can subscribe to. Each topic carries a Transport (local
+            pub/sub, GitHub webhooks, Postmark inbound email, plain webhooks). Workers subscribe via
+            the <code>subscribe</code> MCP tool; the chart shows the resulting (worker → topic)
+            edges as dashed lines.
+          </Typography>
 
           {isLoading ? (
             <LoadingSpinner />
