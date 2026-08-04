@@ -3,8 +3,6 @@ name: CodeQL
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   schedule:
     # Weekly catch-all so main keeps a fresh scan even with no pushes.
     - cron: '23 4 * * 1'
