@@ -11,23 +11,12 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import Button from "@mui/material/Button";
-import IconButton from "@mui/material/IconButton";
-import Tooltip from "@mui/material/Tooltip";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import VerticalAlignBottomIcon from "@mui/icons-material/VerticalAlignBottom";
 import KeyboardDoubleArrowDownIcon from "@mui/icons-material/KeyboardDoubleArrowDown";
-import PauseIcon from "@mui/icons-material/Pause";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  useAutoScrollPreference,
   AUTO_SCROLL_NEAR_BOTTOM_PX,
-  USER_SCROLL_UNLOCK_PX,
 } from "../../hooks/useAutoScrollPreference";
-
-// Timeout (ms) after which a fresh wheel event is treated as a new gesture
-// and the upward-scroll accumulator resets. Stops "scroll up 60px, read,
-// then scroll up another 60px" from cumulatively crossing the threshold.
-const USER_SCROLL_GESTURE_TIMEOUT_MS = 500;
 
 // Number of interactions to render initially (and per "load more" click).
 // Keep this low — long-running agent sessions can have interactions with
@@ -65,12 +54,6 @@ interface EmbeddedSessionViewProps {
   sessionId: string;
   onScrollToBottom?: () => void;
   enableInteractionDebugCopy?: boolean;
-  // When true, force the (otherwise persisted, globally-shared)
-  // auto-scroll preference ON when this view mounts. Surfaces that want
-  // the transcript to follow live output by default — e.g. the helix-org
-  // worker detail chat — opt in so a previously-toggled-OFF value doesn't
-  // leave the chat opening paused.
-  autoScrollOnMount?: boolean;
 }
 
 export interface EmbeddedSessionViewHandle {
@@ -80,30 +63,17 @@ export interface EmbeddedSessionViewHandle {
 /**
  * EmbeddedSessionView - session message thread viewer.
  *
- * Auto-scroll model (deliberately simple — see commit history for prior
- * sticky-scroll attempts that were too race-prone to be reliable):
+ * Auto-scroll model:
  *
- *   - A single global preference (`helix.autoScroll`, default ON) controls
- *     whether new content auto-scrolls the chat to the bottom.
- *   - When ON: every content-height *growth* (driven by ResizeObserver on
- *     the inner content Box) is followed by a scroll to bottom. Renders that don't
- *     grow content (3s polls, WS keepalives, identical re-renders) do
- *     no scroll work — `scrollToBottom()` is a no-op when
- *     `container.scrollHeight === lastScrolledHeightRef.current`.
- *   - When OFF: no auto-scroll. If new content lands below the viewport,
- *     a "Jump to latest" pill appears; clicking it scrolls to bottom and
- *     re-enables the preference.
- *   - Auto-scroll flips OFF in two ways: (a) the toggle button (bottom
- *     right), and (b) explicit user scroll-up — if the user wheels or
- *     finger-drags upward by a cumulative ≥ USER_SCROLL_UNLOCK_PX (100px)
- *     within a single gesture. We listen to `wheel` and `touchmove`
- *     directly (not `scrollTop` deltas) so programmatic scrolls and
- *     content reflow above the viewport cannot trip the unlock.
+ *   - New content follows the viewport while it is at the bottom.
+ *   - Scrolling above the bottom pauses follow mode immediately.
+ *   - Returning to the bottom resumes follow mode automatically.
+ *   - If content arrives while paused, a "Jump to latest" pill appears.
  */
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
   EmbeddedSessionViewProps
->(({ sessionId, onScrollToBottom, autoScrollOnMount, enableInteractionDebugCopy }, ref) => {
+>(({ sessionId, onScrollToBottom, enableInteractionDebugCopy }, ref) => {
   const account = useAccount();
   const api = useApi();
   const lightTheme = useLightTheme();
@@ -116,27 +86,12 @@ const EmbeddedSessionView = forwardRef<
   const queryClient = useQueryClient();
   const { NewInference } = useStreaming();
 
-  // Global on/off preference for auto-scroll. Default ON.
-  const [autoScroll, setAutoScroll] = useAutoScrollPreference();
-  const autoScrollRef = useRef(autoScroll);
-  useEffect(() => {
-    autoScrollRef.current = autoScroll;
-  }, [autoScroll]);
+  // Whether content growth should keep the viewport pinned to the bottom.
+  // This is derived from user scroll position, not a persisted preference.
+  const shouldFollowLatestRef = useRef(true);
 
-  // Opt-in surfaces (autoScrollOnMount) want the transcript to follow
-  // live output regardless of a previously-persisted OFF value. Force
-  // the preference ON once on mount. Runs once — after that the toggle
-  // and scroll-up unlock behave normally.
-  useEffect(() => {
-    if (autoScrollOnMount && !autoScrollRef.current) {
-      autoScrollRef.current = true;
-      setAutoScroll(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // True when auto-scroll is OFF and new content has landed below the viewport.
-  // Drives the "Jump to latest" pill.
+  // True when new content has landed below a viewport that is away from the
+  // latest message. Drives the "Jump to latest" pill.
   const [hasNewBelow, setHasNewBelow] = useState(false);
 
   // Last scrollHeight we wrote scrollTop to. Used to short-circuit
@@ -145,25 +100,6 @@ const EmbeddedSessionView = forwardRef<
   // message/responseEntries reference change, throttled but ungated) would
   // trigger a redundant scroll write per polling interval and per WS update.
   const lastScrolledHeightRef = useRef(0);
-
-  // Cumulative upward user-scroll distance (px) within the current gesture.
-  // Flipped to autoScroll=OFF when this crosses USER_SCROLL_UNLOCK_PX.
-  const upwardAccumRef = useRef(0);
-  // Timestamp of the last wheel event, used to detect a fresh gesture and
-  // reset the accumulator after a quiet gap.
-  const lastWheelTsRef = useRef(0);
-  // Touch state for tracking finger-drag direction.
-  const touchStartYRef = useRef<number | null>(null);
-  const lastTouchYRef = useRef<number | null>(null);
-  // Last scrollTop observed in handleScroll. Used to distinguish
-  // "user actively scrolled toward the bottom" (delta > 0) from
-  // "content shrank and the viewport happens to be near the bottom now"
-  // (delta == 0). Pre-recorded after every programmatic scrollTop write
-  // so the resulting onScroll event sees no delta and doesn't falsely
-  // re-enable auto-scroll.
-  const lastScrollTopRef = useRef(0);
-  const navigatorScrollSequenceRef = useRef(0);
-  const isNavigatorScrollingRef = useRef(false);
 
   // Pagination state: track which page we've loaded up to (page 0 = newest)
   const [oldestPageLoaded, setOldestPageLoaded] = useState(0);
@@ -181,47 +117,34 @@ const EmbeddedSessionView = forwardRef<
     return scrollTop + clientHeight >= scrollHeight - AUTO_SCROLL_NEAR_BOTTOM_PX;
   }, []);
 
-  // Clears the pill when the user scrolls back to the bottom, and re-enables
-  // auto-scroll when the user actively scrolls down into the near-bottom zone.
-  // We detect "user actively scrolled down" via a strictly-increasing
-  // scrollTop delta — content reflow (e.g. a tool-call below the viewport
-  // collapsing) leaves scrollTop unchanged, so we won't re-engage auto-scroll
-  // without a user signal. Programmatic scroll writes elsewhere in this file
-  // pre-record lastScrollTopRef so the resulting onScroll sees no delta.
+  // The scroll position is the source of truth for whether new content should
+  // follow the viewport. Programmatic scrolls also land at the bottom, so they
+  // naturally restore follow mode without a separate toggle state.
   const handleScroll = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const prevScrollTop = lastScrollTopRef.current;
-    const currScrollTop = container.scrollTop;
-    lastScrollTopRef.current = currScrollTop;
-
-    if (isNavigatorScrollingRef.current) return;
-    if (autoScrollRef.current) return;
-    if (!isNearBottom()) return;
-
-    setHasNewBelow(false);
-
-    if (currScrollTop > prevScrollTop) {
-      setAutoScroll(true);
-      autoScrollRef.current = true;
-      upwardAccumRef.current = 0;
+    if (isNearBottom()) {
+      shouldFollowLatestRef.current = true;
+      setHasNewBelow(false);
+    } else {
+      shouldFollowLatestRef.current = false;
     }
-  }, [isNearBottom, setAutoScroll]);
+  }, [isNearBottom]);
 
-  // Scroll to bottom. Respects the auto-scroll preference unless `force` is set
-  // (force is only used for initial mount, session change, and the
-  // jump-to-latest pill click). Non-force calls also short-circuit when
-  // scrollHeight hasn't changed since the last write — see lastScrolledHeightRef.
+  // Scroll to bottom. `force` is used for initial mount, session changes, and
+  // the jump-to-latest pill. Other callers only follow when the user is at the
+  // bottom. Non-force calls also short-circuit when scrollHeight hasn't changed
+  // since the last write.
   const scrollToBottom = useCallback(
     (force = false) => {
       const container = containerRef.current;
       if (!container) return;
-      if (!force && !autoScrollRef.current) return;
+      if (!force && !shouldFollowLatestRef.current) return;
       if (!force && container.scrollHeight === lastScrolledHeightRef.current) return;
       container.scrollTop = container.scrollHeight;
       lastScrolledHeightRef.current = container.scrollHeight;
-      lastScrollTopRef.current = container.scrollHeight;
+      shouldFollowLatestRef.current = true;
       setHasNewBelow(false);
       onScrollToBottom?.();
     },
@@ -230,10 +153,9 @@ const EmbeddedSessionView = forwardRef<
 
   // Click handler for the jump-to-latest pill: jump and re-enable auto-scroll.
   const handleJumpToLatest = useCallback(() => {
-    setAutoScroll(true);
-    autoScrollRef.current = true;
+    shouldFollowLatestRef.current = true;
     scrollToBottom(true);
-  }, [scrollToBottom, setAutoScroll]);
+  }, [scrollToBottom]);
 
   // Expose scrollToBottom via ref for parent components
   useImperativeHandle(
@@ -328,11 +250,7 @@ const EmbeddedSessionView = forwardRef<
       hasInitiallyScrolled.current = false;
       lastContentHeightRef.current = 0;
       lastScrolledHeightRef.current = 0;
-      upwardAccumRef.current = 0;
-      lastWheelTsRef.current = 0;
-      touchStartYRef.current = null;
-      lastTouchYRef.current = null;
-      lastScrollTopRef.current = 0;
+      shouldFollowLatestRef.current = true;
       setHasNewBelow(false);
       setOldestPageLoaded(0);
       setOlderInteractions([]);
@@ -348,9 +266,8 @@ const EmbeddedSessionView = forwardRef<
     }
   }, [sessionId, queryClient]);
 
-  // Force-scroll to the bottom on first content render for a session, even if
-  // auto-scroll is OFF — opening a session should land you on the latest
-  // message.
+  // Opening a session should land on the latest message regardless of the
+  // previous session's scroll position.
   useEffect(() => {
     if (
       paginatedData?.interactions &&
@@ -395,10 +312,10 @@ const EmbeddedSessionView = forwardRef<
         return;
       }
 
-      if (autoScrollRef.current) {
+      if (shouldFollowLatestRef.current) {
         container.scrollTop = container.scrollHeight;
         lastScrolledHeightRef.current = container.scrollHeight;
-        lastScrollTopRef.current = container.scrollHeight;
+        shouldFollowLatestRef.current = true;
         setHasNewBelow(false);
       } else if (!isNearBottom()) {
         setHasNewBelow(true);
@@ -408,86 +325,6 @@ const EmbeddedSessionView = forwardRef<
     observer.observe(contentEl);
     return () => observer.disconnect();
   }, [contentEl, isNearBottom]);
-
-  // Detect explicit user scroll-up and flip auto-scroll OFF when the user
-  // accumulates >= USER_SCROLL_UNLOCK_PX upward within a single gesture.
-  //
-  // We listen to wheel and touch input events directly — NOT to scrollTop
-  // deltas — because:
-  //   * wheel/touchmove only fire from real user input; programmatic
-  //     scrollTop writes don't synthesize them.
-  //   * content reflow above the viewport (image loads, syntax highlight)
-  //     shifts scrollTop without any input event.
-  // This sidesteps the three race surfaces that killed the previous
-  // sticky-scroll attempt (see commit 42c3a5112 for the autopsy).
-  //
-  // Listeners are wired via React's synthetic event props on the container
-  // JSX (NOT a useEffect) because the component renders early-return
-  // loading/empty states before the container exists. A useEffect with a
-  // stable dep array would run once with `containerRef.current === null`
-  // and never re-attach when the container later mounts. React's prop
-  // wiring guarantees attachment whenever the container actually renders.
-  const triggerUnlock = useCallback(() => {
-    setAutoScroll(false);
-    autoScrollRef.current = false;
-    upwardAccumRef.current = 0;
-  }, [setAutoScroll]);
-
-  const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      if (!autoScrollRef.current) return;
-      const now = performance.now();
-      // New gesture if the previous wheel event was long enough ago.
-      if (now - lastWheelTsRef.current > USER_SCROLL_GESTURE_TIMEOUT_MS) {
-        upwardAccumRef.current = 0;
-      }
-      lastWheelTsRef.current = now;
-      if (e.deltaY < 0) {
-        upwardAccumRef.current += -e.deltaY;
-        if (upwardAccumRef.current >= USER_SCROLL_UNLOCK_PX) triggerUnlock();
-      } else if (e.deltaY > 0) {
-        // Direction change resets the accumulator — scrolling down clearly
-        // signals the user does NOT want to disengage auto-scroll.
-        upwardAccumRef.current = 0;
-      }
-    },
-    [triggerUnlock],
-  );
-
-  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
-    if (!autoScrollRef.current) return;
-    const t = e.touches[0];
-    if (!t) return;
-    touchStartYRef.current = t.clientY;
-    lastTouchYRef.current = t.clientY;
-    upwardAccumRef.current = 0;
-  }, []);
-
-  const handleTouchMove = useCallback(
-    (e: React.TouchEvent<HTMLDivElement>) => {
-      if (!autoScrollRef.current) return;
-      const t = e.touches[0];
-      if (!t || lastTouchYRef.current === null) return;
-      // Finger moving DOWN the screen (clientY increases) scrolls the
-      // content UP — that's the gesture we treat as "user wants to read
-      // history."
-      const dy = t.clientY - lastTouchYRef.current;
-      lastTouchYRef.current = t.clientY;
-      if (dy > 0) {
-        upwardAccumRef.current += dy;
-        if (upwardAccumRef.current >= USER_SCROLL_UNLOCK_PX) triggerUnlock();
-      } else if (dy < 0) {
-        upwardAccumRef.current = 0;
-      }
-    },
-    [triggerUnlock],
-  );
-
-  const handleTouchEnd = useCallback(() => {
-    touchStartYRef.current = null;
-    lastTouchYRef.current = null;
-    upwardAccumRef.current = 0;
-  }, []);
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
@@ -545,7 +382,6 @@ const EmbeddedSessionView = forwardRef<
       if (containerRef.current) {
         const newScrollHeight = containerRef.current.scrollHeight;
         containerRef.current.scrollTop += newScrollHeight - prevScrollHeight;
-        lastScrollTopRef.current = containerRef.current.scrollTop;
       }
     });
   }, [api, sessionId, oldestPageLoaded, isLoadingOlder]);
@@ -615,29 +451,16 @@ const EmbeddedSessionView = forwardRef<
     ).find((element) => element.dataset.chatTurn === item.id);
     if (!target) return;
 
-    setAutoScroll(false);
-    autoScrollRef.current = false;
-    upwardAccumRef.current = 0;
-    isNavigatorScrollingRef.current = true;
-    const navigationSequence = ++navigatorScrollSequenceRef.current;
+    shouldFollowLatestRef.current = false;
     const viewport = container.getBoundingClientRect();
     const targetRect = target.getBoundingClientRect();
     container.scrollTo({
       top: container.scrollTop + targetRect.top - viewport.top - 24,
       behavior: "smooth",
     });
-    const finishNavigation = () => {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (navigatorScrollSequenceRef.current === navigationSequence) {
-          isNavigatorScrollingRef.current = false;
-          lastScrollTopRef.current = container.scrollTop;
-        }
-      }));
-    };
-    container.addEventListener("scrollend", finishNavigation, { once: true });
     const targetIndex = navigatorItems.findIndex((candidate) => candidate.id === item.id);
     setHasNewBelow(targetIndex >= 0 && targetIndex < navigatorItems.length - 1);
-  }, [navigatorItems, setAutoScroll]);
+  }, [navigatorItems]);
 
   // Show loading state while fetching session
   // Error state — a failed session fetch (no data) degrades to a clear
@@ -737,11 +560,6 @@ const EmbeddedSessionView = forwardRef<
         ref={setScrollContainerRef}
         data-session-scroll-container
         onScroll={handleScroll}
-        onWheel={handleWheel}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchEnd}
         sx={{
           // Use height: 0 + flex: 1 to force this to be the scrollable container
           // Without height: 0, the container may expand to fit content on iOS
@@ -838,69 +656,9 @@ const EmbeddedSessionView = forwardRef<
         onSelect={handleNavigateToTurn}
       />
 
-      {/* Auto-scroll toggle (bottom-right) — stark filled/outlined treatment
-          so the on/off state is visible at a glance. */}
-      <Tooltip
-        title={
-          autoScroll
-            ? "Auto-scroll is on. Click to pause."
-            : "Auto-scroll is paused. Click to resume."
-        }
-        placement="left"
-      >
-        <IconButton
-          size="small"
-          onClick={() => {
-            const next = !autoScroll;
-            setAutoScroll(next);
-            autoScrollRef.current = next;
-            if (next) scrollToBottom(true);
-          }}
-          aria-label={autoScroll ? "Pause auto-scroll" : "Resume auto-scroll"}
-          aria-pressed={autoScroll}
-          sx={{
-            position: "absolute",
-            bottom: 8,
-            right: 12,
-            zIndex: 2,
-            transition: "background-color 0.15s, color 0.15s, box-shadow 0.15s, opacity 0.15s",
-            ...(autoScroll
-              ? {
-                  // ON: filled, primary, prominent
-                  backgroundColor: "primary.main",
-                  color: "primary.contrastText",
-                  boxShadow: 2,
-                  border: "none",
-                  "&:hover": {
-                    backgroundColor: "primary.dark",
-                  },
-                }
-              : {
-                  // OFF: outlined ghost, dimmed
-                  backgroundColor: "background.paper",
-                  color: "text.secondary",
-                  border: 1,
-                  borderColor: "divider",
-                  boxShadow: "none",
-                  opacity: 0.65,
-                  "&:hover": {
-                    backgroundColor: "action.hover",
-                    opacity: 1,
-                  },
-                }),
-          }}
-        >
-          {autoScroll ? (
-            <VerticalAlignBottomIcon fontSize="small" />
-          ) : (
-            <PauseIcon fontSize="small" />
-          )}
-        </IconButton>
-      </Tooltip>
-
-      {/* Jump-to-latest pill (bottom-center, only when auto-scroll OFF and
-          new content has arrived below the viewport) */}
-      {!autoScroll && hasNewBelow && (
+      {/* Jump-to-latest pill (bottom-center, only when content arrived while
+          the user was reading above the latest message) */}
+      {hasNewBelow && (
         <Button
           variant="contained"
           size="small"

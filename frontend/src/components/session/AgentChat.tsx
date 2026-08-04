@@ -20,7 +20,6 @@ interface AgentChatProps {
   placeholder?: string
   disabled?: boolean
   showSessionPromptQueue?: boolean
-  autoScrollOnMount?: boolean
   enableInteractionDebugCopy?: boolean
   onWillSend?: () => void
 }
@@ -33,7 +32,6 @@ const AgentChat: FC<AgentChatProps> = ({
   placeholder,
   disabled,
   showSessionPromptQueue = false,
-  autoScrollOnMount,
   enableInteractionDebugCopy,
   onWillSend,
 }) => {
@@ -121,7 +119,6 @@ const AgentChat: FC<AgentChatProps> = ({
         <EmbeddedSessionView
           ref={sessionViewRef}
           sessionId={sessionId}
-          autoScrollOnMount={autoScrollOnMount}
           enableInteractionDebugCopy={enableInteractionDebugCopy}
         />
       </Box>
