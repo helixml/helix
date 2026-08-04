@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
@@ -34,8 +35,9 @@ func (s *StartDevContainerForSessionSuite) SetupTest() {
 	s.executor = external_agent.NewMockExecutor(s.ctrl)
 
 	s.server = &HelixAPIServer{
-		Store:                 s.store,
-		externalAgentExecutor: s.executor,
+		Store:                  s.store,
+		externalAgentExecutor:  s.executor,
+		externalAgentWSManager: NewExternalAgentWSManager(),
 		Controller: &controller.Controller{
 			Options: controller.Options{Store: s.store, PubSub: pubsub.NewNoop()},
 		},
@@ -182,4 +184,46 @@ func (s *StartDevContainerForSessionSuite) TestNoExecutor() {
 	}
 	err := s.server.startDevContainerForSession(context.Background(), session)
 	s.Error(err)
+}
+
+// TestReadinessWaitWakesStoppedExploratorySession covers the /sessions/chat
+// path: RunExternalAgent waits for a WebSocket before SendCommand gets a
+// chance to run, so the readiness waiter itself must start a stopped desktop.
+func (s *StartDevContainerForSessionSuite) TestReadinessWaitWakesStoppedExploratorySession() {
+	started := make(chan struct{})
+	session := &types.Session{
+		ID:             "ses_stopped_worker",
+		Owner:          "user-1",
+		OrganizationID: "org-worker",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+			ProjectID: "prj-worker",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
+			s.Equal(session.ID, agent.SessionID)
+			s.Equal("prj-worker", agent.ProjectID)
+			close(started)
+			return &types.DesktopAgentResponse{}, nil
+		},
+	)
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.server.waitForExternalAgentReady(ctx, session.ID, time.Second)
+	}()
+
+	select {
+	case <-started:
+		cancel()
+	case <-time.After(time.Second):
+		s.FailNow("desktop was not started before readiness wait")
+	}
+	s.ErrorContains(<-errCh, "timeout waiting for external agent to be ready")
 }

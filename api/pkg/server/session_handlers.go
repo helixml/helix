@@ -1662,6 +1662,19 @@ func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, sessi
 
 // waitForExternalAgentReady waits for the external agent WebSocket connection to be established
 func (s *HelixAPIServer) waitForExternalAgentReady(ctx context.Context, sessionID string, timeout time.Duration) error {
+	// Existing /sessions/chat requests reach this waiter before SendCommand.
+	// SendCommand normally wakes a disconnected desktop, but it cannot do that
+	// while this function is still waiting for the WebSocket it expects the
+	// desktop to create. Kick the same canonical auto-start path immediately so
+	// stopped exploratory/org-worker sessions do not sit here until the
+	// stuck-interaction watchdog eventually notices them.
+	if _, connected := s.externalAgentWSManager.getConnection(sessionID); !connected {
+		log.Info().
+			Str("session_id", sessionID).
+			Msg("External agent is disconnected; starting desktop before readiness wait")
+		go s.autoStartDevContainerForSession(sessionID)
+	}
+
 	log.Info().
 		Str("session_id", sessionID).
 		Dur("timeout", timeout).
