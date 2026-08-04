@@ -142,6 +142,10 @@ type HelixAPIServer struct {
 	externalAgentSessionMapping map[string]string      // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string      // External agent session_id -> user_id mapping
 	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
+	pendingTurnStatusChannels   map[string]chan bool   // probe_id -> channel that receives turn_status_response.running
+	// turnStatusProbe overrides the live agent turn_status probe. nil in
+	// production; set by tests to simulate an agent's answer.
+	turnStatusProbe func(sessionID, acpThreadID string) (running bool, answered bool)
 	autoRestartInflight         sync.Map               // session_id -> struct{}: dedupes concurrent auto-restart triggers (zero value ready)
 	promptDrainMutexes          sync.Map               // session_id -> *sync.Mutex: serialises queue-drain dispatch per session (zero value ready). See lockPromptDrain.
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
@@ -373,6 +377,7 @@ func NewServer(
 		requestToSessionMapping:     make(map[string]string),
 		credentialTokens:            make(map[string]map[string]struct{}),
 		pendingCancelChannels:       make(map[string]chan string),
+		pendingTurnStatusChannels:   make(map[string]chan bool),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),

@@ -113,6 +113,11 @@ type streamingContext struct {
 	// Compared by (id, content) so wrapper-restart renumbering doesn't drop
 	// legitimate new content (see design/2026-04-30-queue-and-other-stuck-state-bugs.md).
 	priorEntries []wsprotocol.ResponseEntry
+	// lastActivity is the wall-clock time of the most recent assistant
+	// message_added routed through this context. It is the "is the agent still
+	// streaming this turn?" signal used by the stale-completion settle path in
+	// handleMessageCompleted — see scheduleStaleCompletionSettle.
+	lastActivity time.Time
 	mu           sync.Mutex
 }
 
@@ -739,6 +744,8 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		err = apiServer.handleAgentReady(sessionID, syncMsg)
 	case "turn_cancelled":
 		err = apiServer.handleTurnCancelled(sessionID, syncMsg)
+	case "turn_status_response":
+		err = apiServer.handleTurnStatusResponse(sessionID, syncMsg)
 	case "ping":
 		// no-op
 	default:
@@ -1250,6 +1257,11 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 		sctx.mu.Lock()
 		defer sctx.mu.Unlock()
+
+		// Proof-of-life for this turn. Read by scheduleStaleCompletionSettle to
+		// tell "the agent has stopped, that completion was genuine" apart from
+		// "the agent is still streaming, that completion was a stale replay".
+		sctx.lastActivity = time.Now()
 
 		// Look up commenter by session ID (sessionToCommenterMapping is set when comment is sent to agent)
 		// message_added events from Zed don't include request_id, so we use session-based lookup
@@ -2211,6 +2223,196 @@ func (apiServer *HelixAPIServer) sendCancelToExternalAgent(sessionID, requestID 
 	}
 }
 
+// turnStatusProbeTimeout bounds how long we wait for a Zed turn_status_response.
+// Sandboxes pinned to a ZED_COMMIT older than the turn_status protocol addition
+// never answer; the probe must fail closed (treat as "still running") rather
+// than hang or guess.
+const turnStatusProbeTimeout = 5 * time.Second
+
+// probeTurnRunning asks a connected agent whether it currently has a turn
+// running on the given thread. This is the non-destructive counterpart to
+// sendCancelToExternalAgent: Zed already reports "no turn running" today, but
+// only as a side effect of cancel_current_turn, which *cancels* a live turn.
+// Using a destructive verb to ask a question is not acceptable on a path that
+// fires during ordinary operation, so turn_status is a read-only query.
+//
+// Returns (running, ok). ok=false means the agent did not answer — either it is
+// not connected or it predates turn_status. Callers MUST treat !ok as "assume a
+// turn is running" so an unanswered probe can never complete a live turn.
+func (apiServer *HelixAPIServer) probeTurnRunning(sessionID, acpThreadID string) (bool, bool) {
+	if apiServer.turnStatusProbe != nil {
+		return apiServer.turnStatusProbe(sessionID, acpThreadID)
+	}
+
+	probeID := system.GenerateUUID()
+
+	ch := make(chan bool, 1)
+	apiServer.contextMappingsMutex.Lock()
+	if apiServer.pendingTurnStatusChannels == nil {
+		apiServer.pendingTurnStatusChannels = make(map[string]chan bool)
+	}
+	apiServer.pendingTurnStatusChannels[probeID] = ch
+	apiServer.contextMappingsMutex.Unlock()
+
+	defer func() {
+		apiServer.contextMappingsMutex.Lock()
+		delete(apiServer.pendingTurnStatusChannels, probeID)
+		apiServer.contextMappingsMutex.Unlock()
+	}()
+
+	command := types.ExternalAgentCommand{
+		Type: "turn_status",
+		Data: map[string]interface{}{
+			"probe_id":      probeID,
+			"acp_thread_id": acpThreadID,
+		},
+	}
+	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
+		log.Debug().Err(err).
+			Str("session_id", sessionID).
+			Msg("[TURN_STATUS] Could not send probe — treating turn as running")
+		return true, false
+	}
+
+	select {
+	case running := <-ch:
+		return running, true
+	case <-time.After(turnStatusProbeTimeout):
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("acp_thread_id", acpThreadID).
+			Msg("[TURN_STATUS] No answer from agent (old ZED_COMMIT?) — treating turn as running")
+		return true, false
+	}
+}
+
+// handleTurnStatusResponse routes Zed's answer back to the waiting probe.
+func (apiServer *HelixAPIServer) handleTurnStatusResponse(sessionID string, syncMsg *types.SyncMessage) error {
+	probeID, _ := syncMsg.Data["probe_id"].(string)
+	running, _ := syncMsg.Data["running"].(bool)
+
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("probe_id", probeID).
+		Bool("running", running).
+		Msg("[TURN_STATUS] Received turn_status_response from agent")
+
+	apiServer.contextMappingsMutex.RLock()
+	ch, exists := apiServer.pendingTurnStatusChannels[probeID]
+	apiServer.contextMappingsMutex.RUnlock()
+	if exists {
+		select {
+		case ch <- running:
+		default:
+		}
+	}
+	return nil
+}
+
+// findWaitingInteraction returns the most recent state=waiting interaction for a
+// session, or nil. This is the "which turn does this thread currently have in
+// flight?" question — the state Helix owns, as opposed to the request_id the
+// agent echoes back, which the 2026-08-04 wedge proved is not a reliable turn
+// identity.
+func (apiServer *HelixAPIServer) findWaitingInteraction(ctx context.Context, helixSessionID string) *types.Interaction {
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
+	if err != nil {
+		return nil
+	}
+	interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    helixSessionID,
+		GenerationID: session.GenerationID,
+		PerPage:      1000,
+	})
+	if err != nil {
+		return nil
+	}
+	for i := len(interactions) - 1; i >= 0; i-- {
+		if interactions[i].State == types.InteractionStateWaiting {
+			return interactions[i]
+		}
+	}
+	return nil
+}
+
+// scheduleStaleCompletionSettle handles a message_completed whose request_id
+// mapping was already consumed — see the long comment at the call site in
+// handleMessageCompleted for why this event must not simply be dropped.
+//
+// The decision of whether to apply it cannot be made from the event itself, and
+// must NOT be made from a timer: a long tool call can stream nothing for
+// minutes and is still very much alive. So we ask the agent. Zed answers
+// turn_status truthfully (it already answered "no turn running" during the
+// 2026-08-04 incident, while Helix insisted the turn was live). Only a definite
+// "no turn running" settles the interaction; silence leaves it alone.
+func (apiServer *HelixAPIServer) scheduleStaleCompletionSettle(agentSessionID, helixSessionID, requestID string, syncMsg *types.SyncMessage) {
+	acpThreadID, _ := syncMsg.Data["acp_thread_id"].(string)
+
+	ctx := context.Background()
+	waiting := apiServer.findWaitingInteraction(ctx, helixSessionID)
+	if waiting == nil {
+		// Nothing in flight on this thread — this really was a duplicate copy
+		// of a completion we already applied. Suppress it, as intended by
+		// 2186abcda, but say so at debug rather than pretending it was a
+		// stale-id drop.
+		log.Debug().
+			Str("helix_session_id", helixSessionID).
+			Str("request_id", requestID).
+			Msg("[HELIX] Duplicate message_completed with no waiting interaction — suppressed")
+		apiServer.signalExternalAgentResponseDone(helixSessionID, requestID)
+		return
+	}
+
+	log.Warn().
+		Str("helix_session_id", helixSessionID).
+		Str("request_id", requestID).
+		Str("waiting_interaction_id", waiting.ID).
+		Str("acp_thread_id", acpThreadID).
+		Msg("⚠️ [HELIX] message_completed carried a stale request_id while a turn is waiting — probing agent for turn status instead of dropping it")
+
+	go func() {
+		running, answered := apiServer.probeTurnRunning(helixSessionID, acpThreadID)
+		if running {
+			// Either the agent says a turn IS running (this completion was a
+			// stale replay — the 2026-04-28 case, and completing now would
+			// prematurely finish a live turn), or it did not answer at all. In
+			// both cases leave the interaction waiting; the real completion,
+			// or the auto-wake backstop, will settle it.
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("waiting_interaction_id", waiting.ID).
+				Bool("agent_answered", answered).
+				Msg("[HELIX] Agent reports a turn still running — not settling on the stale completion")
+			return
+		}
+
+		// The agent has no turn running, but Helix has an interaction waiting.
+		// That is exactly the 2026-08-04 wedge: the completion we are holding is
+		// the only one this turn will ever get. Settle it.
+		//
+		// Rebinding the consumed sentinel is normally forbidden (it defeats the
+		// dedup — see design/2026-04-28-...), but here it is gated on the agent
+		// positively confirming the turn is over, so there is no live turn left
+		// to complete prematurely.
+		apiServer.contextMappingsMutex.Lock()
+		apiServer.requestToInteractionMapping[requestID] = waiting.ID
+		apiServer.contextMappingsMutex.Unlock()
+
+		log.Warn().
+			Str("helix_session_id", helixSessionID).
+			Str("request_id", requestID).
+			Str("interaction_id", waiting.ID).
+			Msg("♻️ [HELIX] Agent reports no turn running — settling the waiting interaction with the stale-id completion")
+
+		if err := apiServer.handleMessageCompleted(agentSessionID, syncMsg); err != nil {
+			log.Error().Err(err).
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", waiting.ID).
+				Msg("Failed to settle waiting interaction from stale completion")
+		}
+	}()
+}
+
 // handleTurnCancelled processes the turn_cancelled event from Zed
 func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *types.SyncMessage) error {
 	requestID, _ := syncMsg.Data["request_id"].(string)
@@ -2716,10 +2918,27 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	apiServer.contextMappingsMutex.Unlock()
 
 	if mappingConsumed {
-		log.Warn().
-			Str("helix_session_id", helixSessionID).
-			Str("request_id", messageRequestID).
-			Msg("⚠️ [HELIX] Duplicate message_completed for consumed request_id mapping — ignoring")
+		// The mapping for this request_id was consumed by an earlier completion.
+		// Two very different situations land here, and until 2026-08-04 we
+		// dropped the event outright — which is only correct for one of them:
+		//
+		//   (a) a genuine second copy of a completion already applied. The turn
+		//       it belonged to is already Complete, so there is nothing to do.
+		//   (b) the ONLY completion this turn will ever get, carrying a stale id
+		//       because the agent froze its thread→request_id association across
+		//       a rapid interrupt→resend cycle. Dropping it strands a finished
+		//       answer in state=waiting forever and wedges the prompt queue —
+		//       the 2026-08-04 wedge on ses_01kz5zgx69c2r68vy1bbeqpbr8.
+		//
+		// The echoed request_id cannot tell them apart, so stop asking it.
+		// Resolve against the thread's own state instead: if nothing is waiting,
+		// this is (a) and there is genuinely nothing to settle. If something IS
+		// waiting we must not drop the event — but we must equally not complete
+		// a turn that is still streaming, which is the 2026-04-28 wrapper-replay
+		// bug (see design/2026-04-28-stale-request-id-rebind-loses-zed-updates.md).
+		// scheduleStaleCompletionSettle resolves that by re-checking stream
+		// activity after a short grace window before settling.
+		apiServer.scheduleStaleCompletionSettle(sessionID, helixSessionID, messageRequestID, syncMsg)
 		return nil
 	}
 

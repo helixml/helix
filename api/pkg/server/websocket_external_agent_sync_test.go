@@ -81,6 +81,7 @@ func (s *WebSocketSyncSuite) SetupTest() {
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
 		pendingCancelChannels:       make(map[string]chan string),
+		pendingTurnStatusChannels:   make(map[string]chan bool),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
@@ -3945,4 +3946,218 @@ func TestLockPromptDrainSerializesPerSession(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("lockPromptDrain for a different session blocked — lock is not per-session")
 	}
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Stale request_id wedge (2026-08-04)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestMessageCompleted_StaleRequestID_SettlesWaitingInteraction reproduces the
+// production wedge on ses_01kz5zgx69c2r68vy1bbeqpbr8 (2026-08-04).
+//
+// Zed froze its thread→request_id association on the FIRST turn of a rapid
+// interrupt→resend→interrupt→resend sequence, so the completion for the third
+// (genuinely in-flight) turn arrived tagged with the first turn's request_id.
+// That id's mapping had been consumed 23 minutes earlier, so the handler hit
+// the `mappingConsumed` early return and dropped a genuine completion on the
+// floor — leaving a finished 182,510-char answer in state=waiting forever and
+// the prompt queue spinning on a completion that had already been discarded.
+//
+// The completion must settle the waiting interaction regardless of the stale
+// id it carried.
+func (s *WebSocketSyncSuite) TestMessageCompleted_StaleRequestID_SettlesWaitingInteraction() {
+	s.server.contextMappings["thread-stale"] = "ses_stale"
+	// "int-old" completed earlier; its mapping was consumed (empty sentinel).
+	s.server.requestToInteractionMapping = map[string]string{
+		"req-old": "",
+	}
+
+	session := &types.Session{ID: "ses_stale", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_stale").Return(session, nil).AnyTimes()
+
+	// The turn actually in flight: waiting, with a full response already
+	// accumulated by the message_added path.
+	waiting := &types.Interaction{
+		ID:              "int-current",
+		SessionID:       "ses_stale",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "the finished final report",
+	}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{waiting}, int64(1), nil,
+	).AnyTimes()
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-current").Return(waiting, nil).AnyTimes()
+
+	completed := make(chan string, 1)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, in *types.Interaction) (*types.Interaction, error) {
+			if in.State == types.InteractionStateComplete {
+				select {
+				case completed <- in.ID:
+				default:
+				}
+			}
+			return in, nil
+		},
+	).AnyTimes()
+
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_stale").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_stale").Return(nil, nil).AnyTimes()
+
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("record not found")).AnyTimes()
+
+	// The agent reports no turn running — as Zed did during the real incident,
+	// while Helix insisted the turn was still live.
+	s.server.turnStatusProbe = func(_, _ string) (bool, bool) { return false, true }
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-stale",
+			"request_id":    "req-old", // STALE — belongs to a turn that ended long ago
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	select {
+	case id := <-completed:
+		s.Equal("int-current", id, "the waiting turn must be the one settled")
+	case <-time.After(2 * time.Second):
+		s.Fail("genuine message_completed was dropped: waiting interaction never completed")
+	}
+
+	// Let the settle goroutine finish before the mock controller is checked.
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestMessageCompleted_GenuineDuplicateStillSuppressed guards the behaviour
+// commit 2186abcda was actually reaching for: a second copy of a completion we
+// already applied must not re-complete anything. With no interaction waiting on
+// the thread there is nothing to settle, so the event is suppressed — without
+// the agent ever being probed.
+func (s *WebSocketSyncSuite) TestMessageCompleted_GenuineDuplicateStillSuppressed() {
+	s.server.contextMappings["thread-dup"] = "ses_dup"
+	s.server.requestToInteractionMapping = map[string]string{"req-dup": ""}
+
+	session := &types.Session{ID: "ses_dup", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_dup").Return(session, nil).AnyTimes()
+
+	// The turn this completion belonged to is already Complete.
+	done := &types.Interaction{
+		ID:        "int-done",
+		SessionID: "ses_dup",
+		State:     types.InteractionStateComplete,
+	}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{done}, int64(1), nil,
+	).AnyTimes()
+
+	// Critical: nothing may be updated, and the agent must not be probed —
+	// gomock strict mode fails the test on any unexpected store call.
+	probed := false
+	s.server.turnStatusProbe = func(_, _ string) (bool, bool) {
+		probed = true
+		return false, true
+	}
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-dup",
+			"request_id":    "req-dup",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	time.Sleep(100 * time.Millisecond)
+	s.False(probed, "a duplicate with nothing waiting must be suppressed without probing the agent")
+}
+
+// TestMessageCompleted_StaleRequestID_LiveTurnNotCompleted is the regression
+// guard for design/2026-04-28-stale-request-id-rebind-loses-zed-updates.md.
+//
+// Zed's wrapper buffers events that aren't direct ACP responses and flushes them
+// later tagged with the LAST request_id it saw. Such a replayed message_completed
+// arrives while a genuinely live turn is mid-stream. Settling on it would mark a
+// mid-flight interaction Complete — the premature-completion bug. Because the
+// agent reports a turn IS running, the waiting interaction must be left alone.
+//
+// This is also the "long tool call must never be killed" guarantee: a silent
+// tool call is a running turn, and a running turn is never completed here.
+func (s *WebSocketSyncSuite) TestMessageCompleted_StaleRequestID_LiveTurnNotCompleted() {
+	s.server.contextMappings["thread-live"] = "ses_live"
+	s.server.requestToInteractionMapping = map[string]string{"req-old": ""}
+
+	session := &types.Session{ID: "ses_live", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_live").Return(session, nil).AnyTimes()
+
+	live := &types.Interaction{
+		ID:              "int-live",
+		SessionID:       "ses_live",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "partial output, still streaming",
+	}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{live}, int64(1), nil,
+	).AnyTimes()
+
+	// The agent says a turn IS running (e.g. a 10-minute silent tool call).
+	s.server.turnStatusProbe = func(_, _ string) (bool, bool) { return true, true }
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-live",
+			"request_id":    "req-old",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	// No UpdateInteraction expectation is registered: gomock fails the test if
+	// the live turn is touched.
+	time.Sleep(100 * time.Millisecond)
+	s.Equal(types.InteractionStateWaiting, live.State, "a live turn must never be completed by a stale replay")
+}
+
+// TestMessageCompleted_StaleRequestID_UnansweredProbeLeavesTurnAlone covers
+// sandboxes pinned to a ZED_COMMIT that predates turn_status. An unanswered
+// probe must fail closed — treated as "a turn is running" — so an old agent can
+// never have a live turn completed out from under it.
+func (s *WebSocketSyncSuite) TestMessageCompleted_StaleRequestID_UnansweredProbeLeavesTurnAlone() {
+	s.server.contextMappings["thread-old"] = "ses_old"
+	s.server.requestToInteractionMapping = map[string]string{"req-old": ""}
+
+	session := &types.Session{ID: "ses_old", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_old").Return(session, nil).AnyTimes()
+
+	waiting := &types.Interaction{
+		ID:        "int-old",
+		SessionID: "ses_old",
+		State:     types.InteractionStateWaiting,
+	}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{waiting}, int64(1), nil,
+	).AnyTimes()
+
+	// Agent never answers (old ZED_COMMIT, or no live WebSocket).
+	s.server.turnStatusProbe = func(_, _ string) (bool, bool) { return true, false }
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-old",
+			"request_id":    "req-old",
+		},
+	}
+
+	s.NoError(s.server.handleMessageCompleted("agent-1", syncMsg))
+	time.Sleep(100 * time.Millisecond)
+	s.Equal(types.InteractionStateWaiting, waiting.State)
 }
