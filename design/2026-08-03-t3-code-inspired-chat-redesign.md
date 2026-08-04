@@ -149,7 +149,10 @@ showing literal Markdown punctuation. The bulb icon identifies thought rows, so
 their headers show the first summary directly without a repeated `Thoughts`
 label. The previous-tool-call disclosure uses the same high-contrast label color
 and left icon alignment as the visible tool row, while its chevron uses the same
-subtle icon color as the tool-kind icon.
+subtle icon color as the tool-kind icon. Expanding keeps the latest call and
+disclosure fixed, inserting older calls below the disclosure so the cursor does
+not have to chase a relocated collapse control. The redundant expanded `Tool
+calls` header is omitted to keep activity-group spacing compact.
 
 Primary assistant prose uses a high-contrast near-white foreground in dark mode,
 including links. Reasoning summaries, command previews, durations, and other

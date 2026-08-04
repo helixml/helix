@@ -1,8 +1,6 @@
 import React, { FC, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Typography from "@mui/material/Typography";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { useTheme } from "@mui/material/styles";
 
@@ -32,6 +30,7 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
   const isDark = theme.palette.mode === "dark";
   const chatColors = getChatColors(theme);
   const latestEntry = entries[entries.length - 1];
+  const previousEntries = entries.slice(0, -1);
   const previousCount = Math.max(0, entries.length - 1);
 
   if (!latestEntry) return null;
@@ -41,97 +40,55 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
     setExpanded((value) => !value);
   };
 
-  if (!expanded) {
-    return (
-      <Box sx={{ my: 1 }}>
-        <CollapsibleToolCall
-          toolName={latestEntry.toolName}
-          status={latestEntry.status}
-          body={latestEntry.body}
-          dense
-        />
-        {previousCount > 0 && (
-          <Button
-            size="small"
-            onClick={toggleExpanded}
-            aria-expanded={false}
-            startIcon={(
-              <ExpandMoreIcon
-                sx={{
-                  fontSize: 15,
-                  color: isDark ? chatColors.subtle : "rgba(0,0,0,0.45)",
-                  transform: "translateX(-1px)",
-                }}
-              />
-            )}
-            sx={{
-              minHeight: 24,
-              px: 0,
-              gap: 0.75,
-              color: isDark ? chatColors.foreground : "text.primary",
-              fontSize: "0.76rem",
-              fontWeight: 600,
-              fontFamily: APP_MONO_FONT_FAMILY,
-              textTransform: "none",
-              "&:hover": { backgroundColor: "transparent" },
-              "& .MuiButton-startIcon": { m: 0 },
-            }}
-          >
-            +{previousCount} previous tool {previousCount === 1 ? "call" : "calls"}
-          </Button>
-        )}
-      </Box>
-    );
-  }
-
   return (
-    <Box sx={{ my: 1 }}>
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          minHeight: 28,
-          color: isDark ? chatColors.muted : "text.secondary",
-        }}
-      >
-        <Typography
-          variant="caption"
-          sx={{
-            flex: 1,
-            fontWeight: 600,
-            letterSpacing: "0.01em",
-            fontFamily: APP_MONO_FONT_FAMILY,
-          }}
-        >
-          Tool calls
-        </Typography>
+    <Box sx={{ my: 0.5 }}>
+      <CollapsibleToolCall
+        toolName={latestEntry.toolName}
+        status={latestEntry.status}
+        body={latestEntry.body}
+        dense
+      />
+      {previousCount > 0 && (
         <Button
           size="small"
           onClick={toggleExpanded}
-          aria-expanded={true}
-          endIcon={<ExpandLessIcon sx={{ fontSize: 16 }} />}
+          aria-expanded={expanded}
+          startIcon={
+            <ExpandMoreIcon
+              sx={{
+                fontSize: 15,
+                color: isDark ? chatColors.subtle : "rgba(0,0,0,0.45)",
+                transform: `translateX(-1px) rotate(${expanded ? 180 : 0}deg)`,
+              }}
+            />
+          }
           sx={{
             minHeight: 24,
-            px: 0.5,
-            color: "inherit",
+            px: 0,
+            gap: 0.75,
+            color: isDark ? chatColors.foreground : "text.primary",
             fontSize: "0.76rem",
+            fontWeight: 600,
             fontFamily: APP_MONO_FONT_FAMILY,
             textTransform: "none",
             "&:hover": { backgroundColor: "transparent" },
+            "& .MuiButton-startIcon": { m: 0 },
           }}
         >
-          Show fewer tool calls
+          +{previousCount} previous tool{" "}
+          {previousCount === 1 ? "call" : "calls"}
         </Button>
-      </Box>
-      {entries.map((entry) => (
-        <CollapsibleToolCall
-          key={entry.id}
-          toolName={entry.toolName}
-          status={entry.status}
-          body={entry.body}
-          dense
-        />
-      ))}
+      )}
+      {expanded &&
+        previousEntries.map((entry) => (
+          <CollapsibleToolCall
+            key={entry.id}
+            toolName={entry.toolName}
+            status={entry.status}
+            body={entry.body}
+            dense
+          />
+        ))}
     </Box>
   );
 };
