@@ -121,6 +121,10 @@ import {
 } from "lucide-react";
 
 import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
+import { loadPanelLayout, savePanelLayout } from "../../lib/panelLayoutStorage";
+
+const SPEC_TASK_CHAT_PANEL_IDS = ["spec-task-chat", "spec-task-content"] as const;
+const SPEC_TASK_CHAT_LAYOUT_KEY = "helix.specTaskChat.layout";
 
 interface SpecTaskDetailContentProps {
   taskId: string;
@@ -166,6 +170,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: "md" });
   const lightTheme = useLightTheme();
+  const savedSpecTaskChatLayout = loadPanelLayout(
+    SPEC_TASK_CHAT_LAYOUT_KEY,
+    SPEC_TASK_CHAT_PANEL_IDS,
+  );
 
   // Fetch task data
   const { data: task } = useSpecTask(taskId, {
@@ -1794,11 +1802,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {/* When chatCollapsed is true, use mobile-style tab layout even on desktop */}
         {activeSessionId && isBigScreen && !chatCollapsed ? (
           <PanelGroup
+            key="spec-task-chat-layout"
             orientation="horizontal"
+            defaultLayout={savedSpecTaskChatLayout ?? { "spec-task-chat": 30, "spec-task-content": 70 }}
+            onLayoutChange={(layout) =>
+              savePanelLayout(SPEC_TASK_CHAT_LAYOUT_KEY, layout, SPEC_TASK_CHAT_PANEL_IDS)
+            }
             style={{ height: "100%", flex: 1 }}
           >
             {/* Left: Chat panel - always visible on desktop */}
-            <Panel defaultSize={30} minSize={15} style={{ overflow: "hidden" }}>
+            <Panel id="spec-task-chat" defaultSize={30} minSize={15} style={{ overflow: "hidden" }}>
               <Box
                 sx={{
                   height: "100%",
@@ -1995,7 +2008,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             </PanelResizeHandle>
 
             {/* Right: Content panel - switches between desktop/changes/details */}
-            <Panel defaultSize={70} minSize={25} style={{ overflow: "hidden" }}>
+            <Panel id="spec-task-content" defaultSize={70} minSize={25} style={{ overflow: "hidden" }}>
               <Box
                 sx={{
                   height: "100%",

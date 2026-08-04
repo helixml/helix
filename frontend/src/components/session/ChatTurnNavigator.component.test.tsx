@@ -37,6 +37,7 @@ describe('ChatTurnNavigator interactions', () => {
 
     expect(screen.getByText('Second user message')).toBeInTheDocument()
     expect(screen.getByText('Second assistant response')).toBeInTheDocument()
+    expect(document.querySelector('[data-chat-turn-preview]')).toHaveStyle({ maxWidth: '300px' })
   })
 
   it('supports keyboard browsing and selection', () => {
