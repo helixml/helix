@@ -148,7 +148,8 @@ Markdown; bold-only thought summaries are presented as one list rather than
 showing literal Markdown punctuation. The bulb icon identifies thought rows, so
 their headers show the first summary directly without a repeated `Thoughts`
 label. The previous-tool-call disclosure uses the same high-contrast label color
-and left icon alignment as the visible tool row.
+and left icon alignment as the visible tool row, while its chevron uses the same
+subtle icon color as the tool-kind icon.
 
 Primary assistant prose uses a high-contrast near-white foreground in dark mode,
 including links. Reasoning summaries, command previews, durations, and other

@@ -55,7 +55,15 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
             size="small"
             onClick={toggleExpanded}
             aria-expanded={false}
-            startIcon={<ExpandMoreIcon sx={{ fontSize: 15 }} />}
+            startIcon={(
+              <ExpandMoreIcon
+                sx={{
+                  fontSize: 15,
+                  color: isDark ? chatColors.subtle : "rgba(0,0,0,0.45)",
+                  transform: "translateX(-1px)",
+                }}
+              />
+            )}
             sx={{
               minHeight: 24,
               px: 0,

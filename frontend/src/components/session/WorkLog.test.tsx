@@ -28,6 +28,10 @@ describe("WorkLog", () => {
     expect(disclosure.querySelector(".MuiButton-startIcon")).toBeInTheDocument();
     expect(disclosure.querySelector(".MuiButton-endIcon")).not.toBeInTheDocument();
     expect(disclosure).toHaveStyle({ color: "rgb(245, 245, 245)" });
+    expect(disclosure.querySelector("svg")).toHaveStyle({
+      color: "rgb(150, 150, 150)",
+      transform: "translateX(-1px)",
+    });
   });
 
   it("reveals the full log and can collapse it again", () => {
