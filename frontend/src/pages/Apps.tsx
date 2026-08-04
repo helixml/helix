@@ -2,8 +2,8 @@ import React, { FC, useCallback, useEffect, useState } from 'react'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
-import LockIcon from '@mui/icons-material/Lock'
-import Box from '@mui/material/Box'
+import Stack from '@mui/material/Stack'
+import Typography from '@mui/material/Typography'
 
 import Page from '../components/system/Page'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -54,12 +54,6 @@ const Apps: FC = () => {
     await createBlankAgent()
   }
 
-  const onNewSecret = () => {
-    if(!checkLoginStatus()) return
-
-    account.orgNavigate('secrets')
-  }
-
   const onDeleteApp = useCallback(async () => {
     if(!deletingApp) return
     const result = await apps.deleteApp(deletingApp.id)
@@ -96,25 +90,6 @@ const Apps: FC = () => {
       topbarContent={(
         <>
           <HelixOrgTopNav />
-          <Button
-            id="secrets-button"
-            variant="contained"
-            color="secondary"
-            endIcon={<LockIcon />}
-            onClick={onNewSecret}
-            sx={{ mr: 2 }}
-          >
-            Secrets
-          </Button>
-          <Button
-            id="new-app-button"
-            variant="contained"
-            color="secondary"
-            endIcon={<AddIcon />}
-            onClick={onNewAgent}
-          >
-            New Agent
-          </Button>
         </>
       )}
     >
@@ -122,17 +97,35 @@ const Apps: FC = () => {
         maxWidth="xl"
         sx={{
           mb: 4,
+          pt: 3,
         }}
       >
-        <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
-          <AppsTable
-            authenticated={ !!account.user }
-            data={ apps.apps }
-            onEdit={ onEditApp }
-            onDelete={ setDeletingApp }
-            orgId={ account.organizationTools.organization?.id || '' }
-          />
-        </Paywall>
+        <Stack spacing={2}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+            <Typography variant="h5">Agents</Typography>
+            <Button
+              id="new-app-button"
+              variant="contained"
+              color="secondary"
+              startIcon={<AddIcon />}
+              onClick={onNewAgent}
+            >
+              New Agent
+            </Button>
+          </Stack>
+          <Typography variant="body2" color="text.secondary">
+            Agents in this org. Click an agent to edit instructions, tools and subscriptions.
+          </Typography>
+          <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+            <AppsTable
+              authenticated={ !!account.user }
+              data={ apps.apps }
+              onEdit={ onEditApp }
+              onDelete={ setDeletingApp }
+              orgId={ account.organizationTools.organization?.id || '' }
+            />
+          </Paywall>
+        </Stack>
       </Container>
       {
         deletingApp && (
