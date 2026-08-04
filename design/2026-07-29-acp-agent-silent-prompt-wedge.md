@@ -128,13 +128,13 @@ Implemented in the Zed fork (`crates/external_websocket_sync/src/thread_service.
 deliberately **not** in upstream `acp_thread.rs`, to keep the upstream diff (and
 future merge conflict surface) at zero.
 
-**A time-to-first-event watchdog**, not a turn timeout:
+**A Claude ACP time-to-first-event watchdog**, not a turn timeout:
 
 - `THREAD_ACTIVITY` — a per-thread counter bumped by the persistent subscription on
   *every* `AcpThreadEvent` (thinking, text, tool call, entry update, Stopped). Any
   event is proof of life.
-- `wait_for_first_agent_activity()` — races a freshly dispatched prompt against a
-  budget (`HELIX_ACP_SILENCE_TIMEOUT_SECS`, default **120s**, `0` disables).
+- `wait_for_first_agent_activity()` — races a freshly dispatched Claude ACP prompt
+  against a budget (`HELIX_ACP_SILENCE_TIMEOUT_SECS`, default **120s**, `0` disables).
 - A blanket turn timeout would be wrong (the documented long-single-tool-call false
   positive), so busy-ness is decided by **thread state, not a clock**:
   `has_outstanding_work()` reports true while any tool call is `Pending` /
@@ -142,9 +142,9 @@ future merge conflict surface) at zero.
   prompt is exempt for exactly as long as the work genuinely takes — there is no
   "longest plausible tool call" constant anywhere, because that number is both
   unknowable and wrong the first time someone runs a 40-minute build.
-- The budget therefore only has to cover model think-time between one event and the
-  next (normally seconds), which is what makes a single modest 120s default
-  defensible.
+- This heuristic is only valid for the confirmed `claude-agent-acp` failure mode.
+  ACP has no generic model-inference heartbeat, so silence alone is not proof that
+  another agent is wedged.
 - On expiry the send task is dropped (same rationale as Critical Fix #8: never block
   on a non-responding agent) and an error carrying `helix_silent_prompt_wedge` is
   returned.
@@ -219,3 +219,33 @@ misbehaviour over chasing a deterministic repro that may not exist.
 - The `model_not_found` trigger has been fixed on the serving side (model availability
   in GCP), so the specific path into this wedge is closed. The wedge handling still
   matters: any future provider-side error can re-enter it.
+
+## 2026-08-04 follow-up: Codex false positive
+
+The watchdog was initially enabled for every ACP agent. That was incorrect.
+
+Task `spt_01kz5q5eyyc3n13f19grf5bn6x`, session
+`ses_01kz5q6jry3spemgzcfy4d0583`, used the Codex CLI runtime. Its Zed thread
+`019fcb73-c02f-78f0-a3c3-3eef4ee856b4` emitted an entry update at
+`2026-08-04T06:30:45.801901208Z`, then no ACP events while Codex reasoned. At
+`06:32:48.570604712Z` the watchdog emitted `helix_silent_prompt_wedge`. Codex was
+still healthy: it emitted a token-usage update at `06:34:02.854670800Z` and the
+same interaction later completed at `06:51:29Z`.
+
+The false terminal error happened because the watchdog treated the absence of ACP
+events as evidence about model execution. ACP exposes tool state and output events,
+but it does not expose a heartbeat while a model is reasoning. With no running tool
+or pending permission, a healthy Codex turn is indistinguishable from a stuck process
+using that signal alone. Increasing the timeout would only make the false positive
+less frequent.
+
+Both watchdog entry points are now gated by `agent_telemetry_id` and enabled only for
+`agent_servers::CLAUDE_AGENT_ID`. This preserves recovery for the confirmed
+`claude-agent-acp` silent-query failure while preventing Codex, Qwen, and other ACP
+agents from receiving terminal errors based only on silence.
+
+Verification used the release Zed binary and a live `@agentclientprotocol/codex-acp`
+session with `HELIX_ACP_SILENCE_TIMEOUT_SECS=1`. The full 17-phase WebSocket sync
+E2E suite passed. In phase 15, Codex spent 28 seconds between thread creation and
+its first assistant event, yet no `helix_silent_prompt_wedge` error was emitted.
+The old global watchdog would have failed that turn at the first five-second poll.
