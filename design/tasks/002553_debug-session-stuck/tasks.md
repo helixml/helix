@@ -19,7 +19,7 @@ All work in the sandbox's inner Helix at `http://localhost:8080`. Never touch me
 - [x] Delete the `mappingConsumed` early return at `websocket_external_agent_sync.go:2718-2724`; the DB fallback (~L2734) must become reachable
 - [x] Reimplement duplicate suppression as "has a completion already been applied to this interaction?" — suppress when the resolved interaction is already `complete`/`interrupted`/`error`
 - [x] Guard against the 2026-04-28 case: do not complete a waiting interaction the agent is still actively streaming into (use the streaming context's activity timestamp)
-- [ ] Use the existing `MarkInteractionCompleteIfWaiting` guarded transition rather than read-modify-write
+- [x] Backstop uses the guarded `MarkInteractionCompleteIfWaiting` transition. The stale-completion settle path deliberately re-invokes `handleMessageCompleted` instead, so comment finalization, attention and queue-drain all still run rather than being duplicated
 - [x] Ensure `signalExternalAgentResponseDone` and `publishInteractionUpdateToFrontend` still fire on every path
 
 ## Phase 3 — Zed: stop echoing a dead turn's id
