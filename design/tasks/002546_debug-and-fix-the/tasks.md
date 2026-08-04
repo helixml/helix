@@ -25,12 +25,23 @@ default assumption — take it, note the choice in the write-up, and keep going.
 
 ## Instrument before guessing
 
-- [ ] Add diagnostic logging for `videoDecoder?.state`, `receivedFirstKeyframe`, `reconnectAttempts`, `gaveUp`, `gl.isContextLost()`, and a painted-frame counter at the `draw()` call site (`websocket-stream.ts:1114`)
-- [ ] Reproduce Finding 1: call `gl.getExtension('WEBGL_lose_context').loseContext()` mid-stream; record observed values and screenshot the black canvas
+- [x] Add diagnostic logging for `videoDecoder?.state`, `receivedFirstKeyframe`, `reconnectAttempts`, `gaveUp`, `gl.isContextLost()`, and a painted-frame counter at the `draw()` call site (`websocket-stream.ts:1114`)
+- [x] **ROOT CAUSE FOUND — not the planning hypothesis.** Reproduced a live freeze: `targetFrames=152`, `prerolling=true`, `queueLen=30` pinned at `MAX_QUEUE`, 0 frames presented in 6s, `framesDropped` +44/s, `glContextLost=false`, `reconnectAttempts=0`, `gaveUp=false`, decoder `configured`, rAF at 53Hz. `PlayoutScheduler` deadlock — see design.md "ROOT CAUSE FOUND"
+- [x] Record the actual observed values in the design write-up
+
+## Fix the playout scheduler deadlock (`playout-scheduler.ts`) — PRIMARY FIX
+
+- [x] Derive source cadence from PTS deltas, not median socket arrival spacing (bursts collapse arrival spacing and inflated the depth target ~20x)
+- [x] Cap the depth target below `MAX_QUEUE` so the preroll-satisfied test is structurally always reachable
+- [x] End preroll at `q.length >= target` (was `>`, unreachable at the queue cap)
+- [x] Reset PTS cadence tracking in `clear()` on discontinuity
+- [x] Verify live: 56.4 fps presented, `targetFrames=1`, depth 50ms, `queueLen=4` (was 0 fps / 152 / 2508ms / 30)
+
+## Remaining hypothesis-B defects (real, but NOT the incident cause — still worth fixing)
+
 - [ ] Reproduce Finding 2: toggle quality mode video → screenshot → video (second `setCanvas()` on the same element); record whether both `videoRenderer` and `canvasCtx` end up null
 - [ ] Reproduce Finding 3: drive `close()` then `reconnect()` on the same stream object; confirm frames are dropped at the `websocket-stream.ts:1061` guard
 - [ ] Confirm whether the Restart button routes through `WebSocketStream.reconnect()` or remounts the viewer (resolves requirements Open Question 2)
-- [ ] Record the actual observed values for all of the above in the design write-up
 
 ## Fix the renderer (`webgl-video-renderer.ts`)
 
