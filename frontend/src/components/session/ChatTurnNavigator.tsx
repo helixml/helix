@@ -11,9 +11,6 @@ import {
   resolveChatTurnNavigatorTopPercent,
 } from './ChatTurnNavigator.logic'
 
-const eventTargetsPreview = (target: EventTarget) =>
-  target instanceof Element && target.closest('[data-chat-turn-preview]') !== null
-
 interface ChatTurnNavigatorProps {
   items: ChatTurnNavigatorItem[]
   scrollContainer: HTMLDivElement | null
@@ -124,10 +121,9 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
           setActiveIndex((current) => current === next ? current : next)
         }}
         onMouseDown={(event: MouseEvent<HTMLButtonElement>) => {
-          if (!eventTargetsPreview(event.target)) event.preventDefault()
+          event.preventDefault()
         }}
         onClick={(event: MouseEvent<HTMLButtonElement>) => {
-          if (eventTargetsPreview(event.target)) return
           const index = resolveIndexFromPointer(event)
           const item = index === null ? null : items[index]
           if (item) onSelect(item)
@@ -152,7 +148,7 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
           }
         }}
         sx={{
-          pointerEvents: 'auto',
+          pointerEvents: 'none',
           position: 'absolute',
           top: '50%',
           left: 12,
@@ -172,6 +168,17 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
           },
         }}
       >
+        <Box
+          component="span"
+          aria-hidden
+          data-chat-turn-rail-hit-target
+          sx={{
+            pointerEvents: 'auto',
+            position: 'absolute',
+            inset: 0,
+            width: 24,
+          }}
+        />
         <Box
           aria-hidden
           sx={{
@@ -221,17 +228,14 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
           <Box
             component="span"
             data-chat-turn-preview
-            onMouseMove={(event: MouseEvent<HTMLSpanElement>) => event.stopPropagation()}
             sx={{
-              pointerEvents: 'auto',
+              pointerEvents: 'none',
               position: 'absolute',
               top: `${activeTop}%`,
               left: 32,
               right: 0,
               maxWidth: 300,
               transform: `translateY(${activeTranslate})`,
-              cursor: 'text',
-              userSelect: 'text',
             }}
           >
             <Box
