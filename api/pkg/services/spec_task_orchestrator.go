@@ -863,6 +863,28 @@ func (o *SpecTaskOrchestrator) taskHasPRsForAllRepos(ctx context.Context, task *
 	return true
 }
 
+// projectHasExternalRepo reports whether any repository in the project is external
+// (GitHub/GitLab/ADO). Pull requests are only possible for those; a project whose
+// repos are all internal (Helix-hosted) can never produce one, so a "PR could not
+// be created" message would be misleading rather than actionable.
+//
+// Errors are treated as "assume external" so a transient store failure downgrades
+// to the pre-existing generic message instead of asserting something false.
+func (o *SpecTaskOrchestrator) projectHasExternalRepo(ctx context.Context, projectID string) bool {
+	repos, err := o.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: projectID,
+	})
+	if err != nil {
+		return true
+	}
+	for _, repo := range repos {
+		if repo.IsExternal && repo.ExternalURL != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // handlePullRequest polls external repo for PR merge status
 // Called from the dedicated PR polling loop (runs every 1 minute)
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
@@ -895,7 +917,17 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 				task.Metadata = make(map[string]interface{})
 			}
 			if _, hasErr := task.Metadata["error"]; !hasErr {
-				task.Metadata["error"] = "Pull request could not be created - the agent may not have pushed the feature branch. Check the agent session for errors."
+				// Distinguish "we cannot open a PR for this repo at all" from
+				// "the agent did not push". Blaming the agent for a push it
+				// actually made sent two people hunting a non-existent failure
+				// for most of a call: on an internal repo the branch was pushed
+				// fine, but CreatePullRequest rejects any repo with no
+				// ExternalURL, so a PR was never possible in the first place.
+				msg := "Pull request could not be created - the agent may not have pushed the feature branch. Check the agent session for errors."
+				if !o.projectHasExternalRepo(ctx, task.ProjectID) {
+					msg = "No pull request can be created for this project: its repositories are internal (Helix-hosted), and pull requests are only supported for external GitHub/GitLab/Azure DevOps repositories. The branch may well have been pushed successfully. Internal repositories land work by merging the feature branch into the default branch instead."
+				}
+				task.Metadata["error"] = msg
 				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
 					log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to save PR timeout error to task metadata")
 				}
