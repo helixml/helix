@@ -26,7 +26,7 @@
       `flushStreamingFieldsToDB` (covers both the leading-edge write and the trailing flush)
 - [x] Make `buildFullStatePatchEvent` set `Snapshot: true` and carry the last published
       seq, built under the same lock as the seq read
-- [ ] Add a client-triggered resync entry point that returns the full-state snapshot
+- [x] Add a client-triggered resync entry point that returns the full-state snapshot
 
 ## Client: one versioned source of truth
 
@@ -37,12 +37,12 @@
       polled row's `response_seq` — same rule for streaming and completed
 - [ ] Delete `completedMessage || safeResponseMessage || lastKnownMessage` and the
       `isComplete ? (streaming || completed) : (completed || streaming)` selector
-- [ ] Remove the lossy shrink branch from `applyPatch`; treat `total_length` as a checksum
-- [ ] Detect divergence: seq gap, `patch_offset > currentContent.length`, or
+- [x] Remove the lossy shrink branch from `applyPatch`; treat `total_length` as a checksum
+- [x] Detect divergence: seq gap, `patch_offset > currentContent.length`, or
       `total_length !== result.length`
-- [ ] On divergence, request a snapshot and replace the store; stop applying deltas to a
+- [x] On divergence, request a snapshot and replace the store; stop applying deltas to a
       diverged buffer
-- [ ] Make the reconnect path in `openHandler` resync from a snapshot instead of clearing
+- [x] Make the reconnect path in `openHandler` resync from a snapshot instead of clearing
       to `[]` and blind-appending
 
 ## Force the failure modes
