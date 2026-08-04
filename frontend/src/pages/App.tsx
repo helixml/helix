@@ -1,7 +1,6 @@
 import React, { FC, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
@@ -138,10 +137,6 @@ const App: FC = () => {
       ]}
       topbarContent={(
         <>
-          <HelixOrgTopNav />
-          {isOrgAgent && (
-            <Chip label="Org Chart" size="small" color="primary" variant="outlined" />
-          )}
           <Button
             variant="contained"
             color="secondary"
@@ -151,6 +146,7 @@ const App: FC = () => {
           >
             Open chat
           </Button>
+          <HelixOrgTopNav />
         </>
       )}
     >

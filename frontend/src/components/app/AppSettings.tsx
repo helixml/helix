@@ -14,14 +14,11 @@ import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
-import Collapse from '@mui/material/Collapse'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
 import Alert from '@mui/material/Alert'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import Menu from '@mui/material/Menu'
 
 import { useQuery } from '@tanstack/react-query'
@@ -194,24 +191,6 @@ const AppSettings: FC<AppSettingsProps> = ({
   hideAgentType = false,
   generalAside,
 }) => {
-  // Get initial showAdvanced value from URL
-  const [showAdvanced, setShowAdvanced] = useState(() => {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('showAdvanced') === 'true'
-  })
-
-  // Update URL when showAdvanced changes
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (showAdvanced) {
-      params.set('showAdvanced', 'true')
-    } else {
-      params.delete('showAdvanced')
-    }
-    // Update URL without causing a page reload
-    window.history.replaceState({}, '', `${window.location.pathname}?${params}`)
-  }, [showAdvanced])
-
   // State for form fields
   const [name, setName] = useState(app.name || '')
   const [system_prompt, setSystemPrompt] = useState(app.system_prompt || '')
@@ -1203,18 +1182,8 @@ const AppSettings: FC<AppSettingsProps> = ({
         {/* Multi-Turn Agent Configuration */}
         {default_agent_type === AGENT_TYPE_HELIX_AGENT && (
           <Box sx={{ mt: 2 }}>
-            <Button
-              variant="text"
-              onClick={() => setShowAdvanced((value) => !value)}
-              endIcon={showAdvanced ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-              aria-expanded={showAdvanced}
-              aria-controls="advanced-model-settings"
-              sx={{ px: 0, textTransform: 'none' }}
-            >
-              Advanced model settings
-            </Button>
-            <Collapse in={showAdvanced}>
-              <Box id="advanced-model-settings" sx={{ mt: 2 }}>
+            <Typography variant="subtitle1">Advanced model settings</Typography>
+            <Box id="advanced-model-settings" sx={{ mt: 2 }}>
                 <Typography variant="subtitle1" sx={{ mb: 2 }}>Multi-Turn Agent Configuration</Typography>
 
             <Box sx={{ mb: 3 }}>
@@ -1523,7 +1492,6 @@ const AppSettings: FC<AppSettingsProps> = ({
               />
             </Box>
               </Box>
-            </Collapse>
           </Box>
         )}
       </Box>
