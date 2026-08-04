@@ -12,7 +12,7 @@ export const getChatColors = (theme: Theme) => {
     border: dark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.09)',
     borderStrong: dark ? 'rgba(255, 255, 255, 0.13)' : 'rgba(0, 0, 0, 0.16)',
     foreground: dark ? '#f5f5f5' : '#18181b',
-    assistantForeground: dark ? 'rgba(245, 245, 245, 0.8)' : 'rgba(24, 24, 27, 0.8)',
+    assistantForeground: dark ? '#e8e8e8' : 'rgba(24, 24, 27, 0.8)',
     muted: dark ? '#a1a1aa' : '#71717a',
   }
 }

@@ -147,6 +147,10 @@ showing literal Markdown punctuation. The bulb icon identifies thought rows, so
 their headers show the first summary directly without a repeated `Thoughts`
 label.
 
+Primary assistant prose uses a high-contrast near-white foreground in dark mode,
+including links. Reasoning summaries, command previews, durations, and other
+activity metadata remain muted to preserve the visual hierarchy.
+
 Shell results use `Ran command` plus the command preview. MCP calls use
 `Provider · tool` labels. This presentation is derived from the structured tool
 metadata and terminal result shape; it does not change or discard raw output.

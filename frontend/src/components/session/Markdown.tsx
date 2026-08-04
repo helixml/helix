@@ -1066,7 +1066,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             borderRadius: "3px",
           },
           "& a": {
-            color: theme.palette.mode === "light" ? "#333" : "#bbb",
+            color: theme.palette.mode === "light" ? "#333" : "inherit",
           },
 
           "& .doc-citation": {
