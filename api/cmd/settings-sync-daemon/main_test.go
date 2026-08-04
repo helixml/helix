@@ -842,3 +842,41 @@ func TestWriteSettingsPreservesInode(t *testing.T) {
 		assert.Equal(t, theme, got["theme"], "written theme should be readable")
 	}
 }
+
+// TestClaudeManagedSettingsCapsAskUserQuestion pins the fix for the
+// "Input requested by Claude ACP. Please ask the following questions." stall.
+// When Claude Code calls AskUserQuestion over ACP, Zed renders that prompt in a
+// pane nobody is watching in a headless spec-task sandbox. The setting's default
+// is "never", so the dialog waits forever and the agent never finishes its turn —
+// the same failure mode as qwen's session/request_permission (see
+// TestQwenCodeAgentServerHasYoloDefaultMode).
+//
+// Note this CANNOT be fixed with permissions.deny: the permissionRule grammar in
+// json.schemastore.org/claude-code-settings.json only matches
+// Agent|Bash|Edit|Read|Write|Skill|WebFetch|... and mcp__*, so an
+// "AskUserQuestion" deny entry is schema-invalid and silently ignored. The
+// timeout is the only supported lever.
+func TestClaudeManagedSettingsCapsAskUserQuestion(t *testing.T) {
+	dir := t.TempDir()
+	orig := ClaudeManagedSettingsPath
+	ClaudeManagedSettingsPath = filepath.Join(dir, "managed-settings.json")
+	defer func() { ClaudeManagedSettingsPath = orig }()
+
+	d := &SettingsDaemon{
+		codeAgentConfig: &CodeAgentConfig{Runtime: "claude_code", Model: "claude-opus-4-8"},
+	}
+	d.writeClaudeManagedSettings()
+
+	raw, err := os.ReadFile(ClaudeManagedSettingsPath)
+	assert.NoError(t, err, "managed settings file must be written")
+
+	var got map[string]interface{}
+	assert.NoError(t, json.Unmarshal(raw, &got))
+
+	timeout, ok := got["askUserQuestionTimeout"].(string)
+	assert.True(t, ok, "managed settings must set askUserQuestionTimeout")
+	assert.NotEqual(t, "never", timeout,
+		"askUserQuestionTimeout must not be \"never\" — a headless sandbox has nobody to answer, so the agent hangs")
+	assert.Equal(t, "60s", timeout,
+		"askUserQuestionTimeout should be the shortest documented value so the dialog auto-continues quickly")
+}

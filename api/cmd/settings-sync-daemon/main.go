@@ -662,9 +662,12 @@ func (d *SettingsDaemon) injectKoditAuth() {
 const (
 	ClaudeCredentialsPath        = "/home/retro/.claude/.credentials.json"
 	ClaudeSubscriptionMarkerPath = "/tmp/helix-claude-subscription-mode"
-	ClaudeManagedSettingsPath    = "/etc/claude-code/managed-settings.json"
 	CodexCredentialsPath         = "/home/retro/.codex/auth.json"
 )
+
+// A var, not a const, so unit tests can point it at a tempdir without touching
+// the real managed settings — same reason as SettingsPath/KeymapPath above.
+var ClaudeManagedSettingsPath = "/etc/claude-code/managed-settings.json"
 
 // writeClaudeManagedSettings writes /etc/claude-code/managed-settings.json so the
 // claude-agent-acp SettingsManager picks up the model preference at session init.
@@ -676,6 +679,22 @@ func (d *SettingsDaemon) writeClaudeManagedSettings() {
 	if d.codeAgentConfig != nil && d.codeAgentConfig.Model != "" {
 		settings["model"] = d.codeAgentConfig.Model
 	}
+
+	// Stop AskUserQuestion from wedging a headless sandbox.
+	//
+	// When Claude Code calls AskUserQuestion over ACP, Zed renders "Input requested
+	// by Claude ACP". In a spec-task sandbox nobody is watching that pane, and the
+	// setting's default is "never" — the dialog waits indefinitely for an answer
+	// that is never coming, so the agent stalls mid-run. Same class of failure as
+	// qwen's session/request_permission, which is why --yolo is set above.
+	//
+	// A timeout is the only lever available: AskUserQuestion is NOT a denyable tool.
+	// The permissionRule grammar (json.schemastore.org/claude-code-settings.json)
+	// only matches Agent|Bash|Edit|Read|Write|Skill|WebFetch|… and mcp__*, so a
+	// permissions.deny entry for it would be schema-invalid and silently ignored.
+	// "60s" is the shortest documented value ("60s", "5m", "10m", "never"); the
+	// dialog then auto-continues with whatever was preselected instead of hanging.
+	settings["askUserQuestionTimeout"] = "60s"
 
 	data, err := json.Marshal(settings)
 	if err != nil {
@@ -690,7 +709,7 @@ func (d *SettingsDaemon) writeClaudeManagedSettings() {
 		log.Printf("Failed to write claude managed settings: %v", err)
 		return
 	}
-	log.Printf("Wrote claude managed settings: model=%s", d.codeAgentConfig.Model)
+	log.Printf("Wrote claude managed settings: model=%s, askUserQuestionTimeout=60s", d.codeAgentConfig.Model)
 }
 
 // syncClaudeCredentials fetches Claude credentials from the Helix API.
