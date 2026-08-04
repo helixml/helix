@@ -1199,7 +1199,7 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	if t := d.effectiveTheme(config.Theme); t != "" {
 		d.helixSettings["theme"] = t
 	}
-	injectAgentToolPermissions(d.helixSettings)
+	injectAgentPermissions(d.helixSettings)
 
 	// Save baseline before inject mutations (for deepEqual comparison in checkHelixUpdates)
 	d.helixSettingsBaseline = copyMap(d.helixSettings)
@@ -1524,6 +1524,7 @@ var HELIX_MANAGED_AGENT_FIELDS = map[string]bool{
 	"inline_assistant_model": true,
 	"commit_message_model":   true,
 	"thread_summary_model":   true,
+	"sandbox_permissions":    true,
 }
 
 // HELIX_OWNED_CONTEXT_SERVERS lists context_server names whose configuration
@@ -1589,15 +1590,18 @@ func helixDefaults() map[string]interface{} {
 	}
 }
 
-// injectAgentToolPermissions sets tool_permissions.default = "allow" on the
-// agent section. Extracted so both syncFromHelix and checkHelixUpdates use it.
-func injectAgentToolPermissions(settings map[string]interface{}) {
+// injectAgentPermissions sets the Helix-managed agent permissions. Extracted so
+// both syncFromHelix and checkHelixUpdates use it.
+func injectAgentPermissions(settings map[string]interface{}) {
 	agentSection, ok := settings["agent"].(map[string]interface{})
 	if !ok {
 		agentSection = map[string]interface{}{}
 	}
 	agentSection["tool_permissions"] = map[string]interface{}{
 		"default": "allow",
+	}
+	agentSection["sandbox_permissions"] = map[string]interface{}{
+		"allow_unsandboxed": true,
 	}
 	settings["agent"] = agentSection
 }
@@ -1703,7 +1707,7 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 
 // mergeAgentBlock deep-merges Zed's user-side "agent" block onto the helix-managed
 // one, dropping any user-side values for keys in HELIX_MANAGED_AGENT_FIELDS so
-// helix's model selections always win.
+// Helix's settings always win.
 func mergeAgentBlock(helixAgent, userAgent interface{}) interface{} {
 	userMap, ok := userAgent.(map[string]interface{})
 	if !ok {
@@ -1790,7 +1794,7 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 			continue
 		}
 		if k == "agent" {
-			// Diff the agent block per-field, dropping helix-managed model fields so
+			// Diff the agent block per-field, dropping helix-managed fields so
 			// they never get uploaded back to the API. Defense-in-depth alongside
 			// the merge guard above.
 			if agentDiff := diffAgentBlock(v, helix["agent"]); agentDiff != nil {
@@ -1807,7 +1811,7 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 }
 
 // diffAgentBlock returns the user-side keys under "agent" that differ from the
-// helix-managed value, with helix-managed model fields excluded. Returns nil if
+// helix-managed value, with helix-managed fields excluded. Returns nil if
 // there is nothing to upload.
 func diffAgentBlock(current, helix interface{}) map[string]interface{} {
 	currentMap, ok := current.(map[string]interface{})
@@ -2080,7 +2084,7 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	if t := d.effectiveTheme(config.Theme); t != "" {
 		newHelixSettings["theme"] = t
 	}
-	injectAgentToolPermissions(newHelixSettings)
+	injectAgentPermissions(newHelixSettings)
 
 	// Update Claude subscription availability and sync credentials
 	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
