@@ -155,6 +155,7 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 	suite.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
 		Provider: "togetherai",
 		Owner:    "test-user",
+		UserID:   "test-user",
 	}).Return(suite.openAiClient, nil).Times(1)
 
 	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
@@ -283,6 +284,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	suite.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
 		Provider: "togetherai",
 		Owner:    "test-org",
+		UserID:   "test-user-2",
 	}).Return(suite.openAiClient, nil).Times(1)
 
 	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
@@ -405,6 +407,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_WithEmails() {
 	suite.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
 		Provider: "togetherai",
 		Owner:    "test-user",
+		UserID:   "test-user",
 	}).Return(suite.openAiClient, nil).Times(1)
 
 	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
@@ -512,6 +515,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_FailureNotification_WithEmails()
 	suite.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
 		Provider: "togetherai",
 		Owner:    "test-user",
+		UserID:   "test-user",
 	}).Return(suite.openAiClient, nil).Times(1)
 
 	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
@@ -605,6 +609,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_NoEmails_FallsBackToOwner() {
 	suite.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
 		Provider: "togetherai",
 		Owner:    "test-user",
+		UserID:   "test-user",
 	}).Return(suite.openAiClient, nil).Times(1)
 
 	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
