@@ -609,9 +609,21 @@ const AppSettings: FC<AppSettingsProps> = ({
               if (name !== app.name) void onUpdate({ name })
             }}
             fullWidth
-            sx={{ flex: 1 }}
+            sx={{ flex: '1 1 0', minWidth: 0 }}
           />
-          {generalAside}
+          {generalAside && (
+            <Box
+              sx={{
+                flex: '1 1 0',
+                minWidth: 0,
+                display: 'flex',
+                justifyContent: 'flex-end',
+                mt: { xs: 0, sm: -1 },
+              }}
+            >
+              {generalAside}
+            </Box>
+          )}
         </Stack>
         <Stack direction="row" alignItems="center">
           <Typography gutterBottom>System Instructions</Typography>

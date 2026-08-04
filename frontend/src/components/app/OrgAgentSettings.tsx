@@ -4,7 +4,6 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
-import FormControlLabel from '@mui/material/FormControlLabel'
 import Stack from '@mui/material/Stack'
 import Switch from '@mui/material/Switch'
 import TextField from '@mui/material/TextField'
@@ -72,16 +71,15 @@ const OrgAgentSettings: FC<{
     return (
       <Box sx={{ mt: 3 }}>
         <Typography variant="subtitle1">Context</Typography>
-        <FormControlLabel
-          control={(
-            <Switch
-              checked={agent.preserve_context ?? false}
-              onChange={(_event, checked) => void update({ preserve_context: checked })}
-              disabled={readOnly || updateAgent.isPending}
-            />
-          )}
-          label="Preserve context across triggers"
-        />
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+          <Typography variant="body1">Preserve context</Typography>
+          <Switch
+            checked={agent.preserve_context ?? false}
+            onChange={(_event, checked) => void update({ preserve_context: checked })}
+            disabled={readOnly || updateAgent.isPending}
+            inputProps={{ 'aria-label': 'Preserve context' }}
+          />
+        </Stack>
         <Typography variant="body2" color="text.secondary">
           Keep this org agent's conversation context between triggered runs.
         </Typography>
