@@ -19,6 +19,8 @@ import AddIcon from '@mui/icons-material/Add'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
@@ -308,7 +310,7 @@ const sideOutward = (r: CardRect, side: CardSide, dist: number): { x: number; y:
 const ARROW_CLEARANCE_PX = 12
 
 // Pick the (fromSide, toSide) pair whose midpoints are closest.
-const closestSidePair = (a: CardRect, b: CardRect): { from: CardSide; to: CardSide } => {
+export const closestSidePair = (a: CardRect, b: CardRect): { from: CardSide; to: CardSide } => {
   let bestFrom: CardSide = 'right'
   let bestTo: CardSide = 'left'
   let bestD = Infinity
@@ -1475,7 +1477,7 @@ export const buildGraph = (
           source: `topic:${p.inputTopicId}`,
           sourceHandle: 'src',
           target: `processor:${p.id}`,
-          type: 'deletable',
+          type: 'closest',
           data: { kind: 'proc_in', processorId: p.id },
           style: { stroke: procStroke, strokeWidth: 1.5 },
         })
@@ -1488,7 +1490,7 @@ export const buildGraph = (
           source: `processor:${upstream}`,
           sourceHandle: p.inputTopicId,
           target: `processor:${p.id}`,
-          type: 'deletable',
+          type: 'closest',
           data: { kind: 'proc_in', processorId: p.id },
           style: { stroke: procStroke, strokeWidth: 1.5 },
         })
@@ -1547,7 +1549,8 @@ const ConfirmDeleteDialog: FC<{
 //
 // DeletableEdge: path between the RF-supplied handle endpoints, with a
 // hover × that routes through deleteElements → onEdgesDelete. Used for
-// processor input wires (fixed ports).
+// processor input wires, while ClosestSideEdge recomputes every processor
+// path from the nearest card sides.
 //
 // ClosestSideEdge: same chrome, but endpoints are recomputed from the
 // live node rects as the nearest side-midpoint pair. Used for bot↔bot
@@ -1714,12 +1717,13 @@ const ClosestSideEdge: FC<EdgeProps> = ({
   target,
   sourceX,
   sourceY,
+  targetX,
+  targetY,
   sourcePosition,
   style,
   markerEnd,
   data,
   selected,
-  sourceHandleId,
 }) => {
   const [hover, setHover] = useState(false)
   const { getNode } = useReactFlow()
@@ -1731,8 +1735,8 @@ const ClosestSideEdge: FC<EdgeProps> = ({
 
   let sx = sourceX
   let sy = sourceY
-  let tx = sourceX
-  let ty = sourceY
+  let tx = targetX
+  let ty = targetY
   let sPos = sourcePosition ?? RFPosition.Right
   let tPos = RFPosition.Left
 
@@ -1742,35 +1746,26 @@ const ClosestSideEdge: FC<EdgeProps> = ({
     const sRect = nodeCardRect(sourceNode, sf.w, sf.h)
     const tRect = nodeCardRect(targetNode, tf.w, tf.h)
 
-    // Processor branch ports: leave the edge at the source handle RF
-    // already resolved (the labelled branch port), only free the target
-    // side to the closest bot side. Pure bot↔bot / bot↔topic edges free
-    // both ends.
+    // Render every closest-side edge from the nearest side of each card.
+    // This includes processor branches: sourceHandleId still identifies
+    // the branch for wiring and deletion, while the visual cable is free
+    // to attach to whichever processor side is nearest. This prevents a
+    // free-placed processor from drawing a cable through its own card just
+    // because its labelled output handle is physically on the right.
     //
     // When the edge has an arrow (reporting lines), park the target end
     // slightly outside the card so the marker isn't clipped under the
     // node layer.
     const hasArrow = Boolean(markerEnd)
-    if (kind === 'proc_out' && sourceHandleId) {
-      const { to } = closestSidePair(sRect, tRect)
-      const p2 = hasArrow ? sideOutward(tRect, to, ARROW_CLEARANCE_PX) : sideMidpoint(tRect, to)
-      sx = sourceX
-      sy = sourceY
-      sPos = sourcePosition ?? RFPosition.Right
-      tx = p2.x
-      ty = p2.y
-      tPos = sideToPosition(to)
-    } else {
-      const { from, to } = closestSidePair(sRect, tRect)
-      const p1 = sideMidpoint(sRect, from)
-      const p2 = hasArrow ? sideOutward(tRect, to, ARROW_CLEARANCE_PX) : sideMidpoint(tRect, to)
-      sx = p1.x
-      sy = p1.y
-      sPos = sideToPosition(from)
-      tx = p2.x
-      ty = p2.y
-      tPos = sideToPosition(to)
-    }
+    const { from, to } = closestSidePair(sRect, tRect)
+    const p1 = sideMidpoint(sRect, from)
+    const p2 = hasArrow ? sideOutward(tRect, to, ARROW_CLEARANCE_PX) : sideMidpoint(tRect, to)
+    sx = p1.x
+    sy = p1.y
+    sPos = sideToPosition(from)
+    tx = p2.x
+    ty = p2.y
+    tPos = sideToPosition(to)
   }
 
   const [edgePath, labelX, labelY] = getBezierPath({
@@ -2251,8 +2246,10 @@ type Selection =
 // chart is for agents — but they're shown here alongside the agents with the
 // contact channels the org reaches them on plus their responsibility. Click
 // a person to open their profile.
-const PeoplePanel: FC<{ people: BotDTO[]; onSelect: (botId: string) => void }> = ({ people, onSelect }) => {
+export const PeoplePanel: FC<{ people: BotDTO[]; onSelect: (botId: string) => void }> = ({ people, onSelect }) => {
   const lightTheme = useLightTheme()
+  const [expanded, setExpanded] = useState(true)
+  const toggleExpanded = () => setExpanded((current) => !current)
   if (people.length === 0) return null
   const bg = lightTheme.isLight ? 'rgba(255,255,255,0.96)' : 'rgba(28,28,32,0.96)'
   const border = lightTheme.isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.14)'
@@ -2260,6 +2257,7 @@ const PeoplePanel: FC<{ people: BotDTO[]; onSelect: (botId: string) => void }> =
   return (
     <Paper
       elevation={0}
+      className={NO_DRAG_NO_PAN}
       sx={{
         position: 'absolute', bottom: 12, right: 12, zIndex: 5,
         width: 300, maxHeight: '48%', display: 'flex', flexDirection: 'column',
@@ -2267,40 +2265,58 @@ const PeoplePanel: FC<{ people: BotDTO[]; onSelect: (botId: string) => void }> =
         backdropFilter: 'blur(4px)',
       }}
     >
-      <Box sx={{ px: 1.5, py: 1, borderBottom: `1px solid ${border}` }}>
+      <Box
+        className={NO_DRAG_NO_PAN}
+        onClick={toggleExpanded}
+        sx={{ px: 1.5, py: 0.5, borderBottom: expanded ? `1px solid ${border}` : 'none', cursor: 'pointer' }}
+      >
         <Stack direction="row" alignItems="center" spacing={0.75}>
           <PersonOutlineIcon sx={{ fontSize: 16, color: 'rgba(60,140,210,0.9)' }} />
           <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             People
           </Typography>
+          <IconButton
+            size="small"
+            aria-label={expanded ? 'Collapse people' : 'Expand people'}
+            aria-expanded={expanded}
+            onClick={(event) => {
+              event.stopPropagation()
+              toggleExpanded()
+            }}
+            sx={{ ml: 'auto', p: 0.25 }}
+          >
+            {expanded ? <ExpandLessIcon sx={{ fontSize: 18 }} /> : <ExpandMoreIcon sx={{ fontSize: 18 }} />}
+          </IconButton>
         </Stack>
       </Box>
-      <Box sx={{ p: 0.5, overflowY: 'auto' }}>
-        {people.map((p) => {
-          const channels = Object.entries(p.identity ?? {}).filter(([, v]) => !!v)
-          const responsibility = (p.content || '').split('\n').find((l) => l.trim() !== '')?.trim()
-          return (
-            <Box
-              key={p.id}
-              className="nodrag nopan"
-              onClick={() => onSelect(p.id ?? '')}
-              sx={{ px: 1, py: 0.75, borderRadius: 1, cursor: 'pointer', '&:hover': { backgroundColor: hover } }}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.name || p.id}</Typography>
-              {channels.length > 0 && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {channels.map(([k, v]) => `${k}: ${v}`).join('  ·  ')}
-                </Typography>
-              )}
-              {responsibility && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {responsibility}
-                </Typography>
-              )}
-            </Box>
-          )
-        })}
-      </Box>
+      {expanded && (
+        <Box sx={{ p: 0.5, overflowY: 'auto' }}>
+          {people.map((p) => {
+            const channels = Object.entries(p.identity ?? {}).filter(([, v]) => !!v)
+            const responsibility = (p.content || '').split('\n').find((l) => l.trim() !== '')?.trim()
+            return (
+              <Box
+                key={p.id}
+                className="nodrag nopan"
+                onClick={() => onSelect(p.id ?? '')}
+                sx={{ px: 1, py: 0.75, borderRadius: 1, cursor: 'pointer', '&:hover': { backgroundColor: hover } }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.name || p.id}</Typography>
+                {channels.length > 0 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {channels.map(([k, v]) => `${k}: ${v}`).join('  ·  ')}
+                  </Typography>
+                )}
+                {responsibility && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {responsibility}
+                  </Typography>
+                )}
+              </Box>
+            )
+          })}
+        </Box>
+      )}
     </Paper>
   )
 }
