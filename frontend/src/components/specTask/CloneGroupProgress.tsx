@@ -14,6 +14,7 @@ import TaskCard from '../tasks/TaskCard';
 import useRouter from '../../hooks/useRouter';
 import useApi from '../../hooks/useApi';
 import useSnackbar from '../../hooks/useSnackbar';
+import { extractErrorMessage } from '../../hooks/useErrorCallback';
 import { TypesSpecTaskWithProject } from '../../api/api';
 
 interface CloneGroupProgressProps {
@@ -298,6 +299,7 @@ const CloneGroupProgressFull: React.FC<CloneGroupProgressProps> = ({
     const apiClient = api.getApiClient();
     let successCount = 0;
     let failCount = 0;
+    let firstError = '';
 
     for (const task of tasksReadyToStart) {
       try {
@@ -309,6 +311,7 @@ const CloneGroupProgressFull: React.FC<CloneGroupProgressProps> = ({
       } catch (err) {
         console.error(`Failed to start task ${task.id}:`, err);
         failCount++;
+        firstError ||= extractErrorMessage(err);
       }
     }
 
@@ -317,9 +320,9 @@ const CloneGroupProgressFull: React.FC<CloneGroupProgressProps> = ({
     if (failCount === 0) {
       snackbar.success(`Started implementation for ${successCount} tasks`);
     } else if (successCount > 0) {
-      snackbar.warning(`Started ${successCount} tasks, ${failCount} failed`);
+      snackbar.warning(`Started ${successCount} tasks, ${failCount} failed: ${firstError}`);
     } else {
-      snackbar.error(`Failed to start all tasks`);
+      snackbar.error(`Failed to start all tasks: ${firstError}`);
     }
 
     // Refetch to update the progress display

@@ -618,10 +618,8 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 }
 
 // buildCodeAgentConfigFromAssistant creates a CodeAgentConfig from an assistant configuration.
-// For zed_external agents the user's model selection lives in Model/Provider; the
-// GenerationModel quartet holds helix_agent template defaults (gpt-4o/openai) that must
-// not shadow it. This must match GenerateZedMCPConfig's precedence or CodeAgentConfig.Model
-// (fed to Goose/qwen via agent_servers) disagrees with agent.default_model.
+// Model selection must match GenerateZedMCPConfig so CodeAgentConfig.Model
+// (fed to Goose/qwen via agent_servers) agrees with agent.default_model.
 // The CodeAgentRuntime determines how the LLM is configured in Zed (built-in agent vs qwen).
 func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.Context, assistant *types.AssistantConfig, helixURL string, providerSnapshot []external_agent.ProviderRef) *types.CodeAgentConfig {
 	// Get the code agent runtime, default to zed_agent
@@ -633,16 +631,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	// Check if this agent uses subscription-based credentials (e.g., Claude OAuth)
 	isSubscription := assistant.CodeAgentCredentialType.IsSubscription()
 
-	// Model/Provider is the zed_external source of truth; GenerationModel is the
-	// stale helix_agent-template fallback (see doc comment above).
-	providerName := assistant.Provider
-	if providerName == "" {
-		providerName = assistant.GenerationModelProvider
-	}
-	modelName := assistant.Model
-	if modelName == "" {
-		modelName = assistant.GenerationModel
-	}
+	providerName, modelName := external_agent.AssistantModelSelection(assistant)
 
 	// Resolve the agent's stored provider token (ID or legacy name) to the
 	// provider's current canonical name. Required so the model prefix here
@@ -966,12 +955,8 @@ func (apiServer *HelixAPIServer) resolveGooseRecipeFileParams(ctx context.Contex
 // admin label). Used by zed-config code paths to resolve an agent's stored
 // provider reference to its current canonical name.
 //
-// The app argument is what makes this org-aware: when app.OrganizationID
-// is set, org-owned providers are listed first and the user's personal
-// providers are merged in (so a user running an org agent that references
-// their own personal provider still resolves). actorID may be "" when
-// there's no user context (rare; e.g. system-driven paths) — in that case
-// only the app-owner bucket is returned.
+// The app argument makes this org-aware: when app.OrganizationID is set,
+// only organization-owned and global providers are returned.
 //
 // Returning nil from this helper (e.g. when the manager isn't wired) tells
 // GenerateZedMCPConfig to skip resolution.
@@ -990,15 +975,9 @@ func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorI
 	return refs, nil
 }
 
-// listEndpointsForApp returns ProviderEndpoint records visible to the actor
-// for the given app, with the org-first + user-merge pattern that
-// validateProvidersAndModels established. Centralising it here means every
-// caller (substitution, validation, zed-config, spec-task pre-flight) sees
-// the same view of "what providers can this agent legitimately reference".
-//
-// Without the merge, an org-owned agent that references the org member's
-// personal provider would 422 at session start; with it, both buckets
-// participate in resolution.
+// listEndpointsForApp returns ProviderEndpoint records available to the app.
+// Organization apps only see their organization's and global providers;
+// personal providers must not enter organization snapshots.
 func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorID string, app *types.App) ([]*types.ProviderEndpoint, error) {
 	if apiServer.providerManager == nil {
 		return nil, nil
@@ -1007,44 +986,7 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 	if app != nil && app.OrganizationID != "" {
 		owner = app.OrganizationID
 	}
-	endpoints, err := apiServer.providerManager.ListProviderEndpoints(ctx, owner)
-	if err != nil {
-		return nil, err
-	}
-	if app == nil || app.OrganizationID == "" || actorID == "" || actorID == app.OrganizationID {
-		return endpoints, nil
-	}
-	userEndpoints, uerr := apiServer.providerManager.ListProviderEndpoints(ctx, actorID)
-	if uerr != nil {
-		// Best-effort merge: a personal-provider lookup failure shouldn't
-		// hide the org bucket we already have. Log and return what we got.
-		log.Warn().Err(uerr).Str("app_id", app.ID).Str("actor_id", actorID).Msg("listEndpointsForApp: failed to list personal providers; using org bucket only")
-		return endpoints, nil
-	}
-	seen := make(map[string]struct{}, len(endpoints))
-	for _, ep := range endpoints {
-		seen[endpointKey(ep)] = struct{}{}
-	}
-	for _, ep := range userEndpoints {
-		k := endpointKey(ep)
-		if _, ok := seen[k]; ok {
-			continue
-		}
-		seen[k] = struct{}{}
-		endpoints = append(endpoints, ep)
-	}
-	return endpoints, nil
-}
-
-// endpointKey produces a stable de-dup key for a provider endpoint. ID wins
-// when present; for env-baked globals (ID=="") the name namespace is used
-// to keep "openai" from colliding with a DB-backed provider also named
-// "openai".
-func endpointKey(ep *types.ProviderEndpoint) string {
-	if ep.ID != "" {
-		return "id:" + ep.ID
-	}
-	return "name:" + ep.Name
+	return apiServer.providerManager.ListProviderEndpoints(ctx, owner)
 }
 
 // validateSpecTaskAgentConfig pre-flights the agent's provider/model snapshot

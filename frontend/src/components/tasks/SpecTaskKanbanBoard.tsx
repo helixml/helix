@@ -1540,8 +1540,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           return;
         }
         throw new Error(
-          errorData.error ||
-            errorData.message ||
+          errorData.message ||
+            errorData.error ||
             `Failed to start planning: ${response.statusText}`,
         );
       }
@@ -1616,8 +1616,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       console.error("Failed to start planning:", err);
       // Extract error message from API response
       const errorMessage =
-        err?.response?.data?.error ||
         err?.response?.data?.message ||
+        err?.response?.data?.error ||
         err?.message ||
         "Failed to start planning. Please try again.";
       setError(errorMessage);
