@@ -5,7 +5,11 @@ import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
 import { ChevronDown, ChevronUp, Lightbulb } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { preserveDisclosureExpansion } from './disclosureScroll'
+import { getChatColors } from './chatStyles'
+import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
 
 interface ThinkingWidgetProps {
   text: string
@@ -20,11 +24,41 @@ function formatDuration(seconds: number) {
   return `${minutes}:${remainder.toString().padStart(2, '0')}`
 }
 
+export function formatThinkingMarkdown(text: string): string {
+  const blocks = text.trim().split(/\n{2,}/)
+  let markdown = ''
+  let previousWasSummary = false
+
+  blocks.forEach((block) => {
+    const trimmed = block.trim()
+    if (!trimmed) return
+    const isSummary = /^\*\*[\s\S]+\*\*$/.test(trimmed)
+    const separator = markdown ? (isSummary && previousWasSummary ? '\n' : '\n\n') : ''
+    markdown += `${separator}${isSummary ? `- ${trimmed}` : trimmed}`
+    previousWasSummary = isSummary
+  })
+
+  return markdown
+}
+
+export function thinkingSummary(text: string): string {
+  const firstLine = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .find(Boolean) || ''
+
+  return firstLine
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^[-*]\s+/, '')
+}
+
 const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStreaming }) => {
   const [elapsed, setElapsed] = useState(0)
   const [expanded, setExpanded] = useState(false)
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
+  const chatColors = getChatColors(theme)
   const isMultiline = text.trim().includes('\n')
   const startedAt = useRef(
     typeof startTime === 'number'
@@ -42,8 +76,8 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
     return () => window.clearInterval(interval)
   }, [isStreaming])
 
-  const iconColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'
-  const textColor = isDark ? 'rgba(255,255,255,0.65)' : 'text.secondary'
+  const iconColor = isDark ? chatColors.subtle : 'rgba(0,0,0,0.45)'
+  const textColor = isDark ? chatColors.muted : 'text.secondary'
 
   return (
     <Box
@@ -74,31 +108,18 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
         <Typography
           variant="body2"
           sx={{
-            flex: isMultiline ? 1 : '0 0 auto',
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
             fontSize: '0.76rem',
             color: textColor,
-            fontFamily: 'monospace',
+            fontFamily: APP_MONO_FONT_FAMILY,
           }}
         >
-          {isStreaming ? `Thinking ${formatDuration(elapsed)}` : 'Thoughts'}
+          {isStreaming ? `Thinking ${formatDuration(elapsed)}` : thinkingSummary(text)}
         </Typography>
-        {!isStreaming && !isMultiline && (
-          <Typography
-            variant="body2"
-            sx={{
-              flex: 1,
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              fontSize: '0.76rem',
-              color: isDark ? 'rgba(255,255,255,0.5)' : 'text.secondary',
-              fontFamily: 'monospace',
-            }}
-          >
-            {text.trim()}
-          </Typography>
-        )}
         {isStreaming && <CircularProgress size={16} thickness={4} color="warning" />}
         {isMultiline && (
           <IconButton
@@ -118,16 +139,29 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
             pr: 0,
             py: 1,
             fontSize: '0.8rem',
-            fontFamily: 'monospace',
-            whiteSpace: 'pre-wrap',
+            lineHeight: 1.6,
             wordBreak: 'break-word',
-            color: isDark ? 'rgba(255,255,255,0.55)' : 'text.secondary',
+            color: isDark ? chatColors.muted : 'text.secondary',
             backgroundColor: 'transparent',
             maxHeight: '300px',
             overflow: 'auto',
+            '& p': { m: 0 },
+            '& p + p': { mt: 1 },
+            '& ul, & ol': { my: 0, pl: 2.5 },
+            '& li + li': { mt: 0.5 },
+            '& strong': {
+              color: isDark ? '#d4d4d4' : 'text.primary',
+              fontWeight: 600,
+            },
+            '& code': {
+              fontFamily: APP_MONO_FONT_FAMILY,
+              fontSize: '0.76rem',
+            },
           }}
         >
-          {text}
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {formatThinkingMarkdown(text)}
+          </ReactMarkdown>
         </Box>
       )}
     </Box>

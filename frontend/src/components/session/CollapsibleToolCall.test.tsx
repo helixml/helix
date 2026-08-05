@@ -12,8 +12,35 @@ describe('CollapsibleToolCall', () => {
     )
 
     expect(presentation).toEqual({
+      kind: 'command',
       label: 'Ran command',
       preview: 'Bash: git status --short',
+    })
+  })
+
+  it('recognizes raw ACP shell titles from terminal output', () => {
+    const presentation = getToolCallPresentation(
+      "git status --short",
+      "**Tool Call: git status --short**\nStatus: Completed\nTerminal:\n```\n M file.ts\n```",
+    )
+
+    expect(presentation).toEqual({
+      kind: 'command',
+      label: 'Ran command',
+      preview: 'git status --short',
+    })
+  })
+
+  it('presents MCP calls as provider and tool', () => {
+    expect(getToolCallPresentation('mcp.codex_apps.github.fetch_pr', '')).toEqual({
+      kind: 'tool',
+      label: 'GitHub · fetch_pr',
+      preview: '',
+    })
+    expect(getToolCallPresentation('mcp__t3_code__preview_snapshot', '')).toEqual({
+      kind: 'tool',
+      label: 'T3-code · preview_snapshot',
+      preview: '',
     })
   })
 

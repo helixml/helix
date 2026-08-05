@@ -37,22 +37,15 @@ import (
 // is correct for tests and for HumanWorker activations.
 type Spawner func(ctx context.Context, orgID string, workerID orgchart.NodeID, triggers []activation.Trigger) error
 
-// WorkspaceSync mirrors the canonical Role and Identity content of a
-// Worker into wherever that Worker's runtime reads them at activation
-// time. Tools (update_role, update_identity) call MirrorFile after
-// persisting to the DB so the next activation sees fresh content
-// without waiting for the spawner's projection step.
+// WorkspaceSync mirrors a Worker-scoped artifact into its runtime workspace.
 //
-// `name` is a logical filename for this Worker — typically "role.md"
-// or "identity.md". The backend maps the name to its own on-target
+// `name` is a logical filename for this Worker. The backend maps the name to its own on-target
 // layout; callers must NOT include backend-specific path prefixes
 // (no "workers/<id>/.context/...", no "job/..."). The mapping today
 // (helix runtime, the sole concrete impl):
 //
 //   - workers/<workerID>/.context/<name> on the helix-specs branch
-//     of the Worker's per-Worker repo (matches what
-//     `WorkerProject.republishWorkerFiles` writes and what the
-//     activation mandate tells the agent to `git pull` and `cat`)
+//     of the Worker's per-Worker repo
 //
 // `name` must be a clean, single-segment-or-relative filename — no
 // leading slash, no "..", no escape from the Worker's namespace.

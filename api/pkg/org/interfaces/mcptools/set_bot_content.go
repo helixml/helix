@@ -15,7 +15,7 @@ import (
 // SetBotContent rewrites a Bot's markdown content (its prompt). Tools and
 // subscriptions are untouched — use attach_tool/detach_tool for tools and
 // subscribe/unsubscribe for streams. The change takes effect on the Bot's
-// next activation; the running session sees it via the workspace mirror.
+// next activation, when the spawner refreshes the session-scoped profile.
 // Owner-only.
 type SetBotContent struct {
 	deps Deps
@@ -73,8 +73,5 @@ func (t *SetBotContent) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 			return nil, fmt.Errorf("update linked agent content: %w", err)
 		}
 	}
-	// Mirror the new content into the bot's Environment so a running
-	// session sees it without waiting for the next activation.
-	_ = t.deps.Workspace.MirrorFile(ctx, orgID, botID, "role.md", updated.Content, fmt.Sprintf("set_bot_content: %s", botID))
 	return json.Marshal(map[string]string{"id": string(botID)})
 }

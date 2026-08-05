@@ -79,6 +79,7 @@ type ProjectService interface {
 	// PutProjectSecret upserts an env-var injected into the agent's
 	// container at session start.
 	PutProjectSecret(ctx context.Context, projectID, name, value string) error
+	DeleteProjectSecret(ctx context.Context, projectID, name string) error
 
 	// ListProjectSecrets returns the project's dev-scoped secrets as a
 	// decrypted name→value map, read live. Backs list_secrets so a bot can
@@ -138,9 +139,9 @@ type ProjectService interface {
 // needs a per-Worker project so the org-graph MCP server can be wired
 // in via the project's auto-provisioned Agent App.
 //
-// Idempotent: ensuring a Bot that already has a project is
-// a no-op for the project itself, but always re-pushes the canonical
-// role.md file so update_role changes land.
+// Idempotent: ensuring a Bot that already has a project is a no-op for the
+// project itself. Runtime instructions are published by the activation
+// spawner after it resolves Bot content, linked Agent content, and overrides.
 //
 // WorkerProject routes the project / git / app calls through the
 // ProjectService interface and the file pushes through ProjectGit
@@ -148,12 +149,7 @@ type ProjectService interface {
 // api/pkg/server/helix_org.go satisfies ProjectService with the
 // in-process adapter that calls HelixAPIServer handlers directly.
 type WorkerProject struct {
-	Service ProjectService
-	// Workspace owns the on-branch file layout — WorkerProject
-	// delegates role.md pushes
-	// through it so there is exactly one place in the helix runtime
-	// that knows the `workers/<id>/.context/` path convention.
-	Workspace   *Workspace
+	Service     ProjectService
 	Store       *store.Store
 	HelixOrgURL string
 	OrgID       string
@@ -346,7 +342,6 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 					if a.Logger != nil {
 						a.Logger.Warn("project applier: rename to display name failed, skipping refresh to avoid orphan", "worker", workerID, "project", state.ProjectID, "want_name", projectName, "err", err)
 					}
-					a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent)
 					return state.ProjectID, state.AgentID, state.RepoID, nil
 				}
 			}
@@ -384,10 +379,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 					a.Logger.Warn("verify persisted repo failed; keeping existing id", "worker", workerID, "repo", repoID, "err", gerr)
 				}
 			}
-			// Keep the role.md workspace mirror current for tools and
-			// workflows that use the helix-specs branch. Activation prompts
-			// read Bot.Content directly. The writes are idempotent.
-			a.republishWorkerFiles(ctx, workerID, repoID, roleContent)
+			a.syncProjectRuntimeSecrets(ctx, state.ProjectID, workerID)
 			return state.ProjectID, state.AgentID, repoID, nil
 		}
 	}
@@ -406,15 +398,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", resp.ProjectID, workerID, err)
 		}
 	}
-	// Project secrets — env-var injection. The worker needs these to reach
-	// the org runtime, so a failure is worth surfacing (logged, not fatal:
-	// a re-apply on the next activation retries the upsert).
-	if err := a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_ORG_URL", a.HelixOrgURL); err != nil && a.Logger != nil {
-		a.Logger.Warn("put project secret HELIX_ORG_URL", "worker", workerID, "project", resp.ProjectID, "err", err)
-	}
-	if err := a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_WORKER_ID", string(workerID)); err != nil && a.Logger != nil {
-		a.Logger.Warn("put project secret HELIX_WORKER_ID", "worker", workerID, "project", resp.ProjectID, "err", err)
-	}
+	a.syncProjectRuntimeSecrets(ctx, resp.ProjectID, workerID)
 	repoID = project.DefaultRepoID
 	// Helix's project-apply does NOT auto-create a default repo. We
 	// MUST create one and attach it as primary, because:
@@ -422,8 +406,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	//   - HELIX_REPOSITORIES is set from the project's attached repos
 	//     when hydra launches the desktop; an empty list means the
 	//     bringup script has nothing for Zed to open.
-	//   - update_role writes role.md into the repo on the helix-specs
-	//     branch — without a repo it has nowhere to go.
+	//   - Zed needs a real repository workspace to open.
 	//
 	// Earlier versions of this code logged a warning on failure and
 	// returned a project with empty RepoID, which surfaced as a 5-min
@@ -443,7 +426,6 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			return "", "", "", fmt.Errorf("apply project for %s: %w", workerID, rerr)
 		}
 	}
-	a.republishWorkerFiles(ctx, workerID, repoID, roleContent)
 	// NB: helix-org MCP attachment is NOT done here. applyProject
 	// (helix project handler) wholesale-replaces agentApp.Config.Helix
 	// on update, so anything we attach now is clobbered on the next
@@ -463,6 +445,19 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		)
 	}
 	return resp.ProjectID, resp.AgentAppID, repoID, nil
+}
+
+func (a *WorkerProject) syncProjectRuntimeSecrets(ctx context.Context, projectID string, workerID orgchart.NodeID) {
+	// The org URL is project capability shared by every session in the worker's
+	// project. Worker identity is not: remove the legacy project secret so
+	// SpecTask sessions cannot inherit it. The spawner now stores identity and
+	// instructions on the org worker's session only.
+	if err := a.Service.PutProjectSecret(ctx, projectID, "HELIX_ORG_URL", a.HelixOrgURL); err != nil && a.Logger != nil {
+		a.Logger.Warn("put project secret HELIX_ORG_URL", "worker", workerID, "project", projectID, "err", err)
+	}
+	if err := a.Service.DeleteProjectSecret(ctx, projectID, "HELIX_WORKER_ID"); err != nil && a.Logger != nil {
+		a.Logger.Warn("delete legacy project secret HELIX_WORKER_ID", "worker", workerID, "project", projectID, "err", err)
+	}
 }
 
 // ensureWorkerRepo returns the project's per-Worker repo, creating and attaching
@@ -530,26 +525,4 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 		a.Logger.Info("helix repo created and attached", "worker", workerID, "repo", repo.ID)
 	}
 	return repo.ID, nil
-}
-
-// republishWorkerFiles writes the bot's role.md file on the bot's
-// helix-specs branch through the Workspace, so the on-branch path
-// layout is owned in exactly one place (workspace.go). A bot has no
-// separate identity — its Content IS its prompt, written to role.md.
-// Best-effort: errors are logged, not returned — a single failed file
-// shouldn't block the rest of the apply.
-func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.NodeID, repoID, roleContent string) {
-	if repoID == "" || a.Workspace == nil {
-		return
-	}
-	if err := a.Workspace.EnsureBranch(ctx, repoID, "main"); err != nil {
-		if a.Logger != nil {
-			a.Logger.Warn("republish bot files: create helix-specs branch", "bot", workerID, "err", err)
-		}
-	}
-	if roleContent != "" {
-		if err := a.Workspace.WriteWorkerFile(ctx, workerID, repoID, "role.md", roleContent, "republish role.md"); err != nil && a.Logger != nil {
-			a.Logger.Warn("republish bot files: role.md", "bot", workerID, "err", err)
-		}
-	}
 }

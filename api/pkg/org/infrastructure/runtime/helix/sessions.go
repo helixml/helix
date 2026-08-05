@@ -33,6 +33,7 @@ type SessionClient interface {
 // The adapter always sets session_role "exploratory" so it's resolvable
 // by the mirror's GetProjectExploratorySession lookup.
 type StartSessionParams struct {
+	Name           string
 	ProjectID      string
 	OrganizationID string
 	AppID          string
@@ -40,6 +41,8 @@ type StartSessionParams struct {
 	Provider       string
 	Model          string
 	Prompt         string
+	WorkerID       string
+	Instructions   string
 }
 
 // SpawnerClient is the chat-session surface the helix Spawner uses
@@ -66,6 +69,11 @@ type SpawnerClient interface {
 	// instead of growing one long-lived session until it hits the model
 	// limit and compacts. See SpawnerConfig.ensureSession.
 	ClearSession(ctx context.Context, sessionID string) error
+	// SyncAgentProfile updates the durable display name on an existing session
+	// and its session-scoped worker identity/instructions. When the desktop is
+	// running it also refreshes the runtime-native files before a new ACP thread
+	// is created; a stopped desktop receives them from session state on restart.
+	SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string) error
 }
 
 // checkDesktopQuota pre-flights the desktop quota gate before
@@ -103,6 +111,7 @@ func checkDesktopQuota(ctx context.Context, client SessionClient) error {
 // itself stays free of side-effects beyond the StartChat call.
 type SendPromptParams struct {
 	SessionID      string
+	SessionName    string
 	ProjectID      string
 	OrganizationID string
 	AppID          string
@@ -110,6 +119,8 @@ type SendPromptParams struct {
 	Provider       string
 	Model          string
 	Prompt         string
+	WorkerID       string
+	Instructions   string
 	OnSessionID    func(sessionID string)
 }
 
@@ -146,6 +157,7 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		return "", false, err
 	}
 	sid, err := client.StartSession(ctx, StartSessionParams{
+		Name:           params.SessionName,
 		ProjectID:      params.ProjectID,
 		OrganizationID: params.OrganizationID,
 		AppID:          params.AppID,
@@ -153,6 +165,8 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		Provider:       params.Provider,
 		Model:          params.Model,
 		Prompt:         params.Prompt,
+		WorkerID:       params.WorkerID,
+		Instructions:   params.Instructions,
 	})
 	if err != nil {
 		return "", false, fmt.Errorf("start helix session: %w", err)

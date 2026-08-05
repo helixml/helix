@@ -178,9 +178,19 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		if err != nil {
 			log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
 		} else if len(projectSecrets) > 0 {
-			agent.Env = append(agent.Env, projectSecrets...)
-			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
+			before := len(agent.Env)
+			agent.Env = appendProjectSecrets(agent.Env, projectSecrets)
+			injected := len(agent.Env) - before
+			log.Info().Int("secret_count", injected).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
 		}
+	}
+
+	// Org-worker identity is session state, not project state: SpecTask and
+	// human exploratory sessions can share the same project and must not inherit
+	// it. Materialize both agent-native instruction files before the container
+	// starts; the workspace bind mount persists them across desktop restarts.
+	if err := h.attachSessionBootstrap(ctx, agent); err != nil {
+		return nil, err
 	}
 
 	// Call OnBeforeCreate hook inside the lock to refresh API keys.
@@ -363,21 +373,22 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
 	// Privileged mode is required for the inner dockerd (overlay2 needs it)
 	req := &hydra.CreateDevContainerRequest{
-		SessionID:     agent.SessionID,
-		Image:         image,
-		ContainerName: containerName,
-		Hostname:      containerName,
-		Env:           env,
-		Mounts:        mounts,
-		DisplayWidth:  agent.DisplayWidth,
-		DisplayHeight: agent.DisplayHeight,
-		DisplayFPS:    agent.DisplayRefreshRate,
-		ContainerType: hydra.DevContainerType(containerType),
-		UserID:        agent.UserID,
-		Network:       "bridge",
-		Privileged:    true, // Required for inner dockerd (docker-in-desktop mode)
-		ProjectID:     agent.ProjectID,
-		GoldenBuild:   agent.GoldenBuild,
+		SessionID:      agent.SessionID,
+		Image:          image,
+		ContainerName:  containerName,
+		Hostname:       containerName,
+		Env:            env,
+		Mounts:         mounts,
+		WorkspaceFiles: agent.WorkspaceFiles,
+		DisplayWidth:   agent.DisplayWidth,
+		DisplayHeight:  agent.DisplayHeight,
+		DisplayFPS:     agent.DisplayRefreshRate,
+		ContainerType:  hydra.DevContainerType(containerType),
+		UserID:         agent.UserID,
+		Network:        "bridge",
+		Privileged:     true, // Required for inner dockerd (docker-in-desktop mode)
+		ProjectID:      agent.ProjectID,
+		GoldenBuild:    agent.GoldenBuild,
 	}
 
 	// Create dev container via Hydra
@@ -565,6 +576,45 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		SandboxID:      sandboxID,
 		DevContainerID: resp.ContainerID, // Container ID for exploratory session tracking
 	}, nil
+}
+
+func (h *HydraExecutor) attachSessionBootstrap(ctx context.Context, agent *types.DesktopAgent) error {
+	session, err := h.store.GetSession(ctx, agent.SessionID)
+	if err != nil {
+		return fmt.Errorf("load session bootstrap state for %s: %w", agent.SessionID, err)
+	}
+	return applySessionBootstrap(session.Metadata, agent)
+}
+
+func applySessionBootstrap(metadata types.SessionMetadata, agent *types.DesktopAgent) error {
+	workerID := metadata.OrgWorkerID
+	instructions := metadata.RuntimeInstructions
+	if workerID == "" && instructions == "" {
+		return nil
+	}
+	if workerID == "" || instructions == "" {
+		return fmt.Errorf("incomplete org-worker bootstrap state for session %s", agent.SessionID)
+	}
+	agent.Env = append(agent.Env, "HELIX_WORKER_ID="+workerID)
+	if agent.WorkspaceFiles == nil {
+		agent.WorkspaceFiles = make(map[string][]byte, 2)
+	}
+	agent.WorkspaceFiles["AGENTS.md"] = []byte(instructions)
+	agent.WorkspaceFiles["CLAUDE.md"] = []byte(instructions)
+	return nil
+}
+
+func appendProjectSecrets(env, secrets []string) []string {
+	for _, secret := range secrets {
+		// HELIX_WORKER_ID used to be stored at project scope. Never propagate
+		// that legacy value: only session bootstrap may identify a desktop as
+		// an org worker.
+		if strings.HasPrefix(secret, "HELIX_WORKER_ID=") {
+			continue
+		}
+		env = append(env, secret)
+	}
+	return env
 }
 
 // StopDesktop stops a dev container using Hydra

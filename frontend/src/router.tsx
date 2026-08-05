@@ -729,9 +729,4 @@ export function useApplicationRoute(): IApplicationRoute {
   return fullRoute
 }
 
-export function RenderPage() {
-  const route = useApplicationRoute()
-  return route.render()
-}
-
 export default router

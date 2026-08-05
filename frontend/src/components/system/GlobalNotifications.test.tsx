@@ -24,11 +24,11 @@ const event = {
   metadata: { bot_id: 'bot-two' },
 }
 
-vi.mock('../../router', () => ({
-  default: {
+vi.mock('react-router5', () => ({
+  useRouter: () => ({
     buildPath: (_name: string, params: Record<string, string>) => `/orgs/${params.org_id}/chart?bot_id=${params.bot_id}`,
     navigate: mocks.navigate,
-  },
+  }),
 }))
 vi.mock('../../hooks/useAccount', () => ({
   default: () => ({

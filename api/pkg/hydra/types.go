@@ -65,6 +65,10 @@ type CreateDevContainerRequest struct {
 	Hostname      string        `json:"hostname"`
 	Env           []string      `json:"env"` // KEY=value format
 	Mounts        []MountConfig `json:"mounts"`
+	// WorkspaceFiles are materialized into the bind mount targeting
+	// /home/retro/work before the container starts. Keys are root filenames;
+	// byte values are base64-encoded by JSON.
+	WorkspaceFiles map[string][]byte `json:"workspace_files,omitempty"`
 
 	// Display settings (optional - headless containers omit these)
 	DisplayWidth  int `json:"display_width,omitempty"`

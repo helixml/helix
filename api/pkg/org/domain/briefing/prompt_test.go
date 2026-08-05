@@ -144,7 +144,7 @@ func TestBuildPromptIncludesEnvelope(t *testing.T) {
 			Extra:   []byte(`{"event":"issues","action":"opened"}`),
 		},
 	}
-	prompt := BuildPrompt("w-doc-engineer", "[role.md contents]", []activation.Trigger{tr})
+	prompt := BuildPrompt([]activation.Trigger{tr})
 
 	if !strings.Contains(prompt, "=== Trigger ===") || !strings.Contains(prompt, "=== end trigger ===") {
 		t.Fatalf("trigger fences missing\n%s", prompt)
@@ -163,18 +163,38 @@ func TestBuildPromptIncludesEnvelope(t *testing.T) {
 // TestBuildPromptManualTrigger pins the operator-driven activation path.
 // The prompt body must be operator-aware so the Worker doesn't treat the
 // activation as either a hire (first-time setup) or an event (no event
-// envelope to read). Standard wrapper still renders the mandate so the
-// Worker re-reads its role / identity per the helix-specs branch.
+// envelope to read). Identity is deliberately absent: the runtime loads it
+// from AGENTS.md / CLAUDE.md before this user message is delivered.
 func TestBuildPromptManualTrigger(t *testing.T) {
 	t.Parallel()
-	prompt := BuildPrompt("w-eng", "[mandate]", []activation.Trigger{{Kind: activation.TriggerManual}})
-	if !strings.Contains(prompt, "operator manually woke you up") {
+	prompt := BuildPrompt([]activation.Trigger{{Kind: activation.TriggerManual}})
+	if !strings.Contains(prompt, "/home/retro/work/AGENTS.md") || !strings.Contains(prompt, "/home/retro/work/CLAUDE.md") {
+		t.Errorf("activation prompt does not point the harness at sandbox instructions\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "operator woke you") {
 		t.Errorf("manual trigger body missing\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "[mandate]") {
-		t.Errorf("mandate wrapper missing\n%s", prompt)
+	for _, excluded := range []string{"You are Bot", "[mandate]", "Instructions"} {
+		if strings.Contains(prompt, excluded) {
+			t.Errorf("activation prompt contains durable instruction %q\n%s", excluded, prompt)
+		}
 	}
 	if got := DescribeTrigger(activation.Trigger{Kind: activation.TriggerManual}); got != "manual" {
 		t.Errorf("DescribeTrigger(manual) = %q, want %q", got, "manual")
+	}
+}
+
+func TestBuildInstructionsIncludesIdentityAndMandate(t *testing.T) {
+	t.Parallel()
+	instructions := BuildInstructions("w-eng", "# Engineer\nBuild the product.")
+	for _, want := range []string{
+		"You are Bot w-eng, running inside helix-org",
+		"Each activation is a single turn",
+		"=== Instructions ===",
+		"# Engineer\nBuild the product.",
+	} {
+		if !strings.Contains(instructions, want) {
+			t.Errorf("instructions missing %q\n%s", want, instructions)
+		}
 	}
 }

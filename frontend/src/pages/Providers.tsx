@@ -66,11 +66,6 @@ const Providers: React.FC = () => {
 
   const pageProps = {
     breadcrumbTitle: 'AI providers',
-    breadcrumbParent: {
-      title: 'Organizations',
-      routeName: 'orgs',
-      useOrgRouter: false,
-    },
     breadcrumbShowHome: true,
     orgBreadcrumbs: true,
     topbarContent: null,

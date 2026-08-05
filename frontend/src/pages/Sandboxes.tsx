@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 
 import Page from '../components/system/Page'
+import PageSectionHeader from '../components/system/PageSectionHeader'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import ViewModeToggle from '../components/widgets/ViewModeToggle'
@@ -65,27 +66,25 @@ const Sandboxes: FC = () => {
     <Page
       breadcrumbTitle="Sandboxes"
       orgBreadcrumbs={true}
-      topbarContent={(
-        <Button
-          variant="contained"
-          color="secondary"
-          startIcon={<AddIcon />}
-          onClick={() => setCreateOpen(true)}
-        >
-          New Sandbox
-        </Button>
-      )}
     >
-      <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
+      <Container maxWidth="lg" sx={{ mb: 4, mt: 4 }}>
+        <PageSectionHeader
+          title="Sandboxes"
+          description="Ephemeral containers you can SSH into, run commands inside, and read/write files. Pinned at 1 vCPU / 2GB RAM. Nothing is persisted after deletion."
+          action={
+            <Button
+              id="new-sandbox-button"
+              variant="contained"
+              color="secondary"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={() => setCreateOpen(true)}
+            >
+              New Sandbox
+            </Button>
+          }
+        />
         <Stack spacing={2}>
-          <Box>
-            <Typography variant="h5" sx={{ mb: 1 }}>Sandboxes</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Ephemeral containers you can SSH into, run commands inside, and read/write files.
-              Pinned at 1 vCPU / 2GB RAM. Nothing is persisted after deletion.
-            </Typography>
-          </Box>
-
           {isLoading ? (
             <LoadingSpinner />
           ) : sandboxes.length === 0 ? (

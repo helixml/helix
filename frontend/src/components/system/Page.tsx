@@ -241,6 +241,7 @@ const Page: React.FC<{
       {
         (useTopbarTitle || topbarContent || breadcrumbTitle || showTopbar) && (
           <Box
+            data-page-toolbar
             sx={{
               flexGrow: 0,
             }}

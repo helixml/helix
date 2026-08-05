@@ -38,6 +38,7 @@ type fakeProjectService struct {
 	updateProjectErr        error
 	putSecretCalls          int
 	putSecretLast           map[string]string
+	deletedSecrets          []string
 	listSecretsProjectID    string
 	listSecretsResp         map[string]string
 	listSecretsErr          error
@@ -145,6 +146,13 @@ func (f *fakeProjectService) PutProjectSecret(_ context.Context, _, name, value 
 	return nil
 }
 
+func (f *fakeProjectService) DeleteProjectSecret(_ context.Context, _, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletedSecrets = append(f.deletedSecrets, name)
+	return nil
+}
+
 // ListProjectSecrets records the projectID it was asked for and returns
 // the scripted response, so a test can assert ListWorkerProjectSecrets
 // resolved the worker to the right project before reading.
@@ -237,7 +245,6 @@ func (f *fakeProjectService) DeleteApp(_ context.Context, id string) error {
 // fakeGitWriter but with an additional path map.
 type fakeGitForProject struct {
 	mu            sync.Mutex
-	branchCalls   int32
 	putFileCalls  int32
 	putFileByPath map[string]string
 	putFileErr    error
@@ -248,7 +255,6 @@ func newFakeGitForProject() *fakeGitForProject {
 }
 
 func (f *fakeGitForProject) CreateBranch(_ context.Context, _, _, _ string) error {
-	atomic.AddInt32(&f.branchCalls, 1)
 	return nil
 }
 
@@ -268,9 +274,8 @@ func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgcha
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	// The Bot IS the role: its Content is the prompt that lands in
-	// role.md. Keep the `w-eng` handle so the on-branch path assertions
-	// (workers/w-eng/.context/role.md) stay meaningful.
+	// The Bot's Content is its canonical instruction text. Keep the `w-eng`
+	// handle so runtime instruction path assertions stay meaningful.
 	b, err := orgchart.NewNode("w-eng", roleContent, nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
@@ -282,9 +287,9 @@ func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgcha
 }
 
 func newApplier(svc ProjectService, ws *Workspace, st *store.Store) *WorkerProject {
+	_ = ws
 	return &WorkerProject{
 		Service:     svc,
-		Workspace:   ws,
 		Store:       st,
 		HelixOrgURL: "http://helix-org:8081",
 		Logger:      discardLogger(),
@@ -331,8 +336,11 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if svc.putSecretLast["HELIX_ORG_URL"] != "http://helix-org:8081" {
 		t.Errorf("HELIX_ORG_URL = %q", svc.putSecretLast["HELIX_ORG_URL"])
 	}
-	if svc.putSecretLast["HELIX_WORKER_ID"] != "w-eng" {
-		t.Errorf("HELIX_WORKER_ID = %q", svc.putSecretLast["HELIX_WORKER_ID"])
+	if _, ok := svc.putSecretLast["HELIX_WORKER_ID"]; ok {
+		t.Errorf("HELIX_WORKER_ID must not be stored as a project secret")
+	}
+	if len(svc.deletedSecrets) != 1 || svc.deletedSecrets[0] != "HELIX_WORKER_ID" {
+		t.Errorf("deleted secrets = %v, want [HELIX_WORKER_ID]", svc.deletedSecrets)
 	}
 	if svc.createGitRepoCalls != 1 {
 		t.Errorf("CreateGitRepo calls = %d, want 1", svc.createGitRepoCalls)
@@ -340,13 +348,8 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if svc.attachRepoCalls != 1 {
 		t.Errorf("AttachRepoToProject calls = %d, want 1", svc.attachRepoCalls)
 	}
-	if atomic.LoadInt32(&git.branchCalls) < 1 {
-		t.Errorf("CreateBranch calls = %d, want >=1", atomic.LoadInt32(&git.branchCalls))
-	}
-	git.mu.Lock()
-	defer git.mu.Unlock()
-	if _, ok := git.putFileByPath["workers/w-eng/.context/role.md"]; !ok {
-		t.Errorf("path %q not pushed", "workers/w-eng/.context/role.md")
+	if got := atomic.LoadInt32(&git.putFileCalls); got != 0 {
+		t.Errorf("WorkerProject published %d deprecated role files; instruction publishing belongs to Spawner", got)
 	}
 	state, err := LoadState(context.Background(), st, "org-test", wid)
 	if err != nil {
@@ -560,13 +563,8 @@ func TestEnsureFastPathReprovisionsDeletedRepo(t *testing.T) {
 //     CreateGitRepo / AttachRepoToProject calls)
 //   - leave the existing app configuration untouched; worker.* values
 //     are provisioning defaults and the app UI/API owns later edits.
-//   - re-publish role.md from the DB to the helix-specs branch so DB edits that don't
-//     go through update_role / update_identity (e.g. direct store
-//     mutation, role-reconciler reseeding) still reach Workers
-//     without a fire+re-hire round trip. The original feature lived at
-//     commit 4a6cb33c51, regressed at 4f7837ac0c.
-//     See TestEnsureFastPathPropagatesRoleEdits for the propagation
-//     assertion.
+//   - leave runtime instruction publishing to the activation spawner, which
+//     resolves linked Agent content and org-level overrides.
 func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role v1")
@@ -605,15 +603,8 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	if svc.attachRepoCalls != 0 {
 		t.Errorf("fast path must not attach a repo; got %d", svc.attachRepoCalls)
 	}
-	// Fast path MUST ensure-branch + republish canonical files so DB
-	// edits propagate to the helix-specs branch on every activation.
-	if atomic.LoadInt32(&git.branchCalls) == 0 {
-		t.Errorf("fast path MUST ensure helix-specs branch exists before republish; got 0 CreateBranch calls")
-	}
-	git.mu.Lock()
-	defer git.mu.Unlock()
-	if got := git.putFileByPath["workers/w-eng/.context/role.md"]; got != "# Role v1" {
-		t.Errorf("fast path MUST republish role.md from DB; got %q, want %q", got, "# Role v1")
+	if got := atomic.LoadInt32(&git.putFileCalls); got != 0 {
+		t.Errorf("fast path published %d deprecated role files", got)
 	}
 }
 
@@ -814,64 +805,6 @@ func TestEnsureFastPathRepairsStaleRuntimeAgentApp(t *testing.T) {
 	}
 }
 
-// TestEnsureFastPathPropagatesRoleEdits pins live-edit propagation: a
-// role.Content mutation made directly in the store (bypassing the
-// update_role MCP tool's MirrorFile push) must reach the helix-specs
-// branch on the next activation, without a fire+re-hire.
-//
-// This is the contract the original feature commit 4a6cb33c51 validated
-// end-to-end. It silently regressed in commit 4f7837ac0c when the fast-path
-// republish was removed.
-func TestEnsureFastPathPropagatesRoleEdits(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	st, wid := newProjectTestStore(t, "# Role v1")
-	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
-		t.Fatalf("save project: %v", err)
-	}
-	svc := newFakeProjectService()
-	svc.getProjectResp = types.Project{ID: "prj_existing", DefaultRepoID: "repo_existing"}
-	git := newFakeGitForProject()
-	a := newApplierGit(svc, git, st)
-
-	// First activation: republishes v1 to the branch.
-	if _, _, _, err := a.Ensure(ctx, "org-test", wid); err != nil {
-		t.Fatalf("first Ensure: %v", err)
-	}
-	git.mu.Lock()
-	if got := git.putFileByPath["workers/w-eng/.context/role.md"]; got != "# Role v1" {
-		git.mu.Unlock()
-		t.Fatalf("after first Ensure, role.md on branch = %q, want %q", got, "# Role v1")
-	}
-	// Reset capture so the second-call assertion only sees the second
-	// activation's push.
-	git.putFileByPath = map[string]string{}
-	git.mu.Unlock()
-
-	// Mutate the role's Content in the store, simulating any edit path
-	// that bypasses update_role/MirrorFile (direct DB edit,
-	// RoleReconciler reseed, restore-from-backup, …). The DB is the
-	// source of truth; the branch must reflect it on next activation.
-	existing, err := st.Nodes.Get(ctx, "org-test", "w-eng")
-	if err != nil {
-		t.Fatalf("get bot: %v", err)
-	}
-	existing = existing.WithContent("# Role v2").WithUpdatedAt(time.Now().UTC())
-	if err := st.Nodes.Update(ctx, existing); err != nil {
-		t.Fatalf("update bot: %v", err)
-	}
-
-	// Second activation: must republish v2.
-	if _, _, _, err := a.Ensure(ctx, "org-test", wid); err != nil {
-		t.Fatalf("second Ensure: %v", err)
-	}
-	git.mu.Lock()
-	defer git.mu.Unlock()
-	if got := git.putFileByPath["workers/w-eng/.context/role.md"]; got != "# Role v2" {
-		t.Errorf("after second Ensure, role.md on branch = %q, want %q — live-edit did not propagate", got, "# Role v2")
-	}
-}
-
 // TestEnsureClearsStateOnGetProject404 verifies that on
 // ErrProjectNotFound, ClearProject runs and a fresh apply follows.
 func TestEnsureClearsStateOnGetProject404(t *testing.T) {
@@ -965,9 +898,9 @@ func TestEnsureDoesNotTouchAgentAppMCPs(t *testing.T) {
 	}
 }
 
-// TestEnsureRolePropagatesContent verifies the Bot's Content lands in
-// role.md on the helix-specs branch.
-func TestEnsureRolePropagatesContent(t *testing.T) {
+// TestEnsureDoesNotPublishDeprecatedRoleFile pins the single-instruction-file
+// contract: project provisioning must not recreate role.md.
+func TestEnsureDoesNotPublishDeprecatedRoleFile(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role: ChiefEngineer")
 	svc := newFakeProjectService()
@@ -977,24 +910,8 @@ func TestEnsureRolePropagatesContent(t *testing.T) {
 	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	git.mu.Lock()
-	defer git.mu.Unlock()
-	if got := git.putFileByPath["workers/w-eng/.context/role.md"]; got != "# Role: ChiefEngineer" {
-		t.Errorf("role.md content = %q", got)
-	}
-}
-
-// TestEnsureLogsButDoesNotFailOnPutFileError.
-func TestEnsureLogsButDoesNotFailOnPutFileError(t *testing.T) {
-	t.Parallel()
-	st, wid := newProjectTestStore(t, "# Role")
-	svc := newFakeProjectService()
-	git := newFakeGitForProject()
-	git.putFileErr = errors.New("disk full")
-	a := newApplierGit(svc, git, st)
-
-	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
-		t.Fatalf("Ensure must not fail on PutFile error; got %v", err)
+	if got := atomic.LoadInt32(&git.putFileCalls); got != 0 {
+		t.Errorf("WorkerProject published %d files, want 0", got)
 	}
 }
 

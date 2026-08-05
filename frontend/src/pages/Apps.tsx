@@ -2,10 +2,9 @@ import React, { FC, useCallback, useEffect, useState } from 'react'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
-import Stack from '@mui/material/Stack'
-import Typography from '@mui/material/Typography'
 
 import Page from '../components/system/Page'
+import PageSectionHeader from '../components/system/PageSectionHeader'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import AppsTable from '../components/apps/AppsTable'
 
@@ -86,6 +85,7 @@ const Apps: FC = () => {
       breadcrumbTitle="Agents"
       orgBreadcrumbs={ true }
       globalSearch={true}
+      notifications={true}
       organizationId={account.organizationTools.organization?.id}
       topbarContent={(
         <>
@@ -94,38 +94,37 @@ const Apps: FC = () => {
       )}
     >
       <Container
-        maxWidth="xl"
+        maxWidth="lg"
         sx={{
           mb: 4,
-          pt: 3,
+          mt: 4,
         }}
       >
-        <Stack spacing={2}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
-            <Typography variant="h5">Agents</Typography>
+        <PageSectionHeader
+          title="Agents"
+          description="Agents in this org. Click an agent to edit instructions, tools and subscriptions."
+          action={
             <Button
               id="new-app-button"
               variant="contained"
               color="secondary"
+              size="small"
               startIcon={<AddIcon />}
               onClick={onNewAgent}
             >
               New Agent
             </Button>
-          </Stack>
-          <Typography variant="body2" color="text.secondary">
-            Agents in this org. Click an agent to edit instructions, tools and subscriptions.
-          </Typography>
-          <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
-            <AppsTable
-              authenticated={ !!account.user }
-              data={ apps.apps }
-              onEdit={ onEditApp }
-              onDelete={ setDeletingApp }
-              orgId={ account.organizationTools.organization?.id || '' }
-            />
-          </Paywall>
-        </Stack>
+          }
+        />
+        <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+          <AppsTable
+            authenticated={ !!account.user }
+            data={ apps.apps }
+            onEdit={ onEditApp }
+            onDelete={ setDeletingApp }
+            orgId={ account.organizationTools.organization?.id || '' }
+          />
+        </Paywall>
       </Container>
       {
         deletingApp && (

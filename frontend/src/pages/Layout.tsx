@@ -23,7 +23,6 @@ import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
 import AccountSidebar from "../components/account/AccountSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
-import ProjectsSidebar from "../components/project/ProjectsSidebar";
 import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
 import FullScreenDialog from "../components/dialog/FullScreenDialog";
 import Dashboard from "./Dashboard";
@@ -53,6 +52,7 @@ import useIsBigScreen from "../hooks/useIsBigScreen";
 import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
 import { LIGHT_SIDEBAR_COLORS } from "../styles/themeTokens";
+import { TOOLBAR_HEIGHT } from "../config";
 
 // Admin and Connected Services are rendered as full-screen dialog overlays
 // so the user stays within their current org-scoped URL
@@ -412,11 +412,18 @@ const Layout: FC<{
   // AppBar; chat is an in-page left rail). Still show the 64px org rail.
   const isHelixOrgRoute =
     typeof router.name === "string" && router.name.startsWith("helix_org_");
+  const isProjectsIndex =
+    router.name === "org_projects" &&
+    (!router.params.tab || router.params.tab === "projects");
+  const isConversationRoute = ["org_chat", "org_session", "org_new"].includes(
+    router.name,
+  );
 
   // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer
   const shouldShowSidebar =
     router.meta.drawer &&
     !isHelixOrgRoute &&
+    !isProjectsIndex &&
     !(router.name === "org_new" && router.params.app_id);
 
   if (shouldShowSidebar) {
@@ -444,7 +451,7 @@ const Layout: FC<{
   function getSidebarForRoute(routeName: string, onOpenSession: () => void) {
     switch (routeName) {
       case "org_projects":
-        return <ProjectsSidebar />;
+        return <OrgSidebar />;
 
       case "helix_org_root":
       case "helix_org_chart":
@@ -672,6 +679,19 @@ const Layout: FC<{
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
+            ...(isBigScreen && shouldShowSidebar && {
+              "& [data-page-toolbar]": {
+                height: TOOLBAR_HEIGHT,
+                minHeight: TOOLBAR_HEIGHT,
+              },
+              "& [data-page-toolbar] > .MuiAppBar-root": {
+                position: "fixed",
+                left: isConversationRoute ? themeConfig.drawerWidth : 64,
+                right: 0,
+                width: "auto",
+                zIndex: (theme) => theme.zIndex.drawer + 1,
+              },
+            }),
           }}
         >
           <Box

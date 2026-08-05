@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react'
-import { router } from '../router'
+import { useRoute } from 'react-router5'
 
 export type SettingsDialogName = 'admin' | 'connected-services' | 'account' | 'project-settings'
 
@@ -73,6 +73,7 @@ const SettingsDialogContext = createContext<SettingsDialogContextType>({
 export const useSettingsDialog = () => useContext(SettingsDialogContext)
 
 export const SettingsDialogProvider = ({ children }: { children: ReactNode }) => {
+  const { route, previousRoute } = useRoute()
   const initial = getDialogFromURL()
   const [activeDialog, setActiveDialog] = useState<SettingsDialogName | null>(initial.name)
   const [dialogOptions, setDialogOptions] = useState<SettingsDialogOptions>(initial.options)
@@ -100,22 +101,13 @@ export const SettingsDialogProvider = ({ children }: { children: ReactNode }) =>
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  // Close dialog when the route changes — e.g. navigating to an agent page
+  // Close dialog when the route changes — e.g. navigating to an agent page.
   useEffect(() => {
-    const subscription = router.subscribe(({ route, previousRoute }) => {
-      if (previousRoute && route.name !== previousRoute.name) {
-        setActiveDialog(null)
-        setDialogOptions({})
-      }
-    }) as { unsubscribe: () => void } | (() => void)
-    return () => {
-      if (typeof subscription === 'function') {
-        subscription()
-      } else {
-        subscription.unsubscribe()
-      }
+    if (previousRoute && route.name !== previousRoute.name) {
+      setActiveDialog(null)
+      setDialogOptions({})
     }
-  }, [])
+  }, [route.name, previousRoute?.name])
 
   return (
     <SettingsDialogContext.Provider value={{ activeDialog, dialogOptions, openDialog, closeDialog }}>

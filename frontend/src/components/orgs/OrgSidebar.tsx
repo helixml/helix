@@ -9,6 +9,9 @@ import {
   KeyRound,
   Plug,
   ClipboardList,
+  GitBranch,
+  FileText,
+  MessageSquare,
 } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
@@ -21,16 +24,15 @@ const OrgSidebar: FC = () => {
   const currentRouteName = router.name
   const orgId = router.params.org_id
 
-  const handleNavigationClick = (routeName: string) => {
+  const handleNavigationClick = (routeName: string, params: Record<string, string> = {}) => {
     if (orgId) {
-      router.navigate(routeName, { org_id: orgId })
+      router.navigate(routeName, { org_id: orgId, ...params })
     }
     account.setMobileMenuOpen(false)
   }
 
   const sections: ContextSidebarSection[] = [
     {
-      title: 'Settings',
       items: [
         {
           id: 'general',
@@ -39,11 +41,6 @@ const OrgSidebar: FC = () => {
           isActive: currentRouteName === 'org_general' || currentRouteName === 'org_settings',
           onClick: () => handleNavigationClick('org_general'),
         },
-      ],
-    },
-    {
-      title: 'Members',
-      items: [
         {
           id: 'people',
           label: 'People',
@@ -58,11 +55,27 @@ const OrgSidebar: FC = () => {
           isActive: currentRouteName === 'org_teams',
           onClick: () => handleNavigationClick('org_teams'),
         },
-      ],
-    },
-    {
-      title: 'Cost',
-      items: [
+        {
+          id: 'repositories',
+          label: 'Repositories',
+          icon: <GitBranch size={20} />,
+          isActive: currentRouteName === 'org_projects' && router.params.tab === 'repositories',
+          onClick: () => handleNavigationClick('org_projects', { tab: 'repositories' }),
+        },
+        {
+          id: 'guidelines',
+          label: 'Guidelines',
+          icon: <FileText size={20} />,
+          isActive: currentRouteName === 'org_projects' && router.params.tab === 'guidelines',
+          onClick: () => handleNavigationClick('org_projects', { tab: 'guidelines' }),
+        },
+        {
+          id: 'prompts',
+          label: 'Prompts',
+          icon: <MessageSquare size={20} />,
+          isActive: currentRouteName === 'org_projects' && router.params.tab === 'prompts',
+          onClick: () => handleNavigationClick('org_projects', { tab: 'prompts' }),
+        },
         {
           id: 'billing',
           label: 'Billing',
@@ -77,11 +90,6 @@ const OrgSidebar: FC = () => {
           isActive: currentRouteName === 'org_usage',
           onClick: () => handleNavigationClick('org_usage'),
         },
-      ],
-    },
-    {
-      title: 'Agent Q&A',
-      items: [
         {
           id: 'qa',
           label: 'Question Sets',
@@ -89,11 +97,6 @@ const OrgSidebar: FC = () => {
           isActive: currentRouteName === 'org_qa' || currentRouteName === 'org_qa-results',
           onClick: () => handleNavigationClick('org_qa'),
         },
-      ],
-    },
-    {
-      title: 'Access',
-      items: [
         {
           id: 'api_keys',
           label: 'API Keys',

@@ -10,8 +10,11 @@ import {
   CircleAlert,
   LoaderCircle,
   Terminal,
+  Wrench,
 } from "lucide-react";
 import { preserveDisclosureExpansion } from "./disclosureScroll";
+import { getChatColors } from "./chatStyles";
+import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 
 /**
  * Represents a parsed segment of a response message.
@@ -123,6 +126,37 @@ const statusIcon = (status: string) => {
 
 const commandToolPattern = /^(bash|sh|zsh|shell|terminal|command)(?::\s*(.*))?$/i;
 
+const formatMCPProvider = (provider: string) => {
+  const normalized = provider.toLowerCase().replace(/_/g, "-");
+  if (normalized === "github") return "GitHub";
+  if (normalized === "t3-code") return "T3-code";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
+const parseMCPTool = (toolName: string) => {
+  if (toolName.startsWith("mcp__")) {
+    const parts = toolName.split("__");
+    if (parts.length >= 3) {
+      return {
+        provider: parts[parts.length - 2],
+        tool: parts[parts.length - 1],
+      };
+    }
+  }
+
+  if (toolName.startsWith("mcp.")) {
+    const parts = toolName.split(".");
+    if (parts.length >= 3) {
+      return {
+        provider: parts[parts.length - 2],
+        tool: parts[parts.length - 1],
+      };
+    }
+  }
+
+  return null;
+};
+
 const extractCommand = (body: string) => {
   const tableCommand = body.match(/\|\s*Command\s*\|\s*`([^`]+)`\s*\|/i);
   if (tableCommand?.[1]) return tableCommand[1].trim();
@@ -139,21 +173,35 @@ const extractCommand = (body: string) => {
 
 export const getToolCallPresentation = (toolName: string, body: string) => {
   const toolMatch = toolName.match(commandToolPattern);
+  const isTerminalResult = /(?:^|\n)Terminal:\s*/im.test(body);
   const bodyCommand = extractCommand(body);
-  const isCommand = Boolean(toolMatch || body.match(/\|\s*Command\s*\|/i));
+  const isCommand = Boolean(
+    toolMatch || isTerminalResult || body.match(/\|\s*Command\s*\|/i),
+  );
 
-  if (!isCommand) {
-    return { label: toolName, preview: "" };
+  if (isCommand) {
+    const namedCommand = toolMatch?.[2]?.trim();
+    const preview = isTerminalResult
+      ? toolName.trim()
+      : namedCommand
+        ? toolName.trim()
+        : bodyCommand
+          ? `${toolName.trim()}: ${bodyCommand}`
+          : toolName.trim();
+
+    return { kind: "command" as const, label: "Ran command", preview };
   }
 
-  const namedCommand = toolMatch?.[2]?.trim();
-  const preview = namedCommand
-    ? toolName.trim()
-    : bodyCommand
-      ? `${toolName.trim()}: ${bodyCommand}`
-      : toolName.trim();
+  const mcpTool = parseMCPTool(toolName);
+  if (mcpTool) {
+    return {
+      kind: "tool" as const,
+      label: `${formatMCPProvider(mcpTool.provider)} · ${mcpTool.tool}`,
+      preview: "",
+    };
+  }
 
-  return { label: "Ran command", preview };
+  return { kind: "tool" as const, label: toolName, preview: "" };
 };
 
 interface CollapsibleToolCallProps {
@@ -176,6 +224,7 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
+  const chatColors = getChatColors(theme);
   const presentation = getToolCallPresentation(toolName, body);
 
   return (
@@ -204,12 +253,21 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
           userSelect: "none",
         }}
       >
-        <Terminal
-          size={15}
-          strokeWidth={1.8}
-          color={isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.45)"}
-          aria-hidden="true"
-        />
+        {presentation.kind === "command" ? (
+          <Terminal
+            size={15}
+            strokeWidth={1.8}
+            color={isDark ? chatColors.subtle : "rgba(0,0,0,0.45)"}
+            aria-hidden="true"
+          />
+        ) : (
+          <Wrench
+            size={15}
+            strokeWidth={1.8}
+            color={isDark ? chatColors.subtle : "rgba(0,0,0,0.45)"}
+            aria-hidden="true"
+          />
+        )}
         <Box
           sx={{
             display: "flex",
@@ -231,10 +289,10 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
                   ? "#f5f5f5"
                   : "text.primary"
                 : isDark
-                  ? "rgba(255,255,255,0.65)"
+                  ? chatColors.muted
                   : "text.secondary",
               fontWeight: presentation.preview ? 600 : 400,
-              fontFamily: "monospace",
+              fontFamily: APP_MONO_FONT_FAMILY,
             }}
           >
             {presentation.label}
@@ -247,8 +305,8 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 fontSize: dense ? "0.72rem" : "0.78rem",
-                color: isDark ? "rgba(255,255,255,0.42)" : "text.secondary",
-                fontFamily: "monospace",
+                color: isDark ? chatColors.subtle : "text.secondary",
+                fontFamily: APP_MONO_FONT_FAMILY,
               }}
             >
               {presentation.preview}
@@ -272,10 +330,10 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
             pr: 0,
             py: 1,
             fontSize: "0.8rem",
-            fontFamily: "monospace",
+            fontFamily: APP_MONO_FONT_FAMILY,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
-            color: isDark ? "rgba(255,255,255,0.55)" : "text.secondary",
+            color: isDark ? chatColors.subtle : "text.secondary",
             backgroundColor: "transparent",
             maxHeight: "300px",
             overflow: "auto",

@@ -129,6 +129,42 @@ Both requested surfaces share the transcript renderer and composer primitives bu
 - image rendering: `frontend/src/components/session/InteractionInference.tsx`
 - composer: `frontend/src/components/common/RobustPromptInput.tsx`
 
+### Structured activity ordering
+
+`response_entries` is an ordered transcript, not two independent collections.
+The renderer keeps assistant progress text in its original position and collapses
+only adjacent tool calls into a run. Each run shows its newest call and a
+`+N previous tool calls` disclosure; later prose starts a new run. The last text
+entry of a completed turn remains the final answer below the work disclosure.
+While streaming, every visible prose or tool entry stays in the live timeline
+because there is not yet a reliable final-answer boundary. The live activity
+surface is intentionally compact: it keeps visible progress prose, collapses all
+tool calls into one run whose newest call remains visible, and hides internal
+thinking because the persistent `Working for …` status already communicates the
+active state. Once the turn completes, internal thinking entries return to their
+original positions inside the work transcript and split tool runs, so only
+genuinely adjacent calls are collapsed together. The disclosure body renders as
+Markdown; bold-only thought summaries are presented as one list rather than
+showing literal Markdown punctuation. The bulb icon identifies thought rows, so
+their headers show the first summary directly without a repeated `Thoughts`
+label. The previous-tool-call disclosure uses the same high-contrast label color
+and left icon alignment as the visible tool row, while its chevron uses the same
+subtle icon color as the tool-kind icon. Expanding keeps the latest call and
+disclosure fixed, inserting older calls below the disclosure so the cursor does
+not have to chase a relocated collapse control. The redundant expanded `Tool
+calls` header is omitted to keep activity-group spacing compact.
+
+Primary assistant prose uses a high-contrast near-white foreground in dark mode,
+including links. Reasoning summaries, command previews, durations, and other
+activity metadata use two brighter gray tiers rather than opacity-composited
+text: readable secondary labels and quieter tertiary details. Activity rows use
+the shared application mono font so their metrics are consistent with the T3
+Code-style work log.
+
+Shell results use `Ran command` plus the command preview. MCP calls use
+`Provider · tool` labels. This presentation is derived from the structured tool
+metadata and terminal result shape; it does not change or discard raw output.
+
 ### Current visual differences
 
 | Area | Helix today | T3 direction |

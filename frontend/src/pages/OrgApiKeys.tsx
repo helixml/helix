@@ -127,11 +127,6 @@ const OrgApiKeys: FC = () => {
   return (
     <Page
       breadcrumbTitle="API Keys"
-      breadcrumbParent={{
-        title: 'Organizations',
-        routeName: 'orgs',
-        useOrgRouter: false,
-      }}
       breadcrumbShowHome={true}
       orgBreadcrumbs={true}
     >

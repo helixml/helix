@@ -6,6 +6,8 @@ import { useTheme } from "@mui/material/styles";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 import StreamingIndicator from "./StreamingIndicator";
+import { getChatColors } from "./chatStyles";
+import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 
 export const formatActivityDuration = (durationMs: number) => {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
@@ -37,11 +39,11 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
   startedAt,
 }) => {
   const theme = useTheme();
+  const chatColors = getChatColors(theme);
   const [expanded, setExpanded] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(durationMs);
   const lastElapsedMsRef = useRef(durationMs);
-  const textColor =
-    theme.palette.mode === "dark" ? "rgba(255,255,255,0.55)" : "text.secondary";
+  const textColor = theme.palette.mode === "dark" ? chatColors.subtle : "text.secondary";
 
   useEffect(() => {
     if (!isStreaming) {
@@ -98,7 +100,7 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
             flex: 1,
             fontSize: "0.76rem",
             color: "inherit",
-            fontFamily: "monospace",
+            fontFamily: APP_MONO_FONT_FAMILY,
           }}
         >
           {isStreaming

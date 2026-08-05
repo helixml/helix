@@ -10,7 +10,6 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import { useQueryClient } from "@tanstack/react-query";
 
 import Page from "../components/system/Page";
-import CreateProjectButton from "../components/project/CreateProjectButton";
 import CreateProjectDialog from "../components/project/CreateProjectDialog";
 import AgentSelectionModal from "../components/project/AgentSelectionModal";
 import SampleProjectWizard from "../components/project/SampleProjectWizard";
@@ -26,6 +25,7 @@ import useApi from "../hooks/useApi";
 import useApps from "../hooks/useApps";
 import useSubscriptionGate from "../hooks/useSubscriptionGate";
 import Paywall from "../components/subscription/Paywall";
+import HelixOrgTopNav from "../components/helix-org/HelixOrgTopNav";
 import {
   useListProjects,
   useListSampleProjects,
@@ -389,30 +389,14 @@ const Projects: FC = () => {
   return (
     <Page
       breadcrumbTitle={getBreadcrumbTitle()}
-      breadcrumbParent={
-        currentView !== "projects"
-          ? { title: "Projects", routeName: "projects" }
-          : undefined
-      }
       breadcrumbs={[]}
       orgBreadcrumbs={true}
       globalSearch={true}
       notifications={true}
       organizationId={account.organizationTools.organization?.id}
-      topbarContent={
-        currentView === "projects" && projects.length > 0 ? (
-          <CreateProjectButton
-            onCreateEmpty={handleNewProject}
-            onCreateFromSample={handleInstantiateSample}
-            sampleProjects={sampleProjects}
-            isCreating={instantiateSampleMutation.isPending}
-            variant="contained"
-            color="secondary"
-          />
-        ) : null
-      }
+      topbarContent={<HelixOrgTopNav />}
     >
-      <Container maxWidth="lg" sx={{ mt: 4 }}>
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
         <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
           {/* Projects View */}
           {currentView === "projects" && (

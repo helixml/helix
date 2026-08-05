@@ -14,14 +14,11 @@ import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
-import Collapse from '@mui/material/Collapse'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
 import Alert from '@mui/material/Alert'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import Menu from '@mui/material/Menu'
 
 import { useQuery } from '@tanstack/react-query'
@@ -117,6 +114,9 @@ interface AppSettingsProps {
   readOnly?: boolean,
   showErrors?: boolean,
   isAdmin?: boolean,
+  section: 'general' | 'runtime',
+  hideAgentType?: boolean,
+  generalAside?: React.ReactNode,
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}.`
@@ -187,25 +187,10 @@ const AppSettings: FC<AppSettingsProps> = ({
   readOnly = false,
   showErrors = true,
   isAdmin = false,
+  section,
+  hideAgentType = false,
+  generalAside,
 }) => {
-  // Get initial showAdvanced value from URL
-  const [showAdvanced, setShowAdvanced] = useState(() => {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('showAdvanced') === 'true'
-  })
-
-  // Update URL when showAdvanced changes
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (showAdvanced) {
-      params.set('showAdvanced', 'true')
-    } else {
-      params.delete('showAdvanced')
-    }
-    // Update URL without causing a page reload
-    window.history.replaceState({}, '', `${window.location.pathname}?${params}`)
-  }, [showAdvanced])
-
   // State for form fields
   const [name, setName] = useState(app.name || '')
   const [system_prompt, setSystemPrompt] = useState(app.system_prompt || '')
@@ -584,25 +569,41 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   return (
     <Box sx={{ mt: 2, mr: 2 }}>
+      {section === 'general' && (
       <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
-          Configuration
+        <Typography variant="h5" sx={{ mb: 3 }}>
+          General
         </Typography>
-        <TextField
-          id="app-name"
-          name="app-name"
-          label="Agent name"
-          value={name}
-          error={showErrors && !name}
-          helperText="Use a name that makes this agent easy to identify."
-          disabled={readOnly}
-          onChange={(event) => setName(event.target.value)}
-          onBlur={() => {
-            if (name !== app.name) void onUpdate({ name })
-          }}
-          fullWidth
-          sx={{ mb: 3 }}
-        />
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems="flex-start" sx={{ mb: 3 }}>
+          <TextField
+            id="app-name"
+            name="app-name"
+            label="Agent name"
+            value={name}
+            error={showErrors && !name}
+            helperText="Use a name that makes this agent easy to identify."
+            disabled={readOnly}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => {
+              if (name !== app.name) void onUpdate({ name })
+            }}
+            fullWidth
+            sx={{ flex: '1 1 0', minWidth: 0 }}
+          />
+          {generalAside && (
+            <Box
+              sx={{
+                flex: '1 1 0',
+                minWidth: 0,
+                display: 'flex',
+                justifyContent: 'flex-end',
+                mt: { xs: 0, sm: -1 },
+              }}
+            >
+              {generalAside}
+            </Box>
+          )}
+        </Stack>
         <Stack direction="row" alignItems="center">
           <Typography gutterBottom>System Instructions</Typography>
           <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
@@ -637,8 +638,17 @@ const AppSettings: FC<AppSettingsProps> = ({
             Markdown supported. Cmd/Ctrl+S saves immediately.
           </Typography>
         </Box>
+      </Box>
+      )}
+
+      {section === 'runtime' && (
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" sx={{ mb: 3 }}>
+          Runtime
+        </Typography>
 
         {/* Agent Type Selection */}
+      {!hideAgentType && (
       <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Type</Typography>
         <AgentTypeSelector
@@ -649,6 +659,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           size="small"
         />
       </Box>
+      )}
 
       {/* External Agent Configuration */}
       {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
@@ -985,7 +996,9 @@ const AppSettings: FC<AppSettingsProps> = ({
 
           <Divider sx={{ my: 2 }} />
 
-          {/* Display Settings - side by side */}
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Sandbox settings
+          </Typography>
           <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
             Display
           </Typography>
@@ -1169,18 +1182,8 @@ const AppSettings: FC<AppSettingsProps> = ({
         {/* Multi-Turn Agent Configuration */}
         {default_agent_type === AGENT_TYPE_HELIX_AGENT && (
           <Box sx={{ mt: 2 }}>
-            <Button
-              variant="text"
-              onClick={() => setShowAdvanced((value) => !value)}
-              endIcon={showAdvanced ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-              aria-expanded={showAdvanced}
-              aria-controls="advanced-model-settings"
-              sx={{ px: 0, textTransform: 'none' }}
-            >
-              Advanced model settings
-            </Button>
-            <Collapse in={showAdvanced}>
-              <Box id="advanced-model-settings" sx={{ mt: 2 }}>
+            <Typography variant="subtitle1">Advanced model settings</Typography>
+            <Box id="advanced-model-settings" sx={{ mt: 2 }}>
                 <Typography variant="subtitle1" sx={{ mb: 2 }}>Multi-Turn Agent Configuration</Typography>
 
             <Box sx={{ mb: 3 }}>
@@ -1489,10 +1492,10 @@ const AppSettings: FC<AppSettingsProps> = ({
               />
             </Box>
               </Box>
-            </Collapse>
           </Box>
         )}
       </Box>
+      )}
 
     </Box>
   )

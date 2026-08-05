@@ -305,9 +305,8 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 // org-shaped route + lifecycle hook lives here.
 func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
 	orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
-		LocalFSPath:          s.Cfg.FileStore.LocalFSPath,
-		GitRepositoryService: s.gitRepositoryService,
-		APIServer:            s,
+		LocalFSPath: s.Cfg.FileStore.LocalFSPath,
+		APIServer:   s,
 	}, s.Store)
 	if err != nil {
 		return fmt.Errorf("initialise helix-org: %w", err)
@@ -505,19 +504,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	deps.AgentContentUpdater = inProcClient
 	deps.AgentProfileReader = inProcClient
 
-	// Build the single Workspace shared by the WorkerProject (for
-	// first-apply file pushes — agent.md / role.md / identity.md)
-	// and update_role / update_identity (which call MirrorFile to
-	// re-push canonical content on demand). One place owns the
-	// on-branch path layout. Held in a local and injected into the
-	// project applier below — no package global.
-	var orgWorkspace *runtimehelix.Workspace
-	if cfg.GitRepositoryService != nil {
-		gitWriter := cfg.GitRepositoryService.(runtimehelix.WorkspaceGit)
-		orgWorkspace = runtimehelix.NewWorkspace(gitWriter, st, "helix-specs", "helix-org", "helix-org@helix.local")
-		deps.Workspace = orgWorkspace
-	}
-
 	// Wire the helix-runtime HireHook so hire_worker persists the
 	// hiring user's identifier onto the new Worker's runtime state.
 	// Replaces the direct runtimehelix.SaveHiringUser call hire_worker
@@ -590,7 +576,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		projectSvc: inProcClient,
 		Store:      st,
 		helixStore: helixStore,
-		workspace:  orgWorkspace,
 		logger:     logger,
 	}
 
@@ -1238,9 +1223,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 // tree (falls back to os.TempDir() when empty). APIServer=nil
 // disables helix-org entirely.
 type helixOrgConfig struct {
-	LocalFSPath          string
-	GitRepositoryService runtimehelix.WorkspaceGit
-	APIServer            *HelixAPIServer
+	LocalFSPath string
+	APIServer   *HelixAPIServer
 }
 
 // dynamicProjectApplier is a chat.ProjectEnsurer that re-reads
@@ -1260,13 +1244,7 @@ type dynamicProjectApplier struct {
 	// helixStore is the main Helix store, used only to resolve the org's
 	// display name for the `<Bot> @ <Org>` project label.
 	helixStore helixstore.Store
-	// workspace is the single on-branch Workspace shared with the
-	// update_role/update_identity tools. Injected here (rather than read
-	// from a package global) so initialisation order is explicit. nil is
-	// allowed — the applier just builds WorkerProjects without a mirror
-	// (the in-memory / no-git wirings).
-	workspace *runtimehelix.Workspace
-	logger    *slog.Logger
+	logger     *slog.Logger
 }
 
 // Ensure satisfies chat.ProjectEnsurer. Builds a fresh
@@ -1281,7 +1259,7 @@ type dynamicProjectApplier struct {
 // The Spawner does the same on its own activations; owner-chat goes
 // through this path only.
 func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID orgchart.NodeID) (projectID, agentAppID, repoID string, err error) {
-	applier, mcpBearer, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.workspace, d.logger)
+	applier, mcpBearer, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.logger)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1341,7 +1319,6 @@ func buildHelixOrgProjectApplier(
 	cfg *configregistry.Registry,
 	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
-	workspace *runtimehelix.Workspace,
 	logger *slog.Logger,
 ) (*runtimehelix.WorkerProject, string, error) {
 	apiKey, _ := cfg.GetString(ctx, orgID, "helix.api_key")
@@ -1362,7 +1339,6 @@ func buildHelixOrgProjectApplier(
 	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org/" + orgID
 	return &runtimehelix.WorkerProject{
 		Service:     projectSvc,
-		Workspace:   workspace,
 		Store:       orgStore,
 		HelixOrgURL: helixOrgURL,
 		OrgID:       orgID,

@@ -415,10 +415,16 @@ type SessionMetadata struct {
 	DocumentGroupID         string              `json:"document_group_id"`
 	ManuallyReviewQuestions bool                `json:"manually_review_questions"`
 	SystemPrompt            string              `json:"system_prompt"`
-	HelixVersion            string              `json:"helix_version"`
-	Stream                  bool                `json:"stream"`
-	AgentType               string              `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
-	SystemSession           bool                `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
+	// OrgWorkerID and RuntimeInstructions are session-scoped bootstrap state for
+	// helix-org workers. Hydra materializes the instructions as native agent
+	// files in this session's workspace before starting the desktop. Ordinary
+	// project and SpecTask sessions leave both fields empty.
+	OrgWorkerID         string `json:"org_worker_id,omitempty"`
+	RuntimeInstructions string `json:"runtime_instructions,omitempty"`
+	HelixVersion        string `json:"helix_version"`
+	Stream              bool   `json:"stream"`
+	AgentType           string `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
+	SystemSession       bool   `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
 
 	// Autonomous crash recovery. Set true at session creation for surfaces with
 	// no human present to click the in-chat Restart button (spec tasks, org
@@ -561,6 +567,12 @@ type SessionChatRequest struct {
 	Provider            Provider             `json:"provider"`                        // The provider to use
 	Model               string               `json:"model"`                           // The model to use
 	Regenerate          bool                 `json:"regenerate"`                      // If true, we will regenerate the response for the last message
+	// OrgWorkerID and RuntimeInstructions are internal in-process inputs used by
+	// the helix-org spawner. They are deliberately not part of the public chat
+	// API: SpecTask and exploratory sessions in the same project must not inherit
+	// a Worker's identity.
+	OrgWorkerID         string `json:"-"`
+	RuntimeInstructions string `json:"-"`
 }
 
 // ExternalAgentConfig holds display configuration for external agent sessions
@@ -1943,6 +1955,9 @@ type DesktopAgent struct {
 	Input string `json:"input"`
 	// Environment variables for the Zed instance
 	Env []string `json:"env"`
+	// WorkspaceFiles are written into the session's /home/retro/work bind mount
+	// by Hydra before the container starts. Paths are relative to that root.
+	WorkspaceFiles map[string][]byte `json:"workspace_files,omitempty"`
 	// Working directory for the Zed instance
 	WorkDir string `json:"work_dir"`
 	// Project path to open in Zed (optional)
