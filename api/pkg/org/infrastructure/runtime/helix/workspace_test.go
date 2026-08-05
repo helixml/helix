@@ -42,7 +42,7 @@ func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.NodeID)
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	b, _ := orgchart.NewNode("w-eng", "# Instructions", nil, time.Now().UTC(), "org-test")
+	b, _ := orgchart.NewNode("w-eng", "# Worker", nil, time.Now().UTC(), "org-test")
 	_ = s.Nodes.Create(ctx, b)
 	if repoID != "" {
 		_ = SaveProject(ctx, s, "org-test", b.ID, "prj_x", "app_x", repoID)
@@ -55,14 +55,14 @@ func TestWorkspaceWritesToWorkerRepo(t *testing.T) {
 	s, wid := newSeededStore(t, "repo-1")
 	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "helix-org", "ho@example.com")
-	if err := w.MirrorFile(context.Background(), "org-test", wid, "runtime-instructions.md", "# Instructions", "update instructions"); err != nil {
+	if err := w.MirrorFile(context.Background(), "org-test", wid, "notes.md", "# Notes", "update notes"); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
 	if fc.lastRepoID != "repo-1" {
 		t.Errorf("repo: %q", fc.lastRepoID)
 	}
-	wantPath := "workers/" + string(wid) + "/.context/runtime-instructions.md"
-	if fc.lastBranch != "helix-specs" || fc.lastPath != wantPath || string(fc.lastBody) != "# Instructions" {
+	wantPath := "workers/" + string(wid) + "/.context/notes.md"
+	if fc.lastBranch != "helix-specs" || fc.lastPath != wantPath || string(fc.lastBody) != "# Notes" {
 		t.Errorf("req: repo=%q path=%q branch=%q body=%q (want path=%q)",
 			fc.lastRepoID, fc.lastPath, fc.lastBranch, fc.lastBody, wantPath)
 	}
@@ -74,7 +74,7 @@ func TestWorkspaceUnboundWorkerIsNoop(t *testing.T) {
 	s, wid := newSeededStore(t, "")
 	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.MirrorFile(context.Background(), "org-test", wid, "runtime-instructions.md", "# Instructions", ""); err != nil {
+	if err := w.MirrorFile(context.Background(), "org-test", wid, "notes.md", "# Notes", ""); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
 	if fc.lastRepoID != "" {
@@ -87,7 +87,7 @@ func TestWorkspaceSurfacesErrors(t *testing.T) {
 	s, wid := newSeededStore(t, "repo-1")
 	fc := &fakeGitWriter{err: errors.New("boom")}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.MirrorFile(context.Background(), "org-test", wid, "runtime-instructions.md", "x", ""); err == nil {
+	if err := w.MirrorFile(context.Background(), "org-test", wid, "notes.md", "x", ""); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -97,7 +97,7 @@ func TestWorkspaceRejectsBadName(t *testing.T) {
 	s, wid := newSeededStore(t, "repo-1")
 	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	for _, bad := range []string{"", "/runtime-instructions.md", "../runtime-instructions.md", "a/../b"} {
+	for _, bad := range []string{"", "/notes.md", "../notes.md", "a/../b"} {
 		if err := w.MirrorFile(context.Background(), "org-test", wid, bad, "x", ""); err == nil {
 			t.Errorf("name %q: expected error", bad)
 		}
@@ -113,12 +113,12 @@ func TestWorkspaceEmptyWorkerIDError(t *testing.T) {
 	s, _ := newSeededStore(t, "repo-1")
 	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.MirrorFile(context.Background(), "org-test", "", "runtime-instructions.md", "x", ""); err == nil {
+	if err := w.MirrorFile(context.Background(), "org-test", "", "notes.md", "x", ""); err == nil {
 		t.Fatal("expected error for empty workerID")
 	}
 }
 
-func TestWorkspacePreservesSessionOnInstructionEdit(t *testing.T) {
+func TestWorkspacePreservesSessionOnArtifactEdit(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
 	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_warm"); err != nil {
@@ -126,12 +126,12 @@ func TestWorkspacePreservesSessionOnInstructionEdit(t *testing.T) {
 	}
 	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.MirrorFile(context.Background(), "org-test", wid, "runtime-instructions.md", "# Instructions v2", ""); err != nil {
+	if err := w.MirrorFile(context.Background(), "org-test", wid, "notes.md", "# Notes v2", ""); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
 	state, _ := LoadState(context.Background(), s, "org-test", wid)
 	if state.SessionID != "ses_warm" {
-		t.Errorf("instruction edit must preserve warm session; got %q", state.SessionID)
+		t.Errorf("artifact edit must preserve warm session; got %q", state.SessionID)
 	}
 }
 

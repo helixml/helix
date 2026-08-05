@@ -41,6 +41,8 @@ type StartSessionParams struct {
 	Provider       string
 	Model          string
 	Prompt         string
+	WorkerID       string
+	Instructions   string
 }
 
 // SpawnerClient is the chat-session surface the helix Spawner uses
@@ -68,10 +70,10 @@ type SpawnerClient interface {
 	// limit and compacts. See SpawnerConfig.ensureSession.
 	ClearSession(ctx context.Context, sessionID string) error
 	// SyncAgentProfile updates the durable display name on an existing session
-	// and, when its desktop is running, refreshes the runtime-native instruction
-	// files before a new ACP thread is created. A stopped desktop still gets the
-	// name update; its startup path projects the canonical instruction file.
-	SyncAgentProfile(ctx context.Context, sessionID, sessionName, instructions string) error
+	// and its session-scoped worker identity/instructions. When the desktop is
+	// running it also refreshes the runtime-native files before a new ACP thread
+	// is created; a stopped desktop receives them from session state on restart.
+	SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string) error
 }
 
 // checkDesktopQuota pre-flights the desktop quota gate before
@@ -117,6 +119,8 @@ type SendPromptParams struct {
 	Provider       string
 	Model          string
 	Prompt         string
+	WorkerID       string
+	Instructions   string
 	OnSessionID    func(sessionID string)
 }
 
@@ -161,6 +165,8 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		Provider:       params.Provider,
 		Model:          params.Model,
 		Prompt:         params.Prompt,
+		WorkerID:       params.WorkerID,
+		Instructions:   params.Instructions,
 	})
 	if err != nil {
 		return "", false, fmt.Errorf("start helix session: %w", err)

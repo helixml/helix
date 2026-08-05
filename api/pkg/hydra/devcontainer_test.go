@@ -114,6 +114,47 @@ func TestResolveRegistryImage(t *testing.T) {
 	})
 }
 
+func TestMaterializeWorkspaceFiles(t *testing.T) {
+	root := t.TempDir()
+	mounts := []MountConfig{{Source: root, Destination: "/home/retro/work"}}
+	files := map[string][]byte{
+		"AGENTS.md": []byte("agent instructions"),
+		"CLAUDE.md": []byte("claude instructions"),
+	}
+	if err := materializeWorkspaceFiles(mounts, files); err != nil {
+		t.Fatalf("materializeWorkspaceFiles: %v", err)
+	}
+	for name, want := range files {
+		got, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+
+	files["AGENTS.md"] = []byte("updated")
+	if err := materializeWorkspaceFiles(mounts, files); err != nil {
+		t.Fatalf("refresh workspace files: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil || string(got) != "updated" {
+		t.Fatalf("refreshed AGENTS.md = %q, %v", got, err)
+	}
+}
+
+func TestMaterializeWorkspaceFilesRejectsUnsafeNames(t *testing.T) {
+	mounts := []MountConfig{{Source: t.TempDir(), Destination: "/home/retro/work"}}
+	for _, name := range []string{"", "../AGENTS.md", "nested/AGENTS.md", "/AGENTS.md"} {
+		t.Run(name, func(t *testing.T) {
+			if err := materializeWorkspaceFiles(mounts, map[string][]byte{name: []byte("x")}); err == nil {
+				t.Fatalf("materializeWorkspaceFiles accepted %q", name)
+			}
+		})
+	}
+}
+
 // stageFakeSysfs builds a synthetic /dev/dri + /sys/class/drm tree for
 // tests. devs is a list of {render, card, pci, driver} tuples — render
 // and card are basenames (e.g. "renderD129", "card1"); pci is a BDF

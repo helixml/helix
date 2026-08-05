@@ -8,7 +8,6 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
-	"github.com/helixml/helix/api/pkg/org/domain/briefing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -16,7 +15,7 @@ import (
 // SetBotContent rewrites a Bot's markdown content (its prompt). Tools and
 // subscriptions are untouched — use attach_tool/detach_tool for tools and
 // subscribe/unsubscribe for streams. The change takes effect on the Bot's
-// next activation; the running session sees it via the workspace mirror.
+// next activation, when the spawner refreshes the session-scoped profile.
 // Owner-only.
 type SetBotContent struct {
 	deps Deps
@@ -74,8 +73,5 @@ func (t *SetBotContent) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 			return nil, fmt.Errorf("update linked agent content: %w", err)
 		}
 	}
-	// Keep the single canonical instruction projection current. The spawner
-	// republishes it with any org-level override before the next activation.
-	_ = t.deps.Workspace.MirrorFile(ctx, orgID, botID, "runtime-instructions.md", briefing.BuildInstructions(botID, updated.Content), fmt.Sprintf("set_bot_content: %s", botID))
 	return json.Marshal(map[string]string{"id": string(botID)})
 }

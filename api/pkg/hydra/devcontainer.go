@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -517,6 +518,9 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 			log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
 		}
 	}
+	if err := materializeWorkspaceFiles(req.Mounts, req.WorkspaceFiles); err != nil {
+		return nil, fmt.Errorf("materialize workspace files: %w", err)
+	}
 
 	// Apply a timeout for the Docker operations that follow. This is separate
 	// from the golden cache copy (which can take minutes for 50+ GB) — that
@@ -782,6 +786,56 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		GPUVendor:      gpuVendor,
 		RenderNode:     renderNode,
 	}, nil
+}
+
+func materializeWorkspaceFiles(mounts []MountConfig, files map[string][]byte) error {
+	if len(files) == 0 {
+		return nil
+	}
+	var workspaceRoot string
+	for _, mount := range mounts {
+		if mount.Type != "volume" && mount.Destination == "/home/retro/work" {
+			workspaceRoot = mount.Source
+			break
+		}
+	}
+	if workspaceRoot == "" {
+		return errors.New("workspace bind mount not found")
+	}
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		return fmt.Errorf("create workspace root: %w", err)
+	}
+	for name, content := range files {
+		if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
+			return fmt.Errorf("invalid workspace filename %q", name)
+		}
+		tmp, err := os.CreateTemp(workspaceRoot, ".helix-bootstrap-*")
+		if err != nil {
+			return fmt.Errorf("create temporary file for %s: %w", name, err)
+		}
+		tmpPath := tmp.Name()
+		cleanup := func() {
+			tmp.Close()
+			_ = os.Remove(tmpPath)
+		}
+		if err := tmp.Chmod(0o644); err != nil {
+			cleanup()
+			return fmt.Errorf("chmod temporary file for %s: %w", name, err)
+		}
+		if _, err := tmp.Write(content); err != nil {
+			cleanup()
+			return fmt.Errorf("write temporary file for %s: %w", name, err)
+		}
+		if err := tmp.Close(); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("close temporary file for %s: %w", name, err)
+		}
+		if err := os.Rename(tmpPath, filepath.Join(workspaceRoot, name)); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("install %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // buildEnv builds environment variables for the container

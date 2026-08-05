@@ -486,6 +486,34 @@ func (c *inProcHelixClient) PutProjectSecret(ctx context.Context, projectID, nam
 	return nil
 }
 
+// DeleteProjectSecret removes a named project secret when present. It is used
+// to migrate worker identity out of project scope; absence is already the
+// desired state and is therefore idempotent.
+func (c *inProcHelixClient) DeleteProjectSecret(ctx context.Context, projectID, name string) error {
+	listReq, err := c.newRequest(ctx, http.MethodGet, "/api/v1/projects/"+projectID+"/secrets", nil, map[string]string{"id": projectID})
+	if err != nil {
+		return err
+	}
+	existing, herr := c.server.listProjectSecrets(nil, listReq)
+	if herr != nil {
+		return fmt.Errorf("delete project secret (list): %s", herr.Error())
+	}
+	for _, secret := range existing {
+		if secret == nil || secret.Name != name {
+			continue
+		}
+		r, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/secrets/"+secret.ID, nil, map[string]string{"id": secret.ID})
+		if err != nil {
+			return err
+		}
+		if _, herr := c.server.deleteSecret(nil, r); herr != nil {
+			return fmt.Errorf("delete project secret: %s", herr.Error())
+		}
+		return nil
+	}
+	return nil
+}
+
 // ListProjectSecrets returns the project's dev-scoped secrets as a
 // decrypted name→value map. Reuses GetProjectSecretsAsEnvVars (the same
 // resolver the desktop-boot injection uses) so scope filtering and
@@ -843,7 +871,9 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 		SessionRole:    "exploratory",
 		// Org workers are fully autonomous — nobody is watching to click the
 		// in-chat Restart button — so recover the agent automatically on crash.
-		AutoRestartOnCrash: true,
+		AutoRestartOnCrash:  true,
+		OrgWorkerID:         params.WorkerID,
+		RuntimeInstructions: params.Instructions,
 		Messages: []*types.Message{{
 			Role:    "user",
 			Content: types.MessageContent{Parts: []any{params.Prompt}},
@@ -905,7 +935,7 @@ func (c *inProcHelixClient) ClearSession(ctx context.Context, sessionID string) 
 // SyncAgentProfile refreshes the display name on every existing session and
 // the instruction files read natively by Codex and Claude on running desktops.
 // The spawner calls this before clearing the existing ACP thread.
-func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, sessionName, instructions string) error {
+func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, sessionName, workerID, instructions string) error {
 	if sessionID == "" {
 		return errors.New("SyncAgentProfile: sessionID is required")
 	}
@@ -913,10 +943,19 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 	if err != nil {
 		return fmt.Errorf("get session %s: %w", sessionID, err)
 	}
+	changed := false
 	if sessionName != "" && session.Name != sessionName {
 		session.Name = sessionName
+		changed = true
+	}
+	if session.Metadata.OrgWorkerID != workerID || session.Metadata.RuntimeInstructions != instructions {
+		session.Metadata.OrgWorkerID = workerID
+		session.Metadata.RuntimeInstructions = instructions
+		changed = true
+	}
+	if changed {
 		if _, err := c.server.Store.UpdateSession(ctx, *session); err != nil {
-			return fmt.Errorf("name session %s: %w", sessionID, err)
+			return fmt.Errorf("update agent profile for session %s: %w", sessionID, err)
 		}
 	}
 	if c.server.externalAgentExecutor == nil {

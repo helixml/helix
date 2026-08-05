@@ -581,24 +581,6 @@ else
 fi
 
 # =========================================
-# Install org-worker runtime instructions
-# =========================================
-# HELIX_WORKER_ID is only present for helix-org worker projects. The API
-# publishes one canonical file to helix-specs before starting the desktop;
-# project it to both runtime-native names before Zed creates an ACP thread.
-if [ -n "${HELIX_WORKER_ID:-}" ]; then
-    WORKER_INSTRUCTIONS="$WORK_DIR/helix-specs/workers/$HELIX_WORKER_ID/.context/runtime-instructions.md"
-    if [ ! -s "$WORKER_INSTRUCTIONS" ]; then
-        echo "FATAL: Runtime instructions missing for worker $HELIX_WORKER_ID at $WORKER_INSTRUCTIONS"
-        exit 1
-    fi
-    install -m 0644 "$WORKER_INSTRUCTIONS" "$WORK_DIR/AGENTS.md"
-    install -m 0644 "$WORKER_INSTRUCTIONS" "$WORK_DIR/CLAUDE.md"
-    echo "Installed org-worker instructions for Codex and Claude"
-    echo ""
-fi
-
-# =========================================
 # Install Helix Git Hooks
 # =========================================
 if [ -f "/usr/local/bin/helix-git-hooks.sh" ]; then

@@ -97,10 +97,6 @@ type Deps struct {
 	AssetSSHProxyAddress string
 	AssetHealth          func(ctx context.Context, orgID, assetRef string) assetssh.Health
 
-	// Workspace is the per-runtime file-mirror port: set_bot_content calls
-	// MirrorFile after the service persists, so the running session sees
-	// the change before the next activation.
-	Workspace           runtime.WorkspaceSync
 	AgentContentUpdater AgentContentUpdater
 	AgentProfileReader  AgentProfileReader
 	// ProjectConfig backs get_bot_project + configure_bot_project
@@ -147,7 +143,6 @@ type Deps struct {
 // same shape as server.NewFromStore), never reached from a tool.
 //
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
-// Workspace defaults to a no-op for tests.
 type Config struct {
 	Store               *store.Store
 	Queries             *queries.Queries
@@ -155,7 +150,6 @@ type Config struct {
 	NewID               IDGen
 	Hub                 *wakebus.Bus
 	Dispatcher          EventDispatcher
-	Workspace           runtime.WorkspaceSync
 	AgentContentUpdater AgentContentUpdater
 	AgentProfileReader  AgentProfileReader
 	HireHook            runtime.HireHook
@@ -221,7 +215,6 @@ func (c Config) Build() Deps {
 		SandboxSSHIssuer:     c.SandboxSSHIssuer,
 		AssetSSHProxyAddress: c.AssetSSHProxyAddress,
 		AssetHealth:          c.AssetHealth,
-		Workspace:            c.Workspace,
 		AgentContentUpdater:  c.AgentContentUpdater,
 		AgentProfileReader:   c.AgentProfileReader,
 		ProjectConfig:        c.ProjectConfig,
@@ -369,17 +362,15 @@ func (c Config) topicsService() *topics.Topics {
 	})
 }
 
-// DefaultDeps wires production defaults into a Config: real UUIDs and
-// wall-clock time, a no-op WorkspaceSync that callers replace with the
-// runtime-specific implementation, and the Queries facade + Reconciler
-// built off the store. Hub and Dispatcher are left zero — composition
-// callers wire them in before calling Build().
+// DefaultDeps wires production defaults into a Config: real UUIDs,
+// wall-clock time, and the Queries facade + Reconciler built off the store.
+// Hub and Dispatcher are left zero — composition callers wire them in before
+// calling Build().
 func DefaultDeps(s *store.Store) Config {
 	c := Config{
 		Store:               s,
 		Now:                 func() time.Time { return time.Now().UTC() },
 		NewID:               uuid.NewString,
-		Workspace:           runtime.NoopWorkspaceSync{},
 		HireHook:            runtime.NoopHireHook{},
 		ProjectConfig:       runtime.NoopProjectConfig{},
 		SpecTasks:           runtime.NoopSpecTasks{},
@@ -407,9 +398,6 @@ func DefaultDeps(s *store.Store) Config {
 // mutations on the org graph plus the matching read tools. Test tools
 // (like Ping) are not included.
 func RegisterBuiltins(reg *Registry, deps Deps) error {
-	if deps.Workspace == nil {
-		return fmt.Errorf("tools.RegisterBuiltins: deps.Workspace is required (use runtime.NoopWorkspaceSync{} for tests)")
-	}
 	if deps.Publishing == nil {
 		return fmt.Errorf("tools.RegisterBuiltins: deps.Publishing is required")
 	}

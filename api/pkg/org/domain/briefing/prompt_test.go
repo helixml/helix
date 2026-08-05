@@ -168,6 +168,9 @@ func TestBuildPromptIncludesEnvelope(t *testing.T) {
 func TestBuildPromptManualTrigger(t *testing.T) {
 	t.Parallel()
 	prompt := BuildPrompt([]activation.Trigger{{Kind: activation.TriggerManual}})
+	if !strings.Contains(prompt, "/home/retro/work/AGENTS.md") || !strings.Contains(prompt, "/home/retro/work/CLAUDE.md") {
+		t.Errorf("activation prompt does not point the harness at sandbox instructions\n%s", prompt)
+	}
 	if !strings.Contains(prompt, "operator woke you") {
 		t.Errorf("manual trigger body missing\n%s", prompt)
 	}

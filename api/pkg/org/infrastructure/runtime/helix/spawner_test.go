@@ -44,6 +44,7 @@ type fakeHelixClient struct {
 	syncCalls          int32
 	lastSyncSID        string
 	lastSessionName    string
+	lastWorkerID       string
 	lastInstructions   string
 	syncedBeforeClear  bool
 	// clearedBeforeSend records whether ClearSession ran before the
@@ -102,12 +103,13 @@ func (f *fakeHelixClient) ClearSession(_ context.Context, sessionID string) erro
 	return clearErr
 }
 
-func (f *fakeHelixClient) SyncAgentProfile(_ context.Context, sessionID, sessionName, instructions string) error {
+func (f *fakeHelixClient) SyncAgentProfile(_ context.Context, sessionID, sessionName, workerID, instructions string) error {
 	atomic.AddInt32(&f.syncCalls, 1)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lastSyncSID = sessionID
 	f.lastSessionName = sessionName
+	f.lastWorkerID = workerID
 	f.lastInstructions = instructions
 	if atomic.LoadInt32(&f.clearCalls) == 0 {
 		f.syncedBeforeClear = true
@@ -177,7 +179,6 @@ func newHelixCfg(t *testing.T, fc SpawnerClient, s *store.Store) SpawnerConfig {
 	return SpawnerConfig{
 		Client:                 fc,
 		ProjectService:         newFakeProjectService(),
-		Workspace:              NewWorkspace(newFakeGitForProject(), s, "helix-specs", "helix-org", "ho@example.com"),
 		PubSub:                 newFakePubSub(),
 		Snapshotter:            NoopSessionPreamble{},
 		HelixOrgURL:            "http://helix-org:8081",
@@ -193,17 +194,6 @@ func newHelixCfg(t *testing.T, fc SpawnerClient, s *store.Store) SpawnerConfig {
 		Now:                    func() time.Time { return time.Now().UTC() },
 		NewID:                  func() string { return "id" },
 	}
-}
-
-func publishedRuntimeInstructions(t *testing.T, cfg SpawnerConfig, workerID orgchart.NodeID) string {
-	t.Helper()
-	git, ok := cfg.Workspace.git.(*fakeGitForProject)
-	if !ok {
-		t.Fatalf("workspace git = %T, want *fakeGitForProject", cfg.Workspace.git)
-	}
-	git.mu.Lock()
-	defer git.mu.Unlock()
-	return git.putFileByPath["workers/"+string(workerID)+"/.context/"+runtimeInstructionsFile]
 }
 
 func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
@@ -248,6 +238,12 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	if fc.lastStartParams.Name != "w-eng" {
 		t.Errorf("StartSession Name = %q (want w-eng)", fc.lastStartParams.Name)
 	}
+	if fc.lastStartParams.WorkerID != "w-eng" {
+		t.Errorf("StartSession WorkerID = %q (want w-eng)", fc.lastStartParams.WorkerID)
+	}
+	if !strings.Contains(fc.lastStartParams.Instructions, "=== Instructions ===\n# Role: Engineer") {
+		t.Errorf("StartSession instructions = %q", fc.lastStartParams.Instructions)
+	}
 }
 
 func TestSpawnerSpecsMandateRemainsFullOverride(t *testing.T) {
@@ -263,7 +259,7 @@ func TestSpawnerSpecsMandateRemainsFullOverride(t *testing.T) {
 	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	instructions := publishedRuntimeInstructions(t, cfg, wid)
+	instructions := fc.lastStartParams.Instructions
 	if !strings.Contains(instructions, "Operator policy: keep replies concise.") {
 		t.Fatalf("runtime instructions missing mandate override: %q", instructions)
 	}
@@ -301,6 +297,7 @@ func TestSpawnerEmbedsFreshBotContentByDefault(t *testing.T) {
 	instructions := fc.lastInstructions
 	lastSyncSID := fc.lastSyncSID
 	lastSessionName := fc.lastSessionName
+	lastWorkerID := fc.lastWorkerID
 	syncedBeforeClear := fc.syncedBeforeClear
 	fc.mu.Unlock()
 	if !strings.Contains(instructions, "=== Instructions ===\n# Role: Principal Engineer") {
@@ -314,6 +311,9 @@ func TestSpawnerEmbedsFreshBotContentByDefault(t *testing.T) {
 	}
 	if lastSessionName != "w-eng" {
 		t.Fatalf("warm session name = %q, want w-eng", lastSessionName)
+	}
+	if lastWorkerID != "w-eng" {
+		t.Fatalf("warm worker ID = %q, want w-eng", lastWorkerID)
 	}
 	if !syncedBeforeClear {
 		t.Fatal("warm instruction sync must happen before ClearSession resets the ACP thread")
@@ -350,7 +350,7 @@ func TestSpawnerUsesLinkedAgentInstructions(t *testing.T) {
 	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	instructions := publishedRuntimeInstructions(t, cfg, wid)
+	instructions := fc.lastStartParams.Instructions
 	if !strings.Contains(instructions, "=== Instructions ===\n# Canonical agent instructions") {
 		t.Fatalf("runtime instructions did not use linked Agent instructions: %q", instructions)
 	}
@@ -388,7 +388,7 @@ func TestSpawnerReadsBotAfterProjectEnsure(t *testing.T) {
 	if err := <-result; err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	instructions := publishedRuntimeInstructions(t, cfg, wid)
+	instructions := fc.lastStartParams.Instructions
 	if !strings.Contains(instructions, "# Role: Updated During Ensure") {
 		t.Fatalf("runtime instructions used role read before project ensure: %q", instructions)
 	}
@@ -906,7 +906,7 @@ func (c *concurrencyClient) ClearSession(ctx context.Context, sessionID string) 
 	return c.inner.ClearSession(ctx, sessionID)
 }
 
-func (c *concurrencyClient) SyncAgentProfile(context.Context, string, string, string) error {
+func (c *concurrencyClient) SyncAgentProfile(context.Context, string, string, string, string) error {
 	return nil
 }
 

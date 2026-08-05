@@ -305,9 +305,8 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 // org-shaped route + lifecycle hook lives here.
 func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
 	orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
-		LocalFSPath:          s.Cfg.FileStore.LocalFSPath,
-		GitRepositoryService: s.gitRepositoryService,
-		APIServer:            s,
+		LocalFSPath: s.Cfg.FileStore.LocalFSPath,
+		APIServer:   s,
 	}, s.Store)
 	if err != nil {
 		return fmt.Errorf("initialise helix-org: %w", err)
@@ -505,16 +504,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	deps.AgentContentUpdater = inProcClient
 	deps.AgentProfileReader = inProcClient
 
-	// Build the single Workspace used by the activation spawner and
-	// set_bot_content to publish the canonical runtime instruction file.
-	// One place owns the on-branch path layout; there is no package global.
-	var orgWorkspace *runtimehelix.Workspace
-	if cfg.GitRepositoryService != nil {
-		gitWriter := cfg.GitRepositoryService.(runtimehelix.WorkspaceGit)
-		orgWorkspace = runtimehelix.NewWorkspace(gitWriter, st, "helix-specs", "helix-org", "helix-org@helix.local")
-		deps.Workspace = orgWorkspace
-	}
-
 	// Wire the helix-runtime HireHook so hire_worker persists the
 	// hiring user's identifier onto the new Worker's runtime state.
 	// Replaces the direct runtimehelix.SaveHiringUser call hire_worker
@@ -683,7 +672,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		SpawnerClient: inProcClient,
 		ProjectSvc:    inProcClient,
 		OrgStore:      st,
-		Workspace:     orgWorkspace,
 		Hub:           bc,
 		PubSub:        cfg.APIServer.pubsub,
 		Logger:        logger,
@@ -1235,9 +1223,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 // tree (falls back to os.TempDir() when empty). APIServer=nil
 // disables helix-org entirely.
 type helixOrgConfig struct {
-	LocalFSPath          string
-	GitRepositoryService runtimehelix.WorkspaceGit
-	APIServer            *HelixAPIServer
+	LocalFSPath string
+	APIServer   *HelixAPIServer
 }
 
 // dynamicProjectApplier is a chat.ProjectEnsurer that re-reads
@@ -1435,7 +1422,6 @@ type spawnerDeps struct {
 	// verify the Helix project exists without a nil-deref. Required.
 	ProjectSvc runtimehelix.ProjectService
 	OrgStore   *helixorgstore.Store
-	Workspace  *runtimehelix.Workspace
 	Hub        *wakebus.Bus
 	// PubSub is the host API's NATS pubsub; the per-activation bridge
 	// calls SubscribeSessionUpdates on it. Required.
@@ -1472,7 +1458,6 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 	return runtimehelix.SpawnerConfig{
 		Client:         d.SpawnerClient,
 		ProjectService: d.ProjectSvc,
-		Workspace:      d.Workspace,
 		HelixOrgURL:    helixOrgURL,
 		OrgID:          orgID,
 		OrgDisplayName: orgDisplayName(ctx, d.HelixStore, orgID),

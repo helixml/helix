@@ -139,10 +139,12 @@ func (s *ExploratorySessionActivationSuite) TestActivationReusesExistingExplorat
 
 	// The request shape sent by helix-org's inProcHelixClient.StartSession.
 	req := &types.SessionChatRequest{
-		ProjectID:      projectID,
-		OrganizationID: orgID,
-		SessionRole:    "exploratory",
-		AgentType:      "zed_external",
+		ProjectID:           projectID,
+		OrganizationID:      orgID,
+		SessionRole:         "exploratory",
+		AgentType:           "zed_external",
+		OrgWorkerID:         "b-alex",
+		RuntimeInstructions: "worker instructions",
 		Messages: []*types.Message{{
 			Role:    "user",
 			Content: types.MessageContent{Parts: []any{"activation prompt"}},
@@ -158,6 +160,8 @@ func (s *ExploratorySessionActivationSuite) TestActivationReusesExistingExplorat
 	// because StartExternalAgentSession unconditionally generates a fresh id.
 	s.Equal(existingSID, got.ID,
 		"activation must reuse the project's existing exploratory session id, not mint a parallel one")
+	s.Equal("b-alex", got.Metadata.OrgWorkerID)
+	s.Equal("worker instructions", got.Metadata.RuntimeInstructions)
 
 	// StartDesktop must have been called with the reused id so the hydra
 	// session map key matches what GetProjectExploratorySession returns.

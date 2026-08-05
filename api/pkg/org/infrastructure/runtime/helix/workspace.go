@@ -31,8 +31,8 @@ type WorkspaceGit interface {
 }
 
 // Workspace is the runtime.WorkspaceSync implementation that pushes
-// canonical instruction content to the helix-specs branch of a Bot's
-// per-Bot repo. Each call resolves the target repo from
+// Worker-scoped artifacts to the helix-specs branch of a Bot's per-Bot repo.
+// Each call resolves the target repo from
 // the Worker's runtime state (set by WorkerProject at first
 // activation) and PUTs one file onto the configured branch at
 // `workers/<workerID>/.context/<name>`.
@@ -71,7 +71,7 @@ func NewWorkspace(git WorkspaceGit, st *store.Store, branch, author, email strin
 }
 
 // MirrorFile satisfies runtime.WorkspaceSync. `name` is the logical
-// filename for this Worker (e.g. "runtime-instructions.md"); the Helix backend writes
+// filename for this Worker (e.g. "notes.md"); the Helix backend writes
 // it at `workers/<workerID>/.context/<name>` on the helix-specs
 // branch. Returns nil for Workers that aren't yet bound to a Helix
 // project — callers don't have to gate on activation status.

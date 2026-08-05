@@ -79,6 +79,7 @@ type ProjectService interface {
 	// PutProjectSecret upserts an env-var injected into the agent's
 	// container at session start.
 	PutProjectSecret(ctx context.Context, projectID, name, value string) error
+	DeleteProjectSecret(ctx context.Context, projectID, name string) error
 
 	// ListProjectSecrets returns the project's dev-scoped secrets as a
 	// decrypted name→value map, read live. Backs list_secrets so a bot can
@@ -378,6 +379,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 					a.Logger.Warn("verify persisted repo failed; keeping existing id", "worker", workerID, "repo", repoID, "err", gerr)
 				}
 			}
+			a.syncProjectRuntimeSecrets(ctx, state.ProjectID, workerID)
 			return state.ProjectID, state.AgentID, repoID, nil
 		}
 	}
@@ -396,15 +398,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", resp.ProjectID, workerID, err)
 		}
 	}
-	// Project secrets — env-var injection. The worker needs these to reach
-	// the org runtime, so a failure is worth surfacing (logged, not fatal:
-	// a re-apply on the next activation retries the upsert).
-	if err := a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_ORG_URL", a.HelixOrgURL); err != nil && a.Logger != nil {
-		a.Logger.Warn("put project secret HELIX_ORG_URL", "worker", workerID, "project", resp.ProjectID, "err", err)
-	}
-	if err := a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_WORKER_ID", string(workerID)); err != nil && a.Logger != nil {
-		a.Logger.Warn("put project secret HELIX_WORKER_ID", "worker", workerID, "project", resp.ProjectID, "err", err)
-	}
+	a.syncProjectRuntimeSecrets(ctx, resp.ProjectID, workerID)
 	repoID = project.DefaultRepoID
 	// Helix's project-apply does NOT auto-create a default repo. We
 	// MUST create one and attach it as primary, because:
@@ -412,8 +406,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	//   - HELIX_REPOSITORIES is set from the project's attached repos
 	//     when hydra launches the desktop; an empty list means the
 	//     bringup script has nothing for Zed to open.
-	//   - runtime instructions live in the repo's helix-specs branch —
-	//     without a repo the activation has nowhere to publish them.
+	//   - Zed needs a real repository workspace to open.
 	//
 	// Earlier versions of this code logged a warning on failure and
 	// returned a project with empty RepoID, which surfaced as a 5-min
@@ -452,6 +445,19 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		)
 	}
 	return resp.ProjectID, resp.AgentAppID, repoID, nil
+}
+
+func (a *WorkerProject) syncProjectRuntimeSecrets(ctx context.Context, projectID string, workerID orgchart.NodeID) {
+	// The org URL is project capability shared by every session in the worker's
+	// project. Worker identity is not: remove the legacy project secret so
+	// SpecTask sessions cannot inherit it. The spawner now stores identity and
+	// instructions on the org worker's session only.
+	if err := a.Service.PutProjectSecret(ctx, projectID, "HELIX_ORG_URL", a.HelixOrgURL); err != nil && a.Logger != nil {
+		a.Logger.Warn("put project secret HELIX_ORG_URL", "worker", workerID, "project", projectID, "err", err)
+	}
+	if err := a.Service.DeleteProjectSecret(ctx, projectID, "HELIX_WORKER_ID"); err != nil && a.Logger != nil {
+		a.Logger.Warn("delete legacy project secret HELIX_WORKER_ID", "worker", workerID, "project", projectID, "err", err)
+	}
 }
 
 // ensureWorkerRepo returns the project's per-Worker repo, creating and attaching

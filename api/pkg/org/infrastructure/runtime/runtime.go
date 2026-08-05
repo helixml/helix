@@ -37,12 +37,9 @@ import (
 // is correct for tests and for HumanWorker activations.
 type Spawner func(ctx context.Context, orgID string, workerID orgchart.NodeID, triggers []activation.Trigger) error
 
-// WorkspaceSync mirrors canonical Worker instructions into wherever the
-// runtime reads them at activation time. Tools call MirrorFile after
-// persisting to the DB so the next activation sees fresh content.
+// WorkspaceSync mirrors a Worker-scoped artifact into its runtime workspace.
 //
-// `name` is a logical filename for this Worker — typically
-// "runtime-instructions.md". The backend maps the name to its own on-target
+// `name` is a logical filename for this Worker. The backend maps the name to its own on-target
 // layout; callers must NOT include backend-specific path prefixes
 // (no "workers/<id>/.context/...", no "job/..."). The mapping today
 // (helix runtime, the sole concrete impl):

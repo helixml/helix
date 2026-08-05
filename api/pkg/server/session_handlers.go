@@ -2884,6 +2884,13 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 	if req.AutoRestartOnCrash {
 		session.Metadata.AutoRestartOnCrash = true
 	}
+	if req.OrgWorkerID != "" {
+		if req.RuntimeInstructions == "" {
+			return nil, fmt.Errorf("runtime instructions are required for org worker %s", req.OrgWorkerID)
+		}
+		session.Metadata.OrgWorkerID = req.OrgWorkerID
+		session.Metadata.RuntimeInstructions = req.RuntimeInstructions
+	}
 
 	if req.AppID != "" {
 		app, err := s.Store.GetApp(ctx, req.AppID)

@@ -58,7 +58,9 @@ func BuildPrompt(triggers []activation.Trigger) string {
 		}
 	}
 
-	return fmt.Sprintf(`=== Trigger ===
+	return fmt.Sprintf(`Re-read /home/retro/work/AGENTS.md or /home/retro/work/CLAUDE.md before acting so you use the current worker instructions.
+
+=== Trigger ===
 %s=== end trigger ===
 
 Act now. No preamble.

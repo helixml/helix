@@ -36,7 +36,6 @@ const DefaultMaxInflight = 8
 type SpawnerConfig struct {
 	Client         SpawnerClient
 	ProjectService ProjectService
-	Workspace      *Workspace
 	// PubSub + Snapshotter back SubscribeSessionUpdates, which topics
 	// per-session WebsocketEvent frames to in-process subscribers.
 	PubSub      pubsub.PubSub
@@ -316,7 +315,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			return err
 		}
 		prompt := briefing.BuildPrompt(triggers)
-		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, prompt, bot.PreserveContext, publish)
+		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, sessionName, instructions, prompt, bot.PreserveContext, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
@@ -337,31 +336,17 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	}
 }
 
-const runtimeInstructionsFile = "runtime-instructions.md"
-
-// prepareAgentInstructions publishes the canonical instructions for both
-// cold and warm activation paths. Cold desktops copy the helix-specs file to
-// AGENTS.md / CLAUDE.md during workspace setup. Warm desktops receive the
-// same content directly before ensureSession clears the old ACP thread.
+// prepareAgentInstructions refreshes an existing session before its old ACP
+// thread is cleared. Fresh sessions receive the same content through
+// StartSessionParams, which stores it on the session for Hydra to materialize
+// before the desktop starts.
 func (c SpawnerConfig) prepareAgentInstructions(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions string) error {
-	if c.Workspace == nil {
-		return errors.New("prepare agent instructions: workspace is nil")
-	}
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return fmt.Errorf("prepare agent instructions: load worker state: %w", err)
 	}
-	if state.RepoID == "" {
-		return fmt.Errorf("prepare agent instructions: worker %s has no repository", workerID)
-	}
-	if err := c.Workspace.EnsureBranch(ctx, state.RepoID, "main"); err != nil {
-		return fmt.Errorf("prepare agent instructions: ensure helix-specs branch: %w", err)
-	}
-	if err := c.Workspace.WriteWorkerFile(ctx, workerID, state.RepoID, runtimeInstructionsFile, instructions, "update runtime instructions"); err != nil {
-		return fmt.Errorf("prepare agent instructions: publish canonical file: %w", err)
-	}
 	if state.SessionID != "" {
-		if err := c.Client.SyncAgentProfile(ctx, state.SessionID, sessionName, instructions); err != nil {
+		if err := c.Client.SyncAgentProfile(ctx, state.SessionID, sessionName, string(workerID), instructions); err != nil {
 			return fmt.Errorf("prepare agent instructions: sync existing session: %w", err)
 		}
 	}
@@ -477,7 +462,7 @@ func sanitizeLogValue(value string) string {
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, prompt string, preserveContext bool, _ func(string)) (string, string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionName, instructions, prompt string, preserveContext bool, _ func(string)) (string, string, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return "", "", err
@@ -559,6 +544,8 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 		AppID:          state.AgentID,
 		AgentType:      AgentType,
 		Prompt:         prompt,
+		WorkerID:       string(workerID),
+		Instructions:   instructions,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("ensure session: %w", err)

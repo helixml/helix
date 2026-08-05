@@ -38,6 +38,7 @@ type fakeProjectService struct {
 	updateProjectErr        error
 	putSecretCalls          int
 	putSecretLast           map[string]string
+	deletedSecrets          []string
 	listSecretsProjectID    string
 	listSecretsResp         map[string]string
 	listSecretsErr          error
@@ -142,6 +143,13 @@ func (f *fakeProjectService) PutProjectSecret(_ context.Context, _, name, value 
 	defer f.mu.Unlock()
 	f.putSecretCalls++
 	f.putSecretLast[name] = value
+	return nil
+}
+
+func (f *fakeProjectService) DeleteProjectSecret(_ context.Context, _, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletedSecrets = append(f.deletedSecrets, name)
 	return nil
 }
 
@@ -328,8 +336,11 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if svc.putSecretLast["HELIX_ORG_URL"] != "http://helix-org:8081" {
 		t.Errorf("HELIX_ORG_URL = %q", svc.putSecretLast["HELIX_ORG_URL"])
 	}
-	if svc.putSecretLast["HELIX_WORKER_ID"] != "w-eng" {
-		t.Errorf("HELIX_WORKER_ID = %q", svc.putSecretLast["HELIX_WORKER_ID"])
+	if _, ok := svc.putSecretLast["HELIX_WORKER_ID"]; ok {
+		t.Errorf("HELIX_WORKER_ID must not be stored as a project secret")
+	}
+	if len(svc.deletedSecrets) != 1 || svc.deletedSecrets[0] != "HELIX_WORKER_ID" {
+		t.Errorf("deleted secrets = %v, want [HELIX_WORKER_ID]", svc.deletedSecrets)
 	}
 	if svc.createGitRepoCalls != 1 {
 		t.Errorf("CreateGitRepo calls = %d, want 1", svc.createGitRepoCalls)
