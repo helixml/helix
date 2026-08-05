@@ -122,22 +122,7 @@ func GenerateZedMCPConfig(
 	}
 	assistant := FindZedExternalAssistant(app)
 
-	// For zed_external agents the runtime selection lives in Model/Provider
-	// (CodingAgentForm writes these). GenerationModel/-Provider are the
-	// helix_agent template defaults (gpt-4o/openai) and must NOT shadow the
-	// real pick — doing so made GLM/Goose agents boot as openai/gpt-4o while a
-	// sibling Claude agent (empty GenerationModel) worked.
-	var provider, model string
-	if assistant != nil {
-		provider = assistant.Provider
-		if provider == "" {
-			provider = assistant.GenerationModelProvider
-		}
-		model = assistant.Model
-		if model == "" {
-			model = assistant.GenerationModel
-		}
-	}
+	provider, model := AssistantModelSelection(assistant)
 
 	// Decide whether the agent's stored model fields are usable. There are
 	// two failure modes we MUST NOT paper over:
@@ -565,6 +550,30 @@ func FindZedExternalAssistant(app *types.App) *types.AssistantConfig {
 	return &app.Config.Helix.Assistants[0]
 }
 
+// AssistantModelSelection returns the provider/model pair persisted by the
+// active code-agent settings UI. Explicit Claude Code API-key mode uses the
+// generation fields; other external runtimes and legacy empty credential types
+// use the top-level fields with the generation fallback.
+func AssistantModelSelection(assistant *types.AssistantConfig) (string, string) {
+	if assistant == nil {
+		return "", ""
+	}
+	if assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode &&
+		assistant.CodeAgentCredentialType == types.CodeAgentCredentialTypeAPIKey &&
+		(assistant.GenerationModelProvider != "" || assistant.GenerationModel != "") {
+		return assistant.GenerationModelProvider, assistant.GenerationModel
+	}
+	provider := assistant.Provider
+	if provider == "" {
+		provider = assistant.GenerationModelProvider
+	}
+	model := assistant.Model
+	if model == "" {
+		model = assistant.GenerationModel
+	}
+	return provider, model
+}
+
 // ResolveProvider matches a stored agent token (an ID for DB-backed providers,
 // the canonical name for globals) against the provider snapshot. ID match
 // wins; if no ID matches, falls back to a case-insensitive name match
@@ -670,18 +679,7 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	if usesUpstreamSubscription(assistant) {
 		return ""
 	}
-	// Mirror GenerateZedMCPConfig: Model/Provider is the zed_external source of
-	// truth; the GenerationModel quartet is helix_agent template default noise.
-	// The two must validate and route the same fields or the validator can
-	// green-light a stale provider the reader never uses.
-	provider := assistant.Provider
-	if provider == "" {
-		provider = assistant.GenerationModelProvider
-	}
-	model := assistant.Model
-	if model == "" {
-		model = assistant.GenerationModel
-	}
+	provider, model := AssistantModelSelection(assistant)
 	if provider == "" || model == "" {
 		return fmt.Sprintf("agent %q is missing a provider or model selection — open the agent settings and pick a provider and model", app.ID)
 	}

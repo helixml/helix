@@ -56,15 +56,20 @@ func TestSpecTaskProviderPreflightHandlers(t *testing.T) {
 				ID:             "app1",
 				OrganizationID: "org1",
 				Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
-					Provider: "pe_personal",
-					Model:    "model",
+					AgentType:               types.AgentTypeZedExternal,
+					CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+					CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+					Provider:                "anthropic",
+					Model:                   "claude-opus-4-8",
+					GenerationModelProvider: "pe_personal",
+					GenerationModel:         "scope-e2e-model",
 				}}}},
 			}
 
 			mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
 			mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(2)
 			mockStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
-			mockProviderManager.EXPECT().ListProviderEndpoints(gomock.Any(), app.OrganizationID).Return(nil, nil)
+			mockProviderManager.EXPECT().ListProviderEndpoints(gomock.Any(), app.OrganizationID).Return([]*types.ProviderEndpoint{{Name: "anthropic"}}, nil)
 
 			req := httptest.NewRequest(http.MethodPost, tt.path, bytes.NewBufferString(tt.body))
 			req = mux.SetURLVars(req, map[string]string{"taskId": task.ID})

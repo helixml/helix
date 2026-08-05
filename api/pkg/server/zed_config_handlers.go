@@ -618,10 +618,8 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 }
 
 // buildCodeAgentConfigFromAssistant creates a CodeAgentConfig from an assistant configuration.
-// For zed_external agents the user's model selection lives in Model/Provider; the
-// GenerationModel quartet holds helix_agent template defaults (gpt-4o/openai) that must
-// not shadow it. This must match GenerateZedMCPConfig's precedence or CodeAgentConfig.Model
-// (fed to Goose/qwen via agent_servers) disagrees with agent.default_model.
+// Model selection must match GenerateZedMCPConfig so CodeAgentConfig.Model
+// (fed to Goose/qwen via agent_servers) agrees with agent.default_model.
 // The CodeAgentRuntime determines how the LLM is configured in Zed (built-in agent vs qwen).
 func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.Context, assistant *types.AssistantConfig, helixURL string, providerSnapshot []external_agent.ProviderRef) *types.CodeAgentConfig {
 	// Get the code agent runtime, default to zed_agent
@@ -633,16 +631,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	// Check if this agent uses subscription-based credentials (e.g., Claude OAuth)
 	isSubscription := assistant.CodeAgentCredentialType.IsSubscription()
 
-	// Model/Provider is the zed_external source of truth; GenerationModel is the
-	// stale helix_agent-template fallback (see doc comment above).
-	providerName := assistant.Provider
-	if providerName == "" {
-		providerName = assistant.GenerationModelProvider
-	}
-	modelName := assistant.Model
-	if modelName == "" {
-		modelName = assistant.GenerationModel
-	}
+	providerName, modelName := external_agent.AssistantModelSelection(assistant)
 
 	// Resolve the agent's stored provider token (ID or legacy name) to the
 	// provider's current canonical name. Required so the model prefix here

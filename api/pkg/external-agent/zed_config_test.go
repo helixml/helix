@@ -615,4 +615,20 @@ func TestValidateAssistantModelConfig_ProviderAvailability(t *testing.T) {
 	assert.Equal(t, types.OrganizationProviderUnavailableMessage, ValidateAssistantModelConfig(app("org_id"), []ProviderRef{}))
 	assert.Contains(t, ValidateAssistantModelConfig(app(""), []ProviderRef{}), "does not match any current provider")
 	assert.Empty(t, ValidateAssistantModelConfig(app("org_id"), []ProviderRef{{ID: "pe_provider", Name: "provider"}}))
+
+	claudeCodeAPIKeyApp := &types.App{
+		ID:             "app",
+		OrganizationID: "org_id",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType:               types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			Provider:                "anthropic",
+			Model:                   "claude-opus-4-8",
+			GenerationModelProvider: "pe_personal",
+			GenerationModel:         "scope-e2e-model",
+		}}}},
+	}
+	assert.Equal(t, types.OrganizationProviderUnavailableMessage, ValidateAssistantModelConfig(claudeCodeAPIKeyApp, []ProviderRef{{Name: "anthropic"}}))
+	assert.Empty(t, ValidateAssistantModelConfig(claudeCodeAPIKeyApp, []ProviderRef{{Name: "anthropic"}, {ID: "pe_personal", Name: "scope-good"}}))
 }

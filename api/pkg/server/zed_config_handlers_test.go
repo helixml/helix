@@ -194,6 +194,25 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 		},
 		{
+			name: "claude_code api_key mode - generation model overrides stale top-level model",
+			assistant: &types.AssistantConfig{
+				Provider:                "anthropic",
+				Model:                   "claude-opus-4-8",
+				GenerationModelProvider: "scope-provider",
+				GenerationModel:         "scope-e2e-model",
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			},
+			want: &types.CodeAgentConfig{
+				Provider:  "scope-provider",
+				Model:     "scope-e2e-model",
+				AgentName: "claude",
+				BaseURL:   "http://localhost:8080",
+				APIType:   "anthropic",
+				Runtime:   types.CodeAgentRuntimeClaudeCode,
+			},
+		},
+		{
 			name: "claude_code api_key mode - default when credential type empty",
 			assistant: &types.AssistantConfig{
 				GenerationModelProvider: "anthropic",
@@ -204,6 +223,24 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			want: &types.CodeAgentConfig{
 				Provider:  "anthropic",
 				Model:     "claude-sonnet-4-20250514",
+				AgentName: "claude",
+				BaseURL:   "http://localhost:8080",
+				APIType:   "anthropic",
+				Runtime:   types.CodeAgentRuntimeClaudeCode,
+			},
+		},
+		{
+			name: "claude_code legacy empty credential - top-level model wins over stale generation model",
+			assistant: &types.AssistantConfig{
+				Provider:                "anthropic",
+				Model:                   "claude-opus-4-8",
+				GenerationModelProvider: "stale-provider",
+				GenerationModel:         "stale-model",
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+			},
+			want: &types.CodeAgentConfig{
+				Provider:  "anthropic",
+				Model:     "claude-opus-4-8",
 				AgentName: "claude",
 				BaseURL:   "http://localhost:8080",
 				APIType:   "anthropic",
