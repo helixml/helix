@@ -11,7 +11,6 @@ import {
   ChevronRight,
   Folder,
   GitPullRequest,
-  MessageCircle,
   Search,
 } from 'lucide-react'
 
@@ -165,10 +164,8 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
           },
         }}
       >
-        {item.kind === 'spec-task' ? (
+        {item.kind === 'spec-task' && (
           <GitPullRequest size={13} color={status?.color || 'currentColor'} style={{ flexShrink: 0 }} />
-        ) : (
-          <MessageCircle size={13} style={{ flexShrink: 0 }} />
         )}
         {status && (
           <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45, flexShrink: 0 }}>
