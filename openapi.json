@@ -20845,6 +20845,22 @@
                         }
                     },
                     {
+                        "description": "Project grouping scope: project or none",
+                        "name": "project_scope",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sort order: created or updated",
+                        "name": "sort",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "description": "Filter by session role (e.g. job)",
                         "name": "session_role",
                         "in": "query",
@@ -21063,6 +21079,94 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/server.AgentConfigAppliedResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/archive": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Archive a session to hide it from normal session lists, or unarchive it to restore it",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Archive or unarchive a session",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.SessionArchiveRequest"
+                            }
+                        }
+                    },
+                    "description": "Archive request",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.Session"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
                                 }
                             }
                         }
@@ -40555,6 +40659,9 @@
             "types.Session": {
                 "type": "object",
                 "properties": {
+                    "archived": {
+                        "type": "boolean"
+                    },
                     "config": {
                         "description": "named config for backward compat",
                         "allOf": [
@@ -40662,6 +40769,14 @@
                     },
                     "updated": {
                         "type": "string"
+                    }
+                }
+            },
+            "types.SessionArchiveRequest": {
+                "type": "object",
+                "properties": {
+                    "archived": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -41147,6 +41262,9 @@
                 "properties": {
                     "app_id": {
                         "type": "string"
+                    },
+                    "archived": {
+                        "type": "boolean"
                     },
                     "created": {
                         "description": "these are all values of the last interaction",

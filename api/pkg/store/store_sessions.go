@@ -43,8 +43,22 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("parent_app = ?", query.AppID)
 	}
 
-	if query.ProjectID != "" {
-		q = q.Where("project_id = ?", query.ProjectID)
+	switch query.ProjectScope {
+	case "none":
+		q = q.Where("(project_id IS NULL OR project_id = '' OR COALESCE(config->>'org_worker_id', '') != '')")
+	case "project":
+		q = q.Where(
+			"project_id = ? AND COALESCE(config->>'org_worker_id', '') = '' AND COALESCE(config->>'spec_task_id', '') = ''",
+			query.ProjectID,
+		)
+	default:
+		if query.ProjectID != "" {
+			q = q.Where("project_id = ?", query.ProjectID)
+		}
+	}
+
+	if query.ExcludeArchived {
+		q = q.Where("archived = false OR archived IS NULL")
 	}
 
 	if query.SessionRole != "" {
@@ -61,8 +75,13 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("model_name != 'external_agent'")
 	}
 
-	// Add ordering
-	q = q.Order("created DESC")
+	// Add ordering. Chat navigation explicitly requests updated activity order;
+	// other session lists retain their established creation order.
+	if query.SortBy == "updated" {
+		q = q.Order("updated DESC, created DESC")
+	} else {
+		q = q.Order("created DESC")
+	}
 
 	if query.PerPage == 0 {
 		query.PerPage = -1
@@ -328,7 +347,6 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 
 	return &session, nil
 }
-
 
 // ClearStaleStartingSessions clears external_agent_status and status_message
 // for sessions stuck in "starting" state. Called on API startup — if the API

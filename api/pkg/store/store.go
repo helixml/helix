@@ -57,9 +57,12 @@ type ListSessionsQuery struct {
 	QuestionSetExecutionID string          `json:"question_set_execution_id"`
 	AppID                  string          `json:"app_id"`
 	ProjectID              string          `json:"project_id"`
+	ProjectScope           string          `json:"project_scope"` // "project" returns direct project chats; "none" returns ungrouped chats
+	SortBy                 string          `json:"sort_by"`
 	SessionRole            string          `json:"session_role"`  // Filter by session role (e.g. "job")
 	ExcludeRoles           []string        `json:"exclude_roles"` // Exclude sessions with these roles
 	IncludeExternalAgents  bool            `json:"include_external_agents"`
+	ExcludeArchived        bool            `json:"exclude_archived"`
 }
 
 type ListAPIKeysQuery struct {

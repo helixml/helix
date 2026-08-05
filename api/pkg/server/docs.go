@@ -17424,6 +17424,18 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Project grouping scope: project or none",
+                        "name": "project_scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order: created or updated",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Filter by session role (e.g. job)",
                         "name": "session_role",
                         "in": "query"
@@ -17606,6 +17618,76 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.AgentConfigAppliedResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/archive": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Archive a session to hide it from normal session lists, or unarchive it to restore it",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Archive or unarchive a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Archive request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionArchiveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -35962,6 +36044,9 @@ const docTemplate = `{
         "types.Session": {
             "type": "object",
             "properties": {
+                "archived": {
+                    "type": "boolean"
+                },
                 "config": {
                     "description": "named config for backward compat",
                     "allOf": [
@@ -36069,6 +36154,14 @@ const docTemplate = `{
                 },
                 "updated": {
                     "type": "string"
+                }
+            }
+        },
+        "types.SessionArchiveRequest": {
+            "type": "object",
+            "properties": {
+                "archived": {
+                    "type": "boolean"
                 }
             }
         },
@@ -36554,6 +36647,9 @@ const docTemplate = `{
             "properties": {
                 "app_id": {
                     "type": "string"
+                },
+                "archived": {
+                    "type": "boolean"
                 },
                 "created": {
                     "description": "these are all values of the last interaction",

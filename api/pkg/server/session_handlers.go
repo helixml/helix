@@ -155,6 +155,8 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   app_id          query    string  false  "App ID"
 // @Param   search          query    string  false  "Search sessions by name"
 // @Param   project_id      query    string  false  "Project ID"
+// @Param   project_scope   query    string  false  "Project grouping scope: project or none"
+// @Param   sort            query    string  false  "Sort order: created or updated"
 // @Param   session_role    query    string  false  "Filter by session role (e.g. job)"
 // @Param   include_external_agents query bool false "Include external agent sessions"
 // @Success 200 {object} types.PaginatedSessionsList
@@ -163,15 +165,30 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.Request) (*types.PaginatedSessionsList, error) {
 	ctx := req.Context()
 	user := getRequestUser(req)
+	projectScope := req.URL.Query().Get("project_scope")
+	if projectScope != "" && projectScope != "project" && projectScope != "none" {
+		return nil, system.NewHTTPError400("project_scope must be project or none")
+	}
+	projectID := req.URL.Query().Get("project_id")
+	if projectScope == "project" && projectID == "" {
+		return nil, system.NewHTTPError400("project_id is required when project_scope is project")
+	}
+	sortBy := req.URL.Query().Get("sort")
+	if sortBy != "" && sortBy != "created" && sortBy != "updated" {
+		return nil, system.NewHTTPError400("sort must be created or updated")
+	}
 
 	query := store.ListSessionsQuery{
 		Search:                 req.URL.Query().Get("search"),
 		QuestionSetID:          req.URL.Query().Get("question_set_id"),
 		QuestionSetExecutionID: req.URL.Query().Get("question_set_execution_id"),
 		AppID:                  req.URL.Query().Get("app_id"),
-		ProjectID:              req.URL.Query().Get("project_id"),
+		ProjectID:              projectID,
+		ProjectScope:           projectScope,
+		SortBy:                 sortBy,
 		SessionRole:            req.URL.Query().Get("session_role"),
 		IncludeExternalAgents:  req.URL.Query().Get("include_external_agents") == "true",
+		ExcludeArchived:        true,
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
@@ -320,6 +337,63 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	return updated, nil
+}
+
+// archiveSession godoc
+// @Summary Archive or unarchive a session
+// @Description Archive a session to hide it from normal session lists, or unarchive it to restore it
+// @Tags sessions
+// @Accept json
+// @Produce json
+// @Param id path string true "Session ID"
+// @Param request body types.SessionArchiveRequest true "Archive request"
+// @Success 200 {object} types.Session
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/sessions/{id}/archive [patch]
+// @Security BearerAuth
+func (s *HelixAPIServer) archiveSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+	sessionID := mux.Vars(req)["id"]
+	if sessionID == "" {
+		return nil, system.NewHTTPError400("session ID is required")
+	}
+
+	var archiveReq types.SessionArchiveRequest
+	if err := json.NewDecoder(req.Body).Decode(&archiveReq); err != nil {
+		return nil, system.NewHTTPError400("invalid archive request")
+	}
+
+	ctx, cancel := detachContext(req.Context(), 30*time.Second)
+	defer cancel()
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if err := s.authorizeUserToSession(ctx, getRequestUser(req), session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if session.Archived == archiveReq.Archived {
+		return session, nil
+	}
+
+	if archiveReq.Archived && session.Metadata.AgentType == "zed_external" && s.externalAgentExecutor != nil {
+		if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("failed to stop external agent while archiving session")
+		}
+	}
+
+	session.Archived = archiveReq.Archived
+	updated, err := s.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	log.Info().Str("session_id", sessionID).Bool("archived", archiveReq.Archived).Msg("updated session archive state")
 	return updated, nil
 }
 

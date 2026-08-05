@@ -793,6 +793,7 @@ type Session struct {
 	Created       time.Time      `json:"created"`
 	Updated       time.Time      `json:"updated"`
 	DeletedAt     gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"` // Soft delete support - allows cleanup of orphaned lobbies
+	Archived      bool           `json:"archived" gorm:"default:false;index"`
 	ProjectID     string         `json:"project_id"`
 	ParentSession string         `json:"parent_session"`
 	// the app this session was spawned from
@@ -861,6 +862,10 @@ type SessionMetaUpdate struct {
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
+}
+
+type SessionArchiveRequest struct {
+	Archived bool `json:"archived"`
 }
 
 type SessionFilterModel struct {
@@ -1178,6 +1183,7 @@ type SessionSummary struct {
 	// this is either the prompt or the summary of the training data
 	Summary        string `json:"summary"`
 	Priority       bool   `json:"priority"`
+	Archived       bool   `json:"archived"`
 	AppID          string `json:"app_id,omitempty"`
 	OrganizationID string `json:"organization_id,omitempty"`
 

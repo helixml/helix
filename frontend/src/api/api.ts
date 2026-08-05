@@ -6023,6 +6023,7 @@ export interface TypesServiceDownloadProgress {
 }
 
 export interface TypesSession {
+  archived?: boolean;
   /** named config for backward compat */
   config?: TypesSessionMetadata;
   created?: string;
@@ -6078,6 +6079,10 @@ export interface TypesSession {
   /** e.g. text, image */
   type?: TypesSessionType;
   updated?: string;
+}
+
+export interface TypesSessionArchiveRequest {
+  archived?: boolean;
 }
 
 export interface TypesSessionChatRequest {
@@ -6321,6 +6326,7 @@ export interface TypesSessionRAGResult {
 
 export interface TypesSessionSummary {
   app_id?: string;
+  archived?: boolean;
   /** these are all values of the last interaction */
   created?: string;
   /** Metadata includes container information for external agent sessions */
@@ -16211,6 +16217,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         search?: string;
         /** Project ID */
         project_id?: string;
+        /** Project grouping scope: project or none */
+        project_scope?: string;
+        /** Sort order: created or updated */
+        sort?: string;
         /** Filter by session role (e.g. job) */
         session_role?: string;
         /** Include external agent sessions */
@@ -16301,6 +16311,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/agent-config-applied`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Archive a session to hide it from normal session lists, or unarchive it to restore it
+     *
+     * @tags sessions
+     * @name V1SessionsArchivePartialUpdate
+     * @summary Archive or unarchive a session
+     * @request PATCH:/api/v1/sessions/{id}/archive
+     * @secure
+     */
+    v1SessionsArchivePartialUpdate: (id: string, request: TypesSessionArchiveRequest, params: RequestParams = {}) =>
+      this.request<TypesSession, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/archive`,
+        method: "PATCH",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

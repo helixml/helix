@@ -13,7 +13,7 @@ export const GET_SESSION_QUERY_KEY = (id: string) => [
   id
 ];
 
-export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId?: string, appId?: string, includeExternalAgents?: boolean) => {
+export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId?: string, appId?: string, includeExternalAgents?: boolean, projectScope?: string, sort?: string) => {
   const key = [
     "sessions",
     orgId,
@@ -23,6 +23,8 @@ export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?
     questionSetExecutionId,
     projectId,
     appId,
+    projectScope,
+    sort,
   ];
   return includeExternalAgents === undefined ? key : [...key, includeExternalAgents];
 };
@@ -77,12 +79,12 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
   })
 }
 
-export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: { enabled?: boolean; includeExternalAgents?: boolean }, appId?: string) {
+export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: { enabled?: boolean; includeExternalAgents?: boolean; projectScope?: 'project' | 'none'; sort?: 'created' | 'updated' }, appId?: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   
   return useQuery({
-    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? '', appId ?? '', options?.includeExternalAgents),
+    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? '', appId ?? '', options?.includeExternalAgents, options?.projectScope, options?.sort),
     queryFn: () => apiClient.v1SessionsList({
       org_id: orgId,
       search: search,
@@ -90,6 +92,8 @@ export function useListSessions(orgId?: string, search?: string, questionSetExec
       page: page,
       page_size: pageSize,
       project_id: projectId,
+      project_scope: options?.projectScope,
+      sort: options?.sort,
       app_id: appId,
       include_external_agents: options?.includeExternalAgents,
     }),
@@ -203,6 +207,21 @@ export function useDeleteSession(sessionId: string, options?: { enabled?: boolea
       // Invalidate all sessions queries to refresh the list after deletion
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
     }
+  })
+}
+
+export function useArchiveSession() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ sessionId, archived }: { sessionId: string; archived: boolean }) =>
+      apiClient.v1SessionsArchivePartialUpdate(sessionId, { archived }).then((response) => response.data),
+    onSuccess: (_, { sessionId }) => {
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
   })
 }
 

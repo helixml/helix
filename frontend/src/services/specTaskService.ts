@@ -24,11 +24,13 @@ const QUERY_KEYS = {
     archivedOnly?: boolean,
     withDependsOn?: boolean,
     labels?: string[],
+    limit?: number,
+    offset?: number,
   ) =>
     [
       "spec-tasks",
       "list",
-      { projectId, archivedOnly, withDependsOn, labels },
+      { projectId, archivedOnly, withDependsOn, labels, limit, offset },
     ] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
   specTaskUsage: (id: string) => ["spec-tasks", id, "usage"] as const,
@@ -63,6 +65,8 @@ export function useSpecTasks(options?: {
   archivedOnly?: boolean;
   withDependsOn?: boolean;
   labels?: string[];
+  limit?: number;
+  offset?: number;
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
@@ -74,6 +78,8 @@ export function useSpecTasks(options?: {
       options?.archivedOnly,
       options?.withDependsOn,
       options?.labels,
+      options?.limit,
+      options?.offset,
     ),
     queryFn: async () => {
       const response = await api.getApiClient().v1SpecTasksList({
@@ -84,6 +90,8 @@ export function useSpecTasks(options?: {
           options?.labels && options.labels.length > 0
             ? options.labels.join(",")
             : undefined,
+        limit: options?.limit,
+        offset: options?.offset,
       });
       return response.data || [];
     },

@@ -158,6 +158,7 @@ func (s *PostgresStore) searchSessions(ctx context.Context, query string, req *t
 		Preload("Interactions", func(db *gorm.DB) *gorm.DB {
 			return db.Order("created ASC").Limit(1)
 		}).
+		Where("archived = false OR archived IS NULL").
 		Where("LOWER(name) LIKE ?", query+"%")
 
 	if req.OrganizationID != "" {

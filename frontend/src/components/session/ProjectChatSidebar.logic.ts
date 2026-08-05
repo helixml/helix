@@ -23,6 +23,34 @@ export type SidebarGroup = {
   items: SidebarItem[]
 }
 
+export const collapsedGroupsStorageKey = (orgId: string): string => (
+  `helix:project-chat-sidebar:collapsed:${orgId}`
+)
+
+export const parseCollapsedGroupIds = (storedValue: string | null): Set<string> => {
+  if (!storedValue) return new Set()
+  try {
+    const value = JSON.parse(storedValue)
+    if (!Array.isArray(value)) return new Set()
+    return new Set(value.filter((id): id is string => typeof id === 'string'))
+  } catch {
+    return new Set()
+  }
+}
+
+export const serializeCollapsedGroupIds = (groupIds: Set<string>): string => (
+  JSON.stringify([...groupIds].sort())
+)
+
+export const isNewThreadShortcut = (
+  event: Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'key' | 'metaKey' | 'shiftKey'>,
+): boolean => (
+  (event.metaKey || event.ctrlKey)
+  && !event.altKey
+  && !event.shiftKey
+  && event.key.toLowerCase() === 'n'
+)
+
 export const getSidebarTaskStatus = (task?: SpecTask): SidebarStatus | null => {
   switch (task?.status) {
     case 'queued_spec_generation':
