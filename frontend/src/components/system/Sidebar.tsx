@@ -32,6 +32,7 @@ import SidebarContextHeader from './SidebarContextHeader'
 // import UnifiedSearchBar from '../common/UnifiedSearchBar'
 import { SidebarProvider, useSidebarContext } from '../../contexts/sidebarContext'
 import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
+import { TOOLBAR_HEIGHT } from '../../config'
 
 
 const shimmer = keyframes`
@@ -108,6 +109,7 @@ const SidebarContentInner: React.FC<{
   const account = useAccount()
   const appTools = useApp(params.app_id)
   const snackbar = useSnackbar()
+  const isConversationRoute = ['org_chat', 'org_session', 'org_new'].includes(router.name)
 
   // New file menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
@@ -252,7 +254,7 @@ const SidebarContentInner: React.FC<{
           width: '100%',
         }}
       >
-        <SidebarContextHeader />
+        {!isConversationRoute && <SidebarContextHeader />}
         {/* Global search - available on all pages */}
         {/* <UnifiedSearchBar compact placeholder="Search..." /> */}
         <Box
@@ -276,7 +278,7 @@ const SidebarContentInner: React.FC<{
                     id="create-link"
                     onClick={handleCreateNew}
                     sx={{
-                      height: '64px',
+                      height: isConversationRoute ? TOOLBAR_HEIGHT : '64px',
                       display: 'flex',
                       '&:hover': {
                         '.MuiListItemText-root .MuiTypography-root': { color: lightTheme.textColor },

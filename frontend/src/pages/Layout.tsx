@@ -415,6 +415,9 @@ const Layout: FC<{
   const isProjectsIndex =
     router.name === "org_projects" &&
     (!router.params.tab || router.params.tab === "projects");
+  const isConversationRoute = ["org_chat", "org_session", "org_new"].includes(
+    router.name,
+  );
 
   // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer
   const shouldShowSidebar =
@@ -683,7 +686,7 @@ const Layout: FC<{
               },
               "& [data-page-toolbar] > .MuiAppBar-root": {
                 position: "fixed",
-                left: 64,
+                left: isConversationRoute ? themeConfig.drawerWidth : 64,
                 right: 0,
                 width: "auto",
                 zIndex: (theme) => theme.zIndex.drawer + 1,
