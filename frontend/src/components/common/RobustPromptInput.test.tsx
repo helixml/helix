@@ -265,6 +265,85 @@ describe('RobustPromptInput rich attachments', () => {
     )
   })
 
+  it('delivers inline images directly without uploading them to an agent workspace', async () => {
+    const onSend = vi.fn().mockResolvedValue(true)
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        sendMode="direct"
+        inlineImageAttachments
+        onSend={onSend}
+      />,
+    )
+
+    const image = new File(['image'], 'diagram.png', { type: 'image/png' })
+    const textarea = screen.getByPlaceholderText('Send message to agent...')
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [image],
+        items: [],
+        getData: () => '',
+      },
+    })
+
+    expect(await screen.findByRole('button', { name: 'Preview diagram.png' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('', true, [image]))
+    expect(saveToHistory).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Preview diagram.png' })).not.toBeInTheDocument())
+  })
+
+  it('rejects non-image files in direct model-chat mode', async () => {
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        sendMode="direct"
+        inlineImageAttachments
+        onSend={vi.fn()}
+      />,
+    )
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(input?.accept).toBe('image/*')
+    fireEvent.change(input!, {
+      target: { files: [new File(['pdf'], 'requirements.pdf', { type: 'application/pdf' })] },
+    })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'requirements.pdf: only images can be attached to model chats',
+    )
+  })
+
+  it('does not submit a direct message while the current turn is busy', async () => {
+    const onSend = vi.fn()
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        sendMode="direct"
+        inlineImageAttachments
+        isAgentBusy
+        onSend={onSend}
+      />,
+    )
+
+    const image = new File(['image'], 'diagram.png', { type: 'image/png' })
+    const textarea = screen.getByPlaceholderText('Send message to agent...')
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [image],
+        items: [],
+        getData: () => '',
+      },
+    })
+    await screen.findByRole('button', { name: 'Preview diagram.png' })
+
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
+
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Preview diagram.png' })).toBeInTheDocument()
+  })
+
   it('keeps a failed upload visible and blocks send until it is retried', async () => {
     const onFileUpload = vi.fn()
       .mockResolvedValueOnce(null)

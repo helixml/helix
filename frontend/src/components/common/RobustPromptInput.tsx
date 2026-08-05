@@ -71,6 +71,7 @@ import { Api } from '../../api/api'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
 import { getChatColors } from '../session/chatStyles'
 import ChatAttachmentTray from './ChatAttachmentTray'
+import ContextMenuModal from '../widgets/ContextMenuModal'
 import {
   buildMessageWithAttachments,
   createPendingChatAttachment,
@@ -84,10 +85,16 @@ const LARGE_TEXT_THRESHOLD = 10 * 1024
 
 interface RobustPromptInputProps {
   sessionId: string
-  onSend: (message: string, interrupt?: boolean) => Promise<void>
+  onSend: (message: string, interrupt?: boolean, attachments?: File[]) => Promise<void | boolean>
   placeholder?: string
   disabled?: boolean
   maxHeight?: number
+  sendMode?: 'queued' | 'direct'
+  inlineImageAttachments?: boolean
+  trailingActions?: React.ReactNode
+  contextMenuAppId?: string
+  formatContextMenuInsert?: (text: string) => string
+  autoFocus?: boolean
   // Optional backend sync props
   specTaskId?: string
   projectId?: string
@@ -506,11 +513,18 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   isAgentBusy = false,
   isCancelling = false,
   onWillSend,
+  sendMode = 'queued',
+  inlineImageAttachments = false,
+  trailingActions,
+  contextMenuAppId,
+  formatContextMenuInsert,
+  autoFocus = false,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const [isDirectSending, setIsDirectSending] = useState(false)
   const [isRestartingAgent, setIsRestartingAgent] = useState(false)
   // Pending attachments that will be sent with the message
   const [attachments, setAttachments] = useState<PendingChatAttachment[]>([])
@@ -520,6 +534,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Use onFileUpload if provided, otherwise fall back to onImagePaste for backwards compat
   const handleFileUploadCallback = onFileUpload || onImagePaste
+  const attachmentsEnabled = inlineImageAttachments || !!handleFileUploadCallback
+  const inputDisabled = disabled || isDirectSending
 
   // Check if we're on a mobile device for camera support
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
@@ -602,6 +618,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   }, [])
 
   const processQueue = useCallback(async () => {
+    if (sendMode === 'direct') return
     // Spec-task sessions: the backend owns dispatch after sync.
     if (backendQueueEnabled) return
     // Prevent concurrent processing.
@@ -637,7 +654,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
     try {
       // interrupt=true interrupts the agent's current turn; false queues after.
-      await onSend(nextToSend.content, nextToSend.interrupt !== false)
+      const sent = await onSend(nextToSend.content, nextToSend.interrupt !== false)
+      if (sent === false) throw new Error('Prompt was not sent')
       markAsSent(nextToSend.id)
     } catch (error) {
       console.error('Failed to send message:', error)
@@ -646,7 +664,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       setSendingId(null)
       processingRef.current = false
     }
-  }, [backendQueueEnabled, isOnline, disabled, queuedPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
+  }, [sendMode, backendQueueEnabled, isOnline, disabled, queuedPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
 
   // Pump the queue when messages are pending and we're online.
   useEffect(() => {
@@ -664,19 +682,33 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [sendingId, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
 
-  // Handle prepending text from parent (e.g., uploaded file paths)
+  // Handle text appended by a parent surface (e.g., uploaded file paths).
   useEffect(() => {
     if (appendText && appendText !== prevAppendTextRef.current) {
       // Strip any unique key suffix (format: "text#123")
-      const textToPrepend = appendText.replace(/#\d+$/, '')
-      // Prepend to draft with proper spacing
-      const needsSpace = draft.length > 0 && !draft.startsWith(' ') && !draft.startsWith('\n')
-      setDraft(textToPrepend + (needsSpace ? ' ' : '') + draft)
+      const textToAppend = appendText.replace(/#\d+$/, '')
+      const needsSpace = draft.length > 0 && !/\s$/.test(draft)
+      setDraft(draft + (needsSpace ? ' ' : '') + textToAppend)
       prevAppendTextRef.current = appendText
       // Focus the textarea
       textareaRef.current?.focus()
     }
   }, [appendText, setDraft, draft])
+
+  useEffect(() => {
+    if (autoFocus && !inputDisabled) textareaRef.current?.focus()
+  }, [autoFocus, inputDisabled, sessionId])
+
+  const handleContextMenuInsert = useCallback((text: string) => {
+    const insertedText = formatContextMenuInsert ? formatContextMenuInsert(text) : text
+    const lastAtIndex = draft.lastIndexOf('@')
+    setDraft(
+      lastAtIndex >= 0
+        ? draft.substring(0, lastAtIndex) + insertedText
+        : draft + insertedText,
+    )
+    textareaRef.current?.focus()
+  }, [draft, formatContextMenuInsert, setDraft])
 
   // DnD sensors
   const sensors = useSensors(
@@ -746,18 +778,25 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [queueLength, onHeightChange])
 
-  // Queue a new message
-  const handleSend = useCallback(async () => {
+  const clearCurrentAttachments = useCallback(() => {
+    setAttachments((current) => {
+      current.forEach((attachment) => {
+        if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
+      })
+      return []
+    })
+  }, [])
+
+  const submitDraft = useCallback(async (interrupt: boolean) => {
     const content = draft.trim()
-    // Allow sending if there's content OR attachments
-    if ((!content && attachments.length === 0) || disabled) return
+    if (
+      (!content && attachments.length === 0) ||
+      inputDisabled ||
+      (sendMode === 'direct' && isAgentBusy)
+    ) return
 
-    // Check if any attachments are still uploading
     const uploadingAttachments = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
-    if (uploadingAttachments.length > 0) {
-      return
-    }
-
+    if (uploadingAttachments.length > 0) return
     if (attachments.some((attachment) => attachment.uploadStatus === 'failed')) return
 
     const fullContent = buildMessageWithAttachments(content, attachments)
@@ -774,20 +813,30 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       }
     }
 
-    // Add to queue with pending status, passing interrupt mode
-    saveToHistory(fullContent, interruptMode)
-    clearDraft()
+    if (sendMode === 'direct') {
+      const inlineImages = attachments.flatMap((attachment) => attachment.file ? [attachment.file] : [])
+      setIsDirectSending(true)
+      try {
+        const sent = await onSend(content, true, inlineImages)
+        if (sent === false) return
+        clearDraft()
+        clearCurrentAttachments()
+      } catch (error) {
+        console.error('Failed to send prompt:', error)
+      } finally {
+        setIsDirectSending(false)
+      }
+      return
+    }
 
-    // Clear attachments after adding to queue
-    setAttachments(prev => {
-      // Revoke object URLs to prevent memory leaks
-      prev.forEach(a => {
-        if (a.previewUrl) URL.revokeObjectURL(a.previewUrl)
-      })
-      return []
-    })
-    // Backend handles processing after sync - no need to call processQueue
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode, onWillSend])
+    saveToHistory(fullContent, interrupt)
+    clearDraft()
+    clearCurrentAttachments()
+  }, [draft, attachments, inputDisabled, sendMode, isAgentBusy, onSend, clearDraft, clearCurrentAttachments, saveToHistory, onWillSend])
+
+  const handleSend = useCallback(async () => {
+    await submitDraft(interruptMode)
+  }, [interruptMode, submitDraft])
 
   // Remove from queue: tombstone locally first (instant UI update, prevents
   // re-import on sync), then fire backend DELETE (best effort).
@@ -923,7 +972,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
       // Empty field: promote most-recent queued entry to interrupt instead of sending nothing.
       if (!content && attachments.length === 0) {
-        if (disabled) return
+        if (inputDisabled || sendMode === 'direct') return
         // Promote the OLDEST NON-interrupt queued message to interrupt.
         // Scans queuedPrompts (failed + pending) so a deferred message — the one
         // the user is actually trying to escalate — is still a candidate.
@@ -939,30 +988,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         return
       }
 
-      if (disabled) return
-
-      // Check if any attachments are still uploading
-      const uploadingAttachments = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
-      if (uploadingAttachments.length > 0) {
-        return
-      }
-
-      if (attachments.some((attachment) => attachment.uploadStatus === 'failed')) return
-
-      const fullContent = buildMessageWithAttachments(content, attachments)
-
-      // Add to queue with pending status
-      saveToHistory(fullContent, useInterrupt)
-      clearDraft()
-
-      // Clear attachments
-      setAttachments(prev => {
-        prev.forEach(a => {
-          if (a.previewUrl) URL.revokeObjectURL(a.previewUrl)
-        })
-        return []
-      })
-      // Backend handles processing after sync
+      void submitDraft(useInterrupt)
       return
     }
 
@@ -983,22 +1009,40 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         e.preventDefault()
       }
     }
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown, queuedPrompts, updateInterrupt, sendingId, editingId])
+  }, [draft, attachments.length, inputDisabled, sendMode, submitDraft, navigateUp, navigateDown, queuedPrompts, updateInterrupt, sendingId, editingId])
 
   const addFilesAsAttachments = useCallback((files: File[]) => {
-    if (!handleFileUploadCallback || files.length === 0) return
-    const { accepted, rejected } = validateChatAttachmentFiles(files, attachmentsRef.current.length)
+    if (!attachmentsEnabled || files.length === 0) return
+    const eligibleFiles = inlineImageAttachments
+      ? files.filter((file) => file.type.startsWith('image/'))
+      : files
+    const unsupported = inlineImageAttachments
+      ? files.filter((file) => !file.type.startsWith('image/')).map((file) => ({
+          name: file.name,
+          reason: 'only images can be attached to model chats',
+        }))
+      : []
+    const { accepted, rejected } = validateChatAttachmentFiles(
+      eligibleFiles,
+      attachmentsRef.current.length,
+    )
+    const allRejected = [...unsupported, ...rejected]
     setAttachmentError(
-      rejected.length > 0
-        ? rejected.map(({ name, reason }) => `${name}: ${reason}`).join('. ')
+      allRejected.length > 0
+        ? allRejected.map(({ name, reason }) => `${name}: ${reason}`).join('. ')
         : null,
     )
     if (accepted.length === 0) return
     setAttachments((current) => [
       ...current,
-      ...accepted.map(createPendingChatAttachment),
+      ...accepted.map((file) => {
+        const attachment = createPendingChatAttachment(file)
+        return inlineImageAttachments
+          ? { ...attachment, uploadStatus: 'uploaded' as const }
+          : attachment
+      }),
     ])
-  }, [handleFileUploadCallback])
+  }, [attachmentsEnabled, inlineImageAttachments])
 
   const uploadAttachment = useCallback(async (attachmentId: string) => {
     if (!handleFileUploadCallback || attachmentUploadsInFlightRef.current.has(attachmentId)) return
@@ -1041,11 +1085,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Auto-upload when file is added or when coming back online
   useEffect(() => {
-    if (!isOnline || !handleFileUploadCallback) return
+    if (!isOnline || !handleFileUploadCallback || inlineImageAttachments) return
     attachments
       .filter((attachment) => attachment.uploadStatus === 'pending' && attachment.file)
       .forEach((attachment) => void uploadAttachment(attachment.id))
-  }, [attachments, handleFileUploadCallback, isOnline, uploadAttachment])
+  }, [attachments, handleFileUploadCallback, inlineImageAttachments, isOnline, uploadAttachment])
 
   // Remove an attachment
   const removeAttachment = useCallback((id: string) => {
@@ -1087,7 +1131,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Explorer. Read the DataTransfer file list first so PDFs and other binary
   // assets follow the same upload path as images.
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!handleFileUploadCallback) return
+    if (!attachmentsEnabled) return
 
     const clipboardFiles = filesFromClipboard(e.clipboardData)
     if (clipboardFiles.length > 0) {
@@ -1098,7 +1142,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
     // Check for large text paste - convert to text file attachment
     const pastedText = e.clipboardData?.getData('text/plain')
-    if (pastedText && pastedText.length > LARGE_TEXT_THRESHOLD) {
+    if (handleFileUploadCallback && pastedText && pastedText.length > LARGE_TEXT_THRESHOLD) {
       e.preventDefault()
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const file = new File([pastedText], `pasted-text-${timestamp}.txt`, { type: 'text/plain' })
@@ -1110,7 +1154,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         setDraft(note + (needsSpace ? ' ' : '') + draft)
       }
     }
-  }, [addFilesAsAttachments, handleFileUploadCallback, setDraft, draft])
+  }, [addFilesAsAttachments, attachmentsEnabled, handleFileUploadCallback, setDraft, draft])
 
   // Track drag state for visual feedback
   const [isDraggingOver, setIsDraggingOver] = useState(false)
@@ -1119,10 +1163,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const handleDragEnter = useCallback((e: React.DragEvent<HTMLElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    if (handleFileUploadCallback) {
+    if (attachmentsEnabled) {
       setIsDraggingOver(true)
     }
-  }, [handleFileUploadCallback])
+  }, [attachmentsEnabled])
 
   // Handle drag leave - hide visual feedback
   const handleDragLeave = useCallback((e: React.DragEvent<HTMLElement>) => {
@@ -1137,10 +1181,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const handleDragOver = useCallback((e: React.DragEvent<HTMLElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    if (handleFileUploadCallback) {
+    if (attachmentsEnabled) {
       e.dataTransfer.dropEffect = 'copy'
     }
-  }, [handleFileUploadCallback])
+  }, [attachmentsEnabled])
 
   // Handle drop events for files
   const handleDrop = useCallback((e: React.DragEvent<HTMLElement>) => {
@@ -1148,11 +1192,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     e.stopPropagation()
     setIsDraggingOver(false)
 
-    if (!handleFileUploadCallback) return
+    if (!attachmentsEnabled) return
 
     const files = Array.from(e.dataTransfer.files)
     addFilesAsAttachments(files)
-  }, [addFilesAsAttachments, handleFileUploadCallback])
+  }, [addFilesAsAttachments, attachmentsEnabled])
 
   // Format timestamp
   const formatTime = (timestamp: number): string => {
@@ -1186,7 +1230,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const hasHistory = sentHistory.length > 0
   const hasVisibleQueue = backendQueueEnabled && showQueue && queuedMessages.length > 0
 
-  return (
+  const input = (
     <Box
       className="prompt-input-container"
       data-prompt-input="true"
@@ -1283,6 +1327,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         ref={fileInputRef}
         type="file"
         multiple
+        accept={inlineImageAttachments ? 'image/*' : undefined}
         onChange={handleFileInputChange}
         style={{ display: 'none' }}
       />
@@ -1369,8 +1414,16 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={isDraggingOver ? 'Drop file to upload...' : (isOnline ? placeholder : 'Offline - messages will queue')}
-          disabled={disabled}
+          placeholder={isDraggingOver
+            ? inlineImageAttachments
+              ? 'Drop image to attach...'
+              : 'Drop file to upload...'
+            : isOnline
+              ? placeholder
+              : sendMode === 'direct'
+                ? 'Offline'
+                : 'Offline - messages will queue'}
+          disabled={inputDisabled}
           sx={{
             width: '100%',
             resize: 'none',
@@ -1426,12 +1479,12 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           )}
 
           {/* Attach file button */}
-          {handleFileUploadCallback && (
-            <Tooltip title="Attach file">
+          {attachmentsEnabled && (
+            <Tooltip title={inlineImageAttachments ? 'Attach image' : 'Attach file'}>
               <IconButton
                 size="small"
                 onClick={handleBrowseClick}
-                disabled={disabled}
+                disabled={inputDisabled}
                 sx={{
                   color: 'text.secondary',
                   flexShrink: 0,
@@ -1448,7 +1501,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           )}
 
           {/* Camera button (mobile only) */}
-          {handleFileUploadCallback && isMobile && (
+          {attachmentsEnabled && isMobile && (
             <Tooltip title="Take photo">
               <IconButton
                 size="small"
@@ -1466,7 +1519,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                   }
                   input.click()
                 }}
-                disabled={disabled}
+                disabled={inputDisabled}
                 sx={{
                   color: 'text.secondary',
                   flexShrink: 0,
@@ -1484,13 +1537,16 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
           {/* Offline indicator */}
           {!isOnline && (
-            <Tooltip title="You're offline - messages will queue and send when connected">
+            <Tooltip title={sendMode === 'direct'
+              ? "You're offline"
+              : "You're offline - messages will queue and send when connected"}
+            >
               <CloudOff size={20} style={{ flexShrink: 0 }} />
             </Tooltip>
           )}
 
           {/* Interrupt mode toggle */}
-          <Tooltip
+          {sendMode === 'queued' && <Tooltip
             title={
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -1533,9 +1589,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 <ListStart size={17} />
               )}
             </IconButton>
-          </Tooltip>
+          </Tooltip>}
 
           <Box sx={{ flex: 1 }} />
+
+          {trailingActions}
 
           {/* Cancel button - visible when agent is busy */}
           {isAgentBusy && onCancel && (
@@ -1574,12 +1632,12 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           )}
 
           {/* Send button */}
-          {!isAgentBusy && (() => {
+          {!isAgentBusy && !isDirectSending && (() => {
             const hasContent = draft.trim().length > 0
             const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded')
             const pendingUploads = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
             const failedUploads = attachments.filter(a => a.uploadStatus === 'failed')
-            const canSend = (hasContent || uploadedAttachments.length > 0) && pendingUploads.length === 0 && failedUploads.length === 0 && !disabled
+            const canSend = (hasContent || uploadedAttachments.length > 0) && pendingUploads.length === 0 && failedUploads.length === 0 && !inputDisabled && (isOnline || sendMode === 'queued')
 
             return (
               <Tooltip
@@ -1588,7 +1646,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                     ? `Uploading ${pendingUploads.length} file${pendingUploads.length > 1 ? 's' : ''}...`
                     : failedUploads.length > 0
                       ? 'Retry or remove failed uploads before sending'
-                      : `Add to queue (Enter = queue, ${interruptShortcut} = interrupt)`
+                      : sendMode === 'direct'
+                        ? 'Send message'
+                        : `Add to queue (Enter = queue, ${interruptShortcut} = interrupt)`
                 }
               >
                 <span>
@@ -1796,6 +1856,18 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         })()}
       </Menu>
     </Box>
+  )
+
+  if (!contextMenuAppId) return input
+
+  return (
+    <ContextMenuModal
+      appId={contextMenuAppId}
+      textAreaRef={textareaRef}
+      onInsertText={handleContextMenuInsert}
+    >
+      {input}
+    </ContextMenuModal>
   )
 }
 
