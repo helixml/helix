@@ -190,6 +190,11 @@ func TestBuildInstructionsIncludesIdentityAndMandate(t *testing.T) {
 	for _, want := range []string{
 		"You are Bot w-eng, running inside helix-org",
 		"Each activation is a single turn",
+		"Never use Zed's native filesystem tools for ~/.agents/skills",
+		"npx --yes skills add <owner/repo> --skill <skill-name> --global --agent zed --yes",
+		"npx --yes skills update <skill-name> --global --yes",
+		"npx --yes skills list --global --json",
+		"Only install third-party skills when the operator asks or the task requires one",
 		"=== Instructions ===",
 		"# Engineer\nBuild the product.",
 	} {
