@@ -17,6 +17,14 @@ func BuildInstructions(workerID orgchart.NodeID, mandate string) string {
 the current working directory. Each activation is a single turn — do
 the work and exit.
 
+=== Global agent skills ===
+Use terminal commands and the Skills CLI to install or update global agent
+skills. Never use Zed's native filesystem tools for ~/.agents/skills.
+Install: npx --yes skills add <owner/repo> --skill <skill-name> --global --agent zed --yes
+Update: npx --yes skills update <skill-name> --global --yes
+List: npx --yes skills list --global --json
+Only install third-party skills when the operator asks or the task requires one.
+
 === Instructions ===
 %s
 `, workerID, mandate)
