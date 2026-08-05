@@ -108,6 +108,7 @@ const Apps: FC = () => {
               id="new-app-button"
               variant="contained"
               color="secondary"
+              size="small"
               startIcon={<AddIcon />}
               onClick={onNewAgent}
             >

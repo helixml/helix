@@ -386,6 +386,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
             isCreating={isCreating}
             variant="contained"
             color="secondary"
+            size="small"
           />
         }
       />

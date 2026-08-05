@@ -11,8 +11,7 @@ import TasksView from '../components/tasks/TasksView'
 import EmptyTasksState from '../components/tasks/EmptyTasksState'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import ViewModeToggle from '../components/widgets/ViewModeToggle'
-import Stack from '@mui/material/Stack'
-import Typography from '@mui/material/Typography'
+import PageSectionHeader from '../components/system/PageSectionHeader'
 
 import { useListUserCronTriggers, useDeleteAppTrigger } from '../services/appService'
 import useAccount from '../hooks/useAccount'
@@ -221,31 +220,27 @@ const Tasks: FC = () => {
     <Page
       breadcrumbTitle="Tasks"
       orgBreadcrumbs={true}
-      topbarContent={(
-        <Button
-          id="new-task-button"
-          variant="contained"
-          color="secondary"
-          endIcon={<AddIcon />}
-          onClick={() => handleCreateTask()}
-        >
-          New
-        </Button>
-      )}
     >
-      <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
-        <Stack spacing={2}>
-          <Box>
-            <Typography variant="h5" sx={{ mb: 1 }}>Tasks</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Recurring agent tasks that run on a cron schedule. Each task triggers an agent
-              with a defined input on its schedule and tracks recent executions.
-            </Typography>
-          </Box>
-          <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
-            {renderContent()}
-          </Paywall>
-        </Stack>
+      <Container maxWidth="lg" sx={{ mb: 4, mt: 4 }}>
+        <PageSectionHeader
+          title="Tasks"
+          description="Recurring agent tasks that run on a cron schedule. Each task triggers an agent with a defined input on its schedule and tracks recent executions."
+          action={
+            <Button
+              id="new-task-button"
+              variant="contained"
+              color="secondary"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={() => handleCreateTask()}
+            >
+              New Task
+            </Button>
+          }
+        />
+        <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+          {renderContent()}
+        </Paywall>
       </Container>
 
       {/* Task Dialog */}
