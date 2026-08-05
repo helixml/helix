@@ -11,6 +11,9 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import Page from "../components/system/Page";
 import CreateProjectDialog from "../components/project/CreateProjectDialog";
+import CreateRepositoryDialog from "../components/project/CreateRepositoryDialog";
+import LinkExternalRepositoryDialog from "../components/project/LinkExternalRepositoryDialog";
+import BrowseProvidersDialog from "../components/project/BrowseProvidersDialog";
 import AgentSelectionModal from "../components/project/AgentSelectionModal";
 import SampleProjectWizard from "../components/project/SampleProjectWizard";
 import ProjectsListView from "../components/project/ProjectsListView";
@@ -26,6 +29,7 @@ import useApps from "../hooks/useApps";
 import useSubscriptionGate from "../hooks/useSubscriptionGate";
 import Paywall from "../components/subscription/Paywall";
 import HelixOrgTopNav from "../components/helix-org/HelixOrgTopNav";
+import { TypesGitRepositoryType } from "../api/api";
 import {
   useListProjects,
   useListSampleProjects,
@@ -41,6 +45,7 @@ import type {
   TypesExternalRepositoryType,
   TypesGitRepository,
   TypesAzureDevOps,
+  TypesRepositoryInfo,
 } from "../api/api";
 
 const Projects: FC = () => {
@@ -132,6 +137,14 @@ const Projects: FC = () => {
     null,
   );
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createRepositoryDialogOpen, setCreateRepositoryDialogOpen] =
+    useState(false);
+  const [linkRepositoryDialogOpen, setLinkRepositoryDialogOpen] =
+    useState(false);
+  const [browseProvidersOpen, setBrowseProvidersOpen] = useState(false);
+  const [repositoryCreating, setRepositoryCreating] = useState(false);
+  const [repositoryCreateError, setRepositoryCreateError] = useState("");
+  const [linkingFromBrowser, setLinkingFromBrowser] = useState(false);
 
   // Repository management
   const currentOrg = account.organizationTools.organization;
@@ -215,7 +228,7 @@ const Projects: FC = () => {
         description,
         owner_id: account.user.id, // Always use user ID, not org ID
         organization_id: currentOrg?.id,
-        repo_type: "code" as any,
+        repo_type: TypesGitRepositoryType.GitRepositoryTypeCode,
         default_branch: "main",
       });
 
@@ -248,7 +261,7 @@ const Projects: FC = () => {
         description: `External ${type} repository`,
         owner_id: account.user.id, // Always use user ID, not org ID
         organization_id: currentOrg?.id,
-        repo_type: "code" as any,
+        repo_type: TypesGitRepositoryType.GitRepositoryTypeCode,
         default_branch: "main",
         external_url: url,
         external_type: type,
@@ -282,6 +295,197 @@ const Projects: FC = () => {
 
   const handleViewRepository = (repo: TypesGitRepository) => {
     account.orgNavigate("git-repo-detail", { repoId: repo.id });
+  };
+
+  const handleCreateRepository = async (
+    name: string,
+    description: string,
+    koditIndexing: boolean,
+  ) => {
+    if (!account.user?.id) return;
+
+    setRepositoryCreating(true);
+    setRepositoryCreateError("");
+    try {
+      await api.getApiClient().v1GitRepositoriesCreate({
+        name,
+        description,
+        owner_id: account.user.id,
+        organization_id: currentOrg?.id,
+        repo_type: TypesGitRepositoryType.GitRepositoryTypeCode,
+        default_branch: "main",
+        kodit_indexing: koditIndexing,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["git-repositories"] });
+      setCreateRepositoryDialogOpen(false);
+      snackbar.success("Repository created successfully");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to create repository";
+      setRepositoryCreateError(message);
+      throw error;
+    } finally {
+      setRepositoryCreating(false);
+    }
+  };
+
+  const handleLinkExternalRepository = async (
+    url: string,
+    name: string,
+    type: "github" | "gitlab" | "ado" | "other",
+    koditIndexing: boolean,
+    username?: string,
+    password?: string,
+    organizationUrl?: string,
+    token?: string,
+    gitlabBaseUrl?: string,
+  ) => {
+    if (!account.user?.id) return;
+
+    const externalType =
+      type === "other"
+        ? ("bitbucket" as TypesExternalRepositoryType)
+        : (type as TypesExternalRepositoryType);
+    const repositoryName =
+      name.trim() ||
+      url.split("/").filter(Boolean).pop()?.replace(/\.git$/, "") ||
+      "external-repository";
+
+    setRepositoryCreating(true);
+    try {
+      await api.getApiClient().v1GitRepositoriesCreate({
+        name: repositoryName,
+        description: `External ${type} repository`,
+        owner_id: account.user.id,
+        organization_id: currentOrg?.id,
+        repo_type: TypesGitRepositoryType.GitRepositoryTypeCode,
+        default_branch: "main",
+        is_external: true,
+        external_url: url,
+        external_type: externalType,
+        kodit_indexing: koditIndexing,
+        username,
+        password,
+        github:
+          type === "github" && token
+            ? { personal_access_token: token }
+            : undefined,
+        gitlab:
+          type === "gitlab" && token
+            ? { personal_access_token: token, base_url: gitlabBaseUrl }
+            : undefined,
+        azure_devops:
+          type === "ado"
+            ? {
+                organization_url: organizationUrl || "",
+                personal_access_token: token || "",
+              }
+            : undefined,
+        bitbucket:
+          type === "other"
+            ? { username: username || "", app_password: password || "" }
+            : undefined,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["git-repositories"] });
+      setLinkRepositoryDialogOpen(false);
+      snackbar.success("Repository linked successfully");
+    } catch (error) {
+      snackbar.error(
+        error instanceof Error ? error.message : "Failed to link repository",
+      );
+      throw error;
+    } finally {
+      setRepositoryCreating(false);
+    }
+  };
+
+  const handleBrowseSelectRepository = async (
+    repo: TypesRepositoryInfo,
+    providerType: string,
+    oauthConnectionId?: string,
+    patConnectionId?: string,
+  ) => {
+    if (!account.user?.id) return;
+
+    setLinkingFromBrowser(true);
+    try {
+      let actualProviderType = providerType;
+      let providerCredentials: {
+        type?: string;
+        pat?: string;
+        username?: string;
+        orgUrl?: string;
+        gitlabBaseUrl?: string;
+        githubBaseUrl?: string;
+        bitbucketBaseUrl?: string;
+      } | null = null;
+
+      if (providerType.startsWith("{")) {
+        providerCredentials = JSON.parse(providerType);
+        actualProviderType = providerCredentials?.type || "github";
+      }
+
+      const externalTypes: Record<string, TypesExternalRepositoryType> = {
+        github: "github" as TypesExternalRepositoryType,
+        gitlab: "gitlab" as TypesExternalRepositoryType,
+        "azure-devops": "ado" as TypesExternalRepositoryType,
+        bitbucket: "bitbucket" as TypesExternalRepositoryType,
+      };
+
+      await api.getApiClient().v1GitRepositoriesCreate({
+        name: repo.name || "repository",
+        description: repo.description || `${actualProviderType} repository`,
+        owner_id: account.user.id,
+        organization_id: currentOrg?.id,
+        repo_type: TypesGitRepositoryType.GitRepositoryTypeCode,
+        default_branch: repo.default_branch || "main",
+        is_external: true,
+        external_url: repo.clone_url || repo.html_url || "",
+        external_type:
+          externalTypes[actualProviderType] ||
+          ("github" as TypesExternalRepositoryType),
+        kodit_indexing: true,
+        github:
+          actualProviderType === "github" && providerCredentials
+            ? {
+                personal_access_token: providerCredentials.pat,
+                base_url: providerCredentials.githubBaseUrl,
+              }
+            : undefined,
+        gitlab:
+          actualProviderType === "gitlab" && providerCredentials
+            ? {
+                personal_access_token: providerCredentials.pat,
+                base_url: providerCredentials.gitlabBaseUrl,
+              }
+            : undefined,
+        azure_devops:
+          actualProviderType === "azure-devops" && providerCredentials
+            ? {
+                organization_url: providerCredentials.orgUrl || "",
+                personal_access_token: providerCredentials.pat || "",
+              }
+            : undefined,
+        bitbucket:
+          actualProviderType === "bitbucket" && providerCredentials
+            ? {
+                username: providerCredentials.username || "",
+                app_password: providerCredentials.pat || "",
+                base_url: providerCredentials.bitbucketBaseUrl,
+              }
+            : undefined,
+        oauth_connection_id: oauthConnectionId,
+        git_provider_connection_id: patConnectionId,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["git-repositories"] });
+      setBrowseProvidersOpen(false);
+      snackbar.success("Repository linked successfully");
+    } catch (error) {
+      console.error("Failed to link repository from provider:", error);
+      snackbar.error("Failed to link repository");
+    } finally {
+      setLinkingFromBrowser(false);
+    }
   };
 
   const handleProjectSettings = () => {
@@ -437,6 +641,15 @@ const Projects: FC = () => {
               paginatedRepositories={paginatedRepositories}
               totalPages={reposTotalPages}
               onViewRepository={handleViewRepository}
+              onBrowseProviders={() => {
+                if (requireLogin()) setBrowseProvidersOpen(true);
+              }}
+              onLinkExternalRepo={() => {
+                if (requireLogin()) setLinkRepositoryDialogOpen(true);
+              }}
+              onCreateRepo={() => {
+                if (requireLogin()) setCreateRepositoryDialogOpen(true);
+              }}
             />
           )}
 
@@ -473,6 +686,31 @@ const Projects: FC = () => {
         reposLoading={reposLoading}
         onCreateRepo={handleCreateRepoForProject}
         onLinkRepo={handleLinkRepoForProject}
+      />
+
+      <CreateRepositoryDialog
+        open={createRepositoryDialogOpen}
+        onClose={() => {
+          setCreateRepositoryDialogOpen(false);
+          setRepositoryCreateError("");
+        }}
+        onSubmit={handleCreateRepository}
+        isCreating={repositoryCreating}
+        error={repositoryCreateError}
+      />
+
+      <LinkExternalRepositoryDialog
+        open={linkRepositoryDialogOpen}
+        onClose={() => setLinkRepositoryDialogOpen(false)}
+        onSubmit={handleLinkExternalRepository}
+        isCreating={repositoryCreating}
+      />
+
+      <BrowseProvidersDialog
+        open={browseProvidersOpen}
+        onClose={() => setBrowseProvidersOpen(false)}
+        onSelectRepository={handleBrowseSelectRepository}
+        isLinking={linkingFromBrowser}
       />
 
       {/* Agent Selection Modal for Sample Project Fork */}
