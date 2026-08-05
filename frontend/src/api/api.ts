@@ -7387,6 +7387,7 @@ export interface TypesTriggerConfiguration {
 export interface TypesTriggerExecuteResponse {
   content?: string;
   session_id?: string;
+  status?: TypesTriggerExecutionStatus;
 }
 
 export interface TypesTriggerExecution {

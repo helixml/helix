@@ -38957,6 +38957,9 @@ const docTemplate = `{
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.TriggerExecutionStatus"
                 }
             }
         },

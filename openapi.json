@@ -43550,6 +43550,9 @@
                     },
                     "session_id": {
                         "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/types.TriggerExecutionStatus"
                     }
                 }
             },

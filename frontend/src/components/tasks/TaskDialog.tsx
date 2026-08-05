@@ -16,7 +16,7 @@ import TriggerCron from '../app/TriggerCron';
 import AgentSelector from './AgentSelector';
 import ExecutionsHistory from './ExecutionsHistory';
 import { IApp } from '../../types'
-import { TypesTrigger, TypesTriggerConfiguration, TypesTriggerType, TypesOwnerType } from '../../api/api'
+import { TypesTrigger, TypesTriggerConfiguration, TypesTriggerExecutionStatus, TypesTriggerType, TypesOwnerType } from '../../api/api'
 
 import { useCreateAppTrigger, useUpdateAppTrigger, useExecuteAppTrigger } from '../../services/appService';
 import useAccount from '../../hooks/useAccount';
@@ -259,8 +259,20 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
         await updateTriggerMutation.mutateAsync(triggerConfig);
       }
 
-      await executeTriggerMutation.mutateAsync();
-      snackbar.success('Task executed successfully');
+      const response = await executeTriggerMutation.mutateAsync();
+      switch (response.data.status) {
+        case TypesTriggerExecutionStatus.TriggerExecutionStatusRunning:
+          snackbar.info('Task started');
+          break;
+        case TypesTriggerExecutionStatus.TriggerExecutionStatusSkipped:
+          snackbar.warning('Task skipped because the previous execution is still running');
+          break;
+        case TypesTriggerExecutionStatus.TriggerExecutionStatusSuccess:
+          snackbar.success('Task executed successfully');
+          break;
+        default:
+          snackbar.warning('Task execution state could not be determined');
+      }
     } catch (err) {
       console.error('Error updating or executing task:', err);
       setError(err instanceof Error ? err.message : 'Failed to update or execute task');
@@ -434,4 +446,4 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
   );
 };
 
-export default TaskDialog; 
+export default TaskDialog;

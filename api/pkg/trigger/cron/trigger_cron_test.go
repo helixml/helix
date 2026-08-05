@@ -218,7 +218,9 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 
 	// Verify the result
 	suite.NoError(err)
-	suite.NotEmpty(result)
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Equal("test-response", result.Content)
+	suite.NotEmpty(result.SessionID)
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
@@ -347,7 +349,9 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 
 	// Verify the result
 	suite.NoError(err)
-	suite.NotEmpty(result)
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Equal("test-response", result.Content)
+	suite.NotEmpty(result.SessionID)
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_WithEmails() {
@@ -454,7 +458,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_WithEmails() {
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
-	suite.NotEmpty(result)
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Equal("test-response", result.Content)
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_FailureNotification_WithEmails() {
@@ -650,7 +655,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_NoEmails_FallsBackToOwner() {
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
-	suite.NotEmpty(result)
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Equal("test-response", result.Content)
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_Error() {
@@ -703,7 +709,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_SkipsWhilePreviousBlockingExecut
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
-	suite.Empty(result)
+	suite.Equal(types.TriggerExecutionStatusSkipped, result.Status)
+	suite.Empty(result.SessionID)
 }
 
 func TestNextRunFormatted(t *testing.T) {
@@ -824,7 +831,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_InfersExternalAgentConfiguration
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, starter, app, "test-user", "trigger-123", trigger, "scheduled-review")
 	suite.NoError(err)
-	suite.NotEmpty(result)
+	suite.Equal(types.TriggerExecutionStatusRunning, result.Status)
+	suite.NotEmpty(result.SessionID)
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_SkipsWhilePreviousExternalExecutionRuns() {
@@ -846,7 +854,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_SkipsWhilePreviousExternalExecut
 		},
 	}, app, "test-user", "trigger-123", trigger, "scheduled-review")
 	suite.NoError(err)
-	suite.Empty(result)
+	suite.Equal(types.TriggerExecutionStatusSkipped, result.Status)
+	suite.Empty(result.SessionID)
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_RecordsExternalStartupFailure() {
@@ -951,7 +960,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction() {
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
-	suite.Contains(result, "task-789")
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Contains(result.Content, "task-789")
 }
 
 // A scheduled run has to authenticate as the person it acts for, not as the one
@@ -996,7 +1006,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskActionCarriesCredentialO
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, nil, app, "svc-account", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
-	suite.Contains(result, "task-789")
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Contains(result.Content, "task-789")
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction_Error() {

@@ -11781,6 +11781,8 @@ definitions:
         type: string
       session_id:
         type: string
+      status:
+        $ref: '#/definitions/types.TriggerExecutionStatus'
     type: object
   types.TriggerExecution:
     properties:

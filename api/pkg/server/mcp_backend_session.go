@@ -9,24 +9,28 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/rs/zerolog/log"
 )
 
 // SessionMCPBackend provides session navigation MCP tools via HTTP
 // This allows AI agents to navigate their own conversation history.
 type SessionMCPBackend struct {
 	store      store.Store
+	notifier   notification.Notifier
 	mcpServer  *server.MCPServer
 	httpServer *server.StreamableHTTPServer
 }
 
 // NewSessionMCPBackend creates a new session MCP backend
-func NewSessionMCPBackend(s store.Store) *SessionMCPBackend {
+func NewSessionMCPBackend(s store.Store, notifier notification.Notifier) *SessionMCPBackend {
 	backend := &SessionMCPBackend{
-		store: s,
+		store:    s,
+		notifier: notifier,
 	}
 
 	// Create MCP server
@@ -158,7 +162,35 @@ func (b *SessionMCPBackend) handleTaskCompleted(ctx context.Context, request mcp
 		return mcp.NewToolResultError("failed to complete recurring task: " + err.Error()), nil
 	}
 
+	if err := b.notifyTaskCompleted(ctx, session, execution, summary); err != nil {
+		log.Error().Err(err).
+			Str("session_id", session.ID).
+			Str("execution_id", execution.ID).
+			Msg("recurring task completed but notification failed")
+	}
+
 	return mcp.NewToolResultText(fmt.Sprintf("Recurring task execution %s marked complete.", execution.ID)), nil
+}
+
+func (b *SessionMCPBackend) notifyTaskCompleted(ctx context.Context, session *types.Session, execution *types.TriggerExecution, summary string) error {
+	if b.notifier == nil {
+		return nil
+	}
+	triggerConfig, err := b.store.GetTriggerConfiguration(ctx, &store.GetTriggerConfigurationQuery{ID: execution.TriggerConfigurationID})
+	if err != nil {
+		return fmt.Errorf("load trigger notification configuration: %w", err)
+	}
+	if triggerConfig.Trigger.Cron == nil {
+		return fmt.Errorf("trigger %s has no cron notification configuration", triggerConfig.ID)
+	}
+	return b.notifier.Notify(ctx, &types.Notification{
+		Event:          types.EventCronTriggerComplete,
+		Session:        session,
+		Message:        summary,
+		RenderMarkdown: true,
+		Emails:         triggerConfig.Trigger.Cron.Emails,
+		CallbackURL:    triggerConfig.Trigger.Cron.CallbackURL,
+	})
 }
 
 // handleCurrentSession returns quick overview of current session

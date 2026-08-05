@@ -459,10 +459,14 @@ func getCronJobSchedule(job gocron.Job) string {
 	return currentSchedule
 }
 
-func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, specTaskCreator SpecTaskCreator, externalAgentStarter ExternalAgentStarter, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, specTaskCreator SpecTaskCreator, externalAgentStarter ExternalAgentStarter, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (*types.TriggerExecuteResponse, error) {
 	// Handle spec_task action: create a spec task instead of running a session
 	if trigger.Action == "spec_task" {
-		return executeSpecTaskAction(ctx, str, specTaskCreator, notifier, a, userID, triggerID, trigger, sessionName)
+		content, err := executeSpecTaskAction(ctx, str, specTaskCreator, notifier, a, userID, triggerID, trigger, sessionName)
+		if err != nil {
+			return nil, err
+		}
+		return &types.TriggerExecuteResponse{Content: content, Status: types.TriggerExecutionStatusSuccess}, nil
 	}
 
 	// Resolve prompt: use InputFile from helix-specs worktree if set, otherwise Input
@@ -479,7 +483,15 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	// Tasks-page triggers omit AgentType and ProjectID. Infer the runtime from
 	// the selected agent so they take the same path as an interactive chat.
 	if cronAgentType(a, trigger) == types.AgentTypeZedExternal {
-		return executeExternalAgentCronTask(ctx, str, externalAgentStarter, notifier, a, userID, triggerID, trigger, sessionName, promptText)
+		sessionID, err := executeExternalAgentCronTask(ctx, str, externalAgentStarter, notifier, a, userID, triggerID, trigger, sessionName, promptText)
+		if err != nil {
+			return nil, err
+		}
+		status := types.TriggerExecutionStatusRunning
+		if sessionID == "" {
+			status = types.TriggerExecutionStatusSkipped
+		}
+		return &types.TriggerExecuteResponse{SessionID: sessionID, Status: status}, nil
 	}
 
 	// Default action: run a blocking session. Reserve the trigger before
@@ -488,7 +500,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	sessionID := system.GenerateSessionID()
 	execution, started, err := reserveCronExecution(ctx, str, triggerID, sessionName, sessionID)
 	if err != nil {
-		return "", fmt.Errorf("reserve blocking agent trigger execution: %w", err)
+		return nil, fmt.Errorf("reserve blocking agent trigger execution: %w", err)
 	}
 	if !started {
 		log.Info().
@@ -496,7 +508,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Str("trigger_id", triggerID).
 			Str("execution_id", execution.ID).
 			Msg("skipped blocking agent cron execution because the previous execution is still running")
-		return "", nil
+		return &types.TriggerExecuteResponse{Status: types.TriggerExecutionStatusSkipped}, nil
 	}
 
 	startedAt := execution.Created
@@ -519,7 +531,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Err(err).
 			Str("app_id", a.ID).
 			Msg("failed to get app")
-		return "", markFailed(err)
+		return nil, markFailed(err)
 	}
 
 	// Prepare new session
@@ -549,7 +561,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Err(err).
 			Str("app_id", app.ID).
 			Msg("failed to create session")
-		return "", markFailed(err)
+		return nil, markFailed(err)
 	}
 
 	user, err := str.GetUser(ctx, &store.GetUserQuery{
@@ -561,7 +573,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Str("app_id", app.ID).
 			Str("user_id", userID).
 			Msg("failed to get user")
-		return "", markFailed(err)
+		return nil, markFailed(err)
 	}
 
 	resp, err := ctrl.RunBlockingSession(ctx, &controller.RunSessionRequest{
@@ -593,7 +605,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 				Msg("failed to send failure notification")
 		}
 
-		return "", markFailed(err)
+		return nil, markFailed(err)
 	}
 
 	responseText := types.TextFromInteraction(resp)
@@ -634,7 +646,11 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Str("app_id", app.ID).
 		Msg("app cron job completed")
 
-	return responseText, nil
+	return &types.TriggerExecuteResponse{
+		SessionID: session.ID,
+		Content:   responseText,
+		Status:    types.TriggerExecutionStatusSuccess,
+	}, nil
 }
 
 func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter ExternalAgentStarter, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string, promptText string) (string, error) {
