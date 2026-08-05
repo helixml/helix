@@ -20,6 +20,24 @@ export const ThemeContext = React.createContext({
   toggleMode: () => {},
 })
 
+export const getTooltipStyleOverrides = (isLight: boolean) => ({
+  tooltip: isLight ? {} : {
+    backgroundColor: '#1b1b1b',
+    border: '1px solid #3a3a3a',
+    borderRadius: '7px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.35)',
+    color: '#f5f5f5',
+    fontFamily: APP_FONT_FAMILY,
+    fontSize: '0.75rem',
+    fontWeight: 400,
+    lineHeight: 1.35,
+    padding: '5px 8px',
+  },
+  arrow: isLight ? {} : {
+    color: '#1b1b1b',
+  },
+})
+
 export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const themeConfig = useThemeConfig()
   const api = useApi()
@@ -208,6 +226,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
               },
             },
           },
+          styleOverrides: getTooltipStyleOverrides(isLight),
         },
         MuiPopover: {
           styleOverrides: {

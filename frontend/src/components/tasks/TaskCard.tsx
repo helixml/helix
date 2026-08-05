@@ -39,7 +39,12 @@ import {
   Undo as UndoIcon,
   Schedule as ScheduleIcon,
 } from "@mui/icons-material";
-import { EllipsisVertical, Wand2, UserCircle2 } from "lucide-react";
+import {
+  EllipsisVertical,
+  GitPullRequest,
+  Wand2,
+  UserCircle2,
+} from "lucide-react";
 import {
   useApproveImplementation,
   useStopAgent,
@@ -1060,6 +1065,21 @@ function TaskCardInner({
               >
                 • {runningDuration}
               </Typography>
+            )}
+            {task.phase === "pull_request" && (
+              <Tooltip title="Open pull request">
+                <Box
+                  component="span"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    color: "#10b981",
+                    flexShrink: 0,
+                  }}
+                >
+                  <GitPullRequest size={14} />
+                </Box>
+              </Tooltip>
             )}
             <CIStatusIcon prs={task.repo_pull_requests} />
           </Box>

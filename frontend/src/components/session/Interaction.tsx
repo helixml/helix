@@ -147,6 +147,7 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
       nextProps.interaction?.display_message ||
     prevProps.interaction?.response_message !==
       nextProps.interaction?.response_message ||
+    prevProps.interaction?.completed !== nextProps.interaction?.completed ||
     prevProps.interaction?.error !== nextProps.interaction?.error ||
     prevProps.interaction?.state !== nextProps.interaction?.state
   ) {

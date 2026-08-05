@@ -171,6 +171,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import TextField from "@mui/material/TextField";
 import CopyButtonWithCheck from "./CopyButtonWithCheck";
 import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
+import MessageReceivedTimestamp from "./MessageReceivedTimestamp";
 import ToolStepsWidget from "./ToolStepsWidget";
 
 import { ThumbsUp, ThumbsDown, Download, FileText, Paperclip } from "lucide-react";
@@ -185,7 +186,12 @@ import { useUpdateInteractionFeedback } from "../../services/interactionsService
 
 import { TypesServerConfigForFrontend } from "../../api/api";
 
-import { TypesInteraction, TypesSession, TypesFeedback } from "../../api/api";
+import {
+  TypesFeedback,
+  TypesInteraction,
+  TypesInteractionState,
+  TypesSession,
+} from "../../api/api";
 import {
   ChatWorkspaceAttachment,
   workspaceAttachmentURL,
@@ -891,6 +897,12 @@ export const InteractionInference: FC<{
                           />
                         </IconButton>
                       </Tooltip>
+                      {interaction.state ===
+                        TypesInteractionState.InteractionStateComplete && (
+                        <MessageReceivedTimestamp
+                          completedAt={interaction.completed}
+                        />
+                      )}
                     </Box>
                   )}
                 </Box>

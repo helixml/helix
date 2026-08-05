@@ -20,7 +20,10 @@ import {
   FormControl,
   InputLabel,
   CircularProgress,
+  Menu,
   MenuItem,
+  ListItemIcon,
+  ListItemText,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -116,6 +119,7 @@ import {
   SlidersHorizontal,
   GitCompare,
   MonitorPlay,
+  EllipsisVertical,
   Wand2,
   Share,
 } from "lucide-react";
@@ -384,6 +388,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [selectedCloneGroupId, setSelectedCloneGroupId] = useState<
     string | null
   >(null);
+  const [actionMenuAnchorEl, setActionMenuAnchorEl] =
+    useState<HTMLElement | null>(null);
 
   // Archive state
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
@@ -2166,41 +2172,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                             </IconButton>
                           </Tooltip>
                         )}
-                        {task.design_docs_pushed_at && (
-                          <Tooltip title="Share design docs">
-                            <IconButton
-                              size="small"
-                              onClick={() => setShareDialogOpen(true)}
-                            >
-                              <Share size={16} />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {task.design_docs_pushed_at && (
-                          <Tooltip title="Clone task to other projects">
-                            <IconButton
-                              size="small"
-                              onClick={() => setShowCloneDialog(true)}
-                            >
-                              <Wand2 size={16} />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {task.clone_group_id && (
-                          <Tooltip title="View batch clone progress">
-                            <IconButton
-                              size="small"
-                              onClick={() =>
-                                setSelectedCloneGroupId(
-                                  task.clone_group_id || null,
-                                )
-                              }
-                              sx={{ color: "primary.main" }}
-                            >
-                              <AccountTree sx={{ fontSize: 16 }} />
-                            </IconButton>
-                          </Tooltip>
-                        )}
                         {/* Show Start button when desktop is paused */}
                         {effectiveIsDesktopPaused && (
                           <Tooltip title="Start desktop">
@@ -2293,6 +2264,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               ) : (
                                 <CloudUploadIcon sx={{ fontSize: 18 }} />
                               )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {(task.design_docs_pushed_at || task.clone_group_id) && (
+                          <Tooltip title="More actions">
+                            <IconButton
+                              size="small"
+                              onClick={(event) =>
+                                setActionMenuAnchorEl(event.currentTarget)
+                              }
+                            >
+                              <EllipsisVertical size={18} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -2593,39 +2576,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         </IconButton>
                       </Tooltip>
                     )}
-                    {task.design_docs_pushed_at && (
-                      <Tooltip title="Share design docs">
-                        <IconButton
-                          size="small"
-                          onClick={() => setShareDialogOpen(true)}
-                        >
-                          <Share size={16} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {task.design_docs_pushed_at && (
-                      <Tooltip title="Clone task to other projects">
-                        <IconButton
-                          size="small"
-                          onClick={() => setShowCloneDialog(true)}
-                        >
-                          <Wand2 size={16} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {task.clone_group_id && (
-                      <Tooltip title="View batch clone progress">
-                        <IconButton
-                          size="small"
-                          onClick={() =>
-                            setSelectedCloneGroupId(task.clone_group_id || null)
-                          }
-                          sx={{ color: "primary.main" }}
-                        >
-                          <AccountTree sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
                     {/* Show Start button when desktop is paused */}
                     {activeSessionId && effectiveIsDesktopPaused && (
                       <Tooltip title="Start desktop">
@@ -2691,6 +2641,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           ) : (
                             <CloudUploadIcon sx={{ fontSize: 18 }} />
                           )}
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {(task.design_docs_pushed_at || task.clone_group_id) && (
+                      <Tooltip title="More actions">
+                        <IconButton
+                          size="small"
+                          onClick={(event) =>
+                            setActionMenuAnchorEl(event.currentTarget)
+                          }
+                        >
+                          <EllipsisVertical size={18} />
                         </IconButton>
                       </Tooltip>
                     )}
@@ -2941,6 +2903,52 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Menu
+        anchorEl={actionMenuAnchorEl}
+        open={Boolean(actionMenuAnchorEl)}
+        onClose={() => setActionMenuAnchorEl(null)}
+      >
+        {task?.design_docs_pushed_at && (
+          <MenuItem
+            onClick={() => {
+              setActionMenuAnchorEl(null);
+              setShareDialogOpen(true);
+            }}
+          >
+            <ListItemIcon>
+              <Share size={18} />
+            </ListItemIcon>
+            <ListItemText>Share Design Docs</ListItemText>
+          </MenuItem>
+        )}
+        {task?.design_docs_pushed_at && (
+          <MenuItem
+            onClick={() => {
+              setActionMenuAnchorEl(null);
+              setShowCloneDialog(true);
+            }}
+          >
+            <ListItemIcon>
+              <Wand2 size={18} />
+            </ListItemIcon>
+            <ListItemText>Clone Task</ListItemText>
+          </MenuItem>
+        )}
+        {task?.clone_group_id && (
+          <MenuItem
+            onClick={() => {
+              setActionMenuAnchorEl(null);
+              setSelectedCloneGroupId(task.clone_group_id || null);
+            }}
+          >
+            <ListItemIcon>
+              <AccountTree sx={{ fontSize: 18 }} />
+            </ListItemIcon>
+            <ListItemText>View Batch Clone Progress</ListItemText>
+          </MenuItem>
+        )}
+      </Menu>
 
       {/* Clone Task Dialog */}
       <CloneTaskDialog
