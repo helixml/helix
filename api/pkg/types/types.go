@@ -3024,8 +3024,9 @@ type TriggerConfiguration struct {
 }
 
 type TriggerExecuteResponse struct {
-	SessionID string `json:"session_id"`
-	Content   string `json:"content"`
+	SessionID string                 `json:"session_id"`
+	Content   string                 `json:"content"`
+	Status    TriggerExecutionStatus `json:"status"`
 }
 
 type TriggerExecutionStatus string
@@ -3035,6 +3036,7 @@ const (
 	TriggerExecutionStatusRunning TriggerExecutionStatus = "running"
 	TriggerExecutionStatusSuccess TriggerExecutionStatus = "success"
 	TriggerExecutionStatusError   TriggerExecutionStatus = "error"
+	TriggerExecutionStatusSkipped TriggerExecutionStatus = "skipped"
 )
 
 type TriggerExecution struct {

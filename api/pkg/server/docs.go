@@ -36356,6 +36356,10 @@ const docTemplate = `{
                 "manually_review_questions": {
                     "type": "boolean"
                 },
+                "org_worker_id": {
+                    "description": "OrgWorkerID and RuntimeInstructions are session-scoped bootstrap state for\nhelix-org workers. Hydra materializes the instructions as native agent\nfiles in this session's workspace before starting the desktop. Ordinary\nproject and SpecTask sessions leave both fields empty.",
+                    "type": "string"
+                },
                 "parent_session_id": {
                     "description": "Fork lineage — set on a session created by forking from a parent.\nSee design/tasks/002081_kickoff-mid-session/design.md.",
                     "type": "string"
@@ -36394,6 +36398,9 @@ const docTemplate = `{
                 },
                 "render_node": {
                     "description": "GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)",
+                    "type": "string"
+                },
+                "runtime_instructions": {
                     "type": "string"
                 },
                 "session_rag_results": {
@@ -38950,6 +38957,9 @@ const docTemplate = `{
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.TriggerExecutionStatus"
                 }
             }
         },
@@ -38995,13 +39005,15 @@ const docTemplate = `{
                 "pending",
                 "running",
                 "success",
-                "error"
+                "error",
+                "skipped"
             ],
             "x-enum-varnames": [
                 "TriggerExecutionStatusPending",
                 "TriggerExecutionStatusRunning",
                 "TriggerExecutionStatusSuccess",
-                "TriggerExecutionStatusError"
+                "TriggerExecutionStatusError",
+                "TriggerExecutionStatusSkipped"
             ]
         },
         "types.TriggerStatus": {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -129,12 +130,12 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 		ID: "test-user",
 	}).Return(user, nil)
 
-	// Mock CreateTriggerExecution
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+	// Mock trigger execution reservation
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
 			suite.Equal("trigger-123", execution.TriggerConfigurationID)
 			suite.Equal(types.TriggerExecutionStatusRunning, execution.Status)
-			return execution, nil
+			return execution, true, nil
 		},
 	)
 
@@ -217,7 +218,9 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 
 	// Verify the result
 	suite.NoError(err)
-	suite.NotEmpty(result)
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Equal("test-response", result.Content)
+	suite.NotEmpty(result.SessionID)
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
@@ -256,12 +259,12 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 		ID: user.ID,
 	}).Return(user, nil)
 
-	// Mock CreateTriggerExecution
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+	// Mock trigger execution reservation
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
 			suite.Equal("trigger-123", execution.TriggerConfigurationID)
 			suite.Equal(types.TriggerExecutionStatusRunning, execution.Status)
-			return execution, nil
+			return execution, true, nil
 		},
 	)
 
@@ -346,7 +349,9 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 
 	// Verify the result
 	suite.NoError(err)
-	suite.NotEmpty(result)
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Equal("test-response", result.Content)
+	suite.NotEmpty(result.SessionID)
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_WithEmails() {
@@ -385,10 +390,10 @@ func (suite *CronTestSuite) TestExecuteCronTask_WithEmails() {
 		ID: "test-user",
 	}).Return(user, nil)
 
-	// Mock CreateTriggerExecution
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
-			return execution, nil
+	// Mock trigger execution reservation
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			return execution, true, nil
 		},
 	)
 
@@ -453,7 +458,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_WithEmails() {
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
-	suite.NotEmpty(result)
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Equal("test-response", result.Content)
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_FailureNotification_WithEmails() {
@@ -492,10 +498,10 @@ func (suite *CronTestSuite) TestExecuteCronTask_FailureNotification_WithEmails()
 		ID: "test-user",
 	}).Return(user, nil)
 
-	// Mock CreateTriggerExecution
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
-			return execution, nil
+	// Mock trigger execution reservation
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			return execution, true, nil
 		},
 	)
 
@@ -552,11 +558,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_FailureNotification_WithEmails()
 		},
 	)
 
-	// Note: ExecuteCronTask reassigns err from UpdateTriggerExecution, which
-	// returns nil here, so the function returns nil error despite the LLM failure.
-	// The key assertion is that the failure notification was sent with the emails.
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
-	suite.NoError(err)
+	suite.ErrorContains(err, "LLM provider error")
 	suite.Empty(result)
 }
 
@@ -589,9 +592,9 @@ func (suite *CronTestSuite) TestExecuteCronTask_NoEmails_FallsBackToOwner() {
 	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app-123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), gomock.Any()).Return([]*types.Secret{}, nil)
 	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "test-user"}).Return(user, nil)
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
-			return execution, nil
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			return execution, true, nil
 		},
 	)
 	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, int64(0), nil)
@@ -652,7 +655,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_NoEmails_FallsBackToOwner() {
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
-	suite.NotEmpty(result)
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Equal("test-response", result.Content)
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_Error() {
@@ -665,9 +669,21 @@ func (suite *CronTestSuite) TestExecuteCronTask_Error() {
 	trigger := &types.CronTrigger{
 		Input: "test input",
 	}
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			return execution, true, nil
+		},
+	)
 
 	// Mock GetAppWithTools to return error
 	suite.store.EXPECT().GetAppWithTools(suite.ctx, "app-123").Return(nil, errors.New("database error"))
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusError, execution.Status)
+			suite.Equal("database error", execution.Error)
+			return execution, nil
+		},
+	)
 
 	// Execute the function
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
@@ -676,6 +692,25 @@ func (suite *CronTestSuite) TestExecuteCronTask_Error() {
 	suite.Error(err)
 	suite.Empty(result)
 	suite.Contains(err.Error(), "database error")
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SkipsWhilePreviousBlockingExecutionRuns() {
+	app := &types.App{ID: "app-123"}
+	trigger := &types.CronTrigger{Input: "test input"}
+
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			execution.Status = types.TriggerExecutionStatusSkipped
+			execution.Error = "Previous execution execution-running is still running"
+			execution.SessionID = ""
+			return execution, false, nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.NoError(err)
+	suite.Equal(types.TriggerExecutionStatusSkipped, result.Status)
+	suite.Empty(result.SessionID)
 }
 
 func TestNextRunFormatted(t *testing.T) {
@@ -734,6 +769,135 @@ type mockSpecTaskCreator struct {
 
 func (m *mockSpecTaskCreator) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
 	return m.createFunc(ctx, req)
+}
+
+type mockExternalAgentStarter struct {
+	startFunc func(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error)
+}
+
+func (m *mockExternalAgentStarter) StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error) {
+	return m.startFunc(ctx, req, userID)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_InfersExternalAgentConfiguration() {
+	externalAgentConfig := &types.ExternalAgentConfig{DesktopType: "sway"}
+	app := &types.App{
+		ID:             "app-123",
+		Owner:          "test-user",
+		OwnerType:      types.OwnerTypeUser,
+		OrganizationID: "org-123",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			DefaultAgentType:    types.AgentTypeZedExternal,
+			ExternalAgentConfig: externalAgentConfig,
+			Assistants: []types.AssistantConfig{{
+				AgentType:        types.AgentTypeZedExternal,
+				CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+			}},
+		}},
+	}
+	trigger := &types.CronTrigger{Input: "Inspect the repository"}
+
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			suite.Equal("trigger-123", execution.TriggerConfigurationID)
+			suite.NotEmpty(execution.SessionID)
+			return execution, true, nil
+		},
+	)
+
+	suite.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: "org-123",
+	}).Return([]*types.Project{{
+		ID:                "project-456",
+		DefaultHelixAppID: "app-123",
+	}}, nil)
+
+	starter := &mockExternalAgentStarter{
+		startFunc: func(_ context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error) {
+			suite.Equal("test-user", userID)
+			suite.Equal("app-123", req.AppID)
+			suite.Equal("0", req.AssistantID)
+			suite.Equal("org-123", req.OrganizationID)
+			suite.Equal("project-456", req.ProjectID)
+			suite.Equal(string(types.AgentTypeZedExternal), req.AgentType)
+			suite.Same(externalAgentConfig, req.ExternalAgentConfig)
+			suite.Equal("job", req.SessionRole)
+			suite.Contains(req.SystemPrompt, "task_completed")
+			suite.Len(req.Messages, 1)
+			suite.Equal([]any{"Inspect the repository"}, req.Messages[0].Content.Parts)
+			return &types.Session{ID: req.SessionID}, nil
+		},
+	}
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, starter, app, "test-user", "trigger-123", trigger, "scheduled-review")
+	suite.NoError(err)
+	suite.Equal(types.TriggerExecutionStatusRunning, result.Status)
+	suite.NotEmpty(result.SessionID)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SkipsWhilePreviousExternalExecutionRuns() {
+	app := &types.App{ID: "app-123", Config: types.AppConfig{Helix: types.AppHelixConfig{DefaultAgentType: types.AgentTypeZedExternal}}}
+	trigger := &types.CronTrigger{Input: "Inspect the repository"}
+
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			execution.Status = types.TriggerExecutionStatusSkipped
+			execution.Error = "Previous execution tex_123 is still running"
+			return execution, false, nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, &mockExternalAgentStarter{
+		startFunc: func(context.Context, *types.SessionChatRequest, string) (*types.Session, error) {
+			suite.Fail("external agent must not start for a skipped execution")
+			return nil, nil
+		},
+	}, app, "test-user", "trigger-123", trigger, "scheduled-review")
+	suite.NoError(err)
+	suite.Equal(types.TriggerExecutionStatusSkipped, result.Status)
+	suite.Empty(result.SessionID)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_RecordsExternalStartupFailure() {
+	app := &types.App{ID: "app-123", Config: types.AppConfig{Helix: types.AppHelixConfig{DefaultAgentType: types.AgentTypeZedExternal}}}
+	trigger := &types.CronTrigger{Input: "Inspect the repository", ProjectID: "project-123"}
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, candidate *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			candidate.Created = time.Now()
+			return candidate, true, nil
+		},
+	)
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusError, updated.Status)
+			suite.Equal("sandbox unavailable", updated.Error)
+			return updated, nil
+		},
+	)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).Return(nil)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, &mockExternalAgentStarter{
+		startFunc: func(context.Context, *types.SessionChatRequest, string) (*types.Session, error) {
+			return nil, errors.New("sandbox unavailable")
+		},
+	}, app, "test-user", "trigger-123", trigger, "scheduled-review")
+	suite.EqualError(err, "sandbox unavailable")
+	suite.Empty(result)
+}
+
+func (suite *CronTestSuite) TestExternalAgentProjectIDRejectsAmbiguousAgent() {
+	app := &types.App{ID: "app-123", OrganizationID: "org-123"}
+	suite.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: "org-123",
+	}).Return([]*types.Project{
+		{ID: "project-1", DefaultHelixAppID: "app-123"},
+		{ID: "project-2", ProjectManagerHelixAppID: "app-123"},
+	}, nil)
+
+	projectID, err := externalAgentProjectID(suite.ctx, suite.store, app, "test-user", "")
+	suite.Error(err)
+	suite.Empty(projectID)
+	suite.Contains(err.Error(), "multiple projects")
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction() {
@@ -796,7 +960,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction() {
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
-	suite.Contains(result, "task-789")
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Contains(result.Content, "task-789")
 }
 
 // A scheduled run has to authenticate as the person it acts for, not as the one
@@ -841,7 +1006,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskActionCarriesCredentialO
 
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, nil, app, "svc-account", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
-	suite.Contains(result, "task-789")
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+	suite.Contains(result.Content, "task-789")
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction_Error() {

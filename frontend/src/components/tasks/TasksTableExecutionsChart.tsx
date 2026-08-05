@@ -26,6 +26,7 @@ const TasksTableExecutionsChart: React.FC<TasksTableExecutionsChartProps> = ({ t
       case TypesTriggerExecutionStatus.TriggerExecutionStatusRunning:
         return '#F59E0B'; // Orange for running
       case TypesTriggerExecutionStatus.TriggerExecutionStatusPending:
+      case TypesTriggerExecutionStatus.TriggerExecutionStatusSkipped:
         return '#6B7280'; // Gray for pending
       default:
         return '#6B7280';

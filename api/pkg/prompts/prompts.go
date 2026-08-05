@@ -19,6 +19,12 @@ type BackgroundKnowledge struct {
 	Source      string // source of the document (URL)
 }
 
+// RecurringTaskSystemPrompt defines the explicit lifecycle contract for an
+// unattended recurring task. A normal text response does not complete the run.
+func RecurringTaskSystemPrompt() string {
+	return `You are executing an unattended recurring task. Complete the requested work, then call the task_completed tool exactly once when the work is fully finished. Use the summary argument for a concise completion report suitable for a notification. A written response alone does not complete the task. Do not call task_completed if the work failed or remains blocked.`
+}
+
 // this prompt is applied before the user prompt is forwarded to the LLM
 // we inject the list of RAG results we loaded from the vector store
 func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {

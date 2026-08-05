@@ -308,9 +308,7 @@ func (s *HelixAPIServer) executeAppTrigger(_ http.ResponseWriter, r *http.Reques
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return &types.TriggerExecuteResponse{
-		SessionID: response,
-	}, nil
+	return response, nil
 }
 
 // listTriggerExecutions godoc

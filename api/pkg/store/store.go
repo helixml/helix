@@ -572,6 +572,8 @@ type Store interface {
 
 	ListTriggerExecutions(ctx context.Context, q *ListTriggerExecutionsQuery) ([]*types.TriggerExecution, error)
 	CreateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
+	CreateTriggerExecutionUnlessRunning(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error)
+	FinishTriggerExecution(ctx context.Context, sessionID string, status types.TriggerExecutionStatus, message string) (*types.TriggerExecution, error)
 	UpdateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
 	ResetRunningExecutions(ctx context.Context) error
 

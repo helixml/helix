@@ -58,6 +58,11 @@ func (s *WebSocketSyncSuite) SetupTest() {
 	s.store.EXPECT().GetCommentByPromptID(gomock.Any(), gomock.Any()).
 		Return(nil, fmt.Errorf("record not found")).AnyTimes()
 
+	// External-agent failure handlers also attempt to finish a linked recurring
+	// task. Most websocket tests use ordinary sessions, so no execution exists.
+	s.store.EXPECT().FinishTriggerExecution(gomock.Any(), gomock.Any(), types.TriggerExecutionStatusError, gomock.Any()).
+		Return(nil, store.ErrNotFound).AnyTimes()
+
 	s.server = &HelixAPIServer{
 		Cfg: &config.ServerConfig{
 			WebServer: config.WebServer{

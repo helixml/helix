@@ -3737,6 +3737,11 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 			return nil
 		}
 	}
+	taskSessionID := helixSessionID
+	if taskSessionID == "" {
+		taskSessionID = sessionID
+	}
+	apiServer.failRunningTriggerExecution(taskSessionID, fmt.Sprintf("Thread load failed: %s", errorMsg))
 
 	// If we have a request_id, try to send error to the done channel
 	// This allows the HTTP streaming to complete with an error message
@@ -3972,6 +3977,7 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 				log.Warn().Err(err).Str("interaction_id", interactionID).
 					Msg("chat_response_error: persist failed")
 			}
+			apiServer.failRunningTriggerExecution(interaction.SessionID, errorMsg)
 
 			// The Zed crash fix surfaces a mid-turn agent crash here as a
 			// chat_response_error (rather than wedging the turn). When the error

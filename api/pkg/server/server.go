@@ -543,7 +543,7 @@ func NewServer(
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController))
 
 	// Register Session MCP backend (session navigation and context tools)
-	apiServer.mcpGateway.RegisterBackend("session", NewSessionMCPBackend(store))
+	apiServer.mcpGateway.RegisterBackend("session", NewSessionMCPBackend(store, appController.Options.Notifier))
 
 	// Register External MCP backend (user-configured MCP servers)
 	// This proxies requests from Zed to external MCP servers configured in agents
