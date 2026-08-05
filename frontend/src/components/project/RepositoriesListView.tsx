@@ -223,10 +223,52 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
     <>
       {/* Repository page header */}
       <Box sx={{ mb: 3, pb: 2 }}>
-        <Box sx={{ mb: 2 }}>
+        <Box
+          sx={{
+            mb: 2,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2,
+            flexWrap: 'wrap',
+          }}
+        >
           <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1 }}>
             <span style={{ fontWeight: 600 }}>Repositories</span>
           </Typography>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {onBrowseProviders && (
+              <Button
+                variant="contained"
+                color="secondary"
+                size="small"
+                startIcon={<FolderSearch size={16} />}
+                onClick={onBrowseProviders}
+              >
+                Connect & Browse
+              </Button>
+            )}
+            {onLinkExternalRepo && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<LinkIcon size={16} />}
+                onClick={onLinkExternalRepo}
+              >
+                Link manually
+              </Button>
+            )}
+            {onCreateRepo && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<Plus size={16} />}
+                onClick={onCreateRepo}
+              >
+                New empty
+              </Button>
+            )}
+          </Box>
         </Box>
       </Box>
 
