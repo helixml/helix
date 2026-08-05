@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -279,8 +280,17 @@ func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.
 		return nil, fmt.Errorf("agent not found: %w", err)
 	}
 
+	var projectSkills *types.AssistantSkills
+	if session.ProjectID != "" {
+		project, err := b.store.GetProject(ctx, session.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("project not found: %w", err)
+		}
+		projectSkills = project.Skills
+	}
+
 	// Find the MCP configuration by name
-	mcpConfig := b.findMCPConfig(app, mcpName)
+	mcpConfig := b.findMCPConfig(app, projectSkills, mcpName)
 	if mcpConfig == nil {
 		return nil, fmt.Errorf("MCP server '%s' not configured for this agent", mcpName)
 	}
@@ -355,21 +365,39 @@ func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.
 	return httpServer, nil
 }
 
-// findMCPConfig searches for an MCP configuration by name in the app's assistants
-func (b *ExternalMCPBackend) findMCPConfig(app *types.App, mcpName string) *types.AssistantMCP {
+// findMCPConfig searches project MCPs before app MCPs to match Zed config precedence.
+func (b *ExternalMCPBackend) findMCPConfig(app *types.App, projectSkills *types.AssistantSkills, mcpName string) *types.AssistantMCP {
+	if projectSkills != nil {
+		for i := range projectSkills.MCPs {
+			if sanitizeMCPName(projectSkills.MCPs[i].Name) == mcpName {
+				return &projectSkills.MCPs[i]
+			}
+		}
+	}
+
 	if app.Config.Helix.Assistants == nil {
 		return nil
 	}
 
 	for _, assistant := range app.Config.Helix.Assistants {
 		for i := range assistant.MCPs {
-			if assistant.MCPs[i].Name == mcpName {
+			if sanitizeMCPName(assistant.MCPs[i].Name) == mcpName {
 				return &assistant.MCPs[i]
 			}
 		}
 	}
 
 	return nil
+}
+
+func sanitizeMCPName(name string) string {
+	name = strings.ToLower(name)
+	return strings.Trim(strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, name), "-")
 }
 
 // buildProxyTool reconstructs the schema the proxy advertises to Zed for a
