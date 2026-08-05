@@ -20,6 +20,7 @@ import {
   SkipNext as SkipIcon,
   Replay as ReopenIcon,
 } from "@mui/icons-material";
+import { GitPullRequest } from "lucide-react";
 import {
   useApproveImplementation,
   useStopAgent,
@@ -67,6 +68,30 @@ const PRStateBadge: React.FC<{ state?: string }> = ({ state }) => {
       color={PR_STATE_CHIP_COLOR[kind]}
       sx={{ height: 20, fontSize: "0.7rem", flexShrink: 0 }}
     />
+  );
+};
+
+const PR_STATE_ICON_COLOR: Record<PRStateKind, string> = {
+  open: "#10b981",
+  merged: "#8b5cf6",
+  closed: "#6b7280",
+};
+
+const PRStateIcon: React.FC<{ state?: string }> = ({ state }) => {
+  const kind = normalizePRState(state);
+  return (
+    <Tooltip title={`${kind[0].toUpperCase()}${kind.slice(1)} pull request`}>
+      <Box
+        sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          color: PR_STATE_ICON_COLOR[kind],
+          flexShrink: 0,
+        }}
+      >
+        <GitPullRequest size={16} />
+      </Box>
+    </Tooltip>
   );
 };
 
@@ -834,7 +859,7 @@ export default function SpecTaskActionButtons({
               target="_blank"
               rel="noopener noreferrer"
             />
-            <PRStateBadge state={onlyPR.pr_state} />
+            <PRStateIcon state={onlyPR.pr_state} />
             <CIStatusIcon prs={[onlyPR]} />
           </Box>
         );
@@ -861,10 +886,6 @@ export default function SpecTaskActionButtons({
               </Button>
             </span>
           </Tooltip>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.75 }}>
-            <PRStateBadge state={onlyPR.pr_state} />
-            <CIStatusIcon prs={[onlyPR]} />
-          </Box>
         </Box>
       );
     }
