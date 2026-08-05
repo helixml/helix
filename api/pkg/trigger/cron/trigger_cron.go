@@ -482,19 +482,49 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		return executeExternalAgentCronTask(ctx, str, externalAgentStarter, notifier, a, userID, triggerID, trigger, sessionName, promptText)
 	}
 
-	// Default action: run a blocking session (existing behavior)
+	// Default action: run a blocking session. Reserve the trigger before
+	// creating the session so blocking agents obey the same overlap policy as
+	// external agents.
+	sessionID := system.GenerateSessionID()
+	execution, started, err := reserveCronExecution(ctx, str, triggerID, sessionName, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("reserve blocking agent trigger execution: %w", err)
+	}
+	if !started {
+		log.Info().
+			Str("app_id", a.ID).
+			Str("trigger_id", triggerID).
+			Str("execution_id", execution.ID).
+			Msg("skipped blocking agent cron execution because the previous execution is still running")
+		return "", nil
+	}
+
+	startedAt := execution.Created
+	if startedAt.IsZero() {
+		startedAt = time.Now()
+	}
+	markFailed := func(taskErr error) error {
+		execution.Status = types.TriggerExecutionStatusError
+		execution.Error = taskErr.Error()
+		execution.DurationMs = time.Since(startedAt).Milliseconds()
+		if _, updateErr := str.UpdateTriggerExecution(ctx, execution); updateErr != nil {
+			return fmt.Errorf("%w; failed to mark trigger execution failed: %v", taskErr, updateErr)
+		}
+		return taskErr
+	}
+
 	app, err := str.GetAppWithTools(ctx, a.ID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("app_id", a.ID).
 			Msg("failed to get app")
-		return "", err
+		return "", markFailed(err)
 	}
 
 	// Prepare new session
 	session := &types.Session{
-		ID:             system.GenerateSessionID(),
+		ID:             sessionID,
 		Name:           sessionName,
 		Created:        time.Now(),
 		Updated:        time.Now(),
@@ -519,7 +549,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Err(err).
 			Str("app_id", app.ID).
 			Msg("failed to create session")
-		return "", err
+		return "", markFailed(err)
 	}
 
 	user, err := str.GetUser(ctx, &store.GetUserQuery{
@@ -531,29 +561,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Str("app_id", app.ID).
 			Str("user_id", userID).
 			Msg("failed to get user")
-		return "", err
-	}
-
-	// Create execution
-	execution := &types.TriggerExecution{
-		ID:                     system.GenerateUUID(),
-		Name:                   sessionName,
-		TriggerConfigurationID: triggerID,
-		Created:                time.Now(),
-		Updated:                time.Now(),
-		Status:                 types.TriggerExecutionStatusRunning,
-		SessionID:              session.ID,
-	}
-
-	startedAt := time.Now()
-
-	execution, err = str.CreateTriggerExecution(ctx, execution)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("app_id", app.ID).
-			Msg("failed to create trigger execution")
-		return "", fmt.Errorf("failed to create trigger execution: %w", err)
+		return "", markFailed(err)
 	}
 
 	resp, err := ctrl.RunBlockingSession(ctx, &controller.RunSessionRequest{
@@ -585,21 +593,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 				Msg("failed to send failure notification")
 		}
 
-		// Update execution with error
-		execution.Status = types.TriggerExecutionStatusError
-		execution.Error = err.Error()
-		execution.DurationMs = time.Since(startedAt).Milliseconds()
-
-		execution, err = str.UpdateTriggerExecution(ctx, execution)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", app.ID).
-				Str("execution_id", execution.ID).
-				Msg("failed to update execution")
-		}
-
-		return "", err
+		return "", markFailed(err)
 	}
 
 	responseText := types.TextFromInteraction(resp)
@@ -645,13 +639,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 
 func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter ExternalAgentStarter, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string, promptText string) (string, error) {
 	sessionID := system.GenerateSessionID()
-	execution, started, err := str.CreateTriggerExecutionUnlessRunning(ctx, &types.TriggerExecution{
-		ID:                     system.GenerateTriggerExecutionID(),
-		Name:                   sessionName,
-		TriggerConfigurationID: triggerID,
-		Status:                 types.TriggerExecutionStatusRunning,
-		SessionID:              sessionID,
-	})
+	execution, started, err := reserveCronExecution(ctx, str, triggerID, sessionName, sessionID)
 	if err != nil {
 		return "", fmt.Errorf("reserve external agent trigger execution: %w", err)
 	}
@@ -724,6 +712,16 @@ func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter 
 		Msg("external agent cron session started")
 
 	return session.ID, nil
+}
+
+func reserveCronExecution(ctx context.Context, str store.Store, triggerID, sessionName, sessionID string) (*types.TriggerExecution, bool, error) {
+	return str.CreateTriggerExecutionUnlessRunning(ctx, &types.TriggerExecution{
+		ID:                     system.GenerateTriggerExecutionID(),
+		Name:                   sessionName,
+		TriggerConfigurationID: triggerID,
+		Status:                 types.TriggerExecutionStatusRunning,
+		SessionID:              sessionID,
+	})
 }
 
 func cronAgentType(app *types.App, trigger *types.CronTrigger) types.AgentType {

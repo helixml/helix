@@ -130,12 +130,12 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 		ID: "test-user",
 	}).Return(user, nil)
 
-	// Mock CreateTriggerExecution
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+	// Mock trigger execution reservation
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
 			suite.Equal("trigger-123", execution.TriggerConfigurationID)
 			suite.Equal(types.TriggerExecutionStatusRunning, execution.Status)
-			return execution, nil
+			return execution, true, nil
 		},
 	)
 
@@ -257,12 +257,12 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 		ID: user.ID,
 	}).Return(user, nil)
 
-	// Mock CreateTriggerExecution
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+	// Mock trigger execution reservation
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
 			suite.Equal("trigger-123", execution.TriggerConfigurationID)
 			suite.Equal(types.TriggerExecutionStatusRunning, execution.Status)
-			return execution, nil
+			return execution, true, nil
 		},
 	)
 
@@ -386,10 +386,10 @@ func (suite *CronTestSuite) TestExecuteCronTask_WithEmails() {
 		ID: "test-user",
 	}).Return(user, nil)
 
-	// Mock CreateTriggerExecution
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
-			return execution, nil
+	// Mock trigger execution reservation
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			return execution, true, nil
 		},
 	)
 
@@ -493,10 +493,10 @@ func (suite *CronTestSuite) TestExecuteCronTask_FailureNotification_WithEmails()
 		ID: "test-user",
 	}).Return(user, nil)
 
-	// Mock CreateTriggerExecution
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
-			return execution, nil
+	// Mock trigger execution reservation
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			return execution, true, nil
 		},
 	)
 
@@ -553,11 +553,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_FailureNotification_WithEmails()
 		},
 	)
 
-	// Note: ExecuteCronTask reassigns err from UpdateTriggerExecution, which
-	// returns nil here, so the function returns nil error despite the LLM failure.
-	// The key assertion is that the failure notification was sent with the emails.
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
-	suite.NoError(err)
+	suite.ErrorContains(err, "LLM provider error")
 	suite.Empty(result)
 }
 
@@ -590,9 +587,9 @@ func (suite *CronTestSuite) TestExecuteCronTask_NoEmails_FallsBackToOwner() {
 	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app-123").Return(app, nil).Times(2)
 	suite.store.EXPECT().ListSecrets(gomock.Any(), gomock.Any()).Return([]*types.Secret{}, nil)
 	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "test-user"}).Return(user, nil)
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
-			return execution, nil
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			return execution, true, nil
 		},
 	)
 	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, int64(0), nil)
@@ -666,9 +663,21 @@ func (suite *CronTestSuite) TestExecuteCronTask_Error() {
 	trigger := &types.CronTrigger{
 		Input: "test input",
 	}
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			return execution, true, nil
+		},
+	)
 
 	// Mock GetAppWithTools to return error
 	suite.store.EXPECT().GetAppWithTools(suite.ctx, "app-123").Return(nil, errors.New("database error"))
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusError, execution.Status)
+			suite.Equal("database error", execution.Error)
+			return execution, nil
+		},
+	)
 
 	// Execute the function
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
@@ -677,6 +686,24 @@ func (suite *CronTestSuite) TestExecuteCronTask_Error() {
 	suite.Error(err)
 	suite.Empty(result)
 	suite.Contains(err.Error(), "database error")
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SkipsWhilePreviousBlockingExecutionRuns() {
+	app := &types.App{ID: "app-123"}
+	trigger := &types.CronTrigger{Input: "test input"}
+
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			execution.Status = types.TriggerExecutionStatusSkipped
+			execution.Error = "Previous execution execution-running is still running"
+			execution.SessionID = ""
+			return execution, false, nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.NoError(err)
+	suite.Empty(result)
 }
 
 func TestNextRunFormatted(t *testing.T) {
