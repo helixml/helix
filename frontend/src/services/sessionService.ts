@@ -13,16 +13,19 @@ export const GET_SESSION_QUERY_KEY = (id: string) => [
   id
 ];
 
-export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId?: string, appId?: string) => [
-  "sessions",
-  orgId,
-  page,
-  pageSize,
-  search,
-  questionSetExecutionId,
-  projectId,
-  appId,
-];
+export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId?: string, appId?: string, includeExternalAgents?: boolean) => {
+  const key = [
+    "sessions",
+    orgId,
+    page,
+    pageSize,
+    search,
+    questionSetExecutionId,
+    projectId,
+    appId,
+  ];
+  return includeExternalAgents === undefined ? key : [...key, includeExternalAgents];
+};
 
 export const LIST_INTERACTIONS_QUERY_KEY = (sessionId: string, page?: number, perPage?: number, order?: string) => [
   "interactions",
@@ -74,12 +77,12 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
   })
 }
 
-export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: { enabled?: boolean }, appId?: string) {
+export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: { enabled?: boolean; includeExternalAgents?: boolean }, appId?: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   
   return useQuery({
-    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? '', appId ?? ''),
+    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? '', appId ?? '', options?.includeExternalAgents),
     queryFn: () => apiClient.v1SessionsList({
       org_id: orgId,
       search: search,
@@ -88,6 +91,7 @@ export function useListSessions(orgId?: string, search?: string, questionSetExec
       page_size: pageSize,
       project_id: projectId,
       app_id: appId,
+      include_external_agents: options?.includeExternalAgents,
     }),
     enabled: options?.enabled ?? true
   })

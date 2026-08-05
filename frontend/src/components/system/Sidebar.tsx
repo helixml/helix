@@ -109,7 +109,7 @@ const SidebarContentInner: React.FC<{
   const account = useAccount()
   const appTools = useApp(params.app_id)
   const snackbar = useSnackbar()
-  const isConversationRoute = ['org_chat', 'org_session', 'org_new'].includes(router.name)
+  const isConversationRoute = ['org_chat', 'org_chat-task', 'org_session', 'org_new'].includes(router.name)
 
   // New file menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
@@ -266,7 +266,8 @@ const SidebarContentInner: React.FC<{
           {
             showTopLinks &&
             (router.name !== 'org_agent' || (!!appTools.app && !isHelixOrgChartAgent(appTools.app))) &&
-            (router.name === 'org_chat' || router.name === 'org_session' || router.name === 'org_qa-results' || router.name === 'org_agent' || router.name === 'org_new') && (
+            !isConversationRoute &&
+            (router.name === 'org_qa-results' || router.name === 'org_agent') && (
               <List disablePadding>
 
                 {/* New resource creation button */}

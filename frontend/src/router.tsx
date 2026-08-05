@@ -117,6 +117,16 @@ const routes: IApplicationRoute[] = [
     <Home />
   ),
 }, {
+  name: 'org_chat-task',
+  path: '/orgs/:org_id/chat/projects/:id/tasks/:taskId',
+  meta: {
+    title: 'Task Details',
+    drawer: true,
+  },
+  render: () => (
+    <SpecTaskDetailPage />
+  ),
+}, {
   name: 'org_new',
   path: '/orgs/:org_id/new',
   meta: {

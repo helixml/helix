@@ -1,0 +1,358 @@
+import { FC, useEffect, useState } from 'react'
+import Box from '@mui/material/Box'
+import CircularProgress from '@mui/material/CircularProgress'
+import IconButton from '@mui/material/IconButton'
+import InputBase from '@mui/material/InputBase'
+import Tooltip from '@mui/material/Tooltip'
+import Typography from '@mui/material/Typography'
+import AddIcon from '@mui/icons-material/Add'
+import {
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  GitPullRequest,
+  MessageCircle,
+  Search,
+} from 'lucide-react'
+
+import useAccount from '../../hooks/useAccount'
+import useLightTheme from '../../hooks/useLightTheme'
+import useRouter from '../../hooks/useRouter'
+import { useListProjects } from '../../services/projectService'
+import { useListSessions } from '../../services/sessionService'
+import { useSpecTasksForProjects } from '../../services/specTaskService'
+import { TypesSessionSummary } from '../../api/api'
+import {
+  buildProjectChatGroups,
+  compactRelativeTime,
+  dedupeSessions,
+  filterProjectChatGroups,
+  getSidebarTaskStatus,
+} from './ProjectChatSidebar.logic'
+import type { SidebarItem } from './ProjectChatSidebar.logic'
+
+const PAGE_SIZE = 50
+const INITIAL_VISIBLE_ITEMS = 6
+const SHOW_MORE_COUNT = 20
+
+const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }) => {
+  const account = useAccount()
+  const router = useRouter()
+  const lightTheme = useLightTheme()
+  const orgId = router.params.org_id || ''
+
+  const [currentPage, setCurrentPage] = useState(0)
+  const [allSessions, setAllSessions] = useState<TypesSessionSummary[]>([])
+  const [hasMoreSessions, setHasMoreSessions] = useState(false)
+  const [query, setQuery] = useState('')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({})
+
+  const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
+    enabled: !!account.user?.id && !!orgId,
+  })
+  const projectIds = projects.flatMap((project) => project.id ? [project.id] : [])
+  const specTasks = useSpecTasksForProjects(projectIds, {
+    enabled: !!account.user?.id && projectIds.length > 0,
+    refetchInterval: 10000,
+  })
+  const {
+    data: sessionsData,
+    isLoading: sessionsLoading,
+    isFetching: sessionsFetching,
+    error: sessionsError,
+  } = useListSessions(
+    orgId,
+    undefined,
+    undefined,
+    undefined,
+    currentPage,
+    PAGE_SIZE,
+    { enabled: !!account.user?.id, includeExternalAgents: true },
+  )
+
+  useEffect(() => {
+    setCurrentPage(0)
+    setAllSessions([])
+    setHasMoreSessions(false)
+  }, [orgId])
+
+  const sessionsPage = sessionsData?.data
+  const sessionsPageSignature = (sessionsPage?.sessions || [])
+    .map((session) => `${session.session_id}:${session.updated}:${session.name}`)
+    .join('|')
+
+  useEffect(() => {
+    const page = sessionsPage
+    if (!page) return
+    const pageSessions = page.sessions || []
+    setAllSessions((previous) => dedupeSessions(
+      currentPage === 0 ? pageSessions : [...previous, ...pageSessions],
+    ))
+    setHasMoreSessions((page.totalPages || 0) > currentPage + 1)
+  }, [currentPage, sessionsPageSignature]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const groups = buildProjectChatGroups(projects, specTasks, allSessions)
+  const filteredGroups = filterProjectChatGroups(groups, query)
+
+  const activeItemId = router.params.taskId || router.params.session_id || ''
+
+  const openItem = (item: SidebarItem) => {
+    if (item.kind === 'spec-task' && item.projectId) {
+      account.orgNavigate('chat-task', { id: item.projectId, taskId: item.id })
+    } else if (item.session?.question_set_execution_id) {
+      account.orgNavigate('qa-results', {
+        question_set_id: item.session.question_set_id,
+        execution_id: item.session.question_set_execution_id,
+      })
+    } else {
+      account.orgNavigate('session', { session_id: item.id })
+    }
+    onOpenSession()
+  }
+
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current)
+      if (next.has(groupId)) next.delete(groupId)
+      else next.add(groupId)
+      return next
+    })
+  }
+
+  const renderItem = (item: SidebarItem) => {
+    const active = item.id === activeItemId
+    const status = item.kind === 'spec-task' ? getSidebarTaskStatus(item.task) : null
+    return (
+      <Box
+        component="button"
+        type="button"
+        key={`${item.kind}:${item.id}`}
+        onClick={() => openItem(item)}
+        sx={{
+          appearance: 'none',
+          border: 0,
+          width: '100%',
+          minWidth: 0,
+          height: 34,
+          px: 1,
+          borderRadius: 1,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.75,
+          color: active ? 'text.primary' : 'text.secondary',
+          backgroundColor: active
+            ? (lightTheme.isLight ? 'rgba(14,116,144,0.09)' : 'rgba(56,189,248,0.10)')
+            : 'transparent',
+          cursor: 'pointer',
+          textAlign: 'left',
+          font: 'inherit',
+          '&:hover': {
+            color: 'text.primary',
+            backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.045)' : 'rgba(255,255,255,0.045)',
+          },
+        }}
+      >
+        {item.kind === 'spec-task' ? (
+          <GitPullRequest size={13} color={status?.color || 'currentColor'} style={{ flexShrink: 0 }} />
+        ) : (
+          <MessageCircle size={13} style={{ flexShrink: 0 }} />
+        )}
+        {status && (
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45, flexShrink: 0 }}>
+            <Box sx={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: status.color }} />
+            <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
+              {status.label}
+            </Typography>
+          </Box>
+        )}
+        <Typography
+          component="span"
+          sx={{
+            minWidth: 0,
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            fontSize: '0.78rem',
+            fontWeight: active ? 600 : 400,
+          }}
+        >
+          {item.title}
+        </Typography>
+        <Typography
+          component="span"
+          sx={{ color: 'text.disabled', fontSize: '0.64rem', flexShrink: 0, pl: 0.5 }}
+        >
+          {compactRelativeTime(item.updatedAt)}
+        </Typography>
+      </Box>
+    )
+  }
+
+  const loading = (projectsLoading || sessionsLoading) && allSessions.length === 0
+
+  return (
+    <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <Box
+        sx={{
+          height: 60,
+          minHeight: 60,
+          px: 1.5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
+        }}
+      >
+        <Search size={15} color="currentColor" style={{ opacity: 0.55, flexShrink: 0 }} />
+        <InputBase
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search chats"
+          inputProps={{ 'aria-label': 'Search chats' }}
+          sx={{ flex: 1, minWidth: 0, fontSize: '0.8rem' }}
+        />
+        <Tooltip title="New chat">
+          <IconButton size="small" onClick={() => account.orgNavigate('chat')} aria-label="New chat">
+            <AddIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
+        <Typography sx={{ flex: 1, color: 'text.secondary', fontSize: '0.7rem', fontWeight: 600 }}>
+          Projects
+        </Typography>
+      </Box>
+
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 0.75, pb: 1.5, ...lightTheme.scrollbar }}>
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={22} />
+          </Box>
+        ) : sessionsError ? (
+          <Typography color="error" sx={{ px: 1, py: 2, fontSize: '0.75rem' }}>
+            Failed to load chats
+          </Typography>
+        ) : filteredGroups.length === 0 ? (
+          <Typography color="text.secondary" sx={{ px: 1, py: 2, fontSize: '0.75rem' }}>
+            {query ? 'No chats match your search.' : 'No chats yet.'}
+          </Typography>
+        ) : filteredGroups.map((group) => {
+          const collapsed = collapsedGroups.has(group.id)
+          const requestedCount = visibleCounts[group.id] || INITIAL_VISIBLE_ITEMS
+          const previewItems = query ? group.items : group.items.slice(0, requestedCount)
+          const activeHiddenItem = !query && group.items.slice(requestedCount).find((item) => item.id === activeItemId)
+          const renderedItems = activeHiddenItem ? [...previewItems, activeHiddenItem] : previewItems
+          const remaining = group.items.length - previewItems.length
+          return (
+            <Box key={group.id} sx={{ mb: 0.75 }}>
+              <Box
+                component="button"
+                type="button"
+                onClick={() => toggleGroup(group.id)}
+                sx={{
+                  appearance: 'none',
+                  border: 0,
+                  width: '100%',
+                  height: 34,
+                  px: 0.75,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.65,
+                  borderRadius: 1,
+                  backgroundColor: 'transparent',
+                  color: 'text.primary',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  font: 'inherit',
+                  '&:hover': {
+                    backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.035)' : 'rgba(255,255,255,0.035)',
+                  },
+                }}
+              >
+                {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                <Folder size={14} style={{ opacity: 0.72 }} />
+                <Typography
+                  component="span"
+                  sx={{
+                    minWidth: 0,
+                    flex: 1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontSize: '0.8rem',
+                    fontWeight: 650,
+                  }}
+                >
+                  {group.name}
+                </Typography>
+                <Typography component="span" sx={{ color: 'text.disabled', fontSize: '0.62rem' }}>
+                  {group.items.length}
+                </Typography>
+              </Box>
+              {!collapsed && (
+                <Box sx={{ pl: 1.15 }}>
+                  {renderedItems.map(renderItem)}
+                  {!query && remaining > 0 && (
+                    <Box
+                      component="button"
+                      type="button"
+                      onClick={() => setVisibleCounts((current) => ({
+                        ...current,
+                        [group.id]: requestedCount + SHOW_MORE_COUNT,
+                      }))}
+                      sx={{
+                        appearance: 'none',
+                        border: 0,
+                        height: 30,
+                        px: 1,
+                        backgroundColor: 'transparent',
+                        color: 'text.secondary',
+                        cursor: 'pointer',
+                        font: 'inherit',
+                        fontSize: '0.7rem',
+                        '&:hover': { color: 'text.primary' },
+                      }}
+                    >
+                      Show {Math.min(remaining, SHOW_MORE_COUNT)} more
+                    </Box>
+                  )}
+                </Box>
+              )}
+            </Box>
+          )
+        })}
+
+        {hasMoreSessions && !query && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', pt: 0.5 }}>
+            <Box
+              component="button"
+              type="button"
+              disabled={sessionsFetching}
+              onClick={() => setCurrentPage((page) => page + 1)}
+              sx={{
+                appearance: 'none',
+                border: 0,
+                borderRadius: 1,
+                px: 1.5,
+                py: 0.75,
+                color: 'text.secondary',
+                backgroundColor: 'transparent',
+                cursor: sessionsFetching ? 'default' : 'pointer',
+                font: 'inherit',
+                fontSize: '0.7rem',
+                '&:hover': { color: 'text.primary', backgroundColor: 'action.hover' },
+              }}
+            >
+              {sessionsFetching ? 'Loading…' : 'Load older chats'}
+            </Box>
+          </Box>
+        )}
+      </Box>
+    </Box>
+  )
+}
+
+export default ProjectChatSidebar

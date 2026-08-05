@@ -17,7 +17,7 @@ import MuiSnackbar from "@mui/material/Snackbar";
 import { useDetectLocalProviders, useListProviders } from "../services/providersService";
 
 import Sidebar from "../components/system/Sidebar";
-import SessionsSidebar from "../components/session/SessionsSidebar";
+import ProjectChatSidebar from "../components/session/ProjectChatSidebar";
 import FilesSidebar from "../components/files/FilesSidebar";
 import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
 import AccountSidebar from "../components/account/AccountSidebar";
@@ -415,7 +415,7 @@ const Layout: FC<{
   const isProjectsIndex =
     router.name === "org_projects" &&
     (!router.params.tab || router.params.tab === "projects");
-  const isConversationRoute = ["org_chat", "org_session", "org_new"].includes(
+  const isConversationRoute = ["org_chat", "org_chat-task", "org_session", "org_new"].includes(
     router.name,
   );
 
@@ -490,8 +490,7 @@ const Layout: FC<{
         return <FilesSidebar onOpenFile={() => {}} />;
 
       default:
-        // Default to SessionsMenu for most routes
-        return <SessionsSidebar onOpenSession={onOpenSession} />;
+        return <ProjectChatSidebar onOpenSession={onOpenSession} />;
     }
   }
 
