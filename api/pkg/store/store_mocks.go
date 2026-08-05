@@ -1197,6 +1197,22 @@ func (mr *MockStoreMockRecorder) CreateTriggerExecution(ctx, execution any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTriggerExecution", reflect.TypeOf((*MockStore)(nil).CreateTriggerExecution), ctx, execution)
 }
 
+// CreateTriggerExecutionUnlessRunning mocks base method.
+func (m *MockStore) CreateTriggerExecutionUnlessRunning(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateTriggerExecutionUnlessRunning", ctx, execution)
+	ret0, _ := ret[0].(*types.TriggerExecution)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// CreateTriggerExecutionUnlessRunning indicates an expected call of CreateTriggerExecutionUnlessRunning.
+func (mr *MockStoreMockRecorder) CreateTriggerExecutionUnlessRunning(ctx, execution any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTriggerExecutionUnlessRunning", reflect.TypeOf((*MockStore)(nil).CreateTriggerExecutionUnlessRunning), ctx, execution)
+}
+
 // CreateUsageMetric mocks base method.
 func (m *MockStore) CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
 	m.ctrl.T.Helper()
@@ -2312,6 +2328,21 @@ func (m *MockStore) FindAvailableSandboxInstance(ctx context.Context, desktopTyp
 func (mr *MockStoreMockRecorder) FindAvailableSandboxInstance(ctx, desktopType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAvailableSandboxInstance", reflect.TypeOf((*MockStore)(nil).FindAvailableSandboxInstance), ctx, desktopType)
+}
+
+// FinishTriggerExecution mocks base method.
+func (m *MockStore) FinishTriggerExecution(ctx context.Context, sessionID string, status types.TriggerExecutionStatus, message string) (*types.TriggerExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FinishTriggerExecution", ctx, sessionID, status, message)
+	ret0, _ := ret[0].(*types.TriggerExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FinishTriggerExecution indicates an expected call of FinishTriggerExecution.
+func (mr *MockStoreMockRecorder) FinishTriggerExecution(ctx, sessionID, status, message any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishTriggerExecution", reflect.TypeOf((*MockStore)(nil).FinishTriggerExecution), ctx, sessionID, status, message)
 }
 
 // GenerateRandomState mocks base method.

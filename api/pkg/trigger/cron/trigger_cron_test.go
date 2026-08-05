@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -762,6 +763,14 @@ func (suite *CronTestSuite) TestExecuteCronTask_InfersExternalAgentConfiguration
 	}
 	trigger := &types.CronTrigger{Input: "Inspect the repository"}
 
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			suite.Equal("trigger-123", execution.TriggerConfigurationID)
+			suite.NotEmpty(execution.SessionID)
+			return execution, true, nil
+		},
+	)
+
 	suite.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
 		OrganizationID: "org-123",
 	}).Return([]*types.Project{{
@@ -779,24 +788,65 @@ func (suite *CronTestSuite) TestExecuteCronTask_InfersExternalAgentConfiguration
 			suite.Equal(string(types.AgentTypeZedExternal), req.AgentType)
 			suite.Same(externalAgentConfig, req.ExternalAgentConfig)
 			suite.Equal("job", req.SessionRole)
+			suite.Contains(req.SystemPrompt, "task_completed")
 			suite.Len(req.Messages, 1)
 			suite.Equal([]any{"Inspect the repository"}, req.Messages[0].Content.Parts)
-			return &types.Session{ID: "session-789"}, nil
+			return &types.Session{ID: req.SessionID}, nil
 		},
 	}
 
-	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
-			suite.Equal("trigger-123", execution.TriggerConfigurationID)
-			suite.Equal("session-789", execution.SessionID)
-			suite.Equal(types.TriggerExecutionStatusRunning, execution.Status)
-			return execution, nil
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, starter, app, "test-user", "trigger-123", trigger, "scheduled-review")
+	suite.NoError(err)
+	suite.NotEmpty(result)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SkipsWhilePreviousExternalExecutionRuns() {
+	app := &types.App{ID: "app-123", Config: types.AppConfig{Helix: types.AppHelixConfig{DefaultAgentType: types.AgentTypeZedExternal}}}
+	trigger := &types.CronTrigger{Input: "Inspect the repository"}
+
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			execution.Status = types.TriggerExecutionStatusSkipped
+			execution.Error = "Previous execution tex_123 is still running"
+			return execution, false, nil
 		},
 	)
 
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, starter, app, "test-user", "trigger-123", trigger, "scheduled-review")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, &mockExternalAgentStarter{
+		startFunc: func(context.Context, *types.SessionChatRequest, string) (*types.Session, error) {
+			suite.Fail("external agent must not start for a skipped execution")
+			return nil, nil
+		},
+	}, app, "test-user", "trigger-123", trigger, "scheduled-review")
 	suite.NoError(err)
-	suite.Equal("session-789", result)
+	suite.Empty(result)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_RecordsExternalStartupFailure() {
+	app := &types.App{ID: "app-123", Config: types.AppConfig{Helix: types.AppHelixConfig{DefaultAgentType: types.AgentTypeZedExternal}}}
+	trigger := &types.CronTrigger{Input: "Inspect the repository", ProjectID: "project-123"}
+	suite.store.EXPECT().CreateTriggerExecutionUnlessRunning(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, candidate *types.TriggerExecution) (*types.TriggerExecution, bool, error) {
+			candidate.Created = time.Now()
+			return candidate, true, nil
+		},
+	)
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusError, updated.Status)
+			suite.Equal("sandbox unavailable", updated.Error)
+			return updated, nil
+		},
+	)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).Return(nil)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, &mockExternalAgentStarter{
+		startFunc: func(context.Context, *types.SessionChatRequest, string) (*types.Session, error) {
+			return nil, errors.New("sandbox unavailable")
+		},
+	}, app, "test-user", "trigger-123", trigger, "scheduled-review")
+	suite.EqualError(err, "sandbox unavailable")
+	suite.Empty(result)
 }
 
 func (suite *CronTestSuite) TestExternalAgentProjectIDRejectsAmbiguousAgent() {

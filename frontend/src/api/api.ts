@@ -6219,6 +6219,13 @@ export interface TypesSessionMetadata {
   last_auto_restart_at?: string;
   manually_review_questions?: boolean;
   /**
+   * OrgWorkerID and RuntimeInstructions are session-scoped bootstrap state for
+   * helix-org workers. Hydra materializes the instructions as native agent
+   * files in this session's workspace before starting the desktop. Ordinary
+   * project and SpecTask sessions leave both fields empty.
+   */
+  org_worker_id?: string;
+  /**
    * Fork lineage — set on a session created by forking from a parent.
    * See design/tasks/002081_kickoff-mid-session/design.md.
    */
@@ -6248,6 +6255,7 @@ export interface TypesSessionMetadata {
   rag_settings?: TypesRAGSettings;
   /** GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE) */
   render_node?: string;
+  runtime_instructions?: string;
   session_rag_results?: TypesSessionRAGResult[];
   /** "planning", "implementation", "coordination", "exploratory" */
   session_role?: string;
@@ -7400,6 +7408,7 @@ export enum TypesTriggerExecutionStatus {
   TriggerExecutionStatusRunning = "running",
   TriggerExecutionStatusSuccess = "success",
   TriggerExecutionStatusError = "error",
+  TriggerExecutionStatusSkipped = "skipped",
 }
 
 export interface TypesTriggerStatus {

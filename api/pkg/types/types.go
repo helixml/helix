@@ -3035,6 +3035,7 @@ const (
 	TriggerExecutionStatusRunning TriggerExecutionStatus = "running"
 	TriggerExecutionStatusSuccess TriggerExecutionStatus = "success"
 	TriggerExecutionStatusError   TriggerExecutionStatus = "error"
+	TriggerExecutionStatusSkipped TriggerExecutionStatus = "skipped"
 )
 
 type TriggerExecution struct {

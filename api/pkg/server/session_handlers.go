@@ -2258,6 +2258,7 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 			Msg("Failed to stop external Zed agent")
 		return nil, system.NewHTTPError500("failed to stop external Zed agent")
 	}
+	s.failRunningTriggerExecution(sessionID, "External agent session was stopped before task completion")
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -2852,8 +2853,12 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		}
 	}
 	if session == nil {
+		sessionID := req.SessionID
+		if sessionID == "" {
+			sessionID = system.GenerateSessionID()
+		}
 		session = &types.Session{
-			ID:             system.GenerateSessionID(),
+			ID:             sessionID,
 			Name:           s.getTemporarySessionName(message),
 			Created:        time.Now(),
 			Updated:        time.Now(),

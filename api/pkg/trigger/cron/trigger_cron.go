@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -475,9 +476,8 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		}
 	}
 
-	// Tasks created from the Tasks page predate AgentType and ProjectID on
-	// CronTrigger. Infer the runtime from the selected agent so those triggers
-	// take the same path as an interactive chat with that agent.
+	// Tasks-page triggers omit AgentType and ProjectID. Infer the runtime from
+	// the selected agent so they take the same path as an interactive chat.
 	if cronAgentType(a, trigger) == types.AgentTypeZedExternal {
 		return executeExternalAgentCronTask(ctx, str, externalAgentStarter, notifier, a, userID, triggerID, trigger, sessionName, promptText)
 	}
@@ -644,17 +644,56 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 }
 
 func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter ExternalAgentStarter, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string, promptText string) (string, error) {
+	sessionID := system.GenerateSessionID()
+	execution, started, err := str.CreateTriggerExecutionUnlessRunning(ctx, &types.TriggerExecution{
+		ID:                     system.GenerateTriggerExecutionID(),
+		Name:                   sessionName,
+		TriggerConfigurationID: triggerID,
+		Status:                 types.TriggerExecutionStatusRunning,
+		SessionID:              sessionID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("reserve external agent trigger execution: %w", err)
+	}
+	if !started {
+		log.Info().
+			Str("app_id", a.ID).
+			Str("trigger_id", triggerID).
+			Str("execution_id", execution.ID).
+			Msg("skipped external agent cron execution because the previous execution is still running")
+		return "", nil
+	}
+
+	fail := func(taskErr error) (string, error) {
+		execution.Status = types.TriggerExecutionStatusError
+		execution.Error = taskErr.Error()
+		execution.DurationMs = time.Since(execution.Created).Milliseconds()
+		if _, updateErr := str.UpdateTriggerExecution(ctx, execution); updateErr != nil {
+			log.Error().Err(updateErr).Str("execution_id", execution.ID).Msg("failed to mark external agent cron execution as failed")
+		}
+		if notifyErr := notifier.Notify(ctx, &types.Notification{
+			Event:       types.EventCronTriggerFailed,
+			Message:     taskErr.Error(),
+			Emails:      trigger.Emails,
+			CallbackURL: trigger.CallbackURL,
+		}); notifyErr != nil {
+			log.Error().Err(notifyErr).Msg("failed to send failure notification")
+		}
+		return "", taskErr
+	}
+
 	if starter == nil {
-		return "", fmt.Errorf("external agent starter not configured, cannot create zed_external cron session")
+		return fail(fmt.Errorf("external agent starter not configured, cannot create zed_external cron session"))
 	}
 
 	projectID, err := externalAgentProjectID(ctx, str, a, userID, trigger.ProjectID)
 	if err != nil {
-		return "", err
+		return fail(err)
 	}
 
 	session, err := starter.StartExternalAgentSession(ctx, &types.SessionChatRequest{
 		AppID:               a.ID,
+		SessionID:           sessionID,
 		AssistantID:         "0",
 		OrganizationID:      a.OrganizationID,
 		ProjectID:           projectID,
@@ -662,6 +701,7 @@ func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter 
 		ExternalAgentConfig: a.Config.Helix.ExternalAgentConfig,
 		SessionRole:         "job",
 		CallbackURL:         trigger.CallbackURL,
+		SystemPrompt:        prompts.RecurringTaskSystemPrompt(),
 		Messages: []*types.Message{
 			{
 				Role:    "user",
@@ -671,32 +711,11 @@ func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter 
 	}, userID)
 	if err != nil {
 		log.Error().Err(err).Str("app_id", a.ID).Msg("failed to start external agent cron session")
-
-		notifyErr := notifier.Notify(ctx, &types.Notification{
-			Event:       types.EventCronTriggerFailed,
-			Message:     err.Error(),
-			Emails:      trigger.Emails,
-			CallbackURL: trigger.CallbackURL,
-		})
-		if notifyErr != nil {
-			log.Error().Err(notifyErr).Msg("failed to send failure notification")
-		}
-		return "", err
+		return fail(err)
 	}
 
-	// Create execution record
-	execution := &types.TriggerExecution{
-		ID:                     system.GenerateUUID(),
-		Name:                   sessionName,
-		TriggerConfigurationID: triggerID,
-		Created:                time.Now(),
-		Updated:                time.Now(),
-		Status:                 types.TriggerExecutionStatusRunning,
-		SessionID:              session.ID,
-	}
-	_, err = str.CreateTriggerExecution(ctx, execution)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to create trigger execution for external agent")
+	if session.ID != sessionID {
+		return fail(fmt.Errorf("external agent starter returned session %s, expected %s", session.ID, sessionID))
 	}
 
 	log.Info().

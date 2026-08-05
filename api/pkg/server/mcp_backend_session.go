@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -85,6 +87,16 @@ func NewSessionMCPBackend(s store.Store) *SessionMCPBackend {
 	)
 	backend.mcpServer.AddTool(searchSessionTool, backend.handleSearchSession)
 
+	// Add task_completed tool. It is session-scoped and only accepts recurring
+	// job sessions with an active trigger execution.
+	taskCompletedTool := mcp.NewTool("task_completed",
+		mcp.WithDescription("Mark the current recurring task execution complete. Call this exactly once, only after all requested work is finished."),
+		mcp.WithString("summary",
+			mcp.Description("Optional concise summary of the completed work"),
+		),
+	)
+	backend.mcpServer.AddTool(taskCompletedTool, backend.handleTaskCompleted)
+
 	// Create Streamable HTTP server for direct POST support
 	// Use stateless mode so each request is independent (no session tracking required)
 	backend.httpServer = server.NewStreamableHTTPServer(backend.mcpServer,
@@ -116,6 +128,39 @@ func (b *SessionMCPBackend) getSessionID(ctx context.Context, requestedID string
 	return ""
 }
 
+func (b *SessionMCPBackend) handleTaskCompleted(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	sessionID := b.getSessionID(ctx, "")
+	if sessionID == "" {
+		return mcp.NewToolResultError("session_id is required"), nil
+	}
+
+	session, err := b.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return mcp.NewToolResultError("failed to get session: " + err.Error()), nil
+	}
+	user, ok := ctx.Value("user").(*types.User)
+	if !ok || user == nil || session.Owner != user.ID {
+		return mcp.NewToolResultError("not authorized to complete this task"), nil
+	}
+	if session.Metadata.SessionRole != "job" {
+		return mcp.NewToolResultError("current session is not a recurring task"), nil
+	}
+
+	summary, _ := request.RequireString("summary")
+	if summary == "" {
+		summary = "Task completed"
+	}
+	execution, err := b.store.FinishTriggerExecution(ctx, sessionID, types.TriggerExecutionStatusSuccess, summary)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return mcp.NewToolResultError("no running recurring task execution exists for this session"), nil
+		}
+		return mcp.NewToolResultError("failed to complete recurring task: " + err.Error()), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Recurring task execution %s marked complete.", execution.ID)), nil
+}
+
 // handleCurrentSession returns quick overview of current session
 func (b *SessionMCPBackend) handleCurrentSession(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	sessionID := b.getSessionID(ctx, "")
@@ -138,11 +183,11 @@ func (b *SessionMCPBackend) handleCurrentSession(ctx context.Context, request mc
 	}
 
 	result := map[string]interface{}{
-		"session_id":   session.ID,
-		"name":         session.Name,
-		"total_turns":  total,
-		"created":      session.Created,
-		"updated":      session.Updated,
+		"session_id":    session.ID,
+		"name":          session.Name,
+		"total_turns":   total,
+		"created":       session.Created,
+		"updated":       session.Updated,
 		"title_changes": len(session.Metadata.TitleHistory),
 	}
 
