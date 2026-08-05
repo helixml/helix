@@ -14,7 +14,7 @@ const projects: TypesProject[] = [
 ]
 
 describe('ProjectChatSidebar logic', () => {
-  it('groups tasks by project, deduplicates their sessions, and puts direct chats in Default', () => {
+  it('groups tasks by project, deduplicates their sessions, and puts direct chats in None', () => {
     const tasks: SpecTask[] = [{
       id: 'task-one',
       project_id: 'project-one',
@@ -50,7 +50,7 @@ describe('ProjectChatSidebar logic', () => {
 
     const groups = buildProjectChatGroups(projects, tasks, sessions)
 
-    expect(groups.map((group) => group.name)).toEqual(['Default', 'Project One', 'Project Two'])
+    expect(groups.map((group) => group.name)).toEqual(['None', 'Project One', 'Project Two'])
     expect(groups[0]?.items.map((item) => item.id)).toEqual(['direct-session', 'worker-session'])
     expect(groups[1]?.items.map((item) => item.id)).toEqual(['task-one'])
     expect(groups[2]?.items.map((item) => item.id)).toEqual(['project-session'])
@@ -72,6 +72,9 @@ describe('ProjectChatSidebar logic', () => {
     expect(getSidebarTaskStatus({ status: 'spec_generation' })?.label).toBe('Planning')
     expect(getSidebarTaskStatus({ status: 'implementation_review' })?.label).toBe('Review')
     expect(getSidebarTaskStatus({ status: 'done' })?.label).toBe('Completed')
+    expect(compactRelativeTime('2026-08-05T11:59:01Z', Date.parse('2026-08-05T12:00:00Z'))).toBe('now')
+    expect(compactRelativeTime('2026-08-05T11:59:00Z', Date.parse('2026-08-05T12:00:00Z'))).toBe('1m')
     expect(compactRelativeTime('2026-08-05T11:55:00Z', Date.parse('2026-08-05T12:00:00Z'))).toBe('5m')
+    expect(compactRelativeTime('2026-08-05T06:00:00Z', Date.parse('2026-08-05T12:00:00Z'))).toBe('6h')
   })
 })

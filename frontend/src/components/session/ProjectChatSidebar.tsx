@@ -34,6 +34,8 @@ import type { SidebarItem } from './ProjectChatSidebar.logic'
 const PAGE_SIZE = 50
 const INITIAL_VISIBLE_ITEMS = 6
 const SHOW_MORE_COUNT = 20
+const RELATIVE_TIME_REFRESH_MS = 15000
+const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
 
 const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }) => {
   const account = useAccount()
@@ -47,6 +49,12 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const [query, setQuery] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({})
+  const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setRelativeTimeNow(Date.now()), RELATIVE_TIME_REFRESH_MS)
+    return () => window.clearInterval(interval)
+  }, [])
 
   const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
     enabled: !!account.user?.id && !!orgId,
@@ -134,22 +142,26 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
           border: 0,
           width: '100%',
           minWidth: 0,
-          height: 34,
+          height: 32,
           px: 1,
-          borderRadius: 1,
+          borderRadius: '6px',
           display: 'flex',
           alignItems: 'center',
           gap: 0.75,
-          color: active ? 'text.primary' : 'text.secondary',
+          color: active
+            ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
+            : (lightTheme.isLight ? '#71717a' : 'rgba(163,163,163,0.80)'),
           backgroundColor: active
-            ? (lightTheme.isLight ? 'rgba(14,116,144,0.09)' : 'rgba(56,189,248,0.10)')
+            ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
             : 'transparent',
           cursor: 'pointer',
           textAlign: 'left',
           font: 'inherit',
           '&:hover': {
-            color: 'text.primary',
-            backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.045)' : 'rgba(255,255,255,0.045)',
+            color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
+            backgroundColor: active
+              ? (lightTheme.isLight ? '#ffffff' : 'rgba(241,243,247,0.11)')
+              : (lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)'),
           },
         }}
       >
@@ -174,17 +186,30 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            fontSize: '0.78rem',
-            fontWeight: active ? 600 : 400,
+            fontSize: '14px',
+            lineHeight: '20px',
+            fontWeight: active ? 500 : 400,
           }}
         >
           {item.title}
         </Typography>
         <Typography
           component="span"
-          sx={{ color: 'text.disabled', fontSize: '0.64rem', flexShrink: 0, pl: 0.5 }}
+          title={item.updatedAt ? new Date(item.updatedAt).toLocaleString() : undefined}
+          sx={{
+            minWidth: 28,
+            color: active
+              ? (lightTheme.isLight ? 'rgba(39,39,42,0.58)' : 'rgba(241,243,247,0.72)')
+              : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+            fontSize: '10px',
+            lineHeight: 1,
+            fontVariantNumeric: 'tabular-nums',
+            textAlign: 'right',
+            flexShrink: 0,
+            pl: 0.5,
+          }}
         >
-          {compactRelativeTime(item.updatedAt)}
+          {compactRelativeTime(item.updatedAt, relativeTimeNow)}
         </Typography>
       </Box>
     )
@@ -193,7 +218,18 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const loading = (projectsLoading || sessionsLoading) && allSessions.length === 0
 
   return (
-    <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+    <Box
+      sx={{
+        height: '100%',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: T3_FONT_FAMILY,
+        color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
+        backgroundColor: lightTheme.isLight ? '#fafafa' : '#000000',
+        '& .MuiTypography-root': { fontFamily: 'inherit' },
+      }}
+    >
       <Box
         sx={{
           height: 60,
@@ -202,16 +238,26 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
           display: 'flex',
           alignItems: 'center',
           gap: 0.5,
-          borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
         }}
       >
         <Search size={15} color="currentColor" style={{ opacity: 0.55, flexShrink: 0 }} />
         <InputBase
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search chats"
-          inputProps={{ 'aria-label': 'Search chats' }}
-          sx={{ flex: 1, minWidth: 0, fontSize: '0.8rem' }}
+          placeholder="Search"
+          inputProps={{ 'aria-label': 'Search' }}
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            color: 'inherit',
+            fontFamily: 'inherit',
+            fontSize: '14px',
+            fontWeight: 500,
+            '& input::placeholder': {
+              color: lightTheme.isLight ? '#71717a' : '#a3a3a3',
+              opacity: 1,
+            },
+          }}
         />
         <Tooltip title="New chat">
           <IconButton size="small" onClick={() => account.orgNavigate('chat')} aria-label="New chat">
@@ -221,12 +267,31 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
       </Box>
 
       <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
-        <Typography sx={{ flex: 1, color: 'text.secondary', fontSize: '0.7rem', fontWeight: 600 }}>
+        <Typography
+          sx={{
+            flex: 1,
+            color: lightTheme.isLight ? 'rgba(113,113,122,0.80)' : 'rgba(163,163,163,0.80)',
+            fontFamily: 'inherit',
+            fontSize: '12px',
+            fontWeight: 500,
+          }}
+        >
           Projects
         </Typography>
       </Box>
 
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 0.75, pb: 1.5, ...lightTheme.scrollbar }}>
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          px: 0.75,
+          pb: 1.5,
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          '&::-webkit-scrollbar': { display: 'none' },
+        }}
+      >
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress size={22} />
@@ -247,7 +312,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
           const renderedItems = activeHiddenItem ? [...previewItems, activeHiddenItem] : previewItems
           const remaining = group.items.length - previewItems.length
           return (
-            <Box key={group.id} sx={{ mb: 0.75 }}>
+            <Box key={group.id} sx={{ mb: 0.5 }}>
               <Box
                 component="button"
                 type="button"
@@ -256,19 +321,19 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
                   appearance: 'none',
                   border: 0,
                   width: '100%',
-                  height: 34,
+                  height: 32,
                   px: 0.75,
                   display: 'flex',
                   alignItems: 'center',
                   gap: 0.65,
-                  borderRadius: 1,
+                  borderRadius: '6px',
                   backgroundColor: 'transparent',
-                  color: 'text.primary',
+                  color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
                   cursor: 'pointer',
                   textAlign: 'left',
                   font: 'inherit',
                   '&:hover': {
-                    backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.035)' : 'rgba(255,255,255,0.035)',
+                    backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
                   },
                 }}
               >
@@ -282,13 +347,23 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    fontSize: '0.8rem',
-                    fontWeight: 650,
+                    fontFamily: 'inherit',
+                    fontSize: '14px',
+                    lineHeight: '20px',
+                    fontWeight: 500,
                   }}
                 >
                   {group.name}
                 </Typography>
-                <Typography component="span" sx={{ color: 'text.disabled', fontSize: '0.62rem' }}>
+                <Typography
+                  component="span"
+                  sx={{
+                    color: lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)',
+                    fontFamily: 'inherit',
+                    fontSize: '10px',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
                   {group.items.length}
                 </Typography>
               </Box>
@@ -309,11 +384,14 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
                         height: 30,
                         px: 1,
                         backgroundColor: 'transparent',
-                        color: 'text.secondary',
+                        color: lightTheme.isLight ? 'rgba(113,113,122,0.75)' : 'rgba(163,163,163,0.75)',
                         cursor: 'pointer',
                         font: 'inherit',
-                        fontSize: '0.7rem',
-                        '&:hover': { color: 'text.primary' },
+                        fontSize: '12px',
+                        '&:hover': {
+                          color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
+                          backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
+                        },
                       }}
                     >
                       Show {Math.min(remaining, SHOW_MORE_COUNT)} more

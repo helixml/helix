@@ -381,13 +381,13 @@ const SidebarContentInner: React.FC<{
             width: '100%',
             minWidth: 0,
             height: '100%',
-            overflowY: 'auto',
+            overflowY: isConversationRoute ? 'hidden' : 'auto',
             overflowX: 'hidden',
             boxSizing: 'border-box',
             boxShadow: 'none',
             borderRight: 'none',
-            mt: 1,
-            ...lightTheme.scrollbar,
+            mt: isConversationRoute ? 0 : 1,
+            ...(!isConversationRoute && lightTheme.scrollbar),
           }}
         >
           { children }

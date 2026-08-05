@@ -94,7 +94,7 @@ export const buildProjectChatGroups = (
   specTasks: SpecTask[],
   sessions: TypesSessionSummary[],
 ): SidebarGroup[] => {
-  const defaultGroup: SidebarGroup = { id: 'default', name: 'Default', items: [] }
+  const defaultGroup: SidebarGroup = { id: 'default', name: 'None', items: [] }
   const groupsByProjectId = new Map<string, SidebarGroup>()
   projects.forEach((project) => {
     if (!project.id) return
