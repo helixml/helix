@@ -475,8 +475,10 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		}
 	}
 
-	// Handle external agent sessions (non-blocking)
-	if trigger.AgentType == "zed_external" {
+	// Tasks created from the Tasks page predate AgentType and ProjectID on
+	// CronTrigger. Infer the runtime from the selected agent so those triggers
+	// take the same path as an interactive chat with that agent.
+	if cronAgentType(a, trigger) == types.AgentTypeZedExternal {
 		return executeExternalAgentCronTask(ctx, str, externalAgentStarter, notifier, a, userID, triggerID, trigger, sessionName, promptText)
 	}
 
@@ -646,16 +648,20 @@ func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter 
 		return "", fmt.Errorf("external agent starter not configured, cannot create zed_external cron session")
 	}
 
-	projectID := trigger.ProjectID
-	if projectID == "" {
-		return "", fmt.Errorf("project_id is required for zed_external cron triggers")
+	projectID, err := externalAgentProjectID(ctx, str, a, userID, trigger.ProjectID)
+	if err != nil {
+		return "", err
 	}
 
 	session, err := starter.StartExternalAgentSession(ctx, &types.SessionChatRequest{
-		ProjectID:   projectID,
-		AgentType:   "zed_external",
-		SessionRole: "job",
-		CallbackURL: trigger.CallbackURL,
+		AppID:               a.ID,
+		AssistantID:         "0",
+		OrganizationID:      a.OrganizationID,
+		ProjectID:           projectID,
+		AgentType:           string(types.AgentTypeZedExternal),
+		ExternalAgentConfig: a.Config.Helix.ExternalAgentConfig,
+		SessionRole:         "job",
+		CallbackURL:         trigger.CallbackURL,
 		Messages: []*types.Message{
 			{
 				Role:    "user",
@@ -699,6 +705,55 @@ func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter 
 		Msg("external agent cron session started")
 
 	return session.ID, nil
+}
+
+func cronAgentType(app *types.App, trigger *types.CronTrigger) types.AgentType {
+	if trigger != nil && trigger.AgentType != "" {
+		return types.AgentType(trigger.AgentType)
+	}
+	if app == nil {
+		return ""
+	}
+	if len(app.Config.Helix.Assistants) > 0 && app.Config.Helix.Assistants[0].AgentType != "" {
+		return app.Config.Helix.Assistants[0].AgentType
+	}
+	return app.Config.Helix.DefaultAgentType
+}
+
+func externalAgentProjectID(ctx context.Context, str store.Store, app *types.App, userID, configuredProjectID string) (string, error) {
+	if configuredProjectID != "" {
+		return configuredProjectID, nil
+	}
+	if app == nil {
+		return "", fmt.Errorf("cannot resolve project for external agent: app is required")
+	}
+
+	query := &store.ListProjectsQuery{OrganizationID: app.OrganizationID}
+	if app.OrganizationID == "" {
+		query.UserID = userID
+	}
+	projects, err := str.ListProjects(ctx, query)
+	if err != nil {
+		return "", fmt.Errorf("failed to list projects for external agent %s: %w", app.ID, err)
+	}
+
+	var projectID string
+	for _, project := range projects {
+		if project.DefaultHelixAppID != app.ID &&
+			project.ProjectManagerHelixAppID != app.ID &&
+			project.PullRequestReviewerHelixAppID != app.ID {
+			continue
+		}
+		if projectID != "" {
+			return "", fmt.Errorf("multiple projects reference external agent %s; project_id is required", app.ID)
+		}
+		projectID = project.ID
+	}
+	if projectID == "" {
+		return "", fmt.Errorf("no project references external agent %s; project_id is required", app.ID)
+	}
+
+	return projectID, nil
 }
 
 func readInputFile(ctx context.Context, str store.Store, trigger *types.CronTrigger) (string, error) {

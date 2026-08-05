@@ -736,6 +736,84 @@ func (m *mockSpecTaskCreator) CreateTaskFromPrompt(ctx context.Context, req *typ
 	return m.createFunc(ctx, req)
 }
 
+type mockExternalAgentStarter struct {
+	startFunc func(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error)
+}
+
+func (m *mockExternalAgentStarter) StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error) {
+	return m.startFunc(ctx, req, userID)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_InfersExternalAgentConfiguration() {
+	externalAgentConfig := &types.ExternalAgentConfig{DesktopType: "sway"}
+	app := &types.App{
+		ID:             "app-123",
+		Owner:          "test-user",
+		OwnerType:      types.OwnerTypeUser,
+		OrganizationID: "org-123",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			DefaultAgentType:    types.AgentTypeZedExternal,
+			ExternalAgentConfig: externalAgentConfig,
+			Assistants: []types.AssistantConfig{{
+				AgentType:        types.AgentTypeZedExternal,
+				CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+			}},
+		}},
+	}
+	trigger := &types.CronTrigger{Input: "Inspect the repository"}
+
+	suite.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: "org-123",
+	}).Return([]*types.Project{{
+		ID:                "project-456",
+		DefaultHelixAppID: "app-123",
+	}}, nil)
+
+	starter := &mockExternalAgentStarter{
+		startFunc: func(_ context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error) {
+			suite.Equal("test-user", userID)
+			suite.Equal("app-123", req.AppID)
+			suite.Equal("0", req.AssistantID)
+			suite.Equal("org-123", req.OrganizationID)
+			suite.Equal("project-456", req.ProjectID)
+			suite.Equal(string(types.AgentTypeZedExternal), req.AgentType)
+			suite.Same(externalAgentConfig, req.ExternalAgentConfig)
+			suite.Equal("job", req.SessionRole)
+			suite.Len(req.Messages, 1)
+			suite.Equal([]any{"Inspect the repository"}, req.Messages[0].Content.Parts)
+			return &types.Session{ID: "session-789"}, nil
+		},
+	}
+
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal("trigger-123", execution.TriggerConfigurationID)
+			suite.Equal("session-789", execution.SessionID)
+			suite.Equal(types.TriggerExecutionStatusRunning, execution.Status)
+			return execution, nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, starter, app, "test-user", "trigger-123", trigger, "scheduled-review")
+	suite.NoError(err)
+	suite.Equal("session-789", result)
+}
+
+func (suite *CronTestSuite) TestExternalAgentProjectIDRejectsAmbiguousAgent() {
+	app := &types.App{ID: "app-123", OrganizationID: "org-123"}
+	suite.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: "org-123",
+	}).Return([]*types.Project{
+		{ID: "project-1", DefaultHelixAppID: "app-123"},
+		{ID: "project-2", ProjectManagerHelixAppID: "app-123"},
+	}, nil)
+
+	projectID, err := externalAgentProjectID(suite.ctx, suite.store, app, "test-user", "")
+	suite.Error(err)
+	suite.Empty(projectID)
+	suite.Contains(err.Error(), "multiple projects")
+}
+
 func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction() {
 	app := &types.App{
 		ID:        "app-123",
