@@ -2931,22 +2931,23 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     return () => clearInterval(interval);
   }, [containerSize, isConnected]);
 
-  // Forward wheel events to remote desktop via WebSocketStream.
-  // We call preventDefault() (and register the listener as non-passive so it is
-  // honoured) to suppress Chrome/Safari's native swipe-to-navigate gesture
-  // (two-finger horizontal swipe for back/forward) inside the viewer. Otherwise
-  // scrolling here can accidentally navigate the whole page away from the session.
-  // This is scoped to the viewer container only — swipe-nav still works elsewhere.
+  // Forward wheel events after the user has focused the remote desktop. Until
+  // then, leave trackpad gestures to the browser so Back/Forward still works
+  // when the pointer happens to be over the viewer.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const wheelHandler = (event: WheelEvent) => {
+      if (!container.contains(document.activeElement)) return;
+
       const input =
         streamRef.current && "getInput" in streamRef.current
           ? (streamRef.current as WebSocketStream).getInput()
           : null;
-      input?.onMouseWheel(event);
+      if (!input) return;
+
+      input.onMouseWheel(event);
       event.preventDefault();
     };
 
