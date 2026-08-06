@@ -4395,6 +4395,7 @@ export interface TypesModelInfo {
   slug?: string;
   supported_parameters?: string[];
   supports_reasoning?: boolean;
+  supports_reasoning_effort?: boolean;
 }
 
 export enum TypesModelType {
@@ -4986,6 +4987,11 @@ export interface TypesProjectSpec {
   startup?: TypesProjectStartup;
   tasks?: TypesProjectTaskSpec[];
   technologies?: string[];
+}
+
+export interface TypesProjectSpecTaskAgent {
+  id?: string;
+  name?: string;
 }
 
 export interface TypesProjectStartup {
@@ -6023,6 +6029,13 @@ export interface TypesServiceDownloadProgress {
 }
 
 export interface TypesSession {
+  /**
+   * No index: every list filters `archived = false OR archived IS NULL`, which
+   * matches nearly every row, so a plain boolean index would never be chosen —
+   * and AutoMigrate builds indexes non-concurrently, taking an ACCESS EXCLUSIVE
+   * lock on `sessions` for the length of the build.
+   */
+  archived?: boolean;
   /** named config for backward compat */
   config?: TypesSessionMetadata;
   created?: string;
@@ -6080,6 +6093,10 @@ export interface TypesSession {
   updated?: string;
 }
 
+export interface TypesSessionArchiveRequest {
+  archived?: boolean;
+}
+
 export interface TypesSessionChatRequest {
   /** Agent type: "helix" or "zed_external" */
   agent_type?: string;
@@ -6106,6 +6123,8 @@ export interface TypesSessionChatRequest {
   project_id?: string;
   /** The provider to use */
   provider?: TypesProvider;
+  /** Per-session reasoning effort for direct model chats */
+  reasoning_effort?: string;
   /** If true, we will regenerate the response for the last message */
   regenerate?: boolean;
   /** If empty, we will start a new session */
@@ -6253,6 +6272,7 @@ export interface TypesSessionMetadata {
    */
   rag_enabled?: boolean;
   rag_settings?: TypesRAGSettings;
+  reasoning_effort?: string;
   /** GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE) */
   render_node?: string;
   runtime_instructions?: string;
@@ -6321,6 +6341,7 @@ export interface TypesSessionRAGResult {
 
 export interface TypesSessionSummary {
   app_id?: string;
+  archived?: boolean;
   /** these are all values of the last interaction */
   created?: string;
   /** Metadata includes container information for external agent sessions */
@@ -14664,6 +14685,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns minimal agent options for starting a project spec task. Helix org-chart agents are excluded.
+     *
+     * @tags Projects
+     * @name V1ProjectsSpecTaskAgentsDetail
+     * @summary List external agents available for project spec tasks
+     * @request GET:/api/v1/projects/{id}/spec-task-agents
+     * @secure
+     */
+    v1ProjectsSpecTaskAgentsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesProjectSpecTaskAgent[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/spec-task-agents`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get git commit history for project startup script
      *
      * @tags Projects
@@ -16211,10 +16250,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         search?: string;
         /** Project ID */
         project_id?: string;
+        /** Project grouping scope: project or none */
+        project_scope?: string;
+        /** Sort order: created or updated */
+        sort?: string;
         /** Filter by session role (e.g. job) */
         session_role?: string;
         /** Include external agent sessions */
         include_external_agents?: boolean;
+        /** Return only archived sessions instead of only unarchived ones */
+        archived?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -16301,6 +16346,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/agent-config-applied`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Archive a session to hide it from normal session lists, or unarchive it to restore it
+     *
+     * @tags sessions
+     * @name V1SessionsArchivePartialUpdate
+     * @summary Archive or unarchive a session
+     * @request PATCH:/api/v1/sessions/{id}/archive
+     * @secure
+     */
+    v1SessionsArchivePartialUpdate: (id: string, request: TypesSessionArchiveRequest, params: RequestParams = {}) =>
+      this.request<TypesSession, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/archive`,
+        method: "PATCH",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

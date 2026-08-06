@@ -6932,6 +6932,8 @@ definitions:
         type: array
       supports_reasoning:
         type: boolean
+      supports_reasoning_effort:
+        type: boolean
     type: object
   types.ModelType:
     enum:
@@ -7954,6 +7956,13 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  types.ProjectSpecTaskAgent:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
     type: object
   types.ProjectStartup:
     properties:
@@ -9542,6 +9551,13 @@ definitions:
     type: object
   types.Session:
     properties:
+      archived:
+        description: |-
+          No index: every list filters `archived = false OR archived IS NULL`, which
+          matches nearly every row, so a plain boolean index would never be chosen —
+          and AutoMigrate builds indexes non-concurrently, taking an ACCESS EXCLUSIVE
+          lock on `sessions` for the length of the build.
+        type: boolean
       config:
         allOf:
         - $ref: '#/definitions/types.SessionMetadata'
@@ -9624,6 +9640,11 @@ definitions:
       updated:
         type: string
     type: object
+  types.SessionArchiveRequest:
+    properties:
+      archived:
+        type: boolean
+    type: object
   types.SessionChatRequest:
     properties:
       agent_type:
@@ -9669,6 +9690,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.Provider'
         description: The provider to use
+      reasoning_effort:
+        description: Per-session reasoning effort for direct model chats
+        type: string
       regenerate:
         description: If true, we will regenerate the response for the last message
         type: boolean
@@ -9885,6 +9909,8 @@ definitions:
         type: boolean
       rag_settings:
         $ref: '#/definitions/types.RAGSettings'
+      reasoning_effort:
+        type: string
       render_node:
         description: GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
         type: string
@@ -10003,6 +10029,8 @@ definitions:
     properties:
       app_id:
         type: string
+      archived:
+        type: boolean
       created:
         description: these are all values of the last interaction
         type: string
@@ -21644,6 +21672,42 @@ paths:
       summary: Create a secret for a project
       tags:
       - secrets
+  /api/v1/projects/{id}/spec-task-agents:
+    get:
+      description: Returns minimal agent options for starting a project spec task.
+        Helix org-chart agents are excluded.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ProjectSpecTaskAgent'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List external agents available for project spec tasks
+      tags:
+      - Projects
   /api/v1/projects/{id}/startup-script/history:
     get:
       description: Get git commit history for project startup script
@@ -23858,6 +23922,14 @@ paths:
         in: query
         name: project_id
         type: string
+      - description: 'Project grouping scope: project or none'
+        in: query
+        name: project_scope
+        type: string
+      - description: 'Sort order: created or updated'
+        in: query
+        name: sort
+        type: string
       - description: Filter by session role (e.g. job)
         in: query
         name: session_role
@@ -23865,6 +23937,10 @@ paths:
       - description: Include external agent sessions
         in: query
         name: include_external_agents
+        type: boolean
+      - description: Return only archived sessions instead of only unarchived ones
+        in: query
+        name: archived
         type: boolean
       responses:
         "200":
@@ -23963,6 +24039,52 @@ paths:
       - BearerAuth: []
       summary: Notify that an in-place agent switch's config has been applied in the
         container
+      tags:
+      - sessions
+  /api/v1/sessions/{id}/archive:
+    patch:
+      consumes:
+      - application/json
+      description: Archive a session to hide it from normal session lists, or unarchive
+        it to restore it
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Archive request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SessionArchiveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Session'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Archive or unarchive a session
       tags:
       - sessions
   /api/v1/sessions/{id}/cancel:

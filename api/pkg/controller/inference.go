@@ -35,14 +35,15 @@ import (
 )
 
 type ChatCompletionOptions struct {
-	OrganizationID string
-	AppID          string
-	AssistantID    string
-	RAGSourceID    string
-	Provider       string
-	QueryParams    map[string]string
-	OAuthTokens    map[string]string // OAuth tokens mapped by provider name
-	Conversational bool              // Whether to send thoughts about tools and decisions
+	OrganizationID  string
+	AppID           string
+	AssistantID     string
+	RAGSourceID     string
+	Provider        string
+	ReasoningEffort string
+	QueryParams     map[string]string
+	OAuthTokens     map[string]string // OAuth tokens mapped by provider name
+	Conversational  bool              // Whether to send thoughts about tools and decisions
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
@@ -970,6 +971,9 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 			if meta, err := c.Options.Store.GetUserMeta(ctx, user.ID); err == nil {
 				meta.ChatSettings.ApplyToAssistantConfig(assistant)
 			}
+		}
+		if opts.ReasoningEffort != "" {
+			assistant.ReasoningEffort = opts.ReasoningEffort
 		}
 		return assistant, nil
 	}

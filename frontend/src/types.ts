@@ -966,6 +966,7 @@ export interface ISessionChatRequest {
   tools?: string[],
   provider?: string,
   model?: string,
+  reasoning_effort?: string,
   rag_source_id?: string,
   lora_id?: string,
   interrupt?: boolean, // If true, interrupt current agent work; if false, queue after current work completes
@@ -1109,4 +1110,3 @@ export interface IAppCreateResponse {
   owner_type: IOwnerType;
   model_substitutions?: IModelSubstitution[]
 }
-

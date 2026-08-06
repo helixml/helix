@@ -1,4 +1,5 @@
 import { FC, useCallback, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import { alpha } from '@mui/material/styles'
 
@@ -7,6 +8,7 @@ import { useStreaming } from '../../contexts/streaming'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useListInteractions } from '../../services/sessionService'
+import { useRefreshSpecTaskStatus } from '../../services/specTaskService'
 import { SESSION_TYPE_TEXT } from '../../types'
 import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from './EmbeddedSessionView'
@@ -22,6 +24,8 @@ interface AgentChatProps {
   showSessionPromptQueue?: boolean
   enableInteractionDebugCopy?: boolean
   onWillSend?: () => void
+  leadingActions?: ReactNode
+  footerContent?: ReactNode
 }
 
 /** Shared org/spec-task conversation surface. */
@@ -34,6 +38,8 @@ const AgentChat: FC<AgentChatProps> = ({
   showSessionPromptQueue = false,
   enableInteractionDebugCopy,
   onWillSend,
+  leadingActions,
+  footerContent,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -41,6 +47,7 @@ const AgentChat: FC<AgentChatProps> = ({
   const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
   const [isCancelling, setIsCancelling] = useState(false)
   const apiClient = api.getApiClient()
+  const refreshSpecTaskStatus = useRefreshSpecTaskStatus(specTaskId)
 
   const { data: latestInteractionsResponse, refetch: refetchLatestInteraction } = useListInteractions(
     sessionId,
@@ -62,10 +69,11 @@ const AgentChat: FC<AgentChatProps> = ({
       sessionId,
       interrupt: interrupt ?? true,
     })
-    // streaming is a context object; sessionId is the only value that should
-    // rebind this callback.
+    void refreshSpecTaskStatus()
+    // Provider state remains mounted; primitive route state selects the current
+    // session and task whose queries need refreshing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId])
+  }, [sessionId, specTaskId])
 
   const handleCancel = useCallback(async () => {
     if (isCancelling) return
@@ -139,21 +147,49 @@ const AgentChat: FC<AgentChatProps> = ({
         }}
       >
         <Box sx={{ width: '100%', maxWidth: 768, mx: 'auto' }}>
-          <RobustPromptInput
-            sessionId={sessionId}
-            specTaskId={specTaskId}
-            projectId={projectId}
-            apiClient={apiClient}
-            onSend={handleSend}
-            onWillSend={onWillSend}
-            onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
-            onFileUpload={handleFileUpload}
-            onCancel={handleCancel}
-            isAgentBusy={isAgentBusy}
-            isCancelling={isCancelling}
-            placeholder={placeholder}
-            disabled={disabled}
-          />
+          <Box sx={{ position: 'relative', zIndex: 1 }}>
+            <RobustPromptInput
+              sessionId={sessionId}
+              specTaskId={specTaskId}
+              projectId={projectId}
+              apiClient={apiClient}
+              onSend={handleSend}
+              onWillSend={onWillSend}
+              onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+              onFileUpload={handleFileUpload}
+              onCancel={handleCancel}
+              isAgentBusy={isAgentBusy}
+              isCancelling={isCancelling}
+              leadingActions={leadingActions}
+              placeholder={placeholder}
+              disabled={disabled}
+            />
+          </Box>
+          {footerContent && (
+            <Box
+              data-chat-context-bar="true"
+              sx={{
+                position: 'relative',
+                zIndex: 0,
+                minWidth: 0,
+                minHeight: 34,
+                mt: -1,
+                mx: { xs: 1.25, sm: 2.5 },
+                px: 1.5,
+                pt: 1.75,
+                pb: 0.625,
+                bgcolor: (theme) => getChatColors(theme).composerSurface,
+                border: '1px solid',
+                borderColor: (theme) => getChatColors(theme).border,
+                borderRadius: '0 0 14px 14px',
+                boxShadow: (theme) => theme.palette.mode === 'light'
+                  ? '0 8px 18px -16px rgba(0,0,0,0.45)'
+                  : 'inset 0 1px rgba(255,255,255,0.02)',
+              }}
+            >
+              {footerContent}
+            </Box>
+          )}
         </Box>
       </Box>
     </Box>

@@ -7,12 +7,18 @@ import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
+import { Bot, ChevronDown } from "lucide-react";
 import AgentDropdown from "../agent/AgentDropdown";
 import useApps from "../../hooks/useApps";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useGetSession, useSwitchAgent } from "../../services/sessionService";
 import { isSpecTaskSwitchableAgent } from "../../utils/apps";
+import { getChatColors } from "./chatStyles";
 
 interface SwitchAgentControlProps {
   /** Session being viewed in the chat panel. The dropdown's current value
@@ -25,6 +31,8 @@ interface SwitchAgentControlProps {
   onSwitched?: () => void;
   /** Small / medium sizing forwarded to AgentDropdown. */
   size?: "small" | "medium";
+  /** Compact action-button presentation for the shared chat composer. */
+  displayMode?: "field" | "compact";
 }
 
 /**
@@ -42,6 +50,7 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
   sessionId,
   onSwitched,
   size = "small",
+  displayMode = "field",
 }) => {
   const apps = useApps();
   const snackbar = useSnackbar();
@@ -50,6 +59,7 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
   // dialog; runSwitch() (the dialog's "Switch" button) fires the mutation.
   const [pendingTargetId, setPendingTargetId] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
   const { data: sessionResponse } = useGetSession(sessionId, {
     enabled: !!sessionId,
@@ -79,6 +89,7 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
   }, [apps.apps, currentAppId]);
 
   const handleSelect = (newAppId: string) => {
+    setMenuAnchor(null);
     if (!sessionId || pending || newAppId === currentAppId) return;
     setPendingTargetId(newAppId);
   };
@@ -127,20 +138,92 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
 
   return (
     <>
-      {/* placement="top" keeps the tooltip above the trigger so it doesn't
-          cover the first menu item when the dropdown opens. */}
-      <Tooltip title={tooltip} placement="top" disableHoverListener={pending}>
-        <Box sx={{ minWidth: 200 }}>
-          <AgentDropdown
-            value={currentAppId}
-            onChange={handleSelect}
-            agents={eligibleAgents}
-            label="Agent"
-            disabled={disabled}
-            size={size}
-          />
-        </Box>
-      </Tooltip>
+      {displayMode === "compact" ? (
+        <>
+          <Tooltip title={tooltip} placement="top" disableHoverListener={pending}>
+            <Box
+              component="span"
+              sx={{ display: "flex", minWidth: 0, maxWidth: 180, flexShrink: 1 }}
+            >
+              <Button
+                size="small"
+                disabled={disabled}
+                startIcon={<Bot size={15} />}
+                endIcon={<ChevronDown size={13} />}
+                aria-label="Switch agent"
+                onClick={(event) => setMenuAnchor(event.currentTarget)}
+                sx={{
+                  minWidth: 0,
+                  width: "100%",
+                  maxWidth: 180,
+                  flexShrink: 1,
+                  height: 28,
+                  px: 0.75,
+                  borderRadius: 1,
+                  overflow: "hidden",
+                  color: (theme) => getChatColors(theme).subtle,
+                  fontSize: "0.75rem",
+                  fontWeight: 450,
+                  lineHeight: 1,
+                  letterSpacing: "-0.005em",
+                  textTransform: "none",
+                  "& .MuiButton-startIcon": { ml: 0, mr: 0.625 },
+                  "& .MuiButton-endIcon": { ml: 0.375, mr: 0 },
+                  "&:hover": {
+                    color: "text.primary",
+                    backgroundColor: "action.hover",
+                  },
+                }}
+              >
+                <Box
+                  component="span"
+                  sx={{
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {currentAgentName || "Select agent"}
+                </Box>
+              </Button>
+            </Box>
+          </Tooltip>
+          <Menu
+            anchorEl={menuAnchor}
+            open={!!menuAnchor}
+            onClose={() => setMenuAnchor(null)}
+          >
+            {eligibleAgents.map((agent) => (
+              <MenuItem
+                key={agent.id}
+                selected={agent.id === currentAppId}
+                onClick={() => handleSelect(agent.id || "")}
+              >
+                <ListItemIcon>
+                  <Bot size={16} />
+                </ListItemIcon>
+                <ListItemText
+                  primary={agent.config?.helix?.name || "Unnamed agent"}
+                />
+              </MenuItem>
+            ))}
+          </Menu>
+        </>
+      ) : (
+        <Tooltip title={tooltip} placement="top" disableHoverListener={pending}>
+          <Box sx={{ width: "100%", minWidth: 0 }}>
+            <AgentDropdown
+              value={currentAppId}
+              onChange={handleSelect}
+              agents={eligibleAgents}
+              label="Agent"
+              disabled={disabled}
+              size={size}
+            />
+          </Box>
+        </Tooltip>
+      )}
       <Dialog
         open={!!pendingTargetId}
         onClose={cancelSwitch}

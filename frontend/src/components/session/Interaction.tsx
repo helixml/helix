@@ -23,6 +23,20 @@ import {
   TypesInteractionState,
 } from "../../api/api";
 
+const getInteractionUserMessage = (interaction?: TypesInteraction) => {
+  if (interaction?.prompt_message) return interaction.prompt_message;
+
+  const textPart = interaction?.prompt_message_content?.parts?.find(
+    (part): part is { text: string } =>
+      typeof part === "object" &&
+      part !== null &&
+      "text" in part &&
+      typeof part.text === "string",
+  );
+
+  return textPart ? interaction?.display_message || textPart.text : "";
+};
+
 /**
  * Inline divider rendered in place of a normal user/assistant turn for
  * synthetic fork_seed interactions. The seed's prompt_message is a
@@ -116,6 +130,16 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     return false;
   }
 
+  if (
+    prevProps.nextInteraction?.id !== nextProps.nextInteraction?.id ||
+    prevProps.nextInteraction?.state !== nextProps.nextInteraction?.state ||
+    prevProps.nextInteraction?.error !== nextProps.nextInteraction?.error ||
+    getInteractionUserMessage(prevProps.nextInteraction) !==
+      getInteractionUserMessage(nextProps.nextInteraction)
+  ) {
+    return false;
+  }
+
   // Debug-enabled surfaces must keep the raw objects current because the
   // copied bundle includes fields the transcript itself does not render
   // (usage, runner, structured tool calls, model and routing metadata).
@@ -201,6 +225,7 @@ interface InteractionProps {
   onRegenerate?: (interactionID: string, message: string) => void;
   sessionSteps?: any[];
   enableDebugCopy?: boolean;
+  nextInteraction?: TypesInteraction;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -214,32 +239,17 @@ export const Interaction: FC<InteractionProps> = ({
   onRegenerate,
   sessionSteps = [],
   enableDebugCopy = false,
+  nextInteraction,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
-    let userMessage: string = "";
+    const userMessage = getInteractionUserMessage(interaction);
     let assistantMessage: string = "";
     let imageURLs: string[] = [];
     let isLoading =
       interaction.state == TypesInteractionState.InteractionStateWaiting;
 
     // Removed excessive debug logging
-
-    // Extract user message from prompt_message, display_message, or prompt_message_content.parts
-    if (interaction?.prompt_message) {
-      userMessage = interaction.prompt_message;
-    } else if (interaction?.prompt_message_content?.parts?.length) {
-      const textPart = interaction.prompt_message_content.parts.find(
-        (part): part is { text: string } =>
-          typeof part === "object" &&
-          part !== null &&
-          "text" in part &&
-          typeof part.text === "string",
-      );
-      if (textPart) {
-        userMessage = interaction.display_message || textPart.text;
-      }
-    }
 
     // Extract assistant response from response_message
     if (interaction?.response_message) {
@@ -303,6 +313,14 @@ export const Interaction: FC<InteractionProps> = ({
   const hasAgentReply =
     !!assistantMessage ||
     ((interaction as any)?.response_entries?.length ?? 0) > 0;
+  const nextInteractionPrompt = getInteractionUserMessage(nextInteraction);
+  const retrySucceeded =
+    !!interaction.error &&
+    nextInteraction?.state ===
+      TypesInteractionState.InteractionStateComplete &&
+    !nextInteraction.error &&
+    nextInteractionPrompt === userMessage;
+  const visibleError = retrySucceeded ? undefined : interaction.error;
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
 
@@ -413,7 +431,6 @@ export const Interaction: FC<InteractionProps> = ({
                   imageURLs={imageURLs}
                   workspaceAttachments={displayData.workspaceAttachments}
                   message={isEditing ? userMessage : userMessageBody}
-                  error={interaction?.error}
                   isFromAssistant={false}
                   onFilterDocument={onFilterDocument}
                   onRegenerate={onRegenerate}
@@ -477,7 +494,10 @@ export const Interaction: FC<InteractionProps> = ({
       )}
 
       {/* Assistant Response Container */}
-      {(assistantMessage || (interaction as any)?.response_entries?.length > 0 || isLive) && (
+      {(assistantMessage ||
+        (interaction as any)?.response_entries?.length > 0 ||
+        isLive ||
+        visibleError) && (
         <Box
           sx={{
             display: "flex",
@@ -504,7 +524,7 @@ export const Interaction: FC<InteractionProps> = ({
                   interaction={interaction}
                   imageURLs={[]}
                   message={assistantMessage}
-                  error={interaction?.error}
+                  error={visibleError}
                   isFromAssistant={true}
                   onFilterDocument={onFilterDocument}
                   onRegenerate={onRegenerate}

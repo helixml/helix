@@ -1,3 +1,5 @@
+import { createRandomId } from '../../utils/randomId'
+
 export const CHAT_ATTACHMENT_MAX_COUNT = 10
 export const CHAT_ATTACHMENT_MAX_BYTES = 500 * 1024 * 1024
 export const CHAT_ATTACHMENT_MANIFEST_HEADER = 'Attachments available in the agent workspace:'
@@ -35,7 +37,7 @@ export function classifyChatAttachment(file: File): ChatAttachmentType {
 export function createPendingChatAttachment(file: File): PendingChatAttachment {
   const type = classifyChatAttachment(file)
   return {
-    id: crypto.randomUUID(),
+    id: createRandomId(),
     name: file.name || 'attachment',
     file,
     type,
@@ -54,18 +56,22 @@ export interface RejectedChatAttachment {
 export function validateChatAttachmentFiles(
   files: File[],
   existingCount: number,
+  limits: { maxCount?: number; maxBytes?: number } = {},
 ): { accepted: File[]; rejected: RejectedChatAttachment[] } {
+  const maxCount = limits.maxCount ?? CHAT_ATTACHMENT_MAX_COUNT
+  const maxBytes = limits.maxBytes ?? CHAT_ATTACHMENT_MAX_BYTES
   const accepted: File[] = []
   const rejected: RejectedChatAttachment[] = []
-  let availableSlots = Math.max(0, CHAT_ATTACHMENT_MAX_COUNT - existingCount)
+  let availableSlots = Math.max(0, maxCount - existingCount)
 
   for (const file of files) {
-    if (file.size > CHAT_ATTACHMENT_MAX_BYTES) {
-      rejected.push({ name: file.name, reason: 'exceeds the 500 MB upload limit' })
+    if (file.size > maxBytes) {
+      const maxMegabytes = Math.round(maxBytes / 1024 / 1024)
+      rejected.push({ name: file.name, reason: `exceeds the ${maxMegabytes} MB upload limit` })
       continue
     }
     if (availableSlots === 0) {
-      rejected.push({ name: file.name, reason: `only ${CHAT_ATTACHMENT_MAX_COUNT} files can be attached` })
+      rejected.push({ name: file.name, reason: `only ${maxCount} files can be attached` })
       continue
     }
     accepted.push(file)

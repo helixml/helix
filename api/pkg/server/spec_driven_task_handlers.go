@@ -69,7 +69,7 @@ func (s *HelixAPIServer) populateQueueReasons(ctx context.Context, projectID str
 		case types.TaskStatusQueuedImplementation:
 			probe := *t
 			probe.DependsOn = depsByID[t.ID]
-			t.QueueReason = services.ImplementationQueueReason(projectTasks, &probe)
+			t.QueueReason = services.ImplementationQueueReason(project, projectTasks, &probe)
 		}
 	}
 }

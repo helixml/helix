@@ -8,14 +8,11 @@ import Alert from '@mui/material/Alert'
 import AlertTitle from '@mui/material/AlertTitle'
 
 import SendIcon from '@mui/icons-material/Send'
-import AttachFileIcon from '@mui/icons-material/AttachFile'
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionToolbar from '../components/session/SessionToolbar'
-import ContextMenuModal from '../components/widgets/ContextMenuModal'
 
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
@@ -26,9 +23,7 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import { useTheme } from '@mui/material/styles'
-import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
-import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
 import { useGetSession, useUpdateSession, useGetSessionIdleStatus } from '../services/sessionService'
 
@@ -57,6 +52,16 @@ import PlayArrow from '@mui/icons-material/PlayArrow'
 import CircularProgress from '@mui/material/CircularProgress'
 import StopIcon from '@mui/icons-material/Stop'
 import { useGetConfig } from '../services/userService'
+import RobustPromptInput from '../components/common/RobustPromptInput'
+import Page from '../components/system/Page'
+import { useGetProject } from '../services/projectService'
+import ChatTurnNavigator from '../components/session/ChatTurnNavigator'
+import {
+  ChatTurnNavigatorItem,
+  compactChatTurnPreview,
+  resolveChatTurnAssistantPreview,
+} from '../components/session/ChatTurnNavigator.logic'
+import { splitSystemPrefix } from '../components/session/CollapsibleSystemPrefix'
 
 // Hook to track sandbox/desktop state for external agent sessions
 const useSandboxState = (sessionId: string) => {
@@ -228,9 +233,10 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
 
 interface SessionProps {
   previewMode?: boolean;
+  orgChatView?: boolean;
 }
 
-const Session: FC<SessionProps> = ({ previewMode = false }) => {
+const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false }) => {
   const snackbar = useSnackbar()
   const api = useApi()
   const router = useRouter()
@@ -246,9 +252,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const { data: session, refetch: refetchSession } = useGetSession(sessionID, {
     enabled: !!sessionID
   })
+  const sessionProjectID = session?.data?.project_id || ''
+  const { data: sessionProject } = useGetProject(sessionProjectID, orgChatView && !!sessionProjectID)
 
   const theme = useTheme()
-  const themeConfig = useThemeConfig()
   const { NewInference, setCurrentSessionId } = useStreaming()
   const apps = useApps()
   const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
@@ -267,47 +274,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     sessionID = urlParams.get('sessionID') || ''
   }
 
-  const textFieldRef = useRef<HTMLTextAreaElement>(null)
-
-  // --- Add image upload state/refs for new input area ---
-  const imageInputRef = useRef<HTMLInputElement>(null)
-  const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
-
-  const attachImageFile = (file: File) => {
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setSelectedImage(reader.result as string)
-      setSelectedImageName(file.name || `pasted-image-${Date.now()}.png`)
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      attachImageFile(file)
-    }
-  }
-
-  // Cmd+V / Ctrl+V image paste — attach the clipboard image directly. Text
-  // pastes fall through (we only preventDefault when an image is attached).
-  const handleSessionPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = event.clipboardData?.items
-    if (!items || items.length === 0) return
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
-      if (item.kind !== 'file') continue
-      if (!item.type.startsWith('image/')) continue
-      const file = item.getAsFile()
-      if (!file) continue
-      event.preventDefault()
-      attachImageFile(file)
-      return
-    }
-  }
-
   const containerRef = useRef<HTMLDivElement>(null)
+  const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null)
+  const setScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
+    containerRef.current = element
+    setScrollContainerEl(element)
+  }, [])
   const observerRef = useRef<IntersectionObserver | null>(null)
   const lastScrollTimeRef = useRef<number>(0)
 
@@ -316,7 +288,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const [showCloneAllWindow, setShowCloneAllWindow] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
   const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
-  const [inputValue, setInputValue] = useState('')
+  const [promptAppendText, setPromptAppendText] = useState<string>()
   const [feedbackValue, setFeedbackValue] = useState('')
   const [appID, setAppID] = useState<string | null>(null)
   const [assistantID, setAssistantID] = useState<string | null>(null)
@@ -391,29 +363,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     });
   }, []);
 
-  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const textarea = e.target
-    setInputValue(textarea.value)
-    
-    // Reset height to auto to get the correct scrollHeight
-    textarea.style.height = 'auto'
-    
-    // Calculate new height based on content
-    const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 24
-    const maxLines = 5
-    const maxHeight = lineHeight * maxLines
-    
-    // Set height to scrollHeight, but cap at maxHeight
-    const newHeight = Math.min(textarea.scrollHeight, maxHeight)
-    textarea.style.height = `${newHeight}px`
-  }
-
-  useEffect(() => {
-    if (!inputValue && textFieldRef.current) {
-      textFieldRef.current.style.height = 'auto'
-    }
-  }, [inputValue])
-
   // Add effect to handle auto-scrolling when session changes
   useEffect(() => {
     // Return early if no session ID
@@ -457,7 +406,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       endIndex: totalInteractions,
       isGhost: false
     }])
-  }, [session?.data?.interactions])
+  }, [session?.data?.id, session?.data?.interactions?.length])
 
   // Handle streaming state
   useEffect(() => {
@@ -580,27 +529,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     })
   }, [visibleBlocks, blockHeights, getBlockKey])
 
-  // Initialize blocks only once when session data first loads
+  // Initialize blocks when session data first loads and when new interactions arrive
   useEffect(() => {
     if (!session?.data?.interactions) return
     initializeVisibleBlocks()
-  }, [session?.data?.id]) // Only run when session ID changes
-
-  // Debounce the input change handler to prevent re-renders on every keystroke
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    performance.mark('input-start');
-    setInputValue(event.target.value);
-    // Measure typing performance
-    requestAnimationFrame(() => {
-      performance.mark('input-end');
-      performance.measure('input-latency', 'input-start', 'input-end');
-      const latency = performance.getEntriesByName('input-latency').pop()?.duration;
-      
-      (`Input latency: ${latency?.toFixed(2) || 'N/A'}ms, Interactions: ${session?.data?.interactions?.length || 0}`);
-      performance.clearMarks();
-      performance.clearMeasures();
-    });
-  }
+  }, [initializeVisibleBlocks, session?.data?.id, session?.data?.interactions?.length])
 
   const loading = useMemo(() => {
     if (!session?.data || !session?.data?.interactions || session?.data?.interactions.length === 0) return false
@@ -706,11 +639,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     }
   }, [isStreaming, session?.data?.interactions])
 
-  const onSend = useCallback(async (prompt: string) => {
-    if (!session?.data) return
+  const onSend = useCallback(async (
+    prompt: string,
+    interrupt?: boolean,
+    attachedImages: File[] = [],
+  ): Promise<boolean> => {
+    if (!session?.data) return false
     if (!checkOwnership({
       inferencePrompt: prompt,
-    })) return
+    })) return false
 
     let actualPrompt = prompt
     Object.entries(filterMap).forEach(([displayText, fullCommand]) => {
@@ -723,7 +660,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       // Get the appID from session.data.parent_app instead of URL params
       const appID = session.data.parent_app || ''
 
-      setInputValue("")
       setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
@@ -731,21 +667,20 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       newSession = await NewInference({
         message: actualPrompt,
         messages: [],
-        image: selectedImage || undefined, // Optional field
-        image_filename: selectedImageName || undefined, // Optional field
+        attachedImages,
         appId: appID,
         assistantId: assistantID || undefined,
         provider: session?.data?.provider,
         modelName: session?.data?.model_name,
         sessionId: session?.data?.id,
         type: session?.data?.type || 'text',
+        interrupt: interrupt ?? true,
       })
     } else {
       const formData = new FormData()
       formData.set('input', actualPrompt)
       formData.set('model_name', session?.data?.model_name || '')
 
-      setInputValue("")
       setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
@@ -753,7 +688,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       newSession = await api.put(`/api/v1/sessions/${session?.data?.id}`, formData)
     }
 
-    if (!newSession) return
+    if (!newSession) return false
 
     // After reloading the session, force scroll to bottom by passing true
     await safeReloadSession(true)
@@ -762,6 +697,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     setTimeout(() => {
       scrollToBottom()
     }, 100)
+
+    return true
 
   }, [
     session?.data,
@@ -925,22 +862,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     session?.data,
   ])
 
-  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter') {
-      if (event.shiftKey) {
-        setInputValue(current => current + "\n")
-      } else {
-        if (!loading) {
-          onSend(inputValue)
-        }
-      }
-      event.preventDefault()
-    }
-  }, [
-    inputValue,
-    onSend,
-  ])
-
   const onHandleFilterDocument = useCallback(async (docId: string) => {
     // Only pass the filter document handler to the citation component if we have an app ID
     if (!appID) {
@@ -977,20 +898,13 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         [displayText]: filterValue
       }));
       
-      setInputValue(current => {
-        const lastAtIndex = current.lastIndexOf('@');
-        if (lastAtIndex !== -1) {
-          return current.substring(0, lastAtIndex) + displayText;
-        } else {
-          return current + displayText;
-        }
-      });
+      setPromptAppendText(`${displayText}#${Date.now()}`)
     } else {
-      setInputValue(current => current + filterValue);
+      setPromptAppendText(`${filterValue}#${Date.now()}`)
     }
-  }, [appID, api, setInputValue, snackbar]);
+  }, [appID, api, snackbar]);
 
-  const handleInsertText = useCallback((text: string) => {
+  const formatContextMenuInsert = useCallback((text: string): string => {
     const filterRegex = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/;
     const match = text.match(filterRegex);
     
@@ -1003,18 +917,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         ...current,
         [displayText]: text
       }));
-
-      setInputValue(current => {
-        const lastAtIndex = current.lastIndexOf('@');
-        if (lastAtIndex !== -1) {
-          return current.substring(0, lastAtIndex) + displayText;
-        } else {
-          return current + displayText;
-        }
-      });
-    } else {
-      setInputValue(current => current + text);
+      return displayText
     }
+    return text
   }, []);
 
   // Memoize the session data comparison
@@ -1092,6 +997,64 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     visibleBlocks,
     isLoadingBlock
   ])
+
+  const navigatorInteractions = useMemo(() => {
+    if (visibleBlocks.length === 0) {
+      return memoizedInteractions.slice(-INTERACTIONS_PER_BLOCK)
+    }
+
+    return visibleBlocks
+      .filter((block) => !block.isGhost)
+      .flatMap((block) => memoizedInteractions.slice(block.startIndex, block.endIndex))
+  }, [memoizedInteractions, visibleBlocks])
+
+  const navigatorItems = useMemo<ChatTurnNavigatorItem[]>(() => {
+    return navigatorInteractions.flatMap((interaction) => {
+      if (!interaction.id || interaction.trigger === 'fork_seed') return []
+      const contentText = interaction.prompt_message_content?.parts?.find(
+        (part): part is { text: string } =>
+          typeof part === 'object' &&
+          part !== null &&
+          'text' in part &&
+          typeof part.text === 'string',
+      )?.text
+      const rawUserText = interaction.display_message || interaction.prompt_message || contentText
+      const splitUserText = splitSystemPrefix(rawUserText || '')
+      const userText = compactChatTurnPreview(
+        splitUserText.prefix
+          ? splitUserText.userText ||
+            (splitUserText.kind === 'approval'
+              ? 'Spec approved · Implementation instructions'
+              : splitUserText.label || 'Planning Instructions')
+          : rawUserText,
+      )
+      if (!userText) return []
+      return [{
+        id: interaction.id,
+        userText,
+        assistantText: resolveChatTurnAssistantPreview(
+          interaction.response_message,
+          interaction.response_entries as unknown as Array<{ type?: string; content?: string }>,
+        ),
+      }]
+    })
+  }, [navigatorInteractions])
+
+  const handleNavigateToTurn = useCallback((item: ChatTurnNavigatorItem) => {
+    const container = containerRef.current
+    if (!container) return
+    const target = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-chat-turn]'),
+    ).find((element) => element.dataset.chatTurn === item.id)
+    if (!target) return
+
+    const viewport = container.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    container.scrollTo({
+      top: container.scrollTop + targetRect.top - viewport.top - 24,
+      behavior: 'smooth',
+    })
+  }, [])
 
   // Setup intersection observer to detect when we need to load more blocks
   useEffect(() => {
@@ -1251,44 +1214,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     isExternalAgent,
   ])
 
-  useEffect(() => {
-    if (loading) return
-    textFieldRef.current?.focus()
-  }, [
-    loading,
-  ])
-
-  useEffect(() => {
-    textFieldRef.current?.focus()
-  }, [
-    router.params.session_id,
-  ])
-
-  // Focus the text field when the component mounts regardless of loading state
-  useEffect(() => {
-    // Initial focus attempt
-    textFieldRef.current?.focus()
-
-    // Make multiple focus attempts with increasing delays
-    // This helps ensure focus works in various conditions and page load timing scenarios
-    const delays = [100, 300, 600, 1000]
-
-    const focusTimers = delays.map(delay =>
-      setTimeout(() => {
-        const textField = textFieldRef.current
-        if (textField) {
-          textField.focus()
-
-          // For some browsers/scenarios, we might need to also scroll the element into view
-          textField.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }
-      }, delay)
-    )
-
-    // Cleanup all timers on unmount
-    return () => focusTimers.forEach(timer => clearTimeout(timer))
-  }, [])
-
   // this is for where we tried to do something to a shared session
   // but we were not logged in - so now we've gone off and logged in
   // and we end up back here - this will trigger the attempt to do it again
@@ -1376,12 +1301,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   if (!session?.data) return null
 
-  return (
+  const sessionContent = (
     <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
     <Box
       sx={{
         width: '100%',
-        height: previewMode ? '100%' : '100vh',
+        height: previewMode || orgChatView ? '100%' : '100vh',
         display: 'flex',
         flexDirection: 'row',
       }}
@@ -1390,32 +1315,32 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       <Box
         sx={{
           flexGrow: 1,
-          height: previewMode ? '100%' : '100vh',
+          height: previewMode || orgChatView ? '100%' : '100vh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
         }}
       >
         {/* Header section */}
-        <Box
-          sx={{
-            width: '100%',
-            flexShrink: 0,
-            borderBottom: lightTheme.border,
-          }}
-        >
-          {(!previewMode && (isOwner || account.admin)) && (
-            <Box sx={{ py: 1, px: 2 }}>
-              <SessionToolbar
-                session={session.data}
-                onReload={safeReloadSession}
-                onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
-              />
-            </Box>
-          )}
-
-
-        </Box>
+        {!orgChatView && (
+          <Box
+            sx={{
+              width: '100%',
+              flexShrink: 0,
+              borderBottom: lightTheme.border,
+            }}
+          >
+            {(!previewMode && (isOwner || account.admin)) && (
+              <Box sx={{ py: 1, px: 2 }}>
+                <SessionToolbar
+                  session={session.data}
+                  onReload={safeReloadSession}
+                  onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
+                />
+              </Box>
+            )}
+          </Box>
+        )}
 
         {/* Main scrollable content area */}
         <Box
@@ -1428,18 +1353,32 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           }}
         >
           <Box
-            ref={containerRef}
             sx={{
               flexGrow: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              overflowY: 'auto', // Always enable scrolling on the inner container
-              pr: 3, // Add consistent padding to offset from the right edge
-              minHeight: 0, // This is crucial for proper flex behavior
-              ...lightTheme.scrollbar,
+              minHeight: 0,
+              position: 'relative',
+              overflow: 'hidden',
             }}
           >
-            {renderInteractions()}
+            <Box
+              ref={setScrollContainerRef}
+              sx={{
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflowY: 'auto', // Always enable scrolling on the inner container
+                pr: 3, // Add consistent padding to offset from the right edge
+                minHeight: 0, // This is crucial for proper flex behavior
+                ...lightTheme.scrollbar,
+              }}
+            >
+              {renderInteractions()}
+            </Box>
+            <ChatTurnNavigator
+              items={navigatorItems}
+              scrollContainer={scrollContainerEl}
+              onSelect={handleNavigateToTurn}
+            />
           </Box>
 
           {/* Fixed bottom section */}
@@ -1450,229 +1389,38 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           >
             <Container maxWidth={previewMode ? false : "lg"}>
               <Box sx={{ py: 2 }}>
-                <Row>
-                  <Cell flexGrow={1}>
-                    <ContextMenuModal
-                      appId={appID || ''}
-                      textAreaRef={textFieldRef as React.RefObject<HTMLTextAreaElement>}
-                      onInsertText={handleInsertText}
-                    >
-                      {/* --- Start of new input area --- */}
-                      <Box
-                        sx={{
-                          width: '95%',
-                          margin: '0 auto',
-                          border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.2)'}`,
-                          borderRadius: '12px',
-                          backgroundColor: lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.05)',
-                          p: 2,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 1,
-                          bgcolor: theme.palette.background.default,
-                        }}
-                      >
-                        {/* Top row: textarea */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                          <textarea
-                            ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
-                            value={inputValue}
-                            onChange={handleTextareaChange}
-                            onKeyDown={handleKeyDown as any}
-                            onPaste={handleSessionPaste}
-                            rows={1}
-                            style={{
-                              width: '100%',
-                              backgroundColor: 'transparent',
-                              border: 'none',
-                              color: lightTheme.textColor,
-                              opacity: 0.7,
-                              resize: 'none',
-                              outline: 'none',
-                              fontFamily: 'inherit',
-                              fontSize: 'inherit',
-                              lineHeight: '1.5',
-                              overflowY: 'auto',
-                            }}
-                            placeholder={
-                              session.data?.type == SESSION_TYPE_TEXT
-                                ? session.data.parent_app
-                                  ? `Chat with ${apps.app?.config.helix.name}...`
-                                  : 'Ask anything...'
-                                : 'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                            }
-                            disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                          />
-                        </Box>
-                      {/* Bottom row: attachment icon, image name, send button */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Tooltip title="Attach Image" placement="top">
-                            <Box
-                              sx={{
-                                width: 32,
-                                height: 32,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                border: `2px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)'}`,
-                                borderRadius: '50%',
-                                '&:hover': {
-                                  borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
-                                  '& svg': { color: lightTheme.textColor }
-                                }
-                              }}
-                              onClick={() => {
-                                if (imageInputRef.current) imageInputRef.current.click();
-                              }}
-                            >
-                              <AttachFileIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
-                            </Box>
-                          </Tooltip>
-                          {selectedImage && (
-                            <Box
-                              sx={{
-                                position: 'relative',
-                                ml: 0.5,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 0.75,
-                              }}
-                            >
-                              <Tooltip title={selectedImageName || 'Attached image'} placement="top">
-                                <Box
-                                  component="img"
-                                  src={selectedImage}
-                                  alt={selectedImageName || 'Attached image'}
-                                  sx={{
-                                    width: 36,
-                                    height: 36,
-                                    objectFit: 'cover',
-                                    borderRadius: '6px',
-                                    border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`,
-                                  }}
-                                />
-                              </Tooltip>
-                              <Typography sx={{ color: lightTheme.textColorFaded, fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {selectedImageName}
-                              </Typography>
-                              <Box
-                                role="button"
-                                aria-label="Remove attached image"
-                                onClick={() => {
-                                  setSelectedImage(null)
-                                  setSelectedImageName(null)
-                                  if (imageInputRef.current) imageInputRef.current.value = ''
-                                }}
-                                sx={{
-                                  width: 18,
-                                  height: 18,
-                                  borderRadius: '50%',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: 'pointer',
-                                  fontSize: '12px',
-                                  color: lightTheme.textColorFaded,
-                                  border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.3)'}`,
-                                  '&:hover': {
-                                    color: lightTheme.textColor,
-                                    borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.6)',
-                                  },
-                                }}
-                              >
-                                ×
-                              </Box>
-                            </Box>
-                          )}
-                          <input
-                            type="file"
-                            ref={imageInputRef}
-                            style={{ display: 'none' }}
-                            accept="image/*"
-                            onChange={handleImageFileChange}
-                          />
-                        </Box>
-                        {/* THIS IS THE NEW WRAPPING BOX FOR RIGHT SIDE ITEMS */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {!appID && (
-                            <AdvancedModelPicker
-                              selectedProvider={session.data.provider}
-                              selectedModelId={session.data.model_name}
-                              onSelectModel={handleModelChange}
-                              currentType="text"
-                              displayMode="short"
-                              buttonVariant="text"
-                            />
-                          )}
-                          <Tooltip title="Send Prompt" placement="top">
-                            <Box
-                              onClick={() => onSend(inputValue)}
-                              sx={{
-                                width: 32,
-                                height: 32,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: loading ? 'default' : 'pointer',
-                                border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)'}`,
-                                borderRadius: '8px',
-                                opacity: loading ? 0.5 : 1,
-                                '&:hover': loading ? {} : {
-                                  borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
-                                  '& svg': { color: lightTheme.textColor }
-                                }
-                              }}
-                            >
-                              {loading ? (
-                                <Box
-                                  sx={{
-                                    width: 20,
-                                    height: 20,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    overflow: 'hidden',
-                                  }}
-                                >
-                                  <LoadingSpinner />
-                                </Box>
-                              ) : (
-                                <ArrowUpwardIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
-                              )}
-                            </Box>
-                          </Tooltip>
-                        </Box>
-                      </Box>
-                      </Box>
-                      {/* --- End of new input area --- */}
-                    </ContextMenuModal>
-                  </Cell>
-                  {/* Temporary disabled feedback buttons, will be moved to interaction list */}
-                  {/* {isBigScreen && (
-                    <Cell sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
-                      <Button
-                        onClick={() => {
-                          onUpdateSessionConfig({
-                            eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
-                          }, `Thank you for your feedback!`)
-                        }}
-                      >
-                        {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
-                      </Button>
-                      <Button
-                        onClick={() => {
-                          onUpdateSessionConfig({
-                            eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
-                          }, `Sorry! We will use your feedback to improve`)
-                        }}
-                      >
-                        {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
-                      </Button>
-                    </Cell>
-                  )} */}
-                </Row>
+                <Box sx={{ width: '100%', maxWidth: 768, mx: 'auto' }}>
+                  <RobustPromptInput
+                    sessionId={session.data.id || sessionID}
+                    onSend={onSend}
+                    sendMode="direct"
+                    inlineImageAttachments={session.data.type === SESSION_TYPE_TEXT}
+                    appendText={promptAppendText}
+                    contextMenuAppId={appID || undefined}
+                    formatContextMenuInsert={formatContextMenuInsert}
+                    onHeightChange={scrollToBottom}
+                    autoFocus
+                    isAgentBusy={loading}
+                    placeholder={
+                      session.data.type === SESSION_TYPE_TEXT
+                        ? session.data.parent_app
+                          ? `Chat with ${apps.app?.config.helix.name || 'agent'}...`
+                          : 'Ask anything...'
+                        : 'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                    }
+                    disabled={session.data.mode === SESSION_MODE_FINETUNE}
+                    trailingActions={!appID ? (
+                      <AdvancedModelPicker
+                        selectedProvider={session.data.provider}
+                        selectedModelId={session.data.model_name}
+                        onSelectModel={handleModelChange}
+                        currentType="text"
+                        displayMode="short"
+                        buttonVariant="text"
+                      />
+                    ) : undefined}
+                  />
+                </Box>
                 {/* Only show disclaimer if not in preview mode */}
                 {!previewMode && (
                   <Box sx={{ mt: 2 }}>
@@ -1768,6 +1516,31 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       )}
     </Box>
     </Paywall>
+  )
+
+  if (!orgChatView) return sessionContent
+
+  const breadcrumbs = sessionProject
+    ? [
+        { title: 'Projects', routeName: 'projects' },
+        {
+          title: sessionProject.name || 'Project',
+          routeName: 'project-specs',
+          params: { id: sessionProjectID },
+        },
+      ]
+    : [{ title: 'Chat', routeName: 'chat' }]
+
+  return (
+    <Page
+      breadcrumbs={breadcrumbs}
+      breadcrumbTitle={session.data.name || 'Session'}
+      orgBreadcrumbs={true}
+      showDrawerButton={true}
+      disableContentScroll={true}
+    >
+      {sessionContent}
+    </Page>
   )
 }
 

@@ -318,7 +318,7 @@ const QuestionSetResults: FC = () => {
                                   let sessionUrl = `/session/${sessionId}`
                                   const org = account.organizationTools.organization
                                   if (org) {
-                                    sessionUrl = `/orgs/${org.name}/session/${sessionId}`
+                                    sessionUrl = `/orgs/${org.name}/chat/session/${sessionId}`
                                   }
                                   window.open(sessionUrl, '_blank')
                                 }}

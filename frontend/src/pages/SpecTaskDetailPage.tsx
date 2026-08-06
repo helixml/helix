@@ -32,6 +32,7 @@ const SpecTaskDetailPage: FC = () => {
 
   const projectId = route.params.id as string;
   const taskId = route.params.taskId as string;
+  const isChatView = route.name === "org_chat-task";
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
@@ -131,7 +132,7 @@ const SpecTaskDetailPage: FC = () => {
       ]}
       orgBreadcrumbs={true}
       showDrawerButton={true}
-      topbarContent={
+      topbarContent={!isChatView && (
         <Stack
           direction="row"
           spacing={2}
@@ -152,7 +153,7 @@ const SpecTaskDetailPage: FC = () => {
             </IconButton>
           </Tooltip>
         </Stack>
-      }
+      )}
     >
       <Box sx={{ display: "flex", flex: 1, overflow: "hidden", height: "calc(100vh - 120px)" }}>
         <Box

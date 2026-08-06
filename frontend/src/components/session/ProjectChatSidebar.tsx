@@ -1,0 +1,426 @@
+import { FC, useCallback, useEffect, useState } from 'react'
+import Box from '@mui/material/Box'
+import CircularProgress from '@mui/material/CircularProgress'
+import IconButton from '@mui/material/IconButton'
+import InputBase from '@mui/material/InputBase'
+import Tooltip from '@mui/material/Tooltip'
+import Typography from '@mui/material/Typography'
+import { Archive, FolderPlus, Search, SquarePen } from 'lucide-react'
+
+import {
+  TypesExternalRepositoryType,
+  TypesGitRepositoryType,
+} from '../../api/api'
+import type { TypesAzureDevOps, TypesGitRepository } from '../../api/api'
+import useAccount from '../../hooks/useAccount'
+import useLightTheme from '../../hooks/useLightTheme'
+import useRouter from '../../hooks/useRouter'
+import useSnackbar from '../../hooks/useSnackbar'
+import { useCreateGitRepository, useGitRepositories } from '../../services/gitRepositoryService'
+import { useListHelixOrgBots } from '../../services/helixOrgService'
+import { useListProjects } from '../../services/projectService'
+import { useArchiveSession } from '../../services/sessionService'
+import { useArchiveSpecTask } from '../../services/specTaskService'
+import CreateProjectDialog from '../project/CreateProjectDialog'
+import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
+import {
+  collapsedGroupsStorageKey,
+  isNewThreadShortcut,
+  shouldConfirmArchive,
+  parseCollapsedGroupIds,
+  serializeCollapsedGroupIds,
+} from './ProjectChatSidebar.logic'
+import type { SidebarItem } from './ProjectChatSidebar.logic'
+import ProjectChatGroup from './ProjectChatGroup'
+
+const RELATIVE_TIME_REFRESH_MS = 15000
+const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
+
+const readCollapsedGroups = (storageKey: string): Set<string> => {
+  try {
+    return parseCollapsedGroupIds(window.localStorage.getItem(storageKey))
+  } catch {
+    return new Set()
+  }
+}
+
+const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }) => {
+  const account = useAccount()
+  const router = useRouter()
+  const lightTheme = useLightTheme()
+  const snackbar = useSnackbar()
+  const orgSlug = router.params.org_id || ''
+  const orgId = account.organizationTools.organization?.id || ''
+  const storageKey = collapsedGroupsStorageKey(orgSlug)
+
+  const [query, setQuery] = useState('')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
+  const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
+  const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
+  const [archivingItemId, setArchivingItemId] = useState<string | null>(null)
+  const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
+
+  useEffect(() => {
+    setCollapsedGroups(readCollapsedGroups(storageKey))
+  }, [storageKey])
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setRelativeTimeNow(Date.now()), RELATIVE_TIME_REFRESH_MS)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
+    enabled: !!account.user?.id && !!orgId,
+  })
+  const { data: orgAgents = [] } = useListHelixOrgBots({
+    enabled: !!account.user?.id && !!orgId,
+  })
+  const orgAgentAppIds = new Set(orgAgents.flatMap((agent) => [
+    agent.agent_id,
+    agent.agent_app_id,
+  ]).filter((appId): appId is string => !!appId))
+  const { data: repositories = [], isLoading: repositoriesLoading } = useGitRepositories({
+    organizationId: orgId,
+    enabled: createProjectOpen && !!account.user?.id && !!orgId,
+  })
+  const createGitRepository = useCreateGitRepository()
+  const archiveSession = useArchiveSession()
+  const archiveSpecTask = useArchiveSpecTask()
+  const activeItemId = router.params.taskId || router.params.session_id || ''
+
+  const openNewThread = useCallback(() => {
+    setShowArchived(false)
+    account.orgNavigate('chat')
+    onOpenSession()
+  }, [account, onOpenSession])
+
+  // openNewThread is the only dependency; keeping it in the array (rather than a
+  // route id) is what stops the listener from calling a stale navigate closure.
+  useEffect(() => {
+    const handleNewThreadShortcut = (event: KeyboardEvent) => {
+      if (!isNewThreadShortcut(event)) return
+
+      event.preventDefault()
+      openNewThread()
+    }
+
+    window.addEventListener('keydown', handleNewThreadShortcut, { capture: true })
+    return () => window.removeEventListener('keydown', handleNewThreadShortcut, { capture: true })
+  }, [openNewThread])
+
+  const createRepository = async (
+    name: string,
+    description: string,
+  ): Promise<TypesGitRepository | null> => {
+    if (!account.user?.id || !orgId) return null
+
+    try {
+      const repository = await createGitRepository.mutateAsync({
+        name,
+        description,
+        owner_id: account.user.id,
+        organization_id: orgId,
+        repo_type: TypesGitRepositoryType.GitRepositoryTypeCode,
+        default_branch: 'main',
+      })
+      return repository || null
+    } catch (error) {
+      console.error('Failed to create repository:', error)
+      return null
+    }
+  }
+
+  const linkRepository = async (
+    url: string,
+    name: string,
+    type: TypesExternalRepositoryType,
+    username?: string,
+    password?: string,
+    azureDevOps?: TypesAzureDevOps,
+    oauthConnectionId?: string,
+  ): Promise<TypesGitRepository | null> => {
+    if (!account.user?.id || !orgId) return null
+
+    try {
+      const repository = await createGitRepository.mutateAsync({
+        name,
+        description: `External ${type} repository`,
+        owner_id: account.user.id,
+        organization_id: orgId,
+        repo_type: TypesGitRepositoryType.GitRepositoryTypeCode,
+        default_branch: 'main',
+        is_external: true,
+        external_url: url,
+        external_type: type,
+        username,
+        password,
+        azure_devops: azureDevOps,
+        oauth_connection_id: oauthConnectionId,
+      })
+      return repository || null
+    } catch (error: any) {
+      const message = error?.response?.data?.message
+        || error?.response?.data
+        || error?.message
+        || 'Failed to link repository'
+      throw new Error(typeof message === 'string' ? message : JSON.stringify(message))
+    }
+  }
+
+  const openItem = (item: SidebarItem) => {
+    if (item.kind === 'spec-task' && item.projectId) {
+      account.orgNavigate('chat-task', { id: item.projectId, taskId: item.id })
+    } else if (item.session?.question_set_execution_id) {
+      account.orgNavigate('qa-results', {
+        question_set_id: item.session.question_set_id,
+        execution_id: item.session.question_set_execution_id,
+      })
+    } else {
+      account.orgNavigate('session', { session_id: item.id })
+    }
+    onOpenSession()
+  }
+
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current)
+      if (next.has(groupId)) next.delete(groupId)
+      else next.add(groupId)
+      try {
+        window.localStorage.setItem(storageKey, serializeCollapsedGroupIds(next))
+      } catch {
+        // Persistence is optional when browser storage is unavailable.
+      }
+      return next
+    })
+  }
+
+  const performArchive = async (item: SidebarItem) => {
+    if (archivingItemId) return
+    // In the Archived view the same control restores the item instead.
+    const archived = !showArchived
+    const label = item.kind === 'spec-task' ? 'task' : 'chat'
+    setArchivingItemId(item.id)
+    try {
+      if (item.kind === 'spec-task') {
+        await archiveSpecTask.mutateAsync({ taskId: item.id, archived })
+      } else {
+        await archiveSession.mutateAsync({ sessionId: item.id, archived })
+      }
+      setArchiveConfirmation(null)
+      if (archived && item.id === activeItemId) account.orgNavigate('chat')
+    } catch (error: any) {
+      const message = typeof error?.response?.data === 'string'
+        ? error.response.data
+        : error?.response?.data?.message
+      snackbar.error(message || `Failed to ${archived ? 'archive' : 'restore'} ${label}`)
+    } finally {
+      setArchivingItemId(null)
+    }
+  }
+
+  const requestArchive = (item: SidebarItem) => {
+    if (shouldConfirmArchive(item, orgAgentAppIds, showArchived)) {
+      setArchiveConfirmation(item)
+      return
+    }
+    void performArchive(item)
+  }
+
+  const effectiveCollapsedGroups = query ? new Set<string>() : collapsedGroups
+  const groupsEnabled = !!account.user?.id && !!orgId
+
+  return (
+    <Box
+      sx={{
+        height: '100%',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: T3_FONT_FAMILY,
+        color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
+        backgroundColor: lightTheme.isLight ? '#fafafa' : '#000000',
+        '& .MuiTypography-root': { fontFamily: 'inherit' },
+      }}
+    >
+      <Box
+        sx={{
+          height: 60,
+          minHeight: 60,
+          px: 1.5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+        }}
+      >
+        <Search size={15} color="currentColor" style={{ opacity: 0.55, flexShrink: 0 }} />
+        <InputBase
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search"
+          inputProps={{ 'aria-label': 'Search' }}
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            color: 'inherit',
+            fontFamily: 'inherit',
+            fontSize: '14px',
+            fontWeight: 500,
+            '& input::placeholder': {
+              color: lightTheme.isLight ? '#71717a' : '#a3a3a3',
+              opacity: 1,
+            },
+          }}
+        />
+        <Tooltip title="New thread (⌘⇧O / Ctrl+Shift+O)">
+          <IconButton
+            size="small"
+            onClick={openNewThread}
+            aria-label="New thread"
+            aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
+          >
+            <SquarePen size={16} strokeWidth={1.7} />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      <Box sx={{ pl: 1.5, pr: 0.75, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
+        <Typography
+          sx={{
+            flex: 1,
+            color: lightTheme.isLight ? 'rgba(113,113,122,0.80)' : 'rgba(163,163,163,0.80)',
+            fontFamily: 'inherit',
+            fontSize: '12px',
+            fontWeight: 500,
+          }}
+        >
+          {showArchived ? 'Archived' : 'Projects'}
+        </Typography>
+        <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
+          <IconButton
+            size="small"
+            onClick={() => setShowArchived((current) => !current)}
+            aria-label={showArchived ? 'Back to active chats' : 'Show archived'}
+            aria-pressed={showArchived}
+            sx={{
+              color: showArchived
+                ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
+                : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+            }}
+          >
+            <Archive size={15} strokeWidth={1.7} />
+          </IconButton>
+        </Tooltip>
+        {!showArchived && (
+          <Tooltip title="New project">
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => setCreateProjectOpen(true)}
+                disabled={!account.user?.id || !orgId}
+                aria-label="New project"
+                sx={{
+                  color: lightTheme.isLight
+                    ? 'rgba(113,113,122,0.65)'
+                    : 'rgba(163,163,163,0.55)',
+                }}
+              >
+                <FolderPlus size={15} strokeWidth={1.7} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+      </Box>
+
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          px: 0.75,
+          pb: 1.5,
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          '&::-webkit-scrollbar': { display: 'none' },
+        }}
+      >
+        {projectsLoading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={22} />
+          </Box>
+        ) : (
+          <>
+            <ProjectChatGroup
+              orgId={orgId}
+              collapsed={effectiveCollapsedGroups.has('default')}
+              query={query}
+              activeItemId={activeItemId}
+              relativeTimeNow={relativeTimeNow}
+              enabled={groupsEnabled}
+              archived={showArchived}
+              archivingItemId={archivingItemId}
+              onToggle={() => toggleGroup('default')}
+              onNewTask={showArchived ? undefined : () => account.orgNavigate('chat')}
+              onOpenItem={openItem}
+              onArchiveItem={requestArchive}
+            />
+            {projects.flatMap((project) => project.id ? [(
+              <ProjectChatGroup
+                key={project.id}
+                orgId={orgId}
+                project={project}
+                collapsed={effectiveCollapsedGroups.has(project.id)}
+                query={query}
+                activeItemId={activeItemId}
+                relativeTimeNow={relativeTimeNow}
+                enabled={groupsEnabled}
+                archived={showArchived}
+                archivingItemId={archivingItemId}
+                onToggle={() => toggleGroup(project.id!)}
+                onNewTask={showArchived
+                  ? undefined
+                  : () => account.orgNavigate('chat', {}, { project_id: project.id })}
+                onOpenItem={openItem}
+                onArchiveItem={requestArchive}
+              />
+            )] : [])}
+          </>
+        )}
+      </Box>
+
+      {archiveConfirmation && (
+        <SimpleConfirmWindow
+          title={archiveConfirmation.kind === 'spec-task' ? 'Archive spec task' : 'Archive chat'}
+          // Only reached when archiving really does stop an agent — see
+          // shouldConfirmArchive. Plain chats archive without a prompt.
+          message={`Archive “${archiveConfirmation.title}”? ${archiveConfirmation.kind === 'spec-task'
+            ? 'Any running task agent will be stopped.'
+            : 'Its external agent will be stopped.'} You can restore it from the Archived view.`}
+          confirmTitle={archivingItemId === archiveConfirmation.id ? 'Archiving…' : 'Archive'}
+          onCancel={() => {
+            if (!archivingItemId) setArchiveConfirmation(null)
+          }}
+          onSubmit={() => void performArchive(archiveConfirmation)}
+        />
+      )}
+
+      {createProjectOpen && (
+        <CreateProjectDialog
+          open
+          onClose={() => setCreateProjectOpen(false)}
+          onSuccess={(projectId) => {
+            account.orgNavigate('chat', {}, { project_id: projectId })
+            onOpenSession()
+          }}
+          repositories={repositories}
+          reposLoading={repositoriesLoading}
+          onCreateRepo={createRepository}
+          onLinkRepo={linkRepository}
+        />
+      )}
+    </Box>
+  )
+}
+
+export default ProjectChatSidebar

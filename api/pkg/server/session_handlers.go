@@ -155,23 +155,45 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   app_id          query    string  false  "App ID"
 // @Param   search          query    string  false  "Search sessions by name"
 // @Param   project_id      query    string  false  "Project ID"
+// @Param   project_scope   query    string  false  "Project grouping scope: project or none"
+// @Param   sort            query    string  false  "Sort order: created or updated"
 // @Param   session_role    query    string  false  "Filter by session role (e.g. job)"
 // @Param   include_external_agents query bool false "Include external agent sessions"
+// @Param   archived        query    bool    false  "Return only archived sessions instead of only unarchived ones"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.Request) (*types.PaginatedSessionsList, error) {
 	ctx := req.Context()
 	user := getRequestUser(req)
+	projectScope := req.URL.Query().Get("project_scope")
+	if projectScope != "" && projectScope != "project" && projectScope != "none" {
+		return nil, system.NewHTTPError400("project_scope must be project or none")
+	}
+	projectID := req.URL.Query().Get("project_id")
+	if projectScope == "project" && projectID == "" {
+		return nil, system.NewHTTPError400("project_id is required when project_scope is project")
+	}
+	sortBy := req.URL.Query().Get("sort")
+	if sortBy != "" && sortBy != "created" && sortBy != "updated" {
+		return nil, system.NewHTTPError400("sort must be created or updated")
+	}
+	// Archived sessions are hidden by default; ?archived=true is how the sidebar's
+	// Archived view retrieves them so archiving stays reversible.
+	archivedOnly := req.URL.Query().Get("archived") == "true"
 
 	query := store.ListSessionsQuery{
 		Search:                 req.URL.Query().Get("search"),
 		QuestionSetID:          req.URL.Query().Get("question_set_id"),
 		QuestionSetExecutionID: req.URL.Query().Get("question_set_execution_id"),
 		AppID:                  req.URL.Query().Get("app_id"),
-		ProjectID:              req.URL.Query().Get("project_id"),
+		ProjectID:              projectID,
+		ProjectScope:           projectScope,
+		SortBy:                 sortBy,
 		SessionRole:            req.URL.Query().Get("session_role"),
 		IncludeExternalAgents:  req.URL.Query().Get("include_external_agents") == "true",
+		ExcludeArchived:        !archivedOnly,
+		ArchivedOnly:           archivedOnly,
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
@@ -321,6 +343,89 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 	}
 
 	return updated, nil
+}
+
+// archiveSession godoc
+// @Summary Archive or unarchive a session
+// @Description Archive a session to hide it from normal session lists, or unarchive it to restore it
+// @Tags sessions
+// @Accept json
+// @Produce json
+// @Param id path string true "Session ID"
+// @Param request body types.SessionArchiveRequest true "Archive request"
+// @Success 200 {object} types.Session
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/sessions/{id}/archive [patch]
+// @Security BearerAuth
+func (s *HelixAPIServer) archiveSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+	sessionID := mux.Vars(req)["id"]
+	if sessionID == "" {
+		return nil, system.NewHTTPError400("session ID is required")
+	}
+
+	var archiveReq types.SessionArchiveRequest
+	if err := json.NewDecoder(req.Body).Decode(&archiveReq); err != nil {
+		return nil, system.NewHTTPError400("invalid archive request")
+	}
+
+	ctx, cancel := detachContext(req.Context(), 30*time.Second)
+	defer cancel()
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if err := s.authorizeUserToSession(ctx, getRequestUser(req), session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if session.Archived == archiveReq.Archived {
+		return session, nil
+	}
+
+	if archiveReq.Archived && session.Metadata.AgentType == "zed_external" && s.externalAgentExecutor != nil {
+		orgAgentSession, err := s.isOrgAgentSession(ctx, session)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		if !orgAgentSession {
+			if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
+				log.Warn().Err(err).Str("session_id", sessionID).Msg("failed to stop external agent while archiving session")
+			}
+		}
+	}
+
+	session.Archived = archiveReq.Archived
+	updated, err := s.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	log.Info().Str("session_id", sessionID).Bool("archived", archiveReq.Archived).Msg("updated session archive state")
+	return updated, nil
+}
+
+func (s *HelixAPIServer) isOrgAgentSession(ctx context.Context, session *types.Session) (bool, error) {
+	if session.Metadata.OrgWorkerID != "" {
+		return true, nil
+	}
+	if session.OrganizationID == "" || session.ParentApp == "" || s.helixOrg == nil || s.helixOrg.store == nil || s.helixOrg.store.Nodes == nil {
+		return false, nil
+	}
+
+	nodes, err := s.helixOrg.store.Nodes.List(ctx, session.OrganizationID)
+	if err != nil {
+		return false, fmt.Errorf("list org agents while archiving session: %w", err)
+	}
+	for _, node := range nodes {
+		if node.AgentID == session.ParentApp {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // startSessionHandler godoc
@@ -498,6 +603,11 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		log.Info().Msg("session regeneration requested")
 	}
 
+	if err := validateReasoningEffort(startReq.ReasoningEffort); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, startReq.Model, types.SessionTypeText)
 	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
@@ -586,6 +696,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 		startReq.OrganizationID = session.OrganizationID
 		startReq.ProjectID = session.ProjectID
+		startReq.ReasoningEffort = applySessionReasoningEffort(session, startReq.ReasoningEffort)
 
 		// If the session has an AppID, use it as the next interaction
 		if session.ParentApp != "" {
@@ -639,6 +750,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Metadata: types.SessionMetadata{
 				Stream:              startReq.Stream,
 				SystemPrompt:        startReq.SystemPrompt,
+				ReasoningEffort:     startReq.ReasoningEffort,
 				AssistantID:         startReq.AssistantID,
 				HelixVersion:        data.GetHelixVersion(),
 				AgentType:           agentType,
@@ -950,10 +1062,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Messages: []openai.ChatCompletionMessage{},
 		}
 		options = &controller.ChatCompletionOptions{
-			OrganizationID: startReq.OrganizationID,
-			AppID:          startReq.AppID,
-			AssistantID:    startReq.AssistantID,
-			Provider:       string(startReq.Provider),
+			OrganizationID:  startReq.OrganizationID,
+			AppID:           startReq.AppID,
+			AssistantID:     startReq.AssistantID,
+			Provider:        string(startReq.Provider),
+			ReasoningEffort: startReq.ReasoningEffort,
 			QueryParams: func() map[string]string {
 				params := make(map[string]string)
 				for key, values := range req.URL.Query() {
@@ -983,6 +1096,24 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	if err != nil {
 		log.Err(err).Msg("error handling streaming session")
 	}
+}
+
+func validateReasoningEffort(effort string) error {
+	// "" means the session keeps whatever it already had. Everything else must be
+	// a tier the rest of the platform recognises — notably "none", which the agent
+	// settings UI offers and which llm_client.go maps to "reasoning disabled".
+	if effort == "" || types.ValidReasoningEffort(effort) {
+		return nil
+	}
+	return fmt.Errorf("reasoning_effort must be one of none, low, medium, or high")
+}
+
+func applySessionReasoningEffort(session *types.Session, requested string) string {
+	if requested == "" {
+		return session.Metadata.ReasoningEffort
+	}
+	session.Metadata.ReasoningEffort = requested
+	return requested
 }
 
 // appendOrOverwrite appends the new message to the session or overwrites the existing messages

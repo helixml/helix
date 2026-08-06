@@ -49,7 +49,7 @@ const Page: React.FC<{
   organizationId?: string,
   globalSearch?: boolean,
   globalSearchResourceTypes?: TypesResource[],
-  // notifications
+  // notifications — the bell is part of the standard topbar; opt out per page
   notifications?: boolean,
   children?: ReactNode,
 }> = ({
@@ -70,7 +70,7 @@ const Page: React.FC<{
   organizationId,
   globalSearch = false,
   globalSearchResourceTypes,
-  notifications = false,
+  notifications = true,
   children,
 }) => {
   const router = useRouter()
@@ -363,7 +363,7 @@ const Page: React.FC<{
                     {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
                   </IconButton>
                 </Tooltip>
-                <GlobalNotifications organizationId={organizationId} />
+                {notifications && <GlobalNotifications organizationId={organizationId} />}
               </Box>
             </AppBar>
           </Box>

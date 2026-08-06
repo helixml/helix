@@ -1,5 +1,5 @@
-import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Api, TypesSpecTaskUpdateRequest } from "../api/api";
+import { useQuery, useQueries, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { Api, TypesCreateTaskRequest, TypesSpecTaskUpdateRequest } from "../api/api";
 import useApi from "../hooks/useApi";
 
 // Re-export generated types for convenience
@@ -19,16 +19,19 @@ export type {
 // Query keys
 const QUERY_KEYS = {
   specTasksBase: ["spec-tasks"] as const,
+  specTaskLists: ["spec-tasks", "list"] as const,
   specTasks: (
     projectId?: string,
     archivedOnly?: boolean,
     withDependsOn?: boolean,
     labels?: string[],
+    limit?: number,
+    offset?: number,
   ) =>
     [
       "spec-tasks",
       "list",
-      { projectId, archivedOnly, withDependsOn, labels },
+      { projectId, archivedOnly, withDependsOn, labels, limit, offset },
     ] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
   specTaskUsage: (id: string) => ["spec-tasks", id, "usage"] as const,
@@ -57,12 +60,32 @@ const QUERY_KEYS = {
     ["projects", projectId, "labels"] as const,
 };
 
+export async function invalidateSpecTaskStatusQueries(
+  queryClient: QueryClient,
+  taskId: string,
+): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTaskLists }),
+  ]);
+}
+
+export function useRefreshSpecTaskStatus(taskId?: string) {
+  const queryClient = useQueryClient();
+
+  return () => taskId
+    ? invalidateSpecTaskStatusQueries(queryClient, taskId)
+    : Promise.resolve();
+}
+
 // Hook to fetch all spec tasks with react-query
 export function useSpecTasks(options?: {
   projectId?: string;
   archivedOnly?: boolean;
   withDependsOn?: boolean;
   labels?: string[];
+  limit?: number;
+  offset?: number;
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
@@ -74,6 +97,8 @@ export function useSpecTasks(options?: {
       options?.archivedOnly,
       options?.withDependsOn,
       options?.labels,
+      options?.limit,
+      options?.offset,
     ),
     queryFn: async () => {
       const response = await api.getApiClient().v1SpecTasksList({
@@ -84,12 +109,57 @@ export function useSpecTasks(options?: {
           options?.labels && options.labels.length > 0
             ? options.labels.join(",")
             : undefined,
+        limit: options?.limit,
+        offset: options?.offset,
       });
       return response.data || [];
     },
     enabled: options?.enabled !== false,
     refetchInterval:
       options?.refetchInterval !== undefined ? options.refetchInterval : 10000,
+  });
+}
+
+export function useCreateSpecTaskFromPrompt() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (request: TypesCreateTaskRequest) => {
+      const response = await api
+        .getApiClient()
+        .v1SpecTasksFromPromptCreate(request);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
+    },
+  });
+}
+
+export function useStartSpecTaskPlanning() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      taskId,
+      keyboard,
+      timezone,
+    }: {
+      taskId: string;
+      keyboard?: string;
+      timezone?: string;
+    }) => {
+      const response = await api
+        .getApiClient()
+        .v1SpecTasksStartPlanningCreate(taskId, { keyboard, timezone });
+      return response.data;
+    },
+    onSuccess: (_, { taskId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
+    },
   });
 }
 

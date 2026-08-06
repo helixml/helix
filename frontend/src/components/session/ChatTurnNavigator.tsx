@@ -179,17 +179,6 @@ const ChatTurnNavigator: FC<ChatTurnNavigatorProps> = ({
             width: 24,
           }}
         />
-        <Box
-          aria-hidden
-          sx={{
-            position: 'absolute',
-            top: 0,
-            bottom: 0,
-            left: 12,
-            width: '1px',
-            backgroundColor: alpha(colors.muted, 0.14),
-          }}
-        />
         {items.map((item, index) => {
           const distance = resolvedActiveIndex === null
             ? null

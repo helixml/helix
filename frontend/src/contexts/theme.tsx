@@ -84,13 +84,13 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       },
     }
 
-    const menuSurfaceBg = isLight ? 'rgba(255, 255, 255, 0.97)' : 'rgba(26, 26, 26, 0.97)'
-    const menuBorder = isLight ? '1px solid rgba(0,0,0,0.10)' : '1px solid rgba(255,255,255,0.10)'
-    const menuTextColor = isLight ? '#333' : 'white'
-    const menuHoverBg = isLight ? 'rgba(0,180,220,0.10)' : 'rgba(0,229,255,0.13)'
-    const menuSelectedBg = isLight ? 'rgba(0,180,220,0.15)' : 'rgba(0,229,255,0.18)'
-    const menuDividerColor = isLight ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.10)'
-    const menuShadow = isLight ? '0 8px 32px rgba(0,0,0,0.12)' : '0 8px 32px rgba(0,0,0,0.32)'
+    const menuSurfaceBg = isLight ? 'rgba(255, 255, 255, 0.98)' : 'rgba(27, 27, 27, 0.98)'
+    const menuBorder = isLight ? '1px solid rgba(0,0,0,0.12)' : '1px solid rgba(255,255,255,0.12)'
+    const menuTextColor = isLight ? '#262626' : '#f1f1f1'
+    const menuHoverBg = isLight ? 'rgba(0,0,0,0.045)' : 'rgba(255,255,255,0.055)'
+    const menuSelectedBg = isLight ? 'rgba(0,0,0,0.075)' : 'rgba(255,255,255,0.085)'
+    const menuDividerColor = isLight ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.09)'
+    const menuShadow = isLight ? '0 10px 30px rgba(0,0,0,0.14)' : '0 10px 30px rgba(0,0,0,0.38)'
 
     const dialogBg = isLight ? '#ffffff' : '#181A20'
     const dialogColor = isLight ? '#333' : '#F1F1F1'
@@ -150,37 +150,76 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
           },
         },
         MuiMenu: {
+          defaultProps: {
+            elevation: 0,
+          },
           styleOverrides: {
             root: {
               zIndex: 100003,
-              '& .MuiMenu-list': {
-                padding: 0,
-                backgroundColor: menuSurfaceBg,
-                backdropFilter: 'blur(10px)',
-                minWidth: '160px',
-                borderRadius: '10px',
-                border: menuBorder,
-                boxShadow: menuShadow,
-              },
+            },
+            paper: {
+              minWidth: '144px',
+              padding: '5px',
+              overflow: 'hidden auto',
+              backgroundColor: menuSurfaceBg,
+              backgroundImage: 'none',
+              backdropFilter: 'blur(12px)',
+              border: menuBorder,
+              borderRadius: '10px',
+              boxShadow: menuShadow,
               '& .MuiMenuItem-root': {
                 color: menuTextColor,
-                fontSize: '0.92rem',
+                fontSize: '0.8rem',
                 fontWeight: 500,
-                padding: '8px 16px',
-                minHeight: '32px',
+                lineHeight: 1.25,
+                padding: '5px 7px',
+                minHeight: '28px',
                 borderRadius: '6px',
-                transition: 'background 0.15s',
+                transition: 'background-color 0.1s, color 0.1s',
                 '&:hover': {
                   backgroundColor: menuHoverBg,
                 },
                 '&.Mui-selected': {
                   backgroundColor: menuSelectedBg,
+                  '&:hover': {
+                    backgroundColor: menuSelectedBg,
+                  },
                 },
+              },
+              '& .MuiListItemIcon-root': {
+                minWidth: '24px',
+                color: isLight ? 'rgba(0,0,0,0.58)' : 'rgba(255,255,255,0.58)',
+                '& svg': {
+                  width: 15,
+                  height: 15,
+                },
+              },
+              '& .MuiListItemText-primary': {
+                fontSize: 'inherit',
+                lineHeight: 'inherit',
+              },
+              '& .MuiListItemText-secondary': {
+                marginTop: '2px',
+                color: isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.48)',
+                fontSize: '0.7rem',
+                lineHeight: 1.25,
+              },
+              '& .MuiListSubheader-root': {
+                minHeight: 0,
+                padding: '5px 7px 3px',
+                backgroundColor: 'transparent',
+                color: isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.45)',
+                fontSize: '0.7rem',
+                fontWeight: 500,
+                lineHeight: 1.35,
               },
               '& .MuiDivider-root': {
                 borderColor: menuDividerColor,
-                margin: '4px 0',
+                margin: '5px 0',
               },
+            },
+            list: {
+              padding: 0,
             },
           },
         },
@@ -189,7 +228,8 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             root: {
               '&.MuiMenu-paper, &.MuiPopover-paper': {
                 backgroundColor: menuSurfaceBg,
-                backdropFilter: 'blur(10px)',
+                backgroundImage: 'none',
+                backdropFilter: 'blur(12px)',
                 borderRadius: '10px',
                 boxShadow: menuShadow,
               },

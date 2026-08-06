@@ -415,6 +415,7 @@ type SessionMetadata struct {
 	DocumentGroupID         string              `json:"document_group_id"`
 	ManuallyReviewQuestions bool                `json:"manually_review_questions"`
 	SystemPrompt            string              `json:"system_prompt"`
+	ReasoningEffort         string              `json:"reasoning_effort,omitempty"`
 	// OrgWorkerID and RuntimeInstructions are session-scoped bootstrap state for
 	// helix-org workers. Hydra materializes the instructions as native agent
 	// files in this session's workspace before starting the desktop. Ordinary
@@ -566,6 +567,7 @@ type SessionChatRequest struct {
 	Tools               []string             `json:"tools"`                           // Available tools to use in the session
 	Provider            Provider             `json:"provider"`                        // The provider to use
 	Model               string               `json:"model"`                           // The model to use
+	ReasoningEffort     string               `json:"reasoning_effort,omitempty"`      // Per-session reasoning effort for direct model chats
 	Regenerate          bool                 `json:"regenerate"`                      // If true, we will regenerate the response for the last message
 	// OrgWorkerID and RuntimeInstructions are internal in-process inputs used by
 	// the helix-org spawner. They are deliberately not part of the public chat
@@ -793,6 +795,8 @@ type Session struct {
 	Created       time.Time      `json:"created"`
 	Updated       time.Time      `json:"updated"`
 	DeletedAt     gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"` // Soft delete support - allows cleanup of orphaned lobbies
+	// Hidden from session lists; see ListSessions for why this is deliberately unindexed.
+	Archived      bool           `json:"archived" gorm:"default:false"`
 	ProjectID     string         `json:"project_id"`
 	ParentSession string         `json:"parent_session"`
 	// the app this session was spawned from
@@ -861,6 +865,10 @@ type SessionMetaUpdate struct {
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
+}
+
+type SessionArchiveRequest struct {
+	Archived bool `json:"archived"`
 }
 
 type SessionFilterModel struct {
@@ -1178,6 +1186,7 @@ type SessionSummary struct {
 	// this is either the prompt or the summary of the training data
 	Summary        string `json:"summary"`
 	Priority       bool   `json:"priority"`
+	Archived       bool   `json:"archived"`
 	AppID          string `json:"app_id,omitempty"`
 	OrganizationID string `json:"organization_id,omitempty"`
 
@@ -1707,7 +1716,26 @@ type AssistantEmail struct {
 	TemplateExample string `json:"template_example" yaml:"template_example"`
 }
 
-const ReasoningEffortNone = "none" // Don't set
+// Reasoning effort tiers. These are the values the agent settings UI offers and
+// that agent/llm_client.go understands ("none" disables reasoning entirely).
+const (
+	ReasoningEffortNone   = "none" // Don't set
+	ReasoningEffortLow    = "low"
+	ReasoningEffortMedium = "medium"
+	ReasoningEffortHigh   = "high"
+)
+
+// ValidReasoningEffort reports whether effort is a tier the platform supports.
+// The empty string means "inherit" and is accepted by callers that treat it as
+// unset.
+func ValidReasoningEffort(effort string) bool {
+	switch effort {
+	case ReasoningEffortNone, ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh:
+		return true
+	default:
+		return false
+	}
+}
 
 // Add this new type
 type TestStep struct {

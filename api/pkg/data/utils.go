@@ -52,6 +52,7 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		Updated:                session.Updated,
 		Summary:                prompt,
 		Priority:               session.Metadata.Priority,
+		Archived:               session.Archived,
 		AppID:                  session.ParentApp,
 		OrganizationID:         session.OrganizationID,
 		QuestionSetID:          session.QuestionSetID,

@@ -586,11 +586,24 @@ func PlanningQueueReason(project *types.Project, projectTasks []*types.SpecTask,
 }
 
 // ImplementationQueueReason returns "" if a queued_implementation task could
-// start now, otherwise the reason. The implementation-start transition has no
-// WIP gate of its own (the WIP reservation happens earlier, at backlog entry),
-// so the only block cause here is an unfinished dependency.
-func ImplementationQueueReason(projectTasks []*types.SpecTask, task *types.SpecTask) string {
-	return dependencyQueueReason(projectTasks, task)
+// start now, otherwise the reason. Explicit starts can enter the queue without
+// passing through handleBacklog, so the queued-state gate must enforce the WIP
+// limit as well as dependencies.
+func ImplementationQueueReason(project *types.Project, projectTasks []*types.SpecTask, task *types.SpecTask) string {
+	if reason := dependencyQueueReason(projectTasks, task); reason != "" {
+		return reason
+	}
+
+	_, _, implementationLimit := getProjectWIPLimits(project)
+	implementationCount := countTasksByStatus(projectTasks,
+		types.TaskStatusImplementationQueued,
+		types.TaskStatusImplementation,
+	)
+	if implementationCount >= implementationLimit {
+		return fmt.Sprintf("Waiting for implementation capacity — %s already being implemented (limit %d).",
+			countPhrase(implementationCount, "task"), implementationLimit)
+	}
+	return ""
 }
 
 // countPhrase renders "1 task is" / "3 tasks are" with correct grammar.
@@ -688,10 +701,63 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 		return nil
 	}
 
+	projectLock, err := o.getBacklogProjectLock(task.ProjectID)
+	if err != nil {
+		return err
+	}
+	projectLock.Lock()
+	defer projectLock.Unlock()
+
+	latestTask, err := o.store.GetSpecTask(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get latest queued task: %w", err)
+	}
+	if latestTask.Status != types.TaskStatusQueuedImplementation {
+		return nil
+	}
+
+	project, err := o.store.GetProject(ctx, latestTask.ProjectID)
+	if err != nil {
+		return fmt.Errorf("failed to get project for implementation WIP check: %w", err)
+	}
+	projectTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     latestTask.ProjectID,
+		WithDependsOn: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list project tasks for implementation WIP check: %w", err)
+	}
+
+	for _, projectTask := range projectTasks {
+		if projectTask.ID == latestTask.ID {
+			latestTask.DependsOn = projectTask.DependsOn
+			break
+		}
+	}
+	if reason := ImplementationQueueReason(project, projectTasks, latestTask); reason != "" {
+		log.Info().
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
+			Str("queue_reason", reason).
+			Msg("Leaving spec task queued - implementation capacity or dependency is blocked")
+		return nil
+	}
+
+	// Claim capacity before launching the goroutine. This closes the gap between
+	// an explicit start entering queued_implementation and StartJustDoItMode
+	// eventually persisting implementation.
+	now := time.Now()
+	latestTask.Status = types.TaskStatusImplementation
+	latestTask.StatusUpdatedAt = &now
+	latestTask.UpdatedAt = now
+	if err := o.store.UpdateSpecTask(ctx, latestTask); err != nil {
+		return fmt.Errorf("failed to reserve implementation WIP slot: %w", err)
+	}
+
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
-		o.specTaskService.StartJustDoItMode(ctx, task)
+		o.specTaskService.StartJustDoItMode(ctx, latestTask)
 	}()
 
 	return nil
@@ -790,8 +856,76 @@ func (o *SpecTaskOrchestrator) handleImplementationQueued(ctx context.Context, t
 // NOTE: Implementation prompts are now handled by agent_instruction_service.go:SendApprovalInstruction
 // That function sends the actual implementation instructions when specs are approved.
 
+// implementationLaunchGrace bounds how long a task may sit in implementation
+// having claimed a WIP slot but with nothing to show for it. Both paths into
+// implementation (handleQueuedImplementation → StartJustDoItMode, and
+// ApproveSpecs) persist a branch name and StartedAt within seconds, so anything
+// still bare after this window is a reservation whose launch never happened.
+const implementationLaunchGrace = 5 * time.Minute
+
+// reclaimStrandedImplementation returns a task to the queue when it holds an
+// implementation WIP slot it never used.
+//
+// handleQueuedImplementation claims the slot by persisting implementation BEFORE
+// spawning StartJustDoItMode, which closes the double-claim race but means an API
+// restart in that window strands the task: nothing reconciles implementation, so
+// the slot is held forever and the task never runs. Returning it to
+// queued_implementation lets the next tick retry it.
+func (o *SpecTaskOrchestrator) reclaimStrandedImplementation(ctx context.Context, task *types.SpecTask) (bool, error) {
+	launched := task.BranchName != "" ||
+		task.StartedAt != nil ||
+		task.PlanningSessionID != "" ||
+		task.ExternalAgentID != ""
+	if launched {
+		return false, nil
+	}
+	if task.StatusUpdatedAt == nil || time.Since(*task.StatusUpdatedAt) < implementationLaunchGrace {
+		return false, nil
+	}
+
+	projectLock, err := o.getBacklogProjectLock(task.ProjectID)
+	if err != nil {
+		return false, err
+	}
+	projectLock.Lock()
+	defer projectLock.Unlock()
+
+	// Re-read under the lock: a launch may have landed since the status snapshot.
+	latestTask, err := o.store.GetSpecTask(ctx, task.ID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get latest implementation task: %w", err)
+	}
+	if latestTask.Status != types.TaskStatusImplementation ||
+		latestTask.BranchName != "" ||
+		latestTask.StartedAt != nil ||
+		latestTask.PlanningSessionID != "" ||
+		latestTask.ExternalAgentID != "" {
+		return false, nil
+	}
+
+	now := time.Now()
+	latestTask.Status = types.TaskStatusQueuedImplementation
+	latestTask.StatusUpdatedAt = &now
+	latestTask.UpdatedAt = now
+	if err := o.store.UpdateSpecTask(ctx, latestTask); err != nil {
+		return false, fmt.Errorf("failed to requeue stranded implementation task: %w", err)
+	}
+
+	log.Warn().
+		Str("task_id", latestTask.ID).
+		Str("project_id", latestTask.ProjectID).
+		Msg("Requeued spec task that reserved an implementation slot but never launched")
+	return true, nil
+}
+
 // handleImplementation handles tasks in implementation
 func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *types.SpecTask) error {
+	if requeued, err := o.reclaimStrandedImplementation(ctx, task); err != nil {
+		return err
+	} else if requeued {
+		return nil
+	}
+
 	// Since we reuse the planning agent, external agents are already running
 	// No need to queue or create new agents - just verify agent is still active
 
