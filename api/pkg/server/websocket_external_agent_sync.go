@@ -62,7 +62,20 @@ func isMissingCodexRolloutError(errMsg string) bool {
 }
 
 func isAuthoritativeMissingThreadError(errMsg string) bool {
-	return isMissingCodexRolloutError(errMsg) || strings.Contains(errMsg, `no thread found with ID: SessionId("`)
+	if isMissingCodexRolloutError(errMsg) || strings.Contains(errMsg, `no thread found with ID: SessionId("`) {
+		return true
+	}
+	const prefix = "Failed to load thread: Resource not found: "
+	remainder, ok := strings.CutPrefix(errMsg, prefix)
+	if !ok {
+		return false
+	}
+	threadID, rawMeta, ok := strings.Cut(remainder, ": ")
+	if !ok || threadID == "" {
+		return false
+	}
+	var meta map[string]string
+	return json.Unmarshal([]byte(rawMeta), &meta) == nil && len(meta) == 1 && meta["uri"] == threadID
 }
 
 // acpWedgeCrashThreshold is how many prior retries a prompt must already have

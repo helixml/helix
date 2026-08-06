@@ -2238,6 +2238,55 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingCodexRolloutClearsThread
 	}
 }
 
+func (s *WebSocketSyncSuite) TestThreadLoadError_MissingClaudeThreadClearsThreadForRetry() {
+	const threadID = "019cba1e-2994-77d0-bc27-fc350cfdc2c2"
+	s.server.contextMappings[threadID] = "ses_claude"
+	sendChan := make(chan types.ExternalAgentCommand, 1)
+	s.server.externalAgentWSManager.registerConnection("ses_claude", &ExternalAgentWSConnection{SessionID: "ses_claude", SendChan: sendChan})
+
+	session := &types.Session{ID: "ses_claude", Metadata: types.SessionMetadata{ZedThreadID: threadID, ZedAgentName: "claude"}}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_claude").Return(session, nil)
+	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), "ses_claude", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, metadata types.SessionMetadata) error {
+			s.Empty(metadata.ZedThreadID)
+			return nil
+		},
+	)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-claude").Return(
+		&types.Interaction{ID: "int-claude", SessionID: "ses_claude", State: types.InteractionStateWaiting, PromptMessage: "retry claude"}, nil,
+	)
+
+	err := s.server.handleThreadLoadError("ses_claude", &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": threadID,
+			"request_id":    "int-claude",
+			"error":         `Failed to load thread: Resource not found: 019cba1e-2994-77d0-bc27-fc350cfdc2c2: {"uri":"019cba1e-2994-77d0-bc27-fc350cfdc2c2"}`,
+		},
+	})
+	s.NoError(err)
+
+	select {
+	case command := <-sendChan:
+		s.Equal("retry claude", command.Data["message"])
+		_, hasThreadID := command.Data["acp_thread_id"]
+		s.False(hasThreadID)
+	default:
+		s.Fail("missing Claude replay command")
+	}
+}
+
+func (s *WebSocketSyncSuite) TestAuthoritativeMissingThreadError_RejectsOtherResourceErrors() {
+	for _, errMsg := range []string{
+		`Resource not found: 019cba1e-2994-77d0-bc27-fc350cfdc2c2: {"uri":"019cba1e-2994-77d0-bc27-fc350cfdc2c2"}`,
+		`Failed to load thread: Resource not found: 019cba1e-2994-77d0-bc27-fc350cfdc2c2: {"uri":`,
+		`Failed to load thread: Resource not found: 019cba1e-2994-77d0-bc27-fc350cfdc2c2: {"uri":"different-thread"}`,
+		`Failed to send follow-up: Resource not found: 019cba1e-2994-77d0-bc27-fc350cfdc2c2: {"uri":"019cba1e-2994-77d0-bc27-fc350cfdc2c2"}`,
+	} {
+		s.False(isAuthoritativeMissingThreadError(errMsg), errMsg)
+	}
+}
+
 func (s *WebSocketSyncSuite) TestThreadLoadError_MissingZedThreadReplaysDirectInteractionOnce() {
 	const primeError = `no thread found with ID: SessionId("019cba1e-2994-77d0-bc27-fc350cfdc2c2")`
 	s.server.contextMappings["thread-prime"] = "ses_prime"
