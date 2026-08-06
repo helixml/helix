@@ -1,0 +1,278 @@
+import { FC, useEffect, useMemo, useState } from 'react'
+import AddIcon from '@mui/icons-material/Add'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import SplitscreenOutlinedIcon from '@mui/icons-material/SplitscreenOutlined'
+import TerminalIcon from '@mui/icons-material/Terminal'
+import ViewColumnIcon from '@mui/icons-material/ViewColumn'
+import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
+import Typography from '@mui/material/Typography'
+
+import {
+  sessionTerminalUrl,
+  useDeleteSessionTerminalSession,
+} from '../../services/sessionService'
+import PersistentTerminalPane from './PersistentTerminalPane'
+import {
+  addTerminalGroup,
+  readTerminalLayout,
+  removeTerminalPane,
+  splitActiveTerminal,
+  TerminalLayoutState,
+  TerminalSplitDirection,
+} from './sessionTerminalLayout'
+
+interface Props {
+  sessionId: string
+  running: boolean
+  fillContainer?: boolean
+}
+
+const terminalSelectionStorageKey = (sessionId: string) =>
+  `helix.session.${sessionId}.terminalLayout`
+
+const previousTerminalSelectionStorageKey = (sessionId: string) =>
+  `helix.session.${sessionId}.terminalSession`
+
+const generateSessionName = (): string => {
+  const bytes = crypto.getRandomValues(new Uint8Array(6))
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+const readStoredLayout = (sessionId: string): TerminalLayoutState => {
+  const fallback = generateSessionName()
+  try {
+    const current = window.localStorage.getItem(terminalSelectionStorageKey(sessionId))
+    const previous = window.localStorage.getItem(previousTerminalSelectionStorageKey(sessionId))
+    return readTerminalLayout(current ?? previous, fallback)
+  } catch {
+    return readTerminalLayout(null, fallback)
+  }
+}
+
+const writeStoredLayout = (sessionId: string, layout: TerminalLayoutState) => {
+  try {
+    window.localStorage.setItem(
+      terminalSelectionStorageKey(sessionId),
+      JSON.stringify(layout),
+    )
+  } catch {
+    // Browser persistence is best-effort; tmux remains the source of truth.
+  }
+}
+
+const SessionTerminal: FC<Props> = ({
+  sessionId,
+  running,
+  fillContainer = false,
+}) => {
+  const [layout, setLayout] = useState<TerminalLayoutState>(() =>
+    readStoredLayout(sessionId),
+  )
+  const deleteTerminal = useDeleteSessionTerminalSession(sessionId)
+  const activeGroup = useMemo(
+    () => layout.groups.find((group) => group.id === layout.activeGroupId),
+    [layout.activeGroupId, layout.groups],
+  )
+
+  useEffect(() => {
+    writeStoredLayout(sessionId, layout)
+  }, [layout, sessionId])
+
+  const createGroup = () => {
+    setLayout((current) => addTerminalGroup(current, generateSessionName()))
+  }
+
+  const splitTerminal = (direction: TerminalSplitDirection) => {
+    if ((activeGroup?.paneNames.length ?? 0) >= 4) return
+    setLayout((current) => splitActiveTerminal(
+      current,
+      generateSessionName(),
+      direction,
+    ))
+  }
+
+  const deleteActiveTerminal = () => {
+    const terminalSessionName = layout.activePaneName
+    if (!terminalSessionName) return
+    deleteTerminal.mutate(terminalSessionName, {
+      onSuccess: () => {
+        setLayout((current) => removeTerminalPane(current, terminalSessionName))
+      },
+    })
+  }
+
+  if (!running) {
+    return (
+      <Box sx={{ display: 'grid', placeItems: 'center', height: '100%', p: 4 }}>
+        <Typography variant="body2" color="text.secondary">
+          The development sandbox is not running. Start the desktop before opening a terminal.
+        </Typography>
+      </Box>
+    )
+  }
+
+  return (
+    <Box
+      sx={{
+        position: 'relative',
+        display: 'flex',
+        width: '100%',
+        height: fillContainer ? '100%' : 320,
+        minHeight: 0,
+        bgcolor: '#090909',
+        overflow: 'hidden',
+      }}
+    >
+      {layout.groups.length > 1 && (
+        <Box
+          component="nav"
+          aria-label="Terminal groups"
+          sx={{
+            zIndex: 2,
+            width: 34,
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 0.5,
+            pt: 0.75,
+            bgcolor: '#111',
+            borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+          }}
+        >
+          {layout.groups.map((group, index) => (
+            <Tooltip key={group.id} title={`Terminal ${index + 1}`} placement="right">
+              <IconButton
+                aria-label={`Open terminal ${index + 1}`}
+                size="small"
+                onClick={() => setLayout((current) => ({
+                  ...current,
+                  activeGroupId: group.id,
+                  activePaneName: group.paneNames[0],
+                }))}
+                sx={{
+                  width: 28,
+                  height: 28,
+                  color: group.id === layout.activeGroupId ? 'common.white' : 'grey.600',
+                  bgcolor: group.id === layout.activeGroupId
+                    ? 'rgba(255, 255, 255, 0.1)'
+                    : 'transparent',
+                }}
+              >
+                <TerminalIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          ))}
+        </Box>
+      )}
+
+      <Box sx={{ position: 'relative', flex: 1, minWidth: 0, minHeight: 0 }}>
+        <Box
+          role="toolbar"
+          aria-label="Terminal layout controls"
+          sx={{
+            position: 'absolute',
+            top: 7,
+            right: 7,
+            zIndex: 4,
+            display: 'flex',
+            alignItems: 'center',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: 1,
+            bgcolor: 'rgba(12, 12, 12, 0.92)',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.35)',
+          }}
+        >
+          <Tooltip title="Split horizontally">
+            <span>
+              <IconButton
+                aria-label="Split terminal horizontally"
+                size="small"
+                disabled={(activeGroup?.paneNames.length ?? 0) >= 4}
+                onClick={() => splitTerminal('horizontal')}
+                sx={{ color: 'grey.400', borderRadius: 0.5 }}
+              >
+                <ViewColumnIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Split vertically">
+            <span>
+              <IconButton
+                aria-label="Split terminal vertically"
+                size="small"
+                disabled={(activeGroup?.paneNames.length ?? 0) >= 4}
+                onClick={() => splitTerminal('vertical')}
+                sx={{ color: 'grey.400', borderRadius: 0.5 }}
+              >
+                <SplitscreenOutlinedIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="New terminal">
+            <IconButton
+              aria-label="New terminal"
+              size="small"
+              onClick={createGroup}
+              sx={{ color: 'grey.400', borderRadius: 0.5 }}
+            >
+              <AddIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Kill terminal session">
+            <span>
+              <IconButton
+                aria-label="Kill terminal session"
+                size="small"
+                disabled={!layout.activePaneName || deleteTerminal.isPending}
+                onClick={deleteActiveTerminal}
+                sx={{ color: 'grey.400', borderRadius: 0.5 }}
+              >
+                <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Box>
+
+        {activeGroup ? (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: activeGroup.direction === 'horizontal' ? 'row' : 'column',
+              width: '100%',
+              height: '100%',
+              gap: '1px',
+              bgcolor: 'rgba(255, 255, 255, 0.1)',
+            }}
+          >
+            {activeGroup.paneNames.map((terminalSessionName) => (
+              <Box
+                key={terminalSessionName}
+                sx={{ flex: 1, minWidth: 0, minHeight: 0 }}
+              >
+                <PersistentTerminalPane
+                  websocketUrl={sessionTerminalUrl(sessionId, terminalSessionName)}
+                  active={terminalSessionName === layout.activePaneName}
+                  onActivate={() => setLayout((current) => ({
+                    ...current,
+                    activePaneName: terminalSessionName,
+                  }))}
+                />
+              </Box>
+            ))}
+          </Box>
+        ) : (
+          <Box sx={{ display: 'grid', placeItems: 'center', height: '100%' }}>
+            <Typography variant="body2" color="grey.600">
+              Create a terminal with the + button.
+            </Typography>
+          </Box>
+        )}
+      </Box>
+    </Box>
+  )
+}
+
+export default SessionTerminal

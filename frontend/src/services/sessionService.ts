@@ -13,6 +13,22 @@ export const GET_SESSION_QUERY_KEY = (id: string) => [
   id
 ];
 
+export function useDeleteSessionTerminalSession(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useMutation({
+    mutationFn: (terminalSessionName: string) =>
+      apiClient.v1SessionsTerminalSessionsDelete(sessionId, terminalSessionName),
+  })
+}
+
+export function sessionTerminalUrl(sessionId: string, terminalSessionName: string): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const base = `${proto}//${window.location.host}/api/v1/sessions/${sessionId}/terminal`
+  return `${base}?session=${encodeURIComponent(terminalSessionName)}`
+}
+
 export interface ListSessionsFilters {
   includeExternalAgents?: boolean
   projectScope?: 'project' | 'none'

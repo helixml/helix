@@ -123,6 +123,7 @@ import {
   SlidersHorizontal,
   GitCompare,
   MonitorPlay,
+  PanelBottom,
   EllipsisVertical,
   Wand2,
   Share,
@@ -130,6 +131,12 @@ import {
 
 import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
 import { loadPanelLayout, savePanelLayout } from "../../lib/panelLayoutStorage";
+import SpecTaskTerminalDrawer from "./SpecTaskTerminalDrawer";
+import {
+  isSpecTaskTerminalToggleShortcut,
+  loadSpecTaskTerminalDrawerState,
+  saveSpecTaskTerminalDrawerState,
+} from "./specTaskTerminalDrawerState";
 
 const SPEC_TASK_CHAT_PANEL_IDS = ["spec-task-chat", "spec-task-content"] as const;
 const SPEC_TASK_CHAT_LAYOUT_KEY = "helix.specTaskChat.layout";
@@ -259,6 +266,30 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Chat panel collapse state - when true, uses mobile-style tab layout even on desktop
   const [chatCollapsed, setChatCollapsed] = useState(false);
+
+  const [terminalDrawerState, setTerminalDrawerState] = useState(() =>
+    loadSpecTaskTerminalDrawerState(taskId),
+  );
+
+  useEffect(() => {
+    setTerminalDrawerState(loadSpecTaskTerminalDrawerState(taskId));
+  }, [taskId]);
+
+  const toggleTerminalDrawer = useCallback(() => {
+    setTerminalDrawerState((current) => {
+      const next = { ...current, open: !current.open };
+      saveSpecTaskTerminalDrawerState(taskId, next);
+      return next;
+    });
+  }, [taskId]);
+
+  const setTerminalDrawerHeight = useCallback((height: number) => {
+    setTerminalDrawerState((current) => {
+      const next = { ...current, height };
+      saveSpecTaskTerminalDrawerState(taskId, next);
+      return next;
+    });
+  }, [taskId]);
 
   // Agents the task can switch to: external agents that are not part of the
   // Helix org chart. The currently-assigned agent is kept visible even if it
@@ -523,6 +554,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = selectedThreadSessionId || task?.planning_session_id;
+
+  useEffect(() => {
+    const handleTerminalShortcut = (event: KeyboardEvent) => {
+      if (!activeSessionId || !isSpecTaskTerminalToggleShortcut(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setTerminalDrawerState((current) => {
+        const next = { ...current, open: !current.open };
+        saveSpecTaskTerminalDrawerState(taskId, next);
+        return next;
+      });
+    };
+    window.addEventListener("keydown", handleTerminalShortcut);
+    return () => window.removeEventListener("keydown", handleTerminalShortcut);
+  }, [activeSessionId, taskId]);
 
   // Track sandbox/desktop state for stop/start buttons
   const {
@@ -1769,6 +1815,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     />
   ) : undefined;
 
+  const terminalToggleButton = activeSessionId ? (
+    <Tooltip title="Toggle terminal drawer (Ctrl/Cmd+J)">
+      <IconButton
+        size="small"
+        onClick={toggleTerminalDrawer}
+        color={terminalDrawerState.open ? "primary" : "default"}
+        aria-label="Toggle terminal drawer"
+        aria-pressed={terminalDrawerState.open}
+      >
+        <PanelBottom size={18} />
+      </IconButton>
+    </Tooltip>
+  ) : null;
+
   if (!task) {
     return (
       <Box
@@ -2167,6 +2227,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </>
                     ) : (
                       <>
+                        {terminalToggleButton}
                         {task.status ===
                           TypesSpecTaskStatus.TaskStatusBacklog && (
                           <Tooltip title="Edit task">
@@ -2572,6 +2633,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </>
                 ) : (
                   <>
+                    {terminalToggleButton}
                     {task.status === TypesSpecTaskStatus.TaskStatusBacklog && (
                       <Tooltip title="Edit task">
                         <IconButton size="small" onClick={handleEditToggle}>
@@ -2857,6 +2919,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </>
         )}
       </Box>
+
+      {terminalDrawerState.open && activeSessionId && (
+        <SpecTaskTerminalDrawer
+          sessionId={activeSessionId}
+          running={isDesktopRunning}
+          height={terminalDrawerState.height}
+          onHeightChange={setTerminalDrawerHeight}
+        />
+      )}
 
       {/* Restart Session Confirmation */}
       <Dialog

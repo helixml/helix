@@ -6029,12 +6029,7 @@ export interface TypesServiceDownloadProgress {
 }
 
 export interface TypesSession {
-  /**
-   * No index: every list filters `archived = false OR archived IS NULL`, which
-   * matches nearly every row, so a plain boolean index would never be chosen —
-   * and AutoMigrate builds indexes non-concurrently, taking an ACCESS EXCLUSIVE
-   * lock on `sessions` for the length of the build.
-   */
+  /** Hidden from session lists; see ListSessions for why this is deliberately unindexed. */
   archived?: boolean;
   /** named config for backward compat */
   config?: TypesSessionMetadata;
@@ -16857,6 +16852,58 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sessions
+     * @name V1SessionsTerminalDetail
+     * @summary Session terminal websocket
+     * @request GET:/api/v1/sessions/{id}/terminal
+     * @secure
+     */
+    v1SessionsTerminalDetail: (id: string, params: RequestParams = {}) =>
+      this.request<any, any>({
+        path: `/api/v1/sessions/${id}/terminal`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sessions
+     * @name V1SessionsTerminalSessionsDetail
+     * @summary List session tmux sessions
+     * @request GET:/api/v1/sessions/{id}/terminal/sessions
+     * @secure
+     */
+    v1SessionsTerminalSessionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerSandboxTerminalSessionsResponse, any>({
+        path: `/api/v1/sessions/${id}/terminal/sessions`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sessions
+     * @name V1SessionsTerminalSessionsDelete
+     * @summary Delete session tmux session
+     * @request DELETE:/api/v1/sessions/{id}/terminal/sessions/{terminal_session}
+     * @secure
+     */
+    v1SessionsTerminalSessionsDelete: (id: string, terminalSession: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/sessions/${id}/terminal/sessions/${terminalSession}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
