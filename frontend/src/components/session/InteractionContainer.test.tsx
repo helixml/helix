@@ -13,11 +13,11 @@ const renderMessage = (messageRole: 'user' | 'assistant') => render(
 )
 
 describe('InteractionContainer chat typography', () => {
-  it('uses a high-contrast T3-style foreground for assistant messages', () => {
+  it('uses T3 foreground opacity for assistant messages', () => {
     const { container } = renderMessage('assistant')
     const message = container.querySelector('[data-chat-message-role="assistant"]')
 
-    expect(message).toHaveStyle({ color: '#e8e8e8' })
+    expect(message).toHaveStyle({ color: 'rgba(245, 245, 245, 0.8)' })
   })
 
   it('keeps user messages at full foreground opacity', () => {

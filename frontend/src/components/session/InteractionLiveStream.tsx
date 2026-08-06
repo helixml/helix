@@ -18,6 +18,7 @@ import {
 } from "../../api/api";
 import ToolStepsWidget from "./ToolStepsWidget";
 import ActivitySummary from "./ActivitySummary";
+import { getInteractionRequestTimeMs } from "./interactionDuration";
 
 export const InteractionLiveStream: FC<{
   session_id: string;
@@ -45,11 +46,14 @@ export const InteractionLiveStream: FC<{
 
   // Track if we're still in streaming mode or completed
   const [isActivelyStreaming, setIsActivelyStreaming] = useState(true);
-  const activityStartedAtRef = useRef(Date.now());
+  const activityStartedAt = useMemo(
+    () => getInteractionRequestTimeMs(interaction, Date.now()),
+    [interaction.id, interaction.created],
+  );
   const effectiveDurationMs =
     durationMs ||
     (!isActivelyStreaming
-      ? Math.max(0, Date.now() - activityStartedAtRef.current)
+      ? Math.max(0, Date.now() - activityStartedAt)
       : 0);
 
   const useClientURL = useCallback(
@@ -80,7 +84,6 @@ export const InteractionLiveStream: FC<{
   // Reset streaming state when interaction ID changes
   useEffect(() => {
     setIsActivelyStreaming(true);
-    activityStartedAtRef.current = Date.now();
   }, [interaction?.id]);
 
   // Detect completion from the server (WebSocket)
@@ -146,7 +149,7 @@ export const InteractionLiveStream: FC<{
         <ActivitySummary
           hasActivity={false}
           isStreaming
-          startedAt={activityStartedAtRef.current}
+          startedAt={activityStartedAt}
         />
       )}
 
@@ -160,7 +163,7 @@ export const InteractionLiveStream: FC<{
             showBlinker={true}
             isStreaming={isActivelyStreaming}
             durationMs={effectiveDurationMs}
-            activityStartedAt={activityStartedAtRef.current}
+            activityStartedAt={activityStartedAt}
             onFilterDocument={onFilterDocument}
           />
         </div>
