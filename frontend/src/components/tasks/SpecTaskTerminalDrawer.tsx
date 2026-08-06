@@ -12,6 +12,7 @@ interface Props {
   running: boolean
   height: number
   onHeightChange: (height: number) => void
+  onClose: () => void
 }
 
 const SpecTaskTerminalDrawer: FC<Props> = ({
@@ -19,6 +20,7 @@ const SpecTaskTerminalDrawer: FC<Props> = ({
   running,
   height,
   onHeightChange,
+  onClose,
 }) => {
   const [renderedHeight, setRenderedHeight] = useState(() =>
     clampSpecTaskTerminalHeight(height),
@@ -135,6 +137,7 @@ const SpecTaskTerminalDrawer: FC<Props> = ({
         sessionId={sessionId}
         running={running}
         fillContainer
+        onRequestClose={onClose}
       />
     </Box>
   )

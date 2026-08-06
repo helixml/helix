@@ -51,12 +51,7 @@ export const readTerminalLayout = (
         && (group.direction === 'horizontal' || group.direction === 'vertical')
     })
     if (groups.length === 0) {
-      return {
-        version: 1,
-        groups: [],
-        activeGroupId: null,
-        activePaneName: null,
-      }
+      return createTerminalLayout(fallbackSessionName)
     }
     const activeGroup = groups.find((group) => group.id === parsed.activeGroupId) ?? groups[0]
     const activePaneName = activeGroup.paneNames.includes(parsed.activePaneName ?? '')

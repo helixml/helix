@@ -37,7 +37,6 @@ import {
   Autocomplete,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import EditIcon from "@mui/icons-material/Edit";
 import PlayArrow from "@mui/icons-material/PlayArrow";
 import Description from "@mui/icons-material/Description";
 import SaveIcon from "@mui/icons-material/Save";
@@ -46,15 +45,12 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import StopIcon from "@mui/icons-material/Stop";
 import LaunchIcon from "@mui/icons-material/Launch";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
-import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import VerticalSplitIcon from "@mui/icons-material/VerticalSplit";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import UndoIcon from "@mui/icons-material/Undo";
-import LockIcon from "@mui/icons-material/Lock";
-import LockOpenIcon from "@mui/icons-material/LockOpen";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, {
   useSandboxState,
@@ -120,13 +116,21 @@ import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
 import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
 import {
+  CloudUpload as CloudUploadLucide,
   SlidersHorizontal,
   GitCompare,
+  Lock as LockLucide,
+  LockOpen as LockOpenLucide,
   MonitorPlay,
   PanelBottom,
+  Pencil,
+  Play as PlayLucide,
+  RotateCw,
+  Square,
   EllipsisVertical,
   Wand2,
   Share,
+  X,
 } from "lucide-react";
 
 import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
@@ -140,9 +144,21 @@ import {
 
 const SPEC_TASK_CHAT_PANEL_IDS = ["spec-task-chat", "spec-task-content"] as const;
 const SPEC_TASK_CHAT_LAYOUT_KEY = "helix.specTaskChat.layout";
+const taskToolbarIconButtonSx = {
+  color: "text.secondary",
+  "&:hover": {
+    color: "text.primary",
+    backgroundColor: "action.hover",
+  },
+  '&[aria-pressed="true"]': {
+    backgroundColor: "action.selected",
+  },
+} as const;
 
 interface SpecTaskDetailContentProps {
   taskId: string;
+  /** Keep standalone task content inset while allowing sibling drawers to span the workspace. */
+  padContent?: boolean;
   onClose?: () => void;
   /** Called when user clicks "Review Spec" - if provided, opens in workspace pane instead of navigating */
   onOpenReview?: (
@@ -163,6 +179,7 @@ interface SpecTaskDetailContentProps {
 
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
+  padContent = false,
   onClose,
   onOpenReview,
   onTaskArchived,
@@ -286,6 +303,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const setTerminalDrawerHeight = useCallback((height: number) => {
     setTerminalDrawerState((current) => {
       const next = { ...current, height };
+      saveSpecTaskTerminalDrawerState(taskId, next);
+      return next;
+    });
+  }, [taskId]);
+
+  const closeTerminalDrawer = useCallback(() => {
+    setTerminalDrawerState((current) => {
+      const next = { ...current, open: false };
       saveSpecTaskTerminalDrawerState(taskId, next);
       return next;
     });
@@ -1820,7 +1845,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       <IconButton
         size="small"
         onClick={toggleTerminalDrawer}
-        color={terminalDrawerState.open ? "primary" : "default"}
+        sx={taskToolbarIconButtonSx}
         aria-label="Toggle terminal drawer"
         aria-pressed={terminalDrawerState.open}
       >
@@ -1888,6 +1913,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
+          px: padContent ? { xs: 0, sm: 3 } : 0,
         }}
       >
         {/* Desktop layout: left panel (chat always visible) + right panel (content toggleable) */}
@@ -2231,8 +2257,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         {task.status ===
                           TypesSpecTaskStatus.TaskStatusBacklog && (
                           <Tooltip title="Edit task">
-                            <IconButton size="small" onClick={handleEditToggle}>
-                              <EditIcon sx={{ fontSize: 18 }} />
+                            <IconButton
+                              size="small"
+                              onClick={handleEditToggle}
+                              sx={taskToolbarIconButtonSx}
+                            >
+                              <Pencil size={17} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -2243,12 +2273,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               size="small"
                               onClick={handleStartSession}
                               disabled={isStarting || isDesktopStarting}
-                              color="success"
+                              sx={taskToolbarIconButtonSx}
                             >
                               {isStarting || isDesktopStarting ? (
                                 <CircularProgress size={16} />
                               ) : (
-                                <PlayArrow sx={{ fontSize: 18 }} />
+                                <PlayLucide size={17} />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2260,12 +2290,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               size="small"
                               onClick={() => setStopConfirmOpen(true)}
                               disabled={isStopping}
-                              color="error"
+                              sx={taskToolbarIconButtonSx}
                             >
                               {isStopping ? (
                                 <CircularProgress size={16} />
                               ) : (
-                                <StopIcon sx={{ fontSize: 18 }} />
+                                <Square size={15} fill="currentColor" />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2277,12 +2307,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               size="small"
                               onClick={() => setRestartConfirmOpen(true)}
                               disabled={isRestarting}
-                              color="warning"
+                              sx={taskToolbarIconButtonSx}
                             >
                               {isRestarting ? (
                                 <CircularProgress size={16} />
                               ) : (
-                                <RestartAltIcon sx={{ fontSize: 18 }} />
+                                <RotateCw size={17} />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2300,16 +2330,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               size="small"
                               onClick={handleToggleKeepAlive}
                               disabled={updateSpecTask.isPending}
-                              sx={{
-                                color: task.keep_alive
-                                  ? "success.main"
-                                  : "text.secondary",
-                              }}
+                              sx={taskToolbarIconButtonSx}
+                              aria-pressed={task.keep_alive}
                             >
                               {task.keep_alive ? (
-                                <LockIcon sx={{ fontSize: 18 }} />
+                                <LockLucide size={17} />
                               ) : (
-                                <LockOpenIcon sx={{ fontSize: 18 }} />
+                                <LockOpenLucide size={17} />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2321,12 +2348,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               size="small"
                               onClick={handleUploadClick}
                               disabled={isUploading}
-                              color="primary"
+                              sx={taskToolbarIconButtonSx}
                             >
                               {isUploading ? (
                                 <CircularProgress size={16} />
                               ) : (
-                                <CloudUploadIcon sx={{ fontSize: 18 }} />
+                                <CloudUploadLucide size={17} />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2338,6 +2365,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               onClick={(event) =>
                                 setActionMenuAnchorEl(event.currentTarget)
                               }
+                              sx={taskToolbarIconButtonSx}
                             >
                               <EllipsisVertical size={18} />
                             </IconButton>
@@ -2346,8 +2374,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </>
                     )}
                     {onClose && (
-                      <IconButton size="small" onClick={onClose}>
-                        <CloseIcon sx={{ fontSize: 18 }} />
+                      <IconButton
+                        size="small"
+                        onClick={onClose}
+                        sx={taskToolbarIconButtonSx}
+                      >
+                        <X size={18} />
                       </IconButton>
                     )}
                   </Box>
@@ -2636,8 +2668,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     {terminalToggleButton}
                     {task.status === TypesSpecTaskStatus.TaskStatusBacklog && (
                       <Tooltip title="Edit task">
-                        <IconButton size="small" onClick={handleEditToggle}>
-                          <EditIcon sx={{ fontSize: 18 }} />
+                        <IconButton
+                          size="small"
+                          onClick={handleEditToggle}
+                          sx={taskToolbarIconButtonSx}
+                        >
+                          <Pencil size={17} />
                         </IconButton>
                       </Tooltip>
                     )}
@@ -2648,12 +2684,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           size="small"
                           onClick={handleStartSession}
                           disabled={isStarting || isDesktopStarting}
-                          color="success"
+                          sx={taskToolbarIconButtonSx}
                         >
                           {isStarting || isDesktopStarting ? (
                             <CircularProgress size={16} />
                           ) : (
-                            <PlayArrow sx={{ fontSize: 18 }} />
+                            <PlayLucide size={17} />
                           )}
                         </IconButton>
                       </Tooltip>
@@ -2665,12 +2701,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           size="small"
                           onClick={() => setStopConfirmOpen(true)}
                           disabled={isStopping}
-                          color="error"
+                          sx={taskToolbarIconButtonSx}
                         >
                           {isStopping ? (
                             <CircularProgress size={16} />
                           ) : (
-                            <StopIcon sx={{ fontSize: 18 }} />
+                            <Square size={15} fill="currentColor" />
                           )}
                         </IconButton>
                       </Tooltip>
@@ -2682,12 +2718,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           size="small"
                           onClick={() => setRestartConfirmOpen(true)}
                           disabled={isRestarting}
-                          color="warning"
+                          sx={taskToolbarIconButtonSx}
                         >
                           {isRestarting ? (
                             <CircularProgress size={16} />
                           ) : (
-                            <RestartAltIcon sx={{ fontSize: 18 }} />
+                            <RotateCw size={17} />
                           )}
                         </IconButton>
                       </Tooltip>
@@ -2699,12 +2735,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           size="small"
                           onClick={handleUploadClick}
                           disabled={isUploading}
-                          color="primary"
+                          sx={taskToolbarIconButtonSx}
                         >
                           {isUploading ? (
                             <CircularProgress size={16} />
                           ) : (
-                            <CloudUploadIcon sx={{ fontSize: 18 }} />
+                            <CloudUploadLucide size={17} />
                           )}
                         </IconButton>
                       </Tooltip>
@@ -2716,6 +2752,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           onClick={(event) =>
                             setActionMenuAnchorEl(event.currentTarget)
                           }
+                          sx={taskToolbarIconButtonSx}
                         >
                           <EllipsisVertical size={18} />
                         </IconButton>
@@ -2724,8 +2761,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </>
                 )}
                 {onClose && (
-                  <IconButton size="small" onClick={onClose}>
-                    <CloseIcon sx={{ fontSize: 18 }} />
+                  <IconButton
+                    size="small"
+                    onClick={onClose}
+                    sx={taskToolbarIconButtonSx}
+                  >
+                    <X size={18} />
                   </IconButton>
                 )}
               </Box>
@@ -2926,6 +2967,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           running={isDesktopRunning}
           height={terminalDrawerState.height}
           onHeightChange={setTerminalDrawerHeight}
+          onClose={closeTerminalDrawer}
         />
       )}
 

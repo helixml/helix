@@ -60,6 +60,11 @@ ID. Session terminal routes therefore authorize the session, dial
    split actions create another independently persistent tmux session; the new
    terminal action creates a separate group; trash kills the active tmux session
    server-side before removing its pane.
+8. Use the same neutral Lucide split, add, and trash controls as T3 Code. Task
+   action icons share the same neutral color treatment. Task terminals use a
+   compact `helix ~/work ❯` prompt instead of exposing the container hostname.
+9. Keep standalone task content padded while allowing the terminal drawer to
+   span the full task workspace width.
 
 ## Lifecycle
 
@@ -69,6 +74,9 @@ session inside that session's development container. Closing or refreshing the
 page only closes the WebSocket/PTY client; tmux and its child processes remain.
 Reopening the drawer or refreshing reuses the stored layout and reattaches each
 visible pane. Trash explicitly kills the active tmux session through the API.
+Exiting a shell with Ctrl+D removes its pane; exiting the last pane collapses the
+drawer. Opening the drawer after all panes were closed creates a fresh terminal
+session automatically.
 
 Stopping or replacing the development container ends its tmux server. The UI
 does not attempt to fake persistence across container replacement.

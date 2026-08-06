@@ -160,10 +160,13 @@ const SpecTaskDetailPage: FC = () => {
           sx={{
             flex: 1,
             overflow: "auto",
-            px: { xs: 0, sm: 3 },
           }}
         >
-          <SpecTaskDetailContent taskId={taskId} onClose={handleBack} />
+          <SpecTaskDetailContent
+            taskId={taskId}
+            onClose={handleBack}
+            padContent
+          />
         </Box>
 
         {/* Slide-in new spec task panel */}

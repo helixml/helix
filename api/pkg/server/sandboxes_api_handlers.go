@@ -516,14 +516,14 @@ func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request
 		http.Error(rw, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	s.openPersistentTerminal(rw, r, client, sb.ID, "")
+	s.openPersistentTerminal(rw, r, client, sb.ID, "", "")
 }
 
 // openPersistentTerminal bridges a browser terminal to a development
 // container and attaches it to a named tmux session. Both user-created
 // sandboxes and external-agent sessions use this path; only their authorization
 // and Hydra routing differ.
-func (s *HelixAPIServer) openPersistentTerminal(rw http.ResponseWriter, r *http.Request, client *hydra.RevDialClient, targetID, workingDirectory string) {
+func (s *HelixAPIServer) openPersistentTerminal(rw http.ResponseWriter, r *http.Request, client *hydra.RevDialClient, targetID, workingDirectory, prompt string) {
 	wsConn, err := sandboxTerminalUpgrader.Upgrade(rw, r, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("sandbox terminal upgrade failed")
@@ -554,10 +554,29 @@ func (s *HelixAPIServer) openPersistentTerminal(rw http.ResponseWriter, r *http.
 		// orphaned `tmux: client` processes piling up after every WS drop.
 		workingDirectoryCommand := ""
 		newSessionWorkingDirectory := ""
+		newSessionShell := ""
+		fallbackShell := "/bin/bash -l"
 		if workingDirectory != "" {
 			quotedWorkingDirectory := strconv.Quote(workingDirectory)
 			workingDirectoryCommand = "cd " + quotedWorkingDirectory + "\n"
 			newSessionWorkingDirectory = " -c " + quotedWorkingDirectory
+		}
+		if prompt != "" {
+			rcPath := "/tmp/helix-terminal-bashrc-" + session
+			rcBody := []byte(`# Helix task terminal prompt. Auto-generated.
+if [ -f "$HOME/.bashrc" ]; then
+  . "$HOME/.bashrc"
+fi
+PROMPT_COMMAND=
+PS1=` + strconv.Quote(prompt) + `
+`)
+			if err := client.WriteSandboxFile(r.Context(), targetID, rcPath, rcBody, 0o644); err != nil {
+				writeWSError(wsConn, "failed to install terminal prompt: "+err.Error())
+				return
+			}
+			quotedRCPath := strconv.Quote(rcPath)
+			newSessionShell = " /bin/bash --rcfile " + quotedRCPath + " -i"
+			fallbackShell = "/bin/bash --rcfile " + quotedRCPath + " -i"
 		}
 		scriptBody := []byte(`#!/bin/sh
 # Helix per-session terminal attach. Auto-generated; safe to re-create.
@@ -576,12 +595,12 @@ if ! command -v tmux >/dev/null 2>&1; then
   fi
 fi
 if command -v tmux >/dev/null 2>&1; then
-  tmux has-session -t helix-` + session + ` 2>/dev/null || tmux new-session -d -s helix-` + session + newSessionWorkingDirectory + `
+  tmux has-session -t helix-` + session + ` 2>/dev/null || tmux new-session -d -s helix-` + session + newSessionWorkingDirectory + newSessionShell + `
   tmux set-option -t helix-` + session + ` status off
   exec tmux attach-session -d -t helix-` + session + `
 fi
 echo "tmux not available — falling back to bash (session will not persist across reconnects)" >&2
-exec /bin/bash -l
+exec ` + fallbackShell + `
 `)
 		if err := client.WriteSandboxFile(r.Context(), targetID, scriptPath, scriptBody, 0o755); err != nil {
 			writeWSError(wsConn, "failed to install attach script: "+err.Error())

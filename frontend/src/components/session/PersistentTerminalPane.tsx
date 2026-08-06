@@ -9,6 +9,7 @@ interface Props {
   readOnly?: boolean
   active?: boolean
   onActivate?: () => void
+  onExit?: (exitCode: number) => void
 }
 
 const PersistentTerminalPane: FC<Props> = ({
@@ -16,8 +17,14 @@ const PersistentTerminalPane: FC<Props> = ({
   readOnly = false,
   active = false,
   onActivate,
+  onExit,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const onExitRef = useRef(onExit)
+
+  useEffect(() => {
+    onExitRef.current = onExit
+  }, [onExit])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -53,6 +60,9 @@ const PersistentTerminalPane: FC<Props> = ({
           const message = JSON.parse(event.data)
           if (message?.type === 'error') {
             term.write(`\r\n\x1b[31m${message.message}\x1b[0m\r\n`)
+          }
+          if (message?.type === 'exit') {
+            onExitRef.current?.(Number(message.code) || 0)
           }
         } catch {
           term.write(event.data)

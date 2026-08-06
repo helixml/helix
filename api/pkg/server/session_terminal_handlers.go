@@ -12,7 +12,10 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-const sessionTerminalWorkingDirectory = "/home/retro/work"
+const (
+	sessionTerminalWorkingDirectory = "/home/retro/work"
+	sessionTerminalPrompt           = `\[\033[38;5;111m\]helix\[\033[0m\] \[\033[38;5;250m\]\w\[\033[0m\] \[\033[38;5;111m\]❯\[\033[0m\] `
+)
 
 // sessionTerminal opens a persistent terminal in an external-agent session's
 // development container.
@@ -27,7 +30,7 @@ func (s *HelixAPIServer) sessionTerminal(rw http.ResponseWriter, r *http.Request
 	if session == nil {
 		return
 	}
-	s.openPersistentTerminal(rw, r, client, session.ID, sessionTerminalWorkingDirectory)
+	s.openPersistentTerminal(rw, r, client, session.ID, sessionTerminalWorkingDirectory, sessionTerminalPrompt)
 }
 
 // sessionTerminalSessions lists Helix-managed tmux sessions in an

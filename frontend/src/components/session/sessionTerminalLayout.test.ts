@@ -13,6 +13,19 @@ describe('session terminal layout', () => {
     expect(readTerminalLayout('abc123', 'fallback')).toEqual(createTerminalLayout('abc123'))
   })
 
+  it('creates a new terminal after the persisted layout was emptied', () => {
+    const emptyLayout = JSON.stringify({
+      version: 1,
+      groups: [],
+      activeGroupId: null,
+      activePaneName: null,
+    })
+
+    expect(readTerminalLayout(emptyLayout, 'new-session')).toEqual(
+      createTerminalLayout('new-session'),
+    )
+  })
+
   it('creates groups and independent split panes', () => {
     const initial = createTerminalLayout('one')
     const split = splitActiveTerminal(initial, 'two', 'vertical')
