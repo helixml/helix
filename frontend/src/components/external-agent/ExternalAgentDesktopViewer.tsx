@@ -38,9 +38,13 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
     refetchInterval: 3000, // Poll every 3 seconds
   });
 
-  const { sandboxState, statusMessage } = useMemo(() => {
+  const { sandboxState, statusMessage, hasDesktopLifecycleState } = useMemo(() => {
     if (!sessionResponse?.data) {
-      return { sandboxState: "loading", statusMessage: "" };
+      return {
+        sandboxState: "loading",
+        statusMessage: "",
+        hasDesktopLifecycleState: false,
+      };
     }
 
     const session = sessionResponse.data;
@@ -71,7 +75,15 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
       state = hasContainer ? "running" : "absent";
     }
 
-    return { sandboxState: state, statusMessage: msg };
+    return {
+      sandboxState: state,
+      statusMessage: msg,
+      // A newly-created spec-task session exists before StartDesktop has written
+      // any lifecycle fields. Keep that state distinct from a desktop that was
+      // provisioned and subsequently stopped so callers can render the launch
+      // transition instead of a misleading "Desktop Paused" action.
+      hasDesktopLifecycleState: !!(status || desiredState || hasContainer),
+    };
   }, [sessionResponse?.data]);
 
   // Backend now returns 'starting' state for recently-created containers
@@ -82,7 +94,14 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
   // Show "paused" only if container was previously running but is now absent
   const isPaused = sandboxState === "absent";
 
-  return { sandboxState, isRunning, isPaused, isStarting, statusMessage };
+  return {
+    sandboxState,
+    isRunning,
+    isPaused,
+    isStarting,
+    statusMessage,
+    hasDesktopLifecycleState,
+  };
 };
 
 interface ExternalAgentDesktopViewerProps {

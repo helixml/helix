@@ -9,6 +9,8 @@ const items = [
   { id: 'second', userText: 'Second user message', assistantText: 'Second assistant response' },
 ]
 
+const singleItem = [items[0]]
+
 const renderNavigator = (onSelect = vi.fn()) => {
   render(
     <ThemeProvider theme={createTheme({ palette: { mode: 'dark' } })}>
@@ -108,5 +110,16 @@ describe('ChatTurnNavigator interactions', () => {
 
     fireEvent.keyDown(button, { key: 'Enter' })
     expect(onSelect).toHaveBeenCalledWith(items[1])
+  })
+
+  it('renders for a single-turn session', () => {
+    render(
+      <ThemeProvider theme={createTheme({ palette: { mode: 'dark' } })}>
+        <ChatTurnNavigator items={singleItem} scrollContainer={null} onSelect={vi.fn()} />
+      </ThemeProvider>,
+    )
+
+    expect(screen.getByRole('button', { hidden: true })).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-chat-turn-marker]')).toHaveLength(1)
   })
 })

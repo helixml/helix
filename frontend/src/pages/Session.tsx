@@ -406,7 +406,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
       endIndex: totalInteractions,
       isGhost: false
     }])
-  }, [session?.data?.interactions])
+  }, [session?.data?.id, session?.data?.interactions?.length])
 
   // Handle streaming state
   useEffect(() => {
@@ -529,11 +529,11 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
     })
   }, [visibleBlocks, blockHeights, getBlockKey])
 
-  // Initialize blocks only once when session data first loads
+  // Initialize blocks when session data first loads and when new interactions arrive
   useEffect(() => {
     if (!session?.data?.interactions) return
     initializeVisibleBlocks()
-  }, [session?.data?.id]) // Only run when session ID changes
+  }, [initializeVisibleBlocks, session?.data?.id, session?.data?.interactions?.length])
 
   const loading = useMemo(() => {
     if (!session?.data || !session?.data?.interactions || session?.data?.interactions.length === 0) return false
@@ -999,6 +999,10 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   ])
 
   const navigatorInteractions = useMemo(() => {
+    if (visibleBlocks.length === 0) {
+      return memoizedInteractions.slice(-INTERACTIONS_PER_BLOCK)
+    }
+
     return visibleBlocks
       .filter((block) => !block.isGhost)
       .flatMap((block) => memoizedInteractions.slice(block.startIndex, block.endIndex))

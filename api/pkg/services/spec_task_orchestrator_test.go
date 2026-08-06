@@ -503,6 +503,62 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_RespectsI
 	s.Equal(types.TaskStatusQueuedImplementation, task.Status)
 }
 
+// handleQueuedImplementation claims the WIP slot before launching the agent, so
+// an API restart in that window leaves a task holding a slot it never used.
+func (s *SpecTaskOrchestratorTestSuite) TestHandleImplementation_RequeuesStrandedReservation() {
+	ctx := context.Background()
+	stranded := time.Now().Add(-implementationLaunchGrace - time.Minute)
+	task := &types.SpecTask{
+		ID:              "task-stranded",
+		ProjectID:       "project-123",
+		Status:          types.TaskStatusImplementation,
+		StatusUpdatedAt: &stranded,
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.Equal(types.TaskStatusQueuedImplementation, updated.Status)
+			return nil
+		},
+	)
+
+	s.Require().NoError(s.orchestrator.handleImplementation(ctx, task))
+}
+
+// A task that actually launched owns its slot legitimately, however long it runs.
+func (s *SpecTaskOrchestratorTestSuite) TestHandleImplementation_LeavesLaunchedTaskAlone() {
+	ctx := context.Background()
+	old := time.Now().Add(-24 * time.Hour)
+	task := &types.SpecTask{
+		ID:                "task-running",
+		ProjectID:         "project-123",
+		Status:            types.TaskStatusImplementation,
+		StatusUpdatedAt:   &old,
+		StartedAt:         &old,
+		BranchName:        "feat/something",
+		PlanningSessionID: "ses_123",
+	}
+
+	s.Require().NoError(s.orchestrator.handleImplementation(ctx, task))
+	s.Equal(types.TaskStatusImplementation, task.Status)
+}
+
+// The grace period keeps the reclaim from racing a launch that is still writing.
+func (s *SpecTaskOrchestratorTestSuite) TestHandleImplementation_WaitsOutTheLaunchGrace() {
+	ctx := context.Background()
+	justReserved := time.Now()
+	task := &types.SpecTask{
+		ID:              "task-launching",
+		ProjectID:       "project-123",
+		Status:          types.TaskStatusImplementation,
+		StatusUpdatedAt: &justReserved,
+	}
+
+	s.Require().NoError(s.orchestrator.handleImplementation(ctx, task))
+	s.Equal(types.TaskStatusImplementation, task.Status)
+}
+
 // Note: These are simplified unit tests focusing on testable functions
 // Full integration tests with store/wolf mocking should be in integration test suite
 

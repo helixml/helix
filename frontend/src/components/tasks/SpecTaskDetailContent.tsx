@@ -105,7 +105,9 @@ import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSession
 import AgentChat from "../session/AgentChat";
 import SwitchAgentControl from "../session/SwitchAgentControl";
 import SharePreviewSection from "./SharePreviewSection";
-import SpecTaskLaunchWindow from "./SpecTaskLaunchWindow";
+import SpecTaskLaunchWindow, {
+  getSpecTaskLaunchPhase,
+} from "./SpecTaskLaunchWindow";
 import TaskChatMetadata from "./TaskChatMetadata";
 import {
   Panel,
@@ -522,32 +524,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = selectedThreadSessionId || task?.planning_session_id;
 
-  const launchPhase = useMemo<"queued" | "starting" | null>(() => {
-    if (activeSessionId || !task) return null;
-
-    if (
-      task.status === TypesSpecTaskStatus.TaskStatusQueuedSpecGeneration ||
-      task.status === TypesSpecTaskStatus.TaskStatusQueuedImplementation
-    ) {
-      return task.queue_reason?.trim() ? "queued" : "starting";
-    }
-
-    if (
-      task.status === TypesSpecTaskStatus.TaskStatusSpecGeneration ||
-      task.status === TypesSpecTaskStatus.TaskStatusImplementation
-    ) {
-      return "starting";
-    }
-
-    return null;
-  }, [activeSessionId, task?.status, task?.queue_reason]);
-
   // Track sandbox/desktop state for stop/start buttons
   const {
     isRunning: isDesktopRunning,
     isPaused: isDesktopPaused,
     isStarting: isDesktopStarting,
+    hasDesktopLifecycleState,
   } = useSandboxState(activeSessionId || "");
+
+  const launchPhase = getSpecTaskLaunchPhase({
+    status: task?.status,
+    queueReason: task?.queue_reason,
+    activeSessionId,
+    hasDesktopLifecycleState,
+  });
 
   // When the task is queued for planning, the backend hasn't created the session yet (or the
   // planning_session_id still points to a previously-stopped session). In either case, suppress

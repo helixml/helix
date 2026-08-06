@@ -5,12 +5,14 @@ import {
 } from '../api/api'
 
 export type NewChatTaskMode = 'plan' | 'build'
-export type NewChatReasoningEffort = 'low' | 'medium' | 'high'
+export type NewChatReasoningEffort = 'none' | 'low' | 'medium' | 'high'
 
+// Mirrors the tiers agent settings offers and types.ValidReasoningEffort accepts.
 export const NEW_CHAT_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
   value: NewChatReasoningEffort
   label: string
 }> = [
+  { value: 'none', label: 'Off' },
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },

@@ -9552,6 +9552,11 @@ definitions:
   types.Session:
     properties:
       archived:
+        description: |-
+          No index: every list filters `archived = false OR archived IS NULL`, which
+          matches nearly every row, so a plain boolean index would never be chosen —
+          and AutoMigrate builds indexes non-concurrently, taking an ACCESS EXCLUSIVE
+          lock on `sessions` for the length of the build.
         type: boolean
       config:
         allOf:
@@ -23932,6 +23937,10 @@ paths:
       - description: Include external agent sessions
         in: query
         name: include_external_agents
+        type: boolean
+      - description: Return only archived sessions instead of only unarchived ones
+        in: query
+        name: archived
         type: boolean
       responses:
         "200":

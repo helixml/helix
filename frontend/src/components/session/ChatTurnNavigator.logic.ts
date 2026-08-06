@@ -1,4 +1,4 @@
-export const CHAT_TURN_NAVIGATOR_MIN_ITEMS = 2
+export const CHAT_TURN_NAVIGATOR_MIN_ITEMS = 1
 export const CHAT_TURN_NAVIGATOR_ITEM_SPACING = 8
 
 export interface ChatTurnNavigatorItem {

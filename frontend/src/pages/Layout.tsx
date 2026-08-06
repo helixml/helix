@@ -519,7 +519,7 @@ const Layout: FC<{
    * This flexible sidebar system allows different routes to show different sidebar content:
    * - 'app': Shows AppSidebar for agent navigation
    * - 'org_*': Shows OrgSidebar for organization management
-   * - default: Shows SessionsSidebar for most routes
+   * - default: Shows ProjectChatSidebar for most routes
    *
    * To add a new context-specific sidebar:
    * 1. Create your sidebar component (e.g., FilesSidebar)

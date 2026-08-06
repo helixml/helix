@@ -62,7 +62,8 @@ type ListSessionsQuery struct {
 	SessionRole            string          `json:"session_role"`  // Filter by session role (e.g. "job")
 	ExcludeRoles           []string        `json:"exclude_roles"` // Exclude sessions with these roles
 	IncludeExternalAgents  bool            `json:"include_external_agents"`
-	ExcludeArchived        bool            `json:"exclude_archived"`
+	ExcludeArchived        bool            `json:"exclude_archived"` // Hide archived sessions
+	ArchivedOnly           bool            `json:"archived_only"`    // Return ONLY archived sessions; takes precedence over ExcludeArchived
 }
 
 type ListAPIKeysQuery struct {

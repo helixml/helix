@@ -856,8 +856,76 @@ func (o *SpecTaskOrchestrator) handleImplementationQueued(ctx context.Context, t
 // NOTE: Implementation prompts are now handled by agent_instruction_service.go:SendApprovalInstruction
 // That function sends the actual implementation instructions when specs are approved.
 
+// implementationLaunchGrace bounds how long a task may sit in implementation
+// having claimed a WIP slot but with nothing to show for it. Both paths into
+// implementation (handleQueuedImplementation → StartJustDoItMode, and
+// ApproveSpecs) persist a branch name and StartedAt within seconds, so anything
+// still bare after this window is a reservation whose launch never happened.
+const implementationLaunchGrace = 5 * time.Minute
+
+// reclaimStrandedImplementation returns a task to the queue when it holds an
+// implementation WIP slot it never used.
+//
+// handleQueuedImplementation claims the slot by persisting implementation BEFORE
+// spawning StartJustDoItMode, which closes the double-claim race but means an API
+// restart in that window strands the task: nothing reconciles implementation, so
+// the slot is held forever and the task never runs. Returning it to
+// queued_implementation lets the next tick retry it.
+func (o *SpecTaskOrchestrator) reclaimStrandedImplementation(ctx context.Context, task *types.SpecTask) (bool, error) {
+	launched := task.BranchName != "" ||
+		task.StartedAt != nil ||
+		task.PlanningSessionID != "" ||
+		task.ExternalAgentID != ""
+	if launched {
+		return false, nil
+	}
+	if task.StatusUpdatedAt == nil || time.Since(*task.StatusUpdatedAt) < implementationLaunchGrace {
+		return false, nil
+	}
+
+	projectLock, err := o.getBacklogProjectLock(task.ProjectID)
+	if err != nil {
+		return false, err
+	}
+	projectLock.Lock()
+	defer projectLock.Unlock()
+
+	// Re-read under the lock: a launch may have landed since the status snapshot.
+	latestTask, err := o.store.GetSpecTask(ctx, task.ID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get latest implementation task: %w", err)
+	}
+	if latestTask.Status != types.TaskStatusImplementation ||
+		latestTask.BranchName != "" ||
+		latestTask.StartedAt != nil ||
+		latestTask.PlanningSessionID != "" ||
+		latestTask.ExternalAgentID != "" {
+		return false, nil
+	}
+
+	now := time.Now()
+	latestTask.Status = types.TaskStatusQueuedImplementation
+	latestTask.StatusUpdatedAt = &now
+	latestTask.UpdatedAt = now
+	if err := o.store.UpdateSpecTask(ctx, latestTask); err != nil {
+		return false, fmt.Errorf("failed to requeue stranded implementation task: %w", err)
+	}
+
+	log.Warn().
+		Str("task_id", latestTask.ID).
+		Str("project_id", latestTask.ProjectID).
+		Msg("Requeued spec task that reserved an implementation slot but never launched")
+	return true, nil
+}
+
 // handleImplementation handles tasks in implementation
 func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *types.SpecTask) error {
+	if requeued, err := o.reclaimStrandedImplementation(ctx, task); err != nil {
+		return err
+	} else if requeued {
+		return nil
+	}
+
 	// Since we reuse the planning agent, external agents are already running
 	// No need to queue or create new agents - just verify agent is still active
 

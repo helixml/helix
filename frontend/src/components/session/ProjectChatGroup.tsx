@@ -4,8 +4,10 @@ import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import { keyframes } from '@mui/material/styles'
 import {
   Archive,
+  ArchiveRestore,
   ChevronDown,
   ChevronRight,
   Folder,
@@ -29,6 +31,15 @@ import type { SidebarItem } from './ProjectChatSidebar.logic'
 const INITIAL_VISIBLE_ITEMS = 6
 const SHOW_MORE_COUNT = 20
 
+const activeStatusDotPulse = keyframes`
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+`
+
 type ProjectChatGroupProps = {
   orgId: string
   project?: TypesProject
@@ -37,6 +48,7 @@ type ProjectChatGroupProps = {
   activeItemId: string
   relativeTimeNow: number
   enabled: boolean
+  archived?: boolean
   archivingItemId: string | null
   onToggle: () => void
   onNewTask?: () => void
@@ -52,6 +64,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   activeItemId,
   relativeTimeNow,
   enabled,
+  archived = false,
   archivingItemId,
   onToggle,
   onNewTask,
@@ -64,6 +77,11 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const groupId = projectId || 'default'
   const groupName = project?.name || 'None'
   const requestCount = visibleCount + 1
+  // A collapsed group renders nothing, so it must not fetch — and above all must
+  // not keep polling. One sidebar renders a group per project, so leaving these
+  // enabled costs a task request per project every refetch interval, for rows
+  // the user cannot see.
+  const queriesEnabled = enabled && !collapsed
 
   const sessionsQuery = useListSessions(
     orgId,
@@ -73,18 +91,20 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     0,
     requestCount,
     {
-      enabled,
+      enabled: queriesEnabled,
       includeExternalAgents: true,
       projectScope: projectId ? 'project' : 'none',
       sort: 'updated',
+      archived,
     },
   )
   const tasksQuery = useSpecTasks({
     projectId,
     limit: requestCount,
     offset: 0,
-    enabled: enabled && !!projectId,
-    refetchInterval: 10000,
+    archivedOnly: archived,
+    enabled: queriesEnabled && !!projectId,
+    refetchInterval: archived ? false : 10000,
   })
 
   const sessionsPage = sessionsQuery.data?.data
@@ -101,9 +121,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const tasksMayHaveMore = !!projectId && tasks.length === requestCount
   const hasMore = filteredItems.length > visibleCount || sessionsHaveMore || tasksMayHaveMore
   const canShowLess = visibleCount > INITIAL_VISIBLE_ITEMS
-  const isLoading = enabled && (sessionsQuery.isLoading || (!!projectId && tasksQuery.isLoading))
+  const isLoading = queriesEnabled && (sessionsQuery.isLoading || (!!projectId && tasksQuery.isLoading))
   const isFetchingMore = sessionsQuery.isFetching || tasksQuery.isFetching
   const hasError = sessionsQuery.isError || tasksQuery.isError
+  const archiveVerb = archived ? 'Unarchive' : 'Archive'
   const paginationButtonSx = {
     appearance: 'none',
     border: 0,
@@ -123,8 +144,6 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   if (query && !isLoading && !hasError && !hasMore && filteredItems.length === 0) {
     return null
   }
-
-  const countLabel = hasMore ? `${items.length}+` : `${items.length}`
 
   return (
     <Box sx={{ mb: 0.5 }}>
@@ -156,14 +175,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           '&:hover': {
             backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
           },
-          '&:hover .sidebar-group-count, &:focus-within .sidebar-group-count': {
-            opacity: onNewTask ? 0 : 1,
-          },
           '&:hover .sidebar-group-new, &:focus-within .sidebar-group-new': {
             opacity: 1,
           },
           '@media (hover: none)': onNewTask ? {
-            '& .sidebar-group-count': { opacity: 0 },
             '& .sidebar-group-new': { opacity: 1 },
           } : undefined,
         }}
@@ -186,64 +201,46 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
         >
           {groupName}
         </Typography>
+        {/* No item count here: each group only ever holds the page it fetched
+            (visibleCount + 1), so any number rendered would be the page size
+            rather than the project's real total. */}
         {isLoading ? (
           <CircularProgress size={11} color="inherit" />
-        ) : (
-          <Box sx={{ width: onNewTask ? 44 : 'auto', height: 26, position: 'relative', flexShrink: 0 }}>
-            <Typography
-              className="sidebar-group-count"
-              component="span"
-              sx={{
-                position: onNewTask ? 'absolute' : 'static',
-                inset: onNewTask ? 0 : undefined,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'flex-end',
-                color: lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)',
-                fontFamily: 'inherit',
-                fontSize: '10px',
-                fontVariantNumeric: 'tabular-nums',
-                transition: 'opacity 100ms ease',
-              }}
-            >
-              {countLabel}
-            </Typography>
-            {onNewTask && (
-              <Box
-                className="sidebar-group-new"
-                component="button"
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onNewTask()
-                }}
-                sx={{
-                  appearance: 'none',
-                  position: 'absolute',
-                  inset: 0,
-                  border: 0,
-                  p: 0,
-                  backgroundColor: 'transparent',
-                  color: lightTheme.isLight ? '#52525b' : 'rgba(212,212,216,0.82)',
-                  cursor: 'pointer',
-                  font: 'inherit',
-                  fontSize: '10px',
-                  fontWeight: 500,
-                  opacity: 0,
-                  transition: 'opacity 100ms ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'flex-end',
-                  gap: 0.25,
-                  '&:hover': { color: lightTheme.isLight ? '#18181b' : '#ffffff' },
-                }}
-              >
-                <Plus size={11} strokeWidth={1.8} />
-                New
-              </Box>
-            )}
+        ) : onNewTask ? (
+          <Box
+            className="sidebar-group-new"
+            component="button"
+            type="button"
+            aria-label={`New task in ${groupName}`}
+            onClick={(event) => {
+              event.stopPropagation()
+              onNewTask()
+            }}
+            sx={{
+              appearance: 'none',
+              height: 26,
+              flexShrink: 0,
+              border: 0,
+              p: 0,
+              backgroundColor: 'transparent',
+              color: lightTheme.isLight ? '#52525b' : 'rgba(212,212,216,0.82)',
+              cursor: 'pointer',
+              font: 'inherit',
+              fontSize: '10px',
+              fontWeight: 500,
+              opacity: 0,
+              transition: 'opacity 100ms ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: 0.25,
+              '&:hover': { color: lightTheme.isLight ? '#18181b' : '#ffffff' },
+            }}
+          >
+            <Plus size={11} strokeWidth={1.8} />
+            New
           </Box>
-        )}
+        ) : null}
       </Box>
 
       {!collapsed && (
@@ -266,12 +263,13 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                 fontSize: '11px',
               }}
             >
-              No tasks yet
+              {archived ? 'Nothing archived' : 'No tasks yet'}
             </Typography>
           )}
           {renderedItems.map((item) => {
             const active = item.id === activeItemId
             const status = item.kind === 'spec-task' ? getSidebarTaskStatus(item.task) : null
+            const isAgentWorking = item.kind === 'spec-task' && item.task?.agent_work_state === 'working'
             const pullRequestIcon = item.kind === 'spec-task'
               ? getSidebarPullRequestIcon(item.task)
               : undefined
@@ -346,7 +344,20 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                     {status && (
                       <Tooltip title={status.tooltip || ''} disableHoverListener={!status.tooltip}>
                         <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45 }}>
-                          <Box sx={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: status.color }} />
+                          <Box
+                            sx={{
+                              width: 5,
+                              height: 5,
+                              borderRadius: '50%',
+                              backgroundColor: status.color,
+                              animation: isAgentWorking
+                                ? `${activeStatusDotPulse} 2s ease-in-out infinite`
+                                : 'none',
+                              '@media (prefers-reduced-motion: reduce)': {
+                                animation: 'none',
+                              },
+                            }}
+                          />
                           <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
                             {status.label}
                           </Typography>
@@ -392,12 +403,12 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                   >
                     {compactRelativeTime(item.updatedAt, relativeTimeNow)}
                   </Typography>
-                  <Tooltip title={item.kind === 'spec-task' ? 'Archive task' : 'Archive chat'}>
+                  <Tooltip title={`${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'}`}>
                     <IconButton
                       className="sidebar-item-archive"
                       size="small"
                       disabled={isArchiving}
-                      aria-label={item.kind === 'spec-task' ? `Archive task ${item.title}` : `Archive chat ${item.title}`}
+                      aria-label={`${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'} ${item.title}`}
                       onClick={(event) => {
                         event.stopPropagation()
                         onArchiveItem(item)
@@ -414,7 +425,9 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                         transition: 'opacity 100ms ease',
                       }}
                     >
-                      {isArchiving ? <CircularProgress size={12} color="inherit" /> : <Archive size={14} />}
+                      {isArchiving
+                        ? <CircularProgress size={12} color="inherit" />
+                        : archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
                     </IconButton>
                   </Tooltip>
                 </Box>

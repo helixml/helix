@@ -23,6 +23,20 @@ import {
 // hundreds of entries, each rendered as a Markdown component.
 const INTERACTIONS_TO_RENDER = 5;
 
+// Keys that scroll the transcript without producing a wheel or pointer event.
+const SCROLL_KEYS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  " ",
+]);
+
+// How long after a pointer release touch momentum may still be scrolling.
+const POINTER_SCROLL_SETTLE_MS = 400;
+
 import Interaction from "./Interaction";
 import InteractionLiveStream from "./InteractionLiveStream";
 import PausedBanner from "./PausedBanner";
@@ -147,7 +161,20 @@ const EmbeddedSessionView = forwardRef<
   }, []);
 
   const handlePointerUp = useCallback(() => {
-    isPointerScrollingRef.current = false;
+    // Touch momentum keeps emitting scroll events after the finger lifts, so
+    // hold the intent open long enough for the fling to be attributed to the
+    // user rather than to a layout change.
+    window.setTimeout(() => {
+      isPointerScrollingRef.current = false;
+    }, POINTER_SCROLL_SETTLE_MS);
+  }, []);
+
+  // Keyboard scrolling emits no wheel or pointer events, so without this the
+  // viewport would snap back to the bottom as soon as new content arrived.
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (SCROLL_KEYS.has(event.key)) {
+      isPointerScrollingRef.current = true;
+    }
   }, []);
 
   // Scroll to bottom. `force` is used for initial mount, session changes, and
@@ -605,6 +632,7 @@ const EmbeddedSessionView = forwardRef<
         data-session-scroll-container
         onScroll={handleScroll}
         onWheel={handleWheel}
+        onKeyDown={handleKeyDown}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}

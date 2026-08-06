@@ -6029,6 +6029,12 @@ export interface TypesServiceDownloadProgress {
 }
 
 export interface TypesSession {
+  /**
+   * No index: every list filters `archived = false OR archived IS NULL`, which
+   * matches nearly every row, so a plain boolean index would never be chosen —
+   * and AutoMigrate builds indexes non-concurrently, taking an ACCESS EXCLUSIVE
+   * lock on `sessions` for the length of the build.
+   */
   archived?: boolean;
   /** named config for backward compat */
   config?: TypesSessionMetadata;
@@ -16252,6 +16258,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         session_role?: string;
         /** Include external agent sessions */
         include_external_agents?: boolean;
+        /** Return only archived sessions instead of only unarchived ones */
+        archived?: boolean;
       },
       params: RequestParams = {},
     ) =>

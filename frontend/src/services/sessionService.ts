@@ -13,21 +13,32 @@ export const GET_SESSION_QUERY_KEY = (id: string) => [
   id
 ];
 
-export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId?: string, appId?: string, includeExternalAgents?: boolean, projectScope?: string, sort?: string) => {
-  const key = [
-    "sessions",
-    orgId,
-    page,
-    pageSize,
-    search,
-    questionSetExecutionId,
-    projectId,
-    appId,
-    projectScope,
-    sort,
-  ];
-  return includeExternalAgents === undefined ? key : [...key, includeExternalAgents];
-};
+export interface ListSessionsFilters {
+  includeExternalAgents?: boolean
+  projectScope?: 'project' | 'none'
+  sort?: 'created' | 'updated'
+  archived?: boolean
+}
+
+// The "sessions" prefix is what every invalidation matches on, so it must stay
+// first; the rest is a single object so new filters can be added without another
+// positional argument.
+export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId?: string, appId?: string, filters: ListSessionsFilters = {}) => [
+  "sessions",
+  orgId,
+  page,
+  pageSize,
+  search,
+  questionSetExecutionId,
+  projectId,
+  appId,
+  {
+    includeExternalAgents: filters.includeExternalAgents ?? false,
+    projectScope: filters.projectScope ?? '',
+    sort: filters.sort ?? '',
+    archived: filters.archived ?? false,
+  },
+];
 
 export const LIST_INTERACTIONS_QUERY_KEY = (sessionId: string, page?: number, perPage?: number, order?: string) => [
   "interactions",
@@ -79,12 +90,12 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
   })
 }
 
-export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: { enabled?: boolean; includeExternalAgents?: boolean; projectScope?: 'project' | 'none'; sort?: 'created' | 'updated' }, appId?: string) {
+export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: ListSessionsFilters & { enabled?: boolean }, appId?: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
-  
+
   return useQuery({
-    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? '', appId ?? '', options?.includeExternalAgents, options?.projectScope, options?.sort),
+    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? '', appId ?? '', options),
     queryFn: () => apiClient.v1SessionsList({
       org_id: orgId,
       search: search,
@@ -96,6 +107,7 @@ export function useListSessions(orgId?: string, search?: string, questionSetExec
       sort: options?.sort,
       app_id: appId,
       include_external_agents: options?.includeExternalAgents,
+      archived: options?.archived,
     }),
     enabled: options?.enabled ?? true
   })

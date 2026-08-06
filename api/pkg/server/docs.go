@@ -17500,6 +17500,12 @@ const docTemplate = `{
                         "description": "Include external agent sessions",
                         "name": "include_external_agents",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Return only archived sessions instead of only unarchived ones",
+                        "name": "archived",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -36114,6 +36120,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "archived": {
+                    "description": "No index: every list filters ` + "`" + `archived = false OR archived IS NULL` + "`" + `, which\nmatches nearly every row, so a plain boolean index would never be chosen —\nand AutoMigrate builds indexes non-concurrently, taking an ACCESS EXCLUSIVE\nlock on ` + "`" + `sessions` + "`" + ` for the length of the build.",
                     "type": "boolean"
                 },
                 "config": {

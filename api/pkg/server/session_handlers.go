@@ -159,6 +159,7 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   sort            query    string  false  "Sort order: created or updated"
 // @Param   session_role    query    string  false  "Filter by session role (e.g. job)"
 // @Param   include_external_agents query bool false "Include external agent sessions"
+// @Param   archived        query    bool    false  "Return only archived sessions instead of only unarchived ones"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
@@ -177,6 +178,9 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	if sortBy != "" && sortBy != "created" && sortBy != "updated" {
 		return nil, system.NewHTTPError400("sort must be created or updated")
 	}
+	// Archived sessions are hidden by default; ?archived=true is how the sidebar's
+	// Archived view retrieves them so archiving stays reversible.
+	archivedOnly := req.URL.Query().Get("archived") == "true"
 
 	query := store.ListSessionsQuery{
 		Search:                 req.URL.Query().Get("search"),
@@ -188,7 +192,8 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		SortBy:                 sortBy,
 		SessionRole:            req.URL.Query().Get("session_role"),
 		IncludeExternalAgents:  req.URL.Query().Get("include_external_agents") == "true",
-		ExcludeArchived:        true,
+		ExcludeArchived:        !archivedOnly,
+		ArchivedOnly:           archivedOnly,
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
@@ -1094,12 +1099,13 @@ If the user asks for information about Helix or installing Helix, refer them to 
 }
 
 func validateReasoningEffort(effort string) error {
-	switch effort {
-	case "", "low", "medium", "high":
+	// "" means the session keeps whatever it already had. Everything else must be
+	// a tier the rest of the platform recognises — notably "none", which the agent
+	// settings UI offers and which llm_client.go maps to "reasoning disabled".
+	if effort == "" || types.ValidReasoningEffort(effort) {
 		return nil
-	default:
-		return fmt.Errorf("reasoning_effort must be one of low, medium, or high")
 	}
+	return fmt.Errorf("reasoning_effort must be one of none, low, medium, or high")
 }
 
 func applySessionReasoningEffort(session *types.Session, requested string) string {

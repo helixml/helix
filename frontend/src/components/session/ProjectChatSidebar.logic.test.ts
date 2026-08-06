@@ -13,7 +13,8 @@ import {
   isTaskCompletedOrMerged,
   parseCollapsedGroupIds,
   serializeCollapsedGroupIds,
-  shouldConfirmTaskArchive,
+  shouldConfirmArchive,
+  specTaskSortKey,
 } from './ProjectChatSidebar.logic'
 
 const projects: TypesProject[] = [
@@ -28,7 +29,7 @@ describe('ProjectChatSidebar logic', () => {
       project_id: 'project-one',
       name: 'Implement grouped sidebar',
       status: TypesSpecTaskStatus.TaskStatusImplementation,
-      updated_at: '2026-08-05T10:00:00Z',
+      status_updated_at: '2026-08-05T10:00:00Z',
     }]
     const sessions: TypesSessionSummary[] = [
       {
@@ -62,6 +63,28 @@ describe('ProjectChatSidebar logic', () => {
     expect(groups[0]?.items.map((item) => item.id)).toEqual(['direct-session'])
     expect(groups[1]?.items.map((item) => item.id)).toEqual(['task-one', 'worker-session'])
     expect(groups[2]?.items.map((item) => item.id)).toEqual(['project-session'])
+  })
+
+  // A group merges two independently LIMITed server lists, so the client sort key
+  // has to be the one the server paginated on. session_updated_at is enriched
+  // after the query (gorm:"-"), so ordering by it drops rows the server truncated.
+  it('orders tasks by the key the server can paginate on', () => {
+    const task: SpecTask = {
+      id: 'task-one',
+      project_id: 'project-one',
+      name: 'Recently chatted, long since moved',
+      status: TypesSpecTaskStatus.TaskStatusImplementation,
+      created_at: '2026-08-01T00:00:00Z',
+      status_updated_at: '2026-08-02T00:00:00Z',
+      updated_at: '2026-08-09T00:00:00Z',
+      session_updated_at: '2026-08-09T00:00:00Z',
+    }
+
+    expect(specTaskSortKey(task)).toBe('2026-08-02T00:00:00Z')
+    expect(buildProjectChatGroups(projects, [task], [])[0]?.items[0]?.updatedAt)
+      .toBe('2026-08-02T00:00:00Z')
+    expect(specTaskSortKey({ id: 'x', created_at: '2026-08-01T00:00:00Z' }))
+      .toBe('2026-08-01T00:00:00Z')
   })
 
   it('uses AND matching across multiple search tokens', () => {
@@ -177,13 +200,13 @@ describe('ProjectChatSidebar logic', () => {
 
     expect(isTaskCompletedOrMerged(completedTask)).toBe(true)
     expect(isTaskCompletedOrMerged(mergedTask)).toBe(true)
-    expect(shouldConfirmTaskArchive({
+    expect(shouldConfirmArchive({
       id: completedTask.id!,
       kind: 'spec-task',
       title: 'Completed task',
       task: completedTask,
     })).toBe(false)
-    expect(shouldConfirmTaskArchive({
+    expect(shouldConfirmArchive({
       id: mergedTask.id!,
       kind: 'spec-task',
       title: 'Merged task',
@@ -192,7 +215,7 @@ describe('ProjectChatSidebar logic', () => {
   })
 
   it('keeps confirmation when a task may still stop an agent', () => {
-    expect(shouldConfirmTaskArchive({
+    expect(shouldConfirmArchive({
       id: 'running-task',
       kind: 'spec-task',
       title: 'Running task',
@@ -201,7 +224,7 @@ describe('ProjectChatSidebar logic', () => {
         sandbox_state: 'running',
       },
     })).toBe(true)
-    expect(shouldConfirmTaskArchive({
+    expect(shouldConfirmArchive({
       id: 'unknown-task',
       kind: 'spec-task',
       title: 'Unknown task state',
@@ -220,8 +243,8 @@ describe('ProjectChatSidebar logic', () => {
       },
     }
 
-    expect(shouldConfirmTaskArchive(item, new Set(['app-org-agent']))).toBe(false)
-    expect(shouldConfirmTaskArchive({
+    expect(shouldConfirmArchive(item, new Set(['app-org-agent']))).toBe(false)
+    expect(shouldConfirmArchive({
       ...item,
       session: {
         ...item.session,
@@ -232,7 +255,7 @@ describe('ProjectChatSidebar logic', () => {
   })
 
   it('keeps destructive confirmation for ordinary external-agent chats', () => {
-    expect(shouldConfirmTaskArchive({
+    expect(shouldConfirmArchive({
       id: 'external-chat',
       kind: 'session',
       title: 'External chat',
@@ -242,6 +265,27 @@ describe('ProjectChatSidebar logic', () => {
         metadata: { agent_type: 'zed_external' },
       },
     }, new Set(['app-org-agent']))).toBe(true)
+  })
+
+  it('archives a plain model chat without warning about an agent it does not have', () => {
+    expect(shouldConfirmArchive({
+      id: 'plain-chat',
+      kind: 'session',
+      title: 'Plain chat',
+      session: { session_id: 'plain-chat' },
+    })).toBe(false)
+  })
+
+  it('never confirms when restoring from the archived view', () => {
+    expect(shouldConfirmArchive({
+      id: 'running-task',
+      kind: 'spec-task',
+      title: 'Running task',
+      task: {
+        status: TypesSpecTaskStatus.TaskStatusImplementation,
+        sandbox_state: 'running',
+      },
+    }, new Set(), true)).toBe(false)
   })
 
   it('stores collapsed groups independently for each organization', () => {
@@ -256,9 +300,16 @@ describe('ProjectChatSidebar logic', () => {
   })
 
   it('recognizes the new-thread shortcut on macOS and other platforms', () => {
-    expect(isNewThreadShortcut({ key: 'n', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(true)
-    expect(isNewThreadShortcut({ key: 'N', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false })).toBe(true)
-    expect(isNewThreadShortcut({ key: 'n', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false })).toBe(false)
-    expect(isNewThreadShortcut({ key: 'n', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true })).toBe(false)
+    expect(isNewThreadShortcut({ key: 'o', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true })).toBe(true)
+    expect(isNewThreadShortcut({ key: 'O', metaKey: false, ctrlKey: true, altKey: false, shiftKey: true })).toBe(true)
+    expect(isNewThreadShortcut({ key: 'o', metaKey: false, ctrlKey: false, altKey: false, shiftKey: true })).toBe(false)
+    expect(isNewThreadShortcut({ key: 'o', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(false)
+  })
+
+  // Cmd/Ctrl+N is reserved by the browser for "new window" and cannot be
+  // preventDefault'ed, so binding it would open a window AND navigate.
+  it('leaves the browser-reserved new-window chord alone', () => {
+    expect(isNewThreadShortcut({ key: 'n', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(false)
+    expect(isNewThreadShortcut({ key: 'n', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false })).toBe(false)
   })
 })

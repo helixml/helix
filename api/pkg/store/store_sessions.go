@@ -57,7 +57,14 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		}
 	}
 
-	if query.ExcludeArchived {
+	// `sessions.archived` is deliberately unindexed: the default predicate matches
+	// nearly every row, so the planner would never choose a plain boolean index,
+	// and AutoMigrate builds indexes non-concurrently — an ACCESS EXCLUSIVE lock
+	// on `sessions` for the length of the build.
+	switch {
+	case query.ArchivedOnly:
+		q = q.Where("archived = true")
+	case query.ExcludeArchived:
 		q = q.Where("archived = false OR archived IS NULL")
 	}
 

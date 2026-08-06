@@ -328,11 +328,13 @@ func (s *HelixAPIServer) listProjectSpecTaskAgents(_ http.ResponseWriter, r *htt
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	apps, err := s.Store.ListApps(ctx, &store.ListAppsQuery{OrganizationID: project.OrganizationID})
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
-	}
-	if httpErr := s.markHelixOrgAgents(ctx, project.OrganizationID, apps); httpErr != nil {
+	// Reuse listOrganizationApps so this endpoint inherits the same access-grant
+	// filtering the agent list elsewhere applies: non-owners only see apps they
+	// are actually granted. Listing the org's apps directly would let any project
+	// member enumerate — and then start a task on — agents they cannot access,
+	// because createTaskFromPrompt authorizes the project but not the app id.
+	apps, httpErr := s.listOrganizationApps(ctx, user, project.OrganizationID)
+	if httpErr != nil {
 		return nil, httpErr
 	}
 

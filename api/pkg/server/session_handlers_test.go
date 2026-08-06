@@ -100,6 +100,10 @@ func TestSessionReasoningEffort(t *testing.T) {
 	session := &types.Session{Metadata: types.SessionMetadata{ReasoningEffort: "low"}}
 
 	require.NoError(t, validateReasoningEffort("medium"))
+	// "none" is a real tier — agent settings offers it and llm_client.go maps it
+	// to "reasoning disabled" — so the per-session field must accept it too.
+	require.NoError(t, validateReasoningEffort(types.ReasoningEffortNone))
+	require.NoError(t, validateReasoningEffort(""))
 	require.Error(t, validateReasoningEffort("ultra"))
 	require.Equal(t, "low", applySessionReasoningEffort(session, ""))
 	require.Equal(t, "high", applySessionReasoningEffort(session, "high"))
@@ -878,6 +882,29 @@ func (s *SessionAuthzSuite) TestListSessions_ProjectChatScope() {
 
 	s.NoError(err)
 	s.Require().NotNil(result)
+}
+
+// Archiving is only reversible if the archived rows can be listed back.
+func (s *SessionAuthzSuite) TestListSessions_ArchivedOnly() {
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:           s.userID,
+		Page:            0,
+		PerPage:         50,
+		ExcludeArchived: false,
+		ArchivedOnly:    true,
+	}).Return([]*types.Session{
+		{ID: "ses_archived", Owner: s.userID, Archived: true},
+	}, int64(1), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions?archived=true", http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().NotNil(result)
+	s.Require().Len(result.Sessions, 1)
+	s.True(result.Sessions[0].Archived)
 }
 
 // 2. User is owner and org member, lists org sessions

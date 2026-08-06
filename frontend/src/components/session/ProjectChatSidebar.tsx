@@ -1,11 +1,11 @@
-import { FC, useEffect, useState } from 'react'
+import { FC, useCallback, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import InputBase from '@mui/material/InputBase'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { FolderPlus, Search, SquarePen } from 'lucide-react'
+import { Archive, FolderPlus, Search, SquarePen } from 'lucide-react'
 
 import {
   TypesExternalRepositoryType,
@@ -26,7 +26,7 @@ import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
   collapsedGroupsStorageKey,
   isNewThreadShortcut,
-  shouldConfirmTaskArchive,
+  shouldConfirmArchive,
   parseCollapsedGroupIds,
   serializeCollapsedGroupIds,
 } from './ProjectChatSidebar.logic'
@@ -59,6 +59,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
   const [archivingItemId, setArchivingItemId] = useState<string | null>(null)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
 
   useEffect(() => {
     setCollapsedGroups(readCollapsedGroups(storageKey))
@@ -88,11 +89,14 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const archiveSpecTask = useArchiveSpecTask()
   const activeItemId = router.params.taskId || router.params.session_id || ''
 
-  const openNewThread = () => {
+  const openNewThread = useCallback(() => {
+    setShowArchived(false)
     account.orgNavigate('chat')
     onOpenSession()
-  }
+  }, [account, onOpenSession])
 
+  // openNewThread is the only dependency; keeping it in the array (rather than a
+  // route id) is what stops the listener from calling a stale navigate closure.
   useEffect(() => {
     const handleNewThreadShortcut = (event: KeyboardEvent) => {
       if (!isNewThreadShortcut(event)) return
@@ -103,7 +107,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
 
     window.addEventListener('keydown', handleNewThreadShortcut, { capture: true })
     return () => window.removeEventListener('keydown', handleNewThreadShortcut, { capture: true })
-  }, [orgSlug])
+  }, [openNewThread])
 
   const createRepository = async (
     name: string,
@@ -194,27 +198,30 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
 
   const performArchive = async (item: SidebarItem) => {
     if (archivingItemId) return
+    // In the Archived view the same control restores the item instead.
+    const archived = !showArchived
+    const label = item.kind === 'spec-task' ? 'task' : 'chat'
     setArchivingItemId(item.id)
     try {
       if (item.kind === 'spec-task') {
-        await archiveSpecTask.mutateAsync({ taskId: item.id, archived: true })
+        await archiveSpecTask.mutateAsync({ taskId: item.id, archived })
       } else {
-        await archiveSession.mutateAsync({ sessionId: item.id, archived: true })
+        await archiveSession.mutateAsync({ sessionId: item.id, archived })
       }
       setArchiveConfirmation(null)
-      if (item.id === activeItemId) account.orgNavigate('chat')
+      if (archived && item.id === activeItemId) account.orgNavigate('chat')
     } catch (error: any) {
       const message = typeof error?.response?.data === 'string'
         ? error.response.data
         : error?.response?.data?.message
-      snackbar.error(message || `Failed to archive ${item.kind === 'spec-task' ? 'task' : 'chat'}`)
+      snackbar.error(message || `Failed to ${archived ? 'archive' : 'restore'} ${label}`)
     } finally {
       setArchivingItemId(null)
     }
   }
 
   const requestArchive = (item: SidebarItem) => {
-    if (shouldConfirmTaskArchive(item, orgAgentAppIds)) {
+    if (shouldConfirmArchive(item, orgAgentAppIds, showArchived)) {
       setArchiveConfirmation(item)
       return
     }
@@ -266,12 +273,12 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
             },
           }}
         />
-        <Tooltip title="New thread (⌘N / Ctrl+N)">
+        <Tooltip title="New thread (⌘⇧O / Ctrl+Shift+O)">
           <IconButton
             size="small"
             onClick={openNewThread}
             aria-label="New thread"
-            aria-keyshortcuts="Meta+N Control+N"
+            aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
           >
             <SquarePen size={16} strokeWidth={1.7} />
           </IconButton>
@@ -288,25 +295,42 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
             fontWeight: 500,
           }}
         >
-          Projects
+          {showArchived ? 'Archived' : 'Projects'}
         </Typography>
-        <Tooltip title="New project">
-          <span>
-            <IconButton
-              size="small"
-              onClick={() => setCreateProjectOpen(true)}
-              disabled={!account.user?.id || !orgId}
-              aria-label="New project"
-              sx={{
-                color: lightTheme.isLight
-                  ? 'rgba(113,113,122,0.65)'
-                  : 'rgba(163,163,163,0.55)',
-              }}
-            >
-              <FolderPlus size={15} strokeWidth={1.7} />
-            </IconButton>
-          </span>
+        <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
+          <IconButton
+            size="small"
+            onClick={() => setShowArchived((current) => !current)}
+            aria-label={showArchived ? 'Back to active chats' : 'Show archived'}
+            aria-pressed={showArchived}
+            sx={{
+              color: showArchived
+                ? (lightTheme.isLight ? '#27272a' : '#f1f3f7')
+                : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.55)'),
+            }}
+          >
+            <Archive size={15} strokeWidth={1.7} />
+          </IconButton>
         </Tooltip>
+        {!showArchived && (
+          <Tooltip title="New project">
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => setCreateProjectOpen(true)}
+                disabled={!account.user?.id || !orgId}
+                aria-label="New project"
+                sx={{
+                  color: lightTheme.isLight
+                    ? 'rgba(113,113,122,0.65)'
+                    : 'rgba(163,163,163,0.55)',
+                }}
+              >
+                <FolderPlus size={15} strokeWidth={1.7} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
       </Box>
 
       <Box
@@ -334,9 +358,10 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
               activeItemId={activeItemId}
               relativeTimeNow={relativeTimeNow}
               enabled={groupsEnabled}
+              archived={showArchived}
               archivingItemId={archivingItemId}
               onToggle={() => toggleGroup('default')}
-              onNewTask={() => account.orgNavigate('chat')}
+              onNewTask={showArchived ? undefined : () => account.orgNavigate('chat')}
               onOpenItem={openItem}
               onArchiveItem={requestArchive}
             />
@@ -350,9 +375,12 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
                 activeItemId={activeItemId}
                 relativeTimeNow={relativeTimeNow}
                 enabled={groupsEnabled}
+                archived={showArchived}
                 archivingItemId={archivingItemId}
                 onToggle={() => toggleGroup(project.id!)}
-                onNewTask={() => account.orgNavigate('chat', {}, { project_id: project.id })}
+                onNewTask={showArchived
+                  ? undefined
+                  : () => account.orgNavigate('chat', {}, { project_id: project.id })}
                 onOpenItem={openItem}
                 onArchiveItem={requestArchive}
               />
@@ -364,9 +392,11 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
       {archiveConfirmation && (
         <SimpleConfirmWindow
           title={archiveConfirmation.kind === 'spec-task' ? 'Archive spec task' : 'Archive chat'}
-          message={archiveConfirmation.kind === 'spec-task'
-            ? `Archive “${archiveConfirmation.title}”? Any running task agent will be stopped.`
-            : `Archive “${archiveConfirmation.title}”? Its external agent will be stopped.`}
+          // Only reached when archiving really does stop an agent — see
+          // shouldConfirmArchive. Plain chats archive without a prompt.
+          message={`Archive “${archiveConfirmation.title}”? ${archiveConfirmation.kind === 'spec-task'
+            ? 'Any running task agent will be stopped.'
+            : 'Its external agent will be stopped.'} You can restore it from the Archived view.`}
           confirmTitle={archivingItemId === archiveConfirmation.id ? 'Archiving…' : 'Archive'}
           onCancel={() => {
             if (!archivingItemId) setArchiveConfirmation(null)

@@ -8,6 +8,8 @@ import ProjectChatGroup from './ProjectChatGroup'
 const mocks = vi.hoisted(() => ({
   emptySessions: false,
   tasks: [] as SpecTask[],
+  sessionOptions: [] as any[],
+  taskOptions: [] as any[],
 }))
 
 vi.mock('../../hooks/useLightTheme', () => ({
@@ -17,6 +19,7 @@ vi.mock('../../hooks/useLightTheme', () => ({
 vi.mock('../../services/sessionService', () => ({
   useListSessions: (...args: unknown[]) => {
     const pageSize = args[5] as number
+    mocks.sessionOptions.push(args[6])
     const sessions = mocks.emptySessions
       ? []
       : Array.from({ length: pageSize }, (_, index) => ({
@@ -34,17 +37,22 @@ vi.mock('../../services/sessionService', () => ({
 }))
 
 vi.mock('../../services/specTaskService', () => ({
-  useSpecTasks: () => ({
-    data: mocks.tasks,
-    isLoading: false,
-    isFetching: false,
-    isError: false,
-  }),
+  useSpecTasks: (options: any) => {
+    mocks.taskOptions.push(options)
+    return {
+      data: mocks.tasks,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    }
+  },
 }))
 
 afterEach(() => {
   mocks.emptySessions = false
   mocks.tasks = []
+  mocks.sessionOptions = []
+  mocks.taskOptions = []
 })
 
 const renderEmptyProject = (collapsed = false) => render(
@@ -79,6 +87,68 @@ describe('ProjectChatGroup', () => {
 
     expect(screen.getByText('Empty project')).toBeInTheDocument()
     expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
+  })
+
+  // One group renders per project, so leaving collapsed groups enabled costs a
+  // task request per project on every poll for rows nobody can see.
+  it('does not query or poll while collapsed', () => {
+    renderEmptyProject(true)
+
+    expect(mocks.sessionOptions.every((options) => options.enabled === false)).toBe(true)
+    expect(mocks.taskOptions.every((options) => options.enabled === false)).toBe(true)
+  })
+
+  it('queries once expanded', () => {
+    renderEmptyProject(false)
+
+    expect(mocks.sessionOptions.some((options) => options.enabled === true)).toBe(true)
+    expect(mocks.taskOptions.some((options) => options.enabled === true)).toBe(true)
+  })
+
+  it('shows no item count, because a group only ever holds the page it fetched', () => {
+    renderEmptyProject(false)
+
+    expect(screen.queryByText('6+')).not.toBeInTheDocument()
+    expect(screen.queryByText('7')).not.toBeInTheDocument()
+  })
+})
+
+describe('ProjectChatGroup archived mode', () => {
+  it('requests archived rows and offers to restore them', () => {
+    const onArchiveItem = vi.fn()
+    mocks.tasks = [{
+      id: 'archived-task',
+      project_id: 'project-one',
+      name: 'Archived task',
+      status: TypesSpecTaskStatus.TaskStatusDone,
+      status_updated_at: '2026-08-05T10:00:00Z',
+    }]
+
+    render(
+      <ProjectChatGroup
+        orgId="org-one"
+        project={{ id: 'project-one', name: 'Empty project' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        archived
+        archivingItemId={null}
+        onToggle={vi.fn()}
+        onOpenItem={vi.fn()}
+        onArchiveItem={onArchiveItem}
+      />,
+    )
+
+    expect(mocks.sessionOptions.every((options) => options.archived === true)).toBe(true)
+    expect(mocks.taskOptions.every((options) => options.archivedOnly === true)).toBe(true)
+    // Archived rows must never keep polling in the background.
+    expect(mocks.taskOptions.every((options) => options.refetchInterval === false)).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unarchive task Archived task' }))
+    expect(onArchiveItem).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: /^Archive task/ })).not.toBeInTheDocument()
   })
 })
 

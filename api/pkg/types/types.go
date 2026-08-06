@@ -795,7 +795,8 @@ type Session struct {
 	Created       time.Time      `json:"created"`
 	Updated       time.Time      `json:"updated"`
 	DeletedAt     gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"` // Soft delete support - allows cleanup of orphaned lobbies
-	Archived      bool           `json:"archived" gorm:"default:false;index"`
+	// Hidden from session lists; see ListSessions for why this is deliberately unindexed.
+	Archived      bool           `json:"archived" gorm:"default:false"`
 	ProjectID     string         `json:"project_id"`
 	ParentSession string         `json:"parent_session"`
 	// the app this session was spawned from
@@ -1715,7 +1716,26 @@ type AssistantEmail struct {
 	TemplateExample string `json:"template_example" yaml:"template_example"`
 }
 
-const ReasoningEffortNone = "none" // Don't set
+// Reasoning effort tiers. These are the values the agent settings UI offers and
+// that agent/llm_client.go understands ("none" disables reasoning entirely).
+const (
+	ReasoningEffortNone   = "none" // Don't set
+	ReasoningEffortLow    = "low"
+	ReasoningEffortMedium = "medium"
+	ReasoningEffortHigh   = "high"
+)
+
+// ValidReasoningEffort reports whether effort is a tier the platform supports.
+// The empty string means "inherit" and is accepted by callers that treat it as
+// unset.
+func ValidReasoningEffort(effort string) bool {
+	switch effort {
+	case ReasoningEffortNone, ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh:
+		return true
+	default:
+		return false
+	}
+}
 
 // Add this new type
 type TestStep struct {

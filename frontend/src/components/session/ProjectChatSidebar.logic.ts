@@ -39,17 +39,29 @@ export const isOrgAgentSession = (
   )
 )
 
-// The archive endpoint stops task agents. Skip the confirmation only when the
-// list has positively established that this task is terminal and its sandbox
-// is already absent. Archiving an org-agent chat only hides its session and
-// must not imply that the agent's shared sandbox will be stopped.
-export const shouldConfirmTaskArchive = (
+// Mirrors the server: archiveSession only calls StopDesktop when the session is
+// an external-agent session (session_handlers.go). A plain model chat has no
+// agent to stop, so it must not be warned about as if it did.
+export const isExternalAgentSession = (item: SidebarItem): boolean => (
+  item.kind === 'session' && item.session?.metadata?.agent_type === 'zed_external'
+)
+
+// Archiving is reversible (see the Archived view), so the confirmation exists
+// only to warn about the irreversible side effect: stopping a running agent.
+// Confirm when archiving would stop something —
+//   - a spec task we cannot prove is terminal with an already-absent sandbox
+//   - an external-agent chat that isn't a shared org-agent sandbox
+// Everything else (plain chats, org-agent chats, finished tasks) archives
+// straight away. Unarchiving never stops anything, so it never confirms.
+export const shouldConfirmArchive = (
   item: SidebarItem,
   orgAgentAppIds: ReadonlySet<string> = new Set(),
+  archived = false,
 ): boolean => {
+  if (archived) return false
   if (isOrgAgentSession(item, orgAgentAppIds)) return false
-  return item.kind !== 'spec-task'
-    || !item.task
+  if (item.kind === 'session') return isExternalAgentSession(item)
+  return !item.task
     || item.task.sandbox_state !== 'absent'
     || !isTaskCompletedOrMerged(item.task)
 }
@@ -73,13 +85,16 @@ export const serializeCollapsedGroupIds = (groupIds: Set<string>): string => (
   JSON.stringify([...groupIds].sort())
 )
 
+// Cmd/Ctrl+Shift+O rather than Cmd/Ctrl+N: browsers reserve N for "new window"
+// and ignore preventDefault on it, so binding N would open a browser window AND
+// navigate. Shift+O is unreserved and matches the convention other chat UIs use.
 export const isNewThreadShortcut = (
   event: Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'key' | 'metaKey' | 'shiftKey'>,
 ): boolean => (
   (event.metaKey || event.ctrlKey)
+  && event.shiftKey
   && !event.altKey
-  && !event.shiftKey
-  && event.key.toLowerCase() === 'n'
+  && event.key.toLowerCase() === 'o'
 )
 
 const getSidebarWorkflowStatus = (task?: SpecTask): SidebarStatus | null => {
@@ -207,15 +222,19 @@ export const compactRelativeTime = (value?: string, now = Date.now()): string =>
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(valueMs)
 }
 
-export const dedupeSessions = (sessions: TypesSessionSummary[]): TypesSessionSummary[] => {
-  const seen = new Set<string>()
-  return sessions.filter((session) => {
-    if (!session.session_id) return true
-    if (seen.has(session.session_id)) return false
-    seen.add(session.session_id)
-    return true
-  })
-}
+// A group merges two independently-paginated server lists: sessions (ordered by
+// `updated DESC`) and spec tasks (ordered by `status_updated_at DESC NULLS LAST,
+// created_at DESC`). Taking the top N of the merge is only correct when each
+// item is sorted by the SAME key the server applied its LIMIT on — otherwise a
+// row the server truncated could belong above one we kept.
+//
+// So the task key must stay `status_updated_at || created_at`. Do NOT reintroduce
+// `session_updated_at` here: it is a post-query enrichment (`gorm:"-"`, populated
+// in listTasks), so the server cannot order or paginate on it, and sorting by it
+// silently drops recently-active tasks past the fetch limit.
+export const specTaskSortKey = (task: SpecTask): string | undefined => (
+  task.status_updated_at || task.created_at
+)
 
 export const buildProjectChatGroups = (
   projects: TypesProject[],
@@ -243,7 +262,7 @@ export const buildProjectChatGroups = (
       id: task.id,
       kind: 'spec-task',
       title: task.user_short_title || task.short_title || task.name || 'Untitled task',
-      updatedAt: task.session_updated_at || task.updated_at || task.status_updated_at || task.created_at,
+      updatedAt: specTaskSortKey(task),
       projectId: task.project_id,
       task,
     })

@@ -49,7 +49,7 @@ const Page: React.FC<{
   organizationId?: string,
   globalSearch?: boolean,
   globalSearchResourceTypes?: TypesResource[],
-  // notifications
+  // notifications — the bell is part of the standard topbar; opt out per page
   notifications?: boolean,
   children?: ReactNode,
 }> = ({
@@ -70,7 +70,7 @@ const Page: React.FC<{
   organizationId,
   globalSearch = false,
   globalSearchResourceTypes,
-  notifications = false,
+  notifications = true,
   children,
 }) => {
   const router = useRouter()
