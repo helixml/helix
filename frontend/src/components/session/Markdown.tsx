@@ -32,6 +32,7 @@ import ThinkingWidget from "./ThinkingWidget";
 import { getGlobalStatsCollector } from "./ChatStatsOverlay";
 import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 import { getChatColors } from "./chatStyles";
+import MarkdownTable from "./MarkdownTable";
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any;
 
@@ -1117,9 +1118,31 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           },
           "& .chat-markdown-table-container": {
             maxWidth: "100%",
+            margin: "1rem 0",
+          },
+          "& .chat-markdown-table-scroll": {
+            maxWidth: "100%",
             overflowX: "auto",
-            margin: "0.65rem 0",
             scrollbarWidth: "thin",
+          },
+          "& .chat-markdown-table-footer": {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            minHeight: "24px",
+            marginTop: "0.5rem",
+          },
+          "& .chat-markdown-table-action": {
+            width: "24px",
+            height: "24px",
+            borderRadius: "6px",
+            color: chatColors.subtle,
+            "&:hover": {
+              color: chatColors.foreground,
+              backgroundColor: theme.palette.mode === "dark"
+                ? "rgba(255, 255, 255, 0.06)"
+                : "rgba(0, 0, 0, 0.05)",
+            },
           },
           "& table": {
             borderCollapse: "collapse",
@@ -1144,6 +1167,16 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           },
           "& tbody td": {
             borderBottom: `1px solid ${chatColors.tableDivider}`,
+          },
+          "& .chat-markdown-table-container[data-expanded='false'] th, & .chat-markdown-table-container[data-expanded='false'] td": {
+            overflow: "hidden",
+            maxWidth: "24rem",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          },
+          "& .chat-markdown-table-container[data-expanded='true'] td": {
+            maxWidth: "24rem",
+            overflowWrap: "anywhere",
           },
           display: "flow-root",
         }}
@@ -1233,9 +1266,7 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
         table(props: any) {
           const { node, children, ...rest } = props;
           return (
-            <div className="chat-markdown-table-container">
-              <table {...rest}>{children}</table>
-            </div>
+            <MarkdownTable {...rest}>{children}</MarkdownTable>
           );
         },
       }),

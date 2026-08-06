@@ -51,13 +51,16 @@ describe('Markdown chat spacing', () => {
     root.innerHTML = [
       '<div class="interactionMessage">',
       '<p>Use <code>npm ci</code></p>',
-      '<div class="chat-markdown-table-container">',
+      '<div class="chat-markdown-table-container" data-expanded="false">',
       '<table><thead><tr><th>was</th><th>now</th></tr></thead>',
-      '<tbody><tr><td>nginx</td><td>nginx-unprivileged</td></tr></tbody></table></div>',
+      '<tbody><tr><td>nginx</td><td>nginx-unprivileged</td></tr></tbody></table>',
+      '<div class="chat-markdown-table-footer"></div></div>',
       '</div>',
     ].join('')
 
     const inlineCode = container.querySelector<HTMLElement>('code')
+    const tableContainer = container.querySelector<HTMLElement>('.chat-markdown-table-container')
+    const tableFooter = container.querySelector<HTMLElement>('.chat-markdown-table-footer')
     const table = container.querySelector<HTMLElement>('table')
     const header = container.querySelector<HTMLElement>('th')
     const cell = container.querySelector<HTMLElement>('td')
@@ -75,14 +78,23 @@ describe('Markdown chat spacing', () => {
       minWidth: 'max-content',
       fontSize: '0.75rem',
     })
+    expect(tableContainer).toHaveStyle({ margin: '1rem 0' })
+    expect(tableFooter).toHaveStyle({
+      display: 'flex',
+      justifyContent: 'space-between',
+      marginTop: '0.5rem',
+    })
     expect(header).toHaveStyle({
-      borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+      borderBottom: '1px solid rgba(255, 255, 255, 0.07)',
       padding: '0.55rem 0.75rem 0.55rem 0.75rem',
       fontWeight: '600',
     })
     expect(cell).toHaveStyle({
-      borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+      borderBottom: '1px solid rgba(255, 255, 255, 0.07)',
       padding: '0.45rem 0.75rem',
+      maxWidth: '24rem',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
     })
   })
 

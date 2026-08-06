@@ -16,7 +16,7 @@ export const getChatColors = (theme: Theme) => {
     inlineCodeSurface: dark ? 'rgba(255, 255, 255, 0.04)' : '#fafafa',
     inlineCodeForeground: dark ? '#f5f5f5' : '#27272a',
     inlineCodeBorder: dark ? 'rgba(255, 255, 255, 0.06)' : '#e4e4e7',
-    tableDivider: dark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(228, 228, 231, 0.6)',
+    tableDivider: dark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(228, 228, 231, 0.6)',
     muted: dark ? '#b8b8b8' : '#52525b',
     subtle: dark ? '#969696' : '#71717a',
   }
