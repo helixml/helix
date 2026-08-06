@@ -258,10 +258,12 @@ type Project struct {
 	// Each SpecTask gets assigned the next number (install-cowsay_1, add-api_2, etc.)
 	NextTaskNumber int `json:"next_task_number" gorm:"default:1"`
 
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-	DeletedAt gorm.DeletedAt  `json:"deleted_at,omitempty" gorm:"index"` // Soft delete timestamp
-	Metadata  ProjectMetadata `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	// LastActivityAt is the latest active task or chat activity for sidebar ordering.
+	LastActivityAt *time.Time      `json:"last_activity_at,omitempty" gorm:"-"`
+	DeletedAt      gorm.DeletedAt  `json:"deleted_at,omitempty" gorm:"index"` // Soft delete timestamp
+	Metadata       ProjectMetadata `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	Stats ProjectStats `json:"stats,omitempty" gorm:"-"` // Computed
 }

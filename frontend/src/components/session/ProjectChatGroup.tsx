@@ -1,4 +1,4 @@
-import { FC, useState } from 'react'
+import { FC, MutableRefObject, useState } from 'react'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
@@ -27,8 +27,9 @@ import {
   getSidebarTaskStatus,
 } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
+import type { SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
+import type { SortableProjectHandleProps } from './SortableProject'
 
-const INITIAL_VISIBLE_ITEMS = 6
 const SHOW_MORE_COUNT = 20
 
 const activeStatusDotPulse = keyframes`
@@ -48,12 +49,18 @@ type ProjectChatGroupProps = {
   activeItemId: string
   relativeTimeNow: number
   enabled: boolean
+  threadSortOrder?: SidebarThreadSortOrder
+  visibleThreadCount?: number
   archived?: boolean
   archivingItemId: string | null
   onToggle: () => void
   onNewTask?: () => void
   onOpenItem: (item: SidebarItem) => void
   onArchiveItem: (item: SidebarItem) => void
+  manualSorting?: boolean
+  dragHandleProps?: SortableProjectHandleProps
+  dragInProgressRef?: MutableRefObject<boolean>
+  suppressClickAfterDragRef?: MutableRefObject<boolean>
 }
 
 const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
@@ -64,15 +71,22 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   activeItemId,
   relativeTimeNow,
   enabled,
+  threadSortOrder = 'updated_at',
+  visibleThreadCount = 6,
   archived = false,
   archivingItemId,
   onToggle,
   onNewTask,
   onOpenItem,
   onArchiveItem,
+  manualSorting = false,
+  dragHandleProps,
+  dragInProgressRef,
+  suppressClickAfterDragRef,
 }) => {
   const lightTheme = useLightTheme()
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ITEMS)
+  const [additionalVisibleCount, setAdditionalVisibleCount] = useState(0)
+  const visibleCount = visibleThreadCount + additionalVisibleCount
   const projectId = project?.id
   const groupId = projectId || 'default'
   const groupName = project?.name || 'None'
@@ -94,7 +108,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       enabled: queriesEnabled,
       includeExternalAgents: true,
       projectScope: projectId ? 'project' : 'none',
-      sort: 'updated',
+      sort: threadSortOrder === 'created_at' ? 'created' : 'updated',
       archived,
     },
   )
@@ -102,6 +116,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     projectId,
     limit: requestCount,
     offset: 0,
+    sort: threadSortOrder === 'created_at' ? 'created' : 'updated',
     archivedOnly: archived,
     enabled: queriesEnabled && !!projectId,
     refetchInterval: archived ? false : 10000,
@@ -110,7 +125,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const sessionsPage = sessionsQuery.data?.data
   const sessions = sessionsPage?.sessions || []
   const tasks = projectId ? tasksQuery.data || [] : []
-  const group = buildProjectChatGroups(project ? [project] : [], tasks, sessions)
+  const group = buildProjectChatGroups(project ? [project] : [], tasks, sessions, threadSortOrder)
     .find((candidate) => candidate.id === groupId)
   const items = group?.items || []
   const filteredItems = filterProjectChatGroups([{ id: groupId, name: groupName, items }], query)[0]?.items || []
@@ -120,7 +135,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const sessionsHaveMore = (sessionsPage?.totalCount || 0) > sessions.length
   const tasksMayHaveMore = !!projectId && tasks.length === requestCount
   const hasMore = filteredItems.length > visibleCount || sessionsHaveMore || tasksMayHaveMore
-  const canShowLess = visibleCount > INITIAL_VISIBLE_ITEMS
+  const canShowLess = additionalVisibleCount > 0
   const isLoading = queriesEnabled && (sessionsQuery.isLoading || (!!projectId && tasksQuery.isLoading))
   const isFetchingMore = sessionsQuery.isFetching || tasksQuery.isFetching
   const hasError = sessionsQuery.isError || tasksQuery.isError
@@ -150,7 +165,21 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       <Box
         role="button"
         tabIndex={0}
-        onClick={onToggle}
+        ref={manualSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
+        {...(manualSorting ? dragHandleProps?.attributes : {})}
+        {...(manualSorting ? dragHandleProps?.listeners : {})}
+        onPointerDownCapture={() => {
+          if (suppressClickAfterDragRef) suppressClickAfterDragRef.current = false
+        }}
+        onClick={(event) => {
+          if (dragInProgressRef?.current || suppressClickAfterDragRef?.current) {
+            if (suppressClickAfterDragRef) suppressClickAfterDragRef.current = false
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          onToggle()
+        }}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return
           if (event.key === 'Enter' || event.key === ' ') {
@@ -168,7 +197,8 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           borderRadius: '6px',
           backgroundColor: 'transparent',
           color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-          cursor: 'pointer',
+          cursor: manualSorting ? 'grab' : 'pointer',
+          '&:active': manualSorting ? { cursor: 'grabbing' } : undefined,
           textAlign: 'left',
           font: 'inherit',
           outline: 'none',
@@ -441,7 +471,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                   component="button"
                   type="button"
                   disabled={isFetchingMore}
-                  onClick={() => setVisibleCount(INITIAL_VISIBLE_ITEMS)}
+                  onClick={() => setAdditionalVisibleCount(0)}
                   sx={paginationButtonSx}
                 >
                   Show less
@@ -452,7 +482,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                   component="button"
                   type="button"
                   disabled={isFetchingMore}
-                  onClick={() => setVisibleCount((count) => count + SHOW_MORE_COUNT)}
+                  onClick={() => setAdditionalVisibleCount((count) => count + SHOW_MORE_COUNT)}
                   sx={paginationButtonSx}
                 >
                   {isFetchingMore ? 'Loading…' : 'Show more'}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -89,6 +90,10 @@ func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery
 		return nil, fmt.Errorf("error listing projects: %w", err)
 	}
 
+	if err := s.populateProjectLastActivity(ctx, projects); err != nil {
+		return nil, fmt.Errorf("error populating project activity: %w", err)
+	}
+
 	if req.IncludeStats {
 		err = s.populateProjectStats(ctx, projects)
 		if err != nil {
@@ -97,6 +102,55 @@ func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery
 	}
 
 	return projects, nil
+}
+
+type projectActivityRow struct {
+	ProjectID      string     `gorm:"column:project_id"`
+	LastActivityAt *time.Time `gorm:"column:last_activity_at"`
+}
+
+func (s *PostgresStore) populateProjectLastActivity(ctx context.Context, projects []*types.Project) error {
+	projectIDs := make([]string, 0, len(projects))
+	for _, project := range projects {
+		if project != nil && project.ID != "" {
+			projectIDs = append(projectIDs, project.ID)
+		}
+	}
+	if len(projectIDs) == 0 {
+		return nil
+	}
+
+	var rows []projectActivityRow
+	err := s.gdb.WithContext(ctx).Raw(`
+		SELECT project_id, MAX(activity_at) AS last_activity_at
+		FROM (
+			SELECT project_id, MAX(updated) AS activity_at
+			FROM sessions
+			WHERE project_id IN ?
+				AND deleted_at IS NULL
+				AND (archived = false OR archived IS NULL)
+			GROUP BY project_id
+			UNION ALL
+			SELECT project_id, MAX(COALESCE(status_updated_at, created_at)) AS activity_at
+			FROM spec_tasks
+			WHERE project_id IN ?
+				AND (archived = false OR archived IS NULL)
+			GROUP BY project_id
+		) AS project_activity
+		GROUP BY project_id
+	`, projectIDs, projectIDs).Scan(&rows).Error
+	if err != nil {
+		return err
+	}
+
+	activityByProjectID := make(map[string]*time.Time, len(rows))
+	for _, row := range rows {
+		activityByProjectID[row.ProjectID] = row.LastActivityAt
+	}
+	for _, project := range projects {
+		project.LastActivityAt = activityByProjectID[project.ID]
+	}
+	return nil
 }
 
 // ListProjectsWithActiveGoldenBuild returns projects where at least one sandbox

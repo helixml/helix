@@ -19604,6 +19604,13 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "default": "updated",
+                        "description": "Sort order: created or updated",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "default": 50,
                         "description": "Limit number of results",
@@ -33749,6 +33756,10 @@ const docTemplate = `{
                 },
                 "kodit_enabled": {
                     "type": "boolean"
+                },
+                "last_activity_at": {
+                    "description": "LastActivityAt is the latest active task or chat activity for sidebar ordering.",
+                    "type": "string"
                 },
                 "metadata": {
                     "$ref": "#/definitions/types.ProjectMetadata"

@@ -1,4 +1,12 @@
 import { FC, useCallback, useEffect, useState } from 'react'
+import {
+  closestCenter,
+  DndContext,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
@@ -28,10 +36,15 @@ import {
   isNewThreadShortcut,
   shouldConfirmArchive,
   parseCollapsedGroupIds,
+  sidebarPreferencesStorageKey,
   serializeCollapsedGroupIds,
 } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 import ProjectChatGroup from './ProjectChatGroup'
+import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
+import SortableProject from './SortableProject'
+import useProjectChatSidebarDrag from './useProjectChatSidebarDrag'
+import useProjectChatSidebarPreferences from './useProjectChatSidebarPreferences'
 
 const RELATIVE_TIME_REFRESH_MS = 15000
 const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
@@ -52,6 +65,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const orgSlug = router.params.org_id || ''
   const orgId = account.organizationTools.organization?.id || ''
   const storageKey = collapsedGroupsStorageKey(orgSlug)
+  const preferencesStorageKey = sidebarPreferencesStorageKey(orgSlug)
 
   const [query, setQuery] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
@@ -73,6 +87,14 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
     enabled: !!account.user?.id && !!orgId,
   })
+  const {
+    preferences,
+    sortedProjects,
+    setProjectSortOrder,
+    setThreadSortOrder,
+    setVisibleThreadCount,
+    setManualProjectOrder,
+  } = useProjectChatSidebarPreferences(preferencesStorageKey, projects)
   const { data: orgAgents = [] } = useListHelixOrgBots({
     enabled: !!account.user?.id && !!orgId,
   })
@@ -88,6 +110,19 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const archiveSession = useArchiveSession()
   const archiveSpecTask = useArchiveSpecTask()
   const activeItemId = router.params.taskId || router.params.session_id || ''
+  const {
+    dragInProgressRef,
+    suppressClickAfterDragRef,
+    sensors: projectDragSensors,
+    onDragStart: handleProjectDragStart,
+    onDragCancel: handleProjectDragCancel,
+    onDragEnd: handleProjectDragEnd,
+  } = useProjectChatSidebarDrag(
+    preferences.projectSortOrder,
+    query,
+    sortedProjects,
+    setManualProjectOrder,
+  )
 
   const openNewThread = useCallback(() => {
     setShowArchived(false)
@@ -297,6 +332,14 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
         >
           {showArchived ? 'Archived' : 'Projects'}
         </Typography>
+        <ProjectChatSidebarOptions
+          projectSortOrder={preferences.projectSortOrder}
+          threadSortOrder={preferences.threadSortOrder}
+          visibleThreadCount={preferences.visibleThreadCount}
+          onProjectSortOrderChange={setProjectSortOrder}
+          onThreadSortOrderChange={setThreadSortOrder}
+          onVisibleThreadCountChange={setVisibleThreadCount}
+        />
         <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
           <IconButton
             size="small"
@@ -358,6 +401,8 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
               activeItemId={activeItemId}
               relativeTimeNow={relativeTimeNow}
               enabled={groupsEnabled}
+              threadSortOrder={preferences.threadSortOrder}
+              visibleThreadCount={preferences.visibleThreadCount}
               archived={showArchived}
               archivingItemId={archivingItemId}
               onToggle={() => toggleGroup('default')}
@@ -365,26 +410,52 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
               onOpenItem={openItem}
               onArchiveItem={requestArchive}
             />
-            {projects.flatMap((project) => project.id ? [(
-              <ProjectChatGroup
-                key={project.id}
-                orgId={orgId}
-                project={project}
-                collapsed={effectiveCollapsedGroups.has(project.id)}
-                query={query}
-                activeItemId={activeItemId}
-                relativeTimeNow={relativeTimeNow}
-                enabled={groupsEnabled}
-                archived={showArchived}
-                archivingItemId={archivingItemId}
-                onToggle={() => toggleGroup(project.id!)}
-                onNewTask={showArchived
-                  ? undefined
-                  : () => account.orgNavigate('chat', {}, { project_id: project.id })}
-                onOpenItem={openItem}
-                onArchiveItem={requestArchive}
-              />
-            )] : [])}
+            <DndContext
+              sensors={projectDragSensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleProjectDragStart}
+              onDragCancel={handleProjectDragCancel}
+              onDragEnd={handleProjectDragEnd}
+            >
+              <SortableContext
+                items={sortedProjects.flatMap((project) => project.id ? [project.id] : [])}
+                strategy={verticalListSortingStrategy}
+              >
+                {sortedProjects.flatMap((project) => project.id ? [(
+                  <SortableProject
+                    key={project.id}
+                    projectId={project.id}
+                    disabled={preferences.projectSortOrder !== 'manual' || !!query}
+                  >
+                    {(dragHandleProps) => (
+                      <ProjectChatGroup
+                        orgId={orgId}
+                        project={project}
+                        collapsed={effectiveCollapsedGroups.has(project.id!)}
+                        query={query}
+                        activeItemId={activeItemId}
+                        relativeTimeNow={relativeTimeNow}
+                        enabled={groupsEnabled}
+                        threadSortOrder={preferences.threadSortOrder}
+                        visibleThreadCount={preferences.visibleThreadCount}
+                        archived={showArchived}
+                        archivingItemId={archivingItemId}
+                        onToggle={() => toggleGroup(project.id!)}
+                        onNewTask={showArchived
+                          ? undefined
+                          : () => account.orgNavigate('chat', {}, { project_id: project.id })}
+                        onOpenItem={openItem}
+                        onArchiveItem={requestArchive}
+                        manualSorting={preferences.projectSortOrder === 'manual' && !query}
+                        dragHandleProps={dragHandleProps}
+                        dragInProgressRef={dragInProgressRef}
+                        suppressClickAfterDragRef={suppressClickAfterDragRef}
+                      />
+                    )}
+                  </SortableProject>
+                )] : [])}
+              </SortableContext>
+            </DndContext>
           </>
         )}
       </Box>

@@ -7689,6 +7689,10 @@ definitions:
         type: string
       kodit_enabled:
         type: boolean
+      last_activity_at:
+        description: LastActivityAt is the latest active task or chat activity for
+          sidebar ordering.
+        type: string
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
@@ -25322,6 +25326,11 @@ paths:
       - description: Filter by labels (comma-separated, AND semantics)
         in: query
         name: labels
+        type: string
+      - default: updated
+        description: 'Sort order: created or updated'
+        in: query
+        name: sort
         type: string
       - default: 50
         description: Limit number of results

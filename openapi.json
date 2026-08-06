@@ -23475,6 +23475,15 @@
                         }
                     },
                     {
+                        "description": "Sort order: created or updated",
+                        "name": "sort",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "default": "updated"
+                        }
+                    },
+                    {
                         "description": "Limit number of results",
                         "name": "limit",
                         "in": "query",
@@ -38390,6 +38399,10 @@
                     },
                     "kodit_enabled": {
                         "type": "boolean"
+                    },
+                    "last_activity_at": {
+                        "description": "LastActivityAt is the latest active task or chat activity for sidebar ordering.",
+                        "type": "string"
                     },
                     "metadata": {
                         "$ref": "#/components/schemas/types.ProjectMetadata"

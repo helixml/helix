@@ -254,6 +254,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 // @Param   include_archived query bool false "Include archived tasks" default(false)
 // @Param   with_depends_on query bool false "Include depends on tasks" default(false)
 // @Param   labels query string false "Filter by labels (comma-separated, AND semantics)"
+// @Param   sort query string false "Sort order: created or updated" default(updated)
 // @Param   limit query int false "Limit number of results" default(50)
 // @Param   offset query int false "Offset for pagination" default(0)
 // @Success 200 {array} types.SpecTask
@@ -267,6 +268,12 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 
 	if projectID == "" {
 		http.Error(w, "project ID is required", http.StatusBadRequest)
+		return
+	}
+
+	sortBy := query.Get("sort")
+	if sortBy != "" && sortBy != "created" && sortBy != "updated" {
+		http.Error(w, "sort must be created or updated", http.StatusBadRequest)
 		return
 	}
 
@@ -298,6 +305,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		WithDependsOn:   query.Get("with_depends_on") == "true",
 		Limit:           parseIntQuery(query.Get("limit"), 0), // 0 = no limit, return all tasks
 		Offset:          parseIntQuery(query.Get("offset"), 0),
+		SortBy:          sortBy,
 		IncludeArchived: query.Get("include_archived") == "true",
 		ArchivedOnly:    query.Get("archived_only") == "true",
 		Labels:          labelFilter,

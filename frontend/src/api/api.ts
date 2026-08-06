@@ -4822,6 +4822,8 @@ export interface TypesProject {
   guidelines_version?: number;
   id?: string;
   kodit_enabled?: boolean;
+  /** LastActivityAt is the latest active task or chat activity for sidebar ordering. */
+  last_activity_at?: string;
   metadata?: TypesProjectMetadata;
   /** Indexed for search prefix matching */
   name?: string;
@@ -17145,6 +17147,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         with_depends_on?: boolean;
         /** Filter by labels (comma-separated, AND semantics) */
         labels?: string;
+        /**
+         * Sort order: created or updated
+         * @default "updated"
+         */
+        sort?: string;
         /**
          * Limit number of results
          * @default 50
