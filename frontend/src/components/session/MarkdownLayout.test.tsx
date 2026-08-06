@@ -51,8 +51,9 @@ describe('Markdown chat spacing', () => {
     root.innerHTML = [
       '<div class="interactionMessage">',
       '<p>Use <code>npm ci</code></p>',
+      '<div class="chat-markdown-table-container">',
       '<table><thead><tr><th>was</th><th>now</th></tr></thead>',
-      '<tbody><tr><td>nginx</td><td>nginx-unprivileged</td></tr></tbody></table>',
+      '<tbody><tr><td>nginx</td><td>nginx-unprivileged</td></tr></tbody></table></div>',
       '</div>',
     ].join('')
 
@@ -62,20 +63,27 @@ describe('Markdown chat spacing', () => {
     const cell = container.querySelector<HTMLElement>('td')
 
     expect(inlineCode).toHaveStyle({
-      backgroundColor: '#303033',
-      color: 'rgba(245, 245, 245, 0.78)',
-      padding: '0.08em 0.28em',
-      borderRadius: '4px',
+      backgroundColor: 'rgba(255, 255, 255, 0.04)',
+      color: '#f5f5f5',
+      border: '1px solid rgba(255, 255, 255, 0.06)',
+      padding: '0.1rem 0.35rem',
+      borderRadius: '0.375rem',
+      fontSize: '0.75rem',
     })
     expect(table).toHaveStyle({
-      border: '1px solid rgba(255, 255, 255, 0.18)',
-      borderRadius: '8px',
+      borderCollapse: 'collapse',
+      minWidth: 'max-content',
+      fontSize: '0.75rem',
     })
     expect(header).toHaveStyle({
-      backgroundColor: '#25272e',
-      color: 'rgba(245, 245, 245, 0.8)',
+      borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+      padding: '0.55rem 0.75rem 0.55rem 0.75rem',
+      fontWeight: '600',
     })
-    expect(cell).toHaveStyle({ backgroundColor: '#0c0c0d' })
+    expect(cell).toHaveStyle({
+      borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+      padding: '0.45rem 0.75rem',
+    })
   })
 
   it('does not add spacing to empty response entries', () => {

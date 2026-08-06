@@ -1073,11 +1073,10 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           "& :not(pre) > code": {
             backgroundColor: chatColors.inlineCodeSurface,
             color: chatColors.inlineCodeForeground,
-            padding: "0.08em 0.28em",
-            borderRadius: "4px",
-            fontSize: "0.84rem",
-            fontWeight: 500,
-            boxDecorationBreak: "clone",
+            border: `1px solid ${chatColors.inlineCodeBorder}`,
+            padding: "0.1rem 0.35rem",
+            borderRadius: "0.375rem",
+            fontSize: "0.75rem",
           },
           "& a": {
             color: theme.palette.mode === "light" ? "#333" : "inherit",
@@ -1116,38 +1115,35 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
               textDecoration: "none",
             },
           },
+          "& .chat-markdown-table-container": {
+            maxWidth: "100%",
+            overflowX: "auto",
+            margin: "0.65rem 0",
+            scrollbarWidth: "thin",
+          },
           "& table": {
-            borderCollapse: "separate",
-            borderSpacing: 0,
+            borderCollapse: "collapse",
             width: "100%",
-            margin: "1em 0",
-            fontSize: "0.84rem",
-            borderRadius: "8px",
-            overflow: "hidden",
-            border: `1px solid ${chatColors.tableBorder}`,
-            backgroundColor: chatColors.tableSurface,
+            minWidth: "max-content",
+            margin: 0,
+            overflowWrap: "normal",
+            wordBreak: "normal",
+            fontSize: "0.75rem",
           },
           "& th, & td": {
-            padding: "12px 16px",
+            padding: "0.45rem 0.75rem",
             textAlign: "left",
             border: 0,
-            borderBottom: `1px solid ${chatColors.tableBorder}`,
           },
-          "& th + th, & td + td": {
-            borderLeft: `1px solid ${chatColors.tableBorder}`,
-          },
-          "& tr:last-child td": {
-            borderBottom: 0,
-          },
-          "& th": {
-            backgroundColor: chatColors.tableHeaderSurface,
+          "& thead th": {
+            borderBottom: `1px solid ${chatColors.tableDivider}`,
+            paddingTop: "0.55rem",
+            paddingBottom: "0.55rem",
             fontWeight: "600",
-            color: theme.palette.mode === "light"
-              ? "#3f3f46"
-              : chatColors.assistantForeground,
+            whiteSpace: "nowrap",
           },
-          "& td": {
-            backgroundColor: chatColors.tableSurface,
+          "& tbody td": {
+            borderBottom: `1px solid ${chatColors.tableDivider}`,
           },
           display: "flow-root",
         }}
@@ -1232,6 +1228,14 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
             >
               {children}
             </a>
+          );
+        },
+        table(props: any) {
+          const { node, children, ...rest } = props;
+          return (
+            <div className="chat-markdown-table-container">
+              <table {...rest}>{children}</table>
+            </div>
           );
         },
       }),
