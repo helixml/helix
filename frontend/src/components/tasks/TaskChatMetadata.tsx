@@ -25,12 +25,11 @@ const MetadataItem: FC<MetadataItemProps> = ({ icon, children, accent }) => (
   <Box
     sx={{
       minWidth: 0,
+      maxWidth: '100%',
       display: 'inline-flex',
       alignItems: 'center',
       gap: 0.5,
-      color: accent
-        ? 'success.main'
-        : (theme) => getChatColors(theme).subtle,
+      color: accent ? 'success.main' : 'inherit',
       fontSize: '0.6875rem',
       fontWeight: 450,
       lineHeight: 1,
@@ -62,22 +61,42 @@ const TaskChatMetadata: FC<TaskChatMetadataProps> = ({
   const openPullRequests = pullRequests.filter(
     (pullRequest) => pullRequest.pr_state?.toLowerCase() === 'open' && pullRequest.pr_number,
   )
+  const openPullRequest = openPullRequests.find(
+    (pullRequest) => pullRequest.repository_id === primaryRepository?.id,
+  ) ?? openPullRequests[0]
   const repositoryTooltip = primaryRepository?.external_url
     ? `Primary repository · ${primaryRepository.external_url}`
     : 'Primary repository'
+  const pullRequestLabel = openPullRequest ? `#${openPullRequest.pr_number}` : ''
+  const pullRequestContent = openPullRequest ? (
+    <MetadataItem icon={<GitPullRequest size={13} />} accent>
+      <Typography component="span" sx={itemLabelSx}>{pullRequestLabel}</Typography>
+    </MetadataItem>
+  ) : null
 
   return (
     <Box
       sx={{
         minWidth: 0,
         width: '100%',
+        overflow: 'hidden',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 1.5,
+        color: (theme) => getChatColors(theme).subtle,
       }}
     >
-      <Box sx={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 1.25 }}>
+      <Box
+        sx={{
+          minWidth: 0,
+          flex: '1 1 auto',
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.25,
+        }}
+      >
         <Tooltip title={`Open ${projectName || 'project'} specs`} placement="bottom-start">
           <Box
             component="button"
@@ -87,13 +106,16 @@ const TaskChatMetadata: FC<TaskChatMetadataProps> = ({
             sx={{
               minWidth: 0,
               maxWidth: 210,
+              flex: '1 1 auto',
               display: 'inline-flex',
               alignItems: 'center',
               border: 0,
               p: 0,
               bgcolor: 'transparent',
+              color: 'inherit',
               cursor: 'pointer',
               '&:hover': { color: 'text.primary' },
+              '&:focus-visible': { outline: '1px solid currentColor', outlineOffset: 2, borderRadius: 0.5 },
             }}
           >
             <MetadataItem icon={<Kanban size={13} />}>
@@ -114,11 +136,16 @@ const TaskChatMetadata: FC<TaskChatMetadataProps> = ({
               sx={{
                 minWidth: 0,
                 maxWidth: 150,
+                flex: '0 1 150px',
+                overflow: 'hidden',
                 display: 'inline-flex',
                 alignItems: 'center',
                 color: 'inherit',
                 textDecoration: 'none',
                 '&:hover': primaryRepository.external_url ? { color: 'text.primary' } : undefined,
+                '&:focus-visible': primaryRepository.external_url
+                  ? { outline: '1px solid currentColor', outlineOffset: 2, borderRadius: 0.5 }
+                  : undefined,
               }}
             >
               <MetadataItem icon={<FolderGit2 size={13} />}>
@@ -134,44 +161,44 @@ const TaskChatMetadata: FC<TaskChatMetadataProps> = ({
       <Box
         sx={{
           minWidth: 0,
+          maxWidth: '50%',
+          flex: '0 1 auto',
           ml: 'auto',
+          overflow: 'hidden',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',
           gap: 1.25,
         }}
       >
-        {openPullRequests.map((pullRequest, index) => {
-          const label = `#${pullRequest.pr_number}`
-          const content = (
-            <MetadataItem icon={<GitPullRequest size={13} />} accent>
-              <Typography component="span" sx={itemLabelSx}>{label}</Typography>
-            </MetadataItem>
-          )
-          return pullRequest.pr_url ? (
-            <Tooltip
-              key={`${pullRequest.repository_id || index}-${pullRequest.pr_number}`}
-              title={`Open pull request ${label}${pullRequest.repository_name ? ` · ${pullRequest.repository_name}` : ''}`}
-              placement="bottom-end"
+        {openPullRequest?.pr_url ? (
+          <Tooltip
+            title={`Open pull request ${pullRequestLabel}${openPullRequest.repository_name ? ` · ${openPullRequest.repository_name}` : ''}`}
+            placement="bottom-end"
+          >
+            <Box
+              component="a"
+              href={openPullRequest.pr_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{
+                flexShrink: 0,
+                display: 'inline-flex',
+                textDecoration: 'none',
+                '&:hover': { filter: 'brightness(1.2)' },
+                '&:focus-visible': { outline: '1px solid currentColor', outlineOffset: 2, borderRadius: 0.5 },
+              }}
             >
-              <Box
-                component="a"
-                href={pullRequest.pr_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                sx={{ display: 'inline-flex', textDecoration: 'none', '&:hover': { filter: 'brightness(1.2)' } }}
-              >
-                {content}
-              </Box>
-            </Tooltip>
-          ) : (
-            <Box key={`${pullRequest.repository_id || index}-${pullRequest.pr_number}`}>{content}</Box>
-          )
-        })}
+              {pullRequestContent}
+            </Box>
+          </Tooltip>
+        ) : openPullRequest ? (
+          <Box sx={{ flexShrink: 0 }}>{pullRequestContent}</Box>
+        ) : null}
 
         {branchName && (
           <Tooltip title="Working branch" placement="bottom-end">
-            <Box sx={{ minWidth: 0, maxWidth: 230 }}>
+            <Box sx={{ minWidth: 0, maxWidth: 230, flex: '1 1 auto', overflow: 'hidden' }}>
               <MetadataItem icon={<GitBranch size={13} />}>
                 <Typography component="span" sx={{ ...itemLabelSx, textAlign: 'right' }}>
                   {branchName}

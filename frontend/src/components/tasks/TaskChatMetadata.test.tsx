@@ -26,6 +26,13 @@ const renderMetadata = (onOpenProject = vi.fn()) => {
           },
           {
             repository_id: 'repo-2',
+            repository_name: 'secondary-repo',
+            pr_number: 41,
+            pr_state: 'open',
+            pr_url: 'https://github.com/example/secondary-repo/pull/41',
+          },
+          {
+            repository_id: 'repo-2',
             repository_name: 'closed-repo',
             pr_number: 22,
             pr_state: 'closed',
@@ -59,6 +66,7 @@ describe('TaskChatMetadata', () => {
       'href',
       'https://github.com/keel-hq/keel/pull/2948',
     )
+    expect(screen.queryByText('#41')).not.toBeInTheDocument()
     expect(screen.queryByText('#22')).not.toBeInTheDocument()
   })
 
