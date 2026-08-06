@@ -1,6 +1,6 @@
 # T3 Code-inspired workspace inspector
 
-**Status:** Proposed
+**Status:** Implemented on `feat/t3-workspace-inspector`; live verification in progress
 
 **Date:** 2026-08-07
 
@@ -19,6 +19,20 @@ The visual target is T3 Code's current right panel: dense neutral chrome, semant
 This is not only a frontend restyle. Helix's current diff endpoint can omit staged changes from its totals and can hide either branch or working-tree changes when both affect the same file. It also returns a lossy per-file projection that cannot support high-quality context expansion. The backend contract must be replaced with typed, coherent patch sources plus safe file-list and file-read operations.
 
 Web editing is deliberately excluded from the first release. A high-quality read-only viewer has clear semantics; editing requires versioned saves, conflict handling, permissions, and agent/editor coordination that this project does not yet define.
+
+## Implementation record
+
+The implementation pins `@pierre/diffs` `1.3.0-beta.11` and `@pierre/trees` `1.0.0-beta.4`. The read-only paths work without T3's private Pierre editor patch. `DiffViewer` remains as a compatibility export for the two task-detail call sites, but its old manual renderer is no longer in the runtime path; it now mounts `WorkspaceInspector`.
+
+The delivered surfaces are:
+
+- **Changes:** a stacked, virtualized `CodeView` with coherent all/branch/working-tree scopes, historical turn selection, split/unified layouts, wrapping, whitespace filtering, refresh, sticky headers, and semantic low-chroma Git layers;
+- **Files:** a virtualized, read-only Pierre tree filtered with `matchesAllTokens()`, plus syntax-highlighted file tabs and explicit binary/read-error states;
+- **Chat receipts:** immutable per-interaction file summaries with the T3 auto-expansion threshold (latest turn, at most five files and 200 changed lines), compact previews for large latest turns, aggregate directory stats, expansion persistence, and deep links into the historical turn diff.
+
+The backend uses shared response types and generated client methods. Live review requests return one patch per Git scope. Historical review never trusts a checkpoint ref from the browser: it resolves the interaction after session authorization and reads the stored before/after refs. Checkpoint capture uses a temporary Git index and parentless hidden commits, preserving the user's index, worktree, `HEAD`, and branch refs.
+
+Boundaries retained for the first release: the browser is read-only, file reads are capped at 1 MiB, raw patch previews at 512 KiB, and file listings at 20,000 entries. The inspector can switch among detected Git workspaces, but the previous special `helix-specs` branch projection is not mixed into the repository browser. Markdown rendering, image preview, line comments, and editing remain follow-ups rather than partially implemented modes.
 
 ## Goals
 

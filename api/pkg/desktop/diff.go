@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // FileDiff represents a single file's diff information
@@ -491,26 +493,10 @@ func resolveBaseBranch(workDir, baseBranch string) string {
 }
 
 // WorkspaceInfo represents information about a git workspace/repository
-type WorkspaceInfo struct {
-	// Name is the directory name (e.g., "my-repo")
-	Name string `json:"name"`
-	// Path is the full path to the repository
-	Path string `json:"path"`
-	// CurrentBranch is the currently checked out branch
-	CurrentBranch string `json:"current_branch"`
-	// IsPrimary indicates if this is the primary repository
-	IsPrimary bool `json:"is_primary"`
-	// HasHelixSpecs indicates if the repo has a helix-specs branch
-	HasHelixSpecs bool `json:"has_helix_specs"`
-}
+type WorkspaceInfo = types.WorkspaceInfo
 
 // WorkspacesResponse is the response from the /workspaces endpoint
-type WorkspacesResponse struct {
-	// Workspaces is the list of git repositories found
-	Workspaces []WorkspaceInfo `json:"workspaces"`
-	// Error message if something went wrong
-	Error string `json:"error,omitempty"`
-}
+type WorkspacesResponse = types.WorkspacesResponse
 
 // handleWorkspaces handles GET /workspaces requests
 // Returns a list of all git repositories in the workspace directory

@@ -19,6 +19,18 @@ type WorkspaceReviewResponse struct {
 	Sources     []WorkspaceReviewSource `json:"sources"`
 }
 
+type WorkspacesResponse struct {
+	Workspaces []WorkspaceInfo `json:"workspaces"`
+}
+
+type WorkspaceInfo struct {
+	Name          string `json:"name"`
+	Path          string `json:"-" swaggerignore:"true"`
+	CurrentBranch string `json:"current_branch"`
+	IsPrimary     bool   `json:"is_primary"`
+	HasHelixSpecs bool   `json:"has_helix_specs"`
+}
+
 type WorkspaceReviewSource struct {
 	ID             string                      `json:"id"`
 	Title          string                      `json:"title"`

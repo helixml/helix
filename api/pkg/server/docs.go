@@ -4602,9 +4602,9 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Workspaces response with list of repos",
+                        "description": "OK",
                         "schema": {
-                            "type": "object"
+                            "$ref": "#/definitions/types.WorkspacesResponse"
                         }
                     },
                     "401": {
@@ -40760,6 +40760,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.WorkspaceInfo": {
+            "type": "object",
+            "properties": {
+                "current_branch": {
+                    "type": "string"
+                },
+                "has_helix_specs": {
+                    "type": "boolean"
+                },
+                "is_primary": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.WorkspaceReviewFileContent": {
             "type": "object",
             "properties": {
@@ -40843,6 +40860,17 @@ const docTemplate = `{
                 },
                 "truncated": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.WorkspacesResponse": {
+            "type": "object",
+            "properties": {
+                "workspaces": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkspaceInfo"
+                    }
                 }
             }
         },

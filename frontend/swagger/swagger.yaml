@@ -12701,6 +12701,17 @@ definitions:
       workspace:
         type: string
     type: object
+  types.WorkspaceInfo:
+    properties:
+      current_branch:
+        type: string
+      has_helix_specs:
+        type: boolean
+      is_primary:
+        type: boolean
+      name:
+        type: string
+    type: object
   types.WorkspaceReviewFileContent:
     properties:
       binary:
@@ -12756,6 +12767,13 @@ definitions:
         type: integer
       truncated:
         type: boolean
+    type: object
+  types.WorkspacesResponse:
+    properties:
+      workspaces:
+        items:
+          $ref: '#/definitions/types.WorkspaceInfo'
+        type: array
     type: object
   types.ZFSTree:
     properties:
@@ -15831,9 +15849,9 @@ paths:
       - application/json
       responses:
         "200":
-          description: Workspaces response with list of repos
+          description: OK
           schema:
-            type: object
+            $ref: '#/definitions/types.WorkspacesResponse'
         "401":
           description: Unauthorized
           schema:

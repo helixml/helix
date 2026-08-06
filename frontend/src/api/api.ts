@@ -7970,6 +7970,13 @@ export interface TypesWorkspaceFilesResponse {
   workspace?: string;
 }
 
+export interface TypesWorkspaceInfo {
+  current_branch?: string;
+  has_helix_specs?: boolean;
+  is_primary?: boolean;
+  name?: string;
+}
+
 export interface TypesWorkspaceReviewFileContent {
   binary?: boolean;
   byte_length?: number;
@@ -8000,6 +8007,10 @@ export interface TypesWorkspaceReviewSource {
   total_additions?: number;
   total_deletions?: number;
   truncated?: boolean;
+}
+
+export interface TypesWorkspacesResponse {
+  workspaces?: TypesWorkspaceInfo[];
 }
 
 export interface TypesZFSTree {
@@ -10374,7 +10385,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ExternalAgentsWorkspacesDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<object, SystemHTTPError>({
+      this.request<TypesWorkspacesResponse, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/workspaces`,
         method: "GET",
         secure: true,

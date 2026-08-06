@@ -1817,7 +1817,7 @@ func (apiServer *HelixAPIServer) getExternalAgentDiff(res http.ResponseWriter, r
 // @Tags ExternalAgents
 // @Produce json
 // @Param sessionID path string true "Session ID"
-// @Success 200 {object} object "Workspaces response with list of repos"
+// @Success 200 {object} types.WorkspacesResponse
 // @Failure 401 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
