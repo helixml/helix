@@ -1193,7 +1193,10 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive()
 		Created:   baseTime.Add(30 * time.Second),
 	}
 
-	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-skip").Return(targetInteraction, nil)
+	// Completion may reload once more to recover before-checkpoint metadata that
+	// was persisted after an in-memory streaming copy was created.
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-skip").Return(targetInteraction, nil).
+		MinTimes(1).MaxTimes(2)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
 
 	// ListInteractions is called for both the suppression check (PerPage=1)
@@ -1256,7 +1259,10 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup()
 		Created:         baseTime,
 	}
 
-	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-emit").Return(targetInteraction, nil)
+	// Completion may reload once more to recover before-checkpoint metadata that
+	// was persisted after an in-memory streaming copy was created.
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-emit").Return(targetInteraction, nil).
+		MinTimes(1).MaxTimes(2)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
 
 	// Only the target interaction exists — no newer waiting one. Suppression

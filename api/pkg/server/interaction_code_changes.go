@@ -90,10 +90,29 @@ func (apiServer *HelixAPIServer) finalizeInteractionCodeChanges(ctx context.Cont
 	if interaction.CodeChanges != nil && interaction.CodeChanges.Status == types.CodeChangesStatusReady {
 		return
 	}
+
+	// The before checkpoint is persisted synchronously before the command is sent,
+	// while the websocket completion path may still hold an older in-memory copy
+	// of the interaction. Reload that metadata before deciding it is missing.
 	if interaction.CodeChanges == nil || interaction.CodeChanges.BeforeRef == "" {
+		persisted, getErr := apiServer.Store.GetInteraction(ctx, interaction.ID)
+		if getErr == nil && persisted != nil && persisted.CodeChanges != nil {
+			recovered := *persisted.CodeChanges
+			recovered.Files = append([]types.InteractionCodeChangeFile(nil), persisted.CodeChanges.Files...)
+			interaction.CodeChanges = &recovered
+		}
+	}
+	if interaction.CodeChanges != nil && interaction.CodeChanges.Status == types.CodeChangesStatusReady {
+		return
+	}
+	if interaction.CodeChanges == nil || interaction.CodeChanges.BeforeRef == "" {
+		errorMessage := "before checkpoint unavailable"
+		if interaction.CodeChanges != nil && interaction.CodeChanges.Error != "" {
+			errorMessage = interaction.CodeChanges.Error
+		}
 		interaction.CodeChanges = &types.InteractionCodeChanges{
 			Status: types.CodeChangesStatusMissing, Files: []types.InteractionCodeChangeFile{},
-			Error: "before checkpoint unavailable",
+			Error: errorMessage,
 		}
 		return
 	}
