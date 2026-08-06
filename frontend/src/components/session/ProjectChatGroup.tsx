@@ -120,9 +120,6 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     },
   }
 
-  if (!collapsed && !isLoading && !hasError && !hasMore && items.length === 0 && !!projectId) {
-    return null
-  }
   if (query && !isLoading && !hasError && !hasMore && filteredItems.length === 0) {
     return null
   }
@@ -254,6 +251,22 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           {hasError && (
             <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: '0.7rem' }}>
               Failed to load chats
+            </Typography>
+          )}
+          {!isLoading && !hasError && renderedItems.length === 0 && !!projectId && (
+            <Typography
+              sx={{
+                height: 28,
+                px: 1,
+                display: 'flex',
+                alignItems: 'center',
+                color: lightTheme.isLight
+                  ? 'rgba(113,113,122,0.65)'
+                  : 'rgba(163,163,163,0.55)',
+                fontSize: '11px',
+              }}
+            >
+              No tasks yet
             </Typography>
           )}
           {renderedItems.map((item) => {

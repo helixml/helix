@@ -5,7 +5,10 @@ import { TypesSpecTaskStatus } from '../../api/api'
 import type { SpecTask } from '../../services/specTaskService'
 import ProjectChatGroup from './ProjectChatGroup'
 
-const mocks = vi.hoisted(() => ({ tasks: [] as SpecTask[] }))
+const mocks = vi.hoisted(() => ({
+  emptySessions: false,
+  tasks: [] as SpecTask[],
+}))
 
 vi.mock('../../hooks/useLightTheme', () => ({
   default: () => ({ isLight: false }),
@@ -14,13 +17,15 @@ vi.mock('../../hooks/useLightTheme', () => ({
 vi.mock('../../services/sessionService', () => ({
   useListSessions: (...args: unknown[]) => {
     const pageSize = args[5] as number
-    const sessions = Array.from({ length: pageSize }, (_, index) => ({
-      session_id: `session-${index + 1}`,
-      name: `Session ${index + 1}`,
-      updated: new Date(Date.UTC(2026, 7, 6, 12, 0, -index)).toISOString(),
-    }))
+    const sessions = mocks.emptySessions
+      ? []
+      : Array.from({ length: pageSize }, (_, index) => ({
+        session_id: `session-${index + 1}`,
+        name: `Session ${index + 1}`,
+        updated: new Date(Date.UTC(2026, 7, 6, 12, 0, -index)).toISOString(),
+      }))
     return {
-      data: { data: { sessions, totalCount: 40 } },
+      data: { data: { sessions, totalCount: mocks.emptySessions ? 0 : 40 } },
       isLoading: false,
       isFetching: false,
       isError: false,
@@ -38,7 +43,43 @@ vi.mock('../../services/specTaskService', () => ({
 }))
 
 afterEach(() => {
+  mocks.emptySessions = false
   mocks.tasks = []
+})
+
+const renderEmptyProject = (collapsed = false) => render(
+  <ProjectChatGroup
+    orgId="org-one"
+    project={{ id: 'project-one', name: 'Empty project' }}
+    collapsed={collapsed}
+    query=""
+    activeItemId=""
+    relativeTimeNow={Date.now()}
+    enabled
+    archivingItemId={null}
+    onToggle={vi.fn()}
+    onNewTask={vi.fn()}
+    onOpenItem={vi.fn()}
+    onArchiveItem={vi.fn()}
+  />,
+)
+
+describe('ProjectChatGroup', () => {
+  it('renders an expanded project with no tasks', () => {
+    mocks.emptySessions = true
+    renderEmptyProject()
+
+    expect(screen.getByText('Empty project')).toBeInTheDocument()
+    expect(screen.getByText('No tasks yet')).toBeInTheDocument()
+  })
+
+  it('keeps an empty collapsed project visible without the empty-state row', () => {
+    mocks.emptySessions = true
+    renderEmptyProject(true)
+
+    expect(screen.getByText('Empty project')).toBeInTheDocument()
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
+  })
 })
 
 describe('ProjectChatGroup pagination', () => {

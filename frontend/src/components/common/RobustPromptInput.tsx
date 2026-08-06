@@ -1278,7 +1278,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               pt: 1.25,
               pb: 0.75,
               bgcolor: 'transparent',
-              color: 'text.secondary',
+              color: (theme) => getChatColors(theme).subtle,
               borderBottom: '1px solid',
               borderColor: (theme) => getChatColors(theme).border,
             }}
@@ -1385,7 +1385,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             ? 'warning.main'
             : historyIndex >= 0
               ? 'info.main'
-              : (theme) => getChatColors(theme).border,
+              : (theme) => getChatColors(theme).borderStrong,
           transition: 'border-color 0.15s, box-shadow 0.15s, background-color 0.15s',
           boxShadow: isDraggingOver
             ? (theme) => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.22)}`
@@ -1395,9 +1395,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               ? (theme) => `0 0 0 2px ${alpha(theme.palette.info.main, 0.2)}`
               : (theme) => theme.palette.mode === 'light'
                 ? '0 12px 28px -18px rgba(0,0,0,0.4)'
-                : 'inset 0 1px rgba(255,255,255,0.025)',
+                : 'none',
           '&:focus-within': {
-            borderColor: (theme) => getChatColors(theme).borderStrong,
+            borderColor: (theme) => theme.palette.mode === 'dark'
+              ? 'rgba(255,255,255,0.18)'
+              : 'rgba(0,0,0,0.2)',
           },
           px: { xs: 1.5, sm: 2 },
           pt: { xs: 1.5, sm: 2 },
@@ -1444,17 +1446,23 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             borderRadius: 0,
             outline: 'none',
             bgcolor: 'transparent',
-            color: 'text.primary',
+            color: (theme) => getChatColors(theme).foreground,
             fontFamily: 'inherit',
-            fontSize: { xs: '1rem', sm: '0.875rem' },
-            lineHeight: 1.625,
+            fontSize: { xs: '0.9375rem', sm: '0.875rem' },
+            fontWeight: 450,
+            lineHeight: 1.55,
+            letterSpacing: '-0.005em',
             p: 0,
             minHeight: 70,
             maxHeight: maxHeight,
             overflowY: 'auto',
             '&::placeholder': {
-              color: isDraggingOver ? 'primary.main' : (!isOnline ? 'warning.main' : 'text.secondary'),
-              opacity: isDraggingOver ? 1 : 0.48,
+              color: isDraggingOver
+                ? 'primary.main'
+                : !isOnline
+                  ? 'warning.main'
+                  : (theme) => getChatColors(theme).subtle,
+              opacity: isDraggingOver ? 1 : 0.72,
             },
             '&:disabled': {
               opacity: 0.6,
@@ -1497,7 +1505,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 size="small"
                 onClick={(e) => setHistoryMenuAnchor(e.currentTarget)}
                 sx={{
-                  color: historyIndex >= 0 ? 'info.main' : 'text.secondary',
+                  color: historyIndex >= 0
+                    ? 'info.main'
+                    : (theme) => getChatColors(theme).subtle,
                   flexShrink: 0,
                   width: 28,
                   height: 28,
@@ -1516,7 +1526,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 onClick={handleBrowseClick}
                 disabled={inputDisabled}
                 sx={{
-                  color: 'text.secondary',
+                  color: (theme) => getChatColors(theme).subtle,
                   flexShrink: 0,
                   width: 28,
                   height: 28,
@@ -1603,7 +1613,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 flexShrink: 0,
                 width: 28,
                 height: 28,
-                color: interruptMode ? 'warning.main' : 'text.secondary',
+                color: interruptMode
+                  ? 'warning.main'
+                  : (theme) => getChatColors(theme).subtle,
                 bgcolor: interruptMode
                   ? (theme) => alpha(theme.palette.warning.main, 0.1)
                   : 'transparent',

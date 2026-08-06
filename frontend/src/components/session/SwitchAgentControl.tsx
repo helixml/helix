@@ -18,6 +18,7 @@ import useApps from "../../hooks/useApps";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useGetSession, useSwitchAgent } from "../../services/sessionService";
 import { isSpecTaskSwitchableAgent } from "../../utils/apps";
+import { getChatColors } from "./chatStyles";
 
 interface SwitchAgentControlProps {
   /** Session being viewed in the chat panel. The dropdown's current value
@@ -160,10 +161,11 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
                   px: 0.75,
                   borderRadius: 1,
                   overflow: "hidden",
-                  color: "text.secondary",
+                  color: (theme) => getChatColors(theme).subtle,
                   fontSize: "0.75rem",
-                  fontWeight: 500,
+                  fontWeight: 450,
                   lineHeight: 1,
+                  letterSpacing: "-0.005em",
                   textTransform: "none",
                   "& .MuiButton-startIcon": { ml: 0, mr: 0.625 },
                   "& .MuiButton-endIcon": { ml: 0.375, mr: 0 },

@@ -106,6 +106,7 @@ import AgentChat from "../session/AgentChat";
 import SwitchAgentControl from "../session/SwitchAgentControl";
 import SharePreviewSection from "./SharePreviewSection";
 import SpecTaskLaunchWindow from "./SpecTaskLaunchWindow";
+import TaskChatMetadata from "./TaskChatMetadata";
 import {
   Panel,
   Group as PanelGroup,
@@ -121,8 +122,6 @@ import {
   GitCompare,
   MonitorPlay,
   EllipsisVertical,
-  FolderGit2,
-  GitBranch,
   Wand2,
   Share,
 } from "lucide-react";
@@ -1770,76 +1769,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     </>
   );
 
-  const taskChatMetadata = (primaryRepository?.name || task?.branch_name) ? (
-    <Box
-      sx={{
-        minWidth: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 1.5,
-        color: "text.secondary",
-      }}
-    >
-      {primaryRepository?.name ? (
-        <Tooltip title="Primary repository" placement="bottom-start">
-          <Box
-            sx={{
-              minWidth: 0,
-              display: "flex",
-              alignItems: "center",
-              gap: 0.5,
-            }}
-          >
-            <FolderGit2 size={13} style={{ flexShrink: 0 }} />
-            <Typography
-              component="span"
-              sx={{
-                minWidth: 0,
-                fontSize: "0.72rem",
-                lineHeight: 1.2,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {primaryRepository.name}
-            </Typography>
-          </Box>
-        </Tooltip>
-      ) : (
-        <Box />
-      )}
-      {task?.branch_name && (
-        <Tooltip title="Working branch" placement="bottom-end">
-          <Box
-            sx={{
-              minWidth: 0,
-              ml: "auto",
-              display: "flex",
-              alignItems: "center",
-              gap: 0.5,
-            }}
-          >
-            <GitBranch size={13} style={{ flexShrink: 0 }} />
-            <Typography
-              component="span"
-              sx={{
-                minWidth: 0,
-                fontSize: "0.72rem",
-                lineHeight: 1.2,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                textAlign: "right",
-              }}
-            >
-              {task.branch_name}
-            </Typography>
-          </Box>
-        </Tooltip>
-      )}
-    </Box>
+  const taskChatMetadata = task?.project_id ? (
+    <TaskChatMetadata
+      projectName={project?.name}
+      onOpenProject={() => account.orgNavigate("project-specs", { id: task.project_id })}
+      primaryRepository={primaryRepository}
+      branchName={task.branch_name}
+      pullRequests={task.repo_pull_requests}
+    />
   ) : undefined;
 
   if (!task) {
