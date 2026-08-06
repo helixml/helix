@@ -374,6 +374,7 @@ type SpecTaskFilters struct {
 	Priority          string         `json:"priority,omitempty"`
 	Limit             int            `json:"limit,omitempty"`
 	Offset            int            `json:"offset,omitempty"`
+	SortBy            string         `json:"sort_by,omitempty"`
 	WithDependsOn     bool           `json:"with_depends_on,omitempty"`
 	IncludeArchived   bool           `json:"include_archived,omitempty"`    // If true, include both archived and non-archived
 	ArchivedOnly      bool           `json:"archived_only,omitempty"`       // If true, show only archived tasks

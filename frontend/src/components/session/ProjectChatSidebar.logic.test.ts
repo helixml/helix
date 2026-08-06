@@ -4,16 +4,23 @@ import type { TypesProject, TypesSessionSummary } from '../../api/api'
 import type { SpecTask } from '../../services/specTaskService'
 import {
   buildProjectChatGroups,
+  clampVisibleThreadCount,
   collapsedGroupsStorageKey,
   compactRelativeTime,
+  DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES,
   filterProjectChatGroups,
   getSidebarPullRequestIcon,
   getSidebarTaskStatus,
   isNewThreadShortcut,
   isTaskCompletedOrMerged,
   parseCollapsedGroupIds,
+  parseSidebarPreferences,
+  reorderProjectIds,
   serializeCollapsedGroupIds,
+  serializeSidebarPreferences,
   shouldConfirmArchive,
+  sidebarPreferencesStorageKey,
+  sortSidebarProjects,
   specTaskSortKey,
 } from './ProjectChatSidebar.logic'
 
@@ -85,6 +92,84 @@ describe('ProjectChatSidebar logic', () => {
       .toBe('2026-08-02T00:00:00Z')
     expect(specTaskSortKey({ id: 'x', created_at: '2026-08-01T00:00:00Z' }))
       .toBe('2026-08-01T00:00:00Z')
+    expect(specTaskSortKey(task, 'created_at')).toBe('2026-08-01T00:00:00Z')
+  })
+
+  it('sorts threads by their requested server-backed timestamp', () => {
+    const tasks: SpecTask[] = [
+      {
+        id: 'older-created-recently-updated',
+        project_id: 'project-one',
+        name: 'Older created',
+        created_at: '2026-08-01T00:00:00Z',
+        status_updated_at: '2026-08-06T00:00:00Z',
+      },
+      {
+        id: 'newer-created',
+        project_id: 'project-one',
+        name: 'Newer created',
+        created_at: '2026-08-05T00:00:00Z',
+        status_updated_at: '2026-08-05T00:00:00Z',
+      },
+    ]
+
+    expect(buildProjectChatGroups(projects, tasks, [], 'updated_at')[0]?.items.map((item) => item.id))
+      .toEqual(['older-created-recently-updated', 'newer-created'])
+    expect(buildProjectChatGroups(projects, tasks, [], 'created_at')[0]?.items.map((item) => item.id))
+      .toEqual(['newer-created', 'older-created-recently-updated'])
+  })
+
+  it('parses and clamps org-scoped local preferences', () => {
+    const parsed = parseSidebarPreferences(JSON.stringify({
+      projectSortOrder: 'manual',
+      threadSortOrder: 'created_at',
+      visibleThreadCount: 100,
+      manualProjectOrder: ['project-two', 'project-two', '', 12, 'project-one'],
+    }))
+
+    expect(sidebarPreferencesStorageKey('org-one')).toBe('helix:project-chat-sidebar:preferences:org-one')
+    expect(parsed).toEqual({
+      projectSortOrder: 'manual',
+      threadSortOrder: 'created_at',
+      visibleThreadCount: 15,
+      manualProjectOrder: ['project-two', 'project-one'],
+    })
+    expect(parseSidebarPreferences('{bad json')).toEqual(DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES)
+    expect(parseSidebarPreferences(serializeSidebarPreferences(parsed))).toEqual(parsed)
+    expect(clampVisibleThreadCount(-2)).toBe(1)
+  })
+
+  it('sorts projects by activity, creation, and persisted manual order', () => {
+    const sortableProjects: TypesProject[] = [
+      {
+        id: 'project-one',
+        name: 'One',
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-03T00:00:00Z',
+        last_activity_at: '2026-08-06T00:00:00Z',
+      },
+      {
+        id: 'project-two',
+        name: 'Two',
+        created_at: '2026-08-05T00:00:00Z',
+        updated_at: '2026-08-05T00:00:00Z',
+        last_activity_at: '2026-08-05T00:00:00Z',
+      },
+    ]
+
+    expect(sortSidebarProjects(sortableProjects, DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES)
+      .map((project) => project.id)).toEqual(['project-one', 'project-two'])
+    expect(sortSidebarProjects(sortableProjects, {
+      ...DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES,
+      projectSortOrder: 'created_at',
+    }).map((project) => project.id)).toEqual(['project-two', 'project-one'])
+    expect(sortSidebarProjects(sortableProjects, {
+      ...DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES,
+      projectSortOrder: 'manual',
+      manualProjectOrder: ['project-two'],
+    }).map((project) => project.id)).toEqual(['project-two', 'project-one'])
+    expect(reorderProjectIds(['project-one', 'project-two'], 'project-one', 'project-two'))
+      .toEqual(['project-two', 'project-one'])
   })
 
   it('uses AND matching across multiple search tokens', () => {

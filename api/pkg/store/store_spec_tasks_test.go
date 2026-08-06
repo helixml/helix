@@ -428,6 +428,49 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_LimitAndOff
 	suite.Len(tasks, 3)
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_SortByCreated() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	olderCreatedAt := time.Now().Add(-2 * time.Hour)
+	newerCreatedAt := time.Now().Add(-time.Hour)
+	recentlyUpdatedAt := time.Now()
+	for _, task := range []*types.SpecTask{
+		{
+			ID:              "task-" + system.GenerateUUID(),
+			ProjectID:       project.ID,
+			Name:            "Older created, recently updated",
+			Status:          types.TaskStatusBacklog,
+			StatusUpdatedAt: &recentlyUpdatedAt,
+			CreatedAt:       olderCreatedAt,
+		},
+		{
+			ID:              "task-" + system.GenerateUUID(),
+			ProjectID:       project.ID,
+			Name:            "Newer created",
+			Status:          types.TaskStatusBacklog,
+			StatusUpdatedAt: &newerCreatedAt,
+			CreatedAt:       newerCreatedAt,
+		},
+	} {
+		suite.Require().NoError(suite.db.CreateSpecTask(suite.ctx, task))
+	}
+
+	tasks, err := suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID: project.ID,
+		SortBy:    "created",
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(tasks, 2)
+	suite.Equal("Newer created", tasks[0].Name)
+
+	tasks, err = suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{ProjectID: project.ID})
+	suite.Require().NoError(err)
+	suite.Equal("Older created, recently updated", tasks[0].Name)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_ArchivedFilter() {
 	project := suite.createTestProject()
 	suite.T().Cleanup(func() {

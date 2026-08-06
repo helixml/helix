@@ -22752,6 +22752,105 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/terminal": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Session terminal websocket",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/v1/sessions/{id}/terminal/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "List session tmux sessions",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.SandboxTerminalSessionsResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/terminal/sessions/{terminal_session}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Delete session tmux session",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Terminal session ID",
+                        "name": "terminal_session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/toc": {
             "get": {
                 "security": [
@@ -23373,6 +23472,15 @@
                         "in": "query",
                         "schema": {
                             "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sort order: created or updated",
+                        "name": "sort",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "default": "updated"
                         }
                     },
                     {
@@ -38292,6 +38400,10 @@
                     "kodit_enabled": {
                         "type": "boolean"
                     },
+                    "last_activity_at": {
+                        "description": "LastActivityAt is the latest active task or chat activity for sidebar ordering.",
+                        "type": "string"
+                    },
                     "metadata": {
                         "$ref": "#/components/schemas/types.ProjectMetadata"
                     },
@@ -40752,7 +40864,7 @@
                 "type": "object",
                 "properties": {
                     "archived": {
-                        "description": "No index: every list filters `archived = false OR archived IS NULL`, which\nmatches nearly every row, so a plain boolean index would never be chosen —\nand AutoMigrate builds indexes non-concurrently, taking an ACCESS EXCLUSIVE\nlock on `sessions` for the length of the build.",
+                        "description": "Hidden from session lists; see ListSessions for why this is deliberately unindexed.",
                         "type": "boolean"
                     },
                     "config": {

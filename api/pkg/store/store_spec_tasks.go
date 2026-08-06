@@ -207,7 +207,7 @@ func (s *PostgresStore) TransitionSpecTaskStatus(
 }
 
 // SetPlanningSessionIDIfEmpty atomically writes planning_session_id only when the
-// existing column is empty (NULL or ''). Returns true if this caller claimed the
+// existing column is empty (NULL or ”). Returns true if this caller claimed the
 // slot, false if another caller had already populated it.
 //
 // This is the single source of truth for "who owns the planning session?" — every
@@ -458,9 +458,15 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		db = db.Offset(filters.Offset)
 	}
 
-	// Sort by status_updated_at first (so recently-moved tasks appear at top of their column),
-	// then by created_at for tasks without status_updated_at set
-	err := db.Order("status_updated_at DESC NULLS LAST, created_at DESC").Find(&tasks).Error
+	if filters.SortBy == "created" {
+		db = db.Order("created_at DESC")
+	} else {
+		// Sort by status_updated_at first (so recently-moved tasks appear at top of their column),
+		// then by created_at for tasks without status_updated_at set.
+		db = db.Order("status_updated_at DESC NULLS LAST, created_at DESC")
+	}
+
+	err := db.Find(&tasks).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list spec tasks: %w", err)
 	}

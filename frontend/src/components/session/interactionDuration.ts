@@ -1,5 +1,14 @@
 import { TypesInteraction } from "../../api/api";
 
+/** Return the server-recorded request time, or a stable caller-provided fallback. */
+export const getInteractionRequestTimeMs = (
+  interaction: Pick<TypesInteraction, "created">,
+  fallbackMs: number,
+) => {
+  const requestTimeMs = Date.parse(interaction.created || "");
+  return Number.isFinite(requestTimeMs) ? requestTimeMs : fallbackMs;
+};
+
 /** Prefer the server's measured duration, with a timestamp fallback for older rows. */
 export const getInteractionDurationMs = (
   interaction?: Pick<TypesInteraction, "duration_ms" | "created" | "completed"> | null,

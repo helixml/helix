@@ -12,6 +12,7 @@ export type SidebarItem = {
   id: string
   kind: 'session' | 'spec-task'
   title: string
+  createdAt?: string
   updatedAt?: string
   projectId?: string
   session?: TypesSessionSummary
@@ -22,6 +23,123 @@ export type SidebarGroup = {
   id: string
   name: string
   items: SidebarItem[]
+}
+
+export type SidebarProjectSortOrder = 'updated_at' | 'created_at' | 'manual'
+export type SidebarThreadSortOrder = 'updated_at' | 'created_at'
+
+export type ProjectChatSidebarPreferences = {
+  projectSortOrder: SidebarProjectSortOrder
+  threadSortOrder: SidebarThreadSortOrder
+  visibleThreadCount: number
+  manualProjectOrder: string[]
+}
+
+export const MIN_VISIBLE_THREAD_COUNT = 1
+export const MAX_VISIBLE_THREAD_COUNT = 15
+export const DEFAULT_VISIBLE_THREAD_COUNT = 6
+
+export const DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES: ProjectChatSidebarPreferences = {
+  projectSortOrder: 'updated_at',
+  threadSortOrder: 'updated_at',
+  visibleThreadCount: DEFAULT_VISIBLE_THREAD_COUNT,
+  manualProjectOrder: [],
+}
+
+export const sidebarPreferencesStorageKey = (orgId: string): string => (
+  `helix:project-chat-sidebar:preferences:${orgId}`
+)
+
+const isProjectSortOrder = (value: unknown): value is SidebarProjectSortOrder => (
+  value === 'updated_at' || value === 'created_at' || value === 'manual'
+)
+
+const isThreadSortOrder = (value: unknown): value is SidebarThreadSortOrder => (
+  value === 'updated_at' || value === 'created_at'
+)
+
+export const clampVisibleThreadCount = (value: number): number => (
+  Math.min(MAX_VISIBLE_THREAD_COUNT, Math.max(MIN_VISIBLE_THREAD_COUNT, Math.round(value)))
+)
+
+export const parseSidebarPreferences = (
+  storedValue: string | null,
+): ProjectChatSidebarPreferences => {
+  if (!storedValue) return DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES
+
+  try {
+    const value = JSON.parse(storedValue) as Partial<ProjectChatSidebarPreferences>
+    const manualProjectOrder = Array.isArray(value.manualProjectOrder)
+      ? [...new Set(value.manualProjectOrder.filter((id): id is string => typeof id === 'string' && !!id))]
+      : []
+    return {
+      projectSortOrder: isProjectSortOrder(value.projectSortOrder)
+        ? value.projectSortOrder
+        : DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES.projectSortOrder,
+      threadSortOrder: isThreadSortOrder(value.threadSortOrder)
+        ? value.threadSortOrder
+        : DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES.threadSortOrder,
+      visibleThreadCount: typeof value.visibleThreadCount === 'number' && Number.isFinite(value.visibleThreadCount)
+        ? clampVisibleThreadCount(value.visibleThreadCount)
+        : DEFAULT_VISIBLE_THREAD_COUNT,
+      manualProjectOrder,
+    }
+  } catch {
+    return DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES
+  }
+}
+
+export const serializeSidebarPreferences = (
+  preferences: ProjectChatSidebarPreferences,
+): string => JSON.stringify(preferences)
+
+const sortableTimestamp = (value?: string): number => {
+  if (!value) return Number.NEGATIVE_INFINITY
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp
+}
+
+export const sortSidebarProjects = (
+  projects: TypesProject[],
+  preferences: ProjectChatSidebarPreferences,
+): TypesProject[] => {
+  if (preferences.projectSortOrder === 'manual') {
+    const projectById = new Map(projects.flatMap((project) => project.id ? [[project.id, project]] : []))
+    const ordered = preferences.manualProjectOrder.flatMap((id) => {
+      const project = projectById.get(id)
+      if (!project) return []
+      projectById.delete(id)
+      return [project]
+    })
+    return [...ordered, ...projects.filter((project) => !!project.id && projectById.has(project.id))]
+  }
+
+  return [...projects].sort((left, right) => {
+    const leftTimestamp = preferences.projectSortOrder === 'created_at'
+      ? sortableTimestamp(left.created_at)
+      : sortableTimestamp(left.last_activity_at || left.updated_at || left.created_at)
+    const rightTimestamp = preferences.projectSortOrder === 'created_at'
+      ? sortableTimestamp(right.created_at)
+      : sortableTimestamp(right.last_activity_at || right.updated_at || right.created_at)
+    return rightTimestamp - leftTimestamp
+      || (left.name || '').localeCompare(right.name || '')
+      || (left.id || '').localeCompare(right.id || '')
+  })
+}
+
+export const reorderProjectIds = (
+  currentOrder: string[],
+  activeId: string,
+  overId: string,
+): string[] => {
+  const activeIndex = currentOrder.indexOf(activeId)
+  const overIndex = currentOrder.indexOf(overId)
+  if (activeIndex < 0 || overIndex < 0 || activeIndex === overIndex) return currentOrder
+
+  const next = [...currentOrder]
+  const [active] = next.splice(activeIndex, 1)
+  next.splice(overIndex, 0, active)
+  return next
 }
 
 export const isTaskCompletedOrMerged = (task?: SpecTask): boolean => (
@@ -232,14 +350,20 @@ export const compactRelativeTime = (value?: string, now = Date.now()): string =>
 // `session_updated_at` here: it is a post-query enrichment (`gorm:"-"`, populated
 // in listTasks), so the server cannot order or paginate on it, and sorting by it
 // silently drops recently-active tasks past the fetch limit.
-export const specTaskSortKey = (task: SpecTask): string | undefined => (
-  task.status_updated_at || task.created_at
+export const specTaskSortKey = (
+  task: SpecTask,
+  sortOrder: SidebarThreadSortOrder = 'updated_at',
+): string | undefined => (
+  sortOrder === 'created_at'
+    ? task.created_at
+    : task.status_updated_at || task.created_at
 )
 
 export const buildProjectChatGroups = (
   projects: TypesProject[],
   specTasks: SpecTask[],
   sessions: TypesSessionSummary[],
+  sortOrder: SidebarThreadSortOrder = 'updated_at',
 ): SidebarGroup[] => {
   const defaultGroup: SidebarGroup = { id: 'default', name: 'None', items: [] }
   const groupsByProjectId = new Map<string, SidebarGroup>()
@@ -262,7 +386,8 @@ export const buildProjectChatGroups = (
       id: task.id,
       kind: 'spec-task',
       title: task.user_short_title || task.short_title || task.name || 'Untitled task',
-      updatedAt: specTaskSortKey(task),
+      createdAt: task.created_at,
+      updatedAt: specTaskSortKey(task, 'updated_at'),
       projectId: task.project_id,
       task,
     })
@@ -278,6 +403,7 @@ export const buildProjectChatGroups = (
         id: metadata.spec_task_id,
         kind: 'spec-task',
         title: session.name || 'Untitled task',
+        createdAt: session.created,
         updatedAt: session.updated || session.created,
         projectId: metadata.project_id,
       })
@@ -293,6 +419,7 @@ export const buildProjectChatGroups = (
       id: session.session_id,
       kind: 'session',
       title: session.name || session.summary || 'Untitled chat',
+      createdAt: session.created,
       updatedAt: session.updated || session.created,
       projectId: projectGroup?.id,
       session,
@@ -311,7 +438,10 @@ export const buildProjectChatGroups = (
     .filter((group) => group.items.length > 0)
     .map((group) => ({
       ...group,
-      items: [...group.items].sort((left, right) => itemTimestamp(right) - itemTimestamp(left)),
+      items: [...group.items].sort((left, right) => (
+        sortableTimestamp(sortOrder === 'created_at' ? right.createdAt : right.updatedAt)
+        - sortableTimestamp(sortOrder === 'created_at' ? left.createdAt : left.updatedAt)
+      )),
     }))
 }
 

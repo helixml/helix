@@ -7689,6 +7689,10 @@ definitions:
         type: string
       kodit_enabled:
         type: boolean
+      last_activity_at:
+        description: LastActivityAt is the latest active task or chat activity for
+          sidebar ordering.
+        type: string
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
@@ -9552,11 +9556,8 @@ definitions:
   types.Session:
     properties:
       archived:
-        description: |-
-          No index: every list filters `archived = false OR archived IS NULL`, which
-          matches nearly every row, so a plain boolean index would never be chosen —
-          and AutoMigrate builds indexes non-concurrently, taking an ACCESS EXCLUSIVE
-          lock on `sessions` for the length of the build.
+        description: Hidden from session lists; see ListSessions for why this is deliberately
+          unindexed.
         type: boolean
       config:
         allOf:
@@ -24920,6 +24921,61 @@ paths:
       summary: Switch the agent framework on a running session in place
       tags:
       - sessions
+  /api/v1/sessions/{id}/terminal:
+    get:
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Session terminal websocket
+      tags:
+      - Sessions
+  /api/v1/sessions/{id}/terminal/sessions:
+    get:
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SandboxTerminalSessionsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List session tmux sessions
+      tags:
+      - Sessions
+  /api/v1/sessions/{id}/terminal/sessions/{terminal_session}:
+    delete:
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Terminal session ID
+        in: path
+        name: terminal_session
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: Delete session tmux session
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/toc:
     get:
       consumes:
@@ -25270,6 +25326,11 @@ paths:
       - description: Filter by labels (comma-separated, AND semantics)
         in: query
         name: labels
+        type: string
+      - default: updated
+        description: 'Sort order: created or updated'
+        in: query
+        name: sort
         type: string
       - default: 50
         description: Limit number of results

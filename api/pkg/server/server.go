@@ -1040,6 +1040,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/restart-agent", system.Wrapper(apiServer.restartCrashedAgentThread)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/foreground-thread", system.Wrapper(apiServer.foregroundSessionThread)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/output", system.Wrapper(apiServer.getSessionOutput)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/terminal", apiServer.sessionTerminal).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/terminal/sessions", apiServer.sessionTerminalSessions).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/terminal/sessions/{terminal_session}", apiServer.deleteSessionTerminalSession).Methods(http.MethodDelete)
 
 	// Preview-token URLs for sharing a session's running port over a
 	// random share-* subdomain.

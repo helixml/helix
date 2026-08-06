@@ -18996,6 +18996,96 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/terminal": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Session terminal websocket",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/v1/sessions/{id}/terminal/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "List session tmux sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SandboxTerminalSessionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/terminal/sessions/{terminal_session}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Delete session tmux session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Terminal session ID",
+                        "name": "terminal_session",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/toc": {
             "get": {
                 "security": [
@@ -19511,6 +19601,13 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Filter by labels (comma-separated, AND semantics)",
                         "name": "labels",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "updated",
+                        "description": "Sort order: created or updated",
+                        "name": "sort",
                         "in": "query"
                     },
                     {
@@ -33660,6 +33757,10 @@ const docTemplate = `{
                 "kodit_enabled": {
                     "type": "boolean"
                 },
+                "last_activity_at": {
+                    "description": "LastActivityAt is the latest active task or chat activity for sidebar ordering.",
+                    "type": "string"
+                },
                 "metadata": {
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
@@ -36120,7 +36221,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "archived": {
-                    "description": "No index: every list filters ` + "`" + `archived = false OR archived IS NULL` + "`" + `, which\nmatches nearly every row, so a plain boolean index would never be chosen —\nand AutoMigrate builds indexes non-concurrently, taking an ACCESS EXCLUSIVE\nlock on ` + "`" + `sessions` + "`" + ` for the length of the build.",
+                    "description": "Hidden from session lists; see ListSessions for why this is deliberately unindexed.",
                     "type": "boolean"
                 },
                 "config": {

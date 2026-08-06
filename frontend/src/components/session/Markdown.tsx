@@ -31,6 +31,8 @@ import ThinkingWidget from "./ThinkingWidget";
 // Import chat stats collector for performance monitoring
 import { getGlobalStatsCollector } from "./ChatStatsOverlay";
 import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import { getChatColors } from "./chatStyles";
+import MarkdownTable from "./MarkdownTable";
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any;
 
@@ -872,6 +874,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   renderContent = true,
 }) => {
   const theme = useTheme();
+  const chatColors = getChatColors(theme);
   const [processedContent, setProcessedContent] = useState<string>("");
   const [citationData, setCitationData] = useState<{
     excerpts: Excerpt[];
@@ -1069,9 +1072,12 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             fontFamily: APP_MONO_FONT_FAMILY,
           },
           "& :not(pre) > code": {
-            backgroundColor: theme.palette.mode === "light" ? "#ccc" : "#333",
-            padding: "0",
-            borderRadius: "3px",
+            backgroundColor: chatColors.inlineCodeSurface,
+            color: chatColors.inlineCodeForeground,
+            border: `1px solid ${chatColors.inlineCodeBorder}`,
+            padding: "0.1rem 0.35rem",
+            borderRadius: "0.375rem",
+            fontSize: "0.75rem",
           },
           "& a": {
             color: theme.palette.mode === "light" ? "#333" : "inherit",
@@ -1110,33 +1116,67 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
               textDecoration: "none",
             },
           },
+          "& .chat-markdown-table-container": {
+            maxWidth: "100%",
+            margin: "1rem 0",
+          },
+          "& .chat-markdown-table-scroll": {
+            maxWidth: "100%",
+            overflowX: "auto",
+            scrollbarWidth: "thin",
+          },
+          "& .chat-markdown-table-footer": {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            minHeight: "24px",
+            marginTop: "0.5rem",
+          },
+          "& .chat-markdown-table-action": {
+            width: "24px",
+            height: "24px",
+            borderRadius: "6px",
+            color: chatColors.subtle,
+            "&:hover": {
+              color: chatColors.foreground,
+              backgroundColor: theme.palette.mode === "dark"
+                ? "rgba(255, 255, 255, 0.06)"
+                : "rgba(0, 0, 0, 0.05)",
+            },
+          },
           "& table": {
             borderCollapse: "collapse",
             width: "100%",
-            margin: "1em 0",
-            fontSize: "0.9em",
-            borderRadius: "8px",
-            overflow: "hidden",
-            boxShadow:
-              theme.palette.mode === "light"
-                ? "0 2px 8px rgba(0, 0, 0, 0.1)"
-                : "0 2px 8px rgba(0, 0, 0, 0.3)",
+            minWidth: "max-content",
+            margin: 0,
+            overflowWrap: "normal",
+            wordBreak: "normal",
+            fontSize: "0.75rem",
           },
           "& th, & td": {
-            border: `1px solid ${theme.palette.mode === "light" ? "#e0e0e0" : "#444"}`,
-            padding: "12px 16px",
+            padding: "0.45rem 0.75rem",
             textAlign: "left",
+            border: 0,
           },
-          "& th": {
-            backgroundColor:
-              theme.palette.mode === "light" ? "#f8f9fa" : "#23272f",
+          "& thead th": {
+            borderBottom: `1px solid ${chatColors.tableDivider}`,
+            paddingTop: "0.55rem",
+            paddingBottom: "0.55rem",
             fontWeight: "600",
-            color: theme.palette.mode === "light" ? "#333" : "#fff",
-            borderBottom: `2px solid ${theme.palette.mode === "light" ? "#dee2e6" : "#444"}`,
+            whiteSpace: "nowrap",
           },
-          "& td": {
-            backgroundColor:
-              theme.palette.mode === "light" ? "#fff" : "transparent",
+          "& tbody td": {
+            borderBottom: `1px solid ${chatColors.tableDivider}`,
+          },
+          "& .chat-markdown-table-container[data-expanded='false'] th, & .chat-markdown-table-container[data-expanded='false'] td": {
+            overflow: "hidden",
+            maxWidth: "24rem",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          },
+          "& .chat-markdown-table-container[data-expanded='true'] td": {
+            maxWidth: "24rem",
+            overflowWrap: "anywhere",
           },
           display: "flow-root",
         }}
@@ -1221,6 +1261,12 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
             >
               {children}
             </a>
+          );
+        },
+        table(props: any) {
+          const { node, children, ...rest } = props;
+          return (
+            <MarkdownTable {...rest}>{children}</MarkdownTable>
           );
         },
       }),
