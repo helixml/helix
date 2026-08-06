@@ -4301,6 +4301,281 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/workspace-file": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reads a bounded UTF-8 source file after real-path containment checks.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Read a workspace file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository-relative file path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceFileResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/workspace-files": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a bounded flat list of tracked and non-ignored untracked workspace entries.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "List workspace files",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceFilesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/workspace-review": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns coherent all-task, branch, and working-tree patches for a connected external-agent workspace.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Get workspace review sources",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Base ref (default main)",
+                        "name": "base",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Ignore whitespace-only changes",
+                        "name": "ignore_whitespace",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceReviewResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/workspace-review/file-contents": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns bounded old/new contents for lazy diff context expansion.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Read old and new diff file contents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Review source",
+                        "name": "source",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Base ref",
+                        "name": "base",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Old repository-relative path",
+                        "name": "old_path",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "New repository-relative path",
+                        "name": "new_path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceReviewFileContentsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/workspace-review/turn/{interactionID}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resolves hidden checkpoint refs only from the stored interaction receipt.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Get the immutable diff for one interaction",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interactionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Ignore whitespace-only changes",
+                        "name": "ignore_whitespace",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceReviewSource"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/workspaces": {
             "get": {
                 "security": [
@@ -31759,6 +32034,14 @@ const docTemplate = `{
                     "description": "AutoWakeCount tracks how many times the auto-wake worker has sent a\nfollow-up \"continue\" prompt to unstick this interaction. Zero means\nthis is a normal user-initiated interaction; non-zero on an\nauto-wake interaction itself records which retry attempt it is.\nSee design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.",
                     "type": "integer"
                 },
+                "code_changes": {
+                    "description": "CodeChanges is the immutable before/after workspace checkpoint summary for\nthis turn. The full patch remains in hidden Git checkpoint refs.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.InteractionCodeChanges"
+                        }
+                    ]
+                },
                 "completed": {
                     "type": "string"
                 },
@@ -31901,6 +32184,67 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.Usage"
                 },
                 "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.InteractionCodeChangeFile": {
+            "type": "object",
+            "properties": {
+                "additions": {
+                    "type": "integer"
+                },
+                "binary": {
+                    "type": "boolean"
+                },
+                "deletions": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "old_path": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.InteractionCodeChanges": {
+            "type": "object",
+            "properties": {
+                "after_ref": {
+                    "type": "string"
+                },
+                "before_ref": {
+                    "type": "string"
+                },
+                "captured_at": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.InteractionCodeChangeFile"
+                    }
+                },
+                "patch_hash": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "total_additions": {
+                    "type": "integer"
+                },
+                "total_deletions": {
+                    "type": "integer"
+                },
+                "workspace": {
                     "type": "string"
                 }
             }
@@ -40356,6 +40700,149 @@ const docTemplate = `{
                 },
                 "user_agent": {
                     "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceFileEntry": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.WorkspaceFileResponse": {
+            "type": "object",
+            "properties": {
+                "binary": {
+                    "type": "boolean"
+                },
+                "byte_length": {
+                    "type": "integer"
+                },
+                "content_hash": {
+                    "type": "string"
+                },
+                "contents": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "workspace": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceFilesResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkspaceFileEntry"
+                    }
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "workspace": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceReviewFileContent": {
+            "type": "object",
+            "properties": {
+                "binary": {
+                    "type": "boolean"
+                },
+                "byte_length": {
+                    "type": "integer"
+                },
+                "contents": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "types.WorkspaceReviewFileContentsResponse": {
+            "type": "object",
+            "properties": {
+                "new": {
+                    "$ref": "#/definitions/types.WorkspaceReviewFileContent"
+                },
+                "old": {
+                    "$ref": "#/definitions/types.WorkspaceReviewFileContent"
+                }
+            }
+        },
+        "types.WorkspaceReviewResponse": {
+            "type": "object",
+            "properties": {
+                "generated_at": {
+                    "type": "string"
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkspaceReviewSource"
+                    }
+                },
+                "workspace": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceReviewSource": {
+            "type": "object",
+            "properties": {
+                "base_ref": {
+                    "type": "string"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.InteractionCodeChangeFile"
+                    }
+                },
+                "head_ref": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "patch": {
+                    "type": "string"
+                },
+                "patch_hash": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "total_additions": {
+                    "type": "integer"
+                },
+                "total_deletions": {
+                    "type": "integer"
+                },
+                "truncated": {
+                    "type": "boolean"
                 }
             }
         },

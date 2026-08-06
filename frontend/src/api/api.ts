@@ -3971,6 +3971,11 @@ export interface TypesInteraction {
    * See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
    */
   auto_wake_count?: number;
+  /**
+   * CodeChanges is the immutable before/after workspace checkpoint summary for
+   * this turn. The full patch remains in hidden Git checkpoint refs.
+   */
+  code_changes?: TypesInteractionCodeChanges;
   completed?: string;
   created?: string;
   /** if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context) */
@@ -4056,6 +4061,28 @@ export interface TypesInteraction {
   updated?: string;
   usage?: TypesUsage;
   user_id?: string;
+}
+
+export interface TypesInteractionCodeChangeFile {
+  additions?: number;
+  binary?: boolean;
+  deletions?: number;
+  kind?: string;
+  old_path?: string;
+  path?: string;
+}
+
+export interface TypesInteractionCodeChanges {
+  after_ref?: string;
+  before_ref?: string;
+  captured_at?: string;
+  error?: string;
+  files?: TypesInteractionCodeChangeFile[];
+  patch_hash?: string;
+  status?: string;
+  total_additions?: number;
+  total_deletions?: number;
+  workspace?: string;
 }
 
 export enum TypesInteractionState {
@@ -7921,6 +7948,60 @@ export interface TypesWebsiteCrawler {
   user_agent?: string;
 }
 
+export interface TypesWorkspaceFileEntry {
+  kind?: string;
+  path?: string;
+  size?: number;
+}
+
+export interface TypesWorkspaceFileResponse {
+  binary?: boolean;
+  byte_length?: number;
+  content_hash?: string;
+  contents?: string;
+  path?: string;
+  truncated?: boolean;
+  workspace?: string;
+}
+
+export interface TypesWorkspaceFilesResponse {
+  entries?: TypesWorkspaceFileEntry[];
+  truncated?: boolean;
+  workspace?: string;
+}
+
+export interface TypesWorkspaceReviewFileContent {
+  binary?: boolean;
+  byte_length?: number;
+  contents?: string;
+  path?: string;
+  truncated?: boolean;
+}
+
+export interface TypesWorkspaceReviewFileContentsResponse {
+  new?: TypesWorkspaceReviewFileContent;
+  old?: TypesWorkspaceReviewFileContent;
+}
+
+export interface TypesWorkspaceReviewResponse {
+  generated_at?: string;
+  sources?: TypesWorkspaceReviewSource[];
+  workspace?: string;
+}
+
+export interface TypesWorkspaceReviewSource {
+  base_ref?: string;
+  files?: TypesInteractionCodeChangeFile[];
+  head_ref?: string;
+  id?: string;
+  patch?: string;
+  patch_hash?: string;
+  title?: string;
+  total_additions?: number;
+  total_deletions?: number;
+  truncated?: boolean;
+}
+
 export interface TypesZFSTree {
   available?: boolean;
   golden?: TypesZFSTreeNode;
@@ -10134,6 +10215,151 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: data,
         secure: true,
         type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Reads a bounded UTF-8 source file after real-path containment checks.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFileDetail
+     * @summary Read a workspace file
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-file
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFileDetail: (
+      sessionId: string,
+      query: {
+        /** Workspace name */
+        workspace?: string;
+        /** Repository-relative file path */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceFileResponse, any>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-file`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns a bounded flat list of tracked and non-ignored untracked workspace entries.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFilesDetail
+     * @summary List workspace files
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-files
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFilesDetail: (
+      sessionId: string,
+      query?: {
+        /** Workspace name */
+        workspace?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceFilesResponse, any>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-files`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns coherent all-task, branch, and working-tree patches for a connected external-agent workspace.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceReviewDetail
+     * @summary Get workspace review sources
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-review
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceReviewDetail: (
+      sessionId: string,
+      query?: {
+        /** Workspace name */
+        workspace?: string;
+        /** Base ref (default main) */
+        base?: string;
+        /** Ignore whitespace-only changes */
+        ignore_whitespace?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceReviewResponse, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-review`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns bounded old/new contents for lazy diff context expansion.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceReviewFileContentsDetail
+     * @summary Read old and new diff file contents
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-review/file-contents
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceReviewFileContentsDetail: (
+      sessionId: string,
+      query: {
+        /** Workspace name */
+        workspace?: string;
+        /** Review source */
+        source: string;
+        /** Base ref */
+        base?: string;
+        /** Old repository-relative path */
+        old_path?: string;
+        /** New repository-relative path */
+        new_path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceReviewFileContentsResponse, any>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-review/file-contents`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Resolves hidden checkpoint refs only from the stored interaction receipt.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceReviewTurnDetail
+     * @summary Get the immutable diff for one interaction
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-review/turn/{interactionID}
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceReviewTurnDetail: (
+      sessionId: string,
+      interactionId: string,
+      query?: {
+        /** Ignore whitespace-only changes */
+        ignore_whitespace?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceReviewSource, any>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-review/turn/${interactionId}`,
+        method: "GET",
+        query: query,
+        secure: true,
         format: "json",
         ...params,
       }),

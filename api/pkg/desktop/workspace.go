@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -412,8 +413,8 @@ func (s *Server) handleWorkspaceCommitAndPush(w http.ResponseWriter, r *http.Req
 // strings before wrapping them as a gitArg. It accepts:
 //   - long/short flags:           --foo, --foo=bar, -X, -c
 //   - refspecs/paths/values:      origin/feature-x, refs/heads/main,
-//                                 /tmp/commit-msg-123.txt,
-//                                 commit.gpgsign=false, @{u}..HEAD
+//     /tmp/commit-msg-123.txt,
+//     commit.gpgsign=false, @{u}..HEAD
 //
 // It rejects: leading-dash strings that don't look like git flags,
 // shell metacharacters ($ ` ; & | * ? < > ! \), whitespace other
@@ -453,6 +454,20 @@ func safeGitArg(s string) (gitArg, error) {
 	// (same content, distinct value), giving CodeQL one more
 	// taint-breaking signal in the data-flow path.
 	return gitArg{value: safeGitArgRE.FindString(s)}, nil
+}
+
+// safeGitPathArg validates a repository-relative path for use after a Git `--`
+// separator. Unlike safeGitArg it permits spaces and other ordinary filename
+// characters, but still rejects absolute paths, traversal, NULs, and newlines.
+func safeGitPathArg(s string) (gitArg, error) {
+	if s == "" || filepath.IsAbs(s) || strings.ContainsAny(s, "\x00\r\n") {
+		return gitArg{}, fmt.Errorf("unsafe git path: %q", s)
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(s))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return gitArg{}, fmt.Errorf("unsafe git path: %q", s)
+	}
+	return gitArg{value: cleaned}, nil
 }
 
 // runGit invokes git in the given working directory and returns the
