@@ -426,8 +426,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
                     key={project.id}
                     projectId={project.id}
                     disabled={preferences.projectSortOrder !== 'manual' || !!query}
-                  >
-                    {(dragHandleProps) => (
+                    render={(dragHandleProps) => (
                       <ProjectChatGroup
                         orgId={orgId}
                         project={project}
@@ -452,7 +451,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
                         suppressClickAfterDragRef={suppressClickAfterDragRef}
                       />
                     )}
-                  </SortableProject>
+                  />
                 )] : [])}
               </SortableContext>
             </DndContext>

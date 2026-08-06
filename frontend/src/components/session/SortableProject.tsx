@@ -1,4 +1,4 @@
-import { FC, ReactNode } from 'react'
+import { ReactNode } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import Box from '@mui/material/Box'
@@ -11,10 +11,10 @@ export type SortableProjectHandleProps = Pick<
 type SortableProjectProps = {
   projectId: string
   disabled: boolean
-  children: (dragHandleProps: SortableProjectHandleProps) => ReactNode
+  render: (dragHandleProps: SortableProjectHandleProps) => ReactNode
 }
 
-const SortableProject: FC<SortableProjectProps> = ({ projectId, disabled, children }) => {
+const SortableProject = ({ projectId, disabled, render }: SortableProjectProps) => {
   const {
     attributes,
     listeners,
@@ -36,7 +36,7 @@ const SortableProject: FC<SortableProjectProps> = ({ projectId, disabled, childr
         transition,
       }}
     >
-      {children({ attributes, listeners, setActivatorNodeRef })}
+      {render({ attributes, listeners, setActivatorNodeRef })}
     </Box>
   )
 }

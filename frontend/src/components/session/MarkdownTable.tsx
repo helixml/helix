@@ -62,7 +62,8 @@ function markdownCell(cell: HTMLTableCellElement): string {
   return serializeCellChildren(cell)
     .replace(/\n+/g, " ")
     .trim()
-    .replaceAll("|", "\\|");
+    .split("|")
+    .join("\\|");
 }
 
 function markdownSeparator(cells: HTMLTableCellElement[]): string {
@@ -92,7 +93,7 @@ export function serializeTableToMarkdown(table: HTMLTableElement): string {
 function csvCell(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   return /[",\n]/.test(normalized)
-    ? `"${normalized.replaceAll('"', '""')}"`
+    ? `"${normalized.split('"').join('""')}"`
     : normalized;
 }
 
