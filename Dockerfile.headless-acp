@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1.4
+ARG GOOSE_COMMIT=ca26f01d3acd9871691fa8981f05d19aed9a3b82
+ARG GO_VERSION=1.25
+
+FROM golang:${GO_VERSION}-bookworm AS runner-build
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY api ./api
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /headless-acp-runner ./api/cmd/headless-acp-runner
+
+FROM ubuntu:25.10 AS goose-build
+ARG GOOSE_COMMIT
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates cmake curl git libclang-dev libdbus-1-dev \
+    libssl-dev libxcb1-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.92.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+WORKDIR /build
+RUN git clone https://github.com/aaif-goose/goose.git . && git checkout "${GOOSE_COMMIT}"
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/build/target \
+    nice -n 19 cargo build --release -p goose-cli --bin goose && \
+    cp target/release/goose /goose && strip /goose
+
+FROM ubuntu:25.10
+ENV DEBIAN_FRONTEND=noninteractive HOME=/home/retro HELIX_HEADLESS=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash ca-certificates curl git libgomp1 libstdc++6 openssh-client python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && existing_user="$(getent passwd 1000 | cut -d: -f1 || true)" \
+    && existing_group="$(getent group 1000 | cut -d: -f1 || true)" \
+    && if [ -n "$existing_user" ]; then userdel -r "$existing_user" 2>/dev/null || userdel "$existing_user"; fi \
+    && if [ -n "$existing_group" ]; then groupdel "$existing_group" 2>/dev/null || true; fi \
+    && groupadd -g 1000 retro \
+    && useradd -m -u 1000 -g 1000 -s /bin/bash retro
+COPY --from=runner-build /headless-acp-runner /usr/local/bin/headless-acp-runner
+COPY --from=goose-build /goose /usr/local/bin/goose
+COPY desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+COPY desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+COPY desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+COPY desktop/shared/start-headless-acp.sh /usr/local/bin/start-headless-acp.sh
+RUN chmod +x /usr/local/bin/*.sh
+USER retro
+ENTRYPOINT ["/usr/local/bin/start-headless-acp.sh"]

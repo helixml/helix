@@ -986,6 +986,27 @@ function build-desktop() {
   echo ""
 }
 
+function build-headless-acp() {
+  local IMAGE_NAME="helix-headless-acp"
+  local GO_VERSION
+  GO_VERSION=$(awk '/^go [0-9]/ {print $2; exit}' go.mod)
+
+  docker buildx build --provenance=false -f Dockerfile.headless-acp \
+    --build-arg "GO_VERSION=${GO_VERSION}" \
+    -t "${IMAGE_NAME}:latest" . || return 1
+
+  local IMAGE_HASH
+  IMAGE_HASH=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
+  local IMAGE_TAG="${IMAGE_HASH:0:6}"
+  mkdir -p sandbox-images
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+
+  if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
+    transfer-desktop-to-sandbox "headless-acp" "${IMAGE_TAG}"
+  fi
+  echo "${IMAGE_NAME}:${IMAGE_TAG}"
+}
+
 # Generic transfer function - transfers any desktop image to sandbox's dockerd
 # Uses local registry for efficient layer-based transfers (only changed layers transfer)
 # Automatically starts registry if not running
@@ -1893,6 +1914,7 @@ function help() {
   echo "  build-kde          - Build KDE Plasma+Zed container (alias for build-desktop kde)"
   echo "  build-zorin        - Build Zorin+Zed container (alias for build-desktop zorin)"
   echo "  build-ubuntu       - Build Ubuntu+Zed container (alias for build-desktop ubuntu)"
+  echo "  build-headless-acp - Build the standalone Goose ACP runner image"
   echo "  build-xfce         - Build XFCE+Zed container (alias for build-desktop xfce)"
   echo "  build-drm-manager  - Cross-compile and deploy helix-drm-manager to VM"
   echo "  build-utm          - Build custom QEMU with helix-frame-export for UTM (macOS only)"

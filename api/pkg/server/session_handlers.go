@@ -2897,6 +2897,7 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		session.Metadata.RuntimeInstructions = req.RuntimeInstructions
 	}
 
+	var desktopType string
 	if req.AppID != "" {
 		app, err := s.Store.GetApp(ctx, req.AppID)
 		if err != nil {
@@ -2913,6 +2914,9 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		session.Metadata.AssistantID = req.AssistantID
 		session.Metadata.CodeAgentRuntime = runtime
 		session.Metadata.ZedAgentName = runtime.ZedAgentName()
+		if app.Config.Helix.ExternalAgentConfig != nil {
+			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+		}
 	}
 
 	session, err = appendOrOverwrite(session, req)
@@ -2928,12 +2932,17 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		return nil, fmt.Errorf("failed to write interactions: %w", err)
 	}
 
+	agentInput := "Initialize Zed development environment"
+	if desktopType == "headless" {
+		agentInput = "Initialize headless ACP environment"
+	}
 	zedAgent := &types.DesktopAgent{
 		OrganizationID: session.OrganizationID,
 		SessionID:      session.ID,
 		UserID:         userID,
-		Input:          "Initialize Zed development environment",
+		Input:          agentInput,
 		ProjectPath:    "workspace",
+		DesktopType:    desktopType,
 	}
 
 	// Load the project's repos so HELIX_REPOSITORIES is populated in the

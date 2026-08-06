@@ -43,6 +43,9 @@ exec > >(tee -a "$SETUP_LOG") 2>&1
 # This ensures users can see errors and debug
 cleanup_and_prompt() {
     local exit_code=$?
+    if [ "${HELIX_HEADLESS:-}" = "1" ]; then
+        return "$exit_code"
+    fi
     echo ""
     if [ $exit_code -ne 0 ]; then
         echo "========================================="

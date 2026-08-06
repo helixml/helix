@@ -434,7 +434,9 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// (e.g., sandbox not registered in database, or heartbeat not reaching API).
 	// The sandbox sets GPU_VENDOR during install.sh based on detected hardware.
 	gpuVendor := req.GPUVendor
-	if gpuVendor == "" {
+	if req.ContainerType == DevContainerTypeHeadless {
+		gpuVendor = ""
+	} else if gpuVendor == "" {
 		gpuVendor = os.Getenv("GPU_VENDOR")
 		if gpuVendor != "" {
 			log.Info().Str("gpu_vendor", gpuVendor).Msg("Using local GPU_VENDOR env var (API didn't specify)")
@@ -492,7 +494,9 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 
 	// Configure GPU passthrough
-	dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
+	if req.ContainerType != DevContainerTypeHeadless {
+		dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
+	}
 
 	// Network configuration is nil for host network mode
 	// (host network mode shares the sandbox's network namespace, so no separate network config needed)
@@ -862,9 +866,11 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		env = append(env, fmt.Sprintf("GPU_VENDOR=%s", req.GPUVendor))
 	}
 
-	// Enable GStreamer debug logging for vsockenc debugging
-	// TODO: Remove this after vsockenc receive thread issue is fixed
-	env = append(env, "GST_DEBUG=vsockenc:5")
+	if req.ContainerType != DevContainerTypeHeadless {
+		// Enable GStreamer debug logging for vsockenc debugging
+		// TODO: Remove this after vsockenc receive thread issue is fixed
+		env = append(env, "GST_DEBUG=vsockenc:5")
+	}
 
 	// Tell claude-code-acp that we're in a sandbox environment.
 	// The ACP checks (!IS_ROOT || IS_SANDBOX) to allow bypassPermissions mode.
@@ -1032,7 +1038,6 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	}
 
 	resources := container.Resources{
-		DeviceCgroupRules: dm.getDeviceCgroupRules(),
 		Ulimits: []*units.Ulimit{
 			{Name: "nofile", Soft: 65536, Hard: 65536},
 		},
@@ -1047,10 +1052,13 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
-		IpcMode:     "host",
 		Privileged:  req.Privileged,
-		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
 		Resources:   resources,
+	}
+	if req.ContainerType != DevContainerTypeHeadless {
+		hostConfig.IpcMode = "host"
+		hostConfig.SecurityOpt = []string{"seccomp=unconfined", "apparmor=unconfined"}
+		hostConfig.Resources.DeviceCgroupRules = dm.getDeviceCgroupRules()
 	}
 
 	// Persistent dev containers (hosted web services) must survive a host
@@ -1064,7 +1072,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 
 	// Only add explicit capabilities when not in privileged mode
 	// (privileged mode already grants all capabilities)
-	if !req.Privileged {
+	if !req.Privileged && req.ContainerType != DevContainerTypeHeadless {
 		hostConfig.CapAdd = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 	}
 

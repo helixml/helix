@@ -325,6 +325,9 @@ for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
     fi
 done
 
+# Headless ACP is independently released and optional until selected by an app.
+load_desktop_image "headless-acp" "false"
+
 declare -A ENABLED_EXPERIMENTAL=()
 for desktop in ${HELIX_EXPERIMENTAL_DESKTOPS:-}; do
     ENABLED_EXPERIMENTAL[$desktop]=1

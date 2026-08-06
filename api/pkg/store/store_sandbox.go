@@ -289,6 +289,7 @@ func (s *PostgresStore) GetSandboxInstancesOlderThanHeartbeat(ctx context.Contex
 // missing two-or-more excludes it from new dispatch. The reaper uses the
 // looser SandboxStaleThreshold for UI/reporting state.
 func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
+	versionKey := sandboxVersionKey(desktopType)
 	staleThreshold := time.Now().Add(-config.DefaultSandboxDispatchStaleThreshold)
 	var instances []*types.SandboxInstance
 	err := s.gdb.WithContext(ctx).
@@ -304,7 +305,7 @@ func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, deskto
 		// Sandboxes only run on render-capable hosts. A neuron/inf2 host
 		// (no /dev/dri render node) would otherwise be picked on load
 		// alone, then the desktop container FATALs at startup.
-		if !instance.CanHostSandbox() {
+		if desktopType != "headless" && !instance.CanHostSandbox() {
 			continue
 		}
 		if len(instance.DesktopVersions) > 0 {
@@ -312,13 +313,20 @@ func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, deskto
 			if err := json.Unmarshal(instance.DesktopVersions, &versions); err != nil {
 				continue // Skip sandboxes with invalid version JSON
 			}
-			if version, ok := versions[desktopType]; ok && version != "" {
+			if version, ok := versions[versionKey]; ok && version != "" {
 				return instance, nil
 			}
 		}
 	}
 
 	return nil, nil // No suitable sandbox found
+}
+
+func sandboxVersionKey(desktopType string) string {
+	if desktopType == "headless" {
+		return "headless-acp"
+	}
+	return desktopType
 }
 
 // Disk usage history methods

@@ -32,6 +32,20 @@ func TestImageTag(t *testing.T) {
 	}
 }
 
+func TestHeadlessHostConfigHasNoDesktopPrivilegesOrDevices(t *testing.T) {
+	dm := &DevContainerManager{manager: &Manager{dataDir: t.TempDir()}}
+	host, err := dm.buildHostConfig(&CreateDevContainerRequest{ContainerType: DevContainerTypeHeadless, Network: "bridge"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.Privileged || len(host.CapAdd) != 0 || len(host.Resources.DeviceCgroupRules) != 0 || len(host.Devices) != 0 {
+		t.Fatalf("headless host config grants desktop privileges or devices: %+v", host)
+	}
+	if host.IpcMode != "" || len(host.SecurityOpt) != 0 {
+		t.Fatalf("headless host config disables container isolation: %+v", host)
+	}
+}
+
 func TestResolveRegistryImage(t *testing.T) {
 	// Create a temp dir to act as /opt/images for tests
 	tmpDir := t.TempDir()

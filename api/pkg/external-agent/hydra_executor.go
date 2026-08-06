@@ -362,9 +362,11 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	//
 	// The init script 17-start-dockerd.sh inside the desktop container detects
 	// the volume mount and starts dockerd automatically.
-	log.Info().
-		Str("session_id", agent.SessionID).
-		Msg("Docker-in-desktop mode: desktop will run its own dockerd")
+	if containerType != "headless" {
+		log.Info().
+			Str("session_id", agent.SessionID).
+			Msg("Docker-in-desktop mode: desktop will run its own dockerd")
+	}
 
 	// Build mounts - includes Docker volume for /var/lib/docker
 	mounts := h.buildMounts(agent, workspaceDir, containerType)
@@ -386,7 +388,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		ContainerType:  hydra.DevContainerType(containerType),
 		UserID:         agent.UserID,
 		Network:        "bridge",
-		Privileged:     true, // Required for inner dockerd (docker-in-desktop mode)
+		Privileged:     containerType != "headless",
 		ProjectID:      agent.ProjectID,
 		GoldenBuild:    agent.GoldenBuild,
 	}
@@ -486,14 +488,14 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// The caller's ctx may have been partially consumed by the ZFS clone (which can take
 	// 10-90s). If we reuse it, the bridge wait budget is whatever is left over, which may
 	// be far less than the 90s we need. Using context.Background() gives the full 90s.
-	bridgeCtx, bridgeCancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer bridgeCancel()
-	if err := h.waitForDesktopBridge(bridgeCtx, agent.SessionID); err != nil {
-		log.Warn().Err(err).
-			Str("session_id", agent.SessionID).
-			Msg("Desktop bridge not ready (continuing anyway, frontend may need to retry)")
-		// Don't fail - container is running, just not fully ready yet.
-		// Frontend should handle this gracefully with retry logic.
+	if containerType != "headless" {
+		bridgeCtx, bridgeCancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer bridgeCancel()
+		if err := h.waitForDesktopBridge(bridgeCtx, agent.SessionID); err != nil {
+			log.Warn().Err(err).
+				Str("session_id", agent.SessionID).
+				Msg("Desktop bridge not ready (continuing anyway, frontend may need to retry)")
+		}
 	}
 
 	// Track session
@@ -1072,6 +1074,9 @@ func (h *HydraExecutor) getContainerImage(ctx context.Context, containerType str
 	// Map container type to image name and version key
 	var imageName, versionKey string
 	switch containerType {
+	case "headless":
+		imageName = "helix-headless-acp"
+		versionKey = "headless-acp"
 	case "ubuntu":
 		imageName = "helix-ubuntu"
 		versionKey = "ubuntu"
@@ -1111,6 +1116,9 @@ func (h *HydraExecutor) getContainerImage(ctx context.Context, containerType str
 
 // buildEnvVars builds environment variables for the container
 func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, workspaceDir string) []string {
+	if containerType == "headless" {
+		return h.buildHeadlessEnvVars(agent, workspaceDir)
+	}
 	// Build GPU devices string
 	gpuDevices := "/dev/dri/card*:/dev/dri/renderD*:/dev/uinput:/dev/input/event*:/dev/input/js*:/dev/input/mice"
 
@@ -1302,6 +1310,38 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	return env
 }
 
+func (h *HydraExecutor) buildHeadlessEnvVars(agent *types.DesktopAgent, workspaceDir string) []string {
+	env := []string{
+		fmt.Sprintf("HELIX_API_URL=%s", h.helixAPIURL),
+		fmt.Sprintf("HELIX_API_BASE_URL=%s", h.helixAPIURL),
+		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
+		fmt.Sprintf("HELIX_WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
+		fmt.Sprintf("WORKSPACE_DIR=%s", workspaceDir),
+		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", h.helixAPIURL),
+		fmt.Sprintf("OPENAI_BASE_URL=%s/v1", h.helixAPIURL),
+		fmt.Sprintf("HELIX_AGENT_INSTANCE_ID=%s", agent.SessionID),
+		"HELIX_SCOPE_TYPE=session",
+		fmt.Sprintf("HELIX_SCOPE_ID=%s", agent.SessionID),
+		fmt.Sprintf("HELIX_USER_ID=%s", agent.UserID),
+		"HELIX_HEADLESS=1",
+	}
+	for name, value := range map[string]string{
+		"HELIX_PROJECT_PATH":   agent.ProjectPath,
+		"GIT_REPO_URL":         agent.GitRepoURL,
+		"GIT_BRANCH":           agent.GitBranch,
+		"HELIX_BRANCH_MODE":    agent.BranchMode,
+		"HELIX_BASE_BRANCH":    agent.BaseBranch,
+		"HELIX_WORKING_BRANCH": agent.WorkingBranch,
+		"HELIX_SPEC_TASK_ID":   agent.SpecTaskID,
+		"HELIX_PROJECT_ID":     agent.ProjectID,
+	} {
+		if value != "" {
+			env = append(env, name+"="+value)
+		}
+	}
+	return append(env, agent.Env...)
+}
+
 // buildMounts builds volume mounts for the container.
 // In docker-in-desktop mode, we mount a Docker named volume for /var/lib/docker
 // instead of mounting a docker.sock from a sibling dockerd.
@@ -1337,11 +1377,13 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 	// Docker-in-desktop: mount a named volume for the inner dockerd's data.
 	// The desktop's 17-start-dockerd.sh init script detects this mountpoint
 	// and starts dockerd automatically. No docker.sock mount needed.
-	mounts = append(mounts, hydra.MountConfig{
-		Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
-		Destination: "/var/lib/docker",
-		Type:        "volume", // Docker named volume, backed by host ext4
-	})
+	if containerType != "headless" {
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
+			Destination: "/var/lib/docker",
+			Type:        "volume",
+		})
+	}
 
 	// NOTE: Shared BuildKit cache mount (/buildkit-cache) and BUILDKIT_HOST env var
 	// are injected by the Hydra server side (devcontainer.go buildMounts/buildEnv)
@@ -1361,12 +1403,14 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 	// Crash dump directory - persists core dumps from compositor crashes (Sway/GNOME)
 	// Mounted from sandbox's /data/sessions/{sessionID}/crash-dumps to container's /tmp/cores
 	// This allows crash analysis even after container restarts
-	crashDumpDir := filepath.Join("/data/sessions", agent.SessionID, "crash-dumps")
-	mounts = append(mounts, hydra.MountConfig{
-		Source:      crashDumpDir,
-		Destination: "/tmp/cores",
-		ReadOnly:    false,
-	})
+	if containerType != "headless" {
+		crashDumpDir := filepath.Join("/data/sessions", agent.SessionID, "crash-dumps")
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      crashDumpDir,
+			Destination: "/tmp/cores",
+			ReadOnly:    false,
+		})
+	}
 
 	return mounts
 }
