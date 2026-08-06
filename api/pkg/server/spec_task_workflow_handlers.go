@@ -177,6 +177,13 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			if err := s.ensurePullRequestsForAllRepos(context.Background(), specTask, project.DefaultRepoID, user.ID); err != nil {
 				log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to create PRs on approval (push detection will retry)")
 			}
+			// Re-read agent-authored PR metadata after creation. This closes the
+			// race where pull_request_*.md is pushed while eager PR creation is
+			// still in flight: the specs-push handler may run before the new PR is
+			// tracked, while creation may already have read the old specs commit.
+			if s.gitHTTPServer != nil {
+				s.gitHTTPServer.SyncOpenPRDescriptions(context.Background(), specTask, repo.LocalPath)
+			}
 		}()
 
 		// Gather non-primary repo names so the push instruction tells the agent
@@ -198,7 +205,13 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		go func() {
 			defer s.wg.Done()
 
-			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName, repo.Name, repo.DefaultBranch, nonPrimaryRepoNames)
+			message, err := prompts.ImplementationApprovedPushInstruction(
+				specTask.BranchName,
+				repo.Name,
+				repo.DefaultBranch,
+				services.GetTaskDirName(specTask),
+				nonPrimaryRepoNames,
+			)
 			if err != nil {
 				log.Error().
 					Err(err).

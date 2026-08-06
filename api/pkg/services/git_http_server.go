@@ -1466,28 +1466,36 @@ func pullRequestFileChangedForTask(files []string, designDocPath string) bool {
 	return false
 }
 
-// syncOpenPRDescriptions re-reads pull_request_<repo-name>.md (or generic
-// pull_request.md) from this repo's helix-specs branch and PATCHes the GitHub
-// PR title/body for any currently-open PR belonging to this same repo.
-//
-// Only updates PRs that live in the repo that received the helix-specs push —
-// multi-repo projects need pushes to each repo's helix-specs to update PRs in
-// that repo (the agent normally keeps them in sync).
-func (s *GitHTTPServer) syncOpenPRDescriptions(ctx context.Context, task *types.SpecTask, repo *types.GitRepository, repoPath string) {
-	if repo.ExternalURL == "" {
-		// Internal repos have no upstream PR to update.
-		return
-	}
-	pr := task.GetPRForRepo(repo.ID)
-	if pr == nil || pr.PRState != "open" || pr.PRNumber == 0 {
-		return
-	}
+type openPRDescriptionTarget struct {
+	repository  *types.GitRepository
+	pullRequest *types.RepoPR
+}
 
-	title, description, found := s.getPullRequestContent(repoPath, task, repo.Name)
-	if !found {
-		// File missing or unparseable. Leave the PR alone rather than
-		// overwriting with the task-name fallback — the user may have
-		// authored the current body manually.
+func openPRDescriptionTargets(task *types.SpecTask, repos []*types.GitRepository) []openPRDescriptionTarget {
+	targets := make([]openPRDescriptionTarget, 0, len(repos))
+	for _, repo := range repos {
+		if repo == nil || repo.ExternalURL == "" {
+			continue
+		}
+		pr := task.GetPRForRepo(repo.ID)
+		if pr == nil || pr.PRState != "open" || pr.PRNumber == 0 {
+			continue
+		}
+		targets = append(targets, openPRDescriptionTarget{repository: repo, pullRequest: pr})
+	}
+	return targets
+}
+
+// SyncOpenPRDescriptions re-reads pull_request_<repo-name>.md (or generic
+// pull_request.md) from the primary repo's helix-specs branch and updates every
+// open PR tracked by the task. A multi-repo task stores all PR description files
+// on that one branch, so one specs push must update all of its PRs.
+func (s *GitHTTPServer) SyncOpenPRDescriptions(ctx context.Context, task *types.SpecTask, primaryRepoPath string) {
+	repos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to list repositories for PR description sync")
 		return
 	}
 
@@ -1497,26 +1505,41 @@ func (s *GitHTTPServer) syncOpenPRDescriptions(ctx context.Context, task *types.
 			orgName = org.Name
 		}
 	}
-	footer, err := s.renderPRFooter(ctx, repo, task, orgName, taskPRUserID(task))
-	if err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to render PR footer")
-		return
-	}
-	description = AppendPRFooter(description, footer)
 
-	if err := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.PRNumber, title, description); err != nil {
-		log.Error().Err(err).
+	for _, target := range openPRDescriptionTargets(task, repos) {
+		repo := target.repository
+		pr := target.pullRequest
+
+		title, description, found := s.getPullRequestContent(primaryRepoPath, task, repo.Name)
+		if !found {
+			// Leave manually-authored PR content untouched when no metadata file exists.
+			continue
+		}
+
+		footer, err := s.renderPRFooter(ctx, repo, task, orgName, taskPRUserID(task))
+		if err != nil {
+			log.Error().Err(err).
+				Str("task_id", task.ID).
+				Str("repo_id", repo.ID).
+				Msg("Failed to render PR footer")
+			continue
+		}
+		description = AppendPRFooter(description, footer)
+
+		if err := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.PRNumber, title, description); err != nil {
+			log.Error().Err(err).
+				Str("task_id", task.ID).
+				Str("repo_id", repo.ID).
+				Int("pr_number", pr.PRNumber).
+				Msg("Failed to update PR description from helix-specs")
+			continue
+		}
+		log.Info().
 			Str("task_id", task.ID).
 			Str("repo_id", repo.ID).
 			Int("pr_number", pr.PRNumber).
-			Msg("Failed to update PR description from helix-specs")
-		return
+			Msg("Updated PR title/body from helix-specs pull_request_*.md")
 	}
-	log.Info().
-		Str("task_id", task.ID).
-		Str("repo_id", repo.ID).
-		Int("pr_number", pr.PRNumber).
-		Msg("Updated PR title/body from helix-specs pull_request_*.md")
 }
 
 // getSpecDocsBaseURL builds a URL to view spec docs in the external repo's web UI.
@@ -1839,7 +1862,7 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 		}
 
 		// If this push was to helix-specs and touched the task's
-		// pull_request_*.md, re-sync the open GitHub PR's title and body so
+		// pull_request_*.md, re-sync every open PR's title and body so
 		// edits to the description after the PR was first opened propagate
 		// (previously the PR was templated once at creation time and never
 		// updated, so any pull_request_*.md added later was ignored).
@@ -1847,7 +1870,7 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 			s.wg.Add(1)
 			go func(t *types.SpecTask) {
 				defer s.wg.Done()
-				s.syncOpenPRDescriptions(context.Background(), t, repo, repoPath)
+				s.SyncOpenPRDescriptions(context.Background(), t, repoPath)
 			}(task)
 		}
 

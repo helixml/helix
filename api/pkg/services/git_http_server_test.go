@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -393,4 +394,26 @@ func TestPullRequestFileChangedForTask(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestOpenPRDescriptionTargetsIncludesEveryOpenExternalRepo(t *testing.T) {
+	repos := []*types.GitRepository{
+		{ID: "repo-primary", Name: "helix", ExternalURL: "https://github.com/helixml/helix"},
+		{ID: "repo-secondary", Name: "zed", ExternalURL: "https://github.com/helixml/zed"},
+		{ID: "repo-closed", Name: "closed", ExternalURL: "https://github.com/helixml/closed"},
+		{ID: "repo-internal", Name: "internal"},
+	}
+	task := &types.SpecTask{RepoPullRequests: []types.RepoPR{
+		{RepositoryID: "repo-primary", PRNumber: 101, PRState: "open"},
+		{RepositoryID: "repo-secondary", PRNumber: 202, PRState: "open"},
+		{RepositoryID: "repo-closed", PRNumber: 303, PRState: "closed"},
+		{RepositoryID: "repo-internal", PRNumber: 404, PRState: "open"},
+	}}
+
+	targets := openPRDescriptionTargets(task, repos)
+	require.Len(t, targets, 2)
+	assert.Equal(t, "repo-primary", targets[0].repository.ID)
+	assert.Equal(t, 101, targets[0].pullRequest.PRNumber)
+	assert.Equal(t, "repo-secondary", targets[1].repository.ID)
+	assert.Equal(t, 202, targets[1].pullRequest.PRNumber)
 }
