@@ -27,7 +27,7 @@ function treePath(entry: TypesWorkspaceFileEntry): string | null {
   return entry.kind === "directory" ? `${entry.path.replace(/\/$/, "")}/` : entry.path;
 }
 
-function filteredTreePaths(entries: TypesWorkspaceFileEntry[], query: string): string[] {
+export function filteredTreePaths(entries: TypesWorkspaceFileEntry[], query: string): string[] {
   const allPaths = entries.flatMap((entry) => {
     const path = treePath(entry);
     return path ? [path] : [];
@@ -52,6 +52,17 @@ function filteredTreePaths(entries: TypesWorkspaceFileEntry[], query: string): s
   return allPaths.filter((path) => included.has(path));
 }
 
+export function ancestorDirectoryPaths(paths: readonly string[]): string[] {
+  const directories = new Set<string>();
+  for (const path of paths) {
+    const segments = path.replace(/\/$/, "").split("/");
+    for (let index = 1; index < segments.length; index += 1) {
+      directories.add(`${segments.slice(0, index).join("/")}/`);
+    }
+  }
+  return [...directories];
+}
+
 const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
   sessionId,
   workspace,
@@ -62,11 +73,22 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
   const [query, setQuery] = useState("");
   const syncingSelection = useRef(false);
   const entries = filesQuery.data?.entries || [];
+  const entriesFingerprint = entries
+    .map((entry) => `${entry.kind || ""}:${entry.path || ""}:${entry.size || 0}`)
+    .join("\0");
   const entryKinds = useMemo(
     () => new Map(entries.flatMap((entry) => entry.path && entry.kind ? [[entry.path, entry.kind]] : [])),
-    [entries],
+    [entriesFingerprint],
   );
-  const paths = useMemo(() => filteredTreePaths(entries, query), [entries, query]);
+  const entryKindsRef = useRef(entryKinds);
+  const onOpenFileRef = useRef(onOpenFile);
+  entryKindsRef.current = entryKinds;
+  onOpenFileRef.current = onOpenFile;
+  const paths = useMemo(
+    () => filteredTreePaths(entries, query),
+    [entriesFingerprint, query],
+  );
+  const pathsFingerprint = paths.join("\0");
   const { model } = useFileTree({
     paths: [],
     density: "compact",
@@ -79,13 +101,19 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
     onSelectionChange: (selectedPaths) => {
       if (syncingSelection.current) return;
       const path = selectedPaths.at(-1)?.replace(/\/$/, "");
-      if (path && entryKinds.get(path) === "file") onOpenFile(path);
+      if (path && entryKindsRef.current.get(path) === "file") onOpenFileRef.current(path);
     },
   });
 
   useEffect(() => {
     model.resetPaths(paths);
-  }, [model, paths]);
+    if (query.trim()) {
+      for (const path of ancestorDirectoryPaths(paths)) {
+        const item = model.getItem(path);
+        if (item && "expand" in item) item.expand();
+      }
+    }
+  }, [pathsFingerprint, query]);
 
   useEffect(() => {
     if (!selectedPath || !entryKinds.has(selectedPath)) return;
@@ -103,7 +131,7 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
     queueMicrotask(() => {
       syncingSelection.current = false;
     });
-  }, [entryKinds, model, selectedPath, paths]);
+  }, [pathsFingerprint, selectedPath]);
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
@@ -127,7 +155,12 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
         />
         <Tooltip title="Refresh files">
           <span>
-            <IconButton size="small" onClick={() => filesQuery.refetch()} disabled={filesQuery.isFetching}>
+            <IconButton
+              size="small"
+              onClick={() => filesQuery.refetch()}
+              disabled={filesQuery.isFetching}
+              aria-label="Refresh workspace files"
+            >
               <RefreshCw size={15} />
             </IconButton>
           </span>

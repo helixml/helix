@@ -84,7 +84,12 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
   const source = interactionId
     ? turnReview.data
     : liveReview.data?.sources?.find((candidate) => candidate.id === scope);
+  const liveSources = liveReview.data?.sources || [];
+  const selectedScope = liveSources.some((candidate) => candidate.id === scope)
+    ? scope
+    : "";
   const query = interactionId ? turnReview : liveReview;
+  const fileCount = source?.files?.length || 0;
   const renderable = useMemo(
     () => parseRenderablePatch(source?.patch),
     [source?.patch],
@@ -126,12 +131,17 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
         ) : (
           <Select
             size="small"
-            value={scope}
+            value={selectedScope}
             onChange={(event) => setScope(event.target.value as ReviewScope)}
             aria-label="Diff scope"
             sx={{ height: 28, fontSize: 12, minWidth: 150 }}
           >
-            {(liveReview.data?.sources || []).map((candidate) => (
+            {liveSources.length === 0 && (
+              <MenuItem value="" disabled>
+                Changes unavailable
+              </MenuItem>
+            )}
+            {liveSources.map((candidate) => (
               <MenuItem key={candidate.id} value={candidate.id} sx={{ fontSize: 12 }}>
                 {sourceLabel(candidate)}
               </MenuItem>
@@ -139,7 +149,7 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
           </Select>
         )}
         <Typography variant="caption" sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>
-          {source?.files?.length || 0} files
+          {fileCount} {fileCount === 1 ? "file" : "files"}
           <Box component="span" sx={{ color: "success.main", ml: 1 }}>+{source?.total_additions || 0}</Box>
           <Box component="span" sx={{ color: "error.main", ml: 0.5 }}>-{source?.total_deletions || 0}</Box>
         </Typography>
@@ -156,7 +166,13 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
           <ToggleButton value="split" sx={{ px: 1, fontSize: 10 }}>Split</ToggleButton>
         </ToggleButtonGroup>
         <Tooltip title={wordWrap ? "Disable line wrapping" : "Wrap long lines"}>
-          <IconButton size="small" onClick={() => setWordWrap((value) => !value)} color={wordWrap ? "primary" : "default"}>
+          <IconButton
+            size="small"
+            onClick={() => setWordWrap((value) => !value)}
+            color={wordWrap ? "primary" : "default"}
+            aria-label={wordWrap ? "Disable line wrapping" : "Wrap long lines"}
+            aria-pressed={wordWrap}
+          >
             <WrapText size={16} />
           </IconButton>
         </Tooltip>
@@ -167,7 +183,12 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
         />
         <Tooltip title="Refresh changes">
           <span>
-            <IconButton size="small" onClick={() => query.refetch()} disabled={query.isFetching}>
+            <IconButton
+              size="small"
+              onClick={() => query.refetch()}
+              disabled={query.isFetching}
+              aria-label="Refresh changes"
+            >
               <RefreshCw size={15} />
             </IconButton>
           </span>
