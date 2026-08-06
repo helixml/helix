@@ -1,6 +1,6 @@
 # T3 Code-inspired workspace inspector
 
-**Status:** Implemented on `feat/t3-workspace-inspector`; live verification in progress
+**Status:** Implemented and live-verified on `feat/t3-workspace-inspector`
 
 **Date:** 2026-08-07
 
@@ -33,6 +33,64 @@ The delivered surfaces are:
 The backend uses shared response types and generated client methods. Live review requests return one patch per Git scope. Historical review never trusts a checkpoint ref from the browser: it resolves the interaction after session authorization and reads the stored before/after refs. Checkpoint capture uses a temporary Git index and parentless hidden commits, preserving the user's index, worktree, `HEAD`, and branch refs.
 
 Boundaries retained for the first release: the browser is read-only, file reads are capped at 1 MiB, raw patch previews at 512 KiB, and file listings at 20,000 entries. The inspector can switch among detected Git workspaces, but the previous special `helix-specs` branch projection is not mixed into the repository browser. Markdown rendering, image preview, line comments, and editing remain follow-ups rather than partially implemented modes.
+
+### Implementation decisions and deviations
+
+The compatibility spike approved the Pierre packages for the read-only path and kept them in a lazy `WorkspaceInspector` chunk. Helix does not carry T3's private Pierre patch. The package's internal syntax pipeline owns tokenization; an additional Helix worker-pool wrapper was not added because it would duplicate that runtime without evidence that the default is a bottleneck.
+
+The file tree keeps Helix's required `matchesAllTokens()` semantics instead of enabling Pierre's single-query search. It filters the flat path input, retains every ancestor, expands matching subtrees, and preserves Pierre's virtualization. Selection callbacks read the current path map and file-open handler through refs because the Pierre model retains the callback supplied at construction; closing over initial React state silently makes later-loaded rows non-interactive.
+
+Copy-path and add-to-chat context actions were deferred. They are useful, but neither is necessary for a correct read-only browser and both need a deliberate interaction design that works across Pierre's shadow-DOM rows. The implemented navigation paths are tree row to file tab, diff header to file tab, chat **Open diff** to immutable turn diff, and chat file row to the selected file within that turn.
+
+### Verification record
+
+The desktop image was rebuilt as `helix-ubuntu:c9eca0`, then a new spec-task session was provisioned from that image. The session connected to a live Zed thread before testing; this was not a seeded-session or isolated DOM test.
+
+The disposable workspace fixture contained:
+
+- a committed Go file followed by an unstaged edit to the same path;
+- a staged TypeScript file;
+- untracked Markdown, JSON, and CSS files;
+- two consecutive agent turns with independent changes.
+
+The live source results were distinct and coherent:
+
+| Scope | Result | Meaning |
+|---|---:|---|
+| Branch changes | 1 file, `+6 -0` | committed portion of `committed.go` |
+| Working tree | 5 files, `+28 -0` | staged, unstaged, and untracked changes relative to `HEAD` |
+| All task changes | 5 files, `+34 -0` | complete result relative to `master`, with `committed.go` represented once |
+
+Two completed live turns persisted separate receipts: the first was 2 files, `+7 -0`; the immediately following turn was 2 files, `+7 -1`. Each card displayed the T3-style directory/file aggregation and each **Open diff** deep link rendered its own historical patch rather than the current workspace. Testing the second turn caught a lifecycle race: the synchronous before-checkpoint metadata was durable, but completion could still hold an older interaction value. Finalization now reloads the durable receipt before declaring it missing, and a regression test covers that seam.
+
+The browser test also exercised:
+
+- AND-token file search with automatic ancestor expansion;
+- opening an untracked JSON file from the virtualized tree and rendering syntax-highlighted contents;
+- combined, branch, and working-tree scope switching;
+- unified/split layout, long-line wrapping, whitespace filtering, and manual refresh;
+- dark and light theme adapters, including syntax foregrounds over restrained Git backgrounds;
+- an 800 by 700 px viewport, where the outer task layout collapses chat and gives the inspector the available width;
+- a fresh page load with no React console errors or failed workspace API requests.
+
+Verification commands completed successfully:
+
+```text
+cd api && go test ./pkg/desktop -count=1
+cd api && go test ./pkg/server -count=1
+cd api && go build ./pkg/server/ ./pkg/store/ ./pkg/types/
+cd frontend && yarn vitest run \
+  src/components/session/changedFilesTree.test.ts \
+  src/components/workspace-inspector/WorkspaceFileTree.test.ts \
+  src/components/workspace-inspector/pierreStyles.test.ts
+cd frontend && yarn tsc --noEmit
+cd frontend && yarn build
+git diff --check
+```
+
+The production build emits the inspector as an 819.30 KiB lazy chunk (227.99 KiB gzip); the main application chunk is 4,912.98 KiB (1,445.20 KiB gzip). Large main-chunk warnings predate this work and remain visible, while the inspector does not enter the initial route chunk.
+
+The 10,000-entry tree and 100-file/20,000-line synthetic performance acceptance test has not been run. The implementation is virtualized and enforces server bounds, but that is architecture, not measured performance; the large-fixture measurement remains required before treating those numbers as a supported performance envelope.
 
 ## Goals
 
@@ -424,7 +482,7 @@ Every file endpoint must:
 
 Extract the repeated RevDial proxy/request handling into a helper while adding these endpoints. This should reduce duplication, not introduce a second transport path.
 
-Use concrete Swagger response types, run `./stack update_openapi`, and consume only `api.getApiClient()` methods through `frontend/src/services/workspaceReviewService.ts`. React Query query functions extract `.data`; refresh invalidates the corresponding query. Do not poll permanently when the inspector is hidden. While visible, use a modest refetch interval and retain the manual refresh control.
+Use concrete Swagger response types, run `./stack update_openapi`, and consume only `api.getApiClient()` methods through `frontend/src/components/workspace-inspector/workspaceReviewService.ts`. React Query query functions extract `.data`; refresh invalidates the corresponding query. Do not poll permanently when the inspector is hidden. While visible, use a modest refetch interval and retain the manual refresh control.
 
 ### Rendering dependencies
 
