@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -229,6 +230,9 @@ func installAgentAppLinks(db *gorm.DB) error {
 	if err := backfillProjectAgentApps(db); err != nil {
 		return err
 	}
+	if err := repairAgentAppPrompts(db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -412,6 +416,48 @@ func backfillProjectAgentApps(db *gorm.DB) error {
 				}).Create(&state).Error; err != nil {
 					return fmt.Errorf("backfill bot %s runtime agent app: %w", candidate.NodeID, err)
 				}
+			}
+		}
+		return nil
+	})
+}
+
+const legacyAgentSystemPrompt = "You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}."
+
+func repairAgentAppPrompts(db *gorm.DB) error {
+	if !db.Migrator().HasTable("org_bots") || !db.Migrator().HasTable("apps") {
+		return nil
+	}
+	type candidate struct {
+		AppID   string
+		Content string
+		Config  string
+	}
+	var candidates []candidate
+	if err := db.Raw(`
+		SELECT app.id AS app_id, bot.content, CAST(app.config AS TEXT) AS config
+		FROM org_bots AS bot
+		JOIN apps AS app
+		  ON app.id = bot.agent_app_id
+		 AND app.organization_id = bot.org_id
+		WHERE bot.kind <> 'human'
+		  AND TRIM(bot.content) <> ''
+	`).Scan(&candidates).Error; err != nil {
+		return fmt.Errorf("list agent prompt repair candidates: %w", err)
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, candidate := range candidates {
+			var config types.AppConfig
+			if json.Unmarshal([]byte(candidate.Config), &config) != nil || len(config.Helix.Assistants) != 1 {
+				continue
+			}
+			prompt := config.Helix.Assistants[0].SystemPrompt
+			if strings.TrimSpace(prompt) != "" && prompt != legacyAgentSystemPrompt {
+				continue
+			}
+			config.Helix.Assistants[0].SystemPrompt = candidate.Content
+			if err := tx.Table("apps").Where("id = ?", candidate.AppID).Update("config", config).Error; err != nil {
+				return fmt.Errorf("repair agent app %s prompt: %w", candidate.AppID, err)
 			}
 		}
 		return nil

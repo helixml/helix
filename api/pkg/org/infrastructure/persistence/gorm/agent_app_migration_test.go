@@ -1,12 +1,92 @@
 package gorm
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+func TestRepairAgentAppPrompts(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE org_bots (
+			org_id TEXT NOT NULL,
+			id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			content TEXT NOT NULL,
+			agent_app_id TEXT
+		)`,
+		`CREATE TABLE apps (
+			id TEXT PRIMARY KEY,
+			organization_id TEXT NOT NULL,
+			config JSON NOT NULL
+		)`,
+		`INSERT INTO apps (id, organization_id, config) VALUES
+			('app-blank', 'org-test', '{"helix":{"assistants":[{"name":"Blank","system_prompt":"   "}]}}'),
+			('app-legacy', 'org-test', '{"helix":{"assistants":[{"name":"Legacy","system_prompt":"You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}."}]}}'),
+			('app-custom', 'org-test', '{"helix":{"assistants":[{"name":"Custom","system_prompt":"Keep me"}]}}'),
+			('app-human', 'org-test', '{"helix":{"assistants":[{"system_prompt":""}]}}'),
+			('app-cross-org', 'org-other', '{"helix":{"assistants":[{"system_prompt":""}]}}'),
+			('app-multiple', 'org-test', '{"helix":{"assistants":[{},{}]}}'),
+			('app-empty-content', 'org-test', '{"helix":{"assistants":[{"system_prompt":""}]}}')`,
+		`INSERT INTO org_bots (org_id, id, kind, content, agent_app_id) VALUES
+			('org-test', 'b-blank', '', 'Blank mandate', 'app-blank'),
+			('org-test', 'b-legacy', '', 'Legacy mandate', 'app-legacy'),
+			('org-test', 'b-custom', '', 'Ignored mandate', 'app-custom'),
+			('org-test', 'b-human', 'human', 'Human mandate', 'app-human'),
+			('org-test', 'b-cross-org', '', 'Cross-org mandate', 'app-cross-org'),
+			('org-test', 'b-multiple', '', 'Multiple mandate', 'app-multiple'),
+			('org-test', 'b-empty-content', '', '   ', 'app-empty-content')`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatalf("seed migration fixture: %v", err)
+		}
+	}
+
+	if err := repairAgentAppPrompts(db); err != nil {
+		t.Fatalf("repair agent prompts: %v", err)
+	}
+	var configsAfterFirst []struct{ ID, Config string }
+	if err := db.Table("apps").Select("id, CAST(config AS TEXT) AS config").Order("id").Scan(&configsAfterFirst).Error; err != nil {
+		t.Fatalf("read configs after first repair: %v", err)
+	}
+	if err := repairAgentAppPrompts(db); err != nil {
+		t.Fatalf("repeat agent prompt repair: %v", err)
+	}
+	var configsAfterSecond []struct{ ID, Config string }
+	if err := db.Table("apps").Select("id, CAST(config AS TEXT) AS config").Order("id").Scan(&configsAfterSecond).Error; err != nil {
+		t.Fatalf("read configs after second repair: %v", err)
+	}
+	if !reflect.DeepEqual(configsAfterSecond, configsAfterFirst) {
+		t.Fatalf("second repair changed configs: first=%+v second=%+v", configsAfterFirst, configsAfterSecond)
+	}
+
+	wantPrompts := map[string]string{
+		"app-blank":         "Blank mandate",
+		"app-legacy":        "Legacy mandate",
+		"app-custom":        "Keep me",
+		"app-human":         "",
+		"app-cross-org":     "",
+		"app-multiple":      "",
+		"app-empty-content": "",
+	}
+	for _, row := range configsAfterSecond {
+		var config types.AppConfig
+		if err := json.Unmarshal([]byte(row.Config), &config); err != nil {
+			t.Fatalf("decode %s config: %v", row.ID, err)
+		}
+		if len(config.Helix.Assistants) > 0 && config.Helix.Assistants[0].SystemPrompt != wantPrompts[row.ID] {
+			t.Errorf("%s prompt = %q, want %q", row.ID, config.Helix.Assistants[0].SystemPrompt, wantPrompts[row.ID])
+		}
+	}
+}
 
 func TestBackfillAgentAppLinksRequiresSameOrganization(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
