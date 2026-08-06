@@ -31,6 +31,7 @@ import ThinkingWidget from "./ThinkingWidget";
 // Import chat stats collector for performance monitoring
 import { getGlobalStatsCollector } from "./ChatStatsOverlay";
 import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import { getChatColors } from "./chatStyles";
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any;
 
@@ -872,6 +873,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   renderContent = true,
 }) => {
   const theme = useTheme();
+  const chatColors = getChatColors(theme);
   const [processedContent, setProcessedContent] = useState<string>("");
   const [citationData, setCitationData] = useState<{
     excerpts: Excerpt[];
@@ -1069,9 +1071,13 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             fontFamily: APP_MONO_FONT_FAMILY,
           },
           "& :not(pre) > code": {
-            backgroundColor: theme.palette.mode === "light" ? "#ccc" : "#333",
-            padding: "0",
-            borderRadius: "3px",
+            backgroundColor: chatColors.inlineCodeSurface,
+            color: chatColors.inlineCodeForeground,
+            padding: "0.08em 0.28em",
+            borderRadius: "4px",
+            fontSize: "0.84rem",
+            fontWeight: 500,
+            boxDecorationBreak: "clone",
           },
           "& a": {
             color: theme.palette.mode === "light" ? "#333" : "inherit",
@@ -1111,32 +1117,37 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             },
           },
           "& table": {
-            borderCollapse: "collapse",
+            borderCollapse: "separate",
+            borderSpacing: 0,
             width: "100%",
             margin: "1em 0",
-            fontSize: "0.9em",
+            fontSize: "0.84rem",
             borderRadius: "8px",
             overflow: "hidden",
-            boxShadow:
-              theme.palette.mode === "light"
-                ? "0 2px 8px rgba(0, 0, 0, 0.1)"
-                : "0 2px 8px rgba(0, 0, 0, 0.3)",
+            border: `1px solid ${chatColors.tableBorder}`,
+            backgroundColor: chatColors.tableSurface,
           },
           "& th, & td": {
-            border: `1px solid ${theme.palette.mode === "light" ? "#e0e0e0" : "#444"}`,
             padding: "12px 16px",
             textAlign: "left",
+            border: 0,
+            borderBottom: `1px solid ${chatColors.tableBorder}`,
+          },
+          "& th + th, & td + td": {
+            borderLeft: `1px solid ${chatColors.tableBorder}`,
+          },
+          "& tr:last-child td": {
+            borderBottom: 0,
           },
           "& th": {
-            backgroundColor:
-              theme.palette.mode === "light" ? "#f8f9fa" : "#23272f",
+            backgroundColor: chatColors.tableHeaderSurface,
             fontWeight: "600",
-            color: theme.palette.mode === "light" ? "#333" : "#fff",
-            borderBottom: `2px solid ${theme.palette.mode === "light" ? "#dee2e6" : "#444"}`,
+            color: theme.palette.mode === "light"
+              ? "#3f3f46"
+              : chatColors.assistantForeground,
           },
           "& td": {
-            backgroundColor:
-              theme.palette.mode === "light" ? "#fff" : "transparent",
+            backgroundColor: chatColors.tableSurface,
           },
           display: "flow-root",
         }}

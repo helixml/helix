@@ -13,6 +13,11 @@ export const getChatColors = (theme: Theme) => {
     borderStrong: dark ? 'rgba(255, 255, 255, 0.13)' : 'rgba(0, 0, 0, 0.16)',
     foreground: dark ? '#f5f5f5' : '#18181b',
     assistantForeground: dark ? 'rgba(245, 245, 245, 0.8)' : 'rgba(24, 24, 27, 0.8)',
+    inlineCodeSurface: dark ? '#303033' : '#e4e4e7',
+    inlineCodeForeground: dark ? 'rgba(245, 245, 245, 0.78)' : '#3f3f46',
+    tableSurface: dark ? '#0c0c0d' : '#ffffff',
+    tableHeaderSurface: dark ? '#25272e' : '#f4f4f5',
+    tableBorder: dark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.14)',
     muted: dark ? '#b8b8b8' : '#52525b',
     subtle: dark ? '#969696' : '#71717a',
   }
