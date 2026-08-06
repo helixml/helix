@@ -45,6 +45,7 @@ import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
 import { orgLandingRoute } from '../../utils/organizations'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
+import { isNavigationRouteActive } from './UserOrgSelector.logic'
 
 // Shimmer animation for login button
 const shimmer = keyframes`
@@ -266,14 +267,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   }, [])
 
   const isActive = (path: string | string[]) => {
-    const routeName = router.name
-    const paths = Array.isArray(path) ? path : [path]
-    return paths.some(p =>
-      routeName === p ||
-      routeName === 'org_' + p ||
-      routeName.startsWith(p + '-') ||
-      routeName.startsWith('org_' + p + '-')
-    )
+    return isNavigationRouteActive(router.name, path)
   }
 
 
@@ -415,7 +409,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       {
         icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
         tooltip: "AI chat assistant",
-        isActive: isActive('chat'),
+        isActive: isActive(['chat', 'session']),
         onClick: () => orgNavigateTo('chat'),
         label: "Chat",
       },

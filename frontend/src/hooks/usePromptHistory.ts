@@ -12,6 +12,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Api } from '../api/api'
+import { createRandomId } from '../utils/randomId'
 import {
   syncPromptHistory,
   listPromptHistory,
@@ -106,10 +107,6 @@ interface UsePromptHistoryReturn {
   // Clear
   clearDraft: () => void
   clearHistory: () => void
-}
-
-function generateId(): string {
-  return crypto.randomUUID()
 }
 
 function getStorageKey(specTaskId?: string): string {
@@ -620,7 +617,7 @@ export function usePromptHistory({
     })
 
     const entry: PromptHistoryEntry = {
-      id: generateId(),
+      id: createRandomId(),
       content,
       timestamp: Date.now(),
       sessionId,

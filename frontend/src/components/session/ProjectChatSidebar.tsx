@@ -18,6 +18,7 @@ import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
   collapsedGroupsStorageKey,
   isNewThreadShortcut,
+  shouldConfirmTaskArchive,
   parseCollapsedGroupIds,
   serializeCollapsedGroupIds,
 } from './ProjectChatSidebar.logic'
@@ -132,7 +133,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   }
 
   const requestArchive = (item: SidebarItem) => {
-    if (item.kind === 'spec-task') {
+    if (shouldConfirmTaskArchive(item)) {
       setArchiveConfirmation(item)
       return
     }
@@ -237,6 +238,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
               enabled={groupsEnabled}
               archivingItemId={archivingItemId}
               onToggle={() => toggleGroup('default')}
+              onNewTask={() => account.orgNavigate('chat')}
               onOpenItem={openItem}
               onArchiveItem={requestArchive}
             />

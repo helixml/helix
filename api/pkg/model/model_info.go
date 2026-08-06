@@ -87,20 +87,21 @@ func NewBaseModelInfoProvider() (*BaseModelInfoProvider, error) {
 
 func toModelInfo(m ModelInfoData) types.ModelInfo {
 	return types.ModelInfo{
-		ProviderSlug:        m.Endpoint.ProviderSlug,
-		ProviderModelID:     m.Endpoint.ProviderModelID,
-		Name:                m.Name,
-		Slug:                m.Slug,
-		Permaslug:           m.Permaslug,
-		Author:              m.Author,
-		Description:         m.Description,
-		InputModalities:     m.InputModalities,
-		OutputModalities:    m.OutputModalities,
-		SupportsReasoning:   m.Endpoint.SupportsReasoning,
-		ContextLength:       m.ContextLength,
-		SupportedParameters: m.Endpoint.SupportedParameters,
-		MaxCompletionTokens: m.Endpoint.MaxCompletionTokens,
-		Pricing:             m.Endpoint.Pricing,
+		ProviderSlug:            m.Endpoint.ProviderSlug,
+		ProviderModelID:         m.Endpoint.ProviderModelID,
+		Name:                    m.Name,
+		Slug:                    m.Slug,
+		Permaslug:               m.Permaslug,
+		Author:                  m.Author,
+		Description:             m.Description,
+		InputModalities:         m.InputModalities,
+		OutputModalities:        m.OutputModalities,
+		SupportsReasoning:       m.Endpoint.SupportsReasoning,
+		SupportsReasoningEffort: m.ReasoningConfig != nil && m.ReasoningConfig.SupportsReasoningEffort,
+		ContextLength:           m.ContextLength,
+		SupportedParameters:     m.Endpoint.SupportedParameters,
+		MaxCompletionTokens:     m.Endpoint.MaxCompletionTokens,
+		Pricing:                 m.Endpoint.Pricing,
 	}
 }
 

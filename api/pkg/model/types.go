@@ -85,6 +85,10 @@ type SessionFileManager interface {
 	DownloadFolder(remotePath string, localPath string) error
 }
 
+type ReasoningConfig struct {
+	SupportsReasoningEffort bool `json:"supports_reasoning_effort"`
+}
+
 type ModelInfoResponse struct { //nolint:revive
 	Data []ModelInfoData `json:"data"`
 }
@@ -112,7 +116,7 @@ type ModelInfoData struct { //nolint:revive
 	Router              any              `json:"router"`
 	WarningMessage      string           `json:"warning_message"`
 	Permaslug           string           `json:"permaslug"`
-	ReasoningConfig     any              `json:"reasoning_config"`
+	ReasoningConfig     *ReasoningConfig `json:"reasoning_config"`
 	Features            any              `json:"features"`
 	Endpoint            struct {
 		ID            string `json:"id"`

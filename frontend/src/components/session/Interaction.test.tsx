@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import { TypesInteractionState } from "../../api/api";
 import { Interaction } from "./Interaction";
 
 vi.mock("./InteractionContainer", () => ({
@@ -11,11 +12,13 @@ vi.mock("./InteractionContainer", () => ({
 vi.mock("./InteractionInference", () => ({
   default: ({
     enableDebugCopy,
+    error,
     isFromAssistant,
     message,
     workspaceAttachments,
   }: {
     enableDebugCopy?: boolean;
+    error?: string;
     isFromAssistant?: boolean;
     message?: string;
     workspaceAttachments?: Array<{ name: string }>;
@@ -25,6 +28,7 @@ vi.mock("./InteractionInference", () => ({
       {workspaceAttachments?.map((attachment) => (
         <span key={attachment.name}>{attachment.name}</span>
       ))}
+      {error && <span data-testid="interaction-error">{error}</span>}
       {enableDebugCopy && <button aria-label="agent debug copy" />}
     </div>
   ),
@@ -47,7 +51,7 @@ const baseProps = {
   enableDebugCopy: true,
 };
 
-describe("Interaction debug copy placement", () => {
+describe("Interaction", () => {
   it("shows debug copy only on the agent side after a reply", () => {
     render(
       <Interaction
@@ -95,5 +99,44 @@ describe("Interaction debug copy placement", () => {
     expect(screen.getByTestId("user-message")).toHaveTextContent("What is in this screenshot?");
     expect(screen.getByTestId("user-message")).toHaveTextContent("image.png");
     expect(screen.queryByText("Attachments available in the agent workspace:")).not.toBeInTheDocument();
+  });
+
+  it("renders an interaction error once below the user message", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_error",
+          prompt_message: "Question",
+          error: "agent failed",
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("user-message")).not.toHaveTextContent("agent failed");
+    expect(screen.getByTestId("agent-reply")).toHaveTextContent("agent failed");
+    expect(screen.getAllByTestId("interaction-error")).toHaveLength(1);
+  });
+
+  it("removes the error after the retried prompt completes successfully", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_error",
+          prompt_message: "Question",
+          error: "agent failed",
+        }}
+        nextInteraction={{
+          id: "int_retry",
+          prompt_message: "Question",
+          response_message: "Answer",
+          state: TypesInteractionState.InteractionStateComplete,
+        }}
+      />,
+    );
+
+    expect(screen.queryByTestId("interaction-error")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-reply")).not.toBeInTheDocument();
   });
 });

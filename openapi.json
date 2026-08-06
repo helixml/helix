@@ -16821,6 +16821,76 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/spec-task-agents": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns minimal agent options for starting a project spec task. Helix org-chart agents are excluded.",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "List external agents available for project spec tasks",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.ProjectSpecTaskAgent"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/startup-script/history": {
             "get": {
                 "security": [
@@ -37131,6 +37201,9 @@
                     },
                     "supports_reasoning": {
                         "type": "boolean"
+                    },
+                    "supports_reasoning_effort": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -38601,6 +38674,17 @@
                         "items": {
                             "type": "string"
                         }
+                    }
+                }
+            },
+            "types.ProjectSpecTaskAgent": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
                     }
                 }
             },
@@ -40845,6 +40929,10 @@
                             }
                         ]
                     },
+                    "reasoning_effort": {
+                        "description": "Per-session reasoning effort for direct model chats",
+                        "type": "string"
+                    },
                     "regenerate": {
                         "description": "If true, we will regenerate the response for the last message",
                         "type": "boolean"
@@ -41103,6 +41191,9 @@
                     },
                     "rag_settings": {
                         "$ref": "#/components/schemas/types.RAGSettings"
+                    },
+                    "reasoning_effort": {
+                        "type": "string"
                     },
                     "render_node": {
                         "description": "GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)",

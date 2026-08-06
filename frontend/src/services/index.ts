@@ -13,6 +13,7 @@ export {
 export {
   useListProjects,
   useGetProject,
+  useListProjectSpecTaskAgents,
   useCreateProject,
   useUpdateProject,
   useDeleteProject,
@@ -30,6 +31,7 @@ export {
   useGetStartupScriptHistory,
   projectsListQueryKey,
   projectQueryKey,
+  projectSpecTaskAgentsQueryKey,
   projectRepositoriesQueryKey,
   sampleProjectsListQueryKey,
   sampleProjectQueryKey,

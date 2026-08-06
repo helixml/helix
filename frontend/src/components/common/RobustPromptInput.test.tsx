@@ -294,6 +294,31 @@ describe('RobustPromptInput rich attachments', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Preview diagram.png' })).not.toBeInTheDocument())
   })
 
+  it('defers task files and delivers them to the direct submit handler', async () => {
+    const onSend = vi.fn().mockResolvedValue(true)
+    render(
+      <RobustPromptInput
+        sessionId="new-task"
+        sendMode="direct"
+        deferredFileAttachments
+        attachmentAccept="application/pdf,.pdf"
+        attachmentMaxBytes={100 * 1024 * 1024}
+        onSend={onSend}
+      />,
+    )
+
+    const pdf = new File(['pdf'], 'requirements.pdf', { type: 'application/pdf' })
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(input?.accept).toBe('application/pdf,.pdf')
+    fireEvent.change(input!, { target: { files: [pdf] } })
+
+    expect(await screen.findByText('requirements.pdf')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('', true, [pdf]))
+  })
+
   it('rejects non-image files in direct model-chat mode', async () => {
     render(
       <RobustPromptInput

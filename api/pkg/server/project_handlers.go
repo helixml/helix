@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -300,6 +301,56 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	s.populateProjectOwners(r.Context(), []*types.Project{project})
 
 	return project, nil
+}
+
+// listProjectSpecTaskAgents godoc
+// @Summary List external agents available for project spec tasks
+// @Description Returns minimal agent options for starting a project spec task. Helix org-chart agents are excluded.
+// @Tags Projects
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {array} types.ProjectSpecTaskAgent
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/spec-task-agents [get]
+func (s *HelixAPIServer) listProjectSpecTaskAgents(_ http.ResponseWriter, r *http.Request) ([]types.ProjectSpecTaskAgent, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	project, err := s.Store.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+	if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	apps, err := s.Store.ListApps(ctx, &store.ListAppsQuery{OrganizationID: project.OrganizationID})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	if httpErr := s.markHelixOrgAgents(ctx, project.OrganizationID, apps); httpErr != nil {
+		return nil, httpErr
+	}
+
+	agents := make([]types.ProjectSpecTaskAgent, 0, len(apps))
+	for _, app := range apps {
+		if !isSpecTaskSelectableAgent(app) {
+			continue
+		}
+		name := app.Config.Helix.Name
+		if name == "" && len(app.Config.Helix.Assistants) > 0 {
+			name = app.Config.Helix.Assistants[0].Name
+		}
+		agents = append(agents, types.ProjectSpecTaskAgent{ID: app.ID, Name: name})
+	}
+	sort.Slice(agents, func(i, j int) bool {
+		return strings.ToLower(agents[i].Name) < strings.ToLower(agents[j].Name)
+	})
+	return agents, nil
 }
 
 // createProject godoc

@@ -53,6 +53,7 @@ interface NewInferenceParams {
   interactionId?: string;
   provider?: string;
   modelName?: string;
+  reasoningEffort?: string;
   sessionId?: string;
   orgId?: string;
   attachedImages?: File[];
@@ -664,6 +665,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
     assistantId = "",
     provider = "",
     modelName = "",
+    reasoningEffort = "",
     sessionId = "",
     interactionId = "",
     orgId = "",
@@ -757,6 +759,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       interaction_id: interactionId,
       provider: provider,
       model: modelName,
+      reasoning_effort: reasoningEffort || undefined,
       session_id: sessionId,
       agent_type: agentType,
       external_agent_config: sanitizedExternalAgentConfig,

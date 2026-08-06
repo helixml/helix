@@ -105,6 +105,7 @@ import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSession
 import AgentChat from "../session/AgentChat";
 import SwitchAgentControl from "../session/SwitchAgentControl";
 import SharePreviewSection from "./SharePreviewSection";
+import SpecTaskLaunchWindow from "./SpecTaskLaunchWindow";
 import {
   Panel,
   Group as PanelGroup,
@@ -120,6 +121,8 @@ import {
   GitCompare,
   MonitorPlay,
   EllipsisVertical,
+  FolderGit2,
+  GitBranch,
   Wand2,
   Share,
 } from "lucide-react";
@@ -218,12 +221,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     !!task?.project_id,
   );
 
-  const defaultBranchName = useMemo(() => {
-    const defaultRepo = projectRepositories.find(
+  const primaryRepository = useMemo(
+    () => projectRepositories.find(
       (r) => r.id === project?.default_repo_id,
-    );
-    return defaultRepo?.default_branch || "main";
-  }, [projectRepositories, project?.default_repo_id]);
+    ),
+    [projectRepositories, project?.default_repo_id],
+  );
+
+  const defaultBranchName = useMemo(() => {
+    return primaryRepository?.default_branch || "main";
+  }, [primaryRepository?.default_branch]);
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
@@ -515,6 +522,26 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = selectedThreadSessionId || task?.planning_session_id;
+
+  const launchPhase = useMemo<"queued" | "starting" | null>(() => {
+    if (activeSessionId || !task) return null;
+
+    if (
+      task.status === TypesSpecTaskStatus.TaskStatusQueuedSpecGeneration ||
+      task.status === TypesSpecTaskStatus.TaskStatusQueuedImplementation
+    ) {
+      return task.queue_reason?.trim() ? "queued" : "starting";
+    }
+
+    if (
+      task.status === TypesSpecTaskStatus.TaskStatusSpecGeneration ||
+      task.status === TypesSpecTaskStatus.TaskStatusImplementation
+    ) {
+      return "starting";
+    }
+
+    return null;
+  }, [activeSessionId, task?.status, task?.queue_reason]);
 
   // Track sandbox/desktop state for stop/start buttons
   const {
@@ -1743,6 +1770,78 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     </>
   );
 
+  const taskChatMetadata = (primaryRepository?.name || task?.branch_name) ? (
+    <Box
+      sx={{
+        minWidth: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 1.5,
+        color: "text.secondary",
+      }}
+    >
+      {primaryRepository?.name ? (
+        <Tooltip title="Primary repository" placement="bottom-start">
+          <Box
+            sx={{
+              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 0.5,
+            }}
+          >
+            <FolderGit2 size={13} style={{ flexShrink: 0 }} />
+            <Typography
+              component="span"
+              sx={{
+                minWidth: 0,
+                fontSize: "0.72rem",
+                lineHeight: 1.2,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {primaryRepository.name}
+            </Typography>
+          </Box>
+        </Tooltip>
+      ) : (
+        <Box />
+      )}
+      {task?.branch_name && (
+        <Tooltip title="Working branch" placement="bottom-end">
+          <Box
+            sx={{
+              minWidth: 0,
+              ml: "auto",
+              display: "flex",
+              alignItems: "center",
+              gap: 0.5,
+            }}
+          >
+            <GitBranch size={13} style={{ flexShrink: 0 }} />
+            <Typography
+              component="span"
+              sx={{
+                minWidth: 0,
+                fontSize: "0.72rem",
+                lineHeight: 1.2,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                textAlign: "right",
+              }}
+            >
+              {task.branch_name}
+            </Typography>
+          </Box>
+        </Tooltip>
+      )}
+    </Box>
+  ) : undefined;
+
   if (!task) {
     return (
       <Box
@@ -1806,7 +1905,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       >
         {/* Desktop layout: left panel (chat always visible) + right panel (content toggleable) */}
         {/* When chatCollapsed is true, use mobile-style tab layout even on desktop */}
-        {activeSessionId && isBigScreen && !chatCollapsed ? (
+        {launchPhase ? (
+          <SpecTaskLaunchWindow
+            phase={launchPhase}
+            mode={task.just_do_it_mode ? "implementation" : "planning"}
+            queueReason={task.queue_reason}
+            onMoveToBacklog={
+              launchPhase === "queued"
+                ? () => moveToBacklogMutation.mutate()
+                : undefined
+            }
+            isMovingToBacklog={moveToBacklogMutation.isPending}
+          />
+        ) : activeSessionId && isBigScreen && !chatCollapsed ? (
           <PanelGroup
             key="spec-task-chat-layout"
             orientation="horizontal"
@@ -1841,10 +1952,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   }}
                 >
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
-                    {/* Chat / Spec tab strip */}
-                    {task?.design_docs_pushed_at ? (
+                    {/* Spec is the only alternate view; the surrounding panel is already chat. */}
+                    {task?.design_docs_pushed_at && (
                       <ToggleButtonGroup
-                        value="chat"
+                        value={null}
                         exclusive
                         onChange={(_, val) => {
                           if (val === "spec") handleReviewSpec();
@@ -1868,39 +1979,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           },
                         }}
                       >
-                        <ToggleButton value="chat" disableRipple={false}>
-                          Chat
-                        </ToggleButton>
                         <ToggleButton value="spec" disableRipple={false}>
                           <Description sx={{ fontSize: 14, mr: 0.5 }} />
                           Spec
-                        </ToggleButton>
-                      </ToggleButtonGroup>
-                    ) : (
-                      <ToggleButtonGroup
-                        value="chat"
-                        exclusive
-                        size="small"
-                        sx={{
-                          flexShrink: 0,
-                          "& .MuiToggleButton-root": {
-                            px: 1.25,
-                            py: 0.25,
-                            fontSize: "0.8rem",
-                            fontWeight: 500,
-                            textTransform: "none",
-                            border: "1px solid",
-                            borderColor: "divider",
-                            color: "text.secondary",
-                            "&.Mui-selected": {
-                              color: "text.primary",
-                              backgroundColor: "action.selected",
-                            },
-                          },
-                        }}
-                      >
-                        <ToggleButton value="chat" disableRipple disabled sx={{ '&.Mui-disabled': { color: 'text.primary', borderColor: 'divider' } }}>
-                          Chat
                         </ToggleButton>
                       </ToggleButtonGroup>
                     )}
@@ -1952,15 +2033,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       );
                     })()}
                   </Box>
-                  {/* Switch-agent dropdown. Picking a new agent switches the
-                      framework IN PLACE on the current session (same id, same
-                      container, transcript preserved) — no fork. See
-                      design/tasks/002111_so-we-recently-added-a/. */}
-                  {activeSessionId && (
-                    <Box sx={{ ml: "auto", mr: 1, flexShrink: 0 }}>
-                      <SwitchAgentControl sessionId={activeSessionId} />
-                    </Box>
-                  )}
                   <Tooltip title="Collapse chat panel">
                     <IconButton
                       size="small"
@@ -1983,6 +2055,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   projectId={task.project_id}
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
+                  leadingActions={(
+                    <SwitchAgentControl sessionId={activeSessionId} displayMode="compact" />
+                  )}
+                  footerContent={taskChatMetadata}
                   placeholder={
                     sessionData?.config?.paused
                       ? "This session is paused — open the forked child to keep chatting"
@@ -2737,6 +2813,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   projectId={task.project_id}
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
+                  leadingActions={(
+                    <SwitchAgentControl sessionId={activeSessionId} displayMode="compact" />
+                  )}
+                  footerContent={taskChatMetadata}
                   placeholder={
                     sessionData?.config?.paused
                       ? "This session is paused — open the forked child to keep chatting"

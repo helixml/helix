@@ -22,6 +22,16 @@ func Test_GetGeminiFlash(t *testing.T) {
 	assert.Equal(t, "0.0000004", modelInfo.Pricing.Completion)
 }
 
+func TestToModelInfo_ReasoningEffortCapability(t *testing.T) {
+	withEffort := ModelInfoData{
+		ReasoningConfig: &ReasoningConfig{SupportsReasoningEffort: true},
+	}
+	withEffort.Endpoint.SupportsReasoning = true
+
+	assert.True(t, toModelInfo(withEffort).SupportsReasoningEffort)
+	assert.False(t, toModelInfo(ModelInfoData{}).SupportsReasoningEffort)
+}
+
 func Test_GetHaiku35(t *testing.T) {
 	b, err := NewBaseModelInfoProvider()
 	assert.NoError(t, err)

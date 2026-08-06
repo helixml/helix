@@ -572,6 +572,11 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		log.Info().Msg("session regeneration requested")
 	}
 
+	if err := validateReasoningEffort(startReq.ReasoningEffort); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, startReq.Model, types.SessionTypeText)
 	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
@@ -660,6 +665,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 		startReq.OrganizationID = session.OrganizationID
 		startReq.ProjectID = session.ProjectID
+		startReq.ReasoningEffort = applySessionReasoningEffort(session, startReq.ReasoningEffort)
 
 		// If the session has an AppID, use it as the next interaction
 		if session.ParentApp != "" {
@@ -713,6 +719,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Metadata: types.SessionMetadata{
 				Stream:              startReq.Stream,
 				SystemPrompt:        startReq.SystemPrompt,
+				ReasoningEffort:     startReq.ReasoningEffort,
 				AssistantID:         startReq.AssistantID,
 				HelixVersion:        data.GetHelixVersion(),
 				AgentType:           agentType,
@@ -1024,10 +1031,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Messages: []openai.ChatCompletionMessage{},
 		}
 		options = &controller.ChatCompletionOptions{
-			OrganizationID: startReq.OrganizationID,
-			AppID:          startReq.AppID,
-			AssistantID:    startReq.AssistantID,
-			Provider:       string(startReq.Provider),
+			OrganizationID:  startReq.OrganizationID,
+			AppID:           startReq.AppID,
+			AssistantID:     startReq.AssistantID,
+			Provider:        string(startReq.Provider),
+			ReasoningEffort: startReq.ReasoningEffort,
 			QueryParams: func() map[string]string {
 				params := make(map[string]string)
 				for key, values := range req.URL.Query() {
@@ -1057,6 +1065,23 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	if err != nil {
 		log.Err(err).Msg("error handling streaming session")
 	}
+}
+
+func validateReasoningEffort(effort string) error {
+	switch effort {
+	case "", "low", "medium", "high":
+		return nil
+	default:
+		return fmt.Errorf("reasoning_effort must be one of low, medium, or high")
+	}
+}
+
+func applySessionReasoningEffort(session *types.Session, requested string) string {
+	if requested == "" {
+		return session.Metadata.ReasoningEffort
+	}
+	session.Metadata.ReasoningEffort = requested
+	return requested
 }
 
 // appendOrOverwrite appends the new message to the session or overwrites the existing messages

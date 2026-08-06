@@ -623,6 +623,7 @@ const EmbeddedSessionView = forwardRef<
                 key={interaction.id}
                 serverConfig={account.serverConfig}
                 interaction={interaction}
+                nextInteraction={visibleInteractions[index + 1]}
                 session={session}
                 highlightAllFiles={false}
                 onReloadSession={handleReloadSession}

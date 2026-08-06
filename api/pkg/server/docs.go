@@ -14072,6 +14072,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/spec-task-agents": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns minimal agent options for starting a project spec task. Helix org-chart agents are excluded.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "List external agents available for project spec tasks",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ProjectSpecTaskAgent"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/startup-script/history": {
             "get": {
                 "security": [
@@ -32516,6 +32571,9 @@ const docTemplate = `{
                 },
                 "supports_reasoning": {
                     "type": "boolean"
+                },
+                "supports_reasoning_effort": {
+                    "type": "boolean"
                 }
             }
         },
@@ -33986,6 +34044,17 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "types.ProjectSpecTaskAgent": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },
@@ -36230,6 +36299,10 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "reasoning_effort": {
+                    "description": "Per-session reasoning effort for direct model chats",
+                    "type": "string"
+                },
                 "regenerate": {
                     "description": "If true, we will regenerate the response for the last message",
                     "type": "boolean"
@@ -36488,6 +36561,9 @@ const docTemplate = `{
                 },
                 "rag_settings": {
                     "$ref": "#/definitions/types.RAGSettings"
+                },
+                "reasoning_effort": {
+                    "type": "string"
                 },
                 "render_node": {
                     "description": "GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)",

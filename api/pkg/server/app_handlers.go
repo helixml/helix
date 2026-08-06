@@ -406,6 +406,21 @@ func (s *HelixAPIServer) markHelixOrgAgents(ctx context.Context, orgID string, a
 	return nil
 }
 
+func isSpecTaskSelectableAgent(app *types.Agent) bool {
+	if app == nil || app.IsHelixOrgAgent {
+		return false
+	}
+	if app.Config.Helix.DefaultAgentType == types.AgentTypeZedExternal {
+		return true
+	}
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.AgentType == types.AgentTypeZedExternal {
+			return true
+		}
+	}
+	return false
+}
+
 // createAgent godoc
 // @Summary Create new agent
 // @Description Create new agent. Helix agents are configured with tools and knowledge. Supports both legacy format and new structured format with YAML config.

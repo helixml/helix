@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -90,6 +91,16 @@ type AppendOrOverwriteSuite struct {
 
 func TestAppendOrOverwriteSuite(t *testing.T) {
 	suite.Run(t, new(AppendOrOverwriteSuite))
+}
+
+func TestSessionReasoningEffort(t *testing.T) {
+	session := &types.Session{Metadata: types.SessionMetadata{ReasoningEffort: "low"}}
+
+	require.NoError(t, validateReasoningEffort("medium"))
+	require.Error(t, validateReasoningEffort("ultra"))
+	require.Equal(t, "low", applySessionReasoningEffort(session, ""))
+	require.Equal(t, "high", applySessionReasoningEffort(session, "high"))
+	require.Equal(t, "high", session.Metadata.ReasoningEffort)
 }
 
 func (suite *AppendOrOverwriteSuite) TestAppendToEmptySession() {

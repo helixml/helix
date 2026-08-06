@@ -97,7 +97,7 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
     if (!execution.session_id) return undefined;
     const org = account.organizationTools.organization;
     if (org) {
-      return `/orgs/${org.name}/session/${execution.session_id}`;
+      return `/orgs/${org.name}/chat/session/${execution.session_id}`;
     }
     return `/session/${execution.session_id}`;
   };

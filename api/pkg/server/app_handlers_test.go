@@ -191,6 +191,45 @@ func Test_markHelixOrgAgents_ReportsRepositoryFailure(t *testing.T) {
 	require.Contains(t, httpErr.Message, "list failed")
 }
 
+func TestIsSpecTaskSelectableAgent(t *testing.T) {
+	tests := []struct {
+		name string
+		app  *types.Agent
+		want bool
+	}{
+		{
+			name: "standalone external agent",
+			app: &types.Agent{Config: types.AgentConfig{Helix: types.AgentHelixConfig{
+				Assistants: []types.AssistantConfig{{AgentType: types.AgentTypeZedExternal}},
+			}}},
+			want: true,
+		},
+		{
+			name: "external org worker",
+			app: &types.Agent{
+				IsHelixOrgAgent: true,
+				Config: types.AgentConfig{Helix: types.AgentHelixConfig{
+					DefaultAgentType: types.AgentTypeZedExternal,
+				}},
+			},
+			want: false,
+		},
+		{
+			name: "helix agent",
+			app: &types.Agent{Config: types.AgentConfig{Helix: types.AgentHelixConfig{
+				DefaultAgentType: types.AgentTypeHelixAgent,
+			}}},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isSpecTaskSelectableAgent(tt.app))
+		})
+	}
+}
+
 func TestListOrganizationAppsDoesNotReconcileAgentLinks(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	helixStore := store.NewMockStore(ctrl)

@@ -6932,6 +6932,8 @@ definitions:
         type: array
       supports_reasoning:
         type: boolean
+      supports_reasoning_effort:
+        type: boolean
     type: object
   types.ModelType:
     enum:
@@ -7954,6 +7956,13 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  types.ProjectSpecTaskAgent:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
     type: object
   types.ProjectStartup:
     properties:
@@ -9676,6 +9685,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.Provider'
         description: The provider to use
+      reasoning_effort:
+        description: Per-session reasoning effort for direct model chats
+        type: string
       regenerate:
         description: If true, we will regenerate the response for the last message
         type: boolean
@@ -9892,6 +9904,8 @@ definitions:
         type: boolean
       rag_settings:
         $ref: '#/definitions/types.RAGSettings'
+      reasoning_effort:
+        type: string
       render_node:
         description: GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
         type: string
@@ -21653,6 +21667,42 @@ paths:
       summary: Create a secret for a project
       tags:
       - secrets
+  /api/v1/projects/{id}/spec-task-agents:
+    get:
+      description: Returns minimal agent options for starting a project spec task.
+        Helix org-chart agents are excluded.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ProjectSpecTaskAgent'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List external agents available for project spec tasks
+      tags:
+      - Projects
   /api/v1/projects/{id}/startup-script/history:
     get:
       description: Get git commit history for project startup script

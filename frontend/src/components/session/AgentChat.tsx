@@ -1,4 +1,5 @@
 import { FC, useCallback, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import { alpha } from '@mui/material/styles'
 
@@ -22,6 +23,8 @@ interface AgentChatProps {
   showSessionPromptQueue?: boolean
   enableInteractionDebugCopy?: boolean
   onWillSend?: () => void
+  leadingActions?: ReactNode
+  footerContent?: ReactNode
 }
 
 /** Shared org/spec-task conversation surface. */
@@ -34,6 +37,8 @@ const AgentChat: FC<AgentChatProps> = ({
   showSessionPromptQueue = false,
   enableInteractionDebugCopy,
   onWillSend,
+  leadingActions,
+  footerContent,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -139,21 +144,49 @@ const AgentChat: FC<AgentChatProps> = ({
         }}
       >
         <Box sx={{ width: '100%', maxWidth: 768, mx: 'auto' }}>
-          <RobustPromptInput
-            sessionId={sessionId}
-            specTaskId={specTaskId}
-            projectId={projectId}
-            apiClient={apiClient}
-            onSend={handleSend}
-            onWillSend={onWillSend}
-            onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
-            onFileUpload={handleFileUpload}
-            onCancel={handleCancel}
-            isAgentBusy={isAgentBusy}
-            isCancelling={isCancelling}
-            placeholder={placeholder}
-            disabled={disabled}
-          />
+          <Box sx={{ position: 'relative', zIndex: 1 }}>
+            <RobustPromptInput
+              sessionId={sessionId}
+              specTaskId={specTaskId}
+              projectId={projectId}
+              apiClient={apiClient}
+              onSend={handleSend}
+              onWillSend={onWillSend}
+              onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+              onFileUpload={handleFileUpload}
+              onCancel={handleCancel}
+              isAgentBusy={isAgentBusy}
+              isCancelling={isCancelling}
+              leadingActions={leadingActions}
+              placeholder={placeholder}
+              disabled={disabled}
+            />
+          </Box>
+          {footerContent && (
+            <Box
+              data-chat-context-bar="true"
+              sx={{
+                position: 'relative',
+                zIndex: 0,
+                minWidth: 0,
+                minHeight: 38,
+                mt: -1,
+                mx: { xs: 1, sm: 2 },
+                px: 1.25,
+                pt: 1.875,
+                pb: 0.5,
+                bgcolor: (theme) => getChatColors(theme).composerSurface,
+                border: '1px solid',
+                borderColor: (theme) => getChatColors(theme).border,
+                borderRadius: '0 0 12px 12px',
+                boxShadow: (theme) => theme.palette.mode === 'light'
+                  ? '0 8px 18px -16px rgba(0,0,0,0.45)'
+                  : 'inset 0 1px rgba(255,255,255,0.02)',
+              }}
+            >
+              {footerContent}
+            </Box>
+          )}
         </Box>
       </Box>
     </Box>

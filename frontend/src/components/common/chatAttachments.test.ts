@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildMessageWithAttachments,
+  createPendingChatAttachment,
   parseMessageWithAttachments,
   PendingChatAttachment,
   validateChatAttachmentFiles,
@@ -20,6 +21,25 @@ const uploaded = (overrides: Partial<PendingChatAttachment>): PendingChatAttachm
 })
 
 describe('chat attachments', () => {
+  it('creates attachment IDs when randomUUID is unavailable on an HTTP origin', () => {
+    const originalRandomUUID = globalThis.crypto.randomUUID
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      configurable: true,
+      value: undefined,
+    })
+    try {
+      const attachment = createPendingChatAttachment(
+        new File(['notes'], 'notes.txt', { type: 'text/plain' }),
+      )
+      expect(attachment.id).not.toBe('')
+    } finally {
+      Object.defineProperty(globalThis.crypto, 'randomUUID', {
+        configurable: true,
+        value: originalRandomUUID,
+      })
+    }
+  })
+
   it('keeps the user prompt first and adds explicit workspace paths', () => {
     expect(buildMessageWithAttachments('Review these', [
       uploaded({ type: 'image', path: '/home/retro/work/incoming/screenshot.png' }),

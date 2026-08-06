@@ -415,6 +415,7 @@ type SessionMetadata struct {
 	DocumentGroupID         string              `json:"document_group_id"`
 	ManuallyReviewQuestions bool                `json:"manually_review_questions"`
 	SystemPrompt            string              `json:"system_prompt"`
+	ReasoningEffort         string              `json:"reasoning_effort,omitempty"`
 	// OrgWorkerID and RuntimeInstructions are session-scoped bootstrap state for
 	// helix-org workers. Hydra materializes the instructions as native agent
 	// files in this session's workspace before starting the desktop. Ordinary
@@ -566,6 +567,7 @@ type SessionChatRequest struct {
 	Tools               []string             `json:"tools"`                           // Available tools to use in the session
 	Provider            Provider             `json:"provider"`                        // The provider to use
 	Model               string               `json:"model"`                           // The model to use
+	ReasoningEffort     string               `json:"reasoning_effort,omitempty"`      // Per-session reasoning effort for direct model chats
 	Regenerate          bool                 `json:"regenerate"`                      // If true, we will regenerate the response for the last message
 	// OrgWorkerID and RuntimeInstructions are internal in-process inputs used by
 	// the helix-org spawner. They are deliberately not part of the public chat

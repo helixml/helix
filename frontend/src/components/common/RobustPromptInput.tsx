@@ -91,6 +91,12 @@ interface RobustPromptInputProps {
   maxHeight?: number
   sendMode?: 'queued' | 'direct'
   inlineImageAttachments?: boolean
+  deferredFileAttachments?: boolean
+  attachmentAccept?: string
+  attachmentMaxBytes?: number
+  attachmentMaxCount?: number
+  validateAttachment?: (file: File) => string | null
+  leadingActions?: React.ReactNode
   trailingActions?: React.ReactNode
   contextMenuAppId?: string
   formatContextMenuInsert?: (text: string) => string
@@ -515,6 +521,12 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   onWillSend,
   sendMode = 'queued',
   inlineImageAttachments = false,
+  deferredFileAttachments = false,
+  attachmentAccept,
+  attachmentMaxBytes,
+  attachmentMaxCount,
+  validateAttachment,
+  leadingActions,
   trailingActions,
   contextMenuAppId,
   formatContextMenuInsert,
@@ -534,7 +546,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Use onFileUpload if provided, otherwise fall back to onImagePaste for backwards compat
   const handleFileUploadCallback = onFileUpload || onImagePaste
-  const attachmentsEnabled = inlineImageAttachments || !!handleFileUploadCallback
+  const attachmentsEnabled = inlineImageAttachments || deferredFileAttachments || !!handleFileUploadCallback
   const inputDisabled = disabled || isDirectSending
 
   // Check if we're on a mobile device for camera support
@@ -1013,18 +1025,19 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   const addFilesAsAttachments = useCallback((files: File[]) => {
     if (!attachmentsEnabled || files.length === 0) return
-    const eligibleFiles = inlineImageAttachments
-      ? files.filter((file) => file.type.startsWith('image/'))
-      : files
-    const unsupported = inlineImageAttachments
-      ? files.filter((file) => !file.type.startsWith('image/')).map((file) => ({
-          name: file.name,
-          reason: 'only images can be attached to model chats',
-        }))
-      : []
+    const unsupported = files.flatMap((file) => {
+      if (inlineImageAttachments && !file.type.startsWith('image/')) {
+        return [{ name: file.name, reason: 'only images can be attached to model chats' }]
+      }
+      const customReason = validateAttachment?.(file)
+      return customReason ? [{ name: file.name, reason: customReason }] : []
+    })
+    const rejectedNames = new Set(unsupported.map(({ name }) => name))
+    const eligibleFiles = files.filter((file) => !rejectedNames.has(file.name))
     const { accepted, rejected } = validateChatAttachmentFiles(
       eligibleFiles,
       attachmentsRef.current.length,
+      { maxBytes: attachmentMaxBytes, maxCount: attachmentMaxCount },
     )
     const allRejected = [...unsupported, ...rejected]
     setAttachmentError(
@@ -1037,12 +1050,12 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       ...current,
       ...accepted.map((file) => {
         const attachment = createPendingChatAttachment(file)
-        return inlineImageAttachments
+        return inlineImageAttachments || deferredFileAttachments
           ? { ...attachment, uploadStatus: 'uploaded' as const }
           : attachment
       }),
     ])
-  }, [attachmentsEnabled, inlineImageAttachments])
+  }, [attachmentsEnabled, attachmentMaxBytes, attachmentMaxCount, deferredFileAttachments, inlineImageAttachments, validateAttachment])
 
   const uploadAttachment = useCallback(async (attachmentId: string) => {
     if (!handleFileUploadCallback || attachmentUploadsInFlightRef.current.has(attachmentId)) return
@@ -1085,11 +1098,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Auto-upload when file is added or when coming back online
   useEffect(() => {
-    if (!isOnline || !handleFileUploadCallback || inlineImageAttachments) return
+    if (!isOnline || !handleFileUploadCallback || inlineImageAttachments || deferredFileAttachments) return
     attachments
       .filter((attachment) => attachment.uploadStatus === 'pending' && attachment.file)
       .forEach((attachment) => void uploadAttachment(attachment.id))
-  }, [attachments, handleFileUploadCallback, inlineImageAttachments, isOnline, uploadAttachment])
+  }, [attachments, deferredFileAttachments, handleFileUploadCallback, inlineImageAttachments, isOnline, uploadAttachment])
 
   // Remove an attachment
   const removeAttachment = useCallback((id: string) => {
@@ -1327,7 +1340,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         ref={fileInputRef}
         type="file"
         multiple
-        accept={inlineImageAttachments ? 'image/*' : undefined}
+        accept={inlineImageAttachments ? 'image/*' : attachmentAccept}
         onChange={handleFileInputChange}
         style={{ display: 'none' }}
       />
@@ -1457,9 +1470,26 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             alignItems: 'center',
             gap: 0.5,
             mt: 1.25,
-            flexWrap: 'wrap',
+            minWidth: 0,
+            flexWrap: 'nowrap',
           }}
         >
+          {leadingActions}
+
+          {leadingActions && (
+            <Box
+              aria-hidden="true"
+              sx={{
+                width: '1px',
+                height: 16,
+                mx: 0.25,
+                flexShrink: 0,
+                bgcolor: 'divider',
+                opacity: 0.65,
+              }}
+            />
+          )}
+
           {/* History button */}
           {hasHistory && (
             <Tooltip title="Browse prompt history (↑/↓ to navigate)">

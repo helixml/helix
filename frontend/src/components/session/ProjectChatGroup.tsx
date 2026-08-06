@@ -21,6 +21,7 @@ import {
   buildProjectChatGroups,
   compactRelativeTime,
   filterProjectChatGroups,
+  getSidebarPullRequestIcon,
   getSidebarTaskStatus,
 } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
@@ -99,9 +100,25 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const sessionsHaveMore = (sessionsPage?.totalCount || 0) > sessions.length
   const tasksMayHaveMore = !!projectId && tasks.length === requestCount
   const hasMore = filteredItems.length > visibleCount || sessionsHaveMore || tasksMayHaveMore
+  const canShowLess = visibleCount > INITIAL_VISIBLE_ITEMS
   const isLoading = enabled && (sessionsQuery.isLoading || (!!projectId && tasksQuery.isLoading))
   const isFetchingMore = sessionsQuery.isFetching || tasksQuery.isFetching
   const hasError = sessionsQuery.isError || tasksQuery.isError
+  const paginationButtonSx = {
+    appearance: 'none',
+    border: 0,
+    height: 30,
+    px: 1,
+    backgroundColor: 'transparent',
+    color: lightTheme.isLight ? 'rgba(113,113,122,0.75)' : 'rgba(163,163,163,0.75)',
+    cursor: isFetchingMore ? 'default' : 'pointer',
+    font: 'inherit',
+    fontSize: '12px',
+    '&:hover': {
+      color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
+      backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
+    },
+  }
 
   if (!collapsed && !isLoading && !hasError && !hasMore && items.length === 0 && !!projectId) {
     return null
@@ -242,6 +259,9 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
           {renderedItems.map((item) => {
             const active = item.id === activeItemId
             const status = item.kind === 'spec-task' ? getSidebarTaskStatus(item.task) : null
+            const pullRequestIcon = item.kind === 'spec-task'
+              ? getSidebarPullRequestIcon(item.task)
+              : undefined
             const isArchiving = archivingItemId === item.id
             return (
               <Box
@@ -289,14 +309,37 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                 }}
               >
                 {item.kind === 'spec-task' && (
-                  <GitPullRequest size={13} color={status?.color || 'currentColor'} style={{ flexShrink: 0 }} />
-                )}
-                {status && (
-                  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45, flexShrink: 0 }}>
-                    <Box sx={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: status.color }} />
-                    <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
-                      {status.label}
-                    </Typography>
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+                    <Tooltip title={pullRequestIcon?.tooltip || ''}>
+                      <Box
+                        component="a"
+                        href={pullRequestIcon?.url}
+                        target={pullRequestIcon?.url ? '_blank' : undefined}
+                        rel={pullRequestIcon?.url ? 'noopener noreferrer' : undefined}
+                        aria-label={pullRequestIcon?.tooltip}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (!pullRequestIcon?.url) event.preventDefault()
+                        }}
+                        sx={{
+                          display: 'inline-flex',
+                          color: pullRequestIcon?.color || 'currentColor',
+                          cursor: pullRequestIcon?.url ? 'pointer' : 'default',
+                        }}
+                      >
+                        <GitPullRequest size={13} />
+                      </Box>
+                    </Tooltip>
+                    {status && (
+                      <Tooltip title={status.tooltip || ''} disableHoverListener={!status.tooltip}>
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45 }}>
+                          <Box sx={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: status.color }} />
+                          <Typography component="span" sx={{ fontSize: '0.66rem', color: status.color, lineHeight: 1 }}>
+                            {status.label}
+                          </Typography>
+                        </Box>
+                      </Tooltip>
+                    )}
                   </Box>
                 )}
                 <Typography
@@ -365,29 +408,30 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
               </Box>
             )
           })}
-          {hasMore && (
-            <Box
-              component="button"
-              type="button"
-              disabled={isFetchingMore}
-              onClick={() => setVisibleCount((count) => count + SHOW_MORE_COUNT)}
-              sx={{
-                appearance: 'none',
-                border: 0,
-                height: 30,
-                px: 1,
-                backgroundColor: 'transparent',
-                color: lightTheme.isLight ? 'rgba(113,113,122,0.75)' : 'rgba(163,163,163,0.75)',
-                cursor: isFetchingMore ? 'default' : 'pointer',
-                font: 'inherit',
-                fontSize: '12px',
-                '&:hover': {
-                  color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
-                  backgroundColor: lightTheme.isLight ? '#fdfdfd' : 'rgba(241,243,247,0.08)',
-                },
-              }}
-            >
-              {isFetchingMore ? 'Loading…' : 'Show more'}
+          {(canShowLess || hasMore) && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+              {canShowLess && (
+                <Box
+                  component="button"
+                  type="button"
+                  disabled={isFetchingMore}
+                  onClick={() => setVisibleCount(INITIAL_VISIBLE_ITEMS)}
+                  sx={paginationButtonSx}
+                >
+                  Show less
+                </Box>
+              )}
+              {hasMore && (
+                <Box
+                  component="button"
+                  type="button"
+                  disabled={isFetchingMore}
+                  onClick={() => setVisibleCount((count) => count + SHOW_MORE_COUNT)}
+                  sx={paginationButtonSx}
+                >
+                  {isFetchingMore ? 'Loading…' : 'Show more'}
+                </Box>
+              )}
             </Box>
           )}
         </Box>

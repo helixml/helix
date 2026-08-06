@@ -55,6 +55,13 @@ import { useGetConfig } from '../services/userService'
 import RobustPromptInput from '../components/common/RobustPromptInput'
 import Page from '../components/system/Page'
 import { useGetProject } from '../services/projectService'
+import ChatTurnNavigator from '../components/session/ChatTurnNavigator'
+import {
+  ChatTurnNavigatorItem,
+  compactChatTurnPreview,
+  resolveChatTurnAssistantPreview,
+} from '../components/session/ChatTurnNavigator.logic'
+import { splitSystemPrefix } from '../components/session/CollapsibleSystemPrefix'
 
 // Hook to track sandbox/desktop state for external agent sessions
 const useSandboxState = (sessionId: string) => {
@@ -268,6 +275,11 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   }
 
   const containerRef = useRef<HTMLDivElement>(null)
+  const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null)
+  const setScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
+    containerRef.current = element
+    setScrollContainerEl(element)
+  }, [])
   const observerRef = useRef<IntersectionObserver | null>(null)
   const lastScrollTimeRef = useRef<number>(0)
 
@@ -986,6 +998,60 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
     isLoadingBlock
   ])
 
+  const navigatorInteractions = useMemo(() => {
+    return visibleBlocks
+      .filter((block) => !block.isGhost)
+      .flatMap((block) => memoizedInteractions.slice(block.startIndex, block.endIndex))
+  }, [memoizedInteractions, visibleBlocks])
+
+  const navigatorItems = useMemo<ChatTurnNavigatorItem[]>(() => {
+    return navigatorInteractions.flatMap((interaction) => {
+      if (!interaction.id || interaction.trigger === 'fork_seed') return []
+      const contentText = interaction.prompt_message_content?.parts?.find(
+        (part): part is { text: string } =>
+          typeof part === 'object' &&
+          part !== null &&
+          'text' in part &&
+          typeof part.text === 'string',
+      )?.text
+      const rawUserText = interaction.display_message || interaction.prompt_message || contentText
+      const splitUserText = splitSystemPrefix(rawUserText || '')
+      const userText = compactChatTurnPreview(
+        splitUserText.prefix
+          ? splitUserText.userText ||
+            (splitUserText.kind === 'approval'
+              ? 'Spec approved · Implementation instructions'
+              : splitUserText.label || 'Planning Instructions')
+          : rawUserText,
+      )
+      if (!userText) return []
+      return [{
+        id: interaction.id,
+        userText,
+        assistantText: resolveChatTurnAssistantPreview(
+          interaction.response_message,
+          interaction.response_entries as unknown as Array<{ type?: string; content?: string }>,
+        ),
+      }]
+    })
+  }, [navigatorInteractions])
+
+  const handleNavigateToTurn = useCallback((item: ChatTurnNavigatorItem) => {
+    const container = containerRef.current
+    if (!container) return
+    const target = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-chat-turn]'),
+    ).find((element) => element.dataset.chatTurn === item.id)
+    if (!target) return
+
+    const viewport = container.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    container.scrollTo({
+      top: container.scrollTop + targetRect.top - viewport.top - 24,
+      behavior: 'smooth',
+    })
+  }, [])
+
   // Setup intersection observer to detect when we need to load more blocks
   useEffect(() => {
     if (!containerRef.current) return
@@ -1283,18 +1349,32 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
           }}
         >
           <Box
-            ref={containerRef}
             sx={{
               flexGrow: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              overflowY: 'auto', // Always enable scrolling on the inner container
-              pr: 3, // Add consistent padding to offset from the right edge
-              minHeight: 0, // This is crucial for proper flex behavior
-              ...lightTheme.scrollbar,
+              minHeight: 0,
+              position: 'relative',
+              overflow: 'hidden',
             }}
           >
-            {renderInteractions()}
+            <Box
+              ref={setScrollContainerRef}
+              sx={{
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflowY: 'auto', // Always enable scrolling on the inner container
+                pr: 3, // Add consistent padding to offset from the right edge
+                minHeight: 0, // This is crucial for proper flex behavior
+                ...lightTheme.scrollbar,
+              }}
+            >
+              {renderInteractions()}
+            </Box>
+            <ChatTurnNavigator
+              items={navigatorItems}
+              scrollContainer={scrollContainerEl}
+              onSelect={handleNavigateToTurn}
+            />
           </Box>
 
           {/* Fixed bottom section */}

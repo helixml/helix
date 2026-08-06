@@ -4395,6 +4395,7 @@ export interface TypesModelInfo {
   slug?: string;
   supported_parameters?: string[];
   supports_reasoning?: boolean;
+  supports_reasoning_effort?: boolean;
 }
 
 export enum TypesModelType {
@@ -4986,6 +4987,11 @@ export interface TypesProjectSpec {
   startup?: TypesProjectStartup;
   tasks?: TypesProjectTaskSpec[];
   technologies?: string[];
+}
+
+export interface TypesProjectSpecTaskAgent {
+  id?: string;
+  name?: string;
 }
 
 export interface TypesProjectStartup {
@@ -6111,6 +6117,8 @@ export interface TypesSessionChatRequest {
   project_id?: string;
   /** The provider to use */
   provider?: TypesProvider;
+  /** Per-session reasoning effort for direct model chats */
+  reasoning_effort?: string;
   /** If true, we will regenerate the response for the last message */
   regenerate?: boolean;
   /** If empty, we will start a new session */
@@ -6258,6 +6266,7 @@ export interface TypesSessionMetadata {
    */
   rag_enabled?: boolean;
   rag_settings?: TypesRAGSettings;
+  reasoning_effort?: string;
   /** GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE) */
   render_node?: string;
   runtime_instructions?: string;
@@ -14666,6 +14675,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns minimal agent options for starting a project spec task. Helix org-chart agents are excluded.
+     *
+     * @tags Projects
+     * @name V1ProjectsSpecTaskAgentsDetail
+     * @summary List external agents available for project spec tasks
+     * @request GET:/api/v1/projects/{id}/spec-task-agents
+     * @secure
+     */
+    v1ProjectsSpecTaskAgentsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesProjectSpecTaskAgent[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/spec-task-agents`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

@@ -266,6 +266,13 @@ type Project struct {
 	Stats ProjectStats `json:"stats,omitempty" gorm:"-"` // Computed
 }
 
+// ProjectSpecTaskAgent is the safe, minimal agent shape exposed to project
+// members when choosing the external agent for a new spec task.
+type ProjectSpecTaskAgent struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type ProjectStats struct {
 	TotalTasks          int     `json:"total_tasks"`
 	CompletedTasks      int     `json:"completed_tasks"`

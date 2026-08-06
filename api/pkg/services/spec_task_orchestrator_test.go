@@ -474,6 +474,35 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_SkipsWhen
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_RespectsImplementationLimit() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-queued",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedImplementation,
+	}
+	project := &types.Project{
+		ID: task.ProjectID,
+		Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+			WIPLimits: types.WIPLimits{Implementation: 1},
+		}},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     task.ProjectID,
+		WithDependsOn: true,
+	}).Return([]*types.SpecTask{
+		{ID: "active", Status: types.TaskStatusImplementation},
+		task,
+	}, nil)
+
+	err := s.orchestrator.handleQueuedImplementation(ctx, task)
+	s.Require().NoError(err)
+	s.Equal(types.TaskStatusQueuedImplementation, task.Status)
+}
+
 // Note: These are simplified unit tests focusing on testable functions
 // Full integration tests with store/wolf mocking should be in integration test suite
 
@@ -634,6 +663,63 @@ func TestPlanningQueueReason(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := PlanningQueueReason(tt.project, tt.projectTasks, tt.task)
+			if tt.wantEmpty {
+				assert.Empty(t, got)
+			} else {
+				assert.Contains(t, got, tt.wantContains)
+			}
+		})
+	}
+}
+
+func TestImplementationQueueReason(t *testing.T) {
+	project := &types.Project{Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+		WIPLimits: types.WIPLimits{Implementation: 2},
+	}}}
+	queued := &types.SpecTask{ID: "t1", ProjectID: "p1", Status: types.TaskStatusQueuedImplementation}
+
+	tests := []struct {
+		name         string
+		projectTasks []*types.SpecTask
+		task         *types.SpecTask
+		wantEmpty    bool
+		wantContains string
+	}{
+		{
+			name: "capacity available",
+			projectTasks: []*types.SpecTask{
+				{ID: "a", Status: types.TaskStatusImplementation},
+				queued,
+			},
+			task:      queued,
+			wantEmpty: true,
+		},
+		{
+			name: "implementation full",
+			projectTasks: []*types.SpecTask{
+				{ID: "a", Status: types.TaskStatusImplementation},
+				{ID: "b", Status: types.TaskStatusImplementationQueued},
+				queued,
+			},
+			task:         queued,
+			wantContains: "implementation capacity",
+		},
+		{
+			name: "dependency blocked",
+			projectTasks: []*types.SpecTask{
+				{ID: "dep-1", Name: "API migration", Status: types.TaskStatusImplementation},
+			},
+			task: &types.SpecTask{
+				ID: "t2", ProjectID: "p1", Status: types.TaskStatusQueuedImplementation,
+				DependsOn: []types.SpecTask{{ID: "dep-1", Status: types.TaskStatusImplementation}},
+			},
+			wantContains: "API migration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ImplementationQueueReason(project, tt.projectTasks, tt.task)
 			if tt.wantEmpty {
 				assert.Empty(t, got)
 			} else {

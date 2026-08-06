@@ -117,6 +117,17 @@ const routes: IApplicationRoute[] = [
     <Home />
   ),
 }, {
+  name: 'org_session',
+  path: '/orgs/:org_id/chat/session/:session_id',
+  meta: {
+    drawer: true,
+    topbar: false,
+    title: 'Session',
+  },
+  render: () => (
+    <Session orgChatView />
+  ),
+}, {
   name: 'org_chat-task',
   path: '/orgs/:org_id/chat/projects/:id/tasks/:taskId',
   meta: {
@@ -369,15 +380,13 @@ const routes: IApplicationRoute[] = [
     <Apps />
   ),
 }, {
-  name: 'org_session',
+  name: 'org_session_legacy',
   path: '/orgs/:org_id/session/:session_id',
   meta: {
     drawer: true,
     topbar: false,
   },
-  render: () => (
-    <Session />
-  ),
+  render: () => <RouteRedirect route="org_session" />,
 }, {
   name: 'org_qa-results',
   path: '/orgs/:org_id/qa-results/:question_set_id/:execution_id',

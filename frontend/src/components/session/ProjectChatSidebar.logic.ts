@@ -5,6 +5,7 @@ import { matchesAllTokens } from '../../utils/searchUtils'
 export type SidebarStatus = {
   label: string
   color: string
+  tooltip?: string
 }
 
 export type SidebarItem = {
@@ -22,6 +23,20 @@ export type SidebarGroup = {
   name: string
   items: SidebarItem[]
 }
+
+export const isTaskCompletedOrMerged = (task?: SpecTask): boolean => (
+  task?.status === 'done' || task?.merged_to_main === true
+)
+
+// The archive endpoint stops task agents. Skip the confirmation only when the
+// list has positively established that this task is terminal and its sandbox
+// is already absent. Unknown state must remain confirm-first.
+export const shouldConfirmTaskArchive = (item: SidebarItem): boolean => (
+  item.kind !== 'spec-task'
+  || !item.task
+  || item.task.sandbox_state !== 'absent'
+  || !isTaskCompletedOrMerged(item.task)
+)
 
 export const collapsedGroupsStorageKey = (orgId: string): string => (
   `helix:project-chat-sidebar:collapsed:${orgId}`
@@ -51,7 +66,7 @@ export const isNewThreadShortcut = (
   && event.key.toLowerCase() === 'n'
 )
 
-export const getSidebarTaskStatus = (task?: SpecTask): SidebarStatus | null => {
+const getSidebarWorkflowStatus = (task?: SpecTask): SidebarStatus | null => {
   switch (task?.status) {
     case 'queued_spec_generation':
     case 'queued_implementation':
@@ -65,13 +80,13 @@ export const getSidebarTaskStatus = (task?: SpecTask): SidebarStatus | null => {
     case 'spec_approved':
       return { label: 'Approved', color: '#34d399' }
     case 'implementation':
-      return { label: 'Implementation', color: '#a78bfa' }
+      return { label: 'Implementation', color: '#34d399' }
     case 'implementation_review':
       return { label: 'Review', color: '#fb923c' }
     case 'pull_request':
       return { label: 'Pull request', color: '#22d3ee' }
     case 'done':
-      return { label: 'Completed', color: '#34d399' }
+      return { label: 'Completed', color: '#a78bfa' }
     case 'spec_failed':
     case 'implementation_failed':
       return { label: 'Failed', color: '#f87171' }
@@ -82,6 +97,75 @@ export const getSidebarTaskStatus = (task?: SpecTask): SidebarStatus | null => {
         return { label: 'Working', color: '#38bdf8' }
       }
       return null
+  }
+}
+
+export const getSidebarTaskStatus = (task?: SpecTask): SidebarStatus | null => {
+  const workflowStatus = getSidebarWorkflowStatus(task)
+
+  if (task?.sandbox_state === 'absent') {
+    return {
+      ...(workflowStatus || {}),
+      label: workflowStatus?.label || 'Offline',
+      color: '#a1a1aa',
+      tooltip: 'Sandbox and agent are offline',
+    }
+  }
+
+  if (
+    task?.sandbox_state === 'running'
+    && (task.agent_work_state === 'idle' || task.agent_work_state === 'done')
+  ) {
+    return { label: 'Idle', color: '#fbbf24' }
+  }
+
+  return workflowStatus
+}
+
+const PULL_REQUEST_ICON_COLORS: Record<string, string> = {
+  open: '#10b981',
+  closed: '#ef4444',
+  merged: '#8b5cf6',
+}
+
+export type SidebarPullRequestIcon = {
+  color: string
+  tooltip: string
+  url?: string
+}
+
+const normalizePullRequestState = (state?: string): 'open' | 'closed' | 'merged' => {
+  const normalized = state?.toLowerCase()
+  return normalized === 'closed' || normalized === 'merged' ? normalized : 'open'
+}
+
+export const getSidebarPullRequestIcon = (task?: SpecTask): SidebarPullRequestIcon => {
+  const pullRequests = task?.repo_pull_requests || []
+  if (pullRequests.length === 0) {
+    return task?.merged_to_main
+      ? { color: PULL_REQUEST_ICON_COLORS.merged, tooltip: 'Pull request is merged' }
+      : { color: '#a1a1aa', tooltip: 'No pull request yet' }
+  }
+
+  if (task?.merged_to_main) {
+    const pullRequest = pullRequests.find((candidate) => candidate.pr_state?.toLowerCase() === 'merged')
+      || pullRequests[0]
+    return {
+      color: PULL_REQUEST_ICON_COLORS.merged,
+      tooltip: 'Pull request is merged',
+      url: pullRequest.pr_url,
+    }
+  }
+
+  const pullRequest = pullRequests.find((candidate) => normalizePullRequestState(candidate.pr_state) === 'open')
+    || pullRequests.find((candidate) => normalizePullRequestState(candidate.pr_state) === 'closed')
+    || pullRequests[0]
+  const state = normalizePullRequestState(pullRequest.pr_state)
+
+  return {
+    color: PULL_REQUEST_ICON_COLORS[state],
+    tooltip: `Pull request is ${state}`,
+    url: pullRequest.pr_url,
   }
 }
 

@@ -363,7 +363,7 @@ const Page: React.FC<{
                     {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
                   </IconButton>
                 </Tooltip>
-                <GlobalNotifications organizationId={organizationId} />
+                {notifications && <GlobalNotifications organizationId={organizationId} />}
               </Box>
             </AppBar>
           </Box>

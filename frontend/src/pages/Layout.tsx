@@ -43,6 +43,14 @@ import { LicenseKeyPrompt } from "../components/LicenseKeyPrompt";
 import FloatingModal from "../components/admin/FloatingModal";
 import { useFloatingModal } from "../contexts/floatingModal";
 import UserOrgSelector from "../components/orgs/UserOrgSelector";
+import {
+  CHAT_SIDEBAR_DEFAULT_WIDTH,
+  CHAT_SIDEBAR_MAX_WIDTH,
+  CHAT_SIDEBAR_MIN_WIDTH,
+  chatSidebarWidthStorageKey,
+  clampChatSidebarWidth,
+  parseChatSidebarWidth,
+} from "../components/session/chatSidebarWidth";
 
 import useRouter from "../hooks/useRouter";
 import useAccount from "../hooks/useAccount";
@@ -259,6 +267,21 @@ const Layout: FC<{
   const account = useAccount();
   const apps = useApps();
   const floatingModal = useFloatingModal();
+  const orgId = router.params.org_id || "";
+  const sidebarWidthStorageKey = chatSidebarWidthStorageKey(orgId);
+  const defaultChatSidebarWidth = themeConfig.drawerWidth || CHAT_SIDEBAR_DEFAULT_WIDTH;
+  const [chatSidebarWidth, setChatSidebarWidth] = useState(() => {
+    try {
+      return parseChatSidebarWidth(
+        window.localStorage.getItem(sidebarWidthStorageKey),
+        defaultChatSidebarWidth,
+      );
+    } catch {
+      return clampChatSidebarWidth(defaultChatSidebarWidth);
+    }
+  });
+  const [isResizingChatSidebar, setIsResizingChatSidebar] = useState(false);
+  const chatSidebarWidthRef = useRef(chatSidebarWidth);
   const [showVersionBanner, setShowVersionBanner] = useState(true);
   const [showLocalProviderBanner, setShowLocalProviderBanner] = useState(true);
   const { data: detectedProviders } = useDetectLocalProviders(!!account.user);
@@ -273,6 +296,63 @@ const Layout: FC<{
     useState(false);
   const licenseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const userMenuHeight = useUserMenuHeight();
+
+  useEffect(() => {
+    try {
+      const storedWidth = window.localStorage.getItem(sidebarWidthStorageKey);
+      const nextWidth = parseChatSidebarWidth(storedWidth, defaultChatSidebarWidth);
+      chatSidebarWidthRef.current = nextWidth;
+      setChatSidebarWidth(nextWidth);
+    } catch {
+      const nextWidth = clampChatSidebarWidth(defaultChatSidebarWidth);
+      chatSidebarWidthRef.current = nextWidth;
+      setChatSidebarWidth(nextWidth);
+    }
+  }, [sidebarWidthStorageKey, defaultChatSidebarWidth]);
+
+  useEffect(() => {
+    chatSidebarWidthRef.current = chatSidebarWidth;
+  }, [chatSidebarWidth]);
+
+  useEffect(() => {
+    if (!isResizingChatSidebar) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const nextWidth = clampChatSidebarWidth(event.clientX, defaultChatSidebarWidth);
+      chatSidebarWidthRef.current = nextWidth;
+      setChatSidebarWidth(nextWidth);
+    };
+    const handlePointerUp = () => {
+      try {
+        window.localStorage.setItem(sidebarWidthStorageKey, String(chatSidebarWidthRef.current));
+      } catch {
+        // Persistence is optional when browser storage is unavailable.
+      }
+      setIsResizingChatSidebar(false);
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [defaultChatSidebarWidth, isResizingChatSidebar, sidebarWidthStorageKey]);
+
+  const persistChatSidebarWidth = (nextWidth: number) => {
+    const width = clampChatSidebarWidth(nextWidth, defaultChatSidebarWidth);
+    chatSidebarWidthRef.current = width;
+    setChatSidebarWidth(width);
+    try {
+      window.localStorage.setItem(sidebarWidthStorageKey, String(width));
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  };
   // Check if license is required (not mac-desktop AND (invalid license OR unknown deployment))
   const licenseRequired = useMemo(() => {
     return (
@@ -594,7 +674,9 @@ const Layout: FC<{
               whiteSpace: "nowrap",
               width: shouldShowSidebar
                 ? isBigScreen
-                  ? themeConfig.drawerWidth
+                  ? isConversationRoute
+                    ? chatSidebarWidth
+                    : themeConfig.drawerWidth
                   : themeConfig.smallDrawerWidth
                 : 64,
               boxSizing: "border-box",
@@ -647,7 +729,9 @@ const Layout: FC<{
                     }),
               }}
             >
-              <UserOrgSelector sidebarVisible={shouldShowSidebar} />
+              <UserOrgSelector
+                sidebarVisible={shouldShowSidebar && !isConversationRoute}
+              />
             </Box>
             {shouldShowSidebar && (
               <Box
@@ -663,6 +747,64 @@ const Layout: FC<{
               </Box>
             )}
           </Box>
+          {isBigScreen && shouldShowSidebar && isConversationRoute && (
+            <Box
+              data-chat-sidebar-resize-handle
+              role="separator"
+              aria-label="Resize chat sessions list"
+              aria-orientation="vertical"
+              aria-valuemin={CHAT_SIDEBAR_MIN_WIDTH}
+              aria-valuemax={CHAT_SIDEBAR_MAX_WIDTH}
+              aria-valuenow={chatSidebarWidth}
+              tabIndex={0}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                setIsResizingChatSidebar(true);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  persistChatSidebarWidth(chatSidebarWidth - 16);
+                } else if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  persistChatSidebarWidth(chatSidebarWidth + 16);
+                } else if (event.key === "Home") {
+                  event.preventDefault();
+                  persistChatSidebarWidth(CHAT_SIDEBAR_MIN_WIDTH);
+                } else if (event.key === "End") {
+                  event.preventDefault();
+                  persistChatSidebarWidth(CHAT_SIDEBAR_MAX_WIDTH);
+                }
+              }}
+              sx={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 3,
+                width: 8,
+                cursor: "col-resize",
+                touchAction: "none",
+                display: "flex",
+                justifyContent: "flex-end",
+                outline: "none",
+                "&::after": {
+                  content: '""',
+                  display: "block",
+                  width: isResizingChatSidebar ? 2 : 1,
+                  height: "100%",
+                  backgroundColor: isResizingChatSidebar
+                    ? lightTheme.highlightColor
+                    : "transparent",
+                  transition: "background-color 120ms ease, width 120ms ease",
+                },
+                "&:hover::after, &:focus-visible::after": {
+                  backgroundColor: lightTheme.isLight ? "rgba(0,0,0,0.28)" : "rgba(255,255,255,0.32)",
+                },
+              }}
+            />
+          )}
         </Drawer>
         <Box
           component="main"
@@ -685,7 +827,7 @@ const Layout: FC<{
               },
               "& [data-page-toolbar] > .MuiAppBar-root": {
                 position: "fixed",
-                left: isConversationRoute ? themeConfig.drawerWidth : 64,
+                left: isConversationRoute ? chatSidebarWidth : 64,
                 right: 0,
                 width: "auto",
                 zIndex: (theme) => theme.zIndex.drawer + 1,

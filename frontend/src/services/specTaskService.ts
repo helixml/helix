@@ -1,5 +1,5 @@
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Api, TypesSpecTaskUpdateRequest } from "../api/api";
+import { Api, TypesCreateTaskRequest, TypesSpecTaskUpdateRequest } from "../api/api";
 import useApi from "../hooks/useApi";
 
 // Re-export generated types for convenience
@@ -98,6 +98,49 @@ export function useSpecTasks(options?: {
     enabled: options?.enabled !== false,
     refetchInterval:
       options?.refetchInterval !== undefined ? options.refetchInterval : 10000,
+  });
+}
+
+export function useCreateSpecTaskFromPrompt() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (request: TypesCreateTaskRequest) => {
+      const response = await api
+        .getApiClient()
+        .v1SpecTasksFromPromptCreate(request);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
+    },
+  });
+}
+
+export function useStartSpecTaskPlanning() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      taskId,
+      keyboard,
+      timezone,
+    }: {
+      taskId: string;
+      keyboard?: string;
+      timezone?: string;
+    }) => {
+      const response = await api
+        .getApiClient()
+        .v1SpecTasksStartPlanningCreate(taskId, { keyboard, timezone });
+      return response.data;
+    },
+    onSuccess: (_, { taskId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
+    },
   });
 }
 

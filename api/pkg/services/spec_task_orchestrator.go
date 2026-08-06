@@ -586,11 +586,24 @@ func PlanningQueueReason(project *types.Project, projectTasks []*types.SpecTask,
 }
 
 // ImplementationQueueReason returns "" if a queued_implementation task could
-// start now, otherwise the reason. The implementation-start transition has no
-// WIP gate of its own (the WIP reservation happens earlier, at backlog entry),
-// so the only block cause here is an unfinished dependency.
-func ImplementationQueueReason(projectTasks []*types.SpecTask, task *types.SpecTask) string {
-	return dependencyQueueReason(projectTasks, task)
+// start now, otherwise the reason. Explicit starts can enter the queue without
+// passing through handleBacklog, so the queued-state gate must enforce the WIP
+// limit as well as dependencies.
+func ImplementationQueueReason(project *types.Project, projectTasks []*types.SpecTask, task *types.SpecTask) string {
+	if reason := dependencyQueueReason(projectTasks, task); reason != "" {
+		return reason
+	}
+
+	_, _, implementationLimit := getProjectWIPLimits(project)
+	implementationCount := countTasksByStatus(projectTasks,
+		types.TaskStatusImplementationQueued,
+		types.TaskStatusImplementation,
+	)
+	if implementationCount >= implementationLimit {
+		return fmt.Sprintf("Waiting for implementation capacity — %s already being implemented (limit %d).",
+			countPhrase(implementationCount, "task"), implementationLimit)
+	}
+	return ""
 }
 
 // countPhrase renders "1 task is" / "3 tasks are" with correct grammar.
@@ -688,10 +701,63 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 		return nil
 	}
 
+	projectLock, err := o.getBacklogProjectLock(task.ProjectID)
+	if err != nil {
+		return err
+	}
+	projectLock.Lock()
+	defer projectLock.Unlock()
+
+	latestTask, err := o.store.GetSpecTask(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get latest queued task: %w", err)
+	}
+	if latestTask.Status != types.TaskStatusQueuedImplementation {
+		return nil
+	}
+
+	project, err := o.store.GetProject(ctx, latestTask.ProjectID)
+	if err != nil {
+		return fmt.Errorf("failed to get project for implementation WIP check: %w", err)
+	}
+	projectTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     latestTask.ProjectID,
+		WithDependsOn: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list project tasks for implementation WIP check: %w", err)
+	}
+
+	for _, projectTask := range projectTasks {
+		if projectTask.ID == latestTask.ID {
+			latestTask.DependsOn = projectTask.DependsOn
+			break
+		}
+	}
+	if reason := ImplementationQueueReason(project, projectTasks, latestTask); reason != "" {
+		log.Info().
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
+			Str("queue_reason", reason).
+			Msg("Leaving spec task queued - implementation capacity or dependency is blocked")
+		return nil
+	}
+
+	// Claim capacity before launching the goroutine. This closes the gap between
+	// an explicit start entering queued_implementation and StartJustDoItMode
+	// eventually persisting implementation.
+	now := time.Now()
+	latestTask.Status = types.TaskStatusImplementation
+	latestTask.StatusUpdatedAt = &now
+	latestTask.UpdatedAt = now
+	if err := o.store.UpdateSpecTask(ctx, latestTask); err != nil {
+		return fmt.Errorf("failed to reserve implementation WIP slot: %w", err)
+	}
+
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
-		o.specTaskService.StartJustDoItMode(ctx, task)
+		o.specTaskService.StartJustDoItMode(ctx, latestTask)
 	}()
 
 	return nil
