@@ -18,9 +18,13 @@ import {
 import PersistentTerminalPane from './PersistentTerminalPane'
 import {
   addTerminalGroup,
+  getFirstTerminalPaneName,
+  getTerminalPaneNames,
+  MAX_TERMINAL_PANES_PER_GROUP,
   readTerminalLayout,
   removeTerminalPane,
   splitActiveTerminal,
+  TerminalLayoutNode,
   TerminalLayoutState,
   TerminalSplitDirection,
 } from './sessionTerminalLayout'
@@ -78,6 +82,63 @@ const writeStoredLayout = (sessionId: string, layout: TerminalLayoutState) => {
   }
 }
 
+interface TerminalTreeProps {
+  node: TerminalLayoutNode
+  sessionId: string
+  activePaneName: string | null
+  onActivate: (sessionName: string) => void
+  onExit: (sessionName: string) => void
+}
+
+const TerminalTree: FC<TerminalTreeProps> = ({
+  node,
+  sessionId,
+  activePaneName,
+  onActivate,
+  onExit,
+}) => {
+  if (node.type === 'pane') {
+    return (
+      <PersistentTerminalPane
+        websocketUrl={sessionTerminalUrl(sessionId, node.sessionName)}
+        active={node.sessionName === activePaneName}
+        onActivate={() => onActivate(node.sessionName)}
+        onExit={() => onExit(node.sessionName)}
+      />
+    )
+  }
+
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: node.direction === 'horizontal' ? 'row' : 'column',
+        width: '100%',
+        height: '100%',
+        minWidth: 0,
+        minHeight: 0,
+        gap: '1px',
+        bgcolor: 'rgba(255, 255, 255, 0.1)',
+      }}
+    >
+      {node.children.map((child) => (
+        <Box
+          key={getFirstTerminalPaneName(child)}
+          sx={{ flex: 1, minWidth: 0, minHeight: 0 }}
+        >
+          <TerminalTree
+            node={child}
+            sessionId={sessionId}
+            activePaneName={activePaneName}
+            onActivate={onActivate}
+            onExit={onExit}
+          />
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
 const SessionTerminal: FC<Props> = ({
   sessionId,
   running,
@@ -110,7 +171,13 @@ const SessionTerminal: FC<Props> = ({
   }
 
   const splitTerminal = (direction: TerminalSplitDirection) => {
-    if ((activeGroup?.paneNames.length ?? 0) >= 4) return
+    if (
+      activeGroup
+      && getTerminalPaneNames(activeGroup.root).length
+        >= MAX_TERMINAL_PANES_PER_GROUP
+    ) {
+      return
+    }
     setLayout((current) => splitActiveTerminal(
       current,
       generateSessionName(),
@@ -180,7 +247,7 @@ const SessionTerminal: FC<Props> = ({
                 onClick={() => setLayout((current) => ({
                   ...current,
                   activeGroupId: group.id,
-                  activePaneName: group.paneNames[0],
+                  activePaneName: getFirstTerminalPaneName(group.root),
                 }))}
                 sx={{
                   width: 28,
@@ -220,7 +287,10 @@ const SessionTerminal: FC<Props> = ({
               <IconButton
                 aria-label="Split terminal horizontally"
                 size="small"
-                disabled={(activeGroup?.paneNames.length ?? 0) >= 4}
+                disabled={activeGroup
+                  ? getTerminalPaneNames(activeGroup.root).length
+                    >= MAX_TERMINAL_PANES_PER_GROUP
+                  : false}
                 onClick={() => splitTerminal('horizontal')}
                 sx={terminalActionButtonSx}
               >
@@ -234,7 +304,10 @@ const SessionTerminal: FC<Props> = ({
               <IconButton
                 aria-label="Split terminal vertically"
                 size="small"
-                disabled={(activeGroup?.paneNames.length ?? 0) >= 4}
+                disabled={activeGroup
+                  ? getTerminalPaneNames(activeGroup.root).length
+                    >= MAX_TERMINAL_PANES_PER_GROUP
+                  : false}
                 onClick={() => splitTerminal('vertical')}
                 sx={terminalActionButtonSx}
               >
@@ -270,33 +343,16 @@ const SessionTerminal: FC<Props> = ({
         </Box>
 
         {activeGroup ? (
-          <Box
-            sx={{
-              display: 'flex',
-              flexDirection: activeGroup.direction === 'horizontal' ? 'row' : 'column',
-              width: '100%',
-              height: '100%',
-              gap: '1px',
-              bgcolor: 'rgba(255, 255, 255, 0.1)',
-            }}
-          >
-            {activeGroup.paneNames.map((terminalSessionName) => (
-              <Box
-                key={terminalSessionName}
-                sx={{ flex: 1, minWidth: 0, minHeight: 0 }}
-              >
-                <PersistentTerminalPane
-                  websocketUrl={sessionTerminalUrl(sessionId, terminalSessionName)}
-                  active={terminalSessionName === layout.activePaneName}
-                  onActivate={() => setLayout((current) => ({
-                    ...current,
-                    activePaneName: terminalSessionName,
-                  }))}
-                  onExit={() => removePane(terminalSessionName)}
-                />
-              </Box>
-            ))}
-          </Box>
+          <TerminalTree
+            node={activeGroup.root}
+            sessionId={sessionId}
+            activePaneName={layout.activePaneName}
+            onActivate={(terminalSessionName) => setLayout((current) => ({
+              ...current,
+              activePaneName: terminalSessionName,
+            }))}
+            onExit={removePane}
+          />
         ) : (
           <Box sx={{ display: 'grid', placeItems: 'center', height: '100%' }}>
             <Typography variant="body2" color="grey.600">

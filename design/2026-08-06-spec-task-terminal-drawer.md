@@ -65,6 +65,10 @@ ID. Session terminal routes therefore authorize the session, dial
    compact `helix ~/work ❯` prompt instead of exposing the container hostname.
 9. Keep standalone task content padded while allowing the terminal drawer to
    span the full task workspace width.
+10. Store each terminal group as a nested split tree. Splitting replaces only
+    the active pane with a two-pane node, so differently oriented splits can be
+    composed without relaying out sibling terminals. Migrate the original flat
+    version 1 layout in place and preserve its tmux session names.
 
 ## Lifecycle
 
