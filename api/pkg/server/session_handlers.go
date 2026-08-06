@@ -382,8 +382,14 @@ func (s *HelixAPIServer) archiveSession(_ http.ResponseWriter, req *http.Request
 	}
 
 	if archiveReq.Archived && session.Metadata.AgentType == "zed_external" && s.externalAgentExecutor != nil {
-		if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
-			log.Warn().Err(err).Str("session_id", sessionID).Msg("failed to stop external agent while archiving session")
+		orgAgentSession, err := s.isOrgAgentSession(ctx, session)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		if !orgAgentSession {
+			if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
+				log.Warn().Err(err).Str("session_id", sessionID).Msg("failed to stop external agent while archiving session")
+			}
 		}
 	}
 
@@ -395,6 +401,26 @@ func (s *HelixAPIServer) archiveSession(_ http.ResponseWriter, req *http.Request
 
 	log.Info().Str("session_id", sessionID).Bool("archived", archiveReq.Archived).Msg("updated session archive state")
 	return updated, nil
+}
+
+func (s *HelixAPIServer) isOrgAgentSession(ctx context.Context, session *types.Session) (bool, error) {
+	if session.Metadata.OrgWorkerID != "" {
+		return true, nil
+	}
+	if session.OrganizationID == "" || session.ParentApp == "" || s.helixOrg == nil || s.helixOrg.store == nil || s.helixOrg.store.Nodes == nil {
+		return false, nil
+	}
+
+	nodes, err := s.helixOrg.store.Nodes.List(ctx, session.OrganizationID)
+	if err != nil {
+		return false, fmt.Errorf("list org agents while archiving session: %w", err)
+	}
+	for _, node := range nodes {
+		if node.AgentID == session.ParentApp {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // startSessionHandler godoc

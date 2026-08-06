@@ -208,6 +208,42 @@ describe('ProjectChatSidebar logic', () => {
     })).toBe(true)
   })
 
+  it('archives org-agent chats without destructive confirmation', () => {
+    const item = {
+      id: 'org-agent-chat',
+      kind: 'session' as const,
+      title: 'Org agent chat',
+      session: {
+        session_id: 'org-agent-chat',
+        app_id: 'app-org-agent',
+        metadata: { agent_type: 'zed_external' },
+      },
+    }
+
+    expect(shouldConfirmTaskArchive(item, new Set(['app-org-agent']))).toBe(false)
+    expect(shouldConfirmTaskArchive({
+      ...item,
+      session: {
+        ...item.session,
+        app_id: 'app-unrelated',
+        metadata: { ...item.session.metadata, org_worker_id: 'worker-one' },
+      },
+    })).toBe(false)
+  })
+
+  it('keeps destructive confirmation for ordinary external-agent chats', () => {
+    expect(shouldConfirmTaskArchive({
+      id: 'external-chat',
+      kind: 'session',
+      title: 'External chat',
+      session: {
+        session_id: 'external-chat',
+        app_id: 'app-ordinary',
+        metadata: { agent_type: 'zed_external' },
+      },
+    }, new Set(['app-org-agent']))).toBe(true)
+  })
+
   it('stores collapsed groups independently for each organization', () => {
     const collapsed = new Set(['project-two', 'default'])
 

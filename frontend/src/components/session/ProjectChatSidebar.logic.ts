@@ -28,15 +28,31 @@ export const isTaskCompletedOrMerged = (task?: SpecTask): boolean => (
   task?.status === 'done' || task?.merged_to_main === true
 )
 
+export const isOrgAgentSession = (
+  item: SidebarItem,
+  orgAgentAppIds: ReadonlySet<string>,
+): boolean => (
+  item.kind === 'session'
+  && (
+    !!item.session?.metadata?.org_worker_id
+    || (!!item.session?.app_id && orgAgentAppIds.has(item.session.app_id))
+  )
+)
+
 // The archive endpoint stops task agents. Skip the confirmation only when the
 // list has positively established that this task is terminal and its sandbox
-// is already absent. Unknown state must remain confirm-first.
-export const shouldConfirmTaskArchive = (item: SidebarItem): boolean => (
-  item.kind !== 'spec-task'
-  || !item.task
-  || item.task.sandbox_state !== 'absent'
-  || !isTaskCompletedOrMerged(item.task)
-)
+// is already absent. Archiving an org-agent chat only hides its session and
+// must not imply that the agent's shared sandbox will be stopped.
+export const shouldConfirmTaskArchive = (
+  item: SidebarItem,
+  orgAgentAppIds: ReadonlySet<string> = new Set(),
+): boolean => {
+  if (isOrgAgentSession(item, orgAgentAppIds)) return false
+  return item.kind !== 'spec-task'
+    || !item.task
+    || item.task.sandbox_state !== 'absent'
+    || !isTaskCompletedOrMerged(item.task)
+}
 
 export const collapsedGroupsStorageKey = (orgId: string): string => (
   `helix:project-chat-sidebar:collapsed:${orgId}`

@@ -17,6 +17,7 @@ import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useCreateGitRepository, useGitRepositories } from '../../services/gitRepositoryService'
+import { useListHelixOrgBots } from '../../services/helixOrgService'
 import { useListProjects } from '../../services/projectService'
 import { useArchiveSession } from '../../services/sessionService'
 import { useArchiveSpecTask } from '../../services/specTaskService'
@@ -71,6 +72,13 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
     enabled: !!account.user?.id && !!orgId,
   })
+  const { data: orgAgents = [] } = useListHelixOrgBots({
+    enabled: !!account.user?.id && !!orgId,
+  })
+  const orgAgentAppIds = new Set(orgAgents.flatMap((agent) => [
+    agent.agent_id,
+    agent.agent_app_id,
+  ]).filter((appId): appId is string => !!appId))
   const { data: repositories = [], isLoading: repositoriesLoading } = useGitRepositories({
     organizationId: orgId,
     enabled: createProjectOpen && !!account.user?.id && !!orgId,
@@ -206,7 +214,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   }
 
   const requestArchive = (item: SidebarItem) => {
-    if (shouldConfirmTaskArchive(item)) {
+    if (shouldConfirmTaskArchive(item, orgAgentAppIds)) {
       setArchiveConfirmation(item)
       return
     }
@@ -355,8 +363,10 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
 
       {archiveConfirmation && (
         <SimpleConfirmWindow
-          title="Archive spec task"
-          message={`Archive “${archiveConfirmation.title}”? Any running task agent will be stopped.`}
+          title={archiveConfirmation.kind === 'spec-task' ? 'Archive spec task' : 'Archive chat'}
+          message={archiveConfirmation.kind === 'spec-task'
+            ? `Archive “${archiveConfirmation.title}”? Any running task agent will be stopped.`
+            : `Archive “${archiveConfirmation.title}”? Its external agent will be stopped.`}
           confirmTitle={archivingItemId === archiveConfirmation.id ? 'Archiving…' : 'Archive'}
           onCancel={() => {
             if (!archivingItemId) setArchiveConfirmation(null)
