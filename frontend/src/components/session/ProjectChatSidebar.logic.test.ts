@@ -22,7 +22,7 @@ const projects: TypesProject[] = [
 ]
 
 describe('ProjectChatSidebar logic', () => {
-  it('groups tasks by project, deduplicates their sessions, and puts direct chats in None', () => {
+  it('groups tasks and project-linked chats by project, and puts direct chats in None', () => {
     const tasks: SpecTask[] = [{
       id: 'task-one',
       project_id: 'project-one',
@@ -59,8 +59,8 @@ describe('ProjectChatSidebar logic', () => {
     const groups = buildProjectChatGroups(projects, tasks, sessions)
 
     expect(groups.map((group) => group.name)).toEqual(['None', 'Project One', 'Project Two'])
-    expect(groups[0]?.items.map((item) => item.id)).toEqual(['direct-session', 'worker-session'])
-    expect(groups[1]?.items.map((item) => item.id)).toEqual(['task-one'])
+    expect(groups[0]?.items.map((item) => item.id)).toEqual(['direct-session'])
+    expect(groups[1]?.items.map((item) => item.id)).toEqual(['task-one', 'worker-session'])
     expect(groups[2]?.items.map((item) => item.id)).toEqual(['project-session'])
   })
 

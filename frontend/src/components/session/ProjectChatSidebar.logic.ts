@@ -250,7 +250,7 @@ export const buildProjectChatGroups = (
       return
     }
 
-    const projectGroup = !metadata?.org_worker_id && metadata?.project_id
+    const projectGroup = metadata?.project_id
       ? groupsByProjectId.get(metadata.project_id)
       : undefined
     const group = projectGroup || defaultGroup

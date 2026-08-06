@@ -87,8 +87,12 @@ const EmbeddedSessionView = forwardRef<
   const { NewInference } = useStreaming();
 
   // Whether content growth should keep the viewport pinned to the bottom.
-  // This is derived from user scroll position, not a persisted preference.
+  // This is derived from user scroll intent, not a persisted preference.
+  // Layout changes can move the bottom without the user scrolling (notably
+  // when RobustPromptInput expands to show its queue), so scroll position
+  // alone is not sufficient to decide that follow mode should stop.
   const shouldFollowLatestRef = useRef(true);
+  const isPointerScrollingRef = useRef(false);
 
   // True when new content has landed below a viewport that is away from the
   // latest message. Drives the "Jump to latest" pill.
@@ -117,9 +121,9 @@ const EmbeddedSessionView = forwardRef<
     return scrollTop + clientHeight >= scrollHeight - AUTO_SCROLL_NEAR_BOTTOM_PX;
   }, []);
 
-  // The scroll position is the source of truth for whether new content should
-  // follow the viewport. Programmatic scrolls also land at the bottom, so they
-  // naturally restore follow mode without a separate toggle state.
+  // Returning to the bottom always restores follow mode. Moving away only
+  // pauses while there is explicit user input; flex/layout changes can also
+  // emit scroll events and must not be mistaken for user navigation.
   const handleScroll = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -127,10 +131,24 @@ const EmbeddedSessionView = forwardRef<
     if (isNearBottom()) {
       shouldFollowLatestRef.current = true;
       setHasNewBelow(false);
-    } else {
+    } else if (isPointerScrollingRef.current) {
       shouldFollowLatestRef.current = false;
     }
   }, [isNearBottom]);
+
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY < 0) {
+      shouldFollowLatestRef.current = false;
+    }
+  }, []);
+
+  const handlePointerDown = useCallback(() => {
+    isPointerScrollingRef.current = true;
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    isPointerScrollingRef.current = false;
+  }, []);
 
   // Scroll to bottom. `force` is used for initial mount, session changes, and
   // the jump-to-latest pill. Other callers only follow when the user is at the
@@ -141,14 +159,18 @@ const EmbeddedSessionView = forwardRef<
       const container = containerRef.current;
       if (!container) return;
       if (!force && !shouldFollowLatestRef.current) return;
-      if (!force && container.scrollHeight === lastScrolledHeightRef.current) return;
+      if (
+        !force &&
+        container.scrollHeight === lastScrolledHeightRef.current &&
+        isNearBottom()
+      ) return;
       container.scrollTop = container.scrollHeight;
       lastScrolledHeightRef.current = container.scrollHeight;
       shouldFollowLatestRef.current = true;
       setHasNewBelow(false);
       onScrollToBottom?.();
     },
-    [onScrollToBottom],
+    [isNearBottom, onScrollToBottom],
   );
 
   // Click handler for the jump-to-latest pill: jump and re-enable auto-scroll.
@@ -239,6 +261,28 @@ const EmbeddedSessionView = forwardRef<
   // True once we've forced an initial scroll-to-bottom for this session.
   // Reset on session change.
   const hasInitiallyScrolled = useRef(false);
+
+  // Keep a followed transcript pinned when its viewport changes height. The
+  // composer queue is outside this scroll container, so opening it shrinks the
+  // viewport without changing the transcript's scrollHeight.
+  useEffect(() => {
+    if (!scrollContainerEl) return;
+
+    let previousHeight = scrollContainerEl.clientHeight;
+    const observer = new ResizeObserver((entries) => {
+      const nextHeight = entries[0]?.contentRect.height ?? scrollContainerEl.clientHeight;
+      if (nextHeight === previousHeight) return;
+      previousHeight = nextHeight;
+
+      if (!shouldFollowLatestRef.current) return;
+      scrollContainerEl.scrollTop = scrollContainerEl.scrollHeight;
+      lastScrolledHeightRef.current = scrollContainerEl.scrollHeight;
+      setHasNewBelow(false);
+    });
+
+    observer.observe(scrollContainerEl);
+    return () => observer.disconnect();
+  }, [scrollContainerEl]);
 
   // Reset state and clear stale cache when sessionId changes.
   const prevSessionIdRef = useRef(sessionId);
@@ -560,6 +604,10 @@ const EmbeddedSessionView = forwardRef<
         ref={setScrollContainerRef}
         data-session-scroll-container
         onScroll={handleScroll}
+        onWheel={handleWheel}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         sx={{
           // Use height: 0 + flex: 1 to force this to be the scrollable container
           // Without height: 0, the container may expand to fit content on iOS

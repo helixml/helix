@@ -45,10 +45,10 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 
 	switch query.ProjectScope {
 	case "none":
-		q = q.Where("(project_id IS NULL OR project_id = '' OR COALESCE(config->>'org_worker_id', '') != '')")
+		q = q.Where("project_id IS NULL OR project_id = ''")
 	case "project":
 		q = q.Where(
-			"project_id = ? AND COALESCE(config->>'org_worker_id', '') = '' AND COALESCE(config->>'spec_task_id', '') = ''",
+			"project_id = ? AND COALESCE(config->>'spec_task_id', '') = ''",
 			query.ProjectID,
 		)
 	default:

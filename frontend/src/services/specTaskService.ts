@@ -1,4 +1,4 @@
-import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Api, TypesCreateTaskRequest, TypesSpecTaskUpdateRequest } from "../api/api";
 import useApi from "../hooks/useApi";
 
@@ -19,6 +19,7 @@ export type {
 // Query keys
 const QUERY_KEYS = {
   specTasksBase: ["spec-tasks"] as const,
+  specTaskLists: ["spec-tasks", "list"] as const,
   specTasks: (
     projectId?: string,
     archivedOnly?: boolean,
@@ -58,6 +59,24 @@ const QUERY_KEYS = {
   projectLabels: (projectId: string) =>
     ["projects", projectId, "labels"] as const,
 };
+
+export async function invalidateSpecTaskStatusQueries(
+  queryClient: QueryClient,
+  taskId: string,
+): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTaskLists }),
+  ]);
+}
+
+export function useRefreshSpecTaskStatus(taskId?: string) {
+  const queryClient = useQueryClient();
+
+  return () => taskId
+    ? invalidateSpecTaskStatusQueries(queryClient, taskId)
+    : Promise.resolve();
+}
 
 // Hook to fetch all spec tasks with react-query
 export function useSpecTasks(options?: {

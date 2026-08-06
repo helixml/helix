@@ -5,15 +5,22 @@ import IconButton from '@mui/material/IconButton'
 import InputBase from '@mui/material/InputBase'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { Search, SquarePen } from 'lucide-react'
+import { FolderPlus, Search, SquarePen } from 'lucide-react'
 
+import {
+  TypesExternalRepositoryType,
+  TypesGitRepositoryType,
+} from '../../api/api'
+import type { TypesAzureDevOps, TypesGitRepository } from '../../api/api'
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
+import { useCreateGitRepository, useGitRepositories } from '../../services/gitRepositoryService'
 import { useListProjects } from '../../services/projectService'
 import { useArchiveSession } from '../../services/sessionService'
 import { useArchiveSpecTask } from '../../services/specTaskService'
+import CreateProjectDialog from '../project/CreateProjectDialog'
 import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
   collapsedGroupsStorageKey,
@@ -41,14 +48,16 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const router = useRouter()
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
-  const orgId = router.params.org_id || ''
-  const storageKey = collapsedGroupsStorageKey(orgId)
+  const orgSlug = router.params.org_id || ''
+  const orgId = account.organizationTools.organization?.id || ''
+  const storageKey = collapsedGroupsStorageKey(orgSlug)
 
   const [query, setQuery] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
   const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
   const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
   const [archivingItemId, setArchivingItemId] = useState<string | null>(null)
+  const [createProjectOpen, setCreateProjectOpen] = useState(false)
 
   useEffect(() => {
     setCollapsedGroups(readCollapsedGroups(storageKey))
@@ -62,6 +71,11 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
     enabled: !!account.user?.id && !!orgId,
   })
+  const { data: repositories = [], isLoading: repositoriesLoading } = useGitRepositories({
+    organizationId: orgId,
+    enabled: createProjectOpen && !!account.user?.id && !!orgId,
+  })
+  const createGitRepository = useCreateGitRepository()
   const archiveSession = useArchiveSession()
   const archiveSpecTask = useArchiveSpecTask()
   const activeItemId = router.params.taskId || router.params.session_id || ''
@@ -81,7 +95,66 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
 
     window.addEventListener('keydown', handleNewThreadShortcut, { capture: true })
     return () => window.removeEventListener('keydown', handleNewThreadShortcut, { capture: true })
-  }, [orgId])
+  }, [orgSlug])
+
+  const createRepository = async (
+    name: string,
+    description: string,
+  ): Promise<TypesGitRepository | null> => {
+    if (!account.user?.id || !orgId) return null
+
+    try {
+      const repository = await createGitRepository.mutateAsync({
+        name,
+        description,
+        owner_id: account.user.id,
+        organization_id: orgId,
+        repo_type: TypesGitRepositoryType.GitRepositoryTypeCode,
+        default_branch: 'main',
+      })
+      return repository || null
+    } catch (error) {
+      console.error('Failed to create repository:', error)
+      return null
+    }
+  }
+
+  const linkRepository = async (
+    url: string,
+    name: string,
+    type: TypesExternalRepositoryType,
+    username?: string,
+    password?: string,
+    azureDevOps?: TypesAzureDevOps,
+    oauthConnectionId?: string,
+  ): Promise<TypesGitRepository | null> => {
+    if (!account.user?.id || !orgId) return null
+
+    try {
+      const repository = await createGitRepository.mutateAsync({
+        name,
+        description: `External ${type} repository`,
+        owner_id: account.user.id,
+        organization_id: orgId,
+        repo_type: TypesGitRepositoryType.GitRepositoryTypeCode,
+        default_branch: 'main',
+        is_external: true,
+        external_url: url,
+        external_type: type,
+        username,
+        password,
+        azure_devops: azureDevOps,
+        oauth_connection_id: oauthConnectionId,
+      })
+      return repository || null
+    } catch (error: any) {
+      const message = error?.response?.data?.message
+        || error?.response?.data
+        || error?.message
+        || 'Failed to link repository'
+      throw new Error(typeof message === 'string' ? message : JSON.stringify(message))
+    }
+  }
 
   const openItem = (item: SidebarItem) => {
     if (item.kind === 'spec-task' && item.projectId) {
@@ -197,7 +270,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
         </Tooltip>
       </Box>
 
-      <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
+      <Box sx={{ pl: 1.5, pr: 0.75, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
         <Typography
           sx={{
             flex: 1,
@@ -209,6 +282,23 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
         >
           Projects
         </Typography>
+        <Tooltip title="New project">
+          <span>
+            <IconButton
+              size="small"
+              onClick={() => setCreateProjectOpen(true)}
+              disabled={!account.user?.id || !orgId}
+              aria-label="New project"
+              sx={{
+                color: lightTheme.isLight
+                  ? 'rgba(113,113,122,0.65)'
+                  : 'rgba(163,163,163,0.55)',
+              }}
+            >
+              <FolderPlus size={15} strokeWidth={1.7} />
+            </IconButton>
+          </span>
+        </Tooltip>
       </Box>
 
       <Box
@@ -272,6 +362,21 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
             if (!archivingItemId) setArchiveConfirmation(null)
           }}
           onSubmit={() => void performArchive(archiveConfirmation)}
+        />
+      )}
+
+      {createProjectOpen && (
+        <CreateProjectDialog
+          open
+          onClose={() => setCreateProjectOpen(false)}
+          onSuccess={(projectId) => {
+            account.orgNavigate('chat', {}, { project_id: projectId })
+            onOpenSession()
+          }}
+          repositories={repositories}
+          reposLoading={repositoriesLoading}
+          onCreateRepo={createRepository}
+          onLinkRepo={linkRepository}
         />
       )}
     </Box>

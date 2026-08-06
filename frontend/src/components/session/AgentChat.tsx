@@ -8,6 +8,7 @@ import { useStreaming } from '../../contexts/streaming'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useListInteractions } from '../../services/sessionService'
+import { useRefreshSpecTaskStatus } from '../../services/specTaskService'
 import { SESSION_TYPE_TEXT } from '../../types'
 import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from './EmbeddedSessionView'
@@ -46,6 +47,7 @@ const AgentChat: FC<AgentChatProps> = ({
   const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
   const [isCancelling, setIsCancelling] = useState(false)
   const apiClient = api.getApiClient()
+  const refreshSpecTaskStatus = useRefreshSpecTaskStatus(specTaskId)
 
   const { data: latestInteractionsResponse, refetch: refetchLatestInteraction } = useListInteractions(
     sessionId,
@@ -67,10 +69,11 @@ const AgentChat: FC<AgentChatProps> = ({
       sessionId,
       interrupt: interrupt ?? true,
     })
-    // streaming is a context object; sessionId is the only value that should
-    // rebind this callback.
+    void refreshSpecTaskStatus()
+    // Provider state remains mounted; primitive route state selects the current
+    // session and task whose queries need refreshing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId])
+  }, [sessionId, specTaskId])
 
   const handleCancel = useCallback(async () => {
     if (isCancelling) return
