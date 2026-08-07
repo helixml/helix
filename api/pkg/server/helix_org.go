@@ -40,6 +40,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/agentdelivery"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/assetssh"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
@@ -305,7 +306,7 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 // plus the long-lived stream-cron and Socket Mode goroutines. Every
 // org-shaped route + lifecycle hook lives here.
 func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
-	orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
+	orgHandlers, err := initHelixOrgHandler(ctx, helixOrgConfig{
 		LocalFSPath: s.Cfg.FileStore.LocalFSPath,
 		APIServer:   s,
 	}, s.Store)
@@ -432,7 +433,7 @@ func (s *HelixAPIServer) registerHelixOrgAuthenticatedRoutes(authRouter *mux.Rou
 	)
 }
 
-func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*helixOrgHandlers, error) {
+func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore helixstore.Store) (*helixOrgHandlers, error) {
 	if cfg.APIServer == nil {
 		log.Warn().Msg("helix-org disabled: no HelixAPIServer threaded into helixOrgConfig")
 		return nil, nil
@@ -683,6 +684,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Now:           deps.Now,
 	})
 	dispatcher := dispatch.New(st, spawnerFn, logger)
+	if provider, ok := cfg.APIServer.pubsub.(pubsub.DurablePubSub); ok {
+		durableQueue, err := agentdelivery.New(ctx, provider, activation.Spawn(spawnerFn), logger)
+		if err != nil {
+			return nil, fmt.Errorf("init durable agent delivery: %w", err)
+		}
+		if err := durableQueue.Start(); err != nil {
+			return nil, fmt.Errorf("start durable agent delivery: %w", err)
+		}
+		dispatcher.RegisterActivationQueue(durableQueue)
+	}
 	// Outbound webhook delivery is a transport concern, not the
 	// dispatcher's: register the webhook emitter so KindWebhook topics
 	// POST their events. Slack/email emitters register the same way.
