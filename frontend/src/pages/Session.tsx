@@ -4,8 +4,6 @@ import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
-import Alert from '@mui/material/Alert'
-import AlertTitle from '@mui/material/AlertTitle'
 
 import SendIcon from '@mui/icons-material/Send'
 
@@ -23,7 +21,6 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import { useTheme } from '@mui/material/styles'
-import Tooltip from '@mui/material/Tooltip'
 import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
 import { useGetSession, useUpdateSession, useGetSessionIdleStatus } from '../services/sessionService'
 
@@ -36,7 +33,7 @@ import {
   IShareSessionInstructions,
 } from '../types'
 
-import { TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
+import { TypesAgentType, TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
 
 import { useStreaming } from '../contexts/streaming'
 
@@ -48,9 +45,6 @@ import useSubscriptionGate from '../hooks/useSubscriptionGate'
 import Paywall from '../components/subscription/Paywall'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
-import PlayArrow from '@mui/icons-material/PlayArrow'
-import CircularProgress from '@mui/material/CircularProgress'
-import StopIcon from '@mui/icons-material/Stop'
 import { useGetConfig } from '../services/userService'
 import RobustPromptInput from '../components/common/RobustPromptInput'
 import Page from '../components/system/Page'
@@ -62,46 +56,7 @@ import {
   resolveChatTurnAssistantPreview,
 } from '../components/session/ChatTurnNavigator.logic'
 import { splitSystemPrefix } from '../components/session/CollapsibleSystemPrefix'
-
-// Hook to track sandbox/desktop state for external agent sessions
-const useSandboxState = (sessionId: string) => {
-  const api = useApi();
-  const [sandboxState, setSandboxState] = React.useState<string>('loading');
-
-  const isRunning = sandboxState === 'running' || sandboxState === 'resumable';
-  const isStarting = sandboxState === 'starting' || sandboxState === 'loading';
-  // Only show paused state when truly absent (not loading or starting)
-  const isPaused = sandboxState === 'absent';
-
-  return { sandboxState, isRunning, isPaused, isStarting };
-};
-
-// Desktop controls component - only shows Stop button when running
-const DesktopControls: React.FC<{
-  sessionId: string,
-  onStop: () => void,
-  isStopping: boolean
-}> = ({ sessionId, onStop, isStopping }) => {
-  const { isRunning } = useSandboxState(sessionId);
-
-  // Only show Stop button when desktop is running
-  if (isRunning) {
-    return (
-      <Button
-        variant="outlined"
-        size="small"
-        color="warning"
-        startIcon={isStopping ? <CircularProgress size={16} /> : <StopIcon />}
-        onClick={onStop}
-        disabled={isStopping}
-      >
-        {isStopping ? 'Stopping...' : 'Stop'}
-      </Button>
-    );
-  }
-
-  return null;
-};
+import OrgAgentSessionWorkspace from '../components/helix-org/OrgAgentSessionWorkspace'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -292,10 +247,9 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   const [feedbackValue, setFeedbackValue] = useState('')
   const [appID, setAppID] = useState<string | null>(null)
   const [assistantID, setAssistantID] = useState<string | null>(null)
-  const [showRDPViewer, setShowRDPViewer] = useState(false)
-  const [isExternalAgent, setIsExternalAgent] = useState(false)
-  const [rdpViewerHeight, setRdpViewerHeight] = useState(300)
   const [filterMap, setFilterMap] = useState<Record<string, string>>({})
+
+  const isExternalAgent = session?.data?.config?.agent_type === TypesAgentType.AgentTypeZedExternal
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
@@ -1539,7 +1493,14 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
       showDrawerButton={true}
       disableContentScroll={true}
     >
-      {sessionContent}
+      {isExternalAgent ? (
+        <OrgAgentSessionWorkspace
+          sessionId={session.data.id || sessionID}
+          organizationId={(router.params.org_id as string) || session.data.organization_id || ''}
+        >
+          {sessionContent}
+        </OrgAgentSessionWorkspace>
+      ) : sessionContent}
     </Page>
   )
 }

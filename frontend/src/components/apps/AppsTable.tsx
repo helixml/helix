@@ -3,7 +3,6 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
-import Avatar from '@mui/material/Avatar'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
@@ -33,10 +32,7 @@ import {
   isHelixOrgChartAgent,
 } from '../../utils/apps'
 
-import {
-  getUserInitials,
-  getUserAvatarUrl,
-} from '../../utils/user'
+import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
 
 // Import the Helix icon
 import HelixIcon from '../../../assets/img/logo.png'
@@ -62,6 +58,10 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   const apiClient = api.getApiClient()
   const theme = useTheme()
   const account = useAccount()
+  const orgMembers = account.organizationTools.organization?.memberships || []
+  const orgMembersKey = orgMembers
+    .map((membership) => `${membership.user_id}:${membership.user?.full_name || membership.user?.username || membership.user?.email || ''}`)
+    .join('|')
   // Add state for usage data with proper typing
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({})
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -225,7 +225,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         </>
       ) : null
 
-      const creator = app.user?.full_name || app.user?.username || app.user?.email || 'Unknown'
+      const creatorUser = resolveOrganizationUser(app.owner, orgMembers, account.user) || app.user
+      const creator = creatorUser?.full_name || creatorUser?.username || creatorUser?.email || 'Unknown'
 
       const description = app.config.helix?.description || ''
 
@@ -387,22 +388,14 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
                 arrow
                 slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
               >
-                <Avatar
-                  src={getUserAvatarUrl(app.user)}
-                  sx={{
-                    width: 32,
-                    height: 32,
-                    fontSize: '0.875rem',
-                    fontWeight: 'bold',
-                    background: `linear-gradient(135deg, ${theme.chartGradientStart} 0%, ${theme.chartGradientEnd} 100%)`,
-                    color: '#ffffff',
-                    boxShadow: theme.palette.mode === 'dark' 
-                      ? `0 2px 8px ${theme.chartGradientStart}40`
-                      : `0 2px 8px ${theme.chartGradientStart}30`,
-                  }}
-                >
-                  {getUserInitials(app.user)}
-                </Avatar>
+                <OrganizationUserAvatar
+                  userId={app.owner}
+                  members={orgMembers}
+                  currentUser={account.user}
+                  size={32}
+                  fontSize="0.875rem"
+                  iconSize={24}
+                />
               </Tooltip>            
             </Box>
           ),
@@ -415,7 +408,9 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
     theme,
     data,
     usageData,
-    isOrgContext
+    isOrgContext,
+    orgMembersKey,
+    account.user?.id,
   ])
 
   const getActions = useCallback((app: any) => {

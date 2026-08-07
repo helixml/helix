@@ -10,7 +10,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import CopyButtonWithCheck from '../session/CopyButtonWithCheck'
 import { useHelixOrgTopic, useUpdateHelixOrgTopic } from '../../services/helixOrgService'
-import { ClearTopicMessagesButton, TopicConfigSection } from '../../pages/HelixOrgTopicDetail'
+import { ClearTopicMessagesButton, GitHubWebhookStatus, TopicConfigSection } from '../../pages/HelixOrgTopicDetail'
 import HelixOrgOverviewCard from './HelixOrgOverviewCard'
 import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 
@@ -77,6 +77,12 @@ const TopicDetailDrawer: FC<TopicDetailDrawerProps> = ({ topicId, consumerCount,
             }}
             onCancel={onClose}
           />
+          {topic.kind === 'github' && (
+            <GitHubWebhookStatus
+              topic={topic}
+              orgSlug={router.params.org_id as string | undefined}
+            />
+          )}
           <Stack direction="row" justifyContent="flex-end">
             <ClearTopicMessagesButton topic={topic} />
           </Stack>

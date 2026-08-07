@@ -23964,6 +23964,12 @@ const docTemplate = `{
                     "description": "Detail explains a \"unknown\" state (and is empty otherwise).",
                     "type": "string"
                 },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "payload_url": {
                     "type": "string"
                 },
