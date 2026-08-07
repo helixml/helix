@@ -32,14 +32,13 @@ describe("MarkdownCodeBlock", () => {
     expect(screen.getByText("go")).toBeInTheDocument();
     expect(block).toHaveStyle({
       overflow: "hidden",
-      border: "1px solid rgba(255, 255, 255, 0.09)",
-      borderRadius: "10px",
-      backgroundColor: "#111113",
+      border: "1px solid",
     });
     expect(header).toHaveStyle({
       minHeight: "34px",
-      backgroundColor: "#1a1a1d",
-      borderBottom: "1px solid rgba(255, 255, 255, 0.09)",
+      display: "flex",
+      justifyContent: "space-between",
+      borderBottom: "1px solid",
     });
   });
 

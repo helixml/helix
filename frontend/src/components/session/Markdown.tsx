@@ -1138,7 +1138,8 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
         },
         pre(props: any) {
           const { children, node, ref, ...rest } = props;
-          const child = React.Children.only(children);
+          const childNodes = React.Children.toArray(children);
+          const child = childNodes.length === 1 ? childNodes[0] : null;
           if (!React.isValidElement<{ children?: React.ReactNode; className?: string }>(child)) {
             return <pre {...rest}>{children}</pre>;
           }
