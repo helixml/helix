@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TypesWorkspaceFileEntry } from "../../api/api";
-import { ancestorDirectoryPaths, filteredTreePaths } from "./WorkspaceFileTree";
+import { ancestorDirectoryPaths, filteredTreePaths, treeSelectionNeedsSync } from "./WorkspaceFileTree";
 
 const entries: TypesWorkspaceFileEntry[] = [
   { kind: "directory", path: "src" },
@@ -34,5 +34,10 @@ describe("workspace file tree filtering", () => {
       "src/workspace-inspector/",
       "src/workspace-inspector/second-turn.json",
     ])).toEqual(["src/", "src/workspace-inspector/"]);
+  });
+
+  it("does not re-center a selection that originated in the tree", () => {
+    expect(treeSelectionNeedsSync("src/workspace-inspector/other.ts", ["src/workspace-inspector/other.ts"])).toBe(false);
+    expect(treeSelectionNeedsSync("README.md", ["src/workspace-inspector/other.ts"])).toBe(true);
   });
 });

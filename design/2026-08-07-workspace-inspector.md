@@ -32,7 +32,11 @@ The delivered surfaces are:
 
 Diff and Files are first-class task-toolbar views rather than nested inspector tabs. This removes a redundant navigation row and makes the active surface visible beside Desktop and Details. Open source files still get closable tabs within the Files surface. Diff presentation controls are compact icon buttons with tooltips and accessible pressed states for unified/split layout, wrapping, and whitespace filtering.
 
-File paths expose contextual clipboard actions. Right-clicking a Files tree row opens a keyboard-accessible menu for copying its workspace-relative path and, for readable text files within the preview limit, its contents. Right-clicking a filename header in Diff opens the same path-copy affordance without changing the active view. Binary, truncated, loading, and failed file reads are represented explicitly rather than copying incomplete data silently.
+File paths expose contextual clipboard actions. Right-clicking a Files tree row opens a keyboard-accessible menu for copying its absolute sandbox path and, for readable text files within the preview limit, its contents. Right-clicking a filename header in Diff opens the same full-path affordance without changing the active view. The workspace root comes from the authorized workspace API rather than a frontend path convention, producing agent-ready paths such as `/home/retro/work/keel/extension/credentialshelper/aws/aws.go`. Binary, truncated, loading, and failed file reads are represented explicitly rather than copying incomplete data silently.
+
+Both Pierre `CodeView` roots are explicit scroll containers. The surrounding inspector owns the bounded panel height, while each code view owns vertical and horizontal overflow; this preserves virtualized scrolling for long source files and multi-file diffs instead of letting their internal content overflow into a clipped ancestor.
+
+A file selected directly in the tree is already visible. Controlled-selection synchronization updates expansion and selection without issuing a second `scrollToPath`; the duplicate reveal recenters the virtualized tree after the click and moves the row away from the pointer. Files opened from Diff, a file tab, or a URL deep link carry an explicit reveal intent and use `scrollToPath(..., { offset: "nearest" })` so off-screen external selections still become visible without centering.
 
 The backend uses shared response types and generated client methods. Live review requests return one patch per Git scope. Historical review never trusts a checkpoint ref from the browser: it resolves the interaction after session authorization and reads the stored before/after refs. Checkpoint capture uses a temporary Git index and parentless hidden commits, preserving the user's index, worktree, `HEAD`, and branch refs.
 
@@ -44,11 +48,11 @@ The compatibility spike approved the Pierre packages for the read-only path and 
 
 The file tree keeps Helix's required `matchesAllTokens()` semantics instead of enabling Pierre's single-query search. It filters the flat path input, retains every ancestor, expands matching subtrees, and preserves Pierre's virtualization. Selection callbacks read the current path map and file-open handler through refs because the Pierre model retains the callback supplied at construction; closing over initial React state silently makes later-loaded rows non-interactive.
 
-Copy-path and add-to-chat context actions were deferred. They are useful, but neither is necessary for a correct read-only browser and both need a deliberate interaction design that works across Pierre's shadow-DOM rows. The implemented navigation paths are tree row to file tab, diff header to file tab, chat **Open diff** to immutable turn diff, and chat file row to the selected file within that turn.
+Add-to-chat context actions remain deferred because Helix does not yet have a durable file-reference message model. Copy actions are implemented through Pierre's supported context-menu composition: file rows can copy the agent-visible absolute path or complete readable contents, Diff headers can copy the absolute path, and open file tabs expose the same full-path action. The implemented navigation paths are tree row to file tab, diff header to file tab, chat **Open diff** to immutable turn diff, and chat file row to the selected file within that turn.
 
 ### Verification record
 
-The desktop image was rebuilt as `helix-ubuntu:c9eca0`, then a new spec-task session was provisioned from that image. The session connected to a live Zed thread before testing; this was not a seeded-session or isolated DOM test.
+The initial inspector was verified on `helix-ubuntu:c9eca0`. The clipboard-path contract was then rebuilt and provisioned on `helix-ubuntu:8282e6`; its live `/workspaces` response exposed `/home/retro/work/keel` and did not expose the internal `/data/workspaces/...` mount. These were provisioned spec-task sessions, not seeded-session or isolated DOM tests.
 
 The disposable workspace fixture contained:
 
@@ -76,6 +80,10 @@ The browser test also exercised:
 - dark and light theme adapters, including syntax foregrounds over restrained Git backgrounds;
 - an 800 by 700 px viewport, where the outer task layout collapses chat and gives the inspector the available width;
 - a fresh page load with no React console errors or failed workspace API requests.
+- long source and multi-file diff surfaces whose `scrollTop` advanced inside their own `CodeView` roots;
+- a scrolled file tree whose viewport remained unchanged after selecting an already-visible row;
+- absolute-path and file-content clipboard menus, including the non-secure-origin clipboard fallback;
+- collapsed and expanded in-chat changed-file receipts, folder expansion, per-file stats, and **Open diff**.
 
 Verification commands completed successfully:
 
@@ -84,15 +92,20 @@ cd api && go test ./pkg/desktop -count=1
 cd api && go test ./pkg/server -count=1
 cd api && go build ./pkg/server/ ./pkg/store/ ./pkg/types/
 cd frontend && yarn vitest run \
+  src/components/session/ChangedFilesCard.test.tsx \
   src/components/session/changedFilesTree.test.ts \
   src/components/workspace-inspector/WorkspaceFileTree.test.ts \
-  src/components/workspace-inspector/pierreStyles.test.ts
+  src/components/workspace-inspector/WorkspaceInspector.test.tsx \
+  src/components/workspace-inspector/clipboard.test.ts \
+  src/components/workspace-inspector/pierreStyles.test.ts \
+  src/components/workspace-inspector/workspaceTabs.test.ts \
+  src/lib/specTaskAutoOpen.test.ts
 cd frontend && yarn tsc --noEmit
 cd frontend && yarn build
 git diff --check
 ```
 
-The production build emits the inspector as an 819.30 KiB lazy chunk (227.99 KiB gzip); the main application chunk is 4,912.98 KiB (1,445.20 KiB gzip). Large main-chunk warnings predate this work and remain visible, while the inspector does not enter the initial route chunk.
+The final production build emits the inspector as a 780.30 KiB lazy chunk (215.31 KiB gzip); the main application chunk is 4,965.18 KiB (1,463.97 KiB gzip). Large main-chunk warnings predate this work and remain visible, while the inspector does not enter the initial route chunk.
 
 The 10,000-entry tree and 100-file/20,000-line synthetic performance acceptance test has not been run. The implementation is virtualized and enforces server bounds, but that is architecture, not measured performance; the large-fixture measurement remains required before treating those numbers as a supported performance envelope.
 
@@ -380,10 +393,10 @@ T3 exposes branch and working-tree sources. Helix should add the combined defaul
 
 - Initially show the tree at full width.
 - Selecting a file opens a file tab, puts the viewer on the left, and retains the tree on the right.
-- Reveal externally opened files by expanding ancestors and scrolling the selected row into view.
+- Reveal externally opened files by expanding ancestors and scrolling only enough to bring the selected row into view. A row selected inside the tree must not issue a second reveal or change the tree's scroll position.
 - Flatten empty directory chains and preserve the user's expansion state.
 - Search with `matchesAllTokens()` against relative paths. Preserve matching ancestors so results remain understandable. If `@pierre/trees` cannot accept the Helix predicate, filter the flat input before updating its model; do not fall back to raw substring matching.
-- Provide copy-path and add-to-chat actions, using relative paths only.
+- Provide **Copy full path** for files and directories, using the agent-visible workspace root returned by the API, plus **Copy contents** for readable, complete text files. Do not expose the host's internal storage path.
 - On narrow screens, use tree → viewer drill-down with a Back to files control rather than forcing a two-column minimum width.
 
 #### File view
@@ -568,7 +581,7 @@ Exit criterion: fixtures covering committed, staged, unstaged, and untracked cha
 
 - Add the tree model, token-aware search, external reveal, breadcrumbs, file tabs, and responsive drill-down.
 - Add syntax file rendering, wrap, loading/error/binary/truncated states, and hash-based refresh.
-- Add copy path and add-to-chat actions.
+- Add full-path and text-content clipboard actions. Keep add-to-chat deferred until file references have a durable message representation.
 
 Exit criterion: a reviewer can find and open tracked or untracked source files in a live spec-task workspace on desktop and narrow layouts.
 

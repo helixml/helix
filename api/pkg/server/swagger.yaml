@@ -12711,6 +12711,8 @@ definitions:
         type: boolean
       name:
         type: string
+      path:
+        type: string
     type: object
   types.WorkspaceReviewFileContent:
     properties:

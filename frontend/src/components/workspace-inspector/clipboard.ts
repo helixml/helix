@@ -22,3 +22,7 @@ export async function copyTextToClipboard(text: string): Promise<void> {
     textArea.remove();
   }
 }
+
+export function workspaceFilePath(workspaceRoot: string, relativePath: string): string {
+  return `${workspaceRoot.replace(/\/+$/, "")}/${relativePath.replace(/^\/+|\/+$/g, "")}`;
+}

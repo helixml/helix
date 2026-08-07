@@ -26,6 +26,7 @@ type WorkspacesResponse struct {
 type WorkspaceInfo struct {
 	Name          string `json:"name"`
 	Path          string `json:"-" swaggerignore:"true"`
+	AgentPath     string `json:"path"`
 	CurrentBranch string `json:"current_branch"`
 	IsPrimary     bool   `json:"is_primary"`
 	HasHelixSpecs bool   `json:"has_helix_specs"`

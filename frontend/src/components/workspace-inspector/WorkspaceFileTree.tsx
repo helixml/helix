@@ -17,14 +17,16 @@ import { ClipboardCopy, Copy, RefreshCw, Search, X } from "lucide-react";
 import type { TypesWorkspaceFileEntry } from "../../api/api";
 import useSnackbar from "../../hooks/useSnackbar";
 import { matchesAllTokens } from "../../utils/searchUtils";
-import { copyTextToClipboard } from "./clipboard";
+import { copyTextToClipboard, workspaceFilePath } from "./clipboard";
 import { TREE_UNSAFE_CSS } from "./pierreStyles";
 import { useWorkspaceFile, useWorkspaceFiles } from "./workspaceReviewService";
 
 interface WorkspaceFileTreeProps {
   sessionId: string;
   workspace?: string;
+  workspacePath?: string;
   selectedPath: string | null;
+  revealPath: string | null;
   onOpenFile: (path: string) => void;
 }
 
@@ -69,11 +71,16 @@ export function ancestorDirectoryPaths(paths: readonly string[]): string[] {
   return [...directories];
 }
 
+export function treeSelectionNeedsSync(selectedPath: string, selectedPaths: readonly string[]): boolean {
+  return !selectedPaths.includes(selectedPath);
+}
+
 interface WorkspaceFileContextMenuProps {
   context: ContextMenuOpenContext;
   item: ContextMenuItem;
   sessionId: string;
   workspace?: string;
+  workspacePath?: string;
 }
 
 const WorkspaceFileContextMenu: FC<WorkspaceFileContextMenuProps> = ({
@@ -81,6 +88,7 @@ const WorkspaceFileContextMenu: FC<WorkspaceFileContextMenuProps> = ({
   item,
   sessionId,
   workspace,
+  workspacePath,
 }) => {
   const snackbar = useSnackbar();
   const fileQuery = useWorkspaceFile(
@@ -90,8 +98,9 @@ const WorkspaceFileContextMenu: FC<WorkspaceFileContextMenuProps> = ({
   );
 
   const copyPath = async () => {
+    if (!workspacePath) return;
     try {
-      await copyTextToClipboard(item.path.replace(/\/$/, ""));
+      await copyTextToClipboard(workspaceFilePath(workspacePath, item.path));
       snackbar.success("Path copied to clipboard");
     } catch {
       snackbar.error("Could not copy path");
@@ -135,9 +144,9 @@ const WorkspaceFileContextMenu: FC<WorkspaceFileContextMenuProps> = ({
         dense: true,
       }}
     >
-      <MenuItem onClick={copyPath}>
+      <MenuItem onClick={copyPath} disabled={!workspacePath}>
         <ListItemIcon><Copy size={15} /></ListItemIcon>
-        Copy path
+        {workspacePath ? "Copy full path" : "Workspace path unavailable"}
       </MenuItem>
       {item.kind === "file" && (
         <MenuItem
@@ -157,7 +166,9 @@ const WorkspaceFileContextMenu: FC<WorkspaceFileContextMenuProps> = ({
 const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
   sessionId,
   workspace,
+  workspacePath,
   selectedPath,
+  revealPath,
   onOpenFile,
 }) => {
   const filesQuery = useWorkspaceFiles(sessionId, workspace);
@@ -210,19 +221,21 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
     if (!selectedPath || !entryKinds.has(selectedPath)) return;
     const item = model.getItem(selectedPath);
     if (!item) return;
-    syncingSelection.current = true;
-    for (const selected of model.getSelectedPaths()) model.getItem(selected)?.deselect();
-    const segments = selectedPath.split("/");
-    for (let index = 1; index < segments.length; index += 1) {
-      const ancestor = model.getItem(`${segments.slice(0, index).join("/")}/`);
-      if (ancestor && "expand" in ancestor) ancestor.expand();
+    if (treeSelectionNeedsSync(selectedPath, model.getSelectedPaths())) {
+      syncingSelection.current = true;
+      for (const selected of model.getSelectedPaths()) model.getItem(selected)?.deselect();
+      const segments = selectedPath.split("/");
+      for (let index = 1; index < segments.length; index += 1) {
+        const ancestor = model.getItem(`${segments.slice(0, index).join("/")}/`);
+        if (ancestor && "expand" in ancestor) ancestor.expand();
+      }
+      item.select();
+      queueMicrotask(() => {
+        syncingSelection.current = false;
+      });
     }
-    item.select();
-    model.scrollToPath(selectedPath, { offset: "center" });
-    queueMicrotask(() => {
-      syncingSelection.current = false;
-    });
-  }, [pathsFingerprint, selectedPath]);
+    if (revealPath === selectedPath) model.scrollToPath(selectedPath, { offset: "nearest" });
+  }, [pathsFingerprint, revealPath, selectedPath]);
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
@@ -274,6 +287,7 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
               item={item}
               sessionId={sessionId}
               workspace={workspace}
+              workspacePath={workspacePath}
             />
           )}
           style={{ minHeight: 0, height: "100%", overflow: "hidden" }}

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { copyTextToClipboard } from "./clipboard";
+import { copyTextToClipboard, workspaceFilePath } from "./clipboard";
+
+describe("workspaceFilePath", () => {
+  it("joins a sandbox workspace root and repository-relative path", () => {
+    expect(workspaceFilePath("/home/retro/work/keel/", "/extension/aws.go")).toBe(
+      "/home/retro/work/keel/extension/aws.go",
+    );
+  });
+});
 
 describe("copyTextToClipboard", () => {
   afterEach(() => {

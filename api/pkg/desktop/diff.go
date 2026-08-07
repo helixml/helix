@@ -498,6 +498,8 @@ type WorkspaceInfo = types.WorkspaceInfo
 // WorkspacesResponse is the response from the /workspaces endpoint
 type WorkspacesResponse = types.WorkspacesResponse
 
+const agentWorkspaceRoot = "/home/retro/work"
+
 // handleWorkspaces handles GET /workspaces requests
 // Returns a list of all git repositories in the workspace directory
 func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
@@ -551,7 +553,7 @@ func findAllWorkspaces() []WorkspaceInfo {
 
 	// Check if baseDir itself is a git repo
 	if isGitRepo(baseDir) {
-		ws := getWorkspaceInfo(baseDir, filepath.Base(baseDir), primaryRepoName)
+		ws := getWorkspaceInfo(baseDir, agentWorkspaceRoot, filepath.Base(baseDir), primaryRepoName)
 		workspaces = append(workspaces, ws)
 		return workspaces
 	}
@@ -568,7 +570,7 @@ func findAllWorkspaces() []WorkspaceInfo {
 		}
 		subdir := filepath.Join(baseDir, entry.Name())
 		if isGitRepo(subdir) {
-			ws := getWorkspaceInfo(subdir, entry.Name(), primaryRepoName)
+			ws := getWorkspaceInfo(subdir, filepath.Join(agentWorkspaceRoot, entry.Name()), entry.Name(), primaryRepoName)
 			workspaces = append(workspaces, ws)
 		}
 	}
@@ -577,10 +579,11 @@ func findAllWorkspaces() []WorkspaceInfo {
 }
 
 // getWorkspaceInfo builds workspace info for a git repository
-func getWorkspaceInfo(repoPath, name, primaryRepoName string) WorkspaceInfo {
+func getWorkspaceInfo(repoPath, agentPath, name, primaryRepoName string) WorkspaceInfo {
 	ws := WorkspaceInfo{
 		Name:      name,
 		Path:      repoPath,
+		AgentPath: agentPath,
 		IsPrimary: name == primaryRepoName,
 	}
 

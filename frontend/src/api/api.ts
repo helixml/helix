@@ -7975,6 +7975,7 @@ export interface TypesWorkspaceInfo {
   has_helix_specs?: boolean;
   is_primary?: boolean;
   name?: string;
+  path?: string;
 }
 
 export interface TypesWorkspaceReviewFileContent {

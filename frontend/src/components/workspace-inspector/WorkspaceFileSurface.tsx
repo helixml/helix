@@ -10,14 +10,18 @@ import WorkspaceFileTree from "./WorkspaceFileTree";
 interface WorkspaceFileSurfaceProps {
   sessionId: string;
   workspace?: string;
+  workspacePath?: string;
   path: string | null;
+  revealPath: string | null;
   onOpenFile: (path: string) => void;
 }
 
 const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
   sessionId,
   workspace,
+  workspacePath,
   path,
+  revealPath,
   onOpenFile,
 }) => {
   const lightTheme = useLightTheme();
@@ -53,7 +57,7 @@ const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
         ) : item ? (
           <CodeView
             items={item}
-            style={{ height: "100%", minHeight: 0 }}
+            style={{ height: "100%", minHeight: 0, overflow: "auto" }}
             options={{
               theme: PIERRE_THEMES,
               themeType: lightTheme.isLight ? "light" : "dark",
@@ -68,7 +72,14 @@ const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
         ) : null}
       </Box>
       <Box sx={{ width: "42%", minWidth: 260, maxWidth: 440, minHeight: 0 }}>
-        <WorkspaceFileTree sessionId={sessionId} workspace={workspace} selectedPath={path} onOpenFile={onOpenFile} />
+        <WorkspaceFileTree
+          sessionId={sessionId}
+          workspace={workspace}
+          workspacePath={workspacePath}
+          selectedPath={path}
+          revealPath={revealPath}
+          onOpenFile={onOpenFile}
+        />
       </Box>
     </Box>
   );

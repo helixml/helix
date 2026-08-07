@@ -5,6 +5,16 @@ export interface ChangeStat {
   deletions: number;
 }
 
+export interface ChangeScopeSummary {
+  label: string;
+  fileCount: number;
+}
+
+export const CHANGED_FILES_AUTO_EXPAND_FILE_LIMIT = 5;
+export const CHANGED_FILES_AUTO_EXPAND_LINE_LIMIT = 200;
+export const CHANGED_FILES_PREVIEW_FILE_LIMIT = 3;
+export const CHANGED_FILES_PREVIEW_SCOPE_LIMIT = 4;
+
 export type ChangeTreeNode =
   | { kind: "file"; name: string; path: string; stat: ChangeStat }
   | { kind: "directory"; name: string; path: string; stat: ChangeStat; children: ChangeTreeNode[] };
@@ -31,6 +41,67 @@ export function summarizeChanges(files: TypesInteractionCodeChangeFile[]): Chang
     }),
     { additions: 0, deletions: 0 },
   );
+}
+
+function pathSegments(path: string): string[] {
+  return path.replace(/\\/g, "/").split("/").filter(Boolean);
+}
+
+export function changedFileName(path: string): string {
+  return pathSegments(path).at(-1) || path;
+}
+
+function changedFileScope(path: string): string {
+  const segments = pathSegments(path);
+  return segments.length > 1 ? segments[0] || "root" : "root";
+}
+
+export function shouldAutoExpandChangedFiles(
+  files: TypesInteractionCodeChangeFile[],
+  isLatest: boolean,
+): boolean {
+  if (!isLatest || files.length > CHANGED_FILES_AUTO_EXPAND_FILE_LIMIT) return false;
+  const stat = summarizeChanges(files);
+  return stat.additions + stat.deletions <= CHANGED_FILES_AUTO_EXPAND_LINE_LIMIT;
+}
+
+export function formatCompactChangeCount(value: number): string {
+  if (value < 1_000) return String(value);
+  if (value < 1_000_000) {
+    const thousands = value / 1_000;
+    return `${thousands < 10 ? thousands.toFixed(1).replace(/\.0$/, "") : Math.round(thousands)}k`;
+  }
+  if (value < 1_000_000_000) {
+    const millions = value / 1_000_000;
+    return `${millions < 10 ? millions.toFixed(1).replace(/\.0$/, "") : Math.round(millions)}m`;
+  }
+  const billions = value / 1_000_000_000;
+  return `${billions < 10 ? billions.toFixed(1).replace(/\.0$/, "") : Math.round(billions)}b`;
+}
+
+export function summarizeChangedFileScopes(
+  files: TypesInteractionCodeChangeFile[],
+  limit = CHANGED_FILES_PREVIEW_SCOPE_LIMIT,
+): ChangeScopeSummary[] {
+  const scopes = new Map<string, { fileCount: number; firstIndex: number }>();
+  codeChangeFiles(files).forEach((file, index) => {
+    const label = changedFileScope(file.path);
+    const current = scopes.get(label);
+    scopes.set(label, {
+      fileCount: (current?.fileCount || 0) + 1,
+      firstIndex: current?.firstIndex ?? index,
+    });
+  });
+
+  return Array.from(scopes, ([label, scope]) => ({ label, ...scope }))
+    .sort(
+      (left, right) =>
+        right.fileCount - left.fileCount ||
+        left.firstIndex - right.firstIndex ||
+        left.label.localeCompare(right.label),
+    )
+    .slice(0, limit)
+    .map(({ label, fileCount }) => ({ label, fileCount }));
 }
 
 function compact(node: ChangeTreeNode): ChangeTreeNode {
@@ -92,12 +163,15 @@ export function buildChangeTree(files: TypesInteractionCodeChangeFile[]): Change
   return toNodes(root);
 }
 
-export function representativeFiles(files: TypesInteractionCodeChangeFile[], limit = 3) {
+export function representativeFiles(
+  files: TypesInteractionCodeChangeFile[],
+  limit = CHANGED_FILES_PREVIEW_FILE_LIMIT,
+) {
   const selected: ReturnType<typeof codeChangeFiles> = [];
   const paths = new Set<string>();
   const scopes = new Set<string>();
   for (const file of codeChangeFiles(files)) {
-    const scope = file.path.split("/")[0] || "root";
+    const scope = changedFileScope(file.path);
     if (scopes.has(scope)) continue;
     selected.push(file);
     paths.add(file.path);

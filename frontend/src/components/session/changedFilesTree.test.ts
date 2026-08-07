@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildChangeTree, representativeFiles, summarizeChanges } from "./changedFilesTree";
+import {
+  buildChangeTree,
+  changedFileName,
+  formatCompactChangeCount,
+  representativeFiles,
+  shouldAutoExpandChangedFiles,
+  summarizeChangedFileScopes,
+  summarizeChanges,
+} from "./changedFilesTree";
 
 const files = [
   { path: "frontend/src/App.tsx", additions: 8, deletions: 2 },
@@ -26,5 +34,28 @@ describe("changedFilesTree", () => {
       "api/pkg/server.go",
       "design/review.md",
     ]);
+  });
+
+  it("summarizes prominent scopes and normalizes Windows paths", () => {
+    expect(summarizeChangedFileScopes([
+      ...files,
+      { path: "frontend\\src\\Other.tsx", additions: 1, deletions: 0 },
+      { path: "README.md", additions: 1, deletions: 0 },
+    ])).toEqual([
+      { label: "frontend", fileCount: 3 },
+      { label: "api", fileCount: 1 },
+      { label: "design", fileCount: 1 },
+      { label: "root", fileCount: 1 },
+    ]);
+    expect(changedFileName("frontend\\src\\Other.tsx")).toBe("Other.tsx");
+  });
+
+  it("uses the T3 compact thresholds and stat formatting", () => {
+    expect(shouldAutoExpandChangedFiles(files, true)).toBe(true);
+    expect(shouldAutoExpandChangedFiles(files, false)).toBe(false);
+    expect(shouldAutoExpandChangedFiles([{ path: "big.go", additions: 201 }], true)).toBe(false);
+    expect(formatCompactChangeCount(999)).toBe("999");
+    expect(formatCompactChangeCount(6_500)).toBe("6.5k");
+    expect(formatCompactChangeCount(1_300_000)).toBe("1.3m");
   });
 });

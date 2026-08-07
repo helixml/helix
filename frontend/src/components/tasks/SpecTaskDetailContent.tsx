@@ -160,6 +160,8 @@ interface SpecTaskDetailContentProps {
   taskId: string;
   /** Keep standalone task content inset while allowing sibling drawers to span the workspace. */
   padContent?: boolean;
+  /** Whether tasks awaiting spec review should open the review automatically. */
+  autoOpenReview?: boolean;
   onClose?: () => void;
   /** Called when user clicks "Review Spec" - if provided, opens in workspace pane instead of navigating */
   onOpenReview?: (
@@ -181,6 +183,7 @@ interface SpecTaskDetailContentProps {
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
   padContent = false,
+  autoOpenReview = true,
   onClose,
   onOpenReview,
   onTaskArchived,
@@ -1036,14 +1039,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task?.id, task?.name, task?.project_id, onOpenReview, account]);
 
-  // Auto-open spec review when task is in spec_review or spec_revision status
-  // and design docs are available - triggers once per SPA session per task ID.
-  // handleReviewSpec itself writes to sessionStorage before the async call, so returning
-  // to chat (which remounts this component) never re-triggers the auto-open.
+  // Auto-open spec review when enabled and the task is ready for review.
+  // The Chat task route disables this so selecting a task preserves the Chat context.
+  // handleReviewSpec writes to sessionStorage before the async call, limiting auto-open
+  // to once per SPA session per task ID in views where it remains enabled.
   // The spec_approved_at guard prevents bouncing the user back to the review page in the
   // brief window between approval and the cached task.status transitioning away from spec_review.
   useEffect(() => {
     if (
+      autoOpenReview &&
       task?.id &&
       !getAutoOpenedSpecTasks().has(task.id) &&
       !task?.spec_approved_at &&
@@ -1054,7 +1058,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     ) {
       handleReviewSpec();
     }
-  }, [task?.id, task?.status, task?.spec_approved_at, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
+  }, [autoOpenReview, task?.id, task?.status, task?.spec_approved_at, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
 
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {

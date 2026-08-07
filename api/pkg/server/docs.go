@@ -40774,6 +40774,9 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "path": {
+                    "type": "string"
                 }
             }
         },

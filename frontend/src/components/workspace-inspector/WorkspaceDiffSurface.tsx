@@ -18,7 +18,7 @@ import { Columns2, Copy, Pilcrow, RefreshCw, Rows3, WrapText } from "lucide-reac
 import type { TypesWorkspaceReviewSource } from "../../api/api";
 import useLightTheme from "../../hooks/useLightTheme";
 import useSnackbar from "../../hooks/useSnackbar";
-import { copyTextToClipboard } from "./clipboard";
+import { copyTextToClipboard, workspaceFilePath } from "./clipboard";
 import {
   useTurnWorkspaceReview,
   useWorkspaceReview,
@@ -41,6 +41,7 @@ interface PathContextMenu {
 interface WorkspaceDiffSurfaceProps {
   sessionId: string;
   workspace?: string;
+  workspacePath?: string;
   baseBranch: string;
   pollInterval: number;
   interactionId?: string;
@@ -56,6 +57,7 @@ const sourceLabel = (source: TypesWorkspaceReviewSource | undefined) =>
 const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
   sessionId,
   workspace,
+  workspacePath,
   baseBranch,
   pollInterval,
   interactionId,
@@ -120,9 +122,9 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
   }, [items, selectedFile]);
 
   const copyContextPath = async () => {
-    if (!pathContextMenu) return;
+    if (!pathContextMenu || !workspacePath) return;
     try {
-      await copyTextToClipboard(pathContextMenu.path);
+      await copyTextToClipboard(workspaceFilePath(workspacePath, pathContextMenu.path));
       snackbar.success("Path copied to clipboard");
     } catch {
       snackbar.error("Could not copy path");
@@ -287,7 +289,7 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
             ref={viewerRef}
             items={items}
             className="workspace-code-view"
-            style={{ height: "100%", minHeight: 0 }}
+            style={{ height: "100%", minHeight: 0, overflow: "auto" }}
             options={{
               theme: PIERRE_THEMES,
               themeType: lightTheme.isLight ? "light" : "dark",
@@ -311,9 +313,9 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
         anchorPosition={pathContextMenu ? { left: pathContextMenu.left, top: pathContextMenu.top } : undefined}
         MenuListProps={{ "aria-label": pathContextMenu ? `File options for ${pathContextMenu.path}` : "File options" }}
       >
-        <MenuItem onClick={copyContextPath}>
+        <MenuItem onClick={copyContextPath} disabled={!workspacePath}>
           <ListItemIcon><Copy size={15} /></ListItemIcon>
-          Copy path
+          {workspacePath ? "Copy full path" : "Workspace path unavailable"}
         </MenuItem>
       </Menu>
     </Box>

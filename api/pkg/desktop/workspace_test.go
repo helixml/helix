@@ -73,6 +73,24 @@ func newDesktopTestServer(t *testing.T, workspaceDir string) *Server {
 	return &Server{}
 }
 
+func TestHandleWorkspacesIncludesAgentPath(t *testing.T) {
+	workspaceDir, _, _ := setupTestRepoWithRemote(t, "testproj", false)
+	s := newDesktopTestServer(t, workspaceDir)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/workspaces", nil)
+	s.handleWorkspaces(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+	var resp WorkspacesResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Workspaces, 1)
+	assert.Empty(t, resp.Workspaces[0].Path)
+	assert.Equal(t, "/home/retro/work/testproj", resp.Workspaces[0].AgentPath)
+	assert.Contains(t, rec.Body.String(), `"path":`)
+	assert.NotContains(t, rec.Body.String(), workspaceDir)
+}
+
 // TestHandleWorkspaceStatus_Dirty covers the happy path of the modal-
 // open check: workspace with one uncommitted file should return
 // uncommitted_files=1 and is_dirty derivable on the caller side.
@@ -190,7 +208,7 @@ func TestHandleWorkspaceCommitAndPush_Clean(t *testing.T) {
 // strings, the alert reappears.
 func TestSafeGitArgRE_AtSink(t *testing.T) {
 	cases := []struct {
-		arg   string
+		arg    string
 		wantOK bool
 	}{
 		// Real args runGit's callers pass.
