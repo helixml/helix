@@ -484,14 +484,11 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/clipboard", s.handleClipboard)
 	mux.HandleFunc("/upload", s.handleUpload)
 	mux.HandleFunc("/file", s.handleFile)
-	mux.HandleFunc("/input", s.handleInput)
 	mux.HandleFunc("/ws/input", s.handleWSInput)      // Direct WebSocket input
 	mux.HandleFunc("/ws/stream", s.handleWSStream)    // Direct WebSocket video streaming
 	mux.HandleFunc("/exec", s.handleExec)             // Execute command in container (for benchmarking)
-	mux.HandleFunc("/diff", s.handleDiff)             // Git diff for live file changes
 	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
 	mux.HandleFunc("/workspace/review", s.handleWorkspaceReview)
-	mux.HandleFunc("/workspace/review/file-contents", s.handleWorkspaceReviewFileContents)
 	mux.HandleFunc("/workspace/files", s.handleWorkspaceFiles)
 	mux.HandleFunc("/workspace/file", s.handleWorkspaceFile)
 	mux.HandleFunc("/workspace/checkpoints/capture", s.handleWorkspaceCheckpointCapture)

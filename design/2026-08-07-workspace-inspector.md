@@ -48,6 +48,8 @@ Every desktop round-trip made for capture carries a real deadline. Both capture 
 
 Boundaries retained for the first release: the browser is read-only, file reads are capped at 1 MiB, raw patch previews at 512 KiB, and file listings at 20,000 entries. The inspector can switch among detected Git workspaces, but the previous special `helix-specs` branch projection is not mixed into the repository browser. Markdown rendering, image preview, line comments, and editing remain follow-ups rather than partially implemented modes.
 
+The public Pierre package does not expose the private lazy-context integration described in the proposal, so the unused `workspace-review/file-contents` route was removed rather than retained as a speculative API. The workspace review patch remains the sole diff contract. The superseded `diff` route and its manual assembler were removed with the old renderer. The unused HTTP input proxy was removed in favor of `ws/input`, and the unused external-agent video-stats proxy was removed while retaining Hydra's active internal stats path.
+
 ### Implementation decisions and deviations
 
 The compatibility spike approved the Pierre packages for the read-only path and kept them in a lazy `WorkspaceInspector` chunk. Helix does not carry T3's private Pierre patch. The package's internal syntax pipeline owns tokenization; an additional Helix worker-pool wrapper was not added because it would duplicate that runtime without evidence that the default is a bottleneck.

@@ -67,19 +67,6 @@ type WorkspaceFileResponse struct {
 	Binary      bool   `json:"binary"`
 }
 
-type WorkspaceReviewFileContentsResponse struct {
-	Old WorkspaceReviewFileContent `json:"old"`
-	New WorkspaceReviewFileContent `json:"new"`
-}
-
-type WorkspaceReviewFileContent struct {
-	Path       string `json:"path,omitempty"`
-	Contents   string `json:"contents,omitempty"`
-	ByteLength int64  `json:"byte_length"`
-	Truncated  bool   `json:"truncated"`
-	Binary     bool   `json:"binary"`
-}
-
 type InteractionCodeChanges struct {
 	Status         string                      `json:"status"`
 	Workspace      string                      `json:"workspace,omitempty"`

@@ -102,24 +102,6 @@ func (apiServer *HelixAPIServer) getWorkspaceFile(w http.ResponseWriter, req *ht
 	apiServer.proxyAuthorizedWorkspaceGET(w, req, "/workspace/file", &types.WorkspaceFileResponse{})
 }
 
-// getWorkspaceReviewFileContents godoc
-// @Summary Read old and new diff file contents
-// @Description Returns bounded old/new contents for lazy diff context expansion.
-// @Tags ExternalAgents
-// @Produce json
-// @Param sessionID path string true "Session ID"
-// @Param workspace query string false "Workspace name"
-// @Param source query string true "Review source"
-// @Param base query string false "Base ref"
-// @Param old_path query string false "Old repository-relative path"
-// @Param new_path query string false "New repository-relative path"
-// @Success 200 {object} types.WorkspaceReviewFileContentsResponse
-// @Router /api/v1/external-agents/{sessionID}/workspace-review/file-contents [get]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) getWorkspaceReviewFileContents(w http.ResponseWriter, req *http.Request) {
-	apiServer.proxyAuthorizedWorkspaceGET(w, req, "/workspace/review/file-contents", &types.WorkspaceReviewFileContentsResponse{})
-}
-
 func (apiServer *HelixAPIServer) proxyAuthorizedWorkspaceGET(w http.ResponseWriter, req *http.Request, desktopPath string, response interface{}) {
 	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req)
 	if !ok {

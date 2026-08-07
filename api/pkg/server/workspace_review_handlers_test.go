@@ -136,10 +136,9 @@ func (s *WorkspaceReviewHandlersSuite) TestTurnReviewIgnoresClientSuppliedRefs()
 
 func (s *WorkspaceReviewHandlersSuite) TestWorkspaceProxiesRejectUnauthorizedCallers() {
 	for name, handler := range map[string]func(http.ResponseWriter, *http.Request){
-		"review":        s.server.getWorkspaceReview,
-		"files":         s.server.getWorkspaceFiles,
-		"file":          s.server.getWorkspaceFile,
-		"file-contents": s.server.getWorkspaceReviewFileContents,
+		"review": s.server.getWorkspaceReview,
+		"files":  s.server.getWorkspaceFiles,
+		"file":   s.server.getWorkspaceFile,
 	} {
 		s.store.EXPECT().GetSession(gomock.Any(), "ses_1").
 			Return(&types.Session{ID: "ses_1", Owner: "usr_someone_else"}, nil)

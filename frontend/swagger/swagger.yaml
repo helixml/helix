@@ -12731,26 +12731,6 @@ definitions:
       path:
         type: string
     type: object
-  types.WorkspaceReviewFileContent:
-    properties:
-      binary:
-        type: boolean
-      byte_length:
-        type: integer
-      contents:
-        type: string
-      path:
-        type: string
-      truncated:
-        type: boolean
-    type: object
-  types.WorkspaceReviewFileContentsResponse:
-    properties:
-      new:
-        $ref: '#/definitions/types.WorkspaceReviewFileContent'
-      old:
-        $ref: '#/definitions/types.WorkspaceReviewFileContent'
-    type: object
   types.WorkspaceReviewResponse:
     properties:
       generated_at:
@@ -15427,67 +15407,6 @@ paths:
       summary: Configure pending session (deprecated - no-op)
       tags:
       - ExternalAgents
-  /api/v1/external-agents/{sessionID}/diff:
-    get:
-      description: |-
-        Returns git diff information from the running desktop container.
-        Shows changes between the current working directory and base branch,
-        including uncommitted changes.
-      parameters:
-      - description: Session ID
-        in: path
-        name: sessionID
-        required: true
-        type: string
-      - description: 'Base branch to compare against (default: main)'
-        in: query
-        name: base
-        type: string
-      - description: 'Include full diff content for each file (default: false)'
-        in: query
-        name: include_content
-        type: boolean
-      - description: Filter to specific file path
-        in: query
-        name: path
-        type: string
-      - description: Name of the workspace/repo to diff (optional, defaults to first
-          found)
-        in: query
-        name: workspace
-        type: string
-      - description: If true, diff the helix-specs branch uncommitted changes instead
-        in: query
-        name: helix_specs
-        type: boolean
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Diff response with files list
-          schema:
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Get file diff from container
-      tags:
-      - ExternalAgents
   /api/v1/external-agents/{sessionID}/exec:
     post:
       consumes:
@@ -15572,53 +15491,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Read an uploaded chat attachment
-      tags:
-      - ExternalAgents
-  /api/v1/external-agents/{sessionID}/input:
-    post:
-      consumes:
-      - application/json
-      description: Send keyboard and mouse input events to the remote desktop. Supports
-        single events or batches.
-      parameters:
-      - description: Session ID
-        in: path
-        name: sessionID
-        required: true
-        type: string
-      - description: 'Input event(s). Single event: {type, keycode, state} or batch:
-          {events: [...]}'
-        in: body
-        name: input
-        required: true
-        schema:
-          type: object
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: success response with processed count
-          schema:
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Send input events to sandbox
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/upload:
@@ -15778,48 +15650,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get workspace review sources
-      tags:
-      - ExternalAgents
-  /api/v1/external-agents/{sessionID}/workspace-review/file-contents:
-    get:
-      description: Returns bounded old/new contents for lazy diff context expansion.
-      parameters:
-      - description: Session ID
-        in: path
-        name: sessionID
-        required: true
-        type: string
-      - description: Workspace name
-        in: query
-        name: workspace
-        type: string
-      - description: Review source
-        in: query
-        name: source
-        required: true
-        type: string
-      - description: Base ref
-        in: query
-        name: base
-        type: string
-      - description: Old repository-relative path
-        in: query
-        name: old_path
-        type: string
-      - description: New repository-relative path
-        in: query
-        name: new_path
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.WorkspaceReviewFileContentsResponse'
-      security:
-      - BearerAuth: []
-      summary: Read old and new diff file contents
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/workspace-review/turn/{interactionID}:
