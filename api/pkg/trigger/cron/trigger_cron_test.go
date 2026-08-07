@@ -1251,3 +1251,76 @@ func TestExtractTimezoneFromCron(t *testing.T) {
 		})
 	}
 }
+
+// A scheduled spec_task must be able to ask for just-do-it mode, and the flag has
+// to survive into the task request. It is load-bearing far beyond "skip the specs
+// step": without it the run is created in spec_generation and parks in spec_review
+// waiting for an approval nobody gives, and because BranchName is only assigned on
+// the transition to implementation, the agent is then refused every git push
+// except helix-specs ("This push is restricted to: helix-specs"). Dropping this
+// field silently is what made scheduled runs never do their job.
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskActionCarriesJustDoItMode() {
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "svc-account",
+		OwnerType: types.OwnerTypeUser,
+	}
+
+	trigger := &types.CronTrigger{
+		Input:        "Run the daily prospecting pass",
+		Action:       "spec_task",
+		ProjectID:    "proj-456",
+		JustDoItMode: true,
+	}
+
+	mockCreator := &mockSpecTaskCreator{
+		createFunc: func(_ context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+			suite.True(req.JustDoItMode, "JustDoItMode must reach the task request, or the run parks in spec_review and cannot push")
+			// AutoStart is what takes it out of the backlog; both are needed for the
+			// run to reach implementation.
+			suite.True(req.AutoStart)
+			return &types.SpecTask{ID: "task-789", Name: "Run the daily prospecting pass"}, nil
+		},
+	}
+
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).Return(nil)
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, nil, app, "svc-account", "trigger-123", trigger, "test-session")
+	suite.NoError(err)
+	suite.Equal(types.TriggerExecutionStatusSuccess, result.Status)
+}
+
+// The default must stay false so an existing trigger that never asked for
+// just-do-it keeps generating specs — this change is opt-in.
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskActionDefaultsToSpecGeneration() {
+	app := &types.App{ID: "app-123", Owner: "svc-account", OwnerType: types.OwnerTypeUser}
+	trigger := &types.CronTrigger{Input: "Plan something", Action: "spec_task", ProjectID: "proj-456"}
+
+	mockCreator := &mockSpecTaskCreator{
+		createFunc: func(_ context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+			suite.False(req.JustDoItMode, "unset on the trigger must stay unset on the request")
+			return &types.SpecTask{ID: "task-789", Name: "Plan something"}, nil
+		},
+	}
+
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e *types.TriggerExecution) (*types.TriggerExecution, error) { return e, nil },
+	)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).Return(nil)
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e *types.TriggerExecution) (*types.TriggerExecution, error) { return e, nil },
+	)
+
+	_, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, nil, app, "svc-account", "trigger-123", trigger, "test-session")
+	suite.NoError(err)
+}

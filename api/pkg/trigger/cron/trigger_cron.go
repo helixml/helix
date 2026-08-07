@@ -867,6 +867,12 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 		// subscription. Empty keeps the old behaviour; the delegation check
 		// downstream still decides whether the grant actually exists.
 		CredentialOwnerID: trigger.CredentialOwnerID,
+		// Skip spec generation when the trigger asks for it. An unattended run
+		// left in spec_review waits forever for an approval nobody gives, and —
+		// because BranchName is only assigned on the transition to implementation
+		// — it is also refused every git push except helix-specs. See the note on
+		// CronTrigger.JustDoItMode.
+		JustDoItMode: trigger.JustDoItMode,
 	})
 	if err != nil {
 		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, triggerID, trigger.Emails, err)
