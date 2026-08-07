@@ -1866,6 +1866,23 @@ type CronTrigger struct {
 	// named user must have delegated their subscription to this organization or it
 	// is ignored. Currently honoured by the spec_task action.
 	CredentialOwnerID string `json:"credential_owner_id,omitempty" yaml:"credential_owner_id,omitempty"`
+
+	// JustDoItMode makes the spec_task action skip spec generation and go straight
+	// to implementation, exactly as the "Just Do It" checkbox does for a task
+	// dispatched by hand.
+	//
+	// It matters more than it looks. Without it a scheduled run is created in
+	// spec_generation and parks in spec_review waiting for a human to approve
+	// specs — which, for an unattended job that fires at 9am daily, nobody ever
+	// does. Worse, a task that never reaches implementation is never assigned a
+	// BranchName, and the git pre-receive hook derives its allow-list from exactly
+	// that field: the agent is then refused any push except helix-specs ("This
+	// push is restricted to: helix-specs"), so its work cannot land at all. That
+	// is the mechanism behind "scheduled runs never do their job".
+	//
+	// Defaults false so existing triggers keep their current behaviour; an
+	// orchestrator scheduling autonomous work should set it true.
+	JustDoItMode bool `json:"just_do_it_mode,omitempty" yaml:"just_do_it_mode,omitempty"`
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created

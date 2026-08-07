@@ -194,7 +194,14 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		})
 		if repoErr == nil {
 			for _, r := range projectRepos {
-				if r.Name != repo.Name && r.ExternalURL != "" {
+				// Internal repos belong here too. Filtering on ExternalURL used to
+				// drop them, which directly contradicted the merge path:
+				// ensurePullRequestsForAllRepos fast-forwards exactly these
+				// non-primary internal repos, so it waits for a branch the agent
+				// was never told to push. In a project whose only internal repo is
+				// the shared playbook repo, that made contributing to it
+				// impossible — the agent never heard the repo named.
+				if r.Name != repo.Name {
 					nonPrimaryRepoNames = append(nonPrimaryRepoNames, r.Name)
 				}
 			}
