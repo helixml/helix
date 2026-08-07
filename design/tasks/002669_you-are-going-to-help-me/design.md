@@ -147,3 +147,52 @@ runs this in-browser against the installed token without needing a terminal.
 - `frontend/src/components/dashboard/slackManifest.ts` derives `BOT_EVENTS`
   from `BOT_SCOPES` via a `SCOPE_EVENT` map, so `message.*` events stay in sync
   with `*:history` scopes automatically. Do not hand-maintain the event list.
+
+## Implementation Notes (live findings)
+
+### Confirmed app identity
+
+- **App:** `Helix Meta Org`, App ID `A0BDUQTBLF4`, workspace **MLOps.community** (`T7FHA770F`).
+- Six other Helix-branded apps exist in the same workspace (`FindOS`, `HelixOS`,
+  `Helix Launchpad`, `Helix`, `Helix Meta`), so the exact-name match mattered.
+- Admin login is `luke.marsden@gmail.com` via Google SSO, with a Google
+  device-push 2FA step that only the human can complete.
+- Slack now redirects `api.slack.com/apps/<id>/oauth` to the newer in-client
+  settings UI at `app.slack.com/app-settings/<team>/<app>/oauth`. Same page,
+  different chrome.
+
+### This app IS bound to a live deployment
+
+Redirect URL is `https://meta.helix.ml/api/v1/slack/oauth/callback`. So the app
+backs the live `meta.helix.ml` Helix deployment — the reinstall in D3 will cycle
+its bot token, and the Helix-side **Connect workspace** refresh is required, not
+optional.
+
+### Scope audit result — three scopes missing, not two
+
+Bot Token Scopes currently on the app (11):
+
+```
+app_mentions:read   channels:history   channels:join   channels:read
+chat:write          chat:write.customize   files:write  groups:history
+groups:read         im:history         reactions:write
+```
+
+Diffed against `defaultSlackBotScopes` (`api/pkg/server/helix_org_slack.go`),
+**three** are missing, not the two Priya reported:
+
+| Missing scope | Why it matters |
+|---|---|
+| `users:read` | Priya's request — required alongside email lookup |
+| `users:read.email` | Priya's request — `users.lookupByEmail` |
+| `im:write` | **Not reported by anyone.** Required to open a DM. Without it the `ask_human` Slack DM delivery path cannot work — it can only post to channels. |
+
+`im:write` is a latent bug in this install: the org human Slack delivery feature
+(`design/2026-07-15-org-human-slack-delivery.md`) documents `im:write` as
+required "to open a DM", and the app has `im:history` but not `im:write`. The
+install predates that feature exactly as suspected.
+
+Gotcha for future agents: the "Reinstall to <workspace>" link on the OAuth page
+carries the currently-granted scope list in its `scope=` query parameter. That
+is the fastest way to read what the *live token* actually holds, as opposed to
+what the app config lists.
