@@ -7,7 +7,6 @@ import React, {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Avatar,
   Box,
   Button,
   Typography,
@@ -28,8 +27,9 @@ import {
 } from "@mui/material";
 import { Add as AddIcon, AttachFile as AttachFileIcon, Close as CloseIcon, CloudUpload as CloudUploadIcon } from "@mui/icons-material";
 import { useDropzone } from "react-dropzone";
-import { ChevronDown, UserCircle2, X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";
+import OrganizationUserAvatar, { resolveOrganizationUser } from "../widgets/OrganizationUserAvatar";
 import GooseRecipeSelector from "./GooseRecipeSelector";
 import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
 
@@ -40,7 +40,6 @@ import {
   TypesBranchMode,
   TypesSpecTask,
   TypesSpecTaskStatus,
-  TypesUser,
 } from "../../api/api";
 import AgentDropdown from "../agent/AgentDropdown";
 import CodingAgentForm, {
@@ -221,24 +220,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   }, [currentUserId, assigneeTouched]);
 
   const assignedUser = useMemo(() => {
-    if (!assigneeId) return undefined;
-    const member = orgMembers.find((m) => m.user_id === assigneeId);
-    return member?.user as TypesUser | undefined;
-  }, [assigneeId, orgMembers]);
-
-  const getAssigneeDisplayName = (user: TypesUser | undefined): string => {
-    if (!user) return "Unknown user";
-    return user.full_name || user.username || user.email || "Unknown user";
-  };
-  const getAssigneeInitials = (user: TypesUser | undefined): string => {
-    if (!user) return "?";
-    const name = user.full_name || user.username || user.email || "";
-    const parts = name.split(" ");
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-  };
+    return resolveOrganizationUser(assigneeId, orgMembers, account.user);
+  }, [assigneeId, orgMembers, account.user?.id]);
 
   // Branch configuration state
   const [branchMode, setBranchMode] = useState<TypesBranchMode>(
@@ -666,16 +649,17 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             }}
           >
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
-              {assignedUser ? (
-                <Avatar sx={{ width: 24, height: 24, fontSize: "0.7rem" }}>
-                  {getAssigneeInitials(assignedUser)}
-                </Avatar>
-              ) : (
-                <UserCircle2 size={20} style={{ opacity: 0.5 }} />
-              )}
+              <OrganizationUserAvatar
+                userId={assigneeId || undefined}
+                members={orgMembers}
+                currentUser={account.user}
+                size={24}
+                fontSize="0.7rem"
+                iconSize={20}
+              />
               <Typography variant="body2" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {assignedUser
-                  ? `Assignee: ${getAssigneeDisplayName(assignedUser)}`
+                  ? `Assignee: ${assignedUser.full_name || assignedUser.username || assignedUser.email}`
                   : "Assignee: Unassigned"}
               </Typography>
             </Box>
@@ -683,7 +667,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           <AssigneeSelector
             assigneeId={assigneeId || undefined}
             members={orgMembers}
-            currentUserId={currentUserId}
+            currentUser={account.user}
             onAssigneeChange={(userId) => {
               setAssigneeId(userId || "");
               setAssigneeTouched(true);
