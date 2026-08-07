@@ -1145,7 +1145,9 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 	if updateReq.Description != "" {
 		task.Description = updateReq.Description
-		task.Name = services.GenerateTaskNameFromPrompt(updateReq.Description)
+	}
+	if name := strings.TrimSpace(updateReq.Name); name != "" {
+		task.Name = name
 	}
 	if updateReq.JustDoItMode != nil {
 		task.JustDoItMode = *updateReq.JustDoItMode

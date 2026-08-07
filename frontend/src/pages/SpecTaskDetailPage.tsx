@@ -166,6 +166,7 @@ const SpecTaskDetailPage: FC = () => {
           <SpecTaskDetailContent
             taskId={taskId}
             onClose={handleBack}
+            allowContentCollapse={isChatView}
             padContent
             autoOpenReview={shouldAutoOpenSpecTaskReview(route.name)}
           />

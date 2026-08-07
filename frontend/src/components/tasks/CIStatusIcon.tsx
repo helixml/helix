@@ -1,10 +1,10 @@
 import React from "react";
-import { Box, Tooltip, Typography, keyframes } from "@mui/material";
+import { Box, IconButton, Tooltip, Typography, keyframes } from "@mui/material";
 import {
-  CheckCircle as PassedIcon,
-  Cancel as FailedIcon,
-  Sync as RunningIcon,
-} from "@mui/icons-material";
+  CircleCheck as PassedIcon,
+  CircleX as FailedIcon,
+  RefreshCw as RunningIcon,
+} from "lucide-react";
 import { TypesRepoPR } from "../../api/api";
 
 const spin = keyframes`
@@ -56,20 +56,18 @@ const CIStatusIcon: React.FC<CIStatusIconProps> = ({ prs }) => {
   let label: string;
   switch (worst) {
     case "passed":
-      icon = <PassedIcon sx={{ fontSize: 14 }} />;
+      icon = <PassedIcon size={18} />;
       color = "#10b981";
       label = "CI passed";
       break;
     case "failed":
-      icon = <FailedIcon sx={{ fontSize: 14 }} />;
+      icon = <FailedIcon size={18} />;
       color = "#ef4444";
       label = "CI failed";
       break;
     case "running":
       icon = (
-        <RunningIcon
-          sx={{ fontSize: 14, animation: `${spin} 2s linear infinite` }}
-        />
+        <RunningIcon size={18} style={{ animation: `${spin} 2s linear infinite` }} />
       );
       color = "#f59e0b";
       label = "CI running";
@@ -106,19 +104,22 @@ const CIStatusIcon: React.FC<CIStatusIconProps> = ({ prs }) => {
 
   return (
     <Tooltip title={tooltip} placement="top" arrow>
-      <Box
+      <IconButton
+        size="small"
+        aria-label={targetURL ? `${label} — open checks` : label}
         onClick={handleClick}
+        disabled={!targetURL}
         sx={{
-          display: "inline-flex",
-          alignItems: "center",
+          width: 30,
+          height: 30,
+          p: 0.75,
           color,
-          cursor: targetURL ? "pointer" : "default",
-          ml: 0.25,
           flexShrink: 0,
+          "&.Mui-disabled": { color },
         }}
       >
         {icon}
-      </Box>
+      </IconButton>
     </Tooltip>
   );
 };

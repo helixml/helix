@@ -70,6 +70,7 @@ const renderEmptyProject = (collapsed = false) => render(
     onToggle={vi.fn()}
     onNewTask={vi.fn()}
     onOpenItem={vi.fn()}
+    onOpenItemContextMenu={vi.fn()}
     onArchiveItem={vi.fn()}
   />,
 )
@@ -113,6 +114,38 @@ describe('ProjectChatGroup', () => {
     expect(screen.queryByText('6+')).not.toBeInTheDocument()
     expect(screen.queryByText('7')).not.toBeInTheDocument()
   })
+
+  it('opens the item context menu without navigating', () => {
+    const onOpenItem = vi.fn()
+    const onOpenItemContextMenu = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={vi.fn()}
+        onOpenItem={onOpenItem}
+        onOpenItemContextMenu={onOpenItemContextMenu}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    const row = screen.getByText('Session 1').closest('[role="button"]')
+    expect(row).not.toBeNull()
+    fireEvent.contextMenu(row!)
+
+    expect(onOpenItemContextMenu).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'session-1', kind: 'session' }),
+    )
+    expect(onOpenItem).not.toHaveBeenCalled()
+  })
 })
 
 describe('ProjectChatGroup archived mode', () => {
@@ -141,6 +174,7 @@ describe('ProjectChatGroup archived mode', () => {
         archivingItemId={null}
         onToggle={vi.fn()}
         onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
         onArchiveItem={onArchiveItem}
       />,
     )
@@ -171,6 +205,7 @@ describe('ProjectChatGroup pagination', () => {
         archivingItemId={null}
         onToggle={vi.fn()}
         onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
         onArchiveItem={vi.fn()}
       />,
     )
@@ -219,6 +254,7 @@ describe('ProjectChatGroup pagination', () => {
         archivingItemId={null}
         onToggle={vi.fn()}
         onOpenItem={onOpenItem}
+        onOpenItemContextMenu={vi.fn()}
         onArchiveItem={vi.fn()}
       />,
     )

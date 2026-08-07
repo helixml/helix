@@ -1,4 +1,4 @@
-import { FC, MutableRefObject, useState } from 'react'
+import { FC, MouseEvent, MutableRefObject, useState } from 'react'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
@@ -61,6 +61,7 @@ type ProjectChatGroupProps = {
   onToggle: () => void
   onNewTask?: () => void
   onOpenItem: (item: SidebarItem) => void
+  onOpenItemContextMenu: (event: MouseEvent<HTMLElement>, item: SidebarItem) => void
   onArchiveItem: (item: SidebarItem) => void
   manualSorting?: boolean
   dragHandleProps?: SortableProjectHandleProps
@@ -87,6 +88,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   onToggle,
   onNewTask,
   onOpenItem,
+  onOpenItemContextMenu,
   onArchiveItem,
   manualSorting = false,
   dragHandleProps,
@@ -323,6 +325,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                 role="button"
                 tabIndex={0}
                 onClick={() => onOpenItem(item)}
+                onContextMenu={(event) => onOpenItemContextMenu(event, item)}
                 onKeyDown={(event) => {
                   if (event.target !== event.currentTarget) return
                   if (event.key === 'Enter' || event.key === ' ') {

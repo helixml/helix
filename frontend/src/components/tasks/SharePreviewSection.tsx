@@ -165,6 +165,7 @@ const SharePreviewSection: FC<SharePreviewSectionProps> = ({ sessionId }) => {
           startIcon={<ShareIcon />}
           disabled={mintMutation.isPending}
           onClick={handleMint}
+          sx={{ textTransform: 'none' }}
         >
           {hasTokens ? 'Share another port' : 'Create share URL'}
         </Button>

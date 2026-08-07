@@ -12,15 +12,15 @@ import {
   Typography,
 } from "@mui/material";
 import {
-  PlayArrow as PlayIcon,
-  Description as SpecIcon,
-  CheckCircle as ApproveIcon,
-  Close as CloseIcon,
-  RocketLaunch as LaunchIcon,
-  SkipNext as SkipIcon,
-  Replay as ReopenIcon,
-} from "@mui/icons-material";
-import { GitPullRequest } from "lucide-react";
+  CircleCheck as ApproveIcon,
+  FileText as SpecIcon,
+  GitPullRequest,
+  Play as PlayIcon,
+  Rocket as LaunchIcon,
+  RotateCcw as ReopenIcon,
+  SkipForward as SkipIcon,
+  X as CloseIcon,
+} from "lucide-react";
 import {
   useApproveImplementation,
   useStopAgent,
@@ -85,11 +85,14 @@ const PRStateIcon: React.FC<{ state?: string }> = ({ state }) => {
         sx={{
           display: "inline-flex",
           alignItems: "center",
+          justifyContent: "center",
+          width: 30,
+          height: 30,
           color: PR_STATE_ICON_COLOR[kind],
           flexShrink: 0,
         }}
       >
-        <GitPullRequest size={16} />
+        <GitPullRequest size={18} />
       </Box>
     </Tooltip>
   );
@@ -217,7 +220,7 @@ function CompactActionButton({
     : {};
   return (
     <Tooltip title={tooltip} placement="top">
-      <span style={{ width: fullWidth ? "100%" : "auto", display: "block" }}>
+      <span style={{ width: fullWidth ? "100%" : "auto", display: "inline-flex" }}>
         <Button
           size="small"
           color={color}
@@ -228,8 +231,9 @@ function CompactActionButton({
           {...anchorProps}
           sx={{
             minWidth: 72,
+            height: 40,
             px: 1,
-            py: 0.5,
+            py: 0.4,
             lineHeight: 1,
             textTransform: "none",
             ...sx,
@@ -241,6 +245,11 @@ function CompactActionButton({
               flexDirection: "column",
               alignItems: "center",
               gap: 0.2,
+              lineHeight: 0,
+              "& > svg": {
+                width: 18,
+                height: 18,
+              },
             }}
           >
             {icon}
@@ -430,7 +439,7 @@ export default function SpecTaskActionButtons({
               isQueued || isStartingPlanning ? (
                 <CircularProgress size={18} color="inherit" />
               ) : (
-                <PlayIcon sx={{ fontSize: 18 }} />
+                <PlayIcon size={18} />
               )
             }
             label={startLabel}
@@ -458,7 +467,7 @@ export default function SpecTaskActionButtons({
                 isQueued || isStartingPlanning ? (
                   <CircularProgress size={16} color="inherit" />
                 ) : (
-                  <PlayIcon />
+                  <PlayIcon size={18} />
                 )
               }
               onClick={(e) => {
@@ -501,7 +510,7 @@ export default function SpecTaskActionButtons({
                 isSkipping ? (
                   <CircularProgress size={18} color="inherit" />
                 ) : (
-                  <SkipIcon sx={{ fontSize: 18 }} />
+                  <SkipIcon size={18} />
                 )
               }
               onClick={(e) => {
@@ -535,7 +544,7 @@ export default function SpecTaskActionButtons({
               isQueued || isReviewingSpec ? (
                 <CircularProgress size={18} color="inherit" />
               ) : (
-                <SpecIcon sx={{ fontSize: 18 }} />
+                <SpecIcon size={18} />
               )
             }
             label={isQueued ? "Queued" : "Review Spec"}
@@ -569,7 +578,7 @@ export default function SpecTaskActionButtons({
                 isQueued || isReviewingSpec ? (
                   <CircularProgress size={16} color="inherit" />
                 ) : (
-                  <SpecIcon />
+                  <SpecIcon size={18} />
                 )
               }
               onClick={async (e) => {
@@ -655,7 +664,7 @@ export default function SpecTaskActionButtons({
               isArchiving ? (
                 <CircularProgress size={16} color="inherit" />
               ) : (
-                <CloseIcon sx={{ fontSize: 18 }} />
+                <CloseIcon size={18} />
               )
             }
             label={isArchiving ? "Rejecting..." : "Reject"}
@@ -681,7 +690,7 @@ export default function SpecTaskActionButtons({
               approveImplementationMutation.isPending || rebasePending ? (
                 <CircularProgress size={16} color="inherit" />
               ) : (
-                <ApproveIcon sx={{ fontSize: 18 }} />
+                <ApproveIcon size={18} />
               )
             }
             label={
@@ -703,7 +712,7 @@ export default function SpecTaskActionButtons({
               variant="outlined"
               color="primary"
               disabled={isArchived}
-              icon={isReviewingSpec ? <CircularProgress size={18} color="inherit" /> : <SpecIcon sx={{ fontSize: 18 }} />}
+              icon={isReviewingSpec ? <CircularProgress size={18} color="inherit" /> : <SpecIcon size={18} />}
               label="View Spec"
               onClick={async (e) => {
                 e.stopPropagation();
@@ -736,7 +745,7 @@ export default function SpecTaskActionButtons({
                   isArchiving ? (
                     <CircularProgress size={14} color="inherit" />
                   ) : (
-                    <CloseIcon />
+                    <CloseIcon size={18} />
                   )
                 }
                 onClick={(e) => {
@@ -772,7 +781,7 @@ export default function SpecTaskActionButtons({
                   approveImplementationMutation.isPending || rebasePending ? (
                     <CircularProgress size={14} color="inherit" />
                   ) : (
-                    <ApproveIcon />
+                    <ApproveIcon size={18} />
                   )
                 }
                 onClick={handleOpenPR}
@@ -802,7 +811,7 @@ export default function SpecTaskActionButtons({
                 <Button
                   size={buttonSize}
                   variant="outlined"
-                  startIcon={isReviewingSpec ? <CircularProgress size={16} color="inherit" /> : <SpecIcon />}
+                  startIcon={isReviewingSpec ? <CircularProgress size={16} color="inherit" /> : <SpecIcon size={18} />}
                   onClick={async (e) => {
                     e.stopPropagation();
                     setIsReviewingSpec(true);
@@ -847,20 +856,22 @@ export default function SpecTaskActionButtons({
 
       if (isInline) {
         return (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
             <CompactActionButton
               tooltip={isArchived ? "Task is archived" : ""}
               variant="contained"
               color="secondary"
               disabled={isArchived}
-              icon={<LaunchIcon sx={{ fontSize: 18 }} />}
+              icon={<LaunchIcon size={18} />}
               label={prLabel}
               href={prUrl}
               target="_blank"
               rel="noopener noreferrer"
             />
-            <PRStateIcon state={onlyPR.pr_state} />
-            <CIStatusIcon prs={[onlyPR]} />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+              <PRStateIcon state={onlyPR.pr_state} />
+              <CIStatusIcon prs={[onlyPR]} />
+            </Box>
           </Box>
         );
       }
@@ -873,7 +884,7 @@ export default function SpecTaskActionButtons({
                 size={buttonSize}
                 variant="contained"
                 color="secondary"
-                startIcon={<LaunchIcon />}
+                startIcon={<LaunchIcon size={18} />}
                 component="a"
                 href={prUrl}
                 target="_blank"
@@ -900,7 +911,7 @@ export default function SpecTaskActionButtons({
               variant="contained"
               color="secondary"
               disabled={isArchived}
-              icon={<LaunchIcon sx={{ fontSize: 18 }} />}
+              icon={<LaunchIcon size={18} />}
               label={`${pullRequests.length} PRs`}
               onClick={(e) => {
                 e.stopPropagation();
@@ -934,7 +945,7 @@ export default function SpecTaskActionButtons({
                 size={buttonSize}
                 variant="contained"
                 color="secondary"
-                startIcon={<LaunchIcon />}
+                startIcon={<LaunchIcon size={18} />}
                 onClick={(e) => {
                   e.stopPropagation();
                   setPrMenuAnchor(e.currentTarget);
@@ -989,7 +1000,7 @@ export default function SpecTaskActionButtons({
                 isReopening ? (
                   <CircularProgress size={18} color="inherit" />
                 ) : (
-                  <ReopenIcon sx={{ fontSize: 18 }} />
+                  <ReopenIcon size={18} />
                 )
               }
               onClick={(e) => {
