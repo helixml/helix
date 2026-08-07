@@ -1283,6 +1283,49 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     onTaskArchived,
   ]);
 
+  const renderTaskActions = (variant: "inline" | "stacked") => {
+    if (!task) return null;
+
+    return (
+      <SpecTaskActionButtons
+        task={{
+          id: task.id || "",
+          status: task.status || "",
+          design_docs_pushed_at: task.design_docs_pushed_at,
+          repo_pull_requests: task.repo_pull_requests,
+          base_branch: task.base_branch,
+          branch_name: task.branch_name,
+          archived: task.archived,
+          just_do_it_mode: justDoItMode,
+          planning_session_id: task.planning_session_id,
+          metadata: task.metadata as { error?: string },
+          last_push_at: task.last_push_at,
+        }}
+        variant={variant}
+        onStartPlanning={handleStartPlanning}
+        onReviewSpec={handleReviewSpec}
+        onReject={(shiftKey) => {
+          if (shiftKey) {
+            performArchive();
+          } else {
+            setArchiveConfirmOpen(true);
+          }
+        }}
+        hasExternalRepo={projectRepositories.some(
+          (repository) =>
+            repository.is_external ||
+            repository.external_type ||
+            repository.external_url,
+        )}
+        externalRepoType={projectRepositories.find(
+          (repository) => repository.external_type,
+        )?.external_type}
+        isStartingPlanning={isStartingPlanning}
+        isArchiving={isArchiving}
+      />
+    );
+  };
+
   // Render the details content (used in both desktop left panel and mobile/no-session view)
   const renderDetailsContent = () => (
     <Box sx={{ containerType: "inline-size", maxWidth: 1180, mx: "auto" }}>
@@ -1333,6 +1376,47 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             This task has been archived
           </Typography>
         </Alert>
+      )}
+
+      {!activeSessionId && task?.status === "backlog" && (
+        <Box
+          sx={{
+            ...taskDetailsSectionSx,
+            mb: 2,
+            p: { xs: 2, sm: 2.5 },
+            display: "flex",
+            flexDirection: { xs: "column", sm: "row" },
+            alignItems: { xs: "stretch", sm: "center" },
+            justifyContent: "space-between",
+            gap: 2,
+            borderColor: "warning.main",
+            backgroundColor: "action.hover",
+          }}
+        >
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              {justDoItMode ? "Ready for implementation" : "Ready for planning"}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {justDoItMode
+                ? "Launch the selected agent to begin implementing this task."
+                : "Start a planning session to turn this task into an implementation-ready spec."}
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              width: { xs: "100%", sm: 240 },
+              flexShrink: 0,
+              "& .MuiButton-root": {
+                minHeight: 40,
+                fontWeight: 600,
+                textTransform: "none",
+              },
+            }}
+          >
+            {renderTaskActions("stacked")}
+          </Box>
+        </Box>
       )}
 
       <Box
@@ -2455,37 +2539,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </ToggleButtonGroup>
 
                   {/* Status-specific action buttons */}
-                  <SpecTaskActionButtons
-                    task={{
-                      id: task.id || "",
-                      status: task.status || "",
-                      design_docs_pushed_at: task.design_docs_pushed_at,
-                      repo_pull_requests: task.repo_pull_requests,
-                      base_branch: task.base_branch,
-                      branch_name: task.branch_name,
-                      archived: task.archived,
-                      just_do_it_mode: justDoItMode,
-                      planning_session_id: task.planning_session_id,
-                      metadata: task.metadata as { error?: string },
-                      last_push_at: task.last_push_at,
-                    }}
-                    variant="inline"
-                    onStartPlanning={handleStartPlanning}
-                    onReviewSpec={handleReviewSpec}
-                    onReject={(shiftKey) => {
-                      if (shiftKey) {
-                        performArchive();
-                      } else {
-                        setArchiveConfirmOpen(true);
-                      }
-                    }}
-                    hasExternalRepo={projectRepositories.some(
-                      (r) => r.is_external || r.external_type || r.external_url,
-                    )}
-                    externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
-                    isStartingPlanning={isStartingPlanning}
-                    isArchiving={isArchiving}
-                  />
+                  {renderTaskActions("inline")}
 
                   {/* Spacer */}
                   <Box sx={{ flex: 1 }} />
@@ -2699,9 +2753,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         ) : (
           <>
             {/* Mobile layout OR no active session: single view at a time */}
-            {/* View toggle header for mobile/no-session */}
-            <Box
-              sx={{
+            {/* A toolbar is useful only when there are multiple session views. */}
+            {activeSessionId && (
+              <Box
+                sx={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
@@ -2716,8 +2771,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 borderColor: "divider",
                 backgroundColor: "background.paper",
                 gap: 0.5,
-              }}
-            >
+                }}
+              >
               {/* Left: View toggle icons */}
               <ToggleButtonGroup
                 value={currentView}
@@ -2820,37 +2875,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               </ToggleButtonGroup>
 
               {/* Status-specific action buttons */}
-              <SpecTaskActionButtons
-                task={{
-                  id: task.id || "",
-                  status: task.status || "",
-                  design_docs_pushed_at: task.design_docs_pushed_at,
-                  repo_pull_requests: task.repo_pull_requests,
-                  base_branch: task.base_branch,
-                  branch_name: task.branch_name,
-                  archived: task.archived,
-                  just_do_it_mode: justDoItMode,
-                  planning_session_id: task.planning_session_id,
-                  metadata: task.metadata as { error?: string },
-                  last_push_at: task.last_push_at,
-                }}
-                variant="inline"
-                onStartPlanning={handleStartPlanning}
-                onReviewSpec={handleReviewSpec}
-                onReject={(shiftKey) => {
-                  if (shiftKey) {
-                    performArchive();
-                  } else {
-                    setArchiveConfirmOpen(true);
-                  }
-                }}
-                hasExternalRepo={projectRepositories.some(
-                  (r) => r.is_external || r.external_type || r.external_url,
-                )}
-                externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
-                isStartingPlanning={isStartingPlanning}
-                isArchiving={isArchiving}
-              />
+              {renderTaskActions("inline")}
 
               {/* Spacer - hidden on very small screens to allow wrapping */}
               <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 8 } }} />
@@ -2986,7 +3011,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </IconButton>
                 ) : null}
               </Box>
-            </Box>
+              </Box>
+            )}
 
             {/* Chat View - mobile only */}
             {activeSessionId && currentView === "chat" && (
