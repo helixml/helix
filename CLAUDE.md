@@ -202,6 +202,7 @@ These rules keep our list pages visually consistent. When in doubt, mirror `Sand
 - Use `text.secondary` for inactive utility icons, `text.primary` on hover, and `action.selected` for selected/toggled controls. Reserve green/red/amber/blue for semantic state or a primary action; do not add one-off decorative hex colors when a theme token exists.
 - Follow the 8px spacing grid. Within a tightly related icon cluster use 2px (`gap: 0.25`); between semantic groups or between a labeled action and its status cluster use 6–8px (`gap: 0.75–1`). Do not apply the tight internal gap to the whole toolbar.
 - Toolbar rows need deliberate vertical rhythm: normally 8px above controls and 4px below (`pt: 1`, `pb: 0.5`). Center all groups with `alignItems: 'center'`; do not compensate for misaligned controls with per-icon margins.
+- Toolbar rows inside a vertical flex layout must use `flexShrink: 0` and an explicit minimum block size that includes controls, padding, and borders. Mounting a selector, tabs, or other subview below the toolbar must never move or compress the toolbar.
 - Reuse a shared `sx` object or component for repeated toolbar icon buttons so hit area, icon size, hover, selected state, and spacing cannot drift between desktop/mobile or expanded/collapsed layouts.
 
 #### Resizable panels

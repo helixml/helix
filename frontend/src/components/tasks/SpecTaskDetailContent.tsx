@@ -2366,7 +2366,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     px: 1,
                     pt: 1,
                     pb: 0.5,
-                    minHeight: 48,
+                    minHeight: 53,
+                    flexShrink: 0,
+                    boxSizing: "border-box",
                     borderBottom: "1px solid",
                     borderColor: "divider",
                     backgroundColor: "background.paper",
@@ -2707,11 +2709,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 px: 1,
                 pt: 1,
                 pb: 0.5,
+                minHeight: 53,
+                flexShrink: 0,
+                boxSizing: "border-box",
                 borderBottom: "1px solid",
                 borderColor: "divider",
                 backgroundColor: "background.paper",
                 gap: 0.5,
-                minHeight: "auto",
               }}
             >
               {/* Left: View toggle icons */}
