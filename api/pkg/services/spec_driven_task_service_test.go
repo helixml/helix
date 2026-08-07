@@ -91,6 +91,46 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
 }
 
+func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+
+	ctx := context.Background()
+	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{ID: "test-project"}, nil)
+	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			require.Equal(t, "starter", task.AssigneeID)
+			require.Equal(t, "starter", task.PlanningStartedBy)
+			return nil
+		},
+	)
+
+	task, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
+		ProjectID:  "test-project",
+		Prompt:     "Start this now",
+		UserID:     "starter",
+		AssigneeID: "stale-prestart-assignee",
+		AutoStart:  true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.TaskStatusQueuedSpecGeneration, task.Status)
+	require.Equal(t, "starter", task.AssigneeID)
+	require.Equal(t, "starter", task.PlanningStartedBy)
+}
+
 func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsBlankExistingBranch(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)

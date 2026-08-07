@@ -329,17 +329,22 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_FilterByPar
 	tasks := []*types.SpecTask{
 		{
 			ID: "task-" + system.GenerateUUID(), ProjectID: project.ID,
-			Name: "Created by Alice", CreatedBy: aliceID,
-			CreatedAt: time.Now().Add(-3 * time.Minute),
+			Name: "Unassigned created by Alice", CreatedBy: aliceID,
+			CreatedAt: time.Now().Add(-4 * time.Minute),
 		},
 		{
 			ID: "task-" + system.GenerateUUID(), ProjectID: project.ID,
 			Name: "Assigned to Bob", CreatedBy: charlieID, AssigneeID: bobID,
-			CreatedAt: time.Now().Add(-2 * time.Minute),
+			CreatedAt: time.Now().Add(-3 * time.Minute),
 		},
 		{
 			ID: "task-" + system.GenerateUUID(), ProjectID: project.ID,
 			Name: "Alice assigned to Bob", CreatedBy: aliceID, AssigneeID: bobID,
+			CreatedAt: time.Now().Add(-2 * time.Minute),
+		},
+		{
+			ID: "task-" + system.GenerateUUID(), ProjectID: project.ID,
+			Name: "Assigned to Alice", CreatedBy: charlieID, AssigneeID: aliceID,
 			CreatedAt: time.Now().Add(-time.Minute),
 		},
 		{
@@ -360,11 +365,23 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_FilterByPar
 	})
 	suite.Require().NoError(err)
 	suite.Require().Len(filtered, 3)
-	suite.Equal([]string{"Alice assigned to Bob", "Assigned to Bob", "Created by Alice"}, []string{
+	suite.Equal([]string{"Assigned to Alice", "Alice assigned to Bob", "Assigned to Bob"}, []string{
 		filtered[0].Name,
 		filtered[1].Name,
 		filtered[2].Name,
 	})
+
+	// Assignment is the execution owner. A creator must not see a task that
+	// another person is assigned to, and unassigned work does not match.
+	filtered, err = suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID:          project.ID,
+		FilterParticipants: true,
+		ParticipantIDs:     []string{aliceID},
+		SortBy:             "created",
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(filtered, 1)
+	suite.Equal("Assigned to Alice", filtered[0].Name)
 
 	filtered, err = suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
 		ProjectID:          project.ID,

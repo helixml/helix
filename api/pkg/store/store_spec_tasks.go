@@ -425,11 +425,7 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		if len(filters.ParticipantIDs) == 0 {
 			db = db.Where("1 = 0")
 		} else {
-			db = db.Where(
-				"created_by IN ? OR assignee_id IN ?",
-				filters.ParticipantIDs,
-				filters.ParticipantIDs,
-			)
+			db = db.Where("assignee_id IN ?", filters.ParticipantIDs)
 		}
 	}
 	if filters.Type != "" {

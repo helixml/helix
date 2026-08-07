@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -77,9 +78,9 @@ func (s *SpecTaskAssigneeSuite) TestValidateAssignee_NonMember_ReturnsError() {
 // kanban filter can't silently hide a freshly-created task with a bad assignee.
 func (s *SpecTaskAssigneeSuite) TestCreateTaskFromPrompt_NonMemberAssignee_Returns400() {
 	const (
-		ownerID  = "user_owner"
-		orgID    = "org1"
-		projID   = "proj_with_assignee_test"
+		ownerID   = "user_owner"
+		orgID     = "org1"
+		projID    = "proj_with_assignee_test"
 		nonMember = "user_outsider"
 	)
 
@@ -128,4 +129,41 @@ func (s *SpecTaskAssigneeSuite) TestCreateTaskFromPrompt_NonMemberAssignee_Retur
 
 	s.Equal(http.StatusBadRequest, rr.Code)
 	s.Contains(rr.Body.String(), "assignee must be an organization member")
+}
+
+func (s *SpecTaskAssigneeSuite) TestStartPlanning_AssignsStarter() {
+	const (
+		starterID = "user_starter"
+		projectID = "project1"
+		taskID    = "task1"
+	)
+
+	task := &types.SpecTask{
+		ID:         taskID,
+		ProjectID:  projectID,
+		Status:     types.TaskStatusBacklog,
+		AssigneeID: "user_previously_assigned",
+	}
+	project := &types.Project{ID: projectID, UserID: starterID}
+
+	s.store.EXPECT().GetSpecTask(gomock.Any(), taskID).Return(task, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(project, nil).Times(3)
+	s.store.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.Equal(starterID, updated.AssigneeID)
+			s.Equal(starterID, updated.PlanningStartedBy)
+			return nil
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
+	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	rr := httptest.NewRecorder()
+
+	s.server.startPlanning(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+	s.Equal(starterID, task.AssigneeID)
+	s.Equal(starterID, task.PlanningStartedBy)
 }

@@ -572,7 +572,7 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 		if filters != nil && filters.FilterParticipants {
 			matchesParticipant := false
 			for _, userID := range filters.ParticipantIDs {
-				if t.CreatedBy == userID || t.AssigneeID == userID {
+				if t.AssigneeID == userID {
 					matchesParticipant = true
 					break
 				}

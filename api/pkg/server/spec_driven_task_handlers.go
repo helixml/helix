@@ -1025,6 +1025,9 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	// Record who kicked off planning so downstream push-credential and
 	// container git-identity resolution can attribute to them.
 	task.PlanningStartedBy = user.ID
+	// The person who starts the task owns its execution, replacing any
+	// pre-start assignment.
+	task.AssigneeID = user.ID
 
 	// Save the task with queued status first (so response reflects immediate status)
 	err = s.Store.UpdateSpecTask(ctx, task)
