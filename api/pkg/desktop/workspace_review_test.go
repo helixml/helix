@@ -344,6 +344,184 @@ func TestWorkspaceFileRejectsUnsafePaths(t *testing.T) {
 // initialised without a commit: seeding the temporary index from HEAD fails
 // there, and an empty starting index is the correct behaviour rather than a
 // failed capture.
+// TestWorkspaceFileRefusesGitInternalsAndIgnoredContent is a disclosure
+// regression test. Real-path containment keeps reads inside the workspace, but
+// `.git` is inside the workspace: `.git/config` carries whatever credentials a
+// remote URL embeds, and session read access reaches org members who are not
+// the owner. Ignored files are the same class — the tree never lists them, so
+// the read endpoint must not serve them either.
+func TestWorkspaceFileRefusesGitInternalsAndIgnoredContent(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	runReviewTestGit(t, repoDir, "remote", "add", "origin",
+		"https://x-access-token:ghp_TOKENVALUE@github.com/owner/repo.git")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, ".git", "credentials"),
+		[]byte("https://user:hunter2@github.com\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, ".gitignore"), []byte("secret.env\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "secret.env"), []byte("APIKEY=sk-live-123\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", ".gitignore")
+	runReviewTestGit(t, repoDir, "commit", "-m", "ignore secrets")
+
+	for _, blocked := range []string{".git/config", ".git/credentials", ".git/HEAD", "secret.env"} {
+		req := httptest.NewRequest(http.MethodGet,
+			"/workspace/file?workspace="+workspace+"&path="+url.QueryEscape(blocked), nil)
+		w := httptest.NewRecorder()
+		server.handleWorkspaceFile(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "%s must not be readable", blocked)
+		body := w.Body.String()
+		assert.NotContains(t, body, "ghp_TOKENVALUE")
+		assert.NotContains(t, body, "hunter2")
+		assert.NotContains(t, body, "sk-live-123")
+	}
+
+	// The same paths must not leak through diff context expansion either.
+	for _, blocked := range []string{".git/config", "secret.env"} {
+		req := httptest.NewRequest(http.MethodGet,
+			"/workspace/review/file-contents?workspace="+workspace+"&source=working_tree&base=main&new_path="+url.QueryEscape(blocked), nil)
+		w := httptest.NewRecorder()
+		server.handleWorkspaceReviewFileContents(w, req)
+
+		assert.NotContains(t, w.Body.String(), "ghp_TOKENVALUE")
+		assert.NotContains(t, w.Body.String(), "sk-live-123")
+	}
+
+	// A tracked file in the same workspace still reads normally.
+	req := httptest.NewRequest(http.MethodGet, "/workspace/file?workspace="+workspace+"&path=README.md", nil)
+	w := httptest.NewRecorder()
+	server.handleWorkspaceFile(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+}
+
+// TestWorkspaceFileReadsBrowsableContent covers the happy path of the read
+// endpoint, which every previous test skipped: they all asserted rejections, so
+// the success path — and binary/truncation detection with it — never ran.
+func TestWorkspaceFileReadsBrowsableContent(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "hello.txt"), []byte("hello\nworld\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "blob.bin"), []byte{0x00, 0x01, 0xff, 0x00}, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "big.txt"),
+		[]byte(strings.Repeat("a", workspaceFileLimit+2048)), 0o644))
+
+	text := readWorkspaceFile(t, server, workspace, "hello.txt")
+	assert.Equal(t, "hello\nworld\n", text.Contents)
+	assert.Equal(t, int64(12), text.ByteLength)
+	assert.False(t, text.Binary)
+	assert.False(t, text.Truncated)
+	assert.NotEmpty(t, text.ContentHash)
+
+	binary := readWorkspaceFile(t, server, workspace, "blob.bin")
+	assert.True(t, binary.Binary)
+	assert.Empty(t, binary.Contents, "binary bytes must not be sent as JSON text")
+
+	large := readWorkspaceFile(t, server, workspace, "big.txt")
+	assert.True(t, large.Truncated, "a file over the read cap must report truncation")
+	assert.Len(t, large.Contents, workspaceFileLimit)
+
+	// The next read after an edit reflects it, with a different content hash.
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "hello.txt"), []byte("changed\n"), 0o644))
+	updated := readWorkspaceFile(t, server, workspace, "hello.txt")
+	assert.Equal(t, "changed\n", updated.Contents)
+	assert.NotEqual(t, text.ContentHash, updated.ContentHash)
+}
+
+// TestWorkspaceFilesListsTrackedAndUntrackedOnly covers the tree endpoint,
+// which had no coverage at all.
+func TestWorkspaceFilesListsTrackedAndUntrackedOnly(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "src", "deep"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "src", "deep", "mod.go"), []byte("package deep\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, ".gitignore"), []byte("build/\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "build"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "build", "out.js"), []byte("//built\n"), 0o644))
+
+	req := httptest.NewRequest(http.MethodGet, "/workspace/files?workspace="+workspace, nil)
+	w := httptest.NewRecorder()
+	server.handleWorkspaceFiles(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var response types.WorkspaceFilesResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	kinds := make(map[string]string, len(response.Entries))
+	for _, entry := range response.Entries {
+		kinds[entry.Path] = entry.Kind
+	}
+
+	assert.Equal(t, "file", kinds["src/deep/mod.go"])
+	assert.Equal(t, "directory", kinds["src"], "intermediate directories must be derived")
+	assert.Equal(t, "directory", kinds["src/deep"])
+	assert.NotContains(t, kinds, "build/out.js", "ignored output is out of scope")
+	assert.NotContains(t, kinds, ".git")
+	assert.False(t, response.Truncated)
+	assert.Equal(t, workspace, response.Workspace)
+}
+
+// TestWorkspaceReviewFileContentsReturnsBothSides covers lazy diff context
+// expansion, including the ref-resolved side that no test reached before.
+func TestWorkspaceReviewFileContentsReturnsBothSides(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "ctx.txt"), []byte("base\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "ctx.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "seed ctx")
+	runReviewTestGit(t, repoDir, "checkout", "-b", "feature")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "ctx.txt"), []byte("base\nworking\n"), 0o644))
+
+	contents := reviewFileContents(t, server, workspace, "working_tree", "ctx.txt")
+	assert.Equal(t, "base\n", contents.Old.Contents, "old side resolves through the ref")
+	assert.Equal(t, "base\nworking\n", contents.New.Contents, "new side reads the working tree")
+	assert.False(t, contents.Old.Binary)
+	assert.False(t, contents.New.Truncated)
+
+	// An unknown review source is rejected rather than silently defaulting.
+	req := httptest.NewRequest(http.MethodGet,
+		"/workspace/review/file-contents?workspace="+workspace+"&source=bogus&base=main&new_path=ctx.txt", nil)
+	w := httptest.NewRecorder()
+	server.handleWorkspaceReviewFileContents(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func reviewFileContents(t *testing.T, server *Server, workspace, source, path string) types.WorkspaceReviewFileContentsResponse {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet,
+		"/workspace/review/file-contents?workspace="+workspace+"&source="+source+"&base=main"+
+			"&old_path="+url.QueryEscape(path)+"&new_path="+url.QueryEscape(path), nil)
+	w := httptest.NewRecorder()
+	server.handleWorkspaceReviewFileContents(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var response types.WorkspaceReviewFileContentsResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	return response
+}
+
+func TestResolveReviewWorkspaceFallsBackAndRejectsUnknownNames(t *testing.T) {
+	if _, _, err := resolveReviewWorkspace("definitely-not-a-workspace"); err == nil {
+		t.Fatal("an unknown workspace name must not resolve")
+	}
+}
+
+func readWorkspaceFile(t *testing.T, server *Server, workspace, path string) types.WorkspaceFileResponse {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet,
+		"/workspace/file?workspace="+workspace+"&path="+url.QueryEscape(path), nil)
+	w := httptest.NewRecorder()
+	server.handleWorkspaceFile(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var response types.WorkspaceFileResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	return response
+}
+
 func TestWorkspaceCheckpointCaptureHandlesUnbornHEAD(t *testing.T) {
 	repoDir := t.TempDir()
 	runReviewTestGit(t, repoDir, "init", "-q", "-b", "main")

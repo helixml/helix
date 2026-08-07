@@ -518,6 +518,7 @@ Return relative path, UTF-8 contents, byte length, content hash, and truncation 
 
 Every file endpoint must:
 
+- serve only what the tree endpoint advertises — tracked, or untracked and not ignored. Real-path containment is necessary but not sufficient: `.git` lives *inside* the workspace root, so containment alone leaves `.git/config` (which routinely carries a token in its remote URL) and `.git/credentials` readable by anyone with session read access, which through project grants includes org members who are not the session owner. Ignored files such as `.env` are the same class. Gate reads on the same `git ls-files --cached --others --exclude-standard` query the tree is built from, on both the file endpoint and diff context expansion;
 - reject absolute, empty, and parent-traversal paths;
 - clean and join only beneath the selected workspace root;
 - resolve the workspace root and target with `realpath`/equivalent;

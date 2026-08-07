@@ -239,6 +239,10 @@ func (s *Server) handleWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if !workspaceFileIsBrowsable(r.Context(), workDir, rel) {
+		http.Error(w, "path is not a browsable workspace file", http.StatusBadRequest)
+		return
+	}
 	content, size, truncated, binary, err := readBoundedFile(resolved, workspaceFileLimit)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("read workspace file: %v", err), http.StatusInternalServerError)
@@ -707,6 +711,12 @@ func readReviewContent(ctx context.Context, workDir, ref, pathValue string) (typ
 			}
 			return types.WorkspaceReviewFileContent{}, err
 		}
+		// Context expansion reads the working tree directly, so it needs the
+		// same browsable-path gate as the file endpoint; otherwise it is a
+		// second route to `.git` and ignored content.
+		if !workspaceFileIsBrowsable(ctx, workDir, rel) {
+			return types.WorkspaceReviewFileContent{}, fmt.Errorf("path is not a browsable workspace file")
+		}
 		content, size, truncated, binary, err := readBoundedFile(resolved, workspaceFileLimit)
 		return types.WorkspaceReviewFileContent{Path: rel, Contents: content, ByteLength: size, Truncated: truncated, Binary: binary}, err
 	}
@@ -726,6 +736,41 @@ func readReviewContent(ctx context.Context, workDir, ref, pathValue string) (typ
 		out = ""
 	}
 	return types.WorkspaceReviewFileContent{Path: rel, Contents: out, ByteLength: int64(len(out)), Truncated: truncated, Binary: binary}, nil
+}
+
+// workspaceFileIsBrowsable reports whether a repository-relative path is one
+// the workspace tree would list: tracked, or untracked and not ignored.
+//
+// Real-path containment alone is not enough. It keeps reads inside the
+// workspace root, but `.git` lives inside that root too, so `.git/config` and
+// `.git/credentials` were readable by anyone with session read access — which,
+// through project grants, includes org members who are not the session owner.
+// A remote URL routinely carries a token, so that is credential disclosure and
+// not merely surprising. Ignored files (`.env`, build output) are the same
+// class of problem: the design scopes the browser to tracked and non-ignored
+// content, and the listing endpoint already honours that.
+//
+// Gating reads on the same `git ls-files` query the tree is built from keeps
+// the two endpoints from disagreeing about what exists. A path the browser
+// never shows is a path the browser cannot read.
+func workspaceFileIsBrowsable(ctx context.Context, workDir, rel string) bool {
+	pathArg, err := safeGitPathArg(rel)
+	if err != nil {
+		return false
+	}
+	out, _, err := runGitBounded(ctx, workDir, 64*1024, nil,
+		constGitArg("ls-files"), constGitArg("-z"), constGitArg("--cached"),
+		constGitArg("--others"), constGitArg("--exclude-standard"),
+		constGitArg("--"), pathArg)
+	if err != nil {
+		return false
+	}
+	for _, listed := range strings.Split(out, "\x00") {
+		if listed == rel {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveWorkspaceFile(root, pathValue string) (string, string, error) {
