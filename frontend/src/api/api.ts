@@ -322,6 +322,7 @@ export interface ApiGitHubWebhookStatusResponse {
   active?: boolean;
   /** Detail explains a "unknown" state (and is empty otherwise). */
   detail?: string;
+  events?: string[];
   payload_url?: string;
   /**
    * State is one of:

@@ -143,6 +143,18 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder, dst any) {
 	}
 }
 
+type fakeInbound struct {
+	state streaming.InboundState
+}
+
+func (f fakeInbound) Install(context.Context, string, streaming.Topic) (streaming.InstallResult, error) {
+	return streaming.InstallResult{}, nil
+}
+
+func (f fakeInbound) Status(context.Context, string, streaming.Topic) (streaming.InboundState, error) {
+	return f.state, nil
+}
+
 // seedBot creates a Bot row directly in the store with the given id +
 // content. Mirrors what a create would persist, without the lifecycle
 // cascade — tests that just need a row to read/edit use this.
@@ -466,6 +478,40 @@ func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
 	}
 	if rec.Code < 200 || rec.Code >= 300 {
 		t.Fatalf("status: got %d, want 2xx; body=%s", rec.Code, rec.Body)
+	}
+}
+
+func TestGetGitHubWebhookStatus_IncludesLiveEvents(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	topic, err := streaming.NewTopic(
+		"s-gh-events", "github events", "", "b-owner", time.Now().UTC(),
+		transport.Transport{Kind: transport.KindGitHub, Config: json.RawMessage(`{"repo":"helixml/helix","events":["issues"]}`)},
+		"org-test",
+	)
+	if err != nil {
+		t.Fatalf("new topic: %v", err)
+	}
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatalf("seed topic: %v", err)
+	}
+	deps.Topics = topics.New(topics.Deps{
+		Topics: st.Topics,
+		Provisioners: map[transport.Kind]streaming.Inbound{
+			transport.KindGitHub: fakeInbound{state: streaming.InboundState{
+				State: "installed", Events: []string{"pull_request"},
+			}},
+		},
+	})
+
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/topics/s-gh-events/github/webhook-status", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	var got orgapi.GitHubWebhookStatusResponse
+	decode(t, rec, &got)
+	if len(got.Events) != 1 || got.Events[0] != "pull_request" {
+		t.Fatalf("events = %v, want live [pull_request]", got.Events)
 	}
 }
 

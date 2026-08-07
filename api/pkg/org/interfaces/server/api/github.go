@@ -268,11 +268,12 @@ type GitHubWebhookStatusResponse struct {
 	//   "missing"   — GitHub was reachable and has no such webhook (needs install)
 	//   "unknown"   — couldn't determine (no repo / no public URL / no creds /
 	//                 GitHub error); see Detail. The UI falls back to stored state.
-	State          string `json:"state"`
-	WebhookID      int64  `json:"webhook_id,omitempty"`
-	WebhookHTMLURL string `json:"webhook_html_url,omitempty"`
-	Active         bool   `json:"active,omitempty"`
-	PayloadURL     string `json:"payload_url,omitempty"`
+	State          string   `json:"state"`
+	WebhookID      int64    `json:"webhook_id,omitempty"`
+	WebhookHTMLURL string   `json:"webhook_html_url,omitempty"`
+	Active         bool     `json:"active,omitempty"`
+	Events         []string `json:"events,omitempty"`
+	PayloadURL     string   `json:"payload_url,omitempty"`
 	// Detail explains a "unknown" state (and is empty otherwise).
 	Detail string `json:"detail,omitempty"`
 }
@@ -395,6 +396,7 @@ func (a *apiHandler) getGitHubWebhookStatus(w http.ResponseWriter, r *http.Reque
 		WebhookID:      res.WebhookID,
 		WebhookHTMLURL: res.WebhookHTMLURL,
 		Active:         res.Active,
+		Events:         res.Events,
 		PayloadURL:     res.PayloadURL,
 		Detail:         res.Detail,
 	})
