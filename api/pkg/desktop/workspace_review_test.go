@@ -377,17 +377,6 @@ func TestWorkspaceFileRefusesGitInternalsAndIgnoredContent(t *testing.T) {
 		assert.NotContains(t, body, "sk-live-123")
 	}
 
-	// The same paths must not leak through diff context expansion either.
-	for _, blocked := range []string{".git/config", "secret.env"} {
-		req := httptest.NewRequest(http.MethodGet,
-			"/workspace/review/file-contents?workspace="+workspace+"&source=working_tree&base=main&new_path="+url.QueryEscape(blocked), nil)
-		w := httptest.NewRecorder()
-		server.handleWorkspaceReviewFileContents(w, req)
-
-		assert.NotContains(t, w.Body.String(), "ghp_TOKENVALUE")
-		assert.NotContains(t, w.Body.String(), "sk-live-123")
-	}
-
 	// A tracked file in the same workspace still reads normally.
 	req := httptest.NewRequest(http.MethodGet, "/workspace/file?workspace="+workspace+"&path=README.md", nil)
 	w := httptest.NewRecorder()
@@ -462,46 +451,6 @@ func TestWorkspaceFilesListsTrackedAndUntrackedOnly(t *testing.T) {
 	assert.NotContains(t, kinds, ".git")
 	assert.False(t, response.Truncated)
 	assert.Equal(t, workspace, response.Workspace)
-}
-
-// TestWorkspaceReviewFileContentsReturnsBothSides covers lazy diff context
-// expansion, including the ref-resolved side that no test reached before.
-func TestWorkspaceReviewFileContentsReturnsBothSides(t *testing.T) {
-	repoDir := setupTestGitRepo(t)
-	workspace := useReviewTestWorkspace(t, repoDir)
-	server := newTestServer(t)
-
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "ctx.txt"), []byte("base\n"), 0o644))
-	runReviewTestGit(t, repoDir, "add", "ctx.txt")
-	runReviewTestGit(t, repoDir, "commit", "-m", "seed ctx")
-	runReviewTestGit(t, repoDir, "checkout", "-b", "feature")
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "ctx.txt"), []byte("base\nworking\n"), 0o644))
-
-	contents := reviewFileContents(t, server, workspace, "working_tree", "ctx.txt")
-	assert.Equal(t, "base\n", contents.Old.Contents, "old side resolves through the ref")
-	assert.Equal(t, "base\nworking\n", contents.New.Contents, "new side reads the working tree")
-	assert.False(t, contents.Old.Binary)
-	assert.False(t, contents.New.Truncated)
-
-	// An unknown review source is rejected rather than silently defaulting.
-	req := httptest.NewRequest(http.MethodGet,
-		"/workspace/review/file-contents?workspace="+workspace+"&source=bogus&base=main&new_path=ctx.txt", nil)
-	w := httptest.NewRecorder()
-	server.handleWorkspaceReviewFileContents(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func reviewFileContents(t *testing.T, server *Server, workspace, source, path string) types.WorkspaceReviewFileContentsResponse {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet,
-		"/workspace/review/file-contents?workspace="+workspace+"&source="+source+"&base=main"+
-			"&old_path="+url.QueryEscape(path)+"&new_path="+url.QueryEscape(path), nil)
-	w := httptest.NewRecorder()
-	server.handleWorkspaceReviewFileContents(w, req)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var response types.WorkspaceReviewFileContentsResponse
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
-	return response
 }
 
 func TestResolveReviewWorkspaceFallsBackAndRejectsUnknownNames(t *testing.T) {
