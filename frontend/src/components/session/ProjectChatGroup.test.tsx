@@ -64,6 +64,8 @@ const renderEmptyProject = (collapsed = false) => render(
     activeItemId=""
     relativeTimeNow={Date.now()}
     enabled
+    participantIds={[]}
+    organizationMembers={[]}
     archivingItemId={null}
     onToggle={vi.fn()}
     onNewTask={vi.fn()}
@@ -133,6 +135,8 @@ describe('ProjectChatGroup archived mode', () => {
         activeItemId=""
         relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
         enabled
+        participantIds={[]}
+        organizationMembers={[]}
         archived
         archivingItemId={null}
         onToggle={vi.fn()}
@@ -162,6 +166,8 @@ describe('ProjectChatGroup pagination', () => {
         activeItemId=""
         relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
         enabled
+        participantIds={[]}
+        organizationMembers={[]}
         archivingItemId={null}
         onToggle={vi.fn()}
         onOpenItem={vi.fn()}
@@ -208,6 +214,8 @@ describe('ProjectChatGroup pagination', () => {
         activeItemId=""
         relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
         enabled
+        participantIds={[]}
+        organizationMembers={[]}
         archivingItemId={null}
         onToggle={vi.fn()}
         onOpenItem={onOpenItem}
