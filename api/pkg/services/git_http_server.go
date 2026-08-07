@@ -1079,7 +1079,7 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 			// route: it just accumulates commits, diverges from main, and
 			// eventually cannot even fast-forward. That is how a fortnight of
 			// chris-outreach memory ended up stranded across five branches.
-			if task.Type == specTaskTypeBotRun && !repo.IsExternal {
+			if isAutonomousRun(task.Type) && !repo.IsExternal {
 				s.wg.Add(1)
 				// Pass the repo that was pushed to. It is not necessarily the
 				// project default — a bot contributing to a shared internal repo
@@ -1250,10 +1250,31 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		Msg("auto-merge: server-side merge completed after agent rebase push")
 }
 
-// specTaskTypeBotRun is the SpecTask.Type that HelixOS sets when it dispatches an
-// autonomous bot run (see helixos api/internal/bridge/bridge.go). These runs are
-// unattended: no human ever clicks Accept, so they need the merge driven for them.
-const specTaskTypeBotRun = "bot_run"
+// SpecTask.Type values HelixOS sets for its unattended runs. All of them are
+// dispatched by the same helper (helixos handlers.dispatchBotRun) and share the
+// defining property: nobody ever clicks Accept, so the merge has to be driven for
+// them.
+//
+// Matching only "bot_run" was a bug. A hypothesis run is dispatched as
+// "hypothesis" and a candidate sourcing run as "candidate_search", so both were
+// silently excluded from auto-merge — including the hypothesis bots that do the
+// daily outreach and write back to the shared playbook repo.
+const (
+	specTaskTypeBotRun          = "bot_run"
+	specTaskTypeHypothesis      = "hypothesis"
+	specTaskTypeCandidateSearch = "candidate_search"
+)
+
+// isAutonomousRun reports whether a task is an unattended HelixOS run that must
+// have its merge driven server-side.
+func isAutonomousRun(taskType string) bool {
+	switch taskType {
+	case specTaskTypeBotRun, specTaskTypeHypothesis, specTaskTypeCandidateSearch:
+		return true
+	default:
+		return false
+	}
+}
 
 // tryAutoMergeBotRun fast-forward merges an autonomous bot run's feature branch
 // into the default branch after the agent pushes.
@@ -1285,7 +1306,7 @@ func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string, r
 		return
 	}
 	// Re-check under fresh state: the row may have moved since the push hook fired.
-	if task.Status != types.TaskStatusImplementation || task.Type != specTaskTypeBotRun {
+	if task.Status != types.TaskStatusImplementation || !isAutonomousRun(task.Type) {
 		return
 	}
 	if task.BranchName == "" {

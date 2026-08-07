@@ -229,3 +229,44 @@ func TestTryAutoMergeBotRun_InternalRepoMergesWhenProjectDefaultIsExternal(t *te
 	require.NoError(t, err)
 	require.Equal(t, trimNewline(feature), trimNewline(head))
 }
+
+// HelixOS dispatches its unattended runs under three different Type values from
+// one helper: bot_run, hypothesis and candidate_search. Matching only "bot_run"
+// silently excluded the hypothesis bots — the ones doing daily outreach and
+// writing back to the shared playbook repo — from auto-merge entirely.
+func TestIsAutonomousRunCoversEveryUnattendedType(t *testing.T) {
+	for _, typ := range []string{"bot_run", "hypothesis", "candidate_search"} {
+		require.True(t, isAutonomousRun(typ), "%s is an unattended HelixOS run and must auto-merge", typ)
+	}
+	for _, typ := range []string{"feature", "bug", ""} {
+		require.False(t, isAutonomousRun(typ), "%q is human-driven and must wait for Accept", typ)
+	}
+}
+
+// End-to-end on the merge itself: a hypothesis run pushing to an internal repo
+// must land, exactly as a bot_run does.
+func TestTryAutoMergeBotRun_HypothesisRunMerges(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	repoPath, defaultBranch := botMergeRepo(t, ctx, true)
+
+	mockStore := store.NewMockStore(ctrl)
+	task := &types.SpecTask{
+		ID:         "spt_hyp",
+		ProjectID:  "prj_test",
+		Type:       specTaskTypeHypothesis,
+		Status:     types.TaskStatusImplementation,
+		BranchName: "feature/x",
+	}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_hyp").Return(task, nil)
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).Return(nil)
+
+	srv := &GitHTTPServer{store: mockStore}
+	srv.tryAutoMergeBotRun(ctx, "spt_hyp", &types.GitRepository{
+		ID: "repo_playbook", LocalPath: repoPath, DefaultBranch: defaultBranch,
+	})
+
+	require.True(t, task.MergedToMain, "a hypothesis run must auto-merge like any other unattended run")
+}
