@@ -10,9 +10,9 @@
 
 ## Slack login
 
-- [ ] Create the `screenshots/` directory in this task folder
-- [ ] Open `https://api.slack.com/apps` in Chrome via the `chrome-devtools` MCP server
-- [ ] Pause and hand the browser to the human for Slack login and 2FA — do not enter admin credentials on their behalf
+- [x] Create the `screenshots/` directory in this task folder
+- [x] Open `https://api.slack.com/apps` in Chrome via the `chrome-devtools` MCP server
+- [~] Pause and hand the browser to the human for Slack login and 2FA — do not enter admin credentials on their behalf
 - [ ] Confirm the session is authenticated and the app list is visible
 
 ## Locate the app
