@@ -42,6 +42,7 @@ type InboundState struct {
 	WebhookID      int64
 	WebhookHTMLURL string
 	Active         bool
+	Events         []string
 	PayloadURL     string
 	Detail         string
 }

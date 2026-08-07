@@ -150,6 +150,7 @@ func (p *WebhookProvisioner) Status(ctx context.Context, orgID string, topic str
 		WebhookID:      hook.ID,
 		WebhookHTMLURL: githubclient.WebhookSettingsURL(owner, repoName, hook.ID),
 		Active:         hook.Active,
+		Events:         hook.Events,
 		PayloadURL:     payloadURL,
 	}, nil
 }

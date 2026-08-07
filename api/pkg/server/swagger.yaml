@@ -463,6 +463,10 @@ definitions:
       detail:
         description: Detail explains a "unknown" state (and is empty otherwise).
         type: string
+      events:
+        items:
+          type: string
+        type: array
       payload_url:
         type: string
       state:

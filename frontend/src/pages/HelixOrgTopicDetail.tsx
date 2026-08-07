@@ -534,7 +534,7 @@ const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
   )
 }
 
-const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) => {
+export const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) => {
   const snackbar = useSnackbar()
   const install = useInstallGitHubWebhook()
   // Live truth from GitHub: does a webhook for this topic's payload URL
@@ -640,6 +640,14 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) =
             Webhook registered on <strong>{cfg.repo}</strong>{webhookId ? <> (id <code>{webhookId}</code>)</> : null}.
             {active ? ' Deliveries flow into this topic automatically.' : ' ⚠ It is currently disabled on GitHub, so no deliveries arrive — re-install to re-enable.'}
           </Typography>
+          {live?.state === 'installed' && live.events && live.events.length > 0 && (
+            <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+              <Typography variant="caption" color="text.secondary">GitHub events:</Typography>
+              {live.events.map((event) => (
+                <Chip key={event} label={event} size="small" variant="outlined" sx={{ fontFamily: 'monospace' }} />
+              ))}
+            </Stack>
+          )}
           <Stack direction="row" spacing={1} alignItems="center">
             {webhookHtmlUrl && (
               <Button
