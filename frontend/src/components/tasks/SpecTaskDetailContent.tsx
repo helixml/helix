@@ -92,6 +92,8 @@ import { getUserById } from "../../services/userService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import SpecTaskShareDialog from "./SpecTaskShareDialog";
 import AgentDropdown from "../agent/AgentDropdown";
+import AssigneeSelector from "./AssigneeSelector";
+import OrganizationUserAvatar, { resolveOrganizationUser } from "../widgets/OrganizationUserAvatar";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
@@ -339,6 +341,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Agent selection state
   const [selectedAgent, setSelectedAgent] = useState("");
   const [updatingAgent, setUpdatingAgent] = useState(false);
+  const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<HTMLElement | null>(null);
+  const orgMembers = account.organizationTools.organization?.memberships || [];
+  const assignedUser = resolveOrganizationUser(task?.assignee_id, orgMembers, account.user);
 
   // Start planning state - prevents double-click
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
@@ -1017,6 +1022,24 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       }
     },
     [task?.id, selectedAgent, updatingAgent, updateSpecTask, snackbar],
+  );
+
+  const handleAssigneeChange = useCallback(
+    async (userId: string | null) => {
+      if (!task?.id || updateSpecTask.isPending) return;
+
+      try {
+        await updateSpecTask.mutateAsync({
+          taskId: task.id,
+          updates: { assignee_id: userId || "" },
+        });
+        snackbar.success(userId ? "Assignee updated" : "Task unassigned");
+      } catch (err) {
+        console.error("Failed to update assignee:", err);
+        snackbar.error("Failed to update assignee");
+      }
+    },
+    [task?.id, updateSpecTask.isPending, updateSpecTask, snackbar],
   );
 
   const handleTextFieldEdit = (field: TaskTextField) => {
@@ -1784,6 +1807,51 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             No task dependencies
           </Typography>
         )}
+      </Box>
+
+      {/* Assignee */}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Assignee
+        </Typography>
+        <Button
+          variant="outlined"
+          fullWidth
+          disabled={updateSpecTask.isPending || !isTaskDetailsEditable}
+          onClick={(event) => setAssigneeAnchorEl(event.currentTarget)}
+          sx={{
+            justifyContent: "flex-start",
+            textTransform: "none",
+            color: "text.primary",
+            minHeight: 40,
+            px: 1.25,
+            gap: 1,
+          }}
+        >
+          <OrganizationUserAvatar
+            userId={task?.assignee_id}
+            members={orgMembers}
+            currentUser={account.user}
+            size={24}
+            fontSize="0.7rem"
+            iconSize={20}
+          />
+          <Typography variant="body2" noWrap>
+            {assignedUser?.full_name ||
+              assignedUser?.username ||
+              assignedUser?.email ||
+              "Unassigned"}
+          </Typography>
+        </Button>
+        <AssigneeSelector
+          assigneeId={task?.assignee_id}
+          members={orgMembers}
+          currentUser={account.user}
+          onAssigneeChange={handleAssigneeChange}
+          isLoading={updateSpecTask.isPending}
+          anchorEl={assigneeAnchorEl}
+          onClose={() => setAssigneeAnchorEl(null)}
+        />
       </Box>
 
       {/* Agent Selection */}
