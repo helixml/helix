@@ -5,9 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -232,77 +230,6 @@ func (s *Server) injectInput(event *InputEvent) {
 	if err != nil {
 		s.logger.Error("D-Bus input call failed", "type", event.Type, "err", err)
 	}
-}
-
-// InputRequest represents a batch of input events from HTTP.
-type InputRequest struct {
-	Events []InputEvent `json:"events"`
-}
-
-// InputResponse is returned from the input endpoint.
-type InputResponse struct {
-	Success   bool   `json:"success"`
-	Processed int    `json:"processed"`
-	Message   string `json:"message,omitempty"`
-}
-
-// handleInput handles POST /input for injecting keyboard/mouse events.
-func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Check if D-Bus session is available
-	if s.conn == nil {
-		s.logger.Warn("HTTP input: D-Bus connection is nil")
-		http.Error(w, "D-Bus connection not available", http.StatusServiceUnavailable)
-		return
-	}
-	if s.rdSessionPath == "" {
-		s.logger.Warn("HTTP input: RemoteDesktop session path is empty")
-		http.Error(w, "RemoteDesktop session not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read body", http.StatusBadRequest)
-		return
-	}
-
-	s.logger.Debug("HTTP input received", "body_length", len(body))
-
-	var req InputRequest
-	if err := json.Unmarshal(body, &req); err != nil || len(req.Events) == 0 {
-		// Try single event format for convenience (also handles case where
-		// unmarshal succeeded but events array was empty/missing)
-		var event InputEvent
-		if err := json.Unmarshal(body, &event); err != nil {
-			s.logger.Warn("HTTP input: invalid JSON", "err", err)
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			return
-		}
-		// Only use single event if it has a type (valid event)
-		if event.Type != "" {
-			req.Events = []InputEvent{event}
-		}
-	}
-
-	// Process all events
-	processed := 0
-	for _, event := range req.Events {
-		s.injectInput(&event)
-		processed++
-	}
-
-	s.logger.Info("HTTP input events processed", "count", processed)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(InputResponse{
-		Success:   true,
-		Processed: processed,
-	})
 }
 
 // primeKeyboardInput sends a dummy Escape key press+release to initialize GNOME's

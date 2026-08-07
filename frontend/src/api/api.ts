@@ -7989,19 +7989,6 @@ export interface TypesWorkspaceInfo {
   path?: string;
 }
 
-export interface TypesWorkspaceReviewFileContent {
-  binary?: boolean;
-  byte_length?: number;
-  contents?: string;
-  path?: string;
-  truncated?: boolean;
-}
-
-export interface TypesWorkspaceReviewFileContentsResponse {
-  new?: TypesWorkspaceReviewFileContent;
-  old?: TypesWorkspaceReviewFileContent;
-}
-
 export interface TypesWorkspaceReviewResponse {
   generated_at?: string;
   sources?: TypesWorkspaceReviewSource[];
@@ -10112,40 +10099,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns git diff information from the running desktop container. Shows changes between the current working directory and base branch, including uncommitted changes.
-     *
-     * @tags ExternalAgents
-     * @name V1ExternalAgentsDiffDetail
-     * @summary Get file diff from container
-     * @request GET:/api/v1/external-agents/{sessionID}/diff
-     * @secure
-     */
-    v1ExternalAgentsDiffDetail: (
-      sessionId: string,
-      query?: {
-        /** Base branch to compare against (default: main) */
-        base?: string;
-        /** Include full diff content for each file (default: false) */
-        include_content?: boolean;
-        /** Filter to specific file path */
-        path?: string;
-        /** Name of the workspace/repo to diff (optional, defaults to first found) */
-        workspace?: string;
-        /** If true, diff the helix-specs branch uncommitted changes instead */
-        helix_specs?: boolean;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<object, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/diff`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Executes a command inside the sandbox container for benchmarking and debugging. Only specific safe commands are allowed (vkcube, glxgears, pkill).
      *
      * @tags ExternalAgents
@@ -10187,26 +10140,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Send keyboard and mouse input events to the remote desktop. Supports single events or batches.
-     *
-     * @tags ExternalAgents
-     * @name V1ExternalAgentsInputCreate
-     * @summary Send input events to sandbox
-     * @request POST:/api/v1/external-agents/{sessionID}/input
-     * @secure
-     */
-    v1ExternalAgentsInputCreate: (sessionId: string, input: object, params: RequestParams = {}) =>
-      this.request<object, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/input`,
-        method: "POST",
-        body: input,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
         ...params,
       }),
 
@@ -10319,40 +10252,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesWorkspaceReviewResponse, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/workspace-review`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Returns bounded old/new contents for lazy diff context expansion.
-     *
-     * @tags ExternalAgents
-     * @name V1ExternalAgentsWorkspaceReviewFileContentsDetail
-     * @summary Read old and new diff file contents
-     * @request GET:/api/v1/external-agents/{sessionID}/workspace-review/file-contents
-     * @secure
-     */
-    v1ExternalAgentsWorkspaceReviewFileContentsDetail: (
-      sessionId: string,
-      query: {
-        /** Workspace name */
-        workspace?: string;
-        /** Review source */
-        source: string;
-        /** Base ref */
-        base?: string;
-        /** Old repository-relative path */
-        old_path?: string;
-        /** New repository-relative path */
-        new_path?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesWorkspaceReviewFileContentsResponse, any>({
-        path: `/api/v1/external-agents/${sessionId}/workspace-review/file-contents`,
         method: "GET",
         query: query,
         secure: true,

@@ -254,64 +254,6 @@ func (s *Server) handleWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleWorkspaceReviewFileContents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	workDir, _, err := resolveReviewWorkspace(r.URL.Query().Get("workspace"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-	base := r.URL.Query().Get("base")
-	if base == "" {
-		base = "main"
-	}
-	if _, err := validateReviewRef(base); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	resolvedBase := resolveReviewBaseBranch(r.Context(), workDir, base)
-	if resolvedBase == "" {
-		http.Error(w, fmt.Sprintf("base ref %q not found", base), http.StatusBadRequest)
-		return
-	}
-	resolvedBaseArg, err := safeGitArg(resolvedBase)
-	if err != nil {
-		http.Error(w, "resolved base ref is invalid", http.StatusBadRequest)
-		return
-	}
-	mergeBase, err := gitText(r.Context(), workDir, constGitArg("merge-base"), resolvedBaseArg, constGitArg("HEAD"))
-	if err != nil {
-		http.Error(w, fmt.Sprintf("resolve merge base: %v", err), http.StatusInternalServerError)
-		return
-	}
-	source := r.URL.Query().Get("source")
-	oldRef, newRef := strings.TrimSpace(mergeBase), ""
-	switch source {
-	case types.WorkspaceReviewSourceBranch:
-		newRef = "HEAD"
-	case types.WorkspaceReviewSourceWorkingTree:
-		oldRef = "HEAD"
-	case types.WorkspaceReviewSourceAll:
-	default:
-		http.Error(w, "invalid review source", http.StatusBadRequest)
-		return
-	}
-	oldContent, err := readReviewContent(r.Context(), workDir, oldRef, r.URL.Query().Get("old_path"))
-	if err != nil {
-		http.Error(w, fmt.Sprintf("read old file: %v", err), http.StatusBadRequest)
-		return
-	}
-	newContent, err := readReviewContent(r.Context(), workDir, newRef, r.URL.Query().Get("new_path"))
-	if err != nil {
-		http.Error(w, fmt.Sprintf("read new file: %v", err), http.StatusBadRequest)
-		return
-	}
-	writeJSON(w, http.StatusOK, types.WorkspaceReviewFileContentsResponse{Old: oldContent, New: newContent})
-}
-
 func (s *Server) handleWorkspaceCheckpointCapture(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -693,49 +635,6 @@ func seedTempIndexFromHEAD(ctx context.Context, workDir string, env []string) er
 	}
 	_, _, err := runGitBounded(ctx, workDir, 64*1024, env, constGitArg("read-tree"), constGitArg("HEAD"))
 	return err
-}
-
-func readReviewContent(ctx context.Context, workDir, ref, pathValue string) (types.WorkspaceReviewFileContent, error) {
-	if pathValue == "" || pathValue == "/dev/null" {
-		return types.WorkspaceReviewFileContent{}, nil
-	}
-	rel, err := cleanRelativePath(pathValue)
-	if err != nil {
-		return types.WorkspaceReviewFileContent{}, err
-	}
-	if ref == "" {
-		resolved, _, err := resolveWorkspaceFile(workDir, rel)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return types.WorkspaceReviewFileContent{Path: rel}, nil
-			}
-			return types.WorkspaceReviewFileContent{}, err
-		}
-		// Context expansion reads the working tree directly, so it needs the
-		// same browsable-path gate as the file endpoint; otherwise it is a
-		// second route to `.git` and ignored content.
-		if !workspaceFileIsBrowsable(ctx, workDir, rel) {
-			return types.WorkspaceReviewFileContent{}, fmt.Errorf("path is not a browsable workspace file")
-		}
-		content, size, truncated, binary, err := readBoundedFile(resolved, workspaceFileLimit)
-		return types.WorkspaceReviewFileContent{Path: rel, Contents: content, ByteLength: size, Truncated: truncated, Binary: binary}, err
-	}
-	if _, err := safeGitArg(ref); err != nil {
-		return types.WorkspaceReviewFileContent{}, err
-	}
-	specArg, err := safeGitPathArg(ref + ":" + rel)
-	if err != nil {
-		return types.WorkspaceReviewFileContent{}, err
-	}
-	out, truncated, err := runGitBounded(ctx, workDir, workspaceFileLimit, nil, constGitArg("show"), specArg)
-	if err != nil {
-		return types.WorkspaceReviewFileContent{Path: rel}, nil
-	}
-	binary := !utf8.ValidString(out) || bytes.IndexByte([]byte(out), 0) >= 0
-	if binary {
-		out = ""
-	}
-	return types.WorkspaceReviewFileContent{Path: rel, Contents: out, ByteLength: int64(len(out)), Truncated: truncated, Binary: binary}, nil
 }
 
 // workspaceFileIsBrowsable reports whether a repository-relative path is one
