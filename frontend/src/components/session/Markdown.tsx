@@ -10,12 +10,8 @@ import React, {
 import { useTheme } from "@mui/material/styles";
 import Box from "@mui/material/Box";
 import Markdown from "react-markdown";
-import { Prism as SyntaxHighlighterTS } from "react-syntax-highlighter";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-// you can change the theme by picking one from here
-// https://react-syntax-highlighter.github.io/react-syntax-highlighter/demo/prism.html
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { TypesSession } from "../../api/api";
 
 import DOMPurify from "dompurify";
@@ -23,9 +19,6 @@ import DOMPurify from "dompurify";
 // Import the new Citation component
 import Citation, { Excerpt } from "./Citation";
 import StreamingIndicator from "./StreamingIndicator";
-import IconButton from "@mui/material/IconButton";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import Tooltip from "@mui/material/Tooltip";
 import ThinkingWidget from "./ThinkingWidget";
 
 // Import chat stats collector for performance monitoring
@@ -33,8 +26,7 @@ import { getGlobalStatsCollector } from "./ChatStatsOverlay";
 import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 import { getChatColors } from "./chatStyles";
 import MarkdownTable from "./MarkdownTable";
-
-const SyntaxHighlighter = SyntaxHighlighterTS as any;
+import MarkdownCodeBlock from "./MarkdownCodeBlock";
 
 export interface MessageProcessorOptions {
   session: TypesSession;
@@ -770,88 +762,6 @@ export interface InteractionMarkdownProps {
   renderContent?: boolean;
 }
 
-// Add this new component for the code block with copy button
-/**
- * Memoized code block component to prevent unnecessary re-renders during streaming.
- * This is a key performance optimization - code blocks don't change once rendered,
- * so we can skip re-rendering them when other content updates.
- */
-const CodeBlockWithCopy: FC<{ children: string; language?: string }> =
-  React.memo(({ children, language }) => {
-    const [copied, setCopied] = useState(false);
-    const theme = useTheme();
-
-    const handleCopy = useCallback(async () => {
-      try {
-        await navigator.clipboard.writeText(children);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } catch (err) {
-        console.error("Failed to copy text: ", err);
-      }
-    }, [children]);
-
-    // Memoize the processed children string to avoid recalculation
-    const processedChildren = useMemo(
-      () => String(children).replace(/\n$/, ""),
-      [children],
-    );
-
-    return (
-      <Box sx={{ position: "relative" }}>
-        <Box sx={{ position: "absolute", right: 8, top: 8, zIndex: 1 }}>
-          <Tooltip title={copied ? "Copied!" : "Copy code"}>
-            <IconButton
-              onClick={handleCopy}
-              size="small"
-              sx={{
-                backgroundColor:
-                  theme.palette.mode === "light"
-                    ? "rgba(255, 255, 255, 0.1)"
-                    : "rgba(0, 0, 0, 0.1)",
-                "&:hover": {
-                  backgroundColor:
-                    theme.palette.mode === "light"
-                      ? "rgba(255, 255, 255, 0.2)"
-                      : "rgba(0, 0, 0, 0.2)",
-                },
-                "& .MuiSvgIcon-root": {
-                  color:
-                    theme.palette.mode === "light"
-                      ? "rgba(0, 0, 0, 0.6)"
-                      : "rgba(255, 255, 255, 0.6)",
-                },
-              }}
-            >
-              <ContentCopyIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-        <Box
-          sx={{
-            overflowY: "clip",
-            overflowX: "auto",
-          }}
-        >
-          <SyntaxHighlighter
-            language={language}
-            style={oneDark}
-            PreTag="div"
-            customStyle={{
-              margin: 0,
-              overflow: "visible",
-            }}
-          >
-            {processedChildren}
-          </SyntaxHighlighter>
-        </Box>
-      </Box>
-    );
-  });
-
-// Display name for React DevTools debugging
-CodeBlockWithCopy.displayName = "CodeBlockWithCopy";
-
 // Throttle interval for streaming updates (ms)
 const STREAMING_THROTTLE_MS = 150;
 
@@ -1220,15 +1130,24 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
       () => ({
         code(props: any) {
           const { children, className, node, ref, ...rest } = props;
-          const match = /language-(\w+)/.exec(className || "");
-          return match ? (
-            <CodeBlockWithCopy language={match[1]}>
-              {String(children).replace(/\n$/, "")}
-            </CodeBlockWithCopy>
-          ) : (
+          return (
             <code {...rest} className={className}>
               {children}
             </code>
+          );
+        },
+        pre(props: any) {
+          const { children, node, ref, ...rest } = props;
+          const child = React.Children.only(children);
+          if (!React.isValidElement<{ children?: React.ReactNode; className?: string }>(child)) {
+            return <pre {...rest}>{children}</pre>;
+          }
+          const className = child.props.className || "";
+          const language = /(?:^|\s)language-([^\s]+)/.exec(className)?.[1] || "text";
+          return (
+            <MarkdownCodeBlock language={language}>
+              {String(child.props.children ?? "")}
+            </MarkdownCodeBlock>
           );
         },
         a(props: any) {

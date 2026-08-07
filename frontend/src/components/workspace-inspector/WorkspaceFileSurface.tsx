@@ -27,48 +27,97 @@ const WorkspaceFileSurface: FC<WorkspaceFileSurfaceProps> = ({
   const lightTheme = useLightTheme();
   const fileQuery = useWorkspaceFile(sessionId, workspace, path);
   const item = useMemo<CodeViewFileItem[] | null>(() => {
-    if (!path || !fileQuery.data || fileQuery.data.binary || fileQuery.data.contents === undefined) return null;
-    return [{
-      id: `${path}:${fileQuery.data.content_hash || fileQuery.data.byte_length || 0}`,
-      type: "file",
-      file: {
-        name: path,
-        contents: fileQuery.data.contents,
-        cacheKey: fileQuery.data.content_hash,
+    if (
+      !path ||
+      !fileQuery.data ||
+      fileQuery.data.binary ||
+      fileQuery.data.contents === undefined
+    )
+      return null;
+    return [
+      {
+        id: `${path}:${fileQuery.data.content_hash || fileQuery.data.byte_length || 0}`,
+        type: "file",
+        file: {
+          name: path,
+          contents: fileQuery.data.contents,
+          cacheKey: fileQuery.data.content_hash,
+        },
       },
-    }];
+    ];
   }, [fileQuery.data, path]);
 
   return (
     <Box sx={{ display: "flex", minHeight: 0, height: "100%" }}>
-      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, borderRight: "1px solid", borderColor: "divider" }}>
+      <Box
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          borderRight: "1px solid",
+          borderColor: "divider",
+        }}
+      >
+        {/*
+          The server caps reads at 1 MiB. Rendering the prefix without saying so
+          would present a partial file as the whole one.
+        */}
+        {fileQuery.data?.truncated && (
+          <Alert severity="warning" square sx={{ py: 0, fontSize: 12 }}>
+            Showing the first {fileQuery.data.byte_length?.toLocaleString()}{" "}
+            bytes — this file is larger than the preview limit.
+          </Alert>
+        )}
         {!path ? (
-          <Box sx={{ height: "100%", display: "grid", placeItems: "center" }}>
-            <Typography variant="body2" color="text.secondary">Choose a file from the browser.</Typography>
+          <Box sx={{ flex: 1, display: "grid", placeItems: "center" }}>
+            <Typography variant="body2" color="text.secondary">
+              Choose a file from the browser.
+            </Typography>
           </Box>
         ) : fileQuery.isLoading ? (
-          <Box sx={{ height: "100%", display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>
+          <Box sx={{ flex: 1, display: "grid", placeItems: "center" }}>
+            <CircularProgress size={22} />
+          </Box>
         ) : fileQuery.isError ? (
-          <Box sx={{ p: 2 }}><Alert severity="error">Could not read {path}.</Alert></Box>
+          <Box sx={{ p: 2 }}>
+            <Alert severity="error">Could not read {path}.</Alert>
+          </Box>
         ) : fileQuery.data?.binary ? (
-          <Box sx={{ height: "100%", display: "grid", placeItems: "center", textAlign: "center", p: 3 }}>
-            <Box><Typography variant="body2">Binary file</Typography><Typography variant="caption" color="text.secondary">{fileQuery.data.byte_length?.toLocaleString()} bytes</Typography></Box>
+          <Box
+            sx={{
+              flex: 1,
+              display: "grid",
+              placeItems: "center",
+              textAlign: "center",
+              p: 3,
+            }}
+          >
+            <Box>
+              <Typography variant="body2">Binary file</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {fileQuery.data.byte_length?.toLocaleString()} bytes
+              </Typography>
+            </Box>
           </Box>
         ) : item ? (
-          <CodeView
-            items={item}
-            style={{ height: "100%", minHeight: 0, overflow: "auto" }}
-            options={{
-              theme: PIERRE_THEMES,
-              themeType: lightTheme.isLight ? "light" : "dark",
-              overflow: "scroll",
-              stickyHeaders: true,
-              tokenizeMaxLineLength: 1_000,
-              unsafeCSS: DIFF_UNSAFE_CSS,
-              itemMetrics: { diffHeaderHeight: 32 },
-              layout: { gap: 0, paddingTop: 0, paddingBottom: 0 },
-            }}
-          />
+          <Box sx={{ flex: 1, minHeight: 0 }}>
+            <CodeView
+              items={item}
+              style={{ height: "100%", minHeight: 0, overflow: "auto" }}
+              options={{
+                theme: PIERRE_THEMES,
+                themeType: lightTheme.isLight ? "light" : "dark",
+                overflow: "scroll",
+                stickyHeaders: true,
+                tokenizeMaxLineLength: 1_000,
+                unsafeCSS: DIFF_UNSAFE_CSS,
+                itemMetrics: { diffHeaderHeight: 32 },
+                layout: { gap: 0, paddingTop: 0, paddingBottom: 0 },
+              }}
+            />
+          </Box>
         ) : null}
       </Box>
       <Box sx={{ width: "42%", minWidth: 260, maxWidth: 440, minHeight: 0 }}>

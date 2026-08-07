@@ -240,6 +240,81 @@ func TestWorkspaceReviewReportsTruncationInsteadOfPartialSummary(t *testing.T) {
 		"the file summary stays complete even when the patch preview is cut")
 }
 
+// TestWorkspaceReviewHonoursIgnoreWhitespace covers the toolbar toggle, which
+// changes the git invocation and had no coverage at all.
+func TestWorkspaceReviewHonoursIgnoreWhitespace(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "spaced.txt"), []byte("alpha\nbeta\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "spaced.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "seed")
+	// Reindent only — no semantic change.
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "spaced.txt"), []byte("    alpha\n    beta\n"), 0o644))
+
+	included := requestReviewSources(t, server, workspace, "main")
+	assert.Equal(t, []string{"spaced.txt"},
+		codeChangePaths(included[types.WorkspaceReviewSourceWorkingTree].Files))
+	assert.Contains(t, included[types.WorkspaceReviewSourceWorkingTree].Patch, "+    alpha")
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/workspace/review?workspace="+workspace+"&base=main&ignore_whitespace=true", nil)
+	w := httptest.NewRecorder()
+	server.handleWorkspaceReview(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var response types.WorkspaceReviewResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	for _, source := range response.Sources {
+		if source.ID == types.WorkspaceReviewSourceWorkingTree {
+			assert.NotContains(t, source.Patch, "+    alpha",
+				"a whitespace-only change must drop out of the patch when filtered")
+		}
+	}
+}
+
+// TestWorkspaceReviewRefreshReflectsLaterEdits is the "test the next
+// operation" case: a review is polled, so the second read after a further
+// workspace edit must report the new state, not a cached hash.
+func TestWorkspaceReviewRefreshReflectsLaterEdits(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "moving.txt"), []byte("first\n"), 0o644))
+	first := requestReviewSources(t, server, workspace, "main")[types.WorkspaceReviewSourceAll]
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "moving.txt"), []byte("first\nsecond\n"), 0o644))
+	second := requestReviewSources(t, server, workspace, "main")[types.WorkspaceReviewSourceAll]
+
+	assert.NotEqual(t, first.PatchHash, second.PatchHash, "the refreshed patch must hash differently")
+	assert.Contains(t, second.Patch, "+second")
+	assert.Equal(t, 2, second.Files[0].Additions)
+
+	// And a file deleted after the previous read stops being reported as added.
+	require.NoError(t, os.Remove(filepath.Join(repoDir, "moving.txt")))
+	third := requestReviewSources(t, server, workspace, "main")[types.WorkspaceReviewSourceAll]
+	assert.NotContains(t, codeChangePaths(third.Files), "moving.txt")
+}
+
+// TestWorkspaceReviewOnCleanRepositoryReportsNoChanges distinguishes "clean" —
+// which must be an empty, successful result — from a failure.
+func TestWorkspaceReviewOnCleanRepositoryReportsNoChanges(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	byID := requestReviewSources(t, server, workspace, "main")
+
+	require.Len(t, byID, 3)
+	for id, source := range byID {
+		assert.Empty(t, source.Files, "scope %s", id)
+		assert.Empty(t, strings.TrimSpace(source.Patch), "scope %s", id)
+		assert.False(t, source.Truncated, "scope %s", id)
+		assert.Equal(t, 0, source.TotalAdditions, "scope %s", id)
+	}
+}
+
 func TestWorkspaceFileRejectsUnsafePaths(t *testing.T) {
 	repoDir := setupTestGitRepo(t)
 	workspace := useReviewTestWorkspace(t, repoDir)
