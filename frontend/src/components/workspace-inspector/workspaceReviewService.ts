@@ -11,6 +11,21 @@ export function isDesktopUnavailableError(error: unknown): boolean {
   return (error as { response?: { status?: number } } | null)?.response?.status === 503;
 }
 
+/**
+ * A stopped sandbox is a settled state, not a flaky one. Retrying its 503 —
+ * or polling straight through it — produces an endless stream of requests
+ * against a container we already know is gone, each of which dials RevDial
+ * and logs "container not ready" server-side. Only that status is treated as
+ * terminal; anything else keeps normal retry behaviour.
+ */
+export const desktopQueryRetry = (failureCount: number, error: unknown) =>
+  !isDesktopUnavailableError(error) && failureCount < 2;
+
+export const desktopPollInterval =
+  (interval: number) =>
+  (query: { state: { error: unknown } }) =>
+    isDesktopUnavailableError(query.state.error) ? false : interval;
+
 export const workspaceReviewKeys = {
   all: (sessionId: string) => ["workspace-review", sessionId] as const,
   review: (
@@ -41,7 +56,7 @@ export const workspaceReviewKeys = {
     [...workspaceReviewKeys.all(sessionId), "workspaces"] as const,
 };
 
-export function useWorkspaces(sessionId: string | undefined) {
+export function useWorkspaces(sessionId: string | undefined, enabled = true) {
   const api = useApi();
   return useQuery({
     queryKey: workspaceReviewKeys.workspaces(sessionId || ""),
@@ -51,9 +66,10 @@ export function useWorkspaces(sessionId: string | undefined) {
         .v1ExternalAgentsWorkspacesDetail(sessionId!);
       return response.data;
     },
-    enabled: !!sessionId,
+    enabled: !!sessionId && enabled,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+    retry: desktopQueryRetry,
   });
 }
 
@@ -84,8 +100,9 @@ export function useWorkspaceReview(
       return response.data;
     },
     enabled: !!sessionId && enabled,
-    refetchInterval: pollInterval,
+    refetchInterval: desktopPollInterval(pollInterval),
     refetchOnWindowFocus: false,
+    retry: desktopQueryRetry,
   });
 }
 
@@ -105,6 +122,7 @@ export function useWorkspaceFiles(
     enabled: !!sessionId,
     staleTime: 10_000,
     refetchOnWindowFocus: false,
+    retry: desktopQueryRetry,
   });
 }
 
@@ -128,6 +146,7 @@ export function useWorkspaceFile(
     enabled: !!sessionId && !!path,
     staleTime: 5_000,
     refetchOnWindowFocus: false,
+    retry: desktopQueryRetry,
   });
 }
 
@@ -154,5 +173,6 @@ export function useTurnWorkspaceReview(
     enabled: !!sessionId && !!interactionId,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
+    retry: desktopQueryRetry,
   });
 }

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   success: vi.fn(),
   error: vi.fn(),
   workspaces: vi.fn(),
+  workspacesArgs: [] as unknown[],
 }));
 
 vi.mock("../../hooks/useLightTheme", () => ({
@@ -33,7 +34,10 @@ vi.mock("../../hooks/useSnackbar", () => ({
 
 vi.mock("./workspaceReviewService", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./workspaceReviewService")>()),
-  useWorkspaces: () => mocks.workspaces(),
+  useWorkspaces: (...args: unknown[]) => {
+    mocks.workspacesArgs = args;
+    return mocks.workspaces();
+  },
 }));
 
 vi.mock("./WorkspaceDiffSurface", () => ({ default: () => null }));
@@ -142,5 +146,24 @@ describe("WorkspaceInspector when the sandbox is stopped", () => {
 
     expect(screen.getByText(/browse its workspace files/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Starting/ })).toBeDisabled();
+  });
+
+  it("issues no workspace request at all when the sandbox is known to be stopped", () => {
+    // The task page already tracks sandbox state, so the inspector should not
+    // have to discover the same 503 on every query to find out.
+    mocks.workspaces.mockReturnValue({ data: undefined, error: undefined });
+
+    render(
+      <WorkspaceInspector
+        sessionId="session-id"
+        primarySurface="changes"
+        desktopRunning={false}
+        onStartDesktop={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Desktop not running")).toBeInTheDocument();
+    // useWorkspaces is called (hooks must be unconditional) but disabled.
+    expect(mocks.workspacesArgs).toEqual(["session-id", false]);
   });
 });

@@ -2444,6 +2444,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     primarySurface={currentView === "files" ? "files" : "changes"}
                     onPrimarySurfaceChange={handleViewChange}
                     onStartDesktop={handleStartSession}
+                    desktopRunning={!effectiveIsDesktopPaused}
                     isDesktopStarting={isStarting || isDesktopStarting}
                     desktopUnavailableTitle={isTaskCompleted ? "Task finished" : undefined}
                     desktopUnavailableDescription={
@@ -2904,6 +2905,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   primarySurface={currentView === "files" ? "files" : "changes"}
                   onPrimarySurfaceChange={handleViewChange}
                   onStartDesktop={handleStartSession}
+                  desktopRunning={!effectiveIsDesktopPaused}
                   isDesktopStarting={isStarting || isDesktopStarting}
                   desktopUnavailableTitle={isTaskCompleted ? "Task finished" : undefined}
                   desktopUnavailableDescription={

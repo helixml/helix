@@ -19,6 +19,12 @@ interface WorkspaceInspectorProps {
   onPrimarySurfaceChange?: (surface: "changes" | "files") => void;
   onStartDesktop?: () => void;
   isDesktopStarting?: boolean;
+  /**
+   * False when the task's sandbox is known to be stopped. The inspector then
+   * issues no workspace requests at all rather than discovering the same 503
+   * on every query.
+   */
+  desktopRunning?: boolean;
   desktopUnavailableTitle?: string;
   desktopUnavailableDescription?: string;
 }
@@ -39,6 +45,7 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
   onPrimarySurfaceChange,
   onStartDesktop,
   isDesktopStarting,
+  desktopRunning = true,
   desktopUnavailableTitle,
   desktopUnavailableDescription,
 }) => {
@@ -47,7 +54,7 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
   const snackbar = useSnackbar();
   const onPrimarySurfaceChangeRef = useRef(onPrimarySurfaceChange);
   onPrimarySurfaceChangeRef.current = onPrimarySurfaceChange;
-  const workspacesQuery = useWorkspaces(sessionId);
+  const workspacesQuery = useWorkspaces(sessionId, desktopRunning);
   const [workspace, setWorkspace] = useState<string>();
   const [openFiles, setOpenFiles] = useState<string[]>(() =>
     router.params.preview ? [router.params.preview] : [],
@@ -132,7 +139,7 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
   // is the normal resting state of a finished or paused task. Show the same
   // start-desktop placeholder the Desktop tab uses rather than reporting a
   // failure to load changes.
-  if (isDesktopUnavailableError(workspacesQuery.error)) {
+  if (!desktopRunning || isDesktopUnavailableError(workspacesQuery.error)) {
     return (
       <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
         <TaskSessionPlaceholder

@@ -161,4 +161,5 @@ describe("WorkspaceDiffSurface", () => {
     expect(screen.getByText("Could not load workspace changes.")).toBeInTheDocument();
     expect(screen.queryByText("Desktop not running")).not.toBeInTheDocument();
   });
+
 });

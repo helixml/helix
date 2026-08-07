@@ -13,6 +13,7 @@ interface DiffViewerProps {
   onPrimarySurfaceChange?: (surface: "changes" | "files") => void;
   onStartDesktop?: () => void;
   isDesktopStarting?: boolean;
+  desktopRunning?: boolean;
   desktopUnavailableTitle?: string;
   desktopUnavailableDescription?: string;
 }
