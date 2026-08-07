@@ -17,8 +17,6 @@ import {
   Button,
   Tooltip,
   Select,
-  FormControl,
-  InputLabel,
   CircularProgress,
   Menu,
   MenuItem,
@@ -32,15 +30,13 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Switch,
-  FormControlLabel,
-  Checkbox,
   Autocomplete,
+  ClickAwayListener,
 } from "@mui/material";
+import type { Theme } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import PlayArrow from "@mui/icons-material/PlayArrow";
 import Description from "@mui/icons-material/Description";
-import SaveIcon from "@mui/icons-material/Save";
-import CancelIcon from "@mui/icons-material/Cancel";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import StopIcon from "@mui/icons-material/Stop";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -51,7 +47,7 @@ import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import UndoIcon from "@mui/icons-material/Undo";
-import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
+import { TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, {
   useSandboxState,
 } from "../external-agent/ExternalAgentDesktopViewer";
@@ -104,6 +100,7 @@ import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import AgentChat from "../session/AgentChat";
+import { getChatColors } from "../session/chatStyles";
 import SwitchAgentControl from "../session/SwitchAgentControl";
 import SharePreviewSection from "./SharePreviewSection";
 import SpecTaskLaunchWindow, {
@@ -129,7 +126,6 @@ import {
   LockOpen as LockOpenLucide,
   MonitorPlay,
   PanelBottom,
-  Pencil,
   Play as PlayLucide,
   RotateCw,
   Square,
@@ -160,6 +156,32 @@ const taskToolbarIconButtonSx = {
     backgroundColor: "action.selected",
   },
 } as const;
+
+const taskDetailsSectionSx = {
+  border: "1px solid",
+  borderColor: "divider",
+  borderRadius: 2,
+  backgroundColor: "background.paper",
+  p: 2,
+} as const;
+
+const taskActionButtonSx = {
+  fontSize: "0.75rem",
+  textTransform: "none",
+} as const;
+
+const taskDetailsTextSx = {
+  color: (theme: Theme) => getChatColors(theme).assistantForeground,
+  fontSize: "0.875rem",
+  lineHeight: 1.625,
+} as const;
+
+const taskDetailsTextFieldSx = {
+  "& .MuiInputBase-input": taskDetailsTextSx,
+} as const;
+
+type TaskTextField = "name" | "description";
+type TaskTextSaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface SpecTaskDetailContentProps {
   taskId: string;
@@ -200,6 +222,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const streaming = useStreaming();
   const apps = useApps();
   const updateSpecTask = useUpdateSpecTask();
+  const autoSaveSpecTask = useUpdateSpecTask();
   const moveToBacklogMutation = useMoveToBacklog(taskId);
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -266,22 +289,35 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     return primaryRepository?.default_branch || "main";
   }, [primaryRepository?.default_branch]);
 
-  // Edit mode state
-  const [isEditMode, setIsEditMode] = useState(false);
+  // Name and description edit independently and save when focus leaves the field.
+  const [editingTextField, setEditingTextField] =
+    useState<TaskTextField | null>(null);
   const [editFormData, setEditFormData] = useState({
     name: "",
     description: "",
-    priority: "",
-    dependsOnTaskIds: [] as string[],
   });
+  const [textSaveStatus, setTextSaveStatus] = useState<
+    Record<TaskTextField, TaskTextSaveStatus>
+  >({ name: "idle", description: "idle" });
+  const textSaveInFlightRef = useRef<Set<TaskTextField>>(new Set());
 
-  // Prompt/description is editable before spec review (backlog, queued_spec_generation, spec_generation)
-  // After spec review, the spec title becomes the name and prompt becomes read-only
-  const isPromptEditable = [
-    TypesSpecTaskStatus.TaskStatusBacklog,
-    TypesSpecTaskStatus.TaskStatusQueuedSpecGeneration,
-    TypesSpecTaskStatus.TaskStatusSpecGeneration,
-  ].includes(task?.status as TypesSpecTaskStatus);
+  // Name and description are task metadata, so their editability should not
+  // depend on the task's workflow stage.
+  const isTaskDetailsEditable = Boolean(task && !task.archived);
+
+  useEffect(() => {
+    if (editingTextField) return;
+    setEditFormData({
+      name: task?.user_short_title || task?.name || "",
+      description: task?.description || task?.original_prompt || "",
+    });
+  }, [
+    editingTextField,
+    task?.user_short_title,
+    task?.name,
+    task?.description,
+    task?.original_prompt,
+  ]);
 
   // Agent selection state
   const [selectedAgent, setSelectedAgent] = useState("");
@@ -512,17 +548,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Fetch clone groups where this task was the source
   const { data: cloneGroups } = useCloneGroups(taskId);
 
-  const dependencyTaskOptions = useMemo(
-    () =>
-      projectTasks.filter(
-        (projectTask) =>
-          !!projectTask.id &&
-          projectTask.id !== task?.id &&
-          projectTask.status !== TypesSpecTaskStatus.TaskStatusDone,
-      ),
-    [projectTasks, task?.id],
-  );
-
   const currentTaskDependencies = useMemo(
     () =>
       projectTasks.find((projectTask) => projectTask.id === task?.id)
@@ -531,43 +556,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       [],
     [projectTasks, task?.id, task?.depends_on],
   );
-
-  const dependencyTaskLookup = useMemo(() => {
-    const tasksForLookup = [
-      ...dependencyTaskOptions,
-      ...currentTaskDependencies,
-    ];
-    return new Map(
-      tasksForLookup
-        .filter((projectTask) => !!projectTask.id)
-        .map((projectTask) => [projectTask.id, projectTask]),
-    );
-  }, [dependencyTaskOptions, currentTaskDependencies]);
-
-  const selectedDependencyTasks = useMemo(
-    () =>
-      editFormData.dependsOnTaskIds
-        .map((taskDependencyId) => dependencyTaskLookup.get(taskDependencyId))
-        .filter(
-          (projectTask): projectTask is NonNullable<typeof projectTask> =>
-            !!projectTask,
-        ),
-    [editFormData.dependsOnTaskIds, dependencyTaskLookup],
-  );
-
-  // Initialize edit form data when task changes
-  useEffect(() => {
-    if (task && isEditMode) {
-      setEditFormData({
-        name: task.name || "",
-        description: task.description || task.original_prompt || "",
-        priority: task.priority || "medium",
-        dependsOnTaskIds: currentTaskDependencies
-          .map((dependencyTask) => dependencyTask.id || "")
-          .filter((dependencyTaskId) => !!dependencyTaskId),
-      });
-    }
-  }, [task, isEditMode, currentTaskDependencies]);
 
   // Check if task is completed/merged - container is shut down so desktop view won't work
   const isTaskCompleted = task?.status === "done" || task?.merged_to_main;
@@ -984,47 +972,100 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     [task?.id, selectedAgent, updatingAgent, updateSpecTask, snackbar],
   );
 
-  // Handle edit mode
-  const handleEditToggle = useCallback(() => {
-    setIsEditMode(true);
-  }, []);
+  const handleTextFieldEdit = (field: TaskTextField) => {
+    if (!task || !isTaskDetailsEditable) return;
 
-  const handleCancelEdit = useCallback(() => {
-    setIsEditMode(false);
-    if (task) {
-      setEditFormData({
-        name: task.name || "",
-        description: task.description || task.original_prompt || "",
-        priority: task.priority || "medium",
-        dependsOnTaskIds: currentTaskDependencies
-          .map((dependencyTask) => dependencyTask.id || "")
-          .filter((dependencyTaskId) => !!dependencyTaskId),
-      });
-      setJustDoItMode(task.just_do_it_mode ?? false);
-    }
-  }, [task, currentTaskDependencies]);
+    setEditFormData((current) => ({
+      ...current,
+      [field]:
+        field === "name"
+          ? task.user_short_title || task.name || ""
+          : task.description || task.original_prompt || "",
+    }));
+    setTextSaveStatus((current) => ({ ...current, [field]: "idle" }));
+    setEditingTextField(field);
+  };
 
-  const handleSaveEdit = useCallback(async () => {
+  const handleTextFieldCancel = (field: TaskTextField) => {
+    const currentValue =
+      field === "name"
+        ? task?.user_short_title || task?.name || ""
+        : task?.description || task?.original_prompt || "";
+    setEditFormData((current) => ({ ...current, [field]: currentValue }));
+    setTextSaveStatus((current) => ({ ...current, [field]: "idle" }));
+    setEditingTextField((current) => (current === field ? null : current));
+  };
+
+  const handleTextFieldBlur = async (field: TaskTextField) => {
     if (!task?.id) return;
 
-    try {
-      await updateSpecTask.mutateAsync({
-        taskId: task.id,
-        updates: {
-          name: editFormData.name,
-          description: editFormData.description,
-          priority: editFormData.priority as TypesSpecTaskPriority,
-          just_do_it_mode: justDoItMode,
-          depends_on: editFormData.dependsOnTaskIds,
-        },
-      });
-      setIsEditMode(false);
-      snackbar.success("Task updated successfully");
-    } catch (err) {
-      console.error("Failed to update task:", err);
-      snackbar.error("Failed to update task");
+    if (textSaveInFlightRef.current.has(field)) {
+      setEditingTextField((current) => (current === field ? null : current));
+      return;
     }
-  }, [task?.id, editFormData, justDoItMode, updateSpecTask, snackbar]);
+
+    const currentValue =
+      field === "name"
+        ? task.user_short_title || task.name || ""
+        : task.description || task.original_prompt || "";
+    const nextValue =
+      field === "name"
+        ? editFormData.name.trim()
+        : editFormData.description;
+
+    if (field === "name" && !nextValue) {
+      setEditFormData((current) => ({ ...current, name: currentValue }));
+      setTextSaveStatus((current) => ({ ...current, name: "error" }));
+      setEditingTextField((current) => (current === field ? null : current));
+      snackbar.error("Task name cannot be empty");
+      return;
+    }
+
+    // Leaving the field ends editing immediately. Persistence continues in the
+    // background and its state is shown alongside the field label.
+    setEditingTextField((current) => (current === field ? null : current));
+
+    if (nextValue === currentValue) {
+      setTextSaveStatus((current) => ({ ...current, [field]: "idle" }));
+      return;
+    }
+
+    setTextSaveStatus((current) => ({ ...current, [field]: "saving" }));
+    textSaveInFlightRef.current.add(field);
+    try {
+      await autoSaveSpecTask.mutateAsync({
+        taskId: task.id,
+        updates:
+          field === "name"
+            ? { name: nextValue, user_short_title: nextValue }
+            : { description: nextValue },
+      });
+      setTextSaveStatus((current) => ({ ...current, [field]: "saved" }));
+    } catch (err) {
+      console.error(`Failed to auto-save task ${field}:`, err);
+      setEditFormData((current) => ({
+        ...current,
+        [field]: currentValue,
+      }));
+      setTextSaveStatus((current) => ({ ...current, [field]: "error" }));
+      snackbar.error(`Failed to save task ${field}`);
+    } finally {
+      textSaveInFlightRef.current.delete(field);
+    }
+  };
+
+  const getTextSaveHelper = (field: TaskTextField) => {
+    switch (textSaveStatus[field]) {
+      case "saving":
+        return "Saving…";
+      case "saved":
+        return "Saved";
+      case "error":
+        return "Not saved";
+      default:
+        return "Saves when you leave the field";
+    }
+  };
 
   // Handle review spec navigation
   const handleReviewSpec = useCallback(async () => {
@@ -1197,7 +1238,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Render the details content (used in both desktop left panel and mobile/no-session view)
   const renderDetailsContent = () => (
-    <>
+    <Box sx={{ containerType: "inline-size", maxWidth: 1180, mx: "auto" }}>
       {/* Queued task block reason — explains why a queued task hasn't started yet
           (WIP capacity / dependency). Recomputed server-side each read, so it
           clears automatically as the queue drains. */}
@@ -1247,122 +1288,247 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Alert>
       )}
 
-      {/* Description */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-          Description
-        </Typography>
-        {isEditMode ? (
-          <TextField
-            fullWidth
-            multiline
-            minRows={4}
-            maxRows={20}
-            value={editFormData.description}
-            onChange={(e) =>
-              setEditFormData((prev) => ({
-                ...prev,
-                description: e.target.value,
-              }))
-            }
-            autoFocus
-            placeholder="Task description"
-          />
-        ) : (
-          <Box
-            onClick={isPromptEditable ? handleEditToggle : undefined}
-            sx={{
-              cursor: isPromptEditable ? "pointer" : "default",
-              borderRadius: 1,
-              mx: -1,
-              px: 1,
-              py: 0.5,
-              transition: "background-color 0.15s ease",
-              "&:hover": isPromptEditable
-                ? {
-                    backgroundColor: "action.hover",
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr)",
+          gap: 2,
+          alignItems: "start",
+          "@container (min-width: 520px)": {
+            gridTemplateColumns: "minmax(0, 1.45fr) minmax(210px, 0.9fr)",
+          },
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            minWidth: 0,
+            "& > .MuiBox-root": { mb: 0 },
+          }}
+        >
+          {/* Task name and description */}
+          <Box sx={taskDetailsSectionSx}>
+            <Box
+              sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}
+            >
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Task name
+              </Typography>
+              {editingTextField !== "name" &&
+                textSaveStatus.name !== "idle" && (
+                  <Typography
+                    variant="caption"
+                    color={
+                      textSaveStatus.name === "error"
+                        ? "error.main"
+                        : "text.secondary"
+                    }
+                  >
+                    {getTextSaveHelper("name")}
+                  </Typography>
+                )}
+            </Box>
+            {editingTextField === "name" ? (
+              <TextField
+                fullWidth
+                size="small"
+                value={editFormData.name}
+                onChange={(e) => {
+                  setEditFormData((current) => ({
+                    ...current,
+                    name: e.target.value,
+                  }));
+                  setTextSaveStatus((current) => ({ ...current, name: "idle" }));
+                }}
+                onBlur={() => void handleTextFieldBlur("name")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.querySelector("input")?.blur();
+                  } else if (event.key === "Escape") {
+                    handleTextFieldCancel("name");
                   }
-                : {},
-            }}
-          >
-            <Typography
-              variant="body1"
+                }}
+                error={textSaveStatus.name === "error"}
+                helperText={getTextSaveHelper("name")}
+                autoFocus
+                placeholder="Task name"
+                sx={taskDetailsTextFieldSx}
+              />
+            ) : (
+              <Box
+                role={isTaskDetailsEditable ? "button" : undefined}
+                tabIndex={isTaskDetailsEditable ? 0 : undefined}
+                onClick={() => handleTextFieldEdit("name")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleTextFieldEdit("name");
+                  }
+                }}
+                sx={{
+                  cursor: isTaskDetailsEditable ? "text" : "default",
+                  borderRadius: 1,
+                  mx: -1,
+                  px: 1,
+                  py: 0.5,
+                  "&:hover": isTaskDetailsEditable
+                    ? { backgroundColor: "action.hover" }
+                    : {},
+                }}
+              >
+                <Typography variant="body2" sx={taskDetailsTextSx}>
+                  {textSaveStatus.name === "saving" ||
+                  textSaveStatus.name === "saved"
+                    ? editFormData.name.trim()
+                    : task?.user_short_title || task?.name || "Untitled task"}
+                </Typography>
+              </Box>
+            )}
+
+            <Divider sx={{ my: 2 }} />
+
+            <Box
+              sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}
+            >
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Description
+              </Typography>
+              {editingTextField !== "description" &&
+                textSaveStatus.description !== "idle" && (
+                  <Typography
+                    variant="caption"
+                    color={
+                      textSaveStatus.description === "error"
+                        ? "error.main"
+                        : "text.secondary"
+                    }
+                  >
+                    {getTextSaveHelper("description")}
+                  </Typography>
+                )}
+            </Box>
+            {editingTextField === "description" ? (
+              <TextField
+                fullWidth
+                multiline
+                minRows={4}
+                maxRows={20}
+                value={editFormData.description}
+                onChange={(e) => {
+                  setEditFormData((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }));
+                  setTextSaveStatus((current) => ({
+                    ...current,
+                    description: "idle",
+                  }));
+                }}
+                onBlur={() => void handleTextFieldBlur("description")}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    handleTextFieldCancel("description");
+                  }
+                }}
+                error={textSaveStatus.description === "error"}
+                helperText={getTextSaveHelper("description")}
+                placeholder="Task description"
+                sx={taskDetailsTextFieldSx}
+              />
+            ) : (
+              <Box
+                role={isTaskDetailsEditable ? "button" : undefined}
+                tabIndex={isTaskDetailsEditable ? 0 : undefined}
+                onClick={() => handleTextFieldEdit("description")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleTextFieldEdit("description");
+                  }
+                }}
+                sx={{
+                  cursor: isTaskDetailsEditable ? "text" : "default",
+                  borderRadius: 1,
+                  mx: -1,
+                  px: 1,
+                  py: 0.5,
+                  transition: "background-color 0.15s ease",
+                  "&:hover": isTaskDetailsEditable
+                    ? {
+                        backgroundColor: "action.hover",
+                      }
+                    : {},
+                }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{
+                    ...taskDetailsTextSx,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    overflow: "visible",
+                  }}
+                >
+                  {textSaveStatus.description === "saving" ||
+                  textSaveStatus.description === "saved"
+                    ? editFormData.description
+                    : task?.description ||
+                      task?.original_prompt ||
+                      "No description provided"}
+                </Typography>
+              </Box>
+            )}
+          </Box>
+
+          {task?.id && (
+            <TaskAttachmentsPanel
+              taskId={task.id}
+              status={task.status as TypesSpecTaskStatus}
+            />
+          )}
+
+          {/* Share preview URLs — only meaningful once a session exists */}
+          {activeSessionId && (
+            <Box
               sx={{
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                overflow: "visible",
+                ...taskDetailsSectionSx,
+                "& > .MuiBox-root": { mb: 0 },
               }}
             >
-              {task?.description ||
-                task?.original_prompt ||
-                "No description provided"}
+              <SharePreviewSection sessionId={activeSessionId} />
+            </Box>
+          )}
+        </Box>
+
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            minWidth: 0,
+          }}
+        >
+          <Box sx={{ ...taskDetailsSectionSx, p: 1.5 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5 }}>
+              Task setup
             </Typography>
-          </Box>
-        )}
-      </Box>
-
-      {task?.id && (
-        <TaskAttachmentsPanel
-          taskId={task.id}
-          status={task.status as TypesSpecTaskStatus}
-        />
-      )}
-
-      <Divider sx={{ my: 2 }} />
-
-      {/* Share preview URLs — only meaningful once a session exists */}
-      {activeSessionId && (
-        <>
-          <SharePreviewSection sessionId={activeSessionId} />
-          <Divider sx={{ my: 2 }} />
-        </>
-      )}
 
       {/* Priority */}
-      <Box sx={{ mb: 4 }}>
-        {isEditMode ? (
-          <FormControl fullWidth size="small">
-            <InputLabel>Priority</InputLabel>
-            <Select
-              value={editFormData.priority}
-              onChange={(e) =>
-                setEditFormData((prev) => ({
-                  ...prev,
-                  priority: e.target.value,
-                }))
-              }
-              label="Priority"
-            >
-              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityCritical}>
-                Critical
-              </MenuItem>
-              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityHigh}>
-                High
-              </MenuItem>
-              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityMedium}>
-                Medium
-              </MenuItem>
-              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityLow}>
-                Low
-              </MenuItem>
-            </Select>
-          </FormControl>
-        ) : (
-          <>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-              Priority
-            </Typography>
-            <Chip
-              label={task?.priority || "Medium"}
-              color={getPriorityColor(task?.priority)}
-              size="small"
-            />
-          </>
-        )}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Priority
+        </Typography>
+        <Chip
+          label={task?.priority || "Medium"}
+          color={getPriorityColor(task?.priority)}
+          size="small"
+        />
       </Box>
 
       {/* Labels */}
-      <Box sx={{ mb: 4 }}>
+      <Box sx={{ mb: 2 }}>
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
           Labels
         </Typography>
@@ -1439,108 +1605,40 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         />
       </Box>
 
-      <Box sx={{ mb: 4 }}>
-        {isEditMode ? (
-          <Autocomplete
-            multiple
-            options={dependencyTaskOptions}
-            value={selectedDependencyTasks}
-            onChange={(_, selectedTasks) =>
-              setEditFormData((prev) => ({
-                ...prev,
-                dependsOnTaskIds: selectedTasks
-                  .map((selectedTask) => selectedTask.id || "")
-                  .filter((dependencyTaskId) => !!dependencyTaskId),
-              }))
-            }
-            isOptionEqualToValue={(option, value) => option.id === value.id}
-            getOptionLabel={(dependencyTask) =>
-              dependencyTask.name ||
-              dependencyTask.short_title ||
-              dependencyTask.description ||
-              dependencyTask.original_prompt ||
-              dependencyTask.id ||
-              "Untitled task"
-            }
-            filterSelectedOptions
-            clearOnBlur={false}
-            renderInput={(params) => (
-              <TextField
-                {...params}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Depends on
+        </Typography>
+        {currentTaskDependencies.length > 0 ? (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+            {currentTaskDependencies.map((dependencyTask) => (
+              <Chip
+                key={dependencyTask.id}
                 size="small"
-                label="Depends on"
-                placeholder="Search and select tasks"
+                clickable={!!dependencyTask.id && !!task?.project_id}
+                onClick={() => {
+                  if (!dependencyTask.id || !task?.project_id) {
+                    return;
+                  }
+                  account.orgNavigate("project-task-detail", {
+                    id: task.project_id,
+                    taskId: dependencyTask.id,
+                  });
+                }}
+                label={
+                  dependencyTask.name ||
+                  dependencyTask.short_title ||
+                  `Task #${dependencyTask.task_number || "?"}`
+                }
               />
-            )}
-            renderOption={(props, option) => (
-              <li {...props} key={option.id}>
-                <Box
-                  sx={{ display: "flex", flexDirection: "column", py: 0.25 }}
-                >
-                  <Typography variant="body2">
-                    {option.name ||
-                      option.short_title ||
-                      `Task #${option.task_number || "?"}`}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {`#${option.task_number || "?"} • ${option.status || "unknown"}`}
-                  </Typography>
-                </Box>
-              </li>
-            )}
-          />
+            ))}
+          </Box>
         ) : (
-          <>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-              Depends on
-            </Typography>
-            {currentTaskDependencies.length > 0 ? (
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-                {currentTaskDependencies.map((dependencyTask) => (
-                  <Chip
-                    key={dependencyTask.id}
-                    size="small"
-                    clickable={!!dependencyTask.id && !!task?.project_id}
-                    onClick={() => {
-                      if (!dependencyTask.id || !task?.project_id) {
-                        return;
-                      }
-                      account.orgNavigate("project-task-detail", {
-                        id: task.project_id,
-                        taskId: dependencyTask.id,
-                      });
-                    }}
-                    label={
-                      dependencyTask.name ||
-                      dependencyTask.short_title ||
-                      `Task #${dependencyTask.task_number || "?"}`
-                    }
-                  />
-                ))}
-              </Box>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                No task dependencies
-              </Typography>
-            )}
-          </>
+          <Typography variant="body2" color="text.secondary">
+            No task dependencies
+          </Typography>
         )}
       </Box>
-
-      {isEditMode && (
-        <Box sx={{ mb: 4 }}>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={justDoItMode}
-                onChange={(e) => setJustDoItMode(e.target.checked)}
-                size="small"
-              />
-            }
-            label="Skip planning (go straight to implementation)"
-          />
-        </Box>
-      )}
 
       {/* Agent Selection */}
       <Box sx={{ mb: 2 }}>
@@ -1555,7 +1653,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       </Box>
 
       {/* Timestamps */}
-      <Box sx={{ mt: 3 }}>
+      <Box sx={{ mt: 2 }}>
         {task?.created_by && (
           <Typography variant="caption" color="text.secondary" display="block">
             Author: {authorDisplay}
@@ -1679,17 +1777,38 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Box>
       )}
 
+          </Box>
+
       {/* Debug Info */}
-      <Divider sx={{ my: 2 }} />
-      <Box sx={{ mt: 2, p: 2, bgcolor: lightTheme.isLight ? "grey.100" : "grey.900", borderRadius: 1 }}>
-        <Typography
-          variant="caption"
-          color={lightTheme.isLight ? "grey.700" : "grey.400"}
-          display="block"
-          gutterBottom
+      <Box
+        component="details"
+        sx={{
+          ...taskDetailsSectionSx,
+          p: 0,
+          overflow: "hidden",
+          bgcolor: lightTheme.isLight ? "grey.50" : "grey.900",
+          "&[open] > summary": {
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          },
+        }}
+      >
+        <Box
+          component="summary"
+          sx={{
+            px: 1.5,
+            py: 1.25,
+            cursor: "pointer",
+            color: "text.secondary",
+            fontSize: "0.8125rem",
+            fontWeight: 600,
+            userSelect: "none",
+            "&:hover": { color: "text.primary" },
+          }}
         >
-          Debug Information
-        </Typography>
+          Debug information
+        </Box>
+        <Box sx={{ p: 1.5 }}>
         <Typography
           variant="caption"
           color={lightTheme.isLight ? "grey.800" : "grey.300"}
@@ -1778,14 +1897,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             Render: {sessionData.config.render_node}
           </Typography>
         )}
+        </Box>
+      </Box>
 
+        <Box sx={{ ...taskDetailsSectionSx, p: 1.5 }}>
         {/* Share Design Docs */}
-        <Divider sx={{ my: 2 }} />
         <Box
           sx={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 1,
             mb: 0.5,
           }}
         >
@@ -1802,6 +1925,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             variant="outlined"
             startIcon={<Share size={14} />}
             onClick={() => setShareDialogOpen(true)}
+            sx={{ ...taskActionButtonSx, ml: "auto" }}
           >
             Share
           </Button>
@@ -1809,7 +1933,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
         {/* Move to Backlog button */}
         {canMoveToBacklog && (
-          <Box sx={{ mt: 2 }}>
+          <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
             <Button
               size="small"
               variant="outlined"
@@ -1823,7 +1947,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               }
               onClick={() => moveToBacklogMutation.mutate()}
               disabled={moveToBacklogMutation.isPending}
-              sx={{ fontSize: "0.75rem" }}
+              sx={taskActionButtonSx}
             >
               {moveToBacklogMutation.isPending
                 ? "Moving..."
@@ -1833,7 +1957,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         )}
 
         {/* Archive button */}
-        <Box sx={{ mt: 2 }}>
+        <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
           <Tooltip title="Hold Shift to skip confirmation">
             <Button
               size="small"
@@ -1848,14 +1972,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               }
               onClick={handleArchiveClick}
               disabled={isArchiving || task?.archived}
-              sx={{ fontSize: "0.75rem" }}
+              sx={taskActionButtonSx}
             >
               {isArchiving ? "Archiving..." : "Archive Task"}
             </Button>
           </Tooltip>
         </Box>
       </Box>
-    </>
+        </Box>
+      </Box>
+    </Box>
   );
 
   const taskChatMetadata = task?.project_id ? (
@@ -2271,42 +2397,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
                   {/* Right: Action buttons */}
                   <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                    {isEditMode ? (
-                      <>
-                        <Button
-                          size="small"
-                          startIcon={<CancelIcon />}
-                          onClick={handleCancelEdit}
-                          sx={{ fontSize: "0.75rem" }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="small"
-                          color="secondary"
-                          startIcon={<SaveIcon />}
-                          onClick={handleSaveEdit}
-                          disabled={updateSpecTask.isPending}
-                          sx={{ fontSize: "0.75rem" }}
-                        >
-                          Save
-                        </Button>
-                      </>
-                    ) : (
-                      <>
+                    <>
                         {terminalToggleButton}
-                        {task.status ===
-                          TypesSpecTaskStatus.TaskStatusBacklog && (
-                          <Tooltip title="Edit task">
-                            <IconButton
-                              size="small"
-                              onClick={handleEditToggle}
-                              sx={taskToolbarIconButtonSx}
-                            >
-                              <Pencil size={17} />
-                            </IconButton>
-                          </Tooltip>
-                        )}
                         {/* Show Start button when desktop is paused */}
                         {effectiveIsDesktopPaused && (
                           <Tooltip title="Start desktop">
@@ -2412,8 +2504,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                             </IconButton>
                           </Tooltip>
                         )}
-                      </>
-                    )}
+                    </>
                     {onClose && (
                       <IconButton
                         size="small"
@@ -2480,7 +2571,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   />
                 )}
                 {currentView === "details" && (
-                  <Box sx={{ flex: 1, overflow: "auto", p: 3 }}>
+                  <Box
+                    sx={{
+                      flex: 1,
+                      overflow: "auto",
+                      p: { xs: 1.5, sm: 2 },
+                    }}
+                  >
                     {renderDetailsContent()}
                   </Box>
                 )}
@@ -2665,41 +2762,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   flexShrink: 0,
                 }}
               >
-                {isEditMode ? (
-                  <>
-                    <Button
-                      size="small"
-                      startIcon={<CancelIcon />}
-                      onClick={handleCancelEdit}
-                      sx={{ fontSize: "0.75rem" }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="small"
-                      color="secondary"
-                      startIcon={<SaveIcon />}
-                      onClick={handleSaveEdit}
-                      disabled={updateSpecTask.isPending}
-                      sx={{ fontSize: "0.75rem" }}
-                    >
-                      Save
-                    </Button>
-                  </>
-                ) : (
-                  <>
+                <>
                     {terminalToggleButton}
-                    {task.status === TypesSpecTaskStatus.TaskStatusBacklog && (
-                      <Tooltip title="Edit task">
-                        <IconButton
-                          size="small"
-                          onClick={handleEditToggle}
-                          sx={taskToolbarIconButtonSx}
-                        >
-                          <Pencil size={17} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
                     {/* Show Start button when desktop is paused */}
                     {activeSessionId && effectiveIsDesktopPaused && (
                       <Tooltip title="Start desktop">
@@ -2781,8 +2845,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         </IconButton>
                       </Tooltip>
                     )}
-                  </>
-                )}
+                </>
                 {onClose && (
                   <IconButton
                     size="small"
@@ -2949,7 +3012,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
             {/* Details View - mobile/no session */}
             {currentView === "details" && (
-              <Box sx={{ flex: 1, overflow: "auto", p: 3 }}>
+              <Box
+                sx={{
+                  flex: 1,
+                  overflow: "auto",
+                  p: { xs: 1.5, sm: 2 },
+                }}
+              >
                 {renderDetailsContent()}
               </Box>
             )}

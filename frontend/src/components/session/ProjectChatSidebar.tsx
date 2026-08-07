@@ -1,4 +1,4 @@
-import { FC, useCallback, useEffect, useState } from 'react'
+import { FC, MouseEvent, useCallback, useEffect, useState } from 'react'
 import {
   closestCenter,
   DndContext,
@@ -44,6 +44,8 @@ import {
 } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 import ProjectChatGroup from './ProjectChatGroup'
+import ProjectChatItemContextMenu from './ProjectChatItemContextMenu'
+import type { ProjectChatContextMenuPosition } from './ProjectChatItemContextMenu'
 import ProjectChatSidebarPeopleFilter from './ProjectChatSidebarPeopleFilter'
 import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
 import SortableProject from './SortableProject'
@@ -86,6 +88,8 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
   const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
   const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
+  const [contextMenuItem, setContextMenuItem] = useState<SidebarItem | null>(null)
+  const [contextMenuPosition, setContextMenuPosition] = useState<ProjectChatContextMenuPosition | null>(null)
   const [archivingItemId, setArchivingItemId] = useState<string | null>(null)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
@@ -248,6 +252,18 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
       account.orgNavigate('session', { session_id: item.id })
     }
     onOpenSession()
+  }
+
+  const openItemContextMenu = (event: MouseEvent<HTMLElement>, item: SidebarItem) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setContextMenuItem(item)
+    setContextMenuPosition({ mouseX: event.clientX, mouseY: event.clientY })
+  }
+
+  const closeItemContextMenu = () => {
+    setContextMenuItem(null)
+    setContextMenuPosition(null)
   }
 
   const toggleGroup = (groupId: string) => {
@@ -466,6 +482,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
               onToggle={() => toggleGroup('default')}
               onNewTask={showArchived ? undefined : () => account.orgNavigate('chat')}
               onOpenItem={openItem}
+              onOpenItemContextMenu={openItemContextMenu}
               onArchiveItem={requestArchive}
             />
             <DndContext
@@ -506,6 +523,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
                           ? undefined
                           : () => account.orgNavigate('chat', {}, { project_id: project.id })}
                         onOpenItem={openItem}
+                        onOpenItemContextMenu={openItemContextMenu}
                         onArchiveItem={requestArchive}
                         manualSorting={preferences.projectSortOrder === 'manual' && !query}
                         dragHandleProps={dragHandleProps}
@@ -520,6 +538,12 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
           </>
         )}
       </Box>
+
+      <ProjectChatItemContextMenu
+        item={contextMenuItem}
+        position={contextMenuPosition}
+        onClose={closeItemContextMenu}
+      />
 
       {archiveConfirmation && (
         <SimpleConfirmWindow

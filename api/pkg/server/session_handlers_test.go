@@ -681,6 +681,38 @@ func (s *SessionAuthzSuite) TestDeleteSession_NotOrgMemberNotSessionOwner() {
 	s.Equal(http.StatusForbidden, httpErr.StatusCode)
 }
 
+func (s *SessionAuthzSuite) TestUpdateSession_NameOnlyPreservesProviderAndModel() {
+	session := &types.Session{
+		ID:        "ses_123",
+		Owner:     s.userID,
+		Name:      "Original name",
+		Provider:  "openai",
+		ModelName: "gpt-5",
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated types.Session) (*types.Session, error) {
+			s.Equal("Renamed session", updated.Name)
+			s.Equal("openai", updated.Provider)
+			s.Equal("gpt-5", updated.ModelName)
+			return &updated, nil
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/sessions/"+session.ID, strings.NewReader(`{"name":"Renamed session"}`))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.updateSession(httptest.NewRecorder(), req)
+
+	s.Nil(httpErr)
+	s.Require().NotNil(result)
+	s.Equal("Renamed session", result.Name)
+	s.Equal("openai", result.Provider)
+	s.Equal("gpt-5", result.ModelName)
+}
+
 func (s *SessionAuthzSuite) TestArchiveSession_Owner() {
 	session := &types.Session{
 		ID:    "ses_123",

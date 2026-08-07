@@ -147,6 +147,21 @@ export function useUpdateSession(sessionId: string, options?: { enabled?: boolea
   })
 }
 
+export function useRenameSession() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ sessionId, name }: { sessionId: string; name: string }) =>
+      apiClient.v1SessionsUpdate(sessionId, { name }),
+    onSuccess: (_, { sessionId }) => {
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
 
 // useForkSession forks the given session to a different agent.
 // On success, the parent session is paused and the child session id is

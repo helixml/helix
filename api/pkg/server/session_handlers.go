@@ -323,19 +323,29 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	var update *types.Session
+	var update struct {
+		Name      *string `json:"name"`
+		Provider  *string `json:"provider"`
+		ModelName *string `json:"model_name"`
+	}
 
 	err = json.NewDecoder(req.Body).Decode(&update)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	session.Name = update.Name
-	if err := apiServer.validateSessionProviderRef(ctx, update.Provider, session.OrganizationID, session.Owner); err != nil {
-		return nil, system.NewHTTPError400(err.Error())
+	if update.Name != nil {
+		session.Name = *update.Name
 	}
-	session.Provider = update.Provider
-	session.ModelName = update.ModelName
+	if update.Provider != nil {
+		if err := apiServer.validateSessionProviderRef(ctx, *update.Provider, session.OrganizationID, session.Owner); err != nil {
+			return nil, system.NewHTTPError400(err.Error())
+		}
+		session.Provider = *update.Provider
+	}
+	if update.ModelName != nil {
+		session.ModelName = *update.ModelName
+	}
 
 	updated, err := apiServer.Store.UpdateSession(req.Context(), *session)
 	if err != nil {
