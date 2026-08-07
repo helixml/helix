@@ -18,7 +18,6 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
-  Avatar,
   Chip,
 } from "@mui/material";
 import {
@@ -43,7 +42,6 @@ import {
   EllipsisVertical,
   GitPullRequest,
   Wand2,
-  UserCircle2,
 } from "lucide-react";
 import {
   useApproveImplementation,
@@ -68,8 +66,8 @@ import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import AssigneeSelector from "./AssigneeSelector";
 import useAccount from "../../hooks/useAccount";
 import useLightTheme from "../../hooks/useLightTheme";
-import { TypesOrganizationMembership, TypesUser } from "../../api/api";
 import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
+import OrganizationUserAvatar, { resolveOrganizationUser } from "../widgets/OrganizationUserAvatar";
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -598,24 +596,7 @@ function TaskCardInner({
   const account = useAccount();
   const orgMembers = account.organizationTools.organization?.memberships || [];
 
-  // Find the assigned user from org members
-  const assignedMember = useMemo(() => {
-    if (!task.assignee_id) return null;
-    return orgMembers.find((m) => m.user_id === task.assignee_id);
-  }, [task.assignee_id, orgMembers]);
-
-  const assignedUser = assignedMember?.user as TypesUser | undefined;
-
-  // Get initials for avatar
-  const getAssigneeInitials = (user: TypesUser | undefined): string => {
-    if (!user) return "?";
-    const name = user.full_name || user.username || user.email || "";
-    const parts = name.split(" ");
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-  };
+  const assignedUser = resolveOrganizationUser(task.assignee_id, orgMembers, account.user)
 
   // Handle assignee change
   const handleAssigneeChange = (userId: string | null) => {
@@ -1098,19 +1079,11 @@ function TaskCardInner({
                 ml: "auto",
               }}
             >
-              {assignedUser ? (
-                <Avatar
-                  sx={{
-                    width: 20,
-                    height: 20,
-                    fontSize: "0.6rem",
-                  }}
-                >
-                  {getAssigneeInitials(assignedUser)}
-                </Avatar>
-              ) : (
-                <UserCircle2 size={18} style={{ opacity: 0.4 }} />
-              )}
+              <OrganizationUserAvatar
+                userId={task.assignee_id}
+                members={orgMembers}
+                currentUser={account.user}
+              />
             </IconButton>
           </Tooltip>
         </Box>

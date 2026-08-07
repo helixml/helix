@@ -1,0 +1,2 @@
+-- Irreversible data backfill: clearing assignees would also erase legitimate
+-- assignments created after this migration.

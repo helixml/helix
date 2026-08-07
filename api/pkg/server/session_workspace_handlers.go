@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -170,6 +171,22 @@ func (apiServer *HelixAPIServer) dialDesktop(ctx context.Context, sessionID stri
 		return nil, fmt.Errorf("container not ready: %w", err)
 	}
 	return conn, nil
+}
+
+// applyDesktopDeadline pushes ctx's deadline down onto the RevDial
+// connection. connman.Dial hands back a net.Conn, so the deadline is
+// real: without it the request/response below block forever whenever the
+// desktop accepts the connection but never answers (wedged container,
+// a git command that never returns). Callers on the WebSocket sync read
+// loop cannot tolerate that — see finalizeInteractionCodeChanges.
+func applyDesktopDeadline(ctx context.Context, conn io.ReadWriteCloser) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return
+	}
+	if netConn, ok := conn.(net.Conn); ok {
+		_ = netConn.SetDeadline(deadline)
+	}
 }
 
 // callDesktopJSON sends an HTTP request to the desktop's RevDial-

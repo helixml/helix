@@ -15,10 +15,11 @@ import {
   Plus,
 } from 'lucide-react'
 
-import type { TypesProject } from '../../api/api'
+import type { TypesOrganizationMembership, TypesProject, TypesUser } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useListSessions } from '../../services/sessionService'
 import { useSpecTasks } from '../../services/specTaskService'
+import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
 import {
   buildProjectChatGroups,
   compactRelativeTime,
@@ -51,6 +52,10 @@ type ProjectChatGroupProps = {
   enabled: boolean
   threadSortOrder?: SidebarThreadSortOrder
   visibleThreadCount?: number
+  participantIds: string[]
+  organizationMembers: TypesOrganizationMembership[]
+  currentUser?: TypesUser
+  showTaskAvatars?: boolean
   archived?: boolean
   archivingItemId: string | null
   onToggle: () => void
@@ -73,6 +78,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   enabled,
   threadSortOrder = 'updated_at',
   visibleThreadCount = 6,
+  participantIds,
+  organizationMembers,
+  currentUser,
+  showTaskAvatars = false,
   archived = false,
   archivingItemId,
   onToggle,
@@ -108,7 +117,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       enabled: queriesEnabled,
       includeExternalAgents: true,
       projectScope: projectId ? 'project' : 'none',
-      sort: threadSortOrder === 'created_at' ? 'created' : 'updated',
+      sort: threadSortOrder === 'created_at' ? 'created' : 'last_message',
       archived,
     },
   )
@@ -116,8 +125,9 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     projectId,
     limit: requestCount,
     offset: 0,
-    sort: threadSortOrder === 'created_at' ? 'created' : 'updated',
+    sort: threadSortOrder === 'created_at' ? 'created' : 'last_message',
     archivedOnly: archived,
+    participantIds,
     enabled: queriesEnabled && !!projectId,
     refetchInterval: archived ? false : 10000,
   })
@@ -304,6 +314,9 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
               ? getSidebarPullRequestIcon(item.task)
               : undefined
             const isArchiving = archivingItemId === item.id
+            const taskPersonId = item.task?.assignee_id || item.task?.created_by || ''
+            const taskPerson = resolveOrganizationUser(taskPersonId, organizationMembers, currentUser)
+            const taskPersonRole = item.task?.assignee_id ? 'Assigned to' : 'Created by'
             return (
               <Box
                 key={`${item.kind}:${item.id}`}
@@ -411,6 +424,20 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                 >
                   {item.title}
                 </Typography>
+                {showTaskAvatars && item.kind === 'spec-task' && (
+                  <Tooltip title={`${taskPersonRole} ${taskPerson?.full_name || taskPerson?.username || taskPerson?.email || 'unknown user'}`}>
+                    <Box sx={{ width: 18, height: 18, flexShrink: 0, display: 'inline-flex' }}>
+                      <OrganizationUserAvatar
+                        userId={taskPersonId}
+                        members={organizationMembers}
+                        currentUser={currentUser}
+                        size={18}
+                        fontSize="0.55rem"
+                        iconSize={16}
+                      />
+                    </Box>
+                  </Tooltip>
+                )}
                 <Box sx={{ width: 28, height: 28, flexShrink: 0, position: 'relative' }}>
                   <Typography
                     className="sidebar-item-time"

@@ -27,12 +27,13 @@ const QUERY_KEYS = {
     labels?: string[],
     limit?: number,
     offset?: number,
-    sort?: 'created' | 'updated',
+    sort?: 'created' | 'updated' | 'last_message',
+    participantIds?: string[],
   ) =>
     [
       "spec-tasks",
       "list",
-      { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort },
+      { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds },
     ] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
   specTaskUsage: (id: string) => ["spec-tasks", id, "usage"] as const,
@@ -87,7 +88,8 @@ export function useSpecTasks(options?: {
   labels?: string[];
   limit?: number;
   offset?: number;
-  sort?: 'created' | 'updated';
+  sort?: 'created' | 'updated' | 'last_message';
+  participantIds?: string[];
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
@@ -102,6 +104,7 @@ export function useSpecTasks(options?: {
       options?.limit,
       options?.offset,
       options?.sort,
+      options?.participantIds,
     ),
     queryFn: async () => {
       const response = await api.getApiClient().v1SpecTasksList({
@@ -115,6 +118,7 @@ export function useSpecTasks(options?: {
         limit: options?.limit,
         offset: options?.offset,
         sort: options?.sort,
+        participant_ids: options?.participantIds?.join(','),
       });
       return response.data || [];
     },

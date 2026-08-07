@@ -56,6 +56,11 @@ import ExternalAgentDesktopViewer, {
   useSandboxState,
 } from "../external-agent/ExternalAgentDesktopViewer";
 import DiffViewer from "./DiffViewer";
+import TaskSessionPlaceholder from "./TaskSessionPlaceholder";
+import {
+  subscriptionRequirementFromTask,
+  subscriptionRequirementMessage,
+} from "./taskLaunchFailure";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import TaskAttachmentsPanel from "./TaskAttachmentsPanel";
@@ -117,6 +122,7 @@ import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
 import {
   CloudUpload as CloudUploadLucide,
+  Files,
   SlidersHorizontal,
   GitCompare,
   Lock as LockLucide,
@@ -159,6 +165,8 @@ interface SpecTaskDetailContentProps {
   taskId: string;
   /** Keep standalone task content inset while allowing sibling drawers to span the workspace. */
   padContent?: boolean;
+  /** Whether tasks awaiting spec review should open the review automatically. */
+  autoOpenReview?: boolean;
   onClose?: () => void;
   /** Called when user clicks "Review Spec" - if provided, opens in workspace pane instead of navigating */
   onOpenReview?: (
@@ -180,6 +188,7 @@ interface SpecTaskDetailContentProps {
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
   padContent = false,
+  autoOpenReview = true,
   onClose,
   onOpenReview,
   onTaskArchived,
@@ -366,7 +375,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
   // Initialize from URL query param 'view' if present (only when syncing with URL)
-  const getInitialView = (): "chat" | "desktop" | "changes" | "details" => {
+  const getInitialView = (): "chat" | "desktop" | "changes" | "files" | "details" => {
     if (!syncViewWithUrl) {
       return "desktop";
     }
@@ -375,6 +384,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       viewParam === "chat" ||
       viewParam === "desktop" ||
       viewParam === "changes" ||
+      viewParam === "files" ||
       viewParam === "details"
     ) {
       return viewParam;
@@ -386,7 +396,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     return isMobile ? "chat" : "desktop";
   };
   const [currentView, setCurrentView] = useState<
-    "chat" | "desktop" | "changes" | "details"
+    "chat" | "desktop" | "changes" | "files" | "details"
   >(getInitialView);
   const [clientUniqueId, setClientUniqueId] = useState<string>("");
 
@@ -401,6 +411,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       (viewParam === "chat" ||
         viewParam === "desktop" ||
         viewParam === "changes" ||
+        viewParam === "files" ||
         viewParam === "details")
     ) {
       if (viewParam !== currentView) {
@@ -411,7 +422,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Update URL when view changes (only when syncing with URL)
   const handleViewChange = useCallback(
-    (newView: "chat" | "desktop" | "changes" | "details" | null) => {
+    (newView: "chat" | "desktop" | "changes" | "files" | "details" | null) => {
       if (newView && newView !== currentView) {
         setCurrentView(newView);
         if (syncViewWithUrl) {
@@ -693,6 +704,22 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   const taskMetadataError =
     typeof task?.metadata?.error === "string" ? task.metadata.error : "";
+
+  // A launch refused for a missing subscription is not retryable: send the user
+  // to the provider login instead of offering a start button that fails again.
+  const subscriptionRequirement = subscriptionRequirementFromTask(
+    task?.metadata as Record<string, unknown> | undefined,
+  );
+  const desktopStartupMessage = subscriptionRequirement
+    ? subscriptionRequirementMessage(subscriptionRequirement)
+    : taskMetadataError;
+  const connectSubscriptionLabel = subscriptionRequirement
+    ? `Connect ${subscriptionRequirement.label}`
+    : undefined;
+  const connectSubscription = useCallback(() => {
+    const organizationId = project?.organization_id;
+    if (organizationId) router.navigate("org_providers", { org_id: organizationId });
+  }, [project?.organization_id, router]);
 
   // Sync justDoItMode when task changes
   useEffect(() => {
@@ -1033,14 +1060,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task?.id, task?.name, task?.project_id, onOpenReview, account]);
 
-  // Auto-open spec review when task is in spec_review or spec_revision status
-  // and design docs are available - triggers once per SPA session per task ID.
-  // handleReviewSpec itself writes to sessionStorage before the async call, so returning
-  // to chat (which remounts this component) never re-triggers the auto-open.
+  // Auto-open spec review when enabled and the task is ready for review.
+  // The Chat task route disables this so selecting a task preserves the Chat context.
+  // handleReviewSpec writes to sessionStorage before the async call, limiting auto-open
+  // to once per SPA session per task ID in views where it remains enabled.
   // The spec_approved_at guard prevents bouncing the user back to the review page in the
   // brief window between approval and the cached task.status transitioning away from spec_review.
   useEffect(() => {
     if (
+      autoOpenReview &&
       task?.id &&
       !getAutoOpenedSpecTasks().has(task.id) &&
       !task?.spec_approved_at &&
@@ -1051,7 +1079,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     ) {
       handleReviewSpec();
     }
-  }, [task?.id, task?.status, task?.spec_approved_at, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
+  }, [autoOpenReview, task?.id, task?.status, task?.spec_approved_at, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
 
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {
@@ -2164,7 +2192,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         Desktop
                       </Typography>
                     </ToggleButton>
-                    <ToggleButton value="changes" aria-label="Changes view">
+                    <ToggleButton value="changes" aria-label="Diff view">
                       <GitCompare size={18} />
                       <Typography
                         sx={{
@@ -2174,7 +2202,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           textTransform: "none",
                         }}
                       >
-                        File Diff
+                        Diff
+                      </Typography>
+                    </ToggleButton>
+                    <ToggleButton value="files" aria-label="Files view">
+                      <Files size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        Files
                       </Typography>
                     </ToggleButton>
                     <ToggleButton value="details" aria-label="Details view">
@@ -2389,68 +2430,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     is already visible in the left panel */}
                 {(currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (
-                    <Box
-                      sx={{
-                        flex: 1,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        p: 4,
-                      }}
-                    >
-                      <Alert severity="success" sx={{ maxWidth: 400 }}>
-                        <Typography
-                          variant="h6"
-                          sx={{ fontWeight: 500, mb: 1 }}
-                        >
-                          Task finished
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          This task has been merged to the default branch.
-                        </Typography>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={
-                            isStarting || isDesktopStarting ? (
-                              <CircularProgress size={16} />
-                            ) : (
-                              <PlayArrow />
-                            )
-                          }
-                          onClick={handleStartSession}
-                          disabled={isStarting || isDesktopStarting}
-                          sx={{ mt: 2 }}
-                        >
-                          {isStarting || isDesktopStarting
-                            ? "Starting..."
-                            : "Start Desktop"}
-                        </Button>
-                      </Alert>
-                    </Box>
+                    <TaskSessionPlaceholder
+                      tone="finished"
+                      title="Task finished"
+                      description="This task has been merged to the default branch. Its sandbox is stopped."
+                      onStart={handleStartSession}
+                      starting={isStarting || isDesktopStarting}
+                    />
                   ) : isTaskArchived ? (
-                    <Box
-                      sx={{
-                        flex: 1,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        p: 4,
-                      }}
-                    >
-                      <Alert severity="warning" sx={{ maxWidth: 400 }}>
-                        <Typography
-                          variant="h6"
-                          sx={{ fontWeight: 500, mb: 1 }}
-                        >
-                          Task rejected
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          This task has been archived. The agent session has
-                          ended.
-                        </Typography>
-                      </Alert>
-                    </Box>
+                    <TaskSessionPlaceholder
+                      tone="archived"
+                      title="Task rejected"
+                      description="This task has been archived. The agent session has ended."
+                    />
                   ) : (
                     <ExternalAgentDesktopViewer
                       sessionId={activeSessionId}
@@ -2460,15 +2452,31 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       displayWidth={displaySettings.width}
                       displayHeight={displaySettings.height}
                       displayFps={displaySettings.fps}
-                      startupErrorMessage={taskMetadataError}
+                      startupErrorMessage={desktopStartupMessage}
+                      connectSubscriptionLabel={connectSubscriptionLabel}
+                      onConnectSubscription={connectSubscription}
                       initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                     />
                   ))}
-                {currentView === "changes" && (
+                {(currentView === "changes" || currentView === "files") && (
                   <DiffViewer
                     sessionId={activeSessionId}
                     baseBranch={defaultBranchName}
                     pollInterval={3000}
+                    primarySurface={currentView === "files" ? "files" : "changes"}
+                    onPrimarySurfaceChange={handleViewChange}
+                    onStartDesktop={handleStartSession}
+                    connectSubscriptionLabel={connectSubscriptionLabel}
+                    onConnectSubscription={connectSubscription}
+                    desktopUnavailableDetail={desktopStartupMessage}
+                    desktopRunning={!effectiveIsDesktopPaused}
+                    isDesktopStarting={isStarting || isDesktopStarting}
+                    desktopUnavailableTitle={isTaskCompleted ? "Task finished" : undefined}
+                    desktopUnavailableDescription={
+                      isTaskCompleted
+                        ? "This task has been merged to the default branch. Start the desktop to review its workspace."
+                        : undefined
+                    }
                   />
                 )}
                 {currentView === "details" && (
@@ -2555,7 +2563,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </ToggleButton>
                 )}
                 {activeSessionId && (
-                  <ToggleButton value="changes" aria-label="Changes view">
+                  <ToggleButton value="changes" aria-label="Diff view">
                     <GitCompare size={18} />
                     <Typography
                       sx={{
@@ -2565,7 +2573,22 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         textTransform: "none",
                       }}
                     >
-                      File Diff
+                      Diff
+                    </Typography>
+                  </ToggleButton>
+                )}
+                {activeSessionId && (
+                  <ToggleButton value="files" aria-label="Files view">
+                    <Files size={18} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      Files
                     </Typography>
                   </ToggleButton>
                 )}
@@ -2868,62 +2891,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 }}
               >
                 {isTaskCompleted && isDesktopPaused ? (
-                  <Box
-                    sx={{
-                      flex: 1,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      p: 4,
-                    }}
-                  >
-                    <Alert severity="success" sx={{ maxWidth: 400 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
-                        Task finished
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        This task has been merged to the default branch.
-                      </Typography>
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={
-                          isStarting || isDesktopStarting ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <PlayArrow />
-                          )
-                        }
-                        onClick={handleStartSession}
-                        disabled={isStarting || isDesktopStarting}
-                        sx={{ mt: 2 }}
-                      >
-                        {isStarting || isDesktopStarting
-                          ? "Starting..."
-                          : "Start Desktop"}
-                      </Button>
-                    </Alert>
-                  </Box>
+                  <TaskSessionPlaceholder
+                    tone="finished"
+                    title="Task finished"
+                    description="This task has been merged to the default branch. Its sandbox is stopped."
+                    onStart={handleStartSession}
+                    starting={isStarting || isDesktopStarting}
+                  />
                 ) : isTaskArchived ? (
-                  <Box
-                    sx={{
-                      flex: 1,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      p: 4,
-                    }}
-                  >
-                    <Alert severity="warning" sx={{ maxWidth: 400 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
-                        Task rejected
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        This task has been archived. The agent session has
-                        ended.
-                      </Typography>
-                    </Alert>
-                  </Box>
+                  <TaskSessionPlaceholder
+                    tone="archived"
+                    title="Task rejected"
+                    description="This task has been archived. The agent session has ended."
+                  />
                 ) : (
                   <ExternalAgentDesktopViewer
                     sessionId={activeSessionId}
@@ -2933,20 +2913,36 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     displayWidth={displaySettings.width}
                     displayHeight={displaySettings.height}
                     displayFps={displaySettings.fps}
-                    startupErrorMessage={taskMetadataError}
+                    startupErrorMessage={desktopStartupMessage}
+                    connectSubscriptionLabel={connectSubscriptionLabel}
+                    onConnectSubscription={connectSubscription}
                     initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                   />
                 )}
               </Box>
             )}
 
-            {/* Changes View - mobile */}
-            {activeSessionId && currentView === "changes" && (
+            {/* Workspace review - mobile */}
+            {activeSessionId && (currentView === "changes" || currentView === "files") && (
               <Box sx={{ flex: 1, overflow: "hidden" }}>
                 <DiffViewer
                   sessionId={activeSessionId}
                   baseBranch={defaultBranchName}
                   pollInterval={3000}
+                  primarySurface={currentView === "files" ? "files" : "changes"}
+                  onPrimarySurfaceChange={handleViewChange}
+                  onStartDesktop={handleStartSession}
+                  connectSubscriptionLabel={connectSubscriptionLabel}
+                  onConnectSubscription={connectSubscription}
+                  desktopUnavailableDetail={desktopStartupMessage}
+                  desktopRunning={!effectiveIsDesktopPaused}
+                  isDesktopStarting={isStarting || isDesktopStarting}
+                  desktopUnavailableTitle={isTaskCompleted ? "Task finished" : undefined}
+                  desktopUnavailableDescription={
+                    isTaskCompleted
+                      ? "This task has been merged to the default branch. Start the desktop to review its workspace."
+                      : undefined
+                  }
                 />
               </Box>
             )}

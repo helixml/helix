@@ -421,6 +421,13 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.UserID != "" {
 		db = db.Where("created_by = ?", filters.UserID)
 	}
+	if filters.FilterParticipants {
+		if len(filters.ParticipantIDs) == 0 {
+			db = db.Where("1 = 0")
+		} else {
+			db = db.Where("assignee_id IN ?", filters.ParticipantIDs)
+		}
+	}
 	if filters.Type != "" {
 		db = db.Where("type = ?", filters.Type)
 	}
@@ -460,6 +467,16 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 
 	if filters.SortBy == "created" {
 		db = db.Order("created_at DESC")
+	} else if filters.SortBy == "last_message" {
+		const lastMessageAt = `COALESCE(
+			(SELECT MAX(interactions.created)
+			 FROM interactions
+			 WHERE interactions.session_id = spec_tasks.planning_session_id),
+			spec_tasks.created_at
+		)`
+		db = db.
+			Select("spec_tasks.*, " + lastMessageAt + " AS last_message_at").
+			Order(lastMessageAt + " DESC, spec_tasks.created_at DESC, spec_tasks.id DESC")
 	} else {
 		// Sort by status_updated_at first (so recently-moved tasks appear at top of their column),
 		// then by created_at for tasks without status_updated_at set.

@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // FileDiff represents a single file's diff information
@@ -491,26 +493,12 @@ func resolveBaseBranch(workDir, baseBranch string) string {
 }
 
 // WorkspaceInfo represents information about a git workspace/repository
-type WorkspaceInfo struct {
-	// Name is the directory name (e.g., "my-repo")
-	Name string `json:"name"`
-	// Path is the full path to the repository
-	Path string `json:"path"`
-	// CurrentBranch is the currently checked out branch
-	CurrentBranch string `json:"current_branch"`
-	// IsPrimary indicates if this is the primary repository
-	IsPrimary bool `json:"is_primary"`
-	// HasHelixSpecs indicates if the repo has a helix-specs branch
-	HasHelixSpecs bool `json:"has_helix_specs"`
-}
+type WorkspaceInfo = types.WorkspaceInfo
 
 // WorkspacesResponse is the response from the /workspaces endpoint
-type WorkspacesResponse struct {
-	// Workspaces is the list of git repositories found
-	Workspaces []WorkspaceInfo `json:"workspaces"`
-	// Error message if something went wrong
-	Error string `json:"error,omitempty"`
-}
+type WorkspacesResponse = types.WorkspacesResponse
+
+const agentWorkspaceRoot = "/home/retro/work"
 
 // handleWorkspaces handles GET /workspaces requests
 // Returns a list of all git repositories in the workspace directory
@@ -565,7 +553,7 @@ func findAllWorkspaces() []WorkspaceInfo {
 
 	// Check if baseDir itself is a git repo
 	if isGitRepo(baseDir) {
-		ws := getWorkspaceInfo(baseDir, filepath.Base(baseDir), primaryRepoName)
+		ws := getWorkspaceInfo(baseDir, agentWorkspaceRoot, filepath.Base(baseDir), primaryRepoName)
 		workspaces = append(workspaces, ws)
 		return workspaces
 	}
@@ -582,7 +570,7 @@ func findAllWorkspaces() []WorkspaceInfo {
 		}
 		subdir := filepath.Join(baseDir, entry.Name())
 		if isGitRepo(subdir) {
-			ws := getWorkspaceInfo(subdir, entry.Name(), primaryRepoName)
+			ws := getWorkspaceInfo(subdir, filepath.Join(agentWorkspaceRoot, entry.Name()), entry.Name(), primaryRepoName)
 			workspaces = append(workspaces, ws)
 		}
 	}
@@ -591,10 +579,11 @@ func findAllWorkspaces() []WorkspaceInfo {
 }
 
 // getWorkspaceInfo builds workspace info for a git repository
-func getWorkspaceInfo(repoPath, name, primaryRepoName string) WorkspaceInfo {
+func getWorkspaceInfo(repoPath, agentPath, name, primaryRepoName string) WorkspaceInfo {
 	ws := WorkspaceInfo{
 		Name:      name,
 		Path:      repoPath,
+		AgentPath: agentPath,
 		IsPrimary: name == primaryRepoName,
 	}
 

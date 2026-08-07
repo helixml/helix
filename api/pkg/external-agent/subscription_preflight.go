@@ -2,7 +2,6 @@ package external_agent
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -54,20 +53,22 @@ func (h *HydraExecutor) verifySubscriptionCredentials(ctx context.Context, agent
 	case types.CodeAgentRuntimeClaudeCode:
 		sub, err := h.store.GetSessionClaudeSubscription(ctx, session)
 		if err != nil || sub == nil || sub.Status != "active" {
-			return missingSubscriptionError("Claude", session)
+			return missingSubscriptionError(types.SubscriptionProviderClaude, "Claude", session)
 		}
 	case types.CodeAgentRuntimeCodexCLI:
 		sub, err := h.store.GetEffectiveCodexSubscription(ctx, session.Owner, session.OrganizationID)
 		if err != nil || sub == nil || sub.Status != "active" {
-			return missingSubscriptionError("ChatGPT", session)
+			return missingSubscriptionError(types.SubscriptionProviderCodex, "ChatGPT", session)
 		}
 	}
 	return nil
 }
 
-func missingSubscriptionError(provider string, session *types.Session) error {
-	return fmt.Errorf(
-		"agent is configured to use a %s subscription, but no active %s subscription is available to session owner %s (org %q) — connect one in Settings, or switch the agent to API-key credentials",
-		provider, provider, session.Owner, session.OrganizationID,
-	)
+func missingSubscriptionError(provider, label string, session *types.Session) error {
+	return &types.MissingSubscriptionError{
+		Provider: provider,
+		Label:    label,
+		Owner:    session.Owner,
+		OrgID:    session.OrganizationID,
+	}
 }

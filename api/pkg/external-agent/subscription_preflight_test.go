@@ -2,6 +2,7 @@ package external_agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -115,4 +116,28 @@ func TestVerifySubscriptionCredentials_LoginDesktopSkipped(t *testing.T) {
 		Return(&types.Session{ID: "ses_login", Owner: "usr_no_sub"}, nil)
 
 	assert.NoError(t, h.verifySubscriptionCredentials(context.Background(), &types.DesktopAgent{SessionID: "ses_login"}))
+}
+
+// The browser has to decide which provider login to offer. Pattern-matching the
+// prose would break the moment the wording changes, so the error carries the
+// provider structurally.
+func TestVerifySubscriptionCredentials_ErrorIdentifiesProvider(t *testing.T) {
+	for _, tc := range []struct {
+		runtime      types.CodeAgentRuntime
+		wantProvider string
+		wantLabel    string
+	}{
+		{types.CodeAgentRuntimeClaudeCode, types.SubscriptionProviderClaude, "Claude"},
+		{types.CodeAgentRuntimeCodexCLI, types.SubscriptionProviderCodex, "ChatGPT"},
+	} {
+		err := missingSubscriptionError(tc.wantProvider, tc.wantLabel, &types.Session{
+			Owner: "usr_1", OrganizationID: "org_1",
+		})
+
+		var missing *types.MissingSubscriptionError
+		require.True(t, errors.As(err, &missing), "runtime %s", tc.runtime)
+		assert.Equal(t, tc.wantProvider, missing.Provider)
+		assert.Contains(t, err.Error(), tc.wantLabel)
+		assert.Contains(t, err.Error(), "usr_1")
+	}
 }

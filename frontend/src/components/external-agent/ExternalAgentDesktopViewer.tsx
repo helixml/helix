@@ -9,6 +9,7 @@ import {
   Collapse,
 } from "@mui/material";
 import PlayArrow from "@mui/icons-material/PlayArrow";
+import TaskSessionPlaceholder from "../tasks/TaskSessionPlaceholder";
 import ChatIcon from "@mui/icons-material/Chat";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
@@ -121,6 +122,13 @@ interface ExternalAgentDesktopViewerProps {
   apiClient?: Api<unknown>["api"]; // For prompt history sync
   defaultPanelOpen?: boolean; // Default state of the session panel (default: false)
   startupErrorMessage?: string;
+  /**
+   * Offered instead of "start desktop" when the launch was refused for a
+   * missing subscription — starting again cannot succeed until the provider
+   * is connected.
+   */
+  connectSubscriptionLabel?: string;
+  onConnectSubscription?: () => void;
   // Pre-computed sandbox state from the task list (avoids per-card session polling on Kanban)
   initialSandboxState?: string;
   initialSandboxStatusMessage?: string;
@@ -145,6 +153,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   apiClient,
   defaultPanelOpen = false,
   startupErrorMessage,
+  connectSubscriptionLabel,
+  onConnectSubscription,
   initialSandboxState,
   initialSandboxStatusMessage,
   sandboxMode = false,
@@ -474,26 +484,24 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               gap: 2,
             }}
           >
-            <Typography
-              variant="body1"
-              sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
-            >
-              {sandboxMode ? "Desktop Unavailable" : "Desktop Paused"}
-            </Typography>
-            {!sandboxMode && (
-              <Button
-                variant="contained"
-                color="primary"
-                size="large"
-                startIcon={
-                  isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-                }
-                onClick={handleResume}
-                disabled={isResuming}
-              >
-                {isResuming ? "Starting..." : "Start Desktop"}
-              </Button>
-            )}
+            <TaskSessionPlaceholder
+              variant="overlay"
+              tone="paused"
+              detail={startupErrorMessage}
+              primaryAction={
+                connectSubscriptionLabel && onConnectSubscription
+                  ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
+                  : undefined
+              }
+              title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
+              description={
+                sandboxMode
+                  ? "This sandbox has no desktop to display."
+                  : "This task's sandbox is stopped. Start the desktop to interact with it."
+              }
+              onStart={sandboxMode ? undefined : handleResume}
+              starting={isResuming}
+            />
           </Box>
         </Box>
       );
@@ -619,26 +627,24 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             backgroundColor: lightTheme.isLight ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.3)",
           }}
         >
-          <Typography
-            variant="body1"
-            sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
-          >
-            {sandboxMode ? "Desktop Unavailable" : "Desktop Paused"}
-          </Typography>
-          {!sandboxMode && (
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              startIcon={
-                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-              }
-              onClick={handleResume}
-              disabled={isResuming}
-            >
-              {isResuming ? "Starting..." : "Start Desktop"}
-            </Button>
-          )}
+          <TaskSessionPlaceholder
+            variant="overlay"
+            tone="paused"
+            detail={startupErrorMessage}
+            primaryAction={
+              connectSubscriptionLabel && onConnectSubscription
+                ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
+                : undefined
+            }
+            title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
+            description={
+              sandboxMode
+                ? "This sandbox has no desktop to display."
+                : "This task's sandbox is stopped. Start the desktop to interact with it."
+            }
+            onStart={sandboxMode ? undefined : handleResume}
+            starting={isResuming}
+          />
         </Box>
       </Box>
     );
@@ -710,27 +716,36 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 zIndex: 100,
               }}
             >
-              <CircularProgress size={40} sx={{ color: "warning.main" }} />
-              <Typography
-                variant="body1"
-                sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
-              >
-                {isPaused ? (sandboxMode ? "Desktop Unavailable" : "Desktop Paused") : "Reconnecting..."}
-              </Typography>
-              {isPaused && !sandboxMode && (
-                <Button
-                  variant="contained"
-                  color="primary"
-                  size="large"
-                  startIcon={
-                    isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+              {isPaused ? (
+                <TaskSessionPlaceholder
+                  variant="overlay"
+                  tone="paused"
+                  detail={startupErrorMessage}
+                  primaryAction={
+                    connectSubscriptionLabel && onConnectSubscription
+                      ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
+                      : undefined
                   }
-                  onClick={handleResume}
-                  disabled={isResuming}
-                  sx={{ mt: 1 }}
-                >
-                  {isResuming ? "Starting..." : "Restart Desktop"}
-                </Button>
+                  title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
+                  description={
+                    sandboxMode
+                      ? "This sandbox has no desktop to display."
+                      : "This task's sandbox is stopped. Restart the desktop to interact with it."
+                  }
+                  onStart={sandboxMode ? undefined : handleResume}
+                  starting={isResuming}
+                  startLabel="Restart desktop"
+                />
+              ) : (
+                <>
+                  <CircularProgress size={40} sx={{ color: "warning.main" }} />
+                  <Typography
+                    variant="body1"
+                    sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
+                  >
+                    Reconnecting...
+                  </Typography>
+                </>
               )}
             </Box>
           )}

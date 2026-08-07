@@ -251,10 +251,11 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 // @Param   project_id query string true "Project ID"
 // @Param   status query string false "Filter by status"
 // @Param   user_id query string false "Filter by user ID"
+// @Param   participant_ids query string false "Filter by creator or assignee user IDs (comma-separated, OR semantics)"
 // @Param   include_archived query bool false "Include archived tasks" default(false)
 // @Param   with_depends_on query bool false "Include depends on tasks" default(false)
 // @Param   labels query string false "Filter by labels (comma-separated, AND semantics)"
-// @Param   sort query string false "Sort order: created or updated" default(updated)
+// @Param   sort query string false "Sort order: created, updated, or last_message" default(updated)
 // @Param   limit query int false "Limit number of results" default(50)
 // @Param   offset query int false "Offset for pagination" default(0)
 // @Success 200 {array} types.SpecTask
@@ -272,8 +273,8 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sortBy := query.Get("sort")
-	if sortBy != "" && sortBy != "created" && sortBy != "updated" {
-		http.Error(w, "sort must be created or updated", http.StatusBadRequest)
+	if sortBy != "" && sortBy != "created" && sortBy != "updated" && sortBy != "last_message" {
+		http.Error(w, "sort must be created, updated, or last_message", http.StatusBadRequest)
 		return
 	}
 
@@ -298,17 +299,35 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var participantIDs []string
+	participantIDSet := make(map[string]struct{})
+	if participantsParam := query.Get("participant_ids"); participantsParam != "" {
+		for _, participantID := range strings.Split(participantsParam, ",") {
+			participantID = strings.TrimSpace(participantID)
+			if participantID == "" {
+				continue
+			}
+			if _, exists := participantIDSet[participantID]; exists {
+				continue
+			}
+			participantIDSet[participantID] = struct{}{}
+			participantIDs = append(participantIDs, participantID)
+		}
+	}
+
 	filters := &types.SpecTaskFilters{
-		ProjectID:       projectID,
-		Status:          types.SpecTaskStatus(query.Get("status")),
-		UserID:          query.Get("user_id"),
-		WithDependsOn:   query.Get("with_depends_on") == "true",
-		Limit:           parseIntQuery(query.Get("limit"), 0), // 0 = no limit, return all tasks
-		Offset:          parseIntQuery(query.Get("offset"), 0),
-		SortBy:          sortBy,
-		IncludeArchived: query.Get("include_archived") == "true",
-		ArchivedOnly:    query.Get("archived_only") == "true",
-		Labels:          labelFilter,
+		ProjectID:          projectID,
+		Status:             types.SpecTaskStatus(query.Get("status")),
+		UserID:             query.Get("user_id"),
+		FilterParticipants: query.Has("participant_ids"),
+		ParticipantIDs:     participantIDs,
+		WithDependsOn:      query.Get("with_depends_on") == "true",
+		Limit:              parseIntQuery(query.Get("limit"), 0), // 0 = no limit, return all tasks
+		Offset:             parseIntQuery(query.Get("offset"), 0),
+		SortBy:             sortBy,
+		IncludeArchived:    query.Get("include_archived") == "true",
+		ArchivedOnly:       query.Get("archived_only") == "true",
+		Labels:             labelFilter,
 	}
 
 	tasks, err := s.Store.ListSpecTasks(ctx, filters)
@@ -1006,6 +1025,9 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	// Record who kicked off planning so downstream push-credential and
 	// container git-identity resolution can attribute to them.
 	task.PlanningStartedBy = user.ID
+	// The person who starts the task owns its execution, replacing any
+	// pre-start assignment.
+	task.AssigneeID = user.ID
 
 	// Save the task with queued status first (so response reflects immediate status)
 	err = s.Store.UpdateSpecTask(ctx, task)

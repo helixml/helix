@@ -624,12 +624,15 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 		command := types.ExternalAgentCommand{
 			Type: "chat_message",
 			Data: map[string]interface{}{
-				"message":       fullMessage,
-				"request_id":    requestID,
-				"acp_thread_id": acpThreadID,
-				"agent_name":    agentName,
+				"message":            fullMessage,
+				"request_id":         requestID,
+				"acp_thread_id":      acpThreadID,
+				"agent_name":         agentName,
+				"interaction_id":     interactionID,
+				"track_code_changes": helixSession.Metadata.SpecTaskID != "",
 			},
 		}
+		apiServer.captureInteractionBeforeCheckpoint(helixSessionID, command)
 
 		if apiServer.externalAgentWSManager.queueOrSend(helixSessionID, command) {
 			log.Info().
@@ -1101,8 +1104,10 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 	// genuine prompt sent through this path was being silently discarded (#2642). The
 	// queue path (sendQueuedPromptToSession) never set role and works; this matches it.
 	commandData := map[string]interface{}{
-		"message":    interaction.PromptMessage,
-		"request_id": interaction.ID, // Use interaction ID as request ID for response tracking
+		"message":            interaction.PromptMessage,
+		"request_id":         interaction.ID, // Use interaction ID as request ID for response tracking
+		"interaction_id":     interaction.ID,
+		"track_code_changes": session.Metadata.SpecTaskID != "",
 	}
 
 	if session.Metadata.ZedThreadID != "" {
@@ -2124,11 +2129,13 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
-			"message":       outgoingMessage,
-			"request_id":    requestID,
-			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
-			"agent_name":    agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
-			"interrupt":     interrupt,   // Tell agent to cancel current turn before sending (mirrors prompt-queue path)
+			"message":            outgoingMessage,
+			"request_id":         requestID,
+			"acp_thread_id":      acpThreadID, // Use existing thread if available, nil = create new
+			"agent_name":         agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
+			"interrupt":          interrupt,   // Tell agent to cancel current turn before sending (mirrors prompt-queue path)
+			"interaction_id":     interactionID,
+			"track_code_changes": session != nil && session.Metadata.SpecTaskID != "",
 		},
 	}
 
@@ -2155,6 +2162,11 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 		go apiServer.autoStartDevContainerForSession(sessionID)
 		return fmt.Errorf("session %s: %w", sessionID, ErrNoExternalAgentWS)
 	}
+
+	// Capture the complete workspace before the agent receives a chat turn.
+	// This is synchronous by design: doing it after the send would race the
+	// agent's first file edit and make historical per-turn diffs incorrect.
+	apiServer.captureInteractionBeforeCheckpoint(sessionID, command)
 
 	// Send command to the specific Zed agent.
 	// Use a deferred recover to handle the case where the connection's SendChan
@@ -2922,6 +2934,11 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	}
 
+	// Complete the immutable before/after workspace receipt before publishing
+	// the terminal interaction update, so the chat never needs to derive an old
+	// turn from the current working tree.
+	apiServer.finalizeInteractionCodeChanges(context.Background(), helixSessionID, targetInteraction)
+
 	_, err = apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
 	if err != nil {
 		return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
@@ -3509,12 +3526,14 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
-			"acp_thread_id": session.Metadata.ZedThreadID, // Empty on first message triggers thread creation
-			"message":       outgoingMessage,
-			"request_id":    requestID,
-			"agent_name":    agentName,
-			"from_queue":    true,             // Indicate this came from the queue
-			"interrupt":     prompt.Interrupt, // Tell Zed to cancel the current turn before sending
+			"acp_thread_id":      session.Metadata.ZedThreadID, // Empty on first message triggers thread creation
+			"message":            outgoingMessage,
+			"request_id":         requestID,
+			"agent_name":         agentName,
+			"from_queue":         true,             // Indicate this came from the queue
+			"interrupt":          prompt.Interrupt, // Tell Zed to cancel the current turn before sending
+			"interaction_id":     createdInteraction.ID,
+			"track_code_changes": session.Metadata.SpecTaskID != "",
 		},
 	}
 

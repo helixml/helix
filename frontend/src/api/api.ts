@@ -3971,6 +3971,11 @@ export interface TypesInteraction {
    * See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
    */
   auto_wake_count?: number;
+  /**
+   * CodeChanges is the immutable before/after workspace checkpoint summary for
+   * this turn. The full patch remains in hidden Git checkpoint refs.
+   */
+  code_changes?: TypesInteractionCodeChanges;
   completed?: string;
   created?: string;
   /** if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context) */
@@ -4056,6 +4061,28 @@ export interface TypesInteraction {
   updated?: string;
   usage?: TypesUsage;
   user_id?: string;
+}
+
+export interface TypesInteractionCodeChangeFile {
+  additions?: number;
+  binary?: boolean;
+  deletions?: number;
+  kind?: string;
+  old_path?: string;
+  path?: string;
+}
+
+export interface TypesInteractionCodeChanges {
+  after_ref?: string;
+  before_ref?: string;
+  captured_at?: string;
+  error?: string;
+  files?: TypesInteractionCodeChangeFile[];
+  patch_hash?: string;
+  status?: string;
+  total_additions?: number;
+  total_deletions?: number;
+  workspace?: string;
 }
 
 export enum TypesInteractionState {
@@ -6047,6 +6074,11 @@ export interface TypesSession {
    */
   interactions?: TypesInteraction[];
   /**
+   * LastMessageAt is selected by list queries that order conversations by the
+   * newest conversation turn. It is derived from interactions and is not a DB column.
+   */
+  last_message_at?: string;
+  /**
    * if type == finetune, we record a filestore path to e.g. lora file here
    * currently the only place you can do inference on a finetune is within the
    * session where the finetune was generated
@@ -6341,6 +6373,7 @@ export interface TypesSessionSummary {
   archived?: boolean;
   /** these are all values of the last interaction */
   created?: string;
+  last_message_at?: string;
   /** Metadata includes container information for external agent sessions */
   metadata?: TypesSessionMetadata;
   /** InteractionID string      `json:"interaction_id"` */
@@ -6523,6 +6556,8 @@ export interface TypesSpecTask {
   /** Keep alive — prevent auto-idle-shutdown of desktop container */
   keep_alive?: boolean;
   labels?: string[];
+  /** Agent activity tracking (computed from session/activity data, not stored) */
+  last_message_at?: string;
   /** Last prompt sent to agent (for continue functionality) */
   last_prompt_content?: string;
   /** When branch was last pushed */
@@ -6575,7 +6610,7 @@ export interface TypesSpecTask {
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */
   sandbox_status_message?: string;
-  /** Agent activity tracking (computed from session/activity data, not stored) */
+  /** When the session was last updated (for active/idle detection) */
   session_updated_at?: string;
   /**
    * Short title for tab display (auto-generated from agent writing short-title.txt)
@@ -6887,6 +6922,8 @@ export interface TypesSpecTaskWithProject {
   /** Keep alive — prevent auto-idle-shutdown of desktop container */
   keep_alive?: boolean;
   labels?: string[];
+  /** Agent activity tracking (computed from session/activity data, not stored) */
+  last_message_at?: string;
   /** Last prompt sent to agent (for continue functionality) */
   last_prompt_content?: string;
   /** When branch was last pushed */
@@ -6940,7 +6977,7 @@ export interface TypesSpecTaskWithProject {
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */
   sandbox_status_message?: string;
-  /** Agent activity tracking (computed from session/activity data, not stored) */
+  /** When the session was last updated (for active/idle detection) */
   session_updated_at?: string;
   /**
    * Short title for tab display (auto-generated from agent writing short-title.txt)
@@ -7919,6 +7956,72 @@ export interface TypesWebsiteCrawler {
   /** Apply readability middleware to the HTML content */
   readability?: boolean;
   user_agent?: string;
+}
+
+export interface TypesWorkspaceFileEntry {
+  kind?: string;
+  path?: string;
+  size?: number;
+}
+
+export interface TypesWorkspaceFileResponse {
+  binary?: boolean;
+  byte_length?: number;
+  content_hash?: string;
+  contents?: string;
+  path?: string;
+  truncated?: boolean;
+  workspace?: string;
+}
+
+export interface TypesWorkspaceFilesResponse {
+  entries?: TypesWorkspaceFileEntry[];
+  truncated?: boolean;
+  workspace?: string;
+}
+
+export interface TypesWorkspaceInfo {
+  current_branch?: string;
+  has_helix_specs?: boolean;
+  is_primary?: boolean;
+  name?: string;
+  path?: string;
+}
+
+export interface TypesWorkspaceReviewFileContent {
+  binary?: boolean;
+  byte_length?: number;
+  contents?: string;
+  path?: string;
+  truncated?: boolean;
+}
+
+export interface TypesWorkspaceReviewFileContentsResponse {
+  new?: TypesWorkspaceReviewFileContent;
+  old?: TypesWorkspaceReviewFileContent;
+}
+
+export interface TypesWorkspaceReviewResponse {
+  generated_at?: string;
+  sources?: TypesWorkspaceReviewSource[];
+  workspace?: string;
+}
+
+export interface TypesWorkspaceReviewSource {
+  base_ref?: string;
+  files?: TypesInteractionCodeChangeFile[];
+  head_ref?: string;
+  id?: string;
+  patch?: string;
+  patch_hash?: string;
+  title?: string;
+  total_additions?: number;
+  total_deletions?: number;
+  truncated?: boolean;
+}
+
+export interface TypesWorkspacesResponse {
+  workspaces?: TypesWorkspaceInfo[];
 }
 
 export interface TypesZFSTree {
@@ -10139,6 +10242,151 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Reads a bounded UTF-8 source file after real-path containment checks.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFileDetail
+     * @summary Read a workspace file
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-file
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFileDetail: (
+      sessionId: string,
+      query: {
+        /** Workspace name */
+        workspace?: string;
+        /** Repository-relative file path */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceFileResponse, any>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-file`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns a bounded flat list of tracked and non-ignored untracked workspace entries.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFilesDetail
+     * @summary List workspace files
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-files
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFilesDetail: (
+      sessionId: string,
+      query?: {
+        /** Workspace name */
+        workspace?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceFilesResponse, any>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-files`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns coherent all-task, branch, and working-tree patches for a connected external-agent workspace.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceReviewDetail
+     * @summary Get workspace review sources
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-review
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceReviewDetail: (
+      sessionId: string,
+      query?: {
+        /** Workspace name */
+        workspace?: string;
+        /** Base ref (default main) */
+        base?: string;
+        /** Ignore whitespace-only changes */
+        ignore_whitespace?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceReviewResponse, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-review`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns bounded old/new contents for lazy diff context expansion.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceReviewFileContentsDetail
+     * @summary Read old and new diff file contents
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-review/file-contents
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceReviewFileContentsDetail: (
+      sessionId: string,
+      query: {
+        /** Workspace name */
+        workspace?: string;
+        /** Review source */
+        source: string;
+        /** Base ref */
+        base?: string;
+        /** Old repository-relative path */
+        old_path?: string;
+        /** New repository-relative path */
+        new_path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceReviewFileContentsResponse, any>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-review/file-contents`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Resolves hidden checkpoint refs only from the stored interaction receipt.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceReviewTurnDetail
+     * @summary Get the immutable diff for one interaction
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-review/turn/{interactionID}
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceReviewTurnDetail: (
+      sessionId: string,
+      interactionId: string,
+      query?: {
+        /** Ignore whitespace-only changes */
+        ignore_whitespace?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceReviewSource, any>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-review/turn/${interactionId}`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Returns a list of git workspaces (repositories) in the container. Each workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.
      *
      * @tags ExternalAgents
@@ -10148,7 +10396,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ExternalAgentsWorkspacesDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<object, SystemHTTPError>({
+      this.request<TypesWorkspacesResponse, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/workspaces`,
         method: "GET",
         secure: true,
@@ -16249,7 +16497,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         project_id?: string;
         /** Project grouping scope: project or none */
         project_scope?: string;
-        /** Sort order: created or updated */
+        /** Sort order: created, updated, or last_message */
         sort?: string;
         /** Filter by session role (e.g. job) */
         session_role?: string;
@@ -17135,6 +17383,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         status?: string;
         /** Filter by user ID */
         user_id?: string;
+        /** Filter by creator or assignee user IDs (comma-separated, OR semantics) */
+        participant_ids?: string;
         /**
          * Include archived tasks
          * @default false
@@ -17148,7 +17398,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** Filter by labels (comma-separated, AND semantics) */
         labels?: string;
         /**
-         * Sort order: created or updated
+         * Sort order: created, updated, or last_message
          * @default "updated"
          */
         sort?: string;

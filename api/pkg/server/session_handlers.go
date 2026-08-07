@@ -156,7 +156,7 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   search          query    string  false  "Search sessions by name"
 // @Param   project_id      query    string  false  "Project ID"
 // @Param   project_scope   query    string  false  "Project grouping scope: project or none"
-// @Param   sort            query    string  false  "Sort order: created or updated"
+// @Param   sort            query    string  false  "Sort order: created, updated, or last_message"
 // @Param   session_role    query    string  false  "Filter by session role (e.g. job)"
 // @Param   include_external_agents query bool false "Include external agent sessions"
 // @Param   archived        query    bool    false  "Return only archived sessions instead of only unarchived ones"
@@ -175,8 +175,8 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError400("project_id is required when project_scope is project")
 	}
 	sortBy := req.URL.Query().Get("sort")
-	if sortBy != "" && sortBy != "created" && sortBy != "updated" {
-		return nil, system.NewHTTPError400("sort must be created or updated")
+	if sortBy != "" && sortBy != "created" && sortBy != "updated" && sortBy != "last_message" {
+		return nil, system.NewHTTPError400("sort must be created, updated, or last_message")
 	}
 	// Archived sessions are hidden by default; ?archived=true is how the sidebar's
 	// Archived view retrieves them so archiving stays reversible.

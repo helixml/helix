@@ -32,7 +32,7 @@ export function sessionTerminalUrl(sessionId: string, terminalSessionName: strin
 export interface ListSessionsFilters {
   includeExternalAgents?: boolean
   projectScope?: 'project' | 'none'
-  sort?: 'created' | 'updated'
+  sort?: 'created' | 'updated' | 'last_message'
   archived?: boolean
 }
 

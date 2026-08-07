@@ -1153,6 +1153,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/external-agents/{sessionID}/video/stats", apiServer.getExternalAgentVideoStats).Methods("GET")             // Video streaming stats (buffer usage, client count)
 	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST") // Configure session before container starts
 	authRouter.HandleFunc("/external-agents/{sessionID}/diff", apiServer.getExternalAgentDiff).Methods("GET")                          // Git diff from container workspace
+	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-review", apiServer.getWorkspaceReview).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-review/file-contents", apiServer.getWorkspaceReviewFileContents).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-review/turn/{interactionID}", apiServer.getWorkspaceTurnReview).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-files", apiServer.getWorkspaceFiles).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/workspace-file", apiServer.getWorkspaceFile).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/workspaces", apiServer.getExternalAgentWorkspaces).Methods("GET")              // List git workspaces in container
 
 	// Sandbox instance registry routes (multi-sandbox support)

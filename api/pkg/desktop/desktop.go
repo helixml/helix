@@ -490,6 +490,12 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/exec", s.handleExec)             // Execute command in container (for benchmarking)
 	mux.HandleFunc("/diff", s.handleDiff)             // Git diff for live file changes
 	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
+	mux.HandleFunc("/workspace/review", s.handleWorkspaceReview)
+	mux.HandleFunc("/workspace/review/file-contents", s.handleWorkspaceReviewFileContents)
+	mux.HandleFunc("/workspace/files", s.handleWorkspaceFiles)
+	mux.HandleFunc("/workspace/file", s.handleWorkspaceFile)
+	mux.HandleFunc("/workspace/checkpoints/capture", s.handleWorkspaceCheckpointCapture)
+	mux.HandleFunc("/workspace/checkpoints/diff", s.handleWorkspaceCheckpointDiff)
 	// Workspace git plumbing used by the fork-and-pause safety net.
 	// Kept as dedicated endpoints (not /exec) because /exec is
 	// allowlist-restricted by design — adding git status/add/commit/push

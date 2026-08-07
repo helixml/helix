@@ -189,6 +189,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_ProgressesWithPlanning
 		ID:        eventTask.ID,
 		ProjectID: eventTask.ProjectID,
 		Status:    types.TaskStatusBacklog,
+		CreatedBy: "creator",
 	}
 	project := &types.Project{
 		ID:                    eventTask.ProjectID,
@@ -209,6 +210,8 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_ProgressesWithPlanning
 	}, nil)
 	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, task *types.SpecTask) error {
 		s.Equal(types.TaskStatusQueuedSpecGeneration, task.Status)
+		s.Equal("creator", task.AssigneeID)
+		s.Equal("creator", task.PlanningStartedBy)
 		return nil
 	})
 

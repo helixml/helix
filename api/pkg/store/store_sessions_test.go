@@ -93,6 +93,57 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 	suite.Equal("new_name", updatedSession.Name)
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSessions_SortByLastMessageBeforeLimit() {
+	owner := "last-message-owner-" + system.GenerateUUID()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	oldMessageAt := now.Add(-2 * time.Hour)
+	newMessageAt := now.Add(-time.Hour)
+
+	oldMessageSession := types.Session{
+		ID:        system.GenerateSessionID(),
+		Name:      "Recent metadata, old message",
+		Owner:     owner,
+		OwnerType: types.OwnerTypeUser,
+		Created:   now.Add(-4 * time.Hour),
+		Updated:   now,
+	}
+	newMessageSession := types.Session{
+		ID:        system.GenerateSessionID(),
+		Name:      "Old metadata, new message",
+		Owner:     owner,
+		OwnerType: types.OwnerTypeUser,
+		Created:   now.Add(-3 * time.Hour),
+		Updated:   now.Add(-3 * time.Hour),
+	}
+	for _, session := range []types.Session{oldMessageSession, newMessageSession} {
+		_, err := suite.db.CreateSession(suite.ctx, session)
+		suite.Require().NoError(err)
+		suite.T().Cleanup(func() {
+			_, _ = suite.db.DeleteSession(context.Background(), session.ID)
+		})
+	}
+	for _, interaction := range []*types.Interaction{
+		{ID: system.GenerateInteractionID(), SessionID: oldMessageSession.ID, UserID: owner, Created: oldMessageAt},
+		{ID: system.GenerateInteractionID(), SessionID: newMessageSession.ID, UserID: owner, Created: newMessageAt},
+	} {
+		_, err := suite.db.CreateInteraction(suite.ctx, interaction)
+		suite.Require().NoError(err)
+	}
+
+	sessions, total, err := suite.db.ListSessions(suite.ctx, ListSessionsQuery{
+		Owner:     owner,
+		OwnerType: types.OwnerTypeUser,
+		SortBy:    "last_message",
+		PerPage:   1,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Require().Len(sessions, 1)
+	suite.Equal(newMessageSession.ID, sessions[0].ID)
+	suite.Require().NotNil(sessions[0].LastMessageAt)
+	suite.WithinDuration(newMessageAt, *sessions[0].LastMessageAt, time.Microsecond)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteSession() {
 	// Create a sample session
 	session := types.Session{

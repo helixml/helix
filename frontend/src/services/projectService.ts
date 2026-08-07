@@ -25,7 +25,10 @@ export const isProjectAccessDeniedError = (error: unknown): boolean => {
 /**
  * Hook to list all projects for the current user
  */
-export const useListProjects = (orgId?: string, options?: { enabled?: boolean }) => {
+export const useListProjects = (
+  orgId?: string,
+  options?: { enabled?: boolean; refetchInterval?: number | false },
+) => {
   const api = useApi();
   const apiClient = api.getApiClient();
 
@@ -36,6 +39,7 @@ export const useListProjects = (orgId?: string, options?: { enabled?: boolean })
       return response.data || [];
     },
     enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
   });
 };
 

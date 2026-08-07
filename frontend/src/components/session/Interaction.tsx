@@ -11,6 +11,7 @@ import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
 import CollapsibleSystemPrefix, {
   splitSystemPrefix,
 } from "./CollapsibleSystemPrefix";
+import ChangedFilesCard from "./ChangedFilesCard";
 import { parseMessageWithAttachments } from "../common/chatAttachments";
 
 import useAccount from "../../hooks/useAccount";
@@ -173,7 +174,11 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
       nextProps.interaction?.response_message ||
     prevProps.interaction?.completed !== nextProps.interaction?.completed ||
     prevProps.interaction?.error !== nextProps.interaction?.error ||
-    prevProps.interaction?.state !== nextProps.interaction?.state
+    prevProps.interaction?.state !== nextProps.interaction?.state ||
+    prevProps.interaction?.code_changes?.status !==
+      nextProps.interaction?.code_changes?.status ||
+    prevProps.interaction?.code_changes?.patch_hash !==
+      nextProps.interaction?.code_changes?.patch_hash
   ) {
     return false;
   }
@@ -536,6 +541,10 @@ export const Interaction: FC<InteractionProps> = ({
                   isLastInteraction={isLastInteraction}
                   sessionSteps={sessionSteps}
                   enableDebugCopy={enableDebugCopy}
+                />
+                <ChangedFilesCard
+                  interaction={interaction}
+                  isLatest={isLastInteraction}
                 />
                 {/* Show incomplete warning for waiting interactions that aren't actively streaming */}
                 {isLive && !children && !isLastInteraction && (

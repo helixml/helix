@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { TypesAgentWorkState, TypesSpecTaskStatus } from '../../api/api'
-import type { TypesProject, TypesSessionSummary } from '../../api/api'
+import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary } from '../../api/api'
 import type { SpecTask } from '../../services/specTaskService'
 import {
   buildProjectChatGroups,
@@ -9,17 +9,22 @@ import {
   compactRelativeTime,
   DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES,
   filterProjectChatGroups,
+  filterSidebarMembers,
   getSidebarPullRequestIcon,
+  getSidebarMemberResults,
   getSidebarTaskStatus,
   isNewThreadShortcut,
   isTaskCompletedOrMerged,
   parseCollapsedGroupIds,
   parseSidebarPreferences,
+  parseSidebarParticipantIds,
   reorderProjectIds,
   serializeCollapsedGroupIds,
   serializeSidebarPreferences,
+  serializeSidebarParticipantIds,
   shouldConfirmArchive,
   sidebarPreferencesStorageKey,
+  sidebarPeopleFilterStorageKey,
   sortSidebarProjects,
   specTaskSortKey,
 } from './ProjectChatSidebar.logic'
@@ -72,10 +77,9 @@ describe('ProjectChatSidebar logic', () => {
     expect(groups[2]?.items.map((item) => item.id)).toEqual(['project-session'])
   })
 
-  // A group merges two independently LIMITed server lists, so the client sort key
-  // has to be the one the server paginated on. session_updated_at is enriched
-  // after the query (gorm:"-"), so ordering by it drops rows the server truncated.
-  it('orders tasks by the key the server can paginate on', () => {
+  // A group merges two independently limited server lists, so the client sort
+  // key has to be the same last-message value used for server pagination.
+  it('orders tasks by the server-backed last-message timestamp', () => {
     const task: SpecTask = {
       id: 'task-one',
       project_id: 'project-one',
@@ -84,12 +88,13 @@ describe('ProjectChatSidebar logic', () => {
       created_at: '2026-08-01T00:00:00Z',
       status_updated_at: '2026-08-02T00:00:00Z',
       updated_at: '2026-08-09T00:00:00Z',
+      last_message_at: '2026-08-08T00:00:00Z',
       session_updated_at: '2026-08-09T00:00:00Z',
     }
 
-    expect(specTaskSortKey(task)).toBe('2026-08-02T00:00:00Z')
+    expect(specTaskSortKey(task)).toBe('2026-08-08T00:00:00Z')
     expect(buildProjectChatGroups(projects, [task], [])[0]?.items[0]?.updatedAt)
-      .toBe('2026-08-02T00:00:00Z')
+      .toBe('2026-08-08T00:00:00Z')
     expect(specTaskSortKey({ id: 'x', created_at: '2026-08-01T00:00:00Z' }))
       .toBe('2026-08-01T00:00:00Z')
     expect(specTaskSortKey(task, 'created_at')).toBe('2026-08-01T00:00:00Z')
@@ -102,6 +107,7 @@ describe('ProjectChatSidebar logic', () => {
         project_id: 'project-one',
         name: 'Older created',
         created_at: '2026-08-01T00:00:00Z',
+        last_message_at: '2026-08-06T00:00:00Z',
         status_updated_at: '2026-08-06T00:00:00Z',
       },
       {
@@ -109,6 +115,7 @@ describe('ProjectChatSidebar logic', () => {
         project_id: 'project-one',
         name: 'Newer created',
         created_at: '2026-08-05T00:00:00Z',
+        last_message_at: '2026-08-05T00:00:00Z',
         status_updated_at: '2026-08-05T00:00:00Z',
       },
     ]
@@ -117,6 +124,26 @@ describe('ProjectChatSidebar logic', () => {
       .toEqual(['older-created-recently-updated', 'newer-created'])
     expect(buildProjectChatGroups(projects, tasks, [], 'created_at')[0]?.items.map((item) => item.id))
       .toEqual(['newer-created', 'older-created-recently-updated'])
+  })
+
+  it('does not treat session metadata updates as conversation messages', () => {
+    const sessions: TypesSessionSummary[] = [
+      {
+        session_id: 'recent-metadata',
+        created: '2026-08-01T00:00:00Z',
+        updated: '2026-08-09T00:00:00Z',
+        last_message_at: '2026-08-05T00:00:00Z',
+      },
+      {
+        session_id: 'recent-message',
+        created: '2026-08-02T00:00:00Z',
+        updated: '2026-08-06T00:00:00Z',
+        last_message_at: '2026-08-08T00:00:00Z',
+      },
+    ]
+
+    expect(buildProjectChatGroups([], [], sessions)[0]?.items.map((item) => item.id))
+      .toEqual(['recent-message', 'recent-metadata'])
   })
 
   it('parses and clamps org-scoped local preferences', () => {
@@ -137,6 +164,41 @@ describe('ProjectChatSidebar logic', () => {
     expect(parseSidebarPreferences('{bad json')).toEqual(DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES)
     expect(parseSidebarPreferences(serializeSidebarPreferences(parsed))).toEqual(parsed)
     expect(clampVisibleThreadCount(-2)).toBe(1)
+  })
+
+  it('persists selected people per user, organization, and project and searches every token', () => {
+    const members: TypesOrganizationMembership[] = [
+      { user_id: 'alice', user: { full_name: 'Alice Example', email: 'alice@example.com' } },
+      { user_id: 'bob', user: { full_name: 'Bob Builder', email: 'bob@work.test' } },
+      { user_id: 'invite', user: undefined },
+    ]
+
+    expect(sidebarPeopleFilterStorageKey('user-one', 'org-one', 'project-one'))
+      .toBe('helix:project-chat-sidebar:people:user-one:org-one:project-one')
+    expect(parseSidebarParticipantIds('["bob","bob","",12]')).toEqual(['bob'])
+    expect(parseSidebarParticipantIds('[]')).toEqual([])
+    expect(parseSidebarParticipantIds(null)).toBeNull()
+    expect(parseSidebarParticipantIds('{bad json')).toBeNull()
+    expect(serializeSidebarParticipantIds(['bob', 'alice', 'bob'])).toBe('["bob","alice"]')
+    expect(filterSidebarMembers(members, 'alice example')).toEqual([members[0]])
+    expect(filterSidebarMembers(members, 'bob work')).toEqual([members[1]])
+    expect(filterSidebarMembers(members, 'alice missing')).toEqual([])
+  })
+
+  it('shows at most ten people before searching, with the current and selected users first', () => {
+    const members: TypesOrganizationMembership[] = Array.from({ length: 12 }, (_, index) => ({
+      user_id: `user-${index}`,
+      user: { full_name: `Member ${index}`, email: `member-${index}@example.com` },
+    }))
+
+    const initial = getSidebarMemberResults(members, '', 'user-11', ['user-10'])
+    expect(initial.total).toBe(12)
+    expect(initial.members).toHaveLength(10)
+    expect(initial.members.slice(0, 2).map((member) => member.user_id)).toEqual(['user-11', 'user-10'])
+
+    const searched = getSidebarMemberResults(members, 'member-3 example', 'user-11', ['user-10'])
+    expect(searched.total).toBe(1)
+    expect(searched.members[0]?.user_id).toBe('user-3')
   })
 
   it('sorts projects by activity, creation, and persisted manual order', () => {

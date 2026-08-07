@@ -17,6 +17,7 @@ import { useSpecTask } from "../services/specTaskService";
 import { useGetProject } from "../services";
 import useAccount from "../hooks/useAccount";
 import { cacheTaskName } from "../lib/navHistory";
+import { shouldAutoOpenSpecTaskReview } from "../lib/specTaskAutoOpen";
 
 /**
  * SpecTaskDetailPage - Standalone page for viewing spec task details
@@ -166,6 +167,7 @@ const SpecTaskDetailPage: FC = () => {
             taskId={taskId}
             onClose={handleBack}
             padContent
+            autoOpenReview={shouldAutoOpenSpecTaskReview(route.name)}
           />
         </Box>
 

@@ -51,7 +51,7 @@ func (suite *PostgresStoreTestSuite) TestListProjects_PopulatesLastActiveTaskOrC
 		ProjectID: project.ID,
 		Owner:     project.UserID,
 		Created:   activeAt.Add(-time.Hour),
-		Updated:   activeAt,
+		Updated:   archivedAt,
 	}
 	archivedSession := types.Session{
 		ID:        system.GenerateSessionID(),
@@ -65,6 +65,29 @@ func (suite *PostgresStoreTestSuite) TestListProjects_PopulatesLastActiveTaskOrC
 	suite.Require().NoError(err)
 	_, err = suite.db.CreateSession(suite.ctx, archivedSession)
 	suite.Require().NoError(err)
+	_, err = suite.db.CreateInteraction(suite.ctx, &types.Interaction{
+		ID:        system.GenerateInteractionID(),
+		SessionID: activeSession.ID,
+		UserID:    project.UserID,
+		Created:   activeAt,
+	})
+	suite.Require().NoError(err)
+	_, err = suite.db.CreateInteraction(suite.ctx, &types.Interaction{
+		ID:        system.GenerateInteractionID(),
+		SessionID: archivedSession.ID,
+		UserID:    project.UserID,
+		Created:   archivedAt,
+	})
+	suite.Require().NoError(err)
+	statusUpdatedAt := archivedAt
+	suite.Require().NoError(suite.db.CreateSpecTask(suite.ctx, &types.SpecTask{
+		ID:              "task-activity-" + system.GenerateUUID(),
+		ProjectID:       project.ID,
+		Name:            "Lifecycle update is not a message",
+		Status:          types.TaskStatusImplementation,
+		CreatedAt:       activeAt.Add(-2 * time.Hour),
+		StatusUpdatedAt: &statusUpdatedAt,
+	}))
 	suite.T().Cleanup(func() {
 		_, _ = suite.db.DeleteSession(context.Background(), activeSession.ID)
 		_, _ = suite.db.DeleteSession(context.Background(), archivedSession.ID)

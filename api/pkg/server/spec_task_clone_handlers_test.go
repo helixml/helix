@@ -80,6 +80,8 @@ func TestCloneTaskToProject_WithSpecs_GoesToSpecGeneration(t *testing.T) {
 	// Verify UserID and OrganizationID are set correctly
 	assert.Equal(t, userID, createdTask.UserID, "UserID should be set from the user creating the clone")
 	assert.Equal(t, targetOrgID, createdTask.OrganizationID, "OrganizationID should be set from the target project")
+	assert.Equal(t, userID, createdTask.AssigneeID, "auto-started clone should be assigned to its starter")
+	assert.Equal(t, userID, createdTask.PlanningStartedBy, "auto-started clone should record its starter")
 }
 
 func TestCloneTaskToProject_WithoutSpecs_DoesNotSetDesignDocsPushedAt(t *testing.T) {

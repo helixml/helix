@@ -70,6 +70,7 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
   if (subscription?.id) {
     return (
       <Button
+        size="small"
         color="error"
         variant="outlined"
         disabled={deleteSubscription.isPending}
@@ -83,7 +84,9 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
   return (
     <>
       <Button
-        variant="outlined"
+        size="small"
+        variant="text"
+        color="secondary"
         disabled={startLogin.isPending}
         onClick={async () => {
           const result = await startLogin.mutateAsync()
@@ -91,7 +94,7 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
           setOpen(true)
         }}
       >
-        Sign in
+        Connect
       </Button>
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Connect ChatGPT Subscription</DialogTitle>

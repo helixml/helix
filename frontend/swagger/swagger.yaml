@@ -6249,6 +6249,12 @@ definitions:
           auto-wake interaction itself records which retry attempt it is.
           See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
         type: integer
+      code_changes:
+        allOf:
+        - $ref: '#/definitions/types.InteractionCodeChanges'
+        description: |-
+          CodeChanges is the immutable before/after workspace checkpoint summary for
+          this turn. The full patch remains in hidden Git checkpoint refs.
       completed:
         type: string
       created:
@@ -6375,6 +6381,46 @@ definitions:
       usage:
         $ref: '#/definitions/types.Usage'
       user_id:
+        type: string
+    type: object
+  types.InteractionCodeChangeFile:
+    properties:
+      additions:
+        type: integer
+      binary:
+        type: boolean
+      deletions:
+        type: integer
+      kind:
+        type: string
+      old_path:
+        type: string
+      path:
+        type: string
+    type: object
+  types.InteractionCodeChanges:
+    properties:
+      after_ref:
+        type: string
+      before_ref:
+        type: string
+      captured_at:
+        type: string
+      error:
+        type: string
+      files:
+        items:
+          $ref: '#/definitions/types.InteractionCodeChangeFile'
+        type: array
+      patch_hash:
+        type: string
+      status:
+        type: string
+      total_additions:
+        type: integer
+      total_deletions:
+        type: integer
+      workspace:
         type: string
     type: object
   types.InteractionState:
@@ -9581,6 +9627,11 @@ definitions:
         items:
           $ref: '#/definitions/types.Interaction'
         type: array
+      last_message_at:
+        description: |-
+          LastMessageAt is selected by list queries that order conversations by the
+          newest conversation turn. It is derived from interactions and is not a DB column.
+        type: string
       lora_dir:
         description: |-
           if type == finetune, we record a filestore path to e.g. lora file here
@@ -10035,6 +10086,8 @@ definitions:
       created:
         description: these are all values of the last interaction
         type: string
+      last_message_at:
+        type: string
       metadata:
         allOf:
         - $ref: '#/definitions/types.SessionMetadata'
@@ -10325,6 +10378,10 @@ definitions:
         items:
           type: string
         type: array
+      last_message_at:
+        description: Agent activity tracking (computed from session/activity data,
+          not stored)
+        type: string
       last_prompt_content:
         description: Last prompt sent to agent (for continue functionality)
         type: string
@@ -10410,8 +10467,7 @@ definitions:
         description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
-        description: Agent activity tracking (computed from session/activity data,
-          not stored)
+        description: When the session was last updated (for active/idle detection)
         type: string
       short_title:
         description: |-
@@ -10948,6 +11004,10 @@ definitions:
         items:
           type: string
         type: array
+      last_message_at:
+        description: Agent activity tracking (computed from session/activity data,
+          not stored)
+        type: string
       last_prompt_content:
         description: Last prompt sent to agent (for continue functionality)
         type: string
@@ -11035,8 +11095,7 @@ definitions:
         description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
-        description: Agent activity tracking (computed from session/activity data,
-          not stored)
+        description: When the session was last updated (for active/idle detection)
         type: string
       short_title:
         description: |-
@@ -12617,6 +12676,119 @@ definitions:
         type: boolean
       user_agent:
         type: string
+    type: object
+  types.WorkspaceFileEntry:
+    properties:
+      kind:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
+  types.WorkspaceFileResponse:
+    properties:
+      binary:
+        type: boolean
+      byte_length:
+        type: integer
+      content_hash:
+        type: string
+      contents:
+        type: string
+      path:
+        type: string
+      truncated:
+        type: boolean
+      workspace:
+        type: string
+    type: object
+  types.WorkspaceFilesResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/types.WorkspaceFileEntry'
+        type: array
+      truncated:
+        type: boolean
+      workspace:
+        type: string
+    type: object
+  types.WorkspaceInfo:
+    properties:
+      current_branch:
+        type: string
+      has_helix_specs:
+        type: boolean
+      is_primary:
+        type: boolean
+      name:
+        type: string
+      path:
+        type: string
+    type: object
+  types.WorkspaceReviewFileContent:
+    properties:
+      binary:
+        type: boolean
+      byte_length:
+        type: integer
+      contents:
+        type: string
+      path:
+        type: string
+      truncated:
+        type: boolean
+    type: object
+  types.WorkspaceReviewFileContentsResponse:
+    properties:
+      new:
+        $ref: '#/definitions/types.WorkspaceReviewFileContent'
+      old:
+        $ref: '#/definitions/types.WorkspaceReviewFileContent'
+    type: object
+  types.WorkspaceReviewResponse:
+    properties:
+      generated_at:
+        type: string
+      sources:
+        items:
+          $ref: '#/definitions/types.WorkspaceReviewSource'
+        type: array
+      workspace:
+        type: string
+    type: object
+  types.WorkspaceReviewSource:
+    properties:
+      base_ref:
+        type: string
+      files:
+        items:
+          $ref: '#/definitions/types.InteractionCodeChangeFile'
+        type: array
+      head_ref:
+        type: string
+      id:
+        type: string
+      patch:
+        type: string
+      patch_hash:
+        type: string
+      title:
+        type: string
+      total_additions:
+        type: integer
+      total_deletions:
+        type: integer
+      truncated:
+        type: boolean
+    type: object
+  types.WorkspacesResponse:
+    properties:
+      workspaces:
+        items:
+          $ref: '#/definitions/types.WorkspaceInfo'
+        type: array
     type: object
   types.ZFSTree:
     properties:
@@ -15498,6 +15670,185 @@ paths:
       summary: Upload file to sandbox
       tags:
       - ExternalAgents
+  /api/v1/external-agents/{sessionID}/workspace-file:
+    get:
+      description: Reads a bounded UTF-8 source file after real-path containment checks.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Workspace name
+        in: query
+        name: workspace
+        type: string
+      - description: Repository-relative file path
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WorkspaceFileResponse'
+      security:
+      - BearerAuth: []
+      summary: Read a workspace file
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/workspace-files:
+    get:
+      description: Returns a bounded flat list of tracked and non-ignored untracked
+        workspace entries.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Workspace name
+        in: query
+        name: workspace
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WorkspaceFilesResponse'
+      security:
+      - BearerAuth: []
+      summary: List workspace files
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/workspace-review:
+    get:
+      description: Returns coherent all-task, branch, and working-tree patches for
+        a connected external-agent workspace.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Workspace name
+        in: query
+        name: workspace
+        type: string
+      - description: Base ref (default main)
+        in: query
+        name: base
+        type: string
+      - description: Ignore whitespace-only changes
+        in: query
+        name: ignore_whitespace
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WorkspaceReviewResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get workspace review sources
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/workspace-review/file-contents:
+    get:
+      description: Returns bounded old/new contents for lazy diff context expansion.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Workspace name
+        in: query
+        name: workspace
+        type: string
+      - description: Review source
+        in: query
+        name: source
+        required: true
+        type: string
+      - description: Base ref
+        in: query
+        name: base
+        type: string
+      - description: Old repository-relative path
+        in: query
+        name: old_path
+        type: string
+      - description: New repository-relative path
+        in: query
+        name: new_path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WorkspaceReviewFileContentsResponse'
+      security:
+      - BearerAuth: []
+      summary: Read old and new diff file contents
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/workspace-review/turn/{interactionID}:
+    get:
+      description: Resolves hidden checkpoint refs only from the stored interaction
+        receipt.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Interaction ID
+        in: path
+        name: interactionID
+        required: true
+        type: string
+      - description: Ignore whitespace-only changes
+        in: query
+        name: ignore_whitespace
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WorkspaceReviewSource'
+      security:
+      - BearerAuth: []
+      summary: Get the immutable diff for one interaction
+      tags:
+      - ExternalAgents
   /api/v1/external-agents/{sessionID}/workspaces:
     get:
       description: |-
@@ -15513,9 +15864,9 @@ paths:
       - application/json
       responses:
         "200":
-          description: Workspaces response with list of repos
+          description: OK
           schema:
-            type: object
+            $ref: '#/definitions/types.WorkspacesResponse'
         "401":
           description: Unauthorized
           schema:
@@ -23927,7 +24278,7 @@ paths:
         in: query
         name: project_scope
         type: string
-      - description: 'Sort order: created or updated'
+      - description: 'Sort order: created, updated, or last_message'
         in: query
         name: sort
         type: string
@@ -25313,6 +25664,10 @@ paths:
         in: query
         name: user_id
         type: string
+      - description: Filter by creator or assignee user IDs (comma-separated, OR semantics)
+        in: query
+        name: participant_ids
+        type: string
       - default: false
         description: Include archived tasks
         in: query
@@ -25328,7 +25683,7 @@ paths:
         name: labels
         type: string
       - default: updated
-        description: 'Sort order: created or updated'
+        description: 'Sort order: created, updated, or last_message'
         in: query
         name: sort
         type: string

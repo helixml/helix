@@ -459,6 +459,13 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 	} else {
 		latestTask.Status = types.TaskStatusQueuedSpecGeneration
 	}
+	// Project auto-start has no request actor. An explicit backlog assignee is
+	// the intended operator; otherwise the creator is the user on whose behalf
+	// the project starts the task.
+	if latestTask.AssigneeID == "" {
+		latestTask.AssigneeID = latestTask.CreatedBy
+	}
+	latestTask.PlanningStartedBy = latestTask.AssigneeID
 	latestTask.StatusUpdatedAt = &now
 
 	err = o.store.UpdateSpecTask(ctx, latestTask)
