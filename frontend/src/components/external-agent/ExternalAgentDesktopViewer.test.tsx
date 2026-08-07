@@ -69,8 +69,12 @@ describe('ExternalAgentDesktopViewer sandbox mode', () => {
       />,
     )
 
-    expect(screen.getByText('Desktop Unavailable')).toBeInTheDocument()
+    // Copy is sentence case since the shared TaskSessionPlaceholder took over
+    // this surface; the assertion that matters is that a sandbox desktop
+    // offers no resume action.
+    expect(screen.getByText('Desktop unavailable')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /start desktop/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /restart desktop/i })).not.toBeInTheDocument()
     expect(resumeExternalAgent).not.toHaveBeenCalled()
   })
 

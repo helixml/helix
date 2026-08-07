@@ -19,7 +19,9 @@ import type { TypesWorkspaceReviewSource } from "../../api/api";
 import useLightTheme from "../../hooks/useLightTheme";
 import useSnackbar from "../../hooks/useSnackbar";
 import { copyTextToClipboard, workspaceFilePath } from "./clipboard";
+import TaskSessionPlaceholder from "../tasks/TaskSessionPlaceholder";
 import {
+  isDesktopUnavailableError,
   useTurnWorkspaceReview,
   useWorkspaceReview,
 } from "./workspaceReviewService";
@@ -54,6 +56,10 @@ interface WorkspaceDiffSurfaceProps {
   onOpenFile: (path: string) => void;
   onExitTurn: () => void;
   onWorkspaceResolved: (workspace: string | undefined) => void;
+  onStartDesktop?: () => void;
+  isDesktopStarting?: boolean;
+  desktopUnavailableTitle?: string;
+  desktopUnavailableDescription?: string;
 }
 
 const sourceLabel = (source: TypesWorkspaceReviewSource | undefined) =>
@@ -70,6 +76,10 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
   onOpenFile,
   onExitTurn,
   onWorkspaceResolved,
+  onStartDesktop,
+  isDesktopStarting,
+  desktopUnavailableTitle = "Desktop not running",
+  desktopUnavailableDescription = "This task's sandbox is stopped. Start the desktop to load its workspace changes.",
 }) => {
   const lightTheme = useLightTheme();
   const snackbar = useSnackbar();
@@ -107,6 +117,10 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
     ? scope
     : "";
   const query = interactionId ? turnReview : liveReview;
+  // A stopped sandbox answers 503. That is the ordinary state of a finished or
+  // paused task, not a failure, so it gets the shared start-desktop
+  // placeholder rather than an error — and no further polling.
+  const desktopUnavailable = isDesktopUnavailableError(query.error) && !source;
   const fileCount = source?.files?.length || 0;
   const renderable = useMemo(
     () => parseRenderablePatch(source?.patch),
@@ -287,6 +301,14 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
       )}
       {query.isLoading ? (
         <Box sx={{ flex: 1, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>
+      ) : desktopUnavailable ? (
+        <TaskSessionPlaceholder
+          tone="paused"
+          title={desktopUnavailableTitle}
+          description={desktopUnavailableDescription}
+          onStart={onStartDesktop}
+          starting={isDesktopStarting}
+        />
       ) : query.isError && !source ? (
         <Box sx={{ p: 2 }}><Alert severity="error">Could not load workspace changes.</Alert></Box>
       ) : !source ? (

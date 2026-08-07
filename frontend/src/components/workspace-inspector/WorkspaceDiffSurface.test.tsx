@@ -22,7 +22,8 @@ vi.mock("@pierre/diffs/react", async () => {
     )),
   };
 });
-vi.mock("./workspaceReviewService", () => ({
+vi.mock("./workspaceReviewService", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./workspaceReviewService")>()),
   useWorkspaceReview: (...args: unknown[]) => mocks.live(...args),
   useTurnWorkspaceReview: (...args: unknown[]) => mocks.turn(...args),
 }));
@@ -133,5 +134,31 @@ describe("WorkspaceDiffSurface", () => {
     expect(mocks.live).toHaveBeenCalled();
     expect(mocks.live.mock.calls[0][5]).toBe(false);
     expect(screen.getByTestId("code-view")).toBeInTheDocument();
+  });
+
+  it("offers to start the desktop when the sandbox answers 503 mid-poll", () => {
+    mocks.live.mockReturnValue({
+      ...idleQuery,
+      isError: true,
+      error: { response: { status: 503 } },
+    });
+
+    renderSurface({ onStartDesktop: vi.fn() });
+
+    expect(screen.getByText("Desktop not running")).toBeInTheDocument();
+    expect(screen.queryByText("Could not load workspace changes.")).not.toBeInTheDocument();
+  });
+
+  it("still reports a genuine failure as an error", () => {
+    mocks.live.mockReturnValue({
+      ...idleQuery,
+      isError: true,
+      error: { response: { status: 500 } },
+    });
+
+    renderSurface();
+
+    expect(screen.getByText("Could not load workspace changes.")).toBeInTheDocument();
+    expect(screen.queryByText("Desktop not running")).not.toBeInTheDocument();
   });
 });

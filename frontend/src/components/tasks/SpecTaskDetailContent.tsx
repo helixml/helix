@@ -56,6 +56,7 @@ import ExternalAgentDesktopViewer, {
   useSandboxState,
 } from "../external-agent/ExternalAgentDesktopViewer";
 import DiffViewer from "./DiffViewer";
+import TaskSessionPlaceholder from "./TaskSessionPlaceholder";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import TaskAttachmentsPanel from "./TaskAttachmentsPanel";
@@ -2409,68 +2410,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     is already visible in the left panel */}
                 {(currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (
-                    <Box
-                      sx={{
-                        flex: 1,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        p: 4,
-                      }}
-                    >
-                      <Alert severity="success" sx={{ maxWidth: 400 }}>
-                        <Typography
-                          variant="h6"
-                          sx={{ fontWeight: 500, mb: 1 }}
-                        >
-                          Task finished
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          This task has been merged to the default branch.
-                        </Typography>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={
-                            isStarting || isDesktopStarting ? (
-                              <CircularProgress size={16} />
-                            ) : (
-                              <PlayArrow />
-                            )
-                          }
-                          onClick={handleStartSession}
-                          disabled={isStarting || isDesktopStarting}
-                          sx={{ mt: 2 }}
-                        >
-                          {isStarting || isDesktopStarting
-                            ? "Starting..."
-                            : "Start Desktop"}
-                        </Button>
-                      </Alert>
-                    </Box>
+                    <TaskSessionPlaceholder
+                      tone="finished"
+                      title="Task finished"
+                      description="This task has been merged to the default branch. Its sandbox is stopped."
+                      onStart={handleStartSession}
+                      starting={isStarting || isDesktopStarting}
+                    />
                   ) : isTaskArchived ? (
-                    <Box
-                      sx={{
-                        flex: 1,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        p: 4,
-                      }}
-                    >
-                      <Alert severity="warning" sx={{ maxWidth: 400 }}>
-                        <Typography
-                          variant="h6"
-                          sx={{ fontWeight: 500, mb: 1 }}
-                        >
-                          Task rejected
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          This task has been archived. The agent session has
-                          ended.
-                        </Typography>
-                      </Alert>
-                    </Box>
+                    <TaskSessionPlaceholder
+                      tone="archived"
+                      title="Task rejected"
+                      description="This task has been archived. The agent session has ended."
+                    />
                   ) : (
                     <ExternalAgentDesktopViewer
                       sessionId={activeSessionId}
@@ -2491,6 +2443,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     pollInterval={3000}
                     primarySurface={currentView === "files" ? "files" : "changes"}
                     onPrimarySurfaceChange={handleViewChange}
+                    onStartDesktop={handleStartSession}
+                    isDesktopStarting={isStarting || isDesktopStarting}
+                    desktopUnavailableTitle={isTaskCompleted ? "Task finished" : undefined}
+                    desktopUnavailableDescription={
+                      isTaskCompleted
+                        ? "This task has been merged to the default branch. Start the desktop to review its workspace."
+                        : undefined
+                    }
                   />
                 )}
                 {currentView === "details" && (
@@ -2905,62 +2865,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 }}
               >
                 {isTaskCompleted && isDesktopPaused ? (
-                  <Box
-                    sx={{
-                      flex: 1,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      p: 4,
-                    }}
-                  >
-                    <Alert severity="success" sx={{ maxWidth: 400 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
-                        Task finished
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        This task has been merged to the default branch.
-                      </Typography>
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={
-                          isStarting || isDesktopStarting ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <PlayArrow />
-                          )
-                        }
-                        onClick={handleStartSession}
-                        disabled={isStarting || isDesktopStarting}
-                        sx={{ mt: 2 }}
-                      >
-                        {isStarting || isDesktopStarting
-                          ? "Starting..."
-                          : "Start Desktop"}
-                      </Button>
-                    </Alert>
-                  </Box>
+                  <TaskSessionPlaceholder
+                    tone="finished"
+                    title="Task finished"
+                    description="This task has been merged to the default branch. Its sandbox is stopped."
+                    onStart={handleStartSession}
+                    starting={isStarting || isDesktopStarting}
+                  />
                 ) : isTaskArchived ? (
-                  <Box
-                    sx={{
-                      flex: 1,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      p: 4,
-                    }}
-                  >
-                    <Alert severity="warning" sx={{ maxWidth: 400 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
-                        Task rejected
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        This task has been archived. The agent session has
-                        ended.
-                      </Typography>
-                    </Alert>
-                  </Box>
+                  <TaskSessionPlaceholder
+                    tone="archived"
+                    title="Task rejected"
+                    description="This task has been archived. The agent session has ended."
+                  />
                 ) : (
                   <ExternalAgentDesktopViewer
                     sessionId={activeSessionId}
@@ -2986,6 +2903,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   pollInterval={3000}
                   primarySurface={currentView === "files" ? "files" : "changes"}
                   onPrimarySurfaceChange={handleViewChange}
+                  onStartDesktop={handleStartSession}
+                  isDesktopStarting={isStarting || isDesktopStarting}
+                  desktopUnavailableTitle={isTaskCompleted ? "Task finished" : undefined}
+                  desktopUnavailableDescription={
+                    isTaskCompleted
+                      ? "This task has been merged to the default branch. Start the desktop to review its workspace."
+                      : undefined
+                  }
                 />
               </Box>
             )}

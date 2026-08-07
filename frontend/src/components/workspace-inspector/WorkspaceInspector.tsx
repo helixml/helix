@@ -8,7 +8,8 @@ import { copyTextToClipboard, workspaceFilePath } from "./clipboard";
 import WorkspaceDiffSurface from "./WorkspaceDiffSurface";
 import WorkspaceFileSurface from "./WorkspaceFileSurface";
 import { closeWorkspaceTabs, type WorkspaceTabCloseAction } from "./workspaceTabs";
-import { useWorkspaces } from "./workspaceReviewService";
+import TaskSessionPlaceholder from "../tasks/TaskSessionPlaceholder";
+import { isDesktopUnavailableError, useWorkspaces } from "./workspaceReviewService";
 
 interface WorkspaceInspectorProps {
   sessionId: string | undefined;
@@ -16,6 +17,10 @@ interface WorkspaceInspectorProps {
   pollInterval?: number;
   primarySurface?: "changes" | "files";
   onPrimarySurfaceChange?: (surface: "changes" | "files") => void;
+  onStartDesktop?: () => void;
+  isDesktopStarting?: boolean;
+  desktopUnavailableTitle?: string;
+  desktopUnavailableDescription?: string;
 }
 
 type Surface = "changes" | "files" | string;
@@ -32,6 +37,10 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
   pollInterval = 3_000,
   primarySurface = "changes",
   onPrimarySurfaceChange,
+  onStartDesktop,
+  isDesktopStarting,
+  desktopUnavailableTitle,
+  desktopUnavailableDescription,
 }) => {
   const lightTheme = useLightTheme();
   const router = useRouter();
@@ -115,6 +124,29 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
     return (
       <Box sx={{ height: "100%", display: "grid", placeItems: "center" }}>
         <Typography variant="body2" color="text.secondary">No active session.</Typography>
+      </Box>
+    );
+  }
+
+  // Every workspace endpoint answers 503 while the sandbox is stopped, which
+  // is the normal resting state of a finished or paused task. Show the same
+  // start-desktop placeholder the Desktop tab uses rather than reporting a
+  // failure to load changes.
+  if (isDesktopUnavailableError(workspacesQuery.error)) {
+    return (
+      <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+        <TaskSessionPlaceholder
+          tone="paused"
+          title={desktopUnavailableTitle || "Desktop not running"}
+          description={
+            desktopUnavailableDescription ||
+            (primarySurface === "files"
+              ? "This task's sandbox is stopped. Start the desktop to browse its workspace files."
+              : "This task's sandbox is stopped. Start the desktop to load its workspace changes.")
+          }
+          onStart={onStartDesktop}
+          starting={isDesktopStarting}
+        />
       </Box>
     );
   }
@@ -246,6 +278,10 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
             onOpenFile={openFileFromDiff}
             onExitTurn={() => router.removeParams(["interaction", "file"])}
             onWorkspaceResolved={setWorkspace}
+            onStartDesktop={onStartDesktop}
+            isDesktopStarting={isDesktopStarting}
+            desktopUnavailableTitle={desktopUnavailableTitle}
+            desktopUnavailableDescription={desktopUnavailableDescription}
           />
         ) : (
           <WorkspaceFileSurface

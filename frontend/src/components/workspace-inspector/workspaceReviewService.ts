@@ -1,6 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import useApi from "../../hooks/useApi";
 
+/**
+ * The workspace endpoints answer 503 when the session's desktop bridge cannot
+ * be dialled, which is the ordinary state of a finished or paused task rather
+ * than a failure. Callers render the start-desktop placeholder for this
+ * instead of an error, so a stopped sandbox never reads as a broken feature.
+ */
+export function isDesktopUnavailableError(error: unknown): boolean {
+  return (error as { response?: { status?: number } } | null)?.response?.status === 503;
+}
+
 export const workspaceReviewKeys = {
   all: (sessionId: string) => ["workspace-review", sessionId] as const,
   review: (

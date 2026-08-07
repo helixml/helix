@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   removeParams: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
+  workspaces: vi.fn(),
 }));
 
 vi.mock("../../hooks/useLightTheme", () => ({
@@ -30,10 +31,9 @@ vi.mock("../../hooks/useSnackbar", () => ({
   default: () => ({ success: mocks.success, error: mocks.error }),
 }));
 
-vi.mock("./workspaceReviewService", () => ({
-  useWorkspaces: () => ({
-    data: { workspaces: [{ is_primary: true, name: "primary", path: "/workspace" }] },
-  }),
+vi.mock("./workspaceReviewService", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./workspaceReviewService")>()),
+  useWorkspaces: () => mocks.workspaces(),
 }));
 
 vi.mock("./WorkspaceDiffSurface", () => ({ default: () => null }));
@@ -50,6 +50,9 @@ vi.mock("./WorkspaceFileSurface", () => ({
 describe("WorkspaceInspector tab menu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.workspaces.mockReturnValue({
+      data: { workspaces: [{ is_primary: true, name: "primary", path: "/workspace" }] },
+    });
     vi.stubGlobal("MutationObserver", class {
       disconnect() {}
       observe() {}
@@ -81,5 +84,63 @@ describe("WorkspaceInspector tab menu", () => {
     expect(screen.queryByRole("tab", { name: /third\.go/ })).not.toBeInTheDocument();
     expect(screen.getByText("Selected: second.go")).toBeInTheDocument();
     expect(mocks.mergeParams).toHaveBeenLastCalledWith({ view: "files", preview: "second.go" });
+  });
+});
+
+describe("WorkspaceInspector when the sandbox is stopped", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.workspaces.mockReturnValue({
+      data: undefined,
+      error: { response: { status: 503 } },
+    });
+  });
+
+  it("offers to start the desktop instead of reporting a failure", () => {
+    const onStartDesktop = vi.fn();
+    render(
+      <WorkspaceInspector
+        sessionId="session-id"
+        primarySurface="changes"
+        onStartDesktop={onStartDesktop}
+      />,
+    );
+
+    expect(screen.getByText("Desktop not running")).toBeInTheDocument();
+    expect(screen.getByText(/sandbox is stopped/i)).toBeInTheDocument();
+    // The old copy read as a fault; it must not come back.
+    expect(screen.queryByText(/could not load workspace changes/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start desktop" }));
+    expect(onStartDesktop).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the caller name the state, so a merged task says so", () => {
+    render(
+      <WorkspaceInspector
+        sessionId="session-id"
+        primarySurface="changes"
+        desktopUnavailableTitle="Task finished"
+        desktopUnavailableDescription="This task has been merged to the default branch. Start the desktop to review its workspace."
+        onStartDesktop={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Task finished")).toBeInTheDocument();
+    expect(screen.getByText(/merged to the default branch/i)).toBeInTheDocument();
+  });
+
+  it("disables the action while a start is already in flight", () => {
+    render(
+      <WorkspaceInspector
+        sessionId="session-id"
+        primarySurface="files"
+        onStartDesktop={vi.fn()}
+        isDesktopStarting
+      />,
+    );
+
+    expect(screen.getByText(/browse its workspace files/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Starting/ })).toBeDisabled();
   });
 });

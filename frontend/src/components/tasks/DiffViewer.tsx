@@ -11,6 +11,10 @@ interface DiffViewerProps {
   pollInterval?: number;
   primarySurface?: "changes" | "files";
   onPrimarySurfaceChange?: (surface: "changes" | "files") => void;
+  onStartDesktop?: () => void;
+  isDesktopStarting?: boolean;
+  desktopUnavailableTitle?: string;
+  desktopUnavailableDescription?: string;
 }
 
 export default function DiffViewer(props: DiffViewerProps) {
