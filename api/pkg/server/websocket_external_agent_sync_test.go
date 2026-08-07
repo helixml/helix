@@ -1197,6 +1197,10 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive()
 	// was persisted after an in-memory streaming copy was created.
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-skip").Return(targetInteraction, nil).
 		MinTimes(1).MaxTimes(2)
+	// Completion also reconciles the owning spec task; this session has one.
+	// A healthy task means reconciliation finds nothing to release.
+	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).
+		Return(&types.SpecTask{ID: "task-skip", Status: types.TaskStatusImplementation}, nil).AnyTimes()
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
 
 	// ListInteractions is called for both the suppression check (PerPage=1)

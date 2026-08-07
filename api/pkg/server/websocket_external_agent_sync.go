@@ -2939,6 +2939,12 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// turn from the current working tree.
 	apiServer.finalizeInteractionCodeChanges(context.Background(), helixSessionID, targetInteraction)
 
+	// A completed turn proves any latched launch failure on the owning spec task
+	// is no longer true. Work can resume through session inference (the chat's
+	// Retry, or just a message), which never touches the task, leaving it at
+	// backlog with a stale error while its agent runs.
+	apiServer.reconcileSpecTaskAfterTurn(context.Background(), helixSession)
+
 	_, err = apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
 	if err != nil {
 		return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
