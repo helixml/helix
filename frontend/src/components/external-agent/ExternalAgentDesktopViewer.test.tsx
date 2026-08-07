@@ -91,4 +91,21 @@ describe('ExternalAgentDesktopViewer sandbox mode', () => {
     expect(screen.queryByRole('button', { name: /^stop$/i })).not.toBeInTheDocument()
     expect(stopExternalAgent).not.toHaveBeenCalled()
   })
+
+  it('explains a refused launch instead of only offering to start again', () => {
+    // The backend records why StartDesktop refused (e.g. missing Claude
+    // subscription) on the task, but the viewer used to drop every startup
+    // error that was not "desktop limit reached" — leaving a paused card whose
+    // start button fails identically with no explanation.
+    renderViewer(
+      <ExternalAgentDesktopViewer
+        sessionId="ses_1"
+        mode="screenshot"
+        initialSandboxState="absent"
+        startupErrorMessage="agent is configured to use a Claude subscription, but no active Claude subscription is available"
+      />,
+    )
+
+    expect(screen.getByText(/no active Claude subscription is available/i)).toBeInTheDocument()
+  })
 })

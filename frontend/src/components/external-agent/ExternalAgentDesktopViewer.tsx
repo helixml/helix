@@ -478,6 +478,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             <TaskSessionPlaceholder
               variant="overlay"
               tone="paused"
+              detail={startupErrorMessage}
               title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
               description={
                 sandboxMode
@@ -615,6 +616,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           <TaskSessionPlaceholder
             variant="overlay"
             tone="paused"
+            detail={startupErrorMessage}
             title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
             description={
               sandboxMode
@@ -699,6 +701,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 <TaskSessionPlaceholder
                   variant="overlay"
                   tone="paused"
+                  detail={startupErrorMessage}
                   title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
                   description={
                     sandboxMode

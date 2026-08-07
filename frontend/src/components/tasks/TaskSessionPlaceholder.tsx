@@ -8,6 +8,12 @@ interface TaskSessionPlaceholderProps {
   tone: TaskSessionPlaceholderTone;
   title: string;
   description: string;
+  /**
+   * Why the desktop is not running, when the backend told us. Without this a
+   * refused launch is indistinguishable from an ordinary pause, and the start
+   * action just fails the same way again.
+   */
+  detail?: string;
   /** Omit to render an informational state with no action. */
   onStart?: () => void;
   starting?: boolean;
@@ -38,6 +44,7 @@ const TaskSessionPlaceholder: FC<TaskSessionPlaceholderProps> = ({
   tone,
   title,
   description,
+  detail,
   onStart,
   starting = false,
   startLabel = "Start desktop",
@@ -90,6 +97,14 @@ const TaskSessionPlaceholder: FC<TaskSessionPlaceholderProps> = ({
       <Typography variant="body2" color="text.secondary">
         {description}
       </Typography>
+      {detail && (
+        <Typography
+          variant="caption"
+          sx={{ display: "block", mt: 1.5, color: "error.main", textAlign: "left" }}
+        >
+          {detail}
+        </Typography>
+      )}
       {onStart && (
         <Button
           variant="outlined"
