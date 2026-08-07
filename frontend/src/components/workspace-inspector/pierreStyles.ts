@@ -75,3 +75,28 @@ export function fileDiffPath(file: FileDiffMetadata): string {
   const path = file.name || file.prevName || "";
   return path.startsWith("a/") || path.startsWith("b/") ? path.slice(2) : path;
 }
+
+/**
+ * Pierre renders each file header inside its shadow DOM and marks the filename
+ * node with a bare `data-title` attribute; that attribute is the only handle it
+ * exposes for click targeting, so opening a file from a diff header depends on
+ * scraping it. Rather than trusting the scraped text as a path, resolve it
+ * against the paths actually present in the rendered patch. If a future
+ * `@pierre/diffs` release changes that markup the scrape stops resolving and
+ * header clicks become inert, instead of opening a tab for a path that does
+ * not exist in the workspace.
+ */
+export function resolveDiffFilePath(
+  scrapedText: string | null | undefined,
+  knownPaths: readonly string[],
+): string | null {
+  const candidate = (scrapedText || "").trim().replace(/^[ab]\//, "");
+  if (!candidate) return null;
+  if (knownPaths.includes(candidate)) return candidate;
+  // Long paths may be rendered abbreviated; accept a suffix only when it
+  // identifies exactly one file, never when it is ambiguous.
+  const suffixMatches = knownPaths.filter((path) =>
+    path.endsWith(`/${candidate}`),
+  );
+  return suffixMatches.length === 1 ? suffixMatches[0] : null;
+}

@@ -2,12 +2,16 @@ package desktop
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -137,6 +141,250 @@ func TestWorkspaceFileRejectsSymlinkEscape(t *testing.T) {
 	server.handleWorkspaceFile(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.NotContains(t, w.Body.String(), "secret")
+}
+
+// TestWorkspaceReviewRepresentsDualStateFileCoherently is the acceptance
+// criterion the whole review contract exists for: the previous endpoint asked
+// for a file's committed patch first and only fell back to its working patch
+// when that was empty, so a file changed in both states showed whichever side
+// happened to be queried first. Each scope must now answer for itself, and the
+// combined scope must carry the file exactly once with both changes folded in.
+func TestWorkspaceReviewRepresentsDualStateFileCoherently(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "both.txt"), []byte("one\ntwo\nthree\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "both.txt")
+	runReviewTestGit(t, repoDir, "commit", "-m", "seed both.txt")
+	runReviewTestGit(t, repoDir, "checkout", "-b", "feature")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "both.txt"), []byte("one\ntwo-branch\nthree\n"), 0o644))
+	runReviewTestGit(t, repoDir, "commit", "-am", "branch edit")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "both.txt"), []byte("one\ntwo-branch\nthree-worktree\n"), 0o644))
+
+	byID := requestReviewSources(t, server, workspace, "main")
+
+	all := byID[types.WorkspaceReviewSourceAll]
+	require.Len(t, all.Files, 1, "the file must appear once, not once per scope")
+	assert.Equal(t, "both.txt", all.Files[0].Path)
+	assert.Equal(t, 2, all.Files[0].Additions)
+	assert.Equal(t, 2, all.Files[0].Deletions)
+
+	branch := byID[types.WorkspaceReviewSourceBranch]
+	require.Len(t, branch.Files, 1)
+	assert.Equal(t, 1, branch.Files[0].Additions)
+
+	working := byID[types.WorkspaceReviewSourceWorkingTree]
+	require.Len(t, working.Files, 1)
+	assert.Equal(t, 1, working.Files[0].Additions)
+
+	assert.Contains(t, all.Patch, "+three-worktree")
+	assert.NotContains(t, branch.Patch, "three-worktree")
+}
+
+// TestWorkspaceReviewClassifiesRenamesDeletesAndBinaries covers the change
+// kinds a lossy per-file projection used to flatten into "modified".
+func TestWorkspaceReviewClassifiesRenamesDeletesAndBinaries(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "old-name.txt"), []byte("keep\nthis\ncontent\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "doomed.txt"), []byte("delete me\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", ".")
+	runReviewTestGit(t, repoDir, "commit", "-m", "seed")
+	runReviewTestGit(t, repoDir, "checkout", "-b", "feature")
+	runReviewTestGit(t, repoDir, "mv", "old-name.txt", "new-name.txt")
+	runReviewTestGit(t, repoDir, "rm", "-q", "doomed.txt")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "blob.bin"), []byte{0x00, 0x01, 0x02, 0x00, 0xff}, 0o644))
+	runReviewTestGit(t, repoDir, "add", ".")
+	runReviewTestGit(t, repoDir, "commit", "-m", "rename, delete, binary")
+
+	byID := requestReviewSources(t, server, workspace, "main")
+	byPath := make(map[string]types.InteractionCodeChangeFile)
+	for _, file := range byID[types.WorkspaceReviewSourceBranch].Files {
+		byPath[file.Path] = file
+	}
+
+	require.Contains(t, byPath, "new-name.txt")
+	assert.Equal(t, "renamed", byPath["new-name.txt"].Kind)
+	assert.Equal(t, "old-name.txt", byPath["new-name.txt"].OldPath)
+	require.Contains(t, byPath, "doomed.txt")
+	assert.Equal(t, "deleted", byPath["doomed.txt"].Kind)
+	require.Contains(t, byPath, "blob.bin")
+	assert.Equal(t, "added", byPath["blob.bin"].Kind)
+	assert.True(t, byPath["blob.bin"].Binary, "binary files must not be reported with line counts")
+}
+
+// TestWorkspaceReviewReportsTruncationInsteadOfPartialSummary guards the
+// failure mode where a bounded git listing was read but its truncation flag
+// discarded, presenting a partial change set as the complete one.
+func TestWorkspaceReviewReportsTruncationInsteadOfPartialSummary(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+
+	// A patch comfortably larger than the server's own patch bound.
+	line := strings.Repeat("x", 120) + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "huge.txt"),
+		[]byte(strings.Repeat(line, (workspacePatchLimit/len(line))+64)), 0o644))
+
+	env, release, err := untrackedIndexEnv(context.Background(), repoDir)
+	require.NoError(t, err)
+	defer release()
+
+	source, err := buildReviewSource(context.Background(), repoDir, "main",
+		reviewRange{id: types.WorkspaceReviewSourceWorkingTree, from: "HEAD", includeUntracked: true}, false, env)
+	require.NoError(t, err)
+	assert.True(t, source.Truncated, "an over-limit patch must be reported as truncated")
+	assert.LessOrEqual(t, len(source.Patch), workspacePatchLimit)
+	assert.Equal(t, []string{"huge.txt"}, codeChangePaths(source.Files),
+		"the file summary stays complete even when the patch preview is cut")
+}
+
+func TestWorkspaceFileRejectsUnsafePaths(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+	require.NoError(t, os.Mkdir(filepath.Join(repoDir, "adir"), 0o755))
+
+	for name, pathValue := range map[string]string{
+		"absolute":          "/etc/passwd",
+		"parent traversal":  "../../../etc/passwd",
+		"embedded parent":   "sub/../../escape.txt",
+		"encoded traversal": "%2e%2e%2fetc%2fpasswd",
+		"empty":             "",
+		"directory":         "adir",
+		"dot":               ".",
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet,
+				"/workspace/file?workspace="+workspace+"&path="+url.QueryEscape(pathValue), nil)
+			w := httptest.NewRecorder()
+			server.handleWorkspaceFile(w, req)
+			assert.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+		})
+	}
+}
+
+// TestWorkspaceCheckpointCaptureHandlesUnbornHEAD covers a workspace cloned or
+// initialised without a commit: seeding the temporary index from HEAD fails
+// there, and an empty starting index is the correct behaviour rather than a
+// failed capture.
+func TestWorkspaceCheckpointCaptureHandlesUnbornHEAD(t *testing.T) {
+	repoDir := t.TempDir()
+	runReviewTestGit(t, repoDir, "init", "-q", "-b", "main")
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "first.txt"), []byte("first\n"), 0o644))
+
+	captureCheckpointRequest(t, server, workspace, "refs/helix/checkpoints/ses/int/before")
+	assert.Contains(t,
+		runReviewTestGit(t, repoDir, "show", "--name-only", "--format=", "refs/helix/checkpoints/ses/int/before"),
+		"first.txt")
+}
+
+// TestConsecutiveCheckpointsStayIndependent is the per-turn receipt guarantee:
+// a later edit must not rewrite the patch stored under an earlier turn.
+func TestConsecutiveCheckpointsStayIndependent(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	captureCheckpointRequest(t, server, workspace, "refs/helix/checkpoints/ses/int1/before")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "turn-one.txt"), []byte("one\n"), 0o644))
+	captureCheckpointRequest(t, server, workspace, "refs/helix/checkpoints/ses/int1/after")
+
+	captureCheckpointRequest(t, server, workspace, "refs/helix/checkpoints/ses/int2/before")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "turn-two.txt"), []byte("two\n"), 0o644))
+	captureCheckpointRequest(t, server, workspace, "refs/helix/checkpoints/ses/int2/after")
+
+	// A third edit lands after both turns finished; neither receipt may move.
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "turn-three.txt"), []byte("three\n"), 0o644))
+
+	first := checkpointDiff(t, server, workspace, "refs/helix/checkpoints/ses/int1/before", "refs/helix/checkpoints/ses/int1/after")
+	second := checkpointDiff(t, server, workspace, "refs/helix/checkpoints/ses/int2/before", "refs/helix/checkpoints/ses/int2/after")
+
+	assert.Equal(t, []string{"turn-one.txt"}, codeChangePaths(first.Files))
+	assert.Equal(t, []string{"turn-two.txt"}, codeChangePaths(second.Files))
+	assert.NotEqual(t, first.PatchHash, second.PatchHash)
+}
+
+func TestPruneSessionCheckpointRefsBoundsRetention(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	workspace := useReviewTestWorkspace(t, repoDir)
+	server := newTestServer(t)
+
+	for index := 0; index < checkpointRefsPerSession+4; index++ {
+		require.NoError(t, os.WriteFile(filepath.Join(repoDir, "churn.txt"),
+			[]byte(fmt.Sprintf("turn %d\n", index)), 0o644))
+		captureCheckpointRequest(t, server, workspace,
+			fmt.Sprintf("refs/helix/checkpoints/ses/int%04d/after", index))
+	}
+
+	refs := strings.Fields(runReviewTestGit(t, repoDir, "for-each-ref", "--format=%(refname)", "refs/helix/checkpoints/ses"))
+	assert.LessOrEqual(t, len(refs), checkpointRefsPerSession,
+		"checkpoint refs must not accumulate without bound in the user's repository")
+	assert.Contains(t, refs, fmt.Sprintf("refs/helix/checkpoints/ses/int%04d/after", checkpointRefsPerSession+3),
+		"the newest checkpoint must survive pruning")
+
+	// Refs for a different session are not collateral damage.
+	captureCheckpointRequest(t, server, workspace, "refs/helix/checkpoints/other/int1/after")
+	assert.Contains(t,
+		runReviewTestGit(t, repoDir, "for-each-ref", "--format=%(refname)", "refs/helix/checkpoints/other"),
+		"refs/helix/checkpoints/other/int1/after")
+}
+
+// TestUntrackedIndexLeavesUserGitStateUntouched pins the invariant that makes
+// the single-pass untracked diff safe: it runs entirely inside a throwaway
+// index and must not disturb what the user (or Zed) has staged.
+func TestUntrackedIndexLeavesUserGitStateUntouched(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "staged.txt"), []byte("staged\n"), 0o644))
+	runReviewTestGit(t, repoDir, "add", "staged.txt")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "untracked.txt"), []byte("untracked\n"), 0o644))
+
+	statusBefore := runReviewTestGit(t, repoDir, "status", "--porcelain=v1")
+	indexBefore := runReviewTestGit(t, repoDir, "write-tree")
+
+	env, release, err := untrackedIndexEnv(context.Background(), repoDir)
+	require.NoError(t, err)
+	files, _, err := diffFileSummary(context.Background(), repoDir, "HEAD", "", env)
+	require.NoError(t, err)
+	release()
+
+	assert.Contains(t, codeChangePaths(files), "untracked.txt")
+	assert.Contains(t, codeChangePaths(files), "staged.txt")
+	assert.Equal(t, statusBefore, runReviewTestGit(t, repoDir, "status", "--porcelain=v1"))
+	assert.Equal(t, indexBefore, runReviewTestGit(t, repoDir, "write-tree"))
+}
+
+func requestReviewSources(t *testing.T, server *Server, workspace, base string) map[string]types.WorkspaceReviewSource {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/workspace/review?workspace="+workspace+"&base="+base, nil)
+	w := httptest.NewRecorder()
+	server.handleWorkspaceReview(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var response types.WorkspaceReviewResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	byID := make(map[string]types.WorkspaceReviewSource, len(response.Sources))
+	for _, source := range response.Sources {
+		byID[source.ID] = source
+	}
+	return byID
+}
+
+func checkpointDiff(t *testing.T, server *Server, workspace, beforeRef, afterRef string) types.WorkspaceCheckpointDiffResponse {
+	t.Helper()
+	body, err := json.Marshal(types.WorkspaceCheckpointDiffRequest{
+		Workspace: workspace, BeforeRef: beforeRef, AfterRef: afterRef,
+	})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/workspace/checkpoints/diff", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	server.handleWorkspaceCheckpointDiff(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var response types.WorkspaceCheckpointDiffResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	return response
 }
 
 func captureCheckpointRequest(t *testing.T, server *Server, workspace, ref string) {

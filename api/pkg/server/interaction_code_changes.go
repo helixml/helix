@@ -14,6 +14,15 @@ import (
 
 var checkpointRefSegmentRE = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
+// codeChangesCaptureTimeout bounds every desktop round-trip made for
+// checkpoint capture. Both capture paths run on the external-agent
+// WebSocket read goroutine, which also dispatches pongs and carries a
+// 60s read deadline: an unbounded capture stalls the session's whole
+// sync stream and, past 60s, tears the connection down. A capture that
+// cannot finish inside this budget is recorded as a failed receipt
+// instead of being waited on.
+const codeChangesCaptureTimeout = 15 * time.Second
+
 func checkpointRef(sessionID, interactionID, phase string) string {
 	sessionSegment := safeCheckpointRefSegment(sessionID)
 	interactionSegment := safeCheckpointRefSegment(interactionID)
@@ -45,7 +54,7 @@ func (apiServer *HelixAPIServer) captureInteractionBeforeCheckpoint(sessionID st
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), codeChangesCaptureTimeout)
 	defer cancel()
 	interaction, err := apiServer.Store.GetInteraction(ctx, interactionID)
 	if err != nil || interaction == nil || interaction.SessionID != sessionID {
@@ -82,6 +91,14 @@ func (apiServer *HelixAPIServer) captureInteractionBeforeCheckpoint(sessionID st
 func (apiServer *HelixAPIServer) finalizeInteractionCodeChanges(ctx context.Context, sessionID string, interaction *types.Interaction) {
 	if interaction == nil {
 		return
+	}
+	// Runs inline on the sync read loop so the receipt is durable before the
+	// terminal interaction update publishes. The budget is what keeps that
+	// safe — see codeChangesCaptureTimeout.
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		bounded, cancel := context.WithTimeout(ctx, codeChangesCaptureTimeout)
+		defer cancel()
+		ctx = bounded
 	}
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil || session == nil || session.Metadata.SpecTaskID == "" {

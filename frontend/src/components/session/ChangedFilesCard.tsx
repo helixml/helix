@@ -63,7 +63,24 @@ const ChangedFilesCard: FC<ChangedFilesCardProps> = ({ interaction, isLatest }) 
   const preview = useMemo(() => representativeFiles(files), [files]);
   const compactPreviewVisible = isLatest && !expanded;
 
-  if (interaction.code_changes?.status !== "ready" || files.length === 0 || !interaction.id) return null;
+  const status = interaction.code_changes?.status;
+  // A turn whose checkpoint capture failed used to render nothing at all, so a
+  // workspace that had silently stopped producing receipts was indistinguishable
+  // from a turn that changed no files. Say so instead, quietly.
+  if (interaction.id && (status === "missing" || status === "error")) {
+    return (
+      <Box
+        data-changed-files-state="unavailable"
+        sx={{ mt: 2, display: "flex", alignItems: "center", gap: 0.75, color: "text.secondary" }}
+      >
+        <FileDiff size={13} />
+        <Tooltip title={interaction.code_changes?.error || ""}>
+          <Typography variant="caption">Changed files unavailable for this turn</Typography>
+        </Tooltip>
+      </Box>
+    );
+  }
+  if (status !== "ready" || files.length === 0 || !interaction.id) return null;
 
   const setExpanded = (value: boolean) => {
     setExpandedState(value);

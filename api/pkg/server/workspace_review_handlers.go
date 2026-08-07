@@ -33,6 +33,10 @@ func (apiServer *HelixAPIServer) callSessionDesktopJSON(ctx context.Context, ses
 		return err
 	}
 	defer conn.Close()
+	// ctx bounds Dial on its own; applyDesktopDeadline is what bounds the
+	// request/response that follows. Without it a ctx timeout here is
+	// cosmetic and callers block for as long as the desktop stays silent.
+	applyDesktopDeadline(ctx, conn)
 	return callDesktopJSON(conn, method, path, body, out)
 }
 

@@ -28,9 +28,14 @@ import {
   PIERRE_THEMES,
   fileDiffPath,
   parseRenderablePatch,
+  resolveDiffFilePath,
 } from "./pierreStyles";
+import { usePersistedChoice, usePersistedFlag } from "./workspacePreferences";
 
 type ReviewScope = "all" | "branch" | "working_tree";
+
+const REVIEW_SCOPES = ["all", "branch", "working_tree"] as const;
+const DIFF_LAYOUTS = ["unified", "split"] as const;
 
 interface PathContextMenu {
   left: number;
@@ -68,18 +73,21 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
 }) => {
   const lightTheme = useLightTheme();
   const snackbar = useSnackbar();
-  const [scope, setScope] = useState<ReviewScope>("all");
-  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
-  const [layout, setLayout] = useState<"unified" | "split">("unified");
-  const [wordWrap, setWordWrap] = useState(false);
+  const [scope, setScope] = usePersistedChoice<ReviewScope>("scope", REVIEW_SCOPES, "all");
+  const [ignoreWhitespace, setIgnoreWhitespace] = usePersistedFlag("ignore-whitespace");
+  const [layout, setLayout] = usePersistedChoice("layout", DIFF_LAYOUTS, "unified");
+  const [wordWrap, setWordWrap] = usePersistedFlag("word-wrap");
   const [pathContextMenu, setPathContextMenu] = useState<PathContextMenu | null>(null);
   const viewerRef = useRef<CodeViewHandle<undefined>>(null);
+  // A historical turn diff is immutable, so polling the live review behind it
+  // would repeatedly run the workspace's git commands for data nothing renders.
   const liveReview = useWorkspaceReview(
     sessionId,
     workspace,
     baseBranch,
     ignoreWhitespace,
     pollInterval,
+    !interactionId,
   );
   const turnReview = useTurnWorkspaceReview(
     sessionId,
@@ -114,6 +122,18 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
         fileDiff,
       }));
   }, [renderable]);
+  const renderedPaths = useMemo(
+    () => items.map((item) => fileDiffPath(item.fileDiff)),
+    [items],
+  );
+  const headerPathFromEvent = (event: React.SyntheticEvent) => {
+    const nodes = (event.nativeEvent as Event).composedPath?.() || [];
+    const title = nodes.find(
+      (node): node is HTMLElement =>
+        node instanceof HTMLElement && node.hasAttribute("data-title"),
+    );
+    return { title, path: resolveDiffFilePath(title?.textContent, renderedPaths) };
+  };
 
   useEffect(() => {
     if (!selectedFile) return;
@@ -207,7 +227,7 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
         <Tooltip title={wordWrap ? "Disable line wrapping" : "Wrap long lines"}>
           <IconButton
             size="small"
-            onClick={() => setWordWrap((value) => !value)}
+            onClick={() => setWordWrap(!wordWrap)}
             color={wordWrap ? "primary" : "default"}
             aria-label={wordWrap ? "Disable line wrapping" : "Wrap long lines"}
             aria-pressed={wordWrap}
@@ -218,7 +238,7 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
         <Tooltip title={ignoreWhitespace ? "Include whitespace changes" : "Ignore whitespace changes"}>
           <IconButton
             size="small"
-            onClick={() => setIgnoreWhitespace((value) => !value)}
+            onClick={() => setIgnoreWhitespace(!ignoreWhitespace)}
             color={ignoreWhitespace ? "primary" : "default"}
             aria-label={ignoreWhitespace ? "Include whitespace changes" : "Ignore whitespace changes"}
             aria-pressed={ignoreWhitespace}
@@ -245,10 +265,34 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
           Preview truncated at the server limit. File counts remain complete.
         </Alert>
       )}
+      {/*
+        A failed poll must not replace a review the reviewer is reading. React
+        Query keeps the last successful data and flips status to error, so the
+        error state is only allowed to take over the surface when there is
+        nothing good to show; otherwise it is a non-blocking notice with retry.
+      */}
+      {query.isError && source && (
+        <Alert
+          severity="warning"
+          square
+          sx={{ py: 0, fontSize: 12 }}
+          action={
+            <Button size="small" color="inherit" onClick={() => query.refetch()} sx={{ fontSize: 11 }}>
+              Retry
+            </Button>
+          }
+        >
+          Showing the last loaded changes — refresh failed.
+        </Alert>
+      )}
       {query.isLoading ? (
         <Box sx={{ flex: 1, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>
-      ) : query.isError ? (
+      ) : query.isError && !source ? (
         <Box sx={{ p: 2 }}><Alert severity="error">Could not load workspace changes.</Alert></Box>
+      ) : !source ? (
+        <Box sx={{ flex: 1, display: "grid", placeItems: "center", color: "text.secondary" }}>
+          <Typography variant="body2">Changes are not available for this workspace.</Typography>
+        </Box>
       ) : !renderable ? (
         <Box sx={{ flex: 1, display: "grid", placeItems: "center", color: "text.secondary" }}>
           <Typography variant="body2">No net changes in this selection.</Typography>
@@ -261,26 +305,18 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
         <Box
           sx={{ flex: 1, minHeight: 0 }}
           onClickCapture={(event) => {
-            const path = event.nativeEvent.composedPath?.() || [];
-            const title = path.find(
-              (node): node is HTMLElement => node instanceof HTMLElement && node.hasAttribute("data-title"),
-            );
-            const filePath = title?.textContent?.trim();
-            if (filePath) onOpenFile(filePath.replace(/^[ab]\//, ""));
+            const { path } = headerPathFromEvent(event);
+            if (path) onOpenFile(path);
           }}
           onContextMenuCapture={(event) => {
-            const path = event.nativeEvent.composedPath?.() || [];
-            const title = path.find(
-              (node): node is HTMLElement => node instanceof HTMLElement && node.hasAttribute("data-title"),
-            );
-            const filePath = title?.textContent?.trim().replace(/^[ab]\//, "");
-            if (!filePath || !title) return;
+            const { title, path } = headerPathFromEvent(event);
+            if (!path || !title) return;
             event.preventDefault();
             event.stopPropagation();
             const rect = title.getBoundingClientRect();
             setPathContextMenu({
               left: event.clientX || rect.left,
-              path: filePath,
+              path,
               top: event.clientY || rect.bottom,
             });
           }}

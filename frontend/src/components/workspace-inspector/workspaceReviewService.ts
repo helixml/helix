@@ -53,6 +53,7 @@ export function useWorkspaceReview(
   base: string,
   ignoreWhitespace: boolean,
   pollInterval: number,
+  enabled = true,
 ) {
   const api = useApi();
   return useQuery({
@@ -72,7 +73,7 @@ export function useWorkspaceReview(
         });
       return response.data;
     },
-    enabled: !!sessionId,
+    enabled: !!sessionId && enabled,
     refetchInterval: pollInterval,
     refetchOnWindowFocus: false,
   });

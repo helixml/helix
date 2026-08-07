@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileDiffPath, parseRenderablePatch } from "./pierreStyles";
+import { fileDiffPath, parseRenderablePatch, resolveDiffFilePath } from "./pierreStyles";
 
 describe("parseRenderablePatch", () => {
   it("parses multiple git files for the virtualized diff surface", () => {
@@ -26,5 +26,29 @@ describe("parseRenderablePatch", () => {
 
   it("returns null for an empty patch", () => {
     expect(parseRenderablePatch("  ")).toBeNull();
+  });
+});
+
+// Opening a file from a diff header depends on scraping @pierre/diffs' private
+// `[data-title]` node. Resolving that text against the rendered patch is what
+// keeps a markup change in a future beta from opening bogus file tabs.
+describe("resolveDiffFilePath", () => {
+  const known = ["src/app.ts", "src/nested/app.ts", "README.md"];
+
+  it("resolves an exact path and strips git a/ b/ prefixes", () => {
+    expect(resolveDiffFilePath("src/app.ts", known)).toBe("src/app.ts");
+    expect(resolveDiffFilePath("  b/README.md  ", known)).toBe("README.md");
+  });
+
+  it("resolves an abbreviated header only when the suffix is unambiguous", () => {
+    expect(resolveDiffFilePath("nested/app.ts", known)).toBe("src/nested/app.ts");
+    expect(resolveDiffFilePath("app.ts", known)).toBeNull();
+  });
+
+  it("refuses text that names no rendered file", () => {
+    expect(resolveDiffFilePath("+12 -3", known)).toBeNull();
+    expect(resolveDiffFilePath("", known)).toBeNull();
+    expect(resolveDiffFilePath(undefined, known)).toBeNull();
+    expect(resolveDiffFilePath("src/app.ts", [])).toBeNull();
   });
 });

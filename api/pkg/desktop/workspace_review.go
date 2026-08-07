@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -19,13 +20,21 @@ import (
 	"unicode/utf8"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 const (
 	workspacePatchLimit     = 512 * 1024
 	workspaceFileLimit      = 1024 * 1024
 	workspaceTreeEntryLimit = 20000
+	workspaceListLimit      = 8 * 1024 * 1024
 	checkpointRefPrefix     = "refs/helix/checkpoints/"
+	// checkpointRefsPerSession caps how many checkpoint refs a single
+	// session may retain. Each turn publishes a before/after pair, so this
+	// keeps roughly the last 100 turns reviewable while stopping refs (and
+	// the objects they pin) from growing without bound in a repository the
+	// user also pushes from.
+	checkpointRefsPerSession = 200
 )
 
 type reviewRange struct {
@@ -78,13 +87,27 @@ func (s *Server) handleWorkspaceReview(w http.ResponseWriter, r *http.Request) {
 		{id: types.WorkspaceReviewSourceWorkingTree, title: "Working tree", from: "HEAD", includeUntracked: true},
 	}
 
+	// One throwaway index makes untracked files visible to every scope that
+	// wants them, so each scope stays a single coherent `git diff` instead of
+	// a tracked patch with a synthesised untracked tail concatenated on.
+	untrackedEnv, releaseIndex, err := untrackedIndexEnv(r.Context(), workDir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("prepare untracked index: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer releaseIndex()
+
 	resp := types.WorkspaceReviewResponse{
 		Workspace:   workspace,
 		GeneratedAt: time.Now().UTC(),
 		Sources:     make([]types.WorkspaceReviewSource, 0, len(ranges)),
 	}
 	for _, review := range ranges {
-		source, err := buildReviewSource(r.Context(), workDir, resolvedBase, review, ignoreWhitespace)
+		var env []string
+		if review.includeUntracked {
+			env = untrackedEnv
+		}
+		source, err := buildReviewSource(r.Context(), workDir, resolvedBase, review, ignoreWhitespace, env)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("generate %s review: %v", review.id, err), http.StatusInternalServerError)
 			return
@@ -94,7 +117,7 @@ func (s *Server) handleWorkspaceReview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func buildReviewSource(ctx context.Context, workDir, baseRef string, review reviewRange, ignoreWhitespace bool) (types.WorkspaceReviewSource, error) {
+func buildReviewSource(ctx context.Context, workDir, baseRef string, review reviewRange, ignoreWhitespace bool, env []string) (types.WorkspaceReviewSource, error) {
 	patchArgs := []gitArg{
 		constGitArg("diff"), constGitArg("--patch"), constGitArg("--no-color"),
 		constGitArg("--no-ext-diff"), constGitArg("--no-textconv"), constGitArg("--binary"),
@@ -115,23 +138,14 @@ func buildReviewSource(ctx context.Context, workDir, baseRef string, review revi
 		patchArgs = append(patchArgs, toArg)
 	}
 	patchArgs = append(patchArgs, constGitArg("--"), constGitArg("."))
-	patch, truncated, err := runGitBounded(ctx, workDir, workspacePatchLimit, nil, patchArgs...)
+	patch, truncated, err := runGitBounded(ctx, workDir, workspacePatchLimit, env, patchArgs...)
 	if err != nil {
 		return types.WorkspaceReviewSource{}, err
 	}
 
-	files, err := diffFileSummary(ctx, workDir, review.from, review.to)
+	files, summaryTruncated, err := diffFileSummary(ctx, workDir, review.from, review.to, env)
 	if err != nil {
 		return types.WorkspaceReviewSource{}, err
-	}
-	if review.includeUntracked {
-		untrackedPatch, untrackedFiles, untrackedTruncated, err := untrackedDiff(ctx, workDir, workspacePatchLimit-len(patch))
-		if err != nil {
-			return types.WorkspaceReviewSource{}, err
-		}
-		patch += untrackedPatch
-		truncated = truncated || untrackedTruncated
-		files = mergeCodeChangeFiles(files, untrackedFiles)
 	}
 	additions, deletions := summarizeCodeChangeFiles(files)
 	return types.WorkspaceReviewSource{
@@ -141,7 +155,7 @@ func buildReviewSource(ctx context.Context, workDir, baseRef string, review revi
 		HeadRef:        "HEAD",
 		Patch:          patch,
 		PatchHash:      hashString(patch),
-		Truncated:      truncated,
+		Truncated:      truncated || summaryTruncated,
 		Files:          files,
 		TotalAdditions: additions,
 		TotalDeletions: deletions,
@@ -158,7 +172,9 @@ func (s *Server) handleWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	out, _, err := runGitBounded(r.Context(), workDir, 8*1024*1024, nil,
+	// listTruncated matters: a workspace whose path listing exceeds the output
+	// bound must not be presented as a complete tree.
+	out, listTruncated, err := runGitBounded(r.Context(), workDir, workspaceListLimit, nil,
 		constGitArg("ls-files"), constGitArg("-z"), constGitArg("--cached"),
 		constGitArg("--others"), constGitArg("--exclude-standard"))
 	if err != nil {
@@ -169,7 +185,7 @@ func (s *Server) handleWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
 	paths := strings.Split(out, "\x00")
 	directories := make(map[string]struct{})
 	entries := make([]types.WorkspaceFileEntry, 0, min(len(paths), workspaceTreeEntryLimit))
-	truncated := false
+	truncated := listTruncated
 	for _, pathValue := range paths {
 		if pathValue == "" {
 			continue
@@ -356,7 +372,7 @@ func (s *Server) handleWorkspaceCheckpointDiff(w http.ResponseWriter, r *http.Re
 		http.Error(w, fmt.Sprintf("diff checkpoints: %v", err), http.StatusInternalServerError)
 		return
 	}
-	files, err := diffFileSummary(r.Context(), workDir, req.BeforeRef, req.AfterRef)
+	files, summaryTruncated, err := diffFileSummary(r.Context(), workDir, req.BeforeRef, req.AfterRef, nil)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("summarize checkpoint diff: %v", err), http.StatusInternalServerError)
 		return
@@ -364,7 +380,7 @@ func (s *Server) handleWorkspaceCheckpointDiff(w http.ResponseWriter, r *http.Re
 	additions, deletions := summarizeCodeChangeFiles(files)
 	writeJSON(w, http.StatusOK, types.WorkspaceCheckpointDiffResponse{
 		Workspace: workspace, BeforeRef: req.BeforeRef, AfterRef: req.AfterRef,
-		Patch: patch, PatchHash: hashString(patch), Truncated: truncated, Files: files,
+		Patch: patch, PatchHash: hashString(patch), Truncated: truncated || summaryTruncated, Files: files,
 		TotalAdditions: additions, TotalDeletions: deletions,
 	})
 }
@@ -413,26 +429,11 @@ func resolveReviewBaseBranch(ctx context.Context, workDir, base string) string {
 }
 
 func captureWorkspaceCheckpoint(ctx context.Context, workDir, ref string) (string, error) {
-	commonDir, err := gitText(ctx, workDir, constGitArg("rev-parse"), constGitArg("--git-common-dir"))
+	indexPath, release, err := newTempGitIndex(ctx, workDir)
 	if err != nil {
 		return "", err
 	}
-	commonDir = strings.TrimSpace(commonDir)
-	if !filepath.IsAbs(commonDir) {
-		commonDir = filepath.Join(workDir, commonDir)
-	}
-	indexFile, err := os.CreateTemp(commonDir, "helix-checkpoint-index-*")
-	if err != nil {
-		return "", err
-	}
-	indexPath := indexFile.Name()
-	if err := indexFile.Close(); err != nil {
-		return "", err
-	}
-	if err := os.Remove(indexPath); err != nil && !os.IsNotExist(err) {
-		return "", err
-	}
-	defer os.Remove(indexPath)
+	defer release()
 
 	env := append(os.Environ(),
 		"GIT_INDEX_FILE="+indexPath,
@@ -441,7 +442,7 @@ func captureWorkspaceCheckpoint(ctx context.Context, workDir, ref string) (strin
 		"GIT_COMMITTER_NAME=Helix",
 		"GIT_COMMITTER_EMAIL=helix@users.noreply.github.com",
 	)
-	if _, _, err := runGitBounded(ctx, workDir, 64*1024, env, constGitArg("read-tree"), constGitArg("HEAD")); err != nil {
+	if err := seedTempIndexFromHEAD(ctx, workDir, env); err != nil {
 		return "", err
 	}
 	if _, _, err := runGitBounded(ctx, workDir, 64*1024, env, constGitArg("add"), constGitArg("-A"), constGitArg("--"), constGitArg(".")); err != nil {
@@ -468,27 +469,73 @@ func captureWorkspaceCheckpoint(ctx context.Context, workDir, ref string) (strin
 	if _, err := gitText(ctx, workDir, constGitArg("update-ref"), refArg, commitArg); err != nil {
 		return "", err
 	}
+	pruneSessionCheckpointRefs(ctx, workDir, ref)
 	return commit, nil
 }
 
-func diffFileSummary(ctx context.Context, workDir, from, to string) ([]types.InteractionCodeChangeFile, error) {
+// pruneSessionCheckpointRefs drops the oldest checkpoint refs for the session
+// that owns ref, keeping the most recent checkpointRefsPerSession. Without it
+// every turn leaves two permanent refs behind, and those refs pin the tree
+// objects `git add -A` wrote — unbounded growth inside the repository the user
+// pushes from. Pruning is best effort: a failure here must not fail a capture
+// that already succeeded.
+func pruneSessionCheckpointRefs(ctx context.Context, workDir, ref string) {
+	// refs/helix/checkpoints/<session>/<interaction>/<phase>
+	sessionPrefix := path.Dir(path.Dir(ref))
+	if !strings.HasPrefix(sessionPrefix, checkpointRefPrefix) || sessionPrefix == strings.TrimSuffix(checkpointRefPrefix, "/") {
+		return
+	}
+	prefixArg, err := safeGitArg(sessionPrefix)
+	if err != nil {
+		return
+	}
+	out, _, err := runGitBounded(ctx, workDir, workspaceListLimit, nil,
+		constGitArg("for-each-ref"), constGitArg("--sort=-committerdate"),
+		constGitArg("--format=%(refname)"), prefixArg)
+	if err != nil {
+		return
+	}
+	refs := strings.Split(strings.TrimSpace(out), "\n")
+	if len(refs) <= checkpointRefsPerSession {
+		return
+	}
+	for _, stale := range refs[checkpointRefsPerSession:] {
+		stale = strings.TrimSpace(stale)
+		if stale == "" || stale == ref {
+			continue
+		}
+		staleArg, err := safeGitArg(stale)
+		if err != nil {
+			continue
+		}
+		if _, err := gitText(ctx, workDir, constGitArg("update-ref"), constGitArg("-d"), staleArg); err != nil {
+			log.Warn().Err(err).Str("ref", stale).Msg("Failed to prune stale workspace checkpoint ref")
+		}
+	}
+}
+
+// diffFileSummary reports the changed-file summary for a range. The second
+// return value is true when either underlying git listing hit its output
+// bound: the summary is then incomplete and callers must surface that rather
+// than presenting a partial file list as the whole change.
+func diffFileSummary(ctx context.Context, workDir, from, to string, env []string) ([]types.InteractionCodeChangeFile, bool, error) {
 	args := []gitArg{constGitArg("diff"), constGitArg("--numstat"), constGitArg("-z")}
 	fromArg, err := safeGitArg(from)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	args = append(args, fromArg)
 	if to != "" {
 		toArg, err := safeGitArg(to)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		args = append(args, toArg)
 	}
 	args = append(args, constGitArg("--"), constGitArg("."))
-	out, _, err := runGitBounded(ctx, workDir, 8*1024*1024, nil, args...)
+	out, numstatTruncated, err := runGitBounded(ctx, workDir, workspaceListLimit, env, args...)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	files := parseNumstatZ([]byte(out))
 
@@ -499,12 +546,12 @@ func diffFileSummary(ctx context.Context, workDir, from, to string) ([]types.Int
 		statusArgs = append(statusArgs, toArg)
 	}
 	statusArgs = append(statusArgs, constGitArg("--"), constGitArg("."))
-	statusOut, _, err := runGitBounded(ctx, workDir, 8*1024*1024, nil, statusArgs...)
+	statusOut, statusTruncated, err := runGitBounded(ctx, workDir, workspaceListLimit, env, statusArgs...)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	applyNameStatuses(files, []byte(statusOut))
-	return files, nil
+	return files, numstatTruncated || statusTruncated, nil
 }
 
 func parseNumstatZ(data []byte) []types.InteractionCodeChangeFile {
@@ -578,45 +625,70 @@ func applyNameStatuses(files []types.InteractionCodeChangeFile, data []byte) {
 	}
 }
 
-func untrackedDiff(ctx context.Context, workDir string, remaining int) (string, []types.InteractionCodeChangeFile, bool, error) {
-	if remaining <= 0 {
-		return "", nil, true, nil
-	}
-	out, _, err := runGitBounded(ctx, workDir, 8*1024*1024, nil, constGitArg("ls-files"), constGitArg("-z"), constGitArg("--others"), constGitArg("--exclude-standard"))
+// untrackedIndexEnv builds a throwaway GIT_INDEX_FILE seeded from HEAD with
+// intent-to-add entries for every untracked, non-ignored path. Running the
+// review's diff commands against it makes untracked files show up as ordinary
+// additions inside a single coherent patch — with git's own rename detection,
+// blob hashes and numstat counts — instead of needing one `git diff --no-index`
+// subprocess per untracked file plus a hand-rolled line count. The review
+// endpoint is polled, and workspaces routinely carry hundreds of untracked
+// paths, so the per-file fan-out was the dominant cost of the request.
+//
+// The user's real index, worktree, HEAD and branch refs are untouched: every
+// write lands in the temporary index, which is removed on the returned cleanup.
+func untrackedIndexEnv(ctx context.Context, workDir string) ([]string, func(), error) {
+	indexPath, release, err := newTempGitIndex(ctx, workDir)
 	if err != nil {
-		return "", nil, false, err
+		return nil, nil, err
 	}
-	var patch strings.Builder
-	files := make([]types.InteractionCodeChangeFile, 0)
-	truncated := false
-	for _, rawPath := range strings.Split(out, "\x00") {
-		if rawPath == "" {
-			continue
-		}
-		rel, err := cleanRelativePath(rawPath)
-		if err != nil {
-			continue
-		}
-		pathArg, _ := safeGitPathArg(rel)
-		filePatch, wasTruncated, runErr := runGitBoundedAllowExitOne(ctx, workDir, remaining-patch.Len(),
-			constGitArg("diff"), constGitArg("--no-index"), constGitArg("--patch"), constGitArg("--no-color"), constGitArg("--binary"), constGitArg("--"), constGitArg("/dev/null"), pathArg)
-		if runErr != nil {
-			return "", nil, false, runErr
-		}
-		contentPath := filepath.Join(workDir, filepath.FromSlash(rel))
-		content, size, _, binary, readErr := readBoundedFile(contentPath, workspaceFileLimit)
-		file := types.InteractionCodeChangeFile{Path: rel, Kind: "added", Binary: binary}
-		if readErr == nil && !binary {
-			file.Additions = countLines(content, size)
-		}
-		files = append(files, file)
-		patch.WriteString(filePatch)
-		if wasTruncated || patch.Len() >= remaining {
-			truncated = true
-			break
-		}
+	env := append(os.Environ(), "GIT_INDEX_FILE="+indexPath)
+	if err := seedTempIndexFromHEAD(ctx, workDir, env); err != nil {
+		release()
+		return nil, nil, err
 	}
-	return patch.String(), files, truncated, nil
+	if _, _, err := runGitBounded(ctx, workDir, 64*1024, env,
+		constGitArg("add"), constGitArg("-N"), constGitArg("-A"), constGitArg("--"), constGitArg(".")); err != nil {
+		release()
+		return nil, nil, err
+	}
+	return env, release, nil
+}
+
+// newTempGitIndex reserves a unique index path under the repository's Git
+// common directory and returns a cleanup that removes it on every exit path.
+func newTempGitIndex(ctx context.Context, workDir string) (string, func(), error) {
+	commonDir, err := gitText(ctx, workDir, constGitArg("rev-parse"), constGitArg("--git-common-dir"))
+	if err != nil {
+		return "", nil, err
+	}
+	commonDir = strings.TrimSpace(commonDir)
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(workDir, commonDir)
+	}
+	indexFile, err := os.CreateTemp(commonDir, "helix-checkpoint-index-*")
+	if err != nil {
+		return "", nil, err
+	}
+	indexPath := indexFile.Name()
+	if err := indexFile.Close(); err != nil {
+		return "", nil, err
+	}
+	if err := os.Remove(indexPath); err != nil && !os.IsNotExist(err) {
+		return "", nil, err
+	}
+	return indexPath, func() { _ = os.Remove(indexPath) }, nil
+}
+
+// seedTempIndexFromHEAD populates the temporary index from HEAD, tolerating a
+// repository whose HEAD is unborn (freshly initialised, no commit yet) — there
+// `git read-tree HEAD` fails and an empty index is the correct starting point.
+func seedTempIndexFromHEAD(ctx context.Context, workDir string, env []string) error {
+	if _, _, err := runGitBounded(ctx, workDir, 64*1024, env,
+		constGitArg("rev-parse"), constGitArg("--verify"), constGitArg("--quiet"), constGitArg("HEAD")); err != nil {
+		return nil
+	}
+	_, _, err := runGitBounded(ctx, workDir, 64*1024, env, constGitArg("read-tree"), constGitArg("HEAD"))
+	return err
 }
 
 func readReviewContent(ctx context.Context, workDir, ref, pathValue string) (types.WorkspaceReviewFileContent, error) {
@@ -735,10 +807,6 @@ func runGitBounded(ctx context.Context, cwd string, limit int, env []string, arg
 	return runGitBoundedExit(ctx, cwd, limit, env, false, args...)
 }
 
-func runGitBoundedAllowExitOne(ctx context.Context, cwd string, limit int, args ...gitArg) (string, bool, error) {
-	return runGitBoundedExit(ctx, cwd, limit, nil, true, args...)
-}
-
 func runGitBoundedExit(ctx context.Context, cwd string, limit int, env []string, allowExitOne bool, args ...gitArg) (string, bool, error) {
 	if limit < 0 {
 		limit = 0
@@ -793,25 +861,6 @@ func gitTextEnv(ctx context.Context, cwd string, env []string, args ...gitArg) (
 	return out, err
 }
 
-func mergeCodeChangeFiles(left, right []types.InteractionCodeChangeFile) []types.InteractionCodeChangeFile {
-	byPath := make(map[string]types.InteractionCodeChangeFile, len(left)+len(right))
-	for _, file := range append(left, right...) {
-		existing, ok := byPath[file.Path]
-		if ok {
-			file.Additions += existing.Additions
-			file.Deletions += existing.Deletions
-			file.Binary = file.Binary || existing.Binary
-		}
-		byPath[file.Path] = file
-	}
-	files := make([]types.InteractionCodeChangeFile, 0, len(byPath))
-	for _, file := range byPath {
-		files = append(files, file)
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	return files
-}
-
 func summarizeCodeChangeFiles(files []types.InteractionCodeChangeFile) (int, int) {
 	var additions, deletions int
 	for _, file := range files {
@@ -824,17 +873,6 @@ func summarizeCodeChangeFiles(files []types.InteractionCodeChangeFile) (int, int
 func hashString(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
-}
-
-func countLines(content string, size int64) int {
-	if size == 0 {
-		return 0
-	}
-	count := strings.Count(content, "\n")
-	if !strings.HasSuffix(content, "\n") {
-		count++
-	}
-	return count
 }
 
 func validateReviewRef(value string) (gitArg, error) {

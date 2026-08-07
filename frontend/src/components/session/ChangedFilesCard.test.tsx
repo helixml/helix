@@ -49,6 +49,30 @@ describe("ChangedFilesCard", () => {
     expect(screen.getByText("Show all 4 files")).toBeInTheDocument();
   });
 
+  it("says so when a turn's checkpoint capture failed", () => {
+    const failed = {
+      id: "int_failed",
+      code_changes: { status: "error", files: [], error: "container not ready" },
+    } as TypesInteraction;
+
+    const { container } = render(<ChangedFilesCard interaction={failed} isLatest />);
+
+    // Rendering nothing here made a broken capture look like a turn that
+    // changed no files.
+    expect(container.querySelector('[data-changed-files-state="unavailable"]')).toBeTruthy();
+    expect(screen.getByText("Changed files unavailable for this turn")).toBeInTheDocument();
+  });
+
+  it("renders nothing for a turn that simply changed no files", () => {
+    const empty = {
+      id: "int_empty",
+      code_changes: { status: "ready", files: [] },
+    } as TypesInteraction;
+
+    const { container } = render(<ChangedFilesCard interaction={empty} isLatest />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("opens large trees collapsed and deep-links file chips", () => {
     const { container } = render(<ChangedFilesCard interaction={interaction} isLatest />);
 

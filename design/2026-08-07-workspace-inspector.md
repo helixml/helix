@@ -40,6 +40,12 @@ A file selected directly in the tree is already visible. Controlled-selection sy
 
 The backend uses shared response types and generated client methods. Live review requests return one patch per Git scope. Historical review never trusts a checkpoint ref from the browser: it resolves the interaction after session authorization and reads the stored before/after refs. Checkpoint capture uses a temporary Git index and parentless hidden commits, preserving the user's index, worktree, `HEAD`, and branch refs.
 
+Untracked files reach the review through the same temporary-index mechanism rather than through a separate synthesised patch: one throwaway `GIT_INDEX_FILE` seeded from `HEAD` receives `git add -N -A`, and every scope that wants untracked content runs its ordinary `git diff` against it. Each scope therefore stays a single coherent patch with Git's own rename detection, blob hashes, and `numstat` counts, and the request costs two setup processes instead of one `git diff --no-index` subprocess plus a 1 MiB read per untracked path. The review endpoint is polled, so that fan-out was its dominant cost.
+
+Checkpoint refs are pruned per session to the most recent `checkpointRefsPerSession` (200, roughly the last 100 turns). Without a bound, every turn left two permanent refs pinning the trees `git add -A` wrote, growing without limit inside a repository the user also pushes from.
+
+Every desktop round-trip made for capture carries a real deadline. Both capture paths run on the external-agent WebSocket read goroutine, which also dispatches pongs under a 60s read deadline; an unbounded capture stalls the session's whole sync stream and, past 60s, tears the connection down. The connection deadline is what makes the timeout real — a context bounds only `Dial`. A capture that cannot finish inside the budget is recorded as a failed receipt rather than waited on, and chat renders that failure explicitly instead of silently omitting the receipt.
+
 Boundaries retained for the first release: the browser is read-only, file reads are capped at 1 MiB, raw patch previews at 512 KiB, and file listings at 20,000 entries. The inspector can switch among detected Git workspaces, but the previous special `helix-specs` branch projection is not mixed into the repository browser. Markdown rendering, image preview, line comments, and editing remain follow-ups rather than partially implemented modes.
 
 ### Implementation decisions and deviations
@@ -108,6 +114,24 @@ git diff --check
 The final production build emits the inspector as a 780.30 KiB lazy chunk (215.31 KiB gzip); the main application chunk is 4,965.18 KiB (1,463.97 KiB gzip). Large main-chunk warnings predate this work and remain visible, while the inspector does not enter the initial route chunk.
 
 The 10,000-entry tree and 100-file/20,000-line synthetic performance acceptance test has not been run. The implementation is virtualized and enforces server bounds, but that is architecture, not measured performance; the large-fixture measurement remains required before treating those numbers as a supported performance envelope.
+
+### Review follow-up (post-live-verification)
+
+A code review of this branch found defects that the live pass above did not exercise, because they need failure conditions (a slow or wedged desktop, a bounded git listing overflowing, a poll failing mid-review) rather than a working workspace. They were fixed after that live run:
+
+- unbounded desktop I/O during checkpoint capture, on the WebSocket sync read goroutine;
+- checkpoint refs and their objects accumulating without any retention bound;
+- a `git diff --no-index` subprocess plus a 1 MiB read per untracked file, on a 3s-polled endpoint;
+- truncation flags read from bounded `ls-files`/`numstat`/`name-status` calls and then discarded, so a partial change set reported itself as complete;
+- a failed background poll replacing a rendered review with a blocking error;
+- presentation preferences lost on every unmount;
+- the live review polling behind an immutable turn diff;
+- diff-header clicks trusting scraped Pierre DOM text as a workspace path;
+- turns whose capture failed rendering nothing, indistinguishable from turns that changed no files.
+
+Backend coverage was extended to the scenarios this design's verification plan named but the first implementation did not test: a file changed in both the branch and the working tree (the headline acceptance criterion), rename/delete/binary classification, patch and summary truncation, absolute/traversal/encoded/directory path rejection, unborn `HEAD` capture, two consecutive turns keeping independent receipts after a third edit, per-session ref pruning, and the untracked index leaving the user's staged state byte-identical. Frontend coverage was extended to the diff surface itself — previously mocked out of every test — covering stale-data-on-error, empty versus unavailable, preference persistence across remounts, and poll suppression behind a turn diff.
+
+Re-verified after those changes: `go test ./pkg/desktop ./pkg/server -count=1`, `go build ./pkg/server/ ./pkg/store/ ./pkg/types/`, the workspace-inspector and chat-receipt Vitest suites, `yarn tsc --noEmit`, `yarn build`, and a clean Air rebuild of the running dev API. **Not re-run: the live provisioned spec-task workflow.** The Git semantics behind the untracked-index change were checked directly against real repositories (both in the new tests and by hand), but the browser-facing paths have not been re-exercised end-to-end since the fixes, and the deadline/pruning behaviour has not been observed against a real wedged desktop.
 
 ## Goals
 
@@ -300,7 +324,7 @@ The state is scoped by session and workspace:
 - unified/split, wrap, and ignore-whitespace preferences;
 - whether the file explorer is open.
 
-Persist presentation preferences in local storage. Encode the active mode and file in the URL (`view=changes` or `view=files&file=<relative-path>`) so task links are useful after refresh. Do not persist patch or file contents.
+Persist presentation preferences (scope, unified/split, wrap, ignore-whitespace) in local storage — the inspector unmounts whenever the task switches away from Changes/Files, so component state loses the reviewer's layout on every tab switch. Encode the active mode and file in the URL (`view=changes` or `view=files&file=<relative-path>`) so task links are useful after refresh. Do not persist patch or file contents.
 
 This deliberately stops short of cloning T3's general terminal/browser/agent surface registry. Helix needs a coherent code-inspection surface, not another application shell.
 
@@ -349,6 +373,8 @@ The database stores the compact summary and refs, not the full patch. The patch 
 
 Checkpoint capture must be idempotent. Repeating the before/after request for the same interaction may replace the same hidden ref with the newly captured tree, but completion orchestration must not overwrite an already-ready receipt with a later missing/error result.
 
+Capture must also be bounded and retained. Every desktop round-trip runs under a deadline applied to the connection itself (a context bounds only the dial), because both capture paths execute on the WebSocket sync read goroutine. And refs must be pruned per session: unbounded hidden refs pin unbounded objects in a repository the user pushes from. Seeding the temporary index tolerates an unborn `HEAD` — a workspace with no commit yet starts from an empty index rather than failing capture.
+
 The API server should invoke dedicated desktop endpoints through the existing `dialDesktop`/`callDesktopJSON` path:
 
 ```http
@@ -376,7 +402,7 @@ The handler loads the interaction, verifies it belongs to the authorized session
 - Make file headers sticky and independently collapsible.
 - Clicking a file path opens that file in a file tab; it does not replace the review scroll position.
 - Keep unified/split, wrap, whitespace, scope, base-ref, refresh, and collapse-all controls in one compact toolbar.
-- Show explicit loading, error, empty, binary, and truncated states. Never represent an API failure as “No changes.”
+- Show explicit loading, error, empty, binary, and truncated states. Never represent an API failure as “No changes,” and never let a failed background poll blank a review the reviewer is reading: React Query retains the last successful data and flips status to error, so the blocking error state is only correct when nothing has loaded. Distinguish “no net changes in this scope” from “this scope is unavailable.”
 - Remove the permanent 280 px changed-file list. A changed-files jump menu can be added later if large reviews prove hard to navigate.
 
 Diff scopes:
@@ -397,6 +423,7 @@ T3 exposes branch and working-tree sources. Helix should add the combined defaul
 - Flatten empty directory chains and preserve the user's expansion state.
 - Search with `matchesAllTokens()` against relative paths. Preserve matching ancestors so results remain understandable. If `@pierre/trees` cannot accept the Helix predicate, filter the flat input before updating its model; do not fall back to raw substring matching.
 - Provide **Copy full path** for files and directories, using the agent-visible workspace root returned by the API, plus **Copy contents** for readable, complete text files. Do not expose the host's internal storage path.
+- Opening a file from a diff header depends on scraping `@pierre/diffs`' private `[data-title]` node. Resolve that scraped text against the paths actually present in the rendered patch, so a markup change in a future beta makes header clicks inert rather than opening tabs for paths that do not exist.
 - On narrow screens, use tree → viewer drill-down with a Back to files control rather than forcing a two-column minimum width.
 
 #### File view
@@ -441,7 +468,9 @@ type WorkspaceReviewSource struct {
 }
 ```
 
-Return coherent raw unified patches. Do not recreate file/status/count DTOs in Go; Pierre's parser should derive display data from the same patch the reviewer sees. Bound each patch at 512 KiB and report truncation explicitly. Use no-color/no-external-diff Git invocation and include untracked files as `/dev/null` additions. Binary patches remain metadata-only unless a later image preview endpoint is added.
+Return coherent raw unified patches. Bound each patch at 512 KiB and report truncation explicitly — including truncation of the *summary* listings, not only the patch preview, so a bounded `ls-files`/`numstat` read can never present a partial change set as the whole one. Use no-color/no-external-diff Git invocation and make untracked files visible through a throwaway intent-to-add index so each scope stays one coherent diff. Binary patches remain metadata-only unless a later image preview endpoint is added.
+
+The response does carry a small per-file summary (path, kind, counts) alongside the patch, deviating from the original "no file/status/count DTOs in Go" rule. Pierre still owns all *rendering*; the summary exists so the toolbar's file and +/- counts stay correct when the patch preview is truncated, which a client-side parse of a cut patch cannot do.
 
 The all-changes implementation must diff the selected base's merge base against the working tree, not concatenate a branch patch and a working-tree patch. Concatenation duplicates files and cannot produce a coherent old/new pair.
 
