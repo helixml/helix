@@ -9,6 +9,8 @@ interface DiffViewerProps {
   sessionId: string | undefined;
   baseBranch?: string;
   pollInterval?: number;
+  primarySurface?: "changes" | "files";
+  onPrimarySurfaceChange?: (surface: "changes" | "files") => void;
 }
 
 export default function DiffViewer(props: DiffViewerProps) {

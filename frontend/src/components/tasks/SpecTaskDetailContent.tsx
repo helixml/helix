@@ -117,6 +117,7 @@ import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
 import {
   CloudUpload as CloudUploadLucide,
+  Files,
   SlidersHorizontal,
   GitCompare,
   Lock as LockLucide,
@@ -366,7 +367,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
   // Initialize from URL query param 'view' if present (only when syncing with URL)
-  const getInitialView = (): "chat" | "desktop" | "changes" | "details" => {
+  const getInitialView = (): "chat" | "desktop" | "changes" | "files" | "details" => {
     if (!syncViewWithUrl) {
       return "desktop";
     }
@@ -375,6 +376,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       viewParam === "chat" ||
       viewParam === "desktop" ||
       viewParam === "changes" ||
+      viewParam === "files" ||
       viewParam === "details"
     ) {
       return viewParam;
@@ -386,7 +388,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     return isMobile ? "chat" : "desktop";
   };
   const [currentView, setCurrentView] = useState<
-    "chat" | "desktop" | "changes" | "details"
+    "chat" | "desktop" | "changes" | "files" | "details"
   >(getInitialView);
   const [clientUniqueId, setClientUniqueId] = useState<string>("");
 
@@ -401,6 +403,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       (viewParam === "chat" ||
         viewParam === "desktop" ||
         viewParam === "changes" ||
+        viewParam === "files" ||
         viewParam === "details")
     ) {
       if (viewParam !== currentView) {
@@ -411,7 +414,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Update URL when view changes (only when syncing with URL)
   const handleViewChange = useCallback(
-    (newView: "chat" | "desktop" | "changes" | "details" | null) => {
+    (newView: "chat" | "desktop" | "changes" | "files" | "details" | null) => {
       if (newView && newView !== currentView) {
         setCurrentView(newView);
         if (syncViewWithUrl) {
@@ -2164,7 +2167,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         Desktop
                       </Typography>
                     </ToggleButton>
-                    <ToggleButton value="changes" aria-label="Changes view">
+                    <ToggleButton value="changes" aria-label="Diff view">
                       <GitCompare size={18} />
                       <Typography
                         sx={{
@@ -2174,7 +2177,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           textTransform: "none",
                         }}
                       >
-                        File Diff
+                        Diff
+                      </Typography>
+                    </ToggleButton>
+                    <ToggleButton value="files" aria-label="Files view">
+                      <Files size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        Files
                       </Typography>
                     </ToggleButton>
                     <ToggleButton value="details" aria-label="Details view">
@@ -2464,11 +2480,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                     />
                   ))}
-                {currentView === "changes" && (
+                {(currentView === "changes" || currentView === "files") && (
                   <DiffViewer
                     sessionId={activeSessionId}
                     baseBranch={defaultBranchName}
                     pollInterval={3000}
+                    primarySurface={currentView === "files" ? "files" : "changes"}
+                    onPrimarySurfaceChange={handleViewChange}
                   />
                 )}
                 {currentView === "details" && (
@@ -2555,7 +2573,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </ToggleButton>
                 )}
                 {activeSessionId && (
-                  <ToggleButton value="changes" aria-label="Changes view">
+                  <ToggleButton value="changes" aria-label="Diff view">
                     <GitCompare size={18} />
                     <Typography
                       sx={{
@@ -2565,7 +2583,22 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         textTransform: "none",
                       }}
                     >
-                      File Diff
+                      Diff
+                    </Typography>
+                  </ToggleButton>
+                )}
+                {activeSessionId && (
+                  <ToggleButton value="files" aria-label="Files view">
+                    <Files size={18} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      Files
                     </Typography>
                   </ToggleButton>
                 )}
@@ -2940,13 +2973,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               </Box>
             )}
 
-            {/* Changes View - mobile */}
-            {activeSessionId && currentView === "changes" && (
+            {/* Workspace review - mobile */}
+            {activeSessionId && (currentView === "changes" || currentView === "files") && (
               <Box sx={{ flex: 1, overflow: "hidden" }}>
                 <DiffViewer
                   sessionId={activeSessionId}
                   baseBranch={defaultBranchName}
                   pollInterval={3000}
+                  primarySurface={currentView === "files" ? "files" : "changes"}
+                  onPrimarySurfaceChange={handleViewChange}
                 />
               </Box>
             )}

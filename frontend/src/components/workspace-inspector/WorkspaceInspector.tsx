@@ -1,6 +1,6 @@
-import React, { FC, useCallback, useEffect, useState } from "react";
+import React, { FC, useCallback, useEffect, useRef, useState } from "react";
 import { Box, IconButton, MenuItem, Select, Tab, Tabs, Tooltip, Typography } from "@mui/material";
-import { Code2, Files, GitCompare, X } from "lucide-react";
+import { Code2, X } from "lucide-react";
 import useLightTheme from "../../hooks/useLightTheme";
 import useRouter from "../../hooks/useRouter";
 import WorkspaceDiffSurface from "./WorkspaceDiffSurface";
@@ -11,6 +11,8 @@ interface WorkspaceInspectorProps {
   sessionId: string | undefined;
   baseBranch?: string;
   pollInterval?: number;
+  primarySurface?: "changes" | "files";
+  onPrimarySurfaceChange?: (surface: "changes" | "files") => void;
 }
 
 type Surface = "changes" | "files" | string;
@@ -19,24 +21,35 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
   sessionId,
   baseBranch = "main",
   pollInterval = 3_000,
+  primarySurface = "changes",
+  onPrimarySurfaceChange,
 }) => {
   const lightTheme = useLightTheme();
   const router = useRouter();
+  const onPrimarySurfaceChangeRef = useRef(onPrimarySurfaceChange);
+  onPrimarySurfaceChangeRef.current = onPrimarySurfaceChange;
   const workspacesQuery = useWorkspaces(sessionId);
   const [workspace, setWorkspace] = useState<string>();
   const [openFiles, setOpenFiles] = useState<string[]>(() =>
     router.params.preview ? [router.params.preview] : [],
   );
   const [surface, setSurface] = useState<Surface>(() =>
-    router.params.preview || "changes",
+    router.params.preview || primarySurface,
   );
 
   useEffect(() => {
+    if (primarySurface === "changes") {
+      setSurface("changes");
+      return;
+    }
     const requestedFile = router.params.preview;
-    if (!requestedFile) return;
+    if (!requestedFile) {
+      setSurface("files");
+      return;
+    }
     setOpenFiles((current) => current.includes(requestedFile) ? current : [...current, requestedFile]);
     setSurface(requestedFile);
-  }, [router.params.preview]);
+  }, [primarySurface, router.params.preview]);
 
   useEffect(() => {
     if (workspace || !workspacesQuery.data?.workspaces?.length) return;
@@ -47,16 +60,17 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
   const openFile = useCallback((path: string) => {
     setOpenFiles((current) => current.includes(path) ? current : [...current, path]);
     setSurface(path);
-    router.mergeParams({ preview: path });
+    onPrimarySurfaceChangeRef.current?.("files");
+    router.mergeParams({ view: "files", preview: path });
   }, [router]);
 
   const closeFile = useCallback((path: string) => {
     setOpenFiles((current) => current.filter((candidate) => candidate !== path));
     if (surface === path) {
-      setSurface("changes");
+      setSurface(primarySurface);
       router.removeParams(["preview"]);
     }
-  }, [router, surface]);
+  }, [primarySurface, router, surface]);
 
   if (!sessionId) {
     return (
@@ -66,7 +80,8 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
     );
   }
 
-  const selectedFile = surface !== "changes" && surface !== "files" ? surface : null;
+  const activeSurface = primarySurface === "changes" ? "changes" : surface;
+  const selectedFile = activeSurface !== "changes" && activeSurface !== "files" ? activeSurface : null;
 
   return (
     <Box
@@ -83,65 +98,66 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
         color: lightTheme.textColor,
       }}
     >
-      <Box sx={{ display: "flex", alignItems: "center", minHeight: 36, borderBottom: "1px solid", borderColor: "divider" }}>
-        <Tabs
-          value={surface}
-          onChange={(_, value) => {
-            setSurface(value);
-            if (value === "changes" || value === "files") router.removeParams(["preview"]);
-            else router.mergeParams({ preview: value });
-          }}
-          variant="scrollable"
-          scrollButtons="auto"
-          sx={{
-            minHeight: 36,
-            flex: 1,
-            minWidth: 0,
-            "& .MuiTab-root": { minHeight: 36, minWidth: 0, px: 1.25, py: 0, fontSize: 11, textTransform: "none" },
-          }}
-        >
-          <Tab icon={<GitCompare size={14} />} iconPosition="start" value="changes" label="Changes" />
-          <Tab icon={<Files size={14} />} iconPosition="start" value="files" label="Files" />
-          {openFiles.map((path) => (
-            <Tab
-              key={path}
-              value={path}
-              icon={<Code2 size={13} />}
-              iconPosition="start"
-              label={
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
-                  <Tooltip title={path}><Box component="span" sx={{ maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis" }}>{path.split("/").at(-1)}</Box></Tooltip>
-                  <IconButton component="span" size="small" aria-label={`Close ${path}`} onClick={(event) => { event.stopPropagation(); closeFile(path); }} sx={{ p: 0.15 }}>
-                    <X size={11} />
-                  </IconButton>
-                </Box>
-              }
-            />
-          ))}
-        </Tabs>
-        {(workspacesQuery.data?.workspaces?.length || 0) > 1 && (
-          <Select
-            size="small"
-            value={workspace || ""}
-            onChange={(event) => {
-              setWorkspace(event.target.value);
-              setOpenFiles([]);
-              setSurface("changes");
-              router.removeParams(["preview", "file"]);
-            }}
-            aria-label="Workspace"
-            sx={{ height: 26, mr: 1, minWidth: 120, fontSize: 11 }}
-          >
-            {workspacesQuery.data?.workspaces?.map((candidate) => (
-              <MenuItem key={candidate.name} value={candidate.name} sx={{ fontSize: 12 }}>
-                {candidate.name}{candidate.is_primary ? " · primary" : ""}
-              </MenuItem>
-            ))}
-          </Select>
-        )}
-      </Box>
+      {primarySurface === "files" && (openFiles.length > 0 || (workspacesQuery.data?.workspaces?.length || 0) > 1) && (
+        <Box sx={{ display: "flex", alignItems: "center", minHeight: 36, borderBottom: "1px solid", borderColor: "divider" }}>
+          {openFiles.length > 0 && (
+            <Tabs
+              value={selectedFile || false}
+              onChange={(_, value) => {
+                setSurface(value);
+                router.mergeParams({ view: "files", preview: value });
+              }}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{
+                minHeight: 36,
+                flex: 1,
+                minWidth: 0,
+                "& .MuiTab-root": { minHeight: 36, minWidth: 0, px: 1.25, py: 0, fontSize: 11, textTransform: "none" },
+              }}
+            >
+              {openFiles.map((path) => (
+                <Tab
+                  key={path}
+                  value={path}
+                  icon={<Code2 size={13} />}
+                  iconPosition="start"
+                  label={
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
+                      <Tooltip title={path}><Box component="span" sx={{ maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis" }}>{path.split("/").at(-1)}</Box></Tooltip>
+                      <IconButton component="span" size="small" aria-label={`Close ${path}`} onClick={(event) => { event.stopPropagation(); closeFile(path); }} sx={{ p: 0.15 }}>
+                        <X size={11} />
+                      </IconButton>
+                    </Box>
+                  }
+                />
+              ))}
+            </Tabs>
+          )}
+          {(workspacesQuery.data?.workspaces?.length || 0) > 1 && (
+            <Select
+              size="small"
+              value={workspace || ""}
+              onChange={(event) => {
+                setWorkspace(event.target.value);
+                setOpenFiles([]);
+                setSurface(primarySurface);
+                router.removeParams(["preview", "file"]);
+              }}
+              aria-label="Workspace"
+              sx={{ height: 26, ml: "auto", mr: 1, minWidth: 120, fontSize: 11 }}
+            >
+              {workspacesQuery.data?.workspaces?.map((candidate) => (
+                <MenuItem key={candidate.name} value={candidate.name} sx={{ fontSize: 12 }}>
+                  {candidate.name}{candidate.is_primary ? " · primary" : ""}
+                </MenuItem>
+              ))}
+            </Select>
+          )}
+        </Box>
+      )}
       <Box sx={{ flex: 1, minHeight: 0 }}>
-        {surface === "changes" ? (
+        {activeSurface === "changes" ? (
           <WorkspaceDiffSurface
             sessionId={sessionId}
             workspace={workspace}

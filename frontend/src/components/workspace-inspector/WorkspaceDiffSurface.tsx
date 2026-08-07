@@ -6,17 +6,13 @@ import {
   Box,
   Button,
   CircularProgress,
-  FormControlLabel,
   IconButton,
   MenuItem,
   Select,
-  Switch,
-  ToggleButton,
-  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from "@mui/material";
-import { RefreshCw, WrapText } from "lucide-react";
+import { Columns2, Pilcrow, RefreshCw, Rows3, WrapText } from "lucide-react";
 import type { TypesWorkspaceReviewSource } from "../../api/api";
 import useLightTheme from "../../hooks/useLightTheme";
 import {
@@ -154,17 +150,34 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
           <Box component="span" sx={{ color: "error.main", ml: 0.5 }}>-{source?.total_deletions || 0}</Box>
         </Typography>
         <Box sx={{ flex: 1 }} />
-        <ToggleButtonGroup
-          exclusive
-          size="small"
-          value={layout}
-          onChange={(_, value) => value && setLayout(value)}
+        <Box
+          role="group"
           aria-label="Diff layout"
-          sx={{ height: 28 }}
+          sx={{ display: "flex", height: 28, border: "1px solid", borderColor: "divider", borderRadius: 1, overflow: "hidden" }}
         >
-          <ToggleButton value="unified" sx={{ px: 1, fontSize: 10 }}>Unified</ToggleButton>
-          <ToggleButton value="split" sx={{ px: 1, fontSize: 10 }}>Split</ToggleButton>
-        </ToggleButtonGroup>
+          <Tooltip title="Unified diff">
+            <IconButton
+              size="small"
+              onClick={() => setLayout("unified")}
+              aria-label="Unified diff"
+              aria-pressed={layout === "unified"}
+              sx={{ width: 30, height: 28, borderRadius: 0, bgcolor: layout === "unified" ? "action.selected" : "transparent" }}
+            >
+              <Rows3 size={15} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Split diff">
+            <IconButton
+              size="small"
+              onClick={() => setLayout("split")}
+              aria-label="Split diff"
+              aria-pressed={layout === "split"}
+              sx={{ width: 30, height: 28, borderLeft: "1px solid", borderColor: "divider", borderRadius: 0, bgcolor: layout === "split" ? "action.selected" : "transparent" }}
+            >
+              <Columns2 size={15} />
+            </IconButton>
+          </Tooltip>
+        </Box>
         <Tooltip title={wordWrap ? "Disable line wrapping" : "Wrap long lines"}>
           <IconButton
             size="small"
@@ -176,11 +189,17 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
             <WrapText size={16} />
           </IconButton>
         </Tooltip>
-        <FormControlLabel
-          sx={{ m: 0, "& .MuiFormControlLabel-label": { fontSize: 11 } }}
-          control={<Switch size="small" checked={ignoreWhitespace} onChange={(_, value) => setIgnoreWhitespace(value)} />}
-          label="Ignore whitespace"
-        />
+        <Tooltip title={ignoreWhitespace ? "Include whitespace changes" : "Ignore whitespace changes"}>
+          <IconButton
+            size="small"
+            onClick={() => setIgnoreWhitespace((value) => !value)}
+            color={ignoreWhitespace ? "primary" : "default"}
+            aria-label={ignoreWhitespace ? "Include whitespace changes" : "Ignore whitespace changes"}
+            aria-pressed={ignoreWhitespace}
+          >
+            <Pilcrow size={16} />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Refresh changes">
           <span>
             <IconButton

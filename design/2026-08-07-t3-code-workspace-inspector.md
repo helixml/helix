@@ -30,6 +30,8 @@ The delivered surfaces are:
 - **Files:** a virtualized, read-only Pierre tree filtered with `matchesAllTokens()`, plus syntax-highlighted file tabs and explicit binary/read-error states;
 - **Chat receipts:** immutable per-interaction file summaries with the T3 auto-expansion threshold (latest turn, at most five files and 200 changed lines), compact previews for large latest turns, aggregate directory stats, expansion persistence, and deep links into the historical turn diff.
 
+Diff and Files are first-class task-toolbar views rather than nested inspector tabs. This removes a redundant navigation row and makes the active surface visible beside Desktop and Details. Open source files still get closable tabs within the Files surface. Diff presentation controls are compact icon buttons with tooltips and accessible pressed states for unified/split layout, wrapping, and whitespace filtering.
+
 The backend uses shared response types and generated client methods. Live review requests return one patch per Git scope. Historical review never trusts a checkpoint ref from the browser: it resolves the interaction after session authorization and reads the stored before/after refs. Checkpoint capture uses a temporary Git index and parentless hidden commits, preserving the user's index, worktree, `HEAD`, and branch refs.
 
 Boundaries retained for the first release: the browser is read-only, file reads are capped at 1 MiB, raw patch previews at 512 KiB, and file listings at 20,000 entries. The inspector can switch among detected Git workspaces, but the previous special `helix-specs` branch projection is not mixed into the repository browser. Markdown rendering, image preview, line comments, and editing remain follow-ups rather than partially implemented modes.
