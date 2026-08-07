@@ -57,7 +57,10 @@ import ExternalAgentDesktopViewer, {
 } from "../external-agent/ExternalAgentDesktopViewer";
 import DiffViewer from "./DiffViewer";
 import TaskSessionPlaceholder from "./TaskSessionPlaceholder";
-import { subscriptionRequirementFromTask } from "./taskLaunchFailure";
+import {
+  subscriptionRequirementFromTask,
+  subscriptionRequirementMessage,
+} from "./taskLaunchFailure";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import TaskAttachmentsPanel from "./TaskAttachmentsPanel";
@@ -707,6 +710,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const subscriptionRequirement = subscriptionRequirementFromTask(
     task?.metadata as Record<string, unknown> | undefined,
   );
+  const desktopStartupMessage = subscriptionRequirement
+    ? subscriptionRequirementMessage(subscriptionRequirement)
+    : taskMetadataError;
+  const connectSubscriptionLabel = subscriptionRequirement
+    ? `Connect ${subscriptionRequirement.label}`
+    : undefined;
   const connectSubscription = useCallback(() => {
     const organizationId = project?.organization_id;
     if (organizationId) router.navigate("org_providers", { org_id: organizationId });
@@ -2443,12 +2452,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       displayWidth={displaySettings.width}
                       displayHeight={displaySettings.height}
                       displayFps={displaySettings.fps}
-                      startupErrorMessage={taskMetadataError}
-                      connectSubscriptionLabel={
-                        subscriptionRequirement
-                          ? `Connect ${subscriptionRequirement.label}`
-                          : undefined
-                      }
+                      startupErrorMessage={desktopStartupMessage}
+                      connectSubscriptionLabel={connectSubscriptionLabel}
                       onConnectSubscription={connectSubscription}
                       initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                     />
@@ -2461,6 +2466,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     primarySurface={currentView === "files" ? "files" : "changes"}
                     onPrimarySurfaceChange={handleViewChange}
                     onStartDesktop={handleStartSession}
+                    connectSubscriptionLabel={connectSubscriptionLabel}
+                    onConnectSubscription={connectSubscription}
+                    desktopUnavailableDetail={desktopStartupMessage}
                     desktopRunning={!effectiveIsDesktopPaused}
                     isDesktopStarting={isStarting || isDesktopStarting}
                     desktopUnavailableTitle={isTaskCompleted ? "Task finished" : undefined}
@@ -2905,12 +2913,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     displayWidth={displaySettings.width}
                     displayHeight={displaySettings.height}
                     displayFps={displaySettings.fps}
-                    startupErrorMessage={taskMetadataError}
-                    connectSubscriptionLabel={
-                      subscriptionRequirement
-                        ? `Connect ${subscriptionRequirement.label}`
-                        : undefined
-                    }
+                    startupErrorMessage={desktopStartupMessage}
+                    connectSubscriptionLabel={connectSubscriptionLabel}
                     onConnectSubscription={connectSubscription}
                     initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                   />
@@ -2928,6 +2932,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   primarySurface={currentView === "files" ? "files" : "changes"}
                   onPrimarySurfaceChange={handleViewChange}
                   onStartDesktop={handleStartSession}
+                  connectSubscriptionLabel={connectSubscriptionLabel}
+                  onConnectSubscription={connectSubscription}
+                  desktopUnavailableDetail={desktopStartupMessage}
                   desktopRunning={!effectiveIsDesktopPaused}
                   isDesktopStarting={isStarting || isDesktopStarting}
                   desktopUnavailableTitle={isTaskCompleted ? "Task finished" : undefined}

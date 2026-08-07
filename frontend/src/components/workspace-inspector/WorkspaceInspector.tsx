@@ -25,6 +25,9 @@ interface WorkspaceInspectorProps {
    * on every query.
    */
   desktopRunning?: boolean;
+  connectSubscriptionLabel?: string;
+  onConnectSubscription?: () => void;
+  desktopUnavailableDetail?: string;
   desktopUnavailableTitle?: string;
   desktopUnavailableDescription?: string;
 }
@@ -46,6 +49,9 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
   onStartDesktop,
   isDesktopStarting,
   desktopRunning = true,
+  connectSubscriptionLabel,
+  onConnectSubscription,
+  desktopUnavailableDetail,
   desktopUnavailableTitle,
   desktopUnavailableDescription,
 }) => {
@@ -150,6 +156,12 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
             (primarySurface === "files"
               ? "This task's sandbox is stopped. Start the desktop to browse its workspace files."
               : "This task's sandbox is stopped. Start the desktop to load its workspace changes.")
+          }
+          detail={desktopUnavailableDetail}
+          primaryAction={
+            connectSubscriptionLabel && onConnectSubscription
+              ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
+              : undefined
           }
           onStart={onStartDesktop}
           starting={isDesktopStarting}

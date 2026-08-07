@@ -22,3 +22,15 @@ export function subscriptionRequirementFromTask(
   if (!provider) return undefined;
   return { provider, label: SUBSCRIPTION_PROVIDER_LABELS[provider] || provider };
 }
+
+/**
+ * What to tell the user instead of the raw preflight error. The backend
+ * message names the session owner and org by id, which is precise for a log
+ * and meaningless in a dialog; the actionable part is which subscription is
+ * missing.
+ */
+export function subscriptionRequirementMessage(
+  requirement: SubscriptionRequirement,
+): string {
+  return `This agent signs in with a ${requirement.label} subscription, and none is connected for this organisation.`;
+}

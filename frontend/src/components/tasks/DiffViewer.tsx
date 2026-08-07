@@ -14,6 +14,9 @@ interface DiffViewerProps {
   onStartDesktop?: () => void;
   isDesktopStarting?: boolean;
   desktopRunning?: boolean;
+  connectSubscriptionLabel?: string;
+  onConnectSubscription?: () => void;
+  desktopUnavailableDetail?: string;
   desktopUnavailableTitle?: string;
   desktopUnavailableDescription?: string;
 }

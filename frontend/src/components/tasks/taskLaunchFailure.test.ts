@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { subscriptionRequirementFromTask } from "./taskLaunchFailure";
+import {
+  subscriptionRequirementFromTask,
+  subscriptionRequirementMessage,
+} from "./taskLaunchFailure";
 
 describe("subscriptionRequirementFromTask", () => {
   it("maps the backend's provider code to a user-facing label", () => {
@@ -39,5 +42,11 @@ describe("subscriptionRequirementFromTask", () => {
     expect(subscriptionRequirementFromTask({
       error_code: "subscription_required",
     })).toBeUndefined();
+  });
+
+  it("explains the requirement without leaking ids into the UI", () => {
+    const message = subscriptionRequirementMessage({ provider: "claude", label: "Claude" });
+    expect(message).toContain("Claude subscription");
+    expect(message).not.toMatch(/usr_|org_/);
   });
 });

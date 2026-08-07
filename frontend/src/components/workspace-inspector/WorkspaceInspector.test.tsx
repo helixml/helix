@@ -166,4 +166,23 @@ describe("WorkspaceInspector when the sandbox is stopped", () => {
     // useWorkspaces is called (hooks must be unconditional) but disabled.
     expect(mocks.workspacesArgs).toEqual(["session-id", false]);
   });
+
+  it("offers the subscription login when that is what is blocking the desktop", () => {
+    const onConnectSubscription = vi.fn();
+    render(
+      <WorkspaceInspector
+        sessionId="session-id"
+        primarySurface="changes"
+        desktopRunning={false}
+        onStartDesktop={vi.fn()}
+        onConnectSubscription={onConnectSubscription}
+        connectSubscriptionLabel="Connect Claude"
+        desktopUnavailableDetail="This agent signs in with a Claude subscription, and none is connected for this organisation."
+      />,
+    );
+
+    expect(screen.getByText(/none is connected for this organisation/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Connect Claude" }));
+    expect(onConnectSubscription).toHaveBeenCalledTimes(1);
+  });
 });
