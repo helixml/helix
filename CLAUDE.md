@@ -194,11 +194,25 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 
 These rules keep our list pages visually consistent. When in doubt, mirror `Sandboxes.tsx` / `Tasks.tsx`.
 
+#### Icons, toolbars, color, and spacing
+- **Use Lucide icons from `lucide-react` for product UI.** Do not mix MUI icons and Lucide icons in the same surface. Exceptions are brand/provider logos and a pre-existing shared component whose public API supplies its own icon.
+- Use the simplest icon that communicates the action. Prefer plain panel glyphs such as `PanelLeft` / `PanelRight` over embellished `*Open` / `*Close` variants unless direction is otherwise ambiguous.
+- Standard toolbar geometry is an **18px icon inside a 30×30px `IconButton`**. Labeled toolbar/view buttons are 40px high. Keep every icon in a toolbar on the same optical size and baseline; do not mix arbitrary 14/15/17/18px glyphs.
+- Every clickable icon must be a real `<IconButton>` or `<Button>`, not an `onClick` attached to a bare `<Box>` or SVG. Add an `aria-label` and a concise tooltip. Passive status indicators may use a non-interactive wrapper, but should occupy the same 30×30px slot when aligned with toolbar buttons.
+- Use `text.secondary` for inactive utility icons, `text.primary` on hover, and `action.selected` for selected/toggled controls. Reserve green/red/amber/blue for semantic state or a primary action; do not add one-off decorative hex colors when a theme token exists.
+- Follow the 8px spacing grid. Within a tightly related icon cluster use 2px (`gap: 0.25`); between semantic groups or between a labeled action and its status cluster use 6–8px (`gap: 0.75–1`). Do not apply the tight internal gap to the whole toolbar.
+- Toolbar rows need deliberate vertical rhythm: normally 8px above controls and 4px below (`pt: 1`, `pb: 0.5`). Center all groups with `alignItems: 'center'`; do not compensate for misaligned controls with per-icon margins.
+- Reuse a shared `sx` object or component for repeated toolbar icon buttons so hit area, icon size, hover, selected state, and spacing cannot drift between desktop/mobile or expanded/collapsed layouts.
+
+#### Resizable panels
+- `react-resizable-panels` v4 treats numeric `Panel` sizes as pixels. Use percentage strings (`defaultSize="50%"`, `minSize="25%"`) when the design is proportional; `PanelGroup.defaultLayout` remains a numeric percentage map.
+- Collapsible panels must restore the user's last expanded percentage. If there is no saved valid layout, default a two-pane workspace to 50/50. Never persist a zero-width collapsed layout as the user's preferred split.
+
 #### Tables
 - **ALWAYS use `SimpleTable`** from `frontend/src/components/widgets/SimpleTable.tsx`. Don't reach for raw MUI `<Table>` / `<TableContainer>`. References: `TasksTable.tsx`, `SandboxesTable.tsx`, `AppsTable.tsx`.
 - Build rows via a `tableData` `useMemo` that maps each entity to `{ id, _data: <entity>, <field>: <ReactNode>, ... }`. Always include `_data` so action handlers can recover the typed entity.
 - Cells are `<Typography>` nodes, not raw strings. Use `variant="body2" color="text.secondary"` for non-primary cells. Make the name cell a bold link via an inline `<a>` (see `TasksTable.tsx`); call `e.preventDefault()` + `e.stopPropagation()` in its `onClick`.
-- **Row actions go in a single vertical-dot menu**, never a row of icon buttons. Implement `getActions` as one `<IconButton><MoreVertIcon/></IconButton>` that opens a `<Menu>` with `<MenuItem>` entries (each item has a leading icon: `<Icon sx={{ mr: 1, fontSize: 20 }} />`). Track the active row via `currentX` state set on menu open; clear it on close.
+- **Row actions go in a single vertical-dot menu**, never a row of icon buttons. Implement `getActions` as one `<IconButton><EllipsisVertical size={18}/></IconButton>` that opens a `<Menu>` with `<MenuItem>` entries (each item has a leading Lucide icon: `<Icon size={20} />`). Track the active row via `currentX` state set on menu open; clear it on close.
 - `e.stopPropagation()` in every menu/icon click handler so row clicks don't fire.
 - Status chips: build a small dedicated component (e.g. `SandboxStatusBadge`) rather than inlining `<Chip>` styling.
 
@@ -206,7 +220,7 @@ These rules keep our list pages visually consistent. When in doubt, mirror `Sand
 - Render via the shared `CardGrid` (`components/widgets/CardGrid.tsx`) — never roll a new MUI `Grid container` (its negative margins break flush alignment with the page title).
 - Card chrome: `<Card>` with `border: '1px solid rgba(0, 0, 0, 0.08)'`, `borderRadius: 1`, `boxShadow: 'none'`, hover bumps `borderColor` to `rgba(0,0,0,0.12)` and tints `backgroundColor: 'rgba(0,0,0,0.01)'`. `height: '100%'` + `display: 'flex'; flexDirection: 'column'` so the grid rows align.
 - Inside, `<CardContent>` uses `p: 2`, `'&:last-child': { pb: 2 }`, `cursor: 'pointer'`, and an `onClick` that opens the detail view.
-- **Top-right corner gets the vertical-dot menu** (`<IconButton><MoreVertIcon sx={{ fontSize: 16 }}/></IconButton>` → `<Menu>`). Same menu items as the table actions — keep the two surfaces in sync. Don't put separate Open/Delete icons at the bottom of the card.
+- **Top-right corner gets the vertical-dot menu** (`<IconButton><EllipsisVertical size={18}/></IconButton>` → `<Menu>`). Same menu items as the table actions — keep the two surfaces in sync. Don't put separate Open/Delete icons at the bottom of the card.
 - Status indicator goes inline next to the dot menu (e.g. status badge), or as the leading icon by the title (see `CronTaskCard.tsx` — green clock vs paused-circle, with tooltip).
 - Dense stat strip uses the gradient panel: `background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)'`, `border: '1px solid rgba(255,255,255,0.06)'`, `borderRadius: 2`, `p: 1.5`. Stats are label (caption, `0.65rem`, `text.secondary`) + value (body2, `0.8rem`, `monospace`, `fontWeight: 600`).
 
