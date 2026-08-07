@@ -82,9 +82,20 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("model_name != 'external_agent'")
 	}
 
-	// Add ordering. Chat navigation explicitly requests updated activity order;
-	// other session lists retain their established creation order.
-	if query.SortBy == "updated" {
+	// Last-message order is computed in SQL before pagination. Session.Updated is
+	// also changed by metadata, title, and sandbox lifecycle writes, so it is not
+	// a conversation timestamp.
+	if query.SortBy == "last_message" {
+		const lastMessageAt = `COALESCE(
+			(SELECT MAX(interactions.created)
+			 FROM interactions
+			 WHERE interactions.session_id = sessions.id),
+			sessions.created
+		)`
+		q = q.
+			Select("sessions.*, " + lastMessageAt + " AS last_message_at").
+			Order(lastMessageAt + " DESC, sessions.created DESC, sessions.id DESC")
+	} else if query.SortBy == "updated" {
 		q = q.Order("updated DESC, created DESC")
 	} else {
 		q = q.Order("created DESC")

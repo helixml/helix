@@ -6074,6 +6074,11 @@ export interface TypesSession {
    */
   interactions?: TypesInteraction[];
   /**
+   * LastMessageAt is selected by list queries that order conversations by the
+   * newest conversation turn. It is derived from interactions and is not a DB column.
+   */
+  last_message_at?: string;
+  /**
    * if type == finetune, we record a filestore path to e.g. lora file here
    * currently the only place you can do inference on a finetune is within the
    * session where the finetune was generated
@@ -6368,6 +6373,7 @@ export interface TypesSessionSummary {
   archived?: boolean;
   /** these are all values of the last interaction */
   created?: string;
+  last_message_at?: string;
   /** Metadata includes container information for external agent sessions */
   metadata?: TypesSessionMetadata;
   /** InteractionID string      `json:"interaction_id"` */
@@ -6550,6 +6556,8 @@ export interface TypesSpecTask {
   /** Keep alive — prevent auto-idle-shutdown of desktop container */
   keep_alive?: boolean;
   labels?: string[];
+  /** Agent activity tracking (computed from session/activity data, not stored) */
+  last_message_at?: string;
   /** Last prompt sent to agent (for continue functionality) */
   last_prompt_content?: string;
   /** When branch was last pushed */
@@ -6602,7 +6610,7 @@ export interface TypesSpecTask {
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */
   sandbox_status_message?: string;
-  /** Agent activity tracking (computed from session/activity data, not stored) */
+  /** When the session was last updated (for active/idle detection) */
   session_updated_at?: string;
   /**
    * Short title for tab display (auto-generated from agent writing short-title.txt)
@@ -6914,6 +6922,8 @@ export interface TypesSpecTaskWithProject {
   /** Keep alive — prevent auto-idle-shutdown of desktop container */
   keep_alive?: boolean;
   labels?: string[];
+  /** Agent activity tracking (computed from session/activity data, not stored) */
+  last_message_at?: string;
   /** Last prompt sent to agent (for continue functionality) */
   last_prompt_content?: string;
   /** When branch was last pushed */
@@ -6967,7 +6977,7 @@ export interface TypesSpecTaskWithProject {
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */
   sandbox_status_message?: string;
-  /** Agent activity tracking (computed from session/activity data, not stored) */
+  /** When the session was last updated (for active/idle detection) */
   session_updated_at?: string;
   /**
    * Short title for tab display (auto-generated from agent writing short-title.txt)
@@ -16487,7 +16497,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         project_id?: string;
         /** Project grouping scope: project or none */
         project_scope?: string;
-        /** Sort order: created or updated */
+        /** Sort order: created, updated, or last_message */
         sort?: string;
         /** Filter by session role (e.g. job) */
         session_role?: string;
@@ -17373,6 +17383,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         status?: string;
         /** Filter by user ID */
         user_id?: string;
+        /** Filter by creator or assignee user IDs (comma-separated, OR semantics) */
+        participant_ids?: string;
         /**
          * Include archived tasks
          * @default false
@@ -17386,7 +17398,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** Filter by labels (comma-separated, AND semantics) */
         labels?: string;
         /**
-         * Sort order: created or updated
+         * Sort order: created, updated, or last_message
          * @default "updated"
          */
         sort?: string;

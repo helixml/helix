@@ -1,4 +1,4 @@
-import type { TypesProject, TypesSessionSummary } from '../../api/api'
+import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary } from '../../api/api'
 import type { SpecTask } from '../../services/specTaskService'
 import { matchesAllTokens } from '../../utils/searchUtils'
 
@@ -49,6 +49,61 @@ export const DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES: ProjectChatSidebarPrefere
 export const sidebarPreferencesStorageKey = (orgId: string): string => (
   `helix:project-chat-sidebar:preferences:${orgId}`
 )
+
+export const sidebarPeopleFilterStorageKey = (
+  userId: string,
+  orgId: string,
+  projectId: string,
+): string => (
+  `helix:project-chat-sidebar:people:${userId}:${orgId}:${projectId}`
+)
+
+export const parseSidebarParticipantIds = (storedValue: string | null): string[] | null => {
+  if (storedValue === null) return null
+  try {
+    const value = JSON.parse(storedValue)
+    if (!Array.isArray(value)) return null
+    return [...new Set(value.filter((id): id is string => typeof id === 'string' && !!id))]
+  } catch {
+    return null
+  }
+}
+
+export const serializeSidebarParticipantIds = (userIds: string[]): string => (
+  JSON.stringify([...new Set(userIds.filter(Boolean))])
+)
+
+export const filterSidebarMembers = (
+  members: TypesOrganizationMembership[],
+  query: string,
+): TypesOrganizationMembership[] => members.filter((member) => {
+  if (!member.user_id || !member.user) return false
+  return matchesAllTokens(query,
+    member.user.full_name,
+    member.user.username,
+    member.user.email,
+  )
+})
+
+export const getSidebarMemberResults = (
+  members: TypesOrganizationMembership[],
+  query: string,
+  currentUserId: string,
+  selectedUserIds: string[],
+  limit = 10,
+): { members: TypesOrganizationMembership[]; total: number } => {
+  const selectedUserIdSet = new Set(selectedUserIds)
+  const orderedMembers = [...members].sort((left, right) => {
+    if (left.user_id === currentUserId) return -1
+    if (right.user_id === currentUserId) return 1
+    const leftSelected = !!left.user_id && selectedUserIdSet.has(left.user_id)
+    const rightSelected = !!right.user_id && selectedUserIdSet.has(right.user_id)
+    if (leftSelected !== rightSelected) return leftSelected ? -1 : 1
+    return 0
+  })
+  const filteredMembers = filterSidebarMembers(orderedMembers, query)
+  return { members: filteredMembers.slice(0, limit), total: filteredMembers.length }
+}
 
 const isProjectSortOrder = (value: unknown): value is SidebarProjectSortOrder => (
   value === 'updated_at' || value === 'created_at' || value === 'manual'
@@ -340,23 +395,16 @@ export const compactRelativeTime = (value?: string, now = Date.now()): string =>
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(valueMs)
 }
 
-// A group merges two independently-paginated server lists: sessions (ordered by
-// `updated DESC`) and spec tasks (ordered by `status_updated_at DESC NULLS LAST,
-// created_at DESC`). Taking the top N of the merge is only correct when each
-// item is sorted by the SAME key the server applied its LIMIT on — otherwise a
-// row the server truncated could belong above one we kept.
-//
-// So the task key must stay `status_updated_at || created_at`. Do NOT reintroduce
-// `session_updated_at` here: it is a post-query enrichment (`gorm:"-"`, populated
-// in listTasks), so the server cannot order or paginate on it, and sorting by it
-// silently drops recently-active tasks past the fetch limit.
+// Both server lists paginate on their computed last_message_at value. Keeping
+// the same key here makes the top-N merge correct even when a recently active
+// task would otherwise have been outside the task page.
 export const specTaskSortKey = (
   task: SpecTask,
   sortOrder: SidebarThreadSortOrder = 'updated_at',
 ): string | undefined => (
   sortOrder === 'created_at'
     ? task.created_at
-    : task.status_updated_at || task.created_at
+    : task.last_message_at || task.created_at
 )
 
 export const buildProjectChatGroups = (
@@ -387,7 +435,7 @@ export const buildProjectChatGroups = (
       kind: 'spec-task',
       title: task.user_short_title || task.short_title || task.name || 'Untitled task',
       createdAt: task.created_at,
-      updatedAt: specTaskSortKey(task, 'updated_at'),
+      updatedAt: specTaskSortKey(task, sortOrder),
       projectId: task.project_id,
       task,
     })
@@ -404,7 +452,7 @@ export const buildProjectChatGroups = (
         kind: 'spec-task',
         title: session.name || 'Untitled task',
         createdAt: session.created,
-        updatedAt: session.updated || session.created,
+        updatedAt: session.last_message_at || session.created,
         projectId: metadata.project_id,
       })
       taskIds.add(metadata.spec_task_id)
@@ -420,7 +468,7 @@ export const buildProjectChatGroups = (
       kind: 'session',
       title: session.name || session.summary || 'Untitled chat',
       createdAt: session.created,
-      updatedAt: session.updated || session.created,
+      updatedAt: session.last_message_at || session.created,
       projectId: projectGroup?.id,
       session,
     })

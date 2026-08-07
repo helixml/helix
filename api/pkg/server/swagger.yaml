@@ -9627,6 +9627,11 @@ definitions:
         items:
           $ref: '#/definitions/types.Interaction'
         type: array
+      last_message_at:
+        description: |-
+          LastMessageAt is selected by list queries that order conversations by the
+          newest conversation turn. It is derived from interactions and is not a DB column.
+        type: string
       lora_dir:
         description: |-
           if type == finetune, we record a filestore path to e.g. lora file here
@@ -10081,6 +10086,8 @@ definitions:
       created:
         description: these are all values of the last interaction
         type: string
+      last_message_at:
+        type: string
       metadata:
         allOf:
         - $ref: '#/definitions/types.SessionMetadata'
@@ -10371,6 +10378,10 @@ definitions:
         items:
           type: string
         type: array
+      last_message_at:
+        description: Agent activity tracking (computed from session/activity data,
+          not stored)
+        type: string
       last_prompt_content:
         description: Last prompt sent to agent (for continue functionality)
         type: string
@@ -10456,8 +10467,7 @@ definitions:
         description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
-        description: Agent activity tracking (computed from session/activity data,
-          not stored)
+        description: When the session was last updated (for active/idle detection)
         type: string
       short_title:
         description: |-
@@ -10994,6 +11004,10 @@ definitions:
         items:
           type: string
         type: array
+      last_message_at:
+        description: Agent activity tracking (computed from session/activity data,
+          not stored)
+        type: string
       last_prompt_content:
         description: Last prompt sent to agent (for continue functionality)
         type: string
@@ -11081,8 +11095,7 @@ definitions:
         description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
-        description: Agent activity tracking (computed from session/activity data,
-          not stored)
+        description: When the session was last updated (for active/idle detection)
         type: string
       short_title:
         description: |-
@@ -24265,7 +24278,7 @@ paths:
         in: query
         name: project_scope
         type: string
-      - description: 'Sort order: created or updated'
+      - description: 'Sort order: created, updated, or last_message'
         in: query
         name: sort
         type: string
@@ -25651,6 +25664,10 @@ paths:
         in: query
         name: user_id
         type: string
+      - description: Filter by creator or assignee user IDs (comma-separated, OR semantics)
+        in: query
+        name: participant_ids
+        type: string
       - default: false
         description: Include archived tasks
         in: query
@@ -25666,7 +25683,7 @@ paths:
         name: labels
         type: string
       - default: updated
-        description: 'Sort order: created or updated'
+        description: 'Sort order: created, updated, or last_message'
         in: query
         name: sort
         type: string

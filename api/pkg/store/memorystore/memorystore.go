@@ -140,10 +140,34 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 	result := make([]*types.Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
 		cp := *s
+		if query.SortBy == "last_message" {
+			for _, interaction := range m.interactions {
+				if interaction.SessionID != s.ID {
+					continue
+				}
+				if cp.LastMessageAt == nil || interaction.Created.After(*cp.LastMessageAt) {
+					lastMessageAt := interaction.Created
+					cp.LastMessageAt = &lastMessageAt
+				}
+			}
+		}
 		result = append(result, &cp)
 	}
-	// Sort by created time descending (most recent first), like production
+	// Sort by the requested key, like production.
 	sort.Slice(result, func(a, b int) bool {
+		if query.SortBy == "last_message" {
+			left := result[a].Created
+			if result[a].LastMessageAt != nil {
+				left = *result[a].LastMessageAt
+			}
+			right := result[b].Created
+			if result[b].LastMessageAt != nil {
+				right = *result[b].LastMessageAt
+			}
+			if !left.Equal(right) {
+				return left.After(right)
+			}
+		}
 		return result[a].Created.After(result[b].Created)
 	})
 	// Apply PerPage limit
@@ -545,8 +569,56 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 		if filters != nil && filters.PlanningSessionID != "" && t.PlanningSessionID != filters.PlanningSessionID {
 			continue
 		}
+		if filters != nil && filters.FilterParticipants {
+			matchesParticipant := false
+			for _, userID := range filters.ParticipantIDs {
+				if t.CreatedBy == userID || t.AssigneeID == userID {
+					matchesParticipant = true
+					break
+				}
+			}
+			if !matchesParticipant {
+				continue
+			}
+		}
 		cp := *t
+		if filters != nil && filters.SortBy == "last_message" {
+			for _, interaction := range m.interactions {
+				if interaction.SessionID != t.PlanningSessionID {
+					continue
+				}
+				if cp.LastMessageAt == nil || interaction.Created.After(*cp.LastMessageAt) {
+					lastMessageAt := interaction.Created
+					cp.LastMessageAt = &lastMessageAt
+				}
+			}
+		}
 		out = append(out, &cp)
+	}
+	if filters != nil && filters.SortBy == "last_message" {
+		sort.Slice(out, func(a, b int) bool {
+			left := out[a].CreatedAt
+			if out[a].LastMessageAt != nil {
+				left = *out[a].LastMessageAt
+			}
+			right := out[b].CreatedAt
+			if out[b].LastMessageAt != nil {
+				right = *out[b].LastMessageAt
+			}
+			if !left.Equal(right) {
+				return left.After(right)
+			}
+			return out[a].ID > out[b].ID
+		})
+	}
+	if filters != nil && filters.Offset > 0 {
+		if filters.Offset >= len(out) {
+			return []*types.SpecTask{}, nil
+		}
+		out = out[filters.Offset:]
+	}
+	if filters != nil && filters.Limit > 0 && len(out) > filters.Limit {
+		out = out[:filters.Limit]
 	}
 	return out, nil
 }

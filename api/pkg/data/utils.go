@@ -50,6 +50,7 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		Owner:                  session.Owner,
 		Created:                session.Created,
 		Updated:                session.Updated,
+		LastMessageAt:          session.LastMessageAt,
 		Summary:                prompt,
 		Priority:               session.Metadata.Priority,
 		Archived:               session.Archived,

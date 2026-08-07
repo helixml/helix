@@ -17760,7 +17760,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Sort order: created or updated",
+                        "description": "Sort order: created, updated, or last_message",
                         "name": "sort",
                         "in": "query"
                     },
@@ -19859,6 +19859,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Filter by creator or assignee user IDs (comma-separated, OR semantics)",
+                        "name": "participant_ids",
+                        "in": "query"
+                    },
+                    {
                         "type": "boolean",
                         "default": false,
                         "description": "Include archived tasks",
@@ -19881,7 +19887,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "updated",
-                        "description": "Sort order: created or updated",
+                        "description": "Sort order: created, updated, or last_message",
                         "name": "sort",
                         "in": "query"
                     },
@@ -36601,6 +36607,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.Interaction"
                     }
                 },
+                "last_message_at": {
+                    "description": "LastMessageAt is selected by list queries that order conversations by the\nnewest conversation turn. It is derived from interactions and is not a DB column.",
+                    "type": "string"
+                },
                 "lora_dir": {
                     "description": "if type == finetune, we record a filestore path to e.g. lora file here\ncurrently the only place you can do inference on a finetune is within the\nsession where the finetune was generated",
                     "type": "string"
@@ -37183,6 +37193,9 @@ const docTemplate = `{
                     "description": "these are all values of the last interaction",
                     "type": "string"
                 },
+                "last_message_at": {
+                    "type": "string"
+                },
                 "metadata": {
                     "description": "Metadata includes container information for external agent sessions",
                     "allOf": [
@@ -37569,6 +37582,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "last_message_at": {
+                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "type": "string"
+                },
                 "last_prompt_content": {
                     "description": "Last prompt sent to agent (for continue functionality)",
                     "type": "string"
@@ -37677,7 +37694,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "session_updated_at": {
-                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "description": "When the session was last updated (for active/idle detection)",
                     "type": "string"
                 },
                 "short_title": {
@@ -38371,6 +38388,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "last_message_at": {
+                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "type": "string"
+                },
                 "last_prompt_content": {
                     "description": "Last prompt sent to agent (for continue functionality)",
                     "type": "string"
@@ -38482,7 +38503,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "session_updated_at": {
-                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "description": "When the session was last updated (for active/idle detection)",
                     "type": "string"
                 },
                 "short_title": {

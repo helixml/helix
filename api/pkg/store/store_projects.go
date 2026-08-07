@@ -124,14 +124,29 @@ func (s *PostgresStore) populateProjectLastActivity(ctx context.Context, project
 	err := s.gdb.WithContext(ctx).Raw(`
 		SELECT project_id, MAX(activity_at) AS last_activity_at
 		FROM (
-			SELECT project_id, MAX(updated) AS activity_at
+			SELECT sessions.project_id,
+				MAX(COALESCE(
+					(SELECT MAX(interactions.created)
+					 FROM interactions
+					 WHERE interactions.session_id = sessions.id),
+					sessions.created
+				)) AS activity_at
 			FROM sessions
-			WHERE project_id IN ?
-				AND deleted_at IS NULL
-				AND (archived = false OR archived IS NULL)
-			GROUP BY project_id
+			WHERE sessions.project_id IN ?
+				AND sessions.deleted_at IS NULL
+				AND (sessions.archived = false OR sessions.archived IS NULL)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM spec_tasks archived_task
+					WHERE archived_task.archived = true
+						AND (
+							archived_task.planning_session_id = sessions.id
+							OR archived_task.id = COALESCE(sessions.config->>'spec_task_id', '')
+						)
+				)
+			GROUP BY sessions.project_id
 			UNION ALL
-			SELECT project_id, MAX(COALESCE(status_updated_at, created_at)) AS activity_at
+			SELECT project_id, MAX(created_at) AS activity_at
 			FROM spec_tasks
 			WHERE project_id IN ?
 				AND (archived = false OR archived IS NULL)

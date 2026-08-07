@@ -317,6 +317,63 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_FilterByUse
 	suite.Equal(userID1, tasks[0].CreatedBy)
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_FilterByParticipants() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	aliceID := "user-" + system.GenerateUUID()
+	bobID := "user-" + system.GenerateUUID()
+	charlieID := "user-" + system.GenerateUUID()
+	tasks := []*types.SpecTask{
+		{
+			ID: "task-" + system.GenerateUUID(), ProjectID: project.ID,
+			Name: "Created by Alice", CreatedBy: aliceID,
+			CreatedAt: time.Now().Add(-3 * time.Minute),
+		},
+		{
+			ID: "task-" + system.GenerateUUID(), ProjectID: project.ID,
+			Name: "Assigned to Bob", CreatedBy: charlieID, AssigneeID: bobID,
+			CreatedAt: time.Now().Add(-2 * time.Minute),
+		},
+		{
+			ID: "task-" + system.GenerateUUID(), ProjectID: project.ID,
+			Name: "Alice assigned to Bob", CreatedBy: aliceID, AssigneeID: bobID,
+			CreatedAt: time.Now().Add(-time.Minute),
+		},
+		{
+			ID: "task-" + system.GenerateUUID(), ProjectID: project.ID,
+			Name: "Only Charlie", CreatedBy: charlieID,
+			CreatedAt: time.Now(),
+		},
+	}
+	for _, task := range tasks {
+		suite.Require().NoError(suite.db.CreateSpecTask(suite.ctx, task))
+	}
+
+	filtered, err := suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID:          project.ID,
+		FilterParticipants: true,
+		ParticipantIDs:     []string{aliceID, bobID},
+		SortBy:             "created",
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(filtered, 3)
+	suite.Equal([]string{"Alice assigned to Bob", "Assigned to Bob", "Created by Alice"}, []string{
+		filtered[0].Name,
+		filtered[1].Name,
+		filtered[2].Name,
+	})
+
+	filtered, err = suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID:          project.ID,
+		FilterParticipants: true,
+	})
+	suite.Require().NoError(err)
+	suite.Empty(filtered)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_FilterByPriority() {
 	project := suite.createTestProject()
 	suite.T().Cleanup(func() {
@@ -469,6 +526,91 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_SortByCreat
 	tasks, err = suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{ProjectID: project.ID})
 	suite.Require().NoError(err)
 	suite.Equal("Older created, recently updated", tasks[0].Name)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_SortByLastMessageBeforeLimit() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	oldMessageAt := now.Add(-2 * time.Hour)
+	newMessageAt := now.Add(-time.Hour)
+	oldSessionID := system.GenerateSessionID()
+	newSessionID := system.GenerateSessionID()
+
+	for _, session := range []types.Session{
+		{ID: oldSessionID, ProjectID: project.ID, Owner: project.UserID, Created: now.Add(-4 * time.Hour)},
+		{ID: newSessionID, ProjectID: project.ID, Owner: project.UserID, Created: now.Add(-3 * time.Hour)},
+	} {
+		_, err := suite.db.CreateSession(suite.ctx, session)
+		suite.Require().NoError(err)
+	}
+
+	recentStatusAt := now
+	oldStatusAt := now.Add(-3 * time.Hour)
+	for _, task := range []*types.SpecTask{
+		{
+			ID:                "task-" + system.GenerateUUID(),
+			ProjectID:         project.ID,
+			Name:              "Recent status, old message",
+			Status:            types.TaskStatusDone,
+			StatusUpdatedAt:   &recentStatusAt,
+			PlanningSessionID: oldSessionID,
+			CreatedAt:         now.Add(-4 * time.Hour),
+		},
+		{
+			ID:                "task-" + system.GenerateUUID(),
+			ProjectID:         project.ID,
+			Name:              "Old status, new message",
+			Status:            types.TaskStatusImplementation,
+			StatusUpdatedAt:   &oldStatusAt,
+			PlanningSessionID: newSessionID,
+			CreatedAt:         now.Add(-3 * time.Hour),
+		},
+		{
+			ID:        "task-" + system.GenerateUUID(),
+			ProjectID: project.ID,
+			Name:      "No session",
+			Status:    types.TaskStatusBacklog,
+			CreatedAt: now.Add(-90 * time.Minute),
+		},
+	} {
+		suite.Require().NoError(suite.db.CreateSpecTask(suite.ctx, task))
+	}
+
+	for _, interaction := range []*types.Interaction{
+		{ID: system.GenerateInteractionID(), SessionID: oldSessionID, UserID: project.UserID, Created: oldMessageAt},
+		{ID: system.GenerateInteractionID(), SessionID: newSessionID, UserID: project.UserID, Created: newMessageAt},
+	} {
+		_, err := suite.db.CreateInteraction(suite.ctx, interaction)
+		suite.Require().NoError(err)
+	}
+
+	tasks, err := suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID: project.ID,
+		SortBy:    "last_message",
+		Limit:     1,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(tasks, 1)
+	suite.Equal("Old status, new message", tasks[0].Name)
+	suite.Require().NotNil(tasks[0].LastMessageAt)
+	suite.WithinDuration(newMessageAt, *tasks[0].LastMessageAt, time.Microsecond)
+
+	tasks, err = suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID: project.ID,
+		SortBy:    "last_message",
+	})
+	suite.Require().NoError(err)
+	suite.Equal([]string{"Old status, new message", "No session", "Recent status, old message"}, []string{
+		tasks[0].Name,
+		tasks[1].Name,
+		tasks[2].Name,
+	})
+	suite.Require().NotNil(tasks[1].LastMessageAt)
+	suite.WithinDuration(now.Add(-90*time.Minute), *tasks[1].LastMessageAt, time.Microsecond)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_ArchivedFilter() {

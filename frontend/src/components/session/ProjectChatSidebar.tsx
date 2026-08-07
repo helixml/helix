@@ -34,13 +34,17 @@ import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
   collapsedGroupsStorageKey,
   isNewThreadShortcut,
+  parseSidebarParticipantIds,
   shouldConfirmArchive,
   parseCollapsedGroupIds,
+  serializeSidebarParticipantIds,
   sidebarPreferencesStorageKey,
+  sidebarPeopleFilterStorageKey,
   serializeCollapsedGroupIds,
 } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 import ProjectChatGroup from './ProjectChatGroup'
+import ProjectChatSidebarPeopleFilter from './ProjectChatSidebarPeopleFilter'
 import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
 import SortableProject from './SortableProject'
 import useProjectChatSidebarDrag from './useProjectChatSidebarDrag'
@@ -57,6 +61,14 @@ const readCollapsedGroups = (storageKey: string): Set<string> => {
   }
 }
 
+const readParticipantIds = (storageKey: string): string[] | null => {
+  try {
+    return parseSidebarParticipantIds(window.localStorage.getItem(storageKey))
+  } catch {
+    return null
+  }
+}
+
 const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }) => {
   const account = useAccount()
   const router = useRouter()
@@ -64,8 +76,11 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const snackbar = useSnackbar()
   const orgSlug = router.params.org_id || ''
   const orgId = account.organizationTools.organization?.id || ''
+  const currentUserId = account.user?.id || ''
+  const activeProjectId = router.params.id || 'all-projects'
   const storageKey = collapsedGroupsStorageKey(orgSlug)
   const preferencesStorageKey = sidebarPreferencesStorageKey(orgSlug)
+  const peopleFilterStorageKey = sidebarPeopleFilterStorageKey(currentUserId, orgSlug, activeProjectId)
 
   const [query, setQuery] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
@@ -74,10 +89,17 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const [archivingItemId, setArchivingItemId] = useState<string | null>(null)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [participantIdsOverride, setParticipantIdsOverride] = useState<string[] | null>(() => (
+    readParticipantIds(peopleFilterStorageKey)
+  ))
 
   useEffect(() => {
     setCollapsedGroups(readCollapsedGroups(storageKey))
   }, [storageKey])
+
+  useEffect(() => {
+    setParticipantIdsOverride(readParticipantIds(peopleFilterStorageKey))
+  }, [peopleFilterStorageKey])
 
   useEffect(() => {
     const interval = window.setInterval(() => setRelativeTimeNow(Date.now()), RELATIVE_TIME_REFRESH_MS)
@@ -86,6 +108,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
 
   const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
     enabled: !!account.user?.id && !!orgId,
+    refetchInterval: 10000,
   })
   const {
     preferences,
@@ -110,6 +133,16 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const archiveSession = useArchiveSession()
   const archiveSpecTask = useArchiveSpecTask()
   const activeItemId = router.params.taskId || router.params.session_id || ''
+  const organizationMembers = account.organizationTools.organization?.memberships || []
+  const memberUserIds = new Set(organizationMembers.flatMap((member) => (
+    member.user_id && member.user ? [member.user_id] : []
+  )))
+  const selectableMembers = currentUserId && !memberUserIds.has(currentUserId) && account.user
+    ? [{ user_id: currentUserId, user: account.user }, ...organizationMembers]
+    : organizationMembers
+  const selectedParticipantIds = participantIdsOverride === null
+    ? currentUserId ? [currentUserId] : []
+    : participantIdsOverride.filter((userId) => userId === currentUserId || memberUserIds.has(userId))
   const {
     dragInProgressRef,
     suppressClickAfterDragRef,
@@ -263,6 +296,21 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
     void performArchive(item)
   }
 
+  const updateSelectedParticipantIds = (userIds: string[]) => {
+    const selectedUserIds = userIds.filter((userId) => (
+      userId === currentUserId || memberUserIds.has(userId)
+    ))
+    setParticipantIdsOverride(selectedUserIds)
+    try {
+      window.localStorage.setItem(
+        peopleFilterStorageKey,
+        serializeSidebarParticipantIds(selectedUserIds),
+      )
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  }
+
   const effectiveCollapsedGroups = query ? new Set<string>() : collapsedGroups
   const groupsEnabled = !!account.user?.id && !!orgId
 
@@ -340,6 +388,12 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
           onThreadSortOrderChange={setThreadSortOrder}
           onVisibleThreadCountChange={setVisibleThreadCount}
         />
+        <ProjectChatSidebarPeopleFilter
+          members={selectableMembers}
+          currentUser={account.user}
+          selectedUserIds={selectedParticipantIds}
+          onSelectedUserIdsChange={updateSelectedParticipantIds}
+        />
         <Tooltip title={showArchived ? 'Back to active chats' : 'Show archived'}>
           <IconButton
             size="small"
@@ -403,6 +457,10 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
               enabled={groupsEnabled}
               threadSortOrder={preferences.threadSortOrder}
               visibleThreadCount={preferences.visibleThreadCount}
+              participantIds={selectedParticipantIds}
+              organizationMembers={selectableMembers}
+              currentUser={account.user}
+              showTaskAvatars={selectedParticipantIds.some((userId) => userId !== currentUserId)}
               archived={showArchived}
               archivingItemId={archivingItemId}
               onToggle={() => toggleGroup('default')}
@@ -437,6 +495,10 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
                         enabled={groupsEnabled}
                         threadSortOrder={preferences.threadSortOrder}
                         visibleThreadCount={preferences.visibleThreadCount}
+                        participantIds={selectedParticipantIds}
+                        organizationMembers={selectableMembers}
+                        currentUser={account.user}
+                        showTaskAvatars={selectedParticipantIds.some((userId) => userId !== currentUserId)}
                         archived={showArchived}
                         archivingItemId={archivingItemId}
                         onToggle={() => toggleGroup(project.id!)}
