@@ -9,7 +9,7 @@ import (
 )
 
 // reconcileSpecTaskAfterTurn releases a spec task's latched failure state once
-// its agent has demonstrably resumed work.
+// its agent has demonstrably resumed work, and advances it out of backlog.
 //
 // A task and its session are two state machines, and only the spec-task
 // orchestration routes (start-planning / start-implementation) ever cleared
@@ -25,6 +25,29 @@ import (
 // bypassed by doing so — the work is already running and already consuming a
 // slot; leaving the task in backlog is what hides it from the ledger.
 func (apiServer *HelixAPIServer) reconcileSpecTaskAfterTurn(ctx context.Context, session *types.Session) {
+	apiServer.reconcileSpecTaskState(ctx, session, true)
+}
+
+// reconcileSpecTaskLaunchFailure releases only the latched launch error, leaving
+// status alone.
+//
+// The recorded failure says the desktop could not start. An agent on the wire
+// proves that is no longer true, whatever happens to the turn afterwards —
+// and something must release the latch on the path where the agent connects,
+// works, and the sandbox idles out without a turn ever completing. Status still
+// requires evidence of finished work, so it is left to the turn path.
+func (apiServer *HelixAPIServer) reconcileSpecTaskLaunchFailure(ctx context.Context, sessionID string) {
+	if apiServer.Store == nil || sessionID == "" {
+		return
+	}
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		return
+	}
+	apiServer.reconcileSpecTaskState(ctx, session, false)
+}
+
+func (apiServer *HelixAPIServer) reconcileSpecTaskState(ctx context.Context, session *types.Session, advanceStatus bool) {
 	if session == nil || session.Metadata.SpecTaskID == "" {
 		return
 	}
@@ -47,7 +70,7 @@ func (apiServer *HelixAPIServer) reconcileSpecTaskAfterTurn(ctx context.Context,
 
 	// Only backlog is reconciled. Every other status is either a live phase the
 	// orchestrator owns or a terminal one a finished turn must not reopen.
-	if task.Status == types.TaskStatusBacklog {
+	if advanceStatus && task.Status == types.TaskStatusBacklog {
 		task.Status = resumedSpecTaskStatus(task)
 		now := time.Now()
 		task.StatusUpdatedAt = &now

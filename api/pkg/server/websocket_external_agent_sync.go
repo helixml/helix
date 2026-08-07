@@ -4068,6 +4068,12 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 		Interface("data", syncMsg.Data).
 		Msg("[READINESS] Received agent_ready event from Zed")
 
+	// An agent on the wire disproves any latched "desktop could not start"
+	// error on the owning spec task. Releasing it here — not only at turn
+	// completion — covers the session that connects, works, and then idles out
+	// without a turn ever completing.
+	apiServer.reconcileSpecTaskLaunchFailure(context.Background(), sessionID)
+
 	// Extract optional metadata from the ready event
 	agentName, _ := syncMsg.Data["agent_name"].(string)
 	threadID, _ := syncMsg.Data["thread_id"].(string)
