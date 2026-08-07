@@ -32,6 +32,8 @@ The delivered surfaces are:
 
 Diff and Files are first-class task-toolbar views rather than nested inspector tabs. This removes a redundant navigation row and makes the active surface visible beside Desktop and Details. Open source files still get closable tabs within the Files surface. Diff presentation controls are compact icon buttons with tooltips and accessible pressed states for unified/split layout, wrapping, and whitespace filtering.
 
+File paths expose contextual clipboard actions. Right-clicking a Files tree row opens a keyboard-accessible menu for copying its workspace-relative path and, for readable text files within the preview limit, its contents. Right-clicking a filename header in Diff opens the same path-copy affordance without changing the active view. Binary, truncated, loading, and failed file reads are represented explicitly rather than copying incomplete data silently.
+
 The backend uses shared response types and generated client methods. Live review requests return one patch per Git scope. Historical review never trusts a checkpoint ref from the browser: it resolves the interaction after session authorization and reads the stored before/after refs. Checkpoint capture uses a temporary Git index and parentless hidden commits, preserving the user's index, worktree, `HEAD`, and branch refs.
 
 Boundaries retained for the first release: the browser is read-only, file reads are capped at 1 MiB, raw patch previews at 512 KiB, and file listings at 20,000 entries. The inspector can switch among detected Git workspaces, but the previous special `helix-specs` branch projection is not mixed into the repository browser. Markdown rendering, image preview, line comments, and editing remain follow-ups rather than partially implemented modes.

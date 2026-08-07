@@ -1,19 +1,25 @@
 import React, { FC, useEffect, useMemo, useRef, useState } from "react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
+import type { ContextMenuItem, ContextMenuOpenContext } from "@pierre/trees";
 import {
   Box,
   CircularProgress,
   IconButton,
   InputAdornment,
+  ListItemIcon,
+  Menu,
+  MenuItem,
   TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
-import { RefreshCw, Search, X } from "lucide-react";
+import { ClipboardCopy, Copy, RefreshCw, Search, X } from "lucide-react";
 import type { TypesWorkspaceFileEntry } from "../../api/api";
+import useSnackbar from "../../hooks/useSnackbar";
 import { matchesAllTokens } from "../../utils/searchUtils";
+import { copyTextToClipboard } from "./clipboard";
 import { TREE_UNSAFE_CSS } from "./pierreStyles";
-import { useWorkspaceFiles } from "./workspaceReviewService";
+import { useWorkspaceFile, useWorkspaceFiles } from "./workspaceReviewService";
 
 interface WorkspaceFileTreeProps {
   sessionId: string;
@@ -62,6 +68,91 @@ export function ancestorDirectoryPaths(paths: readonly string[]): string[] {
   }
   return [...directories];
 }
+
+interface WorkspaceFileContextMenuProps {
+  context: ContextMenuOpenContext;
+  item: ContextMenuItem;
+  sessionId: string;
+  workspace?: string;
+}
+
+const WorkspaceFileContextMenu: FC<WorkspaceFileContextMenuProps> = ({
+  context,
+  item,
+  sessionId,
+  workspace,
+}) => {
+  const snackbar = useSnackbar();
+  const fileQuery = useWorkspaceFile(
+    sessionId,
+    workspace,
+    item.kind === "file" ? item.path : null,
+  );
+
+  const copyPath = async () => {
+    try {
+      await copyTextToClipboard(item.path.replace(/\/$/, ""));
+      snackbar.success("Path copied to clipboard");
+    } catch {
+      snackbar.error("Could not copy path");
+    } finally {
+      context.close();
+    }
+  };
+
+  const copyContents = async () => {
+    const file = fileQuery.data;
+    if (!file || file.binary || file.truncated) return;
+    try {
+      await copyTextToClipboard(file.contents || "");
+      snackbar.success("File contents copied to clipboard");
+    } catch {
+      snackbar.error("Could not copy file contents");
+    } finally {
+      context.close();
+    }
+  };
+
+  const contentsLabel = fileQuery.isLoading
+    ? "Loading contents…"
+    : fileQuery.isError
+      ? "Could not read contents"
+      : fileQuery.data?.binary
+        ? "Binary contents cannot be copied"
+        : fileQuery.data?.truncated
+          ? "File is too large to copy"
+          : "Copy contents";
+
+  return (
+    <Menu
+      open
+      data-file-tree-context-menu-root="true"
+      anchorEl={context.anchorElement}
+      onClose={() => context.close()}
+      anchorOrigin={{ vertical: "top", horizontal: "left" }}
+      MenuListProps={{
+        "aria-label": `File options for ${item.path}`,
+        dense: true,
+      }}
+    >
+      <MenuItem onClick={copyPath}>
+        <ListItemIcon><Copy size={15} /></ListItemIcon>
+        Copy path
+      </MenuItem>
+      {item.kind === "file" && (
+        <MenuItem
+          onClick={copyContents}
+          disabled={fileQuery.isLoading || fileQuery.isError || fileQuery.data?.binary || fileQuery.data?.truncated}
+        >
+          <ListItemIcon>
+            {fileQuery.isLoading ? <CircularProgress size={14} /> : <ClipboardCopy size={15} />}
+          </ListItemIcon>
+          {contentsLabel}
+        </MenuItem>
+      )}
+    </Menu>
+  );
+};
 
 const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
   sessionId,
@@ -175,7 +266,18 @@ const WorkspaceFileTree: FC<WorkspaceFileTreeProps> = ({
           {query ? "No files match this search." : "No files found."}
         </Typography>
       ) : (
-        <FileTree model={model} style={{ minHeight: 0, height: "100%", overflow: "hidden" }} />
+        <FileTree
+          model={model}
+          renderContextMenu={(item, context) => (
+            <WorkspaceFileContextMenu
+              context={context}
+              item={item}
+              sessionId={sessionId}
+              workspace={workspace}
+            />
+          )}
+          style={{ minHeight: 0, height: "100%", overflow: "hidden" }}
+        />
       )}
       {filesQuery.data?.truncated && (
         <Typography variant="caption" color="warning.main" sx={{ px: 1, py: 0.5 }}>File list truncated.</Typography>

@@ -7,14 +7,18 @@ import {
   Button,
   CircularProgress,
   IconButton,
+  ListItemIcon,
+  Menu,
   MenuItem,
   Select,
   Tooltip,
   Typography,
 } from "@mui/material";
-import { Columns2, Pilcrow, RefreshCw, Rows3, WrapText } from "lucide-react";
+import { Columns2, Copy, Pilcrow, RefreshCw, Rows3, WrapText } from "lucide-react";
 import type { TypesWorkspaceReviewSource } from "../../api/api";
 import useLightTheme from "../../hooks/useLightTheme";
+import useSnackbar from "../../hooks/useSnackbar";
+import { copyTextToClipboard } from "./clipboard";
 import {
   useTurnWorkspaceReview,
   useWorkspaceReview,
@@ -27,6 +31,12 @@ import {
 } from "./pierreStyles";
 
 type ReviewScope = "all" | "branch" | "working_tree";
+
+interface PathContextMenu {
+  left: number;
+  path: string;
+  top: number;
+}
 
 interface WorkspaceDiffSurfaceProps {
   sessionId: string;
@@ -55,10 +65,12 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
   onWorkspaceResolved,
 }) => {
   const lightTheme = useLightTheme();
+  const snackbar = useSnackbar();
   const [scope, setScope] = useState<ReviewScope>("all");
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
   const [layout, setLayout] = useState<"unified" | "split">("unified");
   const [wordWrap, setWordWrap] = useState(false);
+  const [pathContextMenu, setPathContextMenu] = useState<PathContextMenu | null>(null);
   const viewerRef = useRef<CodeViewHandle<undefined>>(null);
   const liveReview = useWorkspaceReview(
     sessionId,
@@ -106,6 +118,18 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
     const item = items.find((candidate) => fileDiffPath(candidate.fileDiff) === selectedFile);
     if (item) viewerRef.current?.scrollTo({ type: "item", id: item.id, align: "start" });
   }, [items, selectedFile]);
+
+  const copyContextPath = async () => {
+    if (!pathContextMenu) return;
+    try {
+      await copyTextToClipboard(pathContextMenu.path);
+      snackbar.success("Path copied to clipboard");
+    } catch {
+      snackbar.error("Could not copy path");
+    } finally {
+      setPathContextMenu(null);
+    }
+  };
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, height: "100%" }}>
@@ -242,6 +266,22 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
             const filePath = title?.textContent?.trim();
             if (filePath) onOpenFile(filePath.replace(/^[ab]\//, ""));
           }}
+          onContextMenuCapture={(event) => {
+            const path = event.nativeEvent.composedPath?.() || [];
+            const title = path.find(
+              (node): node is HTMLElement => node instanceof HTMLElement && node.hasAttribute("data-title"),
+            );
+            const filePath = title?.textContent?.trim().replace(/^[ab]\//, "");
+            if (!filePath || !title) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const rect = title.getBoundingClientRect();
+            setPathContextMenu({
+              left: event.clientX || rect.left,
+              path: filePath,
+              top: event.clientY || rect.bottom,
+            });
+          }}
         >
           <CodeView
             ref={viewerRef}
@@ -264,6 +304,18 @@ const WorkspaceDiffSurface: FC<WorkspaceDiffSurfaceProps> = ({
           />
         </Box>
       )}
+      <Menu
+        open={pathContextMenu !== null}
+        onClose={() => setPathContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={pathContextMenu ? { left: pathContextMenu.left, top: pathContextMenu.top } : undefined}
+        MenuListProps={{ "aria-label": pathContextMenu ? `File options for ${pathContextMenu.path}` : "File options" }}
+      >
+        <MenuItem onClick={copyContextPath}>
+          <ListItemIcon><Copy size={15} /></ListItemIcon>
+          Copy path
+        </MenuItem>
+      </Menu>
     </Box>
   );
 };
