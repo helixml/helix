@@ -36,13 +36,9 @@ import {
 import type { Theme } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import PlayArrow from "@mui/icons-material/PlayArrow";
-import Description from "@mui/icons-material/Description";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import StopIcon from "@mui/icons-material/Stop";
 import LaunchIcon from "@mui/icons-material/Launch";
-import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
-import VerticalSplitIcon from "@mui/icons-material/VerticalSplit";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
@@ -112,6 +108,7 @@ import {
   Group as PanelGroup,
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
 import useLightTheme from "../../hooks/useLightTheme";
 import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
@@ -119,13 +116,17 @@ import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
 import {
   CloudUpload as CloudUploadLucide,
+  FileText,
   Files,
   SlidersHorizontal,
   GitCompare,
   Lock as LockLucide,
   LockOpen as LockOpenLucide,
   MonitorPlay,
+  MessageSquare,
   PanelBottom,
+  PanelLeft,
+  PanelRight,
   Play as PlayLucide,
   RotateCw,
   Square,
@@ -147,7 +148,17 @@ import {
 const SPEC_TASK_CHAT_PANEL_IDS = ["spec-task-chat", "spec-task-content"] as const;
 const SPEC_TASK_CHAT_LAYOUT_KEY = "helix.specTaskChat.layout";
 const taskToolbarIconButtonSx = {
+  width: 30,
+  height: 30,
+  minWidth: 30,
+  minHeight: 30,
+  p: 0.75,
+  flexShrink: 0,
   color: "text.secondary",
+  "& svg": {
+    width: 18,
+    height: 18,
+  },
   "&:hover": {
     color: "text.primary",
     backgroundColor: "action.hover",
@@ -189,6 +200,8 @@ interface SpecTaskDetailContentProps {
   padContent?: boolean;
   /** Whether tasks awaiting spec review should open the review automatically. */
   autoOpenReview?: boolean;
+  /** Replace route close with reversible content-panel collapse. */
+  allowContentCollapse?: boolean;
   onClose?: () => void;
   /** Called when user clicks "Review Spec" - if provided, opens in workspace pane instead of navigating */
   onOpenReview?: (
@@ -211,6 +224,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
   padContent = false,
   autoOpenReview = true,
+  allowContentCollapse = false,
   onClose,
   onOpenReview,
   onTaskArchived,
@@ -237,6 +251,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const savedSpecTaskChatLayout = loadPanelLayout(
     SPEC_TASK_CHAT_LAYOUT_KEY,
     SPEC_TASK_CHAT_PANEL_IDS,
+  );
+  const lastExpandedContentSizeRef = useRef(
+    savedSpecTaskChatLayout?.["spec-task-content"] ?? 50,
   );
 
   // Fetch task data
@@ -328,6 +345,36 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Chat panel collapse state - when true, uses mobile-style tab layout even on desktop
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [contentCollapsed, setContentCollapsed] = useState(false);
+  const contentPanelRef = useRef<PanelImperativeHandle>(null);
+  const collapseContentAfterSplitRef = useRef(false);
+
+  const collapseContentPanel = useCallback(() => {
+    if (chatCollapsed) {
+      collapseContentAfterSplitRef.current = true;
+      setChatCollapsed(false);
+      return;
+    }
+    const currentSize = contentPanelRef.current?.getSize().asPercentage;
+    if (currentSize && currentSize > 0) {
+      lastExpandedContentSizeRef.current = currentSize;
+    }
+    contentPanelRef.current?.collapse();
+  }, [chatCollapsed]);
+
+  const showContentPanel = useCallback(() => {
+    const panel = contentPanelRef.current;
+    if (!panel) return;
+    const restoredSize = lastExpandedContentSizeRef.current || 50;
+    panel.expand();
+    panel.resize(`${restoredSize}%`);
+  }, []);
+
+  useEffect(() => {
+    if (chatCollapsed || !collapseContentAfterSplitRef.current) return;
+    collapseContentAfterSplitRef.current = false;
+    contentPanelRef.current?.collapse();
+  }, [chatCollapsed]);
 
   const [terminalDrawerState, setTerminalDrawerState] = useState(() =>
     loadSpecTaskTerminalDrawerState(taskId),
@@ -1331,31 +1378,40 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 )}
             </Box>
             {editingTextField === "name" ? (
-              <TextField
-                fullWidth
-                size="small"
-                value={editFormData.name}
-                onChange={(e) => {
-                  setEditFormData((current) => ({
-                    ...current,
-                    name: e.target.value,
-                  }));
-                  setTextSaveStatus((current) => ({ ...current, name: "idle" }));
-                }}
-                onBlur={() => void handleTextFieldBlur("name")}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.querySelector("input")?.blur();
-                  } else if (event.key === "Escape") {
-                    handleTextFieldCancel("name");
-                  }
-                }}
-                error={textSaveStatus.name === "error"}
-                helperText={getTextSaveHelper("name")}
-                autoFocus
-                placeholder="Task name"
-                sx={taskDetailsTextFieldSx}
-              />
+              <ClickAwayListener
+                onClickAway={() => void handleTextFieldBlur("name")}
+              >
+                <Box>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={editFormData.name}
+                    onChange={(e) => {
+                      setEditFormData((current) => ({
+                        ...current,
+                        name: e.target.value,
+                      }));
+                      setTextSaveStatus((current) => ({
+                        ...current,
+                        name: "idle",
+                      }));
+                    }}
+                    onBlur={() => void handleTextFieldBlur("name")}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.querySelector("input")?.blur();
+                      } else if (event.key === "Escape") {
+                        handleTextFieldCancel("name");
+                      }
+                    }}
+                    error={textSaveStatus.name === "error"}
+                    helperText={getTextSaveHelper("name")}
+                    autoFocus
+                    placeholder="Task name"
+                    sx={taskDetailsTextFieldSx}
+                  />
+                </Box>
+              </ClickAwayListener>
             ) : (
               <Box
                 role={isTaskDetailsEditable ? "button" : undefined}
@@ -1410,33 +1466,39 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 )}
             </Box>
             {editingTextField === "description" ? (
-              <TextField
-                fullWidth
-                multiline
-                minRows={4}
-                maxRows={20}
-                value={editFormData.description}
-                onChange={(e) => {
-                  setEditFormData((prev) => ({
-                    ...prev,
-                    description: e.target.value,
-                  }));
-                  setTextSaveStatus((current) => ({
-                    ...current,
-                    description: "idle",
-                  }));
-                }}
-                onBlur={() => void handleTextFieldBlur("description")}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    handleTextFieldCancel("description");
-                  }
-                }}
-                error={textSaveStatus.description === "error"}
-                helperText={getTextSaveHelper("description")}
-                placeholder="Task description"
-                sx={taskDetailsTextFieldSx}
-              />
+              <ClickAwayListener
+                onClickAway={() => void handleTextFieldBlur("description")}
+              >
+                <Box>
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={4}
+                    maxRows={20}
+                    value={editFormData.description}
+                    onChange={(e) => {
+                      setEditFormData((prev) => ({
+                        ...prev,
+                        description: e.target.value,
+                      }));
+                      setTextSaveStatus((current) => ({
+                        ...current,
+                        description: "idle",
+                      }));
+                    }}
+                    onBlur={() => void handleTextFieldBlur("description")}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        handleTextFieldCancel("description");
+                      }
+                    }}
+                    error={textSaveStatus.description === "error"}
+                    helperText={getTextSaveHelper("description")}
+                    placeholder="Task description"
+                    sx={taskDetailsTextFieldSx}
+                  />
+                </Box>
+              </ClickAwayListener>
             ) : (
               <Box
                 role={isTaskDetailsEditable ? "button" : undefined}
@@ -2088,14 +2150,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <PanelGroup
             key="spec-task-chat-layout"
             orientation="horizontal"
-            defaultLayout={savedSpecTaskChatLayout ?? { "spec-task-chat": 30, "spec-task-content": 70 }}
-            onLayoutChange={(layout) =>
-              savePanelLayout(SPEC_TASK_CHAT_LAYOUT_KEY, layout, SPEC_TASK_CHAT_PANEL_IDS)
-            }
+            defaultLayout={savedSpecTaskChatLayout ?? { "spec-task-chat": 50, "spec-task-content": 50 }}
+            onLayoutChange={(layout) => {
+              // A collapsed panel is transient UI state; retain the last useful
+              // split so restoring or reloading does not produce a zero-width pane.
+              if (layout["spec-task-chat"] > 0 && layout["spec-task-content"] > 0) {
+                lastExpandedContentSizeRef.current = layout["spec-task-content"];
+                savePanelLayout(SPEC_TASK_CHAT_LAYOUT_KEY, layout, SPEC_TASK_CHAT_PANEL_IDS);
+              }
+            }}
             style={{ height: "100%", flex: 1 }}
           >
             {/* Left: Chat panel - always visible on desktop */}
-            <Panel id="spec-task-chat" defaultSize={30} minSize={15} style={{ overflow: "hidden" }}>
+            <Panel id="spec-task-chat" defaultSize="50%" minSize="15%" style={{ overflow: "hidden" }}>
               <Box
                 sx={{
                   height: "100%",
@@ -2147,7 +2214,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         }}
                       >
                         <ToggleButton value="spec" disableRipple={false}>
-                          <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                          <FileText size={14} style={{ marginRight: 4 }} />
                           Spec
                         </ToggleButton>
                       </ToggleButtonGroup>
@@ -2200,21 +2267,35 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       );
                     })()}
                   </Box>
-                  <Tooltip title="Collapse chat panel">
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        setChatCollapsed(true);
-                        // Switch to desktop view when collapsing chat
-                        if (currentView === "chat") {
-                          handleViewChange("desktop");
-                        }
-                      }}
-                      sx={{ p: 0.25, flexShrink: 0 }}
-                    >
-                      <ChevronLeftIcon sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </Tooltip>
+                  {contentCollapsed ? (
+                    <Tooltip title="Show task panel">
+                      <IconButton
+                        size="small"
+                        aria-label="Show task panel"
+                        onClick={showContentPanel}
+                        sx={taskToolbarIconButtonSx}
+                      >
+                        <PanelRight size={18} />
+                      </IconButton>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip title="Collapse chat panel">
+                      <IconButton
+                        size="small"
+                        aria-label="Collapse chat panel"
+                        onClick={() => {
+                          setChatCollapsed(true);
+                          // Switch to desktop view when collapsing chat
+                          if (currentView === "chat") {
+                            handleViewChange("desktop");
+                          }
+                        }}
+                        sx={taskToolbarIconButtonSx}
+                      >
+                        <PanelLeft size={18} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </Box>
                 <AgentChat
                   sessionId={activeSessionId}
@@ -2239,10 +2320,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             {/* Resize handle */}
             <PanelResizeHandle
               style={{
-                width: 6,
+                width: contentCollapsed ? 0 : 6,
                 background: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.08)',
-                cursor: "col-resize",
+                cursor: contentCollapsed ? "default" : "col-resize",
                 transition: "background 0.15s",
+                overflow: "hidden",
               }}
             >
               <div
@@ -2257,7 +2339,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             </PanelResizeHandle>
 
             {/* Right: Content panel - switches between desktop/changes/details */}
-            <Panel id="spec-task-content" defaultSize={70} minSize={25} style={{ overflow: "hidden" }}>
+            <Panel
+              id="spec-task-content"
+              defaultSize="50%"
+              minSize="25%"
+              collapsible={allowContentCollapse}
+              collapsedSize={0}
+              panelRef={contentPanelRef}
+              onResize={(size) => setContentCollapsed(size.asPercentage === 0)}
+              style={{ overflow: "hidden" }}
+            >
               <Box
                 sx={{
                   height: "100%",
@@ -2272,9 +2363,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    px: 1.5,
-                    py: 0.75,
-                    minHeight: 40,
+                    px: 1,
+                    pt: 1,
+                    pb: 0.5,
+                    minHeight: 48,
                     borderBottom: "1px solid",
                     borderColor: "divider",
                     backgroundColor: "background.paper",
@@ -2289,9 +2381,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     size="small"
                     sx={{
                       "& .MuiToggleButton-root": {
-                        py: 0.4,
-                        px: 0.8,
-                        minWidth: 62,
+                        width: 56,
+                        height: 40,
+                        minWidth: 56,
+                        p: 0,
                         border: "none",
                         borderRadius: "4px !important",
                         textTransform: "none",
@@ -2404,6 +2497,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           <Tooltip title="Start desktop">
                             <IconButton
                               size="small"
+                              aria-label="Start desktop"
                               onClick={handleStartSession}
                               disabled={isStarting || isDesktopStarting}
                               sx={taskToolbarIconButtonSx}
@@ -2411,7 +2505,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               {isStarting || isDesktopStarting ? (
                                 <CircularProgress size={16} />
                               ) : (
-                                <PlayLucide size={17} />
+                                <PlayLucide size={18} />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2421,6 +2515,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           <Tooltip title="Stop desktop">
                             <IconButton
                               size="small"
+                              aria-label="Stop desktop"
                               onClick={() => setStopConfirmOpen(true)}
                               disabled={isStopping}
                               sx={taskToolbarIconButtonSx}
@@ -2428,7 +2523,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               {isStopping ? (
                                 <CircularProgress size={16} />
                               ) : (
-                                <Square size={15} fill="currentColor" />
+                                <Square size={18} fill="currentColor" />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2438,6 +2533,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           <Tooltip title="Restart agent session">
                             <IconButton
                               size="small"
+                              aria-label="Restart agent session"
                               onClick={() => setRestartConfirmOpen(true)}
                               disabled={isRestarting}
                               sx={taskToolbarIconButtonSx}
@@ -2445,7 +2541,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               {isRestarting ? (
                                 <CircularProgress size={16} />
                               ) : (
-                                <RotateCw size={17} />
+                                <RotateCw size={18} />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2461,15 +2557,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           >
                             <IconButton
                               size="small"
+                              aria-label={task.keep_alive ? "Disable keep alive" : "Enable keep alive"}
                               onClick={handleToggleKeepAlive}
                               disabled={updateSpecTask.isPending}
                               sx={taskToolbarIconButtonSx}
                               aria-pressed={task.keep_alive}
                             >
                               {task.keep_alive ? (
-                                <LockLucide size={17} />
+                                <LockLucide size={18} />
                               ) : (
-                                <LockOpenLucide size={17} />
+                                <LockOpenLucide size={18} />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2479,6 +2576,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           <Tooltip title="Upload files to sandbox">
                             <IconButton
                               size="small"
+                              aria-label="Upload files to sandbox"
                               onClick={handleUploadClick}
                               disabled={isUploading}
                               sx={taskToolbarIconButtonSx}
@@ -2486,7 +2584,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                               {isUploading ? (
                                 <CircularProgress size={16} />
                               ) : (
-                                <CloudUploadLucide size={17} />
+                                <CloudUploadLucide size={18} />
                               )}
                             </IconButton>
                           </Tooltip>
@@ -2495,6 +2593,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           <Tooltip title="More actions">
                             <IconButton
                               size="small"
+                              aria-label="More actions"
                               onClick={(event) =>
                                 setActionMenuAnchorEl(event.currentTarget)
                               }
@@ -2505,7 +2604,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           </Tooltip>
                         )}
                     </>
-                    {onClose && (
+                    {allowContentCollapse ? (
+                      <Tooltip title="Collapse task panel">
+                        <IconButton
+                          size="small"
+                          aria-label="Collapse task panel"
+                          onClick={collapseContentPanel}
+                          sx={taskToolbarIconButtonSx}
+                        >
+                          <PanelRight size={18} />
+                        </IconButton>
+                      </Tooltip>
+                    ) : onClose ? (
                       <IconButton
                         size="small"
                         onClick={onClose}
@@ -2513,7 +2623,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       >
                         <X size={18} />
                       </IconButton>
-                    )}
+                    ) : null}
                   </Box>
                 </Box>
 
@@ -2595,7 +2705,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 justifyContent: "space-between",
                 flexWrap: "wrap",
                 px: 1,
-                py: 0.5,
+                pt: 1,
+                pb: 0.5,
                 borderBottom: "1px solid",
                 borderColor: "divider",
                 backgroundColor: "background.paper",
@@ -2631,7 +2742,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 {/* Chat tab - only on mobile when there's an active session */}
                 {activeSessionId && (
                   <ToggleButton value="chat" aria-label="Chat view">
-                    <ForumOutlinedIcon sx={{ fontSize: 18 }} />
+                    <MessageSquare size={18} />
                     <Typography
                       sx={{
                         fontSize: "0.65rem",
@@ -2704,19 +2815,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 </ToggleButton>
               </ToggleButtonGroup>
 
-              {/* Restore split view button - only on desktop when chat is collapsed */}
-              {isBigScreen && chatCollapsed && (
-                <Tooltip title="Restore split view">
-                  <IconButton
-                    size="small"
-                    onClick={() => setChatCollapsed(false)}
-                    sx={{ ml: 0.5 }}
-                  >
-                    <VerticalSplitIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </Tooltip>
-              )}
-
               {/* Status-specific action buttons */}
               <SpecTaskActionButtons
                 task={{
@@ -2763,12 +2861,25 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 }}
               >
                 <>
+                    {isBigScreen && chatCollapsed && (
+                      <Tooltip title="Restore split view">
+                        <IconButton
+                          size="small"
+                          aria-label="Restore split view"
+                          onClick={() => setChatCollapsed(false)}
+                          sx={taskToolbarIconButtonSx}
+                        >
+                          <PanelLeft size={18} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     {terminalToggleButton}
                     {/* Show Start button when desktop is paused */}
                     {activeSessionId && effectiveIsDesktopPaused && (
                       <Tooltip title="Start desktop">
                         <IconButton
                           size="small"
+                          aria-label="Start desktop"
                           onClick={handleStartSession}
                           disabled={isStarting || isDesktopStarting}
                           sx={taskToolbarIconButtonSx}
@@ -2776,7 +2887,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           {isStarting || isDesktopStarting ? (
                             <CircularProgress size={16} />
                           ) : (
-                            <PlayLucide size={17} />
+                            <PlayLucide size={18} />
                           )}
                         </IconButton>
                       </Tooltip>
@@ -2786,6 +2897,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       <Tooltip title="Stop desktop">
                         <IconButton
                           size="small"
+                          aria-label="Stop desktop"
                           onClick={() => setStopConfirmOpen(true)}
                           disabled={isStopping}
                           sx={taskToolbarIconButtonSx}
@@ -2793,7 +2905,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           {isStopping ? (
                             <CircularProgress size={16} />
                           ) : (
-                            <Square size={15} fill="currentColor" />
+                            <Square size={18} fill="currentColor" />
                           )}
                         </IconButton>
                       </Tooltip>
@@ -2803,6 +2915,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       <Tooltip title="Restart agent session">
                         <IconButton
                           size="small"
+                          aria-label="Restart agent session"
                           onClick={() => setRestartConfirmOpen(true)}
                           disabled={isRestarting}
                           sx={taskToolbarIconButtonSx}
@@ -2810,7 +2923,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           {isRestarting ? (
                             <CircularProgress size={16} />
                           ) : (
-                            <RotateCw size={17} />
+                            <RotateCw size={18} />
                           )}
                         </IconButton>
                       </Tooltip>
@@ -2820,6 +2933,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       <Tooltip title="Upload files to sandbox">
                         <IconButton
                           size="small"
+                          aria-label="Upload files to sandbox"
                           onClick={handleUploadClick}
                           disabled={isUploading}
                           sx={taskToolbarIconButtonSx}
@@ -2827,7 +2941,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           {isUploading ? (
                             <CircularProgress size={16} />
                           ) : (
-                            <CloudUploadLucide size={17} />
+                            <CloudUploadLucide size={18} />
                           )}
                         </IconButton>
                       </Tooltip>
@@ -2836,6 +2950,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       <Tooltip title="More actions">
                         <IconButton
                           size="small"
+                          aria-label="More actions"
                           onClick={(event) =>
                             setActionMenuAnchorEl(event.currentTarget)
                           }
@@ -2846,7 +2961,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </Tooltip>
                     )}
                 </>
-                {onClose && (
+                {allowContentCollapse && isBigScreen && activeSessionId ? (
+                  <Tooltip title="Collapse task panel">
+                    <IconButton
+                      size="small"
+                      aria-label="Collapse task panel"
+                      onClick={collapseContentPanel}
+                      sx={taskToolbarIconButtonSx}
+                    >
+                      <PanelRight size={18} />
+                    </IconButton>
+                  </Tooltip>
+                ) : onClose ? (
                   <IconButton
                     size="small"
                     onClick={onClose}
@@ -2854,7 +2980,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   >
                     <X size={18} />
                   </IconButton>
-                )}
+                ) : null}
               </Box>
             </Box>
 
