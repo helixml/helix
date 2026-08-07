@@ -1081,10 +1081,13 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 			// chris-outreach memory ended up stranded across five branches.
 			if task.Type == specTaskTypeBotRun && !repo.IsExternal {
 				s.wg.Add(1)
-				go func(taskID string) {
+				// Pass the repo that was pushed to. It is not necessarily the
+				// project default — a bot contributing to a shared internal repo
+				// pushes there while the project's default repo is external.
+				go func(taskID string, pushedRepo *types.GitRepository) {
 					defer s.wg.Done()
-					s.tryAutoMergeBotRun(context.Background(), taskID)
-				}(task.ID)
+					s.tryAutoMergeBotRun(context.Background(), taskID, pushedRepo)
+				}(task.ID, repo)
 			}
 		case types.TaskStatusImplementationReview:
 			// A push arrived while a PR is open. Always re-sync the PR
@@ -1269,7 +1272,13 @@ const specTaskTypeBotRun = "bot_run"
 // content merge server-side: the agent is told to merge the base branch into its
 // own before pushing (see agent_instruction_service.go), which is where conflict
 // resolution belongs — it can read the files, apply judgment, and ask a human.
-func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string) {
+// repo MUST be the repository that was actually pushed to, not the project's
+// default. Re-resolving project.DefaultRepoID here was a bug: in a project whose
+// default repo is external (GitHub) but which also contains an internal repo, the
+// external guard below tripped on the default repo and returned every time — so a
+// bot pushing to the internal repo was never merged at all. That is the shape of
+// the HelixOS project: an external primary plus one internal playbook repo.
+func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string, repo *types.GitRepository) {
 	task, err := s.store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("bot auto-merge: get task failed")
@@ -1282,16 +1291,10 @@ func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string) {
 	if task.BranchName == "" {
 		return
 	}
-
-	project, err := s.store.GetProject(ctx, task.ProjectID)
-	if err != nil || project.DefaultRepoID == "" {
+	if repo == nil || repo.DefaultBranch == "" {
 		return
 	}
-	repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
-	if err != nil || repo.DefaultBranch == "" {
-		return
-	}
-	// Guard again on the repo we actually resolved, not the one that was pushed to.
+	// Guard on the pushed repo: external repos have the PR path instead.
 	if repo.IsExternal {
 		return
 	}

@@ -86,14 +86,10 @@ func TestTryAutoMergeBotRun_InternalRepoMergesWithoutCompletingTask(t *testing.T
 		BranchName: "feature/x",
 	}
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_bot").Return(task, nil)
-	mockStore.EXPECT().GetProject(gomock.Any(), "prj_test").
-		Return(&types.Project{ID: "prj_test", DefaultRepoID: "repo_test"}, nil)
-	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo_test").
-		Return(&types.GitRepository{ID: "repo_test", LocalPath: repoPath, DefaultBranch: defaultBranch}, nil)
 	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).Return(nil)
 
 	srv := &GitHTTPServer{store: mockStore}
-	srv.tryAutoMergeBotRun(ctx, "spt_bot")
+	srv.tryAutoMergeBotRun(ctx, "spt_bot", &types.GitRepository{ID: "repo_test", LocalPath: repoPath, DefaultBranch: defaultBranch})
 
 	require.True(t, task.MergedToMain, "the branch should have been merged")
 	require.NotNil(t, task.MergedAt)
@@ -128,14 +124,10 @@ func TestTryAutoMergeBotRun_DivergedDoesNotMerge(t *testing.T) {
 		BranchName: "feature/x",
 	}
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_bot").Return(task, nil)
-	mockStore.EXPECT().GetProject(gomock.Any(), "prj_test").
-		Return(&types.Project{ID: "prj_test", DefaultRepoID: "repo_test"}, nil)
-	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo_test").
-		Return(&types.GitRepository{ID: "repo_test", LocalPath: repoPath, DefaultBranch: defaultBranch}, nil)
 	// No UpdateSpecTask: nothing was merged.
 
 	srv := &GitHTTPServer{store: mockStore}
-	srv.tryAutoMergeBotRun(ctx, "spt_bot")
+	srv.tryAutoMergeBotRun(ctx, "spt_bot", &types.GitRepository{ID: "repo_test", LocalPath: repoPath, DefaultBranch: defaultBranch})
 
 	require.False(t, task.MergedToMain, "a diverged branch must not be recorded as merged")
 	require.Nil(t, task.MergedAt)
@@ -159,15 +151,12 @@ func TestTryAutoMergeBotRun_ExternalRepoSkipped(t *testing.T) {
 		BranchName: "feature/x",
 	}
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_bot").Return(task, nil)
-	mockStore.EXPECT().GetProject(gomock.Any(), "prj_test").
-		Return(&types.Project{ID: "prj_test", DefaultRepoID: "repo_test"}, nil)
-	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo_test").Return(&types.GitRepository{
-		ID: "repo_test", LocalPath: repoPath, DefaultBranch: defaultBranch,
-		IsExternal: true, ExternalURL: "https://github.com/example/repo",
-	}, nil)
 
 	srv := &GitHTTPServer{store: mockStore}
-	srv.tryAutoMergeBotRun(ctx, "spt_bot")
+	srv.tryAutoMergeBotRun(ctx, "spt_bot", &types.GitRepository{
+		ID: "repo_test", LocalPath: repoPath, DefaultBranch: defaultBranch,
+		IsExternal: true, ExternalURL: "https://github.com/example/repo",
+	})
 
 	require.False(t, task.MergedToMain, "external repos must keep the PR flow")
 }
@@ -190,7 +179,53 @@ func TestTryAutoMergeBotRun_NonBotTaskSkipped(t *testing.T) {
 	// Returns before touching the project or repo.
 
 	srv := &GitHTTPServer{store: mockStore}
-	srv.tryAutoMergeBotRun(ctx, "spt_human")
+	srv.tryAutoMergeBotRun(ctx, "spt_human", &types.GitRepository{ID: "repo_test"})
 
 	require.False(t, task.MergedToMain)
+}
+
+// The regression that stranded a fortnight of playbook commits: a project whose
+// DEFAULT repo is external (GitHub) but which also contains an internal repo. The
+// bot pushes to the internal one; auto-merge used to re-resolve the project
+// default, trip its own IsExternal guard on that unrelated repo, and return
+// without merging anything. Nothing ever landed, and no error was logged.
+//
+// Passing the pushed repo is the fix, so pin that an internal push still merges
+// even though the project default is external.
+func TestTryAutoMergeBotRun_InternalRepoMergesWhenProjectDefaultIsExternal(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	repoPath, defaultBranch := botMergeRepo(t, ctx, true)
+
+	mockStore := store.NewMockStore(ctrl)
+	task := &types.SpecTask{
+		ID:         "spt_bot",
+		ProjectID:  "prj_mixed",
+		Type:       specTaskTypeBotRun,
+		Status:     types.TaskStatusImplementation,
+		BranchName: "feature/x",
+	}
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_bot").Return(task, nil)
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).Return(nil)
+	// Deliberately NO GetProject/GetGitRepository expectations: resolving the
+	// project default is exactly the behaviour that caused the bug, so if it comes
+	// back gomock fails on the unexpected call.
+
+	srv := &GitHTTPServer{store: mockStore}
+	srv.tryAutoMergeBotRun(ctx, "spt_bot", &types.GitRepository{
+		ID: "repo_internal_playbook", LocalPath: repoPath, DefaultBranch: defaultBranch,
+	})
+
+	require.True(t, task.MergedToMain,
+		"a bot push to an internal repo must merge even when the project default repo is external")
+
+	head, _, err := gitcmd.NewCommand().AddArguments("rev-parse").AddDynamicArguments(defaultBranch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	require.NoError(t, err)
+	feature, _, err := gitcmd.NewCommand().AddArguments("rev-parse", "feature/x").
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	require.NoError(t, err)
+	require.Equal(t, trimNewline(feature), trimNewline(head))
 }
