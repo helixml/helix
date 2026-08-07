@@ -44,9 +44,17 @@ export class PlayoutScheduler {
   private prevTargetFrames = 0
   private prerolling = false // true while (re)building the buffer to depth
   private decayAccumMs = 0 // accumulator for slow target decay
-  private nominalIntervalMs = 1000 / 60 // measured median frame interval (frames<->ms + pacing)
+  private nominalIntervalMs = 1000 / 60 // source frame cadence, from PTS (frames<->ms + pacing)
   private depthMs = 0 // effective depth (ms); for stats
   private disposed = false
+
+  // Source cadence is measured from presentation timestamps, NOT from socket
+  // arrival times. Arrival spacing collapses to ~0 during the catch-up burst
+  // that follows any stall, and using it as the frames<->ms basis inflated the
+  // depth target by ~20x (see the depth cap in updateTarget).
+  private ptsDeltasMs: number[] = []
+  private lastPushPtsUs = -1
+  private readonly MAX_PTS_SAMPLES = 120
 
   private readonly MAX_DELAY_MS = 120 // cap on buffer depth / added latency
   private readonly IDLE_RAMP_MS = 2500 // engage the buffer only after this much input-idle
@@ -71,6 +79,15 @@ export class PlayoutScheduler {
       closeFrame(frame)
       return
     }
+    if (this.lastPushPtsUs >= 0) {
+      const deltaMs = (frame.timestamp - this.lastPushPtsUs) / 1000
+      // Ignore reorder/reset/discontinuity samples; keep plausible cadences only.
+      if (deltaMs > 0 && deltaMs < 1000) {
+        this.ptsDeltasMs.push(deltaMs)
+        if (this.ptsDeltasMs.length > this.MAX_PTS_SAMPLES) this.ptsDeltasMs.shift()
+      }
+    }
+    this.lastPushPtsUs = frame.timestamp
     this.queue.push({ frame, ptsUs: frame.timestamp, arrivalMs: performance.now() })
     while (this.queue.length > this.MAX_QUEUE) {
       const old = this.queue.shift()
@@ -106,6 +123,8 @@ export class PlayoutScheduler {
     this.prerolling = false
     this.decayAccumMs = 0
     this.depthMs = 0
+    this.lastPushPtsUs = -1
+    this.ptsDeltasMs = []
     if (this.raf !== null) {
       cancelAnimationFrame(this.raf)
       this.raf = null
@@ -134,6 +153,14 @@ export class PlayoutScheduler {
     return this.queue.length
   }
 
+  /** Median source frame interval (ms) from PTS deltas. Unlike socket arrival
+   *  spacing this is immune to catch-up bursts, so it stays a true cadence. */
+  private cadenceMs(): number {
+    if (this.ptsDeltasMs.length < 5) return this.nominalIntervalMs
+    const sorted = [...this.ptsDeltasMs].sort((a, b) => a - b)
+    return sorted[Math.floor(sorted.length / 2)] || this.nominalIntervalMs
+  }
+
   private ensureRunning(): void {
     if (this.raf === null) {
       this.lastTickMs = performance.now()
@@ -147,21 +174,26 @@ export class PlayoutScheduler {
    *  into periodic stutter. */
   private updateTarget(now: number, dtMs: number): void {
     const interacting = now - this.lastInputMs < this.IDLE_RAMP_MS
+    const cadence = this.cadenceMs()
+    this.nominalIntervalMs = cadence
     const s = this.getReceiveSamples()
     let raw = 0
-    if (s.length >= 5) {
+    if (!interacting && s.length >= 30) {
       const sorted = [...s].sort((a, b) => a - b)
       const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))]
-      const median = at(0.5) || this.nominalIntervalMs
-      this.nominalIntervalMs = median
-      if (!interacting && s.length >= 30) {
-        const jitter = at(0.99) - median // worst-case late arrival above the cadence
-        // Deadband: only build a buffer for meaningful jitter (> ~half a frame),
-        // so a clean connection never engages (and so never stutters).
-        if (jitter >= median * 0.5) {
-          const maxFrames = Math.max(1, Math.floor(this.MAX_DELAY_MS / median))
-          raw = Math.max(1, Math.min(maxFrames, Math.round(jitter / median)))
-        }
+      const jitter = at(0.99) - at(0.5) // worst-case late arrival above typical spacing
+      // Deadband: only build a buffer for meaningful jitter (> ~half a frame),
+      // so a clean connection never engages (and so never stutters).
+      if (jitter >= cadence * 0.5) {
+        // Depth is capped two ways, and BOTH are load-bearing: by added latency,
+        // and by the queue capacity. A target at or above MAX_QUEUE would make
+        // the preroll-satisfied test below unreachable, which used to wedge the
+        // scheduler permanently (nothing presented, every frame dropped).
+        const maxFrames = Math.max(
+          1,
+          Math.min(this.MAX_QUEUE - 1, Math.floor(this.MAX_DELAY_MS / cadence)),
+        )
+        raw = Math.max(1, Math.min(maxFrames, Math.round(jitter / cadence)))
       }
     }
     if (raw >= this.targetFrames) {
@@ -216,7 +248,10 @@ export class PlayoutScheduler {
       this.present(newest.frame)
       this.lastPresentMs = now
     } else {
-      if (this.prerolling && q.length > target) this.prerolling = false
+      // Preroll ends once the buffer has reached the target depth. This must be
+      // `>=`: with `>` the buffer had to overshoot by a frame, and any target at
+      // the queue cap could never be reached at all.
+      if (this.prerolling && q.length >= target) this.prerolling = false
       // Steady state: present one (oldest) frame, paced to the source rate (once
       // per source-frame regardless of the panel's refresh rate). While
       // prerolling we hold to let the buffer fill (a one-time pause when it

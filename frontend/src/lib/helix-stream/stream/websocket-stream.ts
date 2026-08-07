@@ -111,6 +111,7 @@ export class WebSocketStream {
   // Set when a reconnect was skipped because the page was hidden; the
   // visibilitychange handler picks it up when the tab comes back.
   private reconnectWhenVisible = false
+  private visibilityRecheckId: ReturnType<typeof setInterval> | null = null
 
   // Set by reconnect() so the next init message is flagged as a user retry.
   private pendingUserRetry = false
@@ -571,6 +572,7 @@ export class WebSocketStream {
       console.log("[WebSocketStream] Page hidden, deferring reconnect until visible")
       this.dispatchInfoEvent({ type: "reconnectDeferred", reason: "page hidden" })
       this.reconnectWhenVisible = true
+      this.startVisibilityRecheck()
       return
     }
 
@@ -1110,11 +1112,29 @@ export class WebSocketStream {
       )
     }
 
-    // Draw frame to canvas
+    // Draw frame to canvas. A renderer that could not present (lost GPU context)
+    // must not be counted as a paint — that is what let a black canvas look
+    // healthy for minutes.
+    let painted = false
     if (this.videoRenderer) {
-      this.videoRenderer.draw(frame, targetWidth, targetHeight)
+      painted = this.videoRenderer.draw(frame, targetWidth, targetHeight)
     } else if (this.canvasCtx) {
       this.canvasCtx.drawImage(frame, 0, 0)
+      painted = true
+    }
+    if (painted) {
+      this.lastFramePaintedAt = Date.now()
+      this.framesPainted++
+      // A frame reached the screen: the only real proof the stream works, so this
+      // is where the retry budget is refunded.
+      if (!this.receivedVideoThisConnection) {
+        this.receivedVideoThisConnection = true
+        this.connectionStabilized = true
+        if (this.reconnectAttempts > 0) {
+          console.log(`[WebSocketStream] Video painting, reset reconnect counter (was ${this.reconnectAttempts})`)
+        }
+        this.reconnectAttempts = 0
+      }
     }
     frame.close()
     this.framesDecoded++
@@ -1171,6 +1191,14 @@ export class WebSocketStream {
 
   // Track if we've received the first keyframe (needed for decoder to work)
   private receivedFirstKeyframe = false
+
+  // Render watchdog. "videoStarted" fires from the DECODE path, so once decoding
+  // begins nothing else watches whether pixels actually reach the canvas.
+  private lastFramePaintedAt = 0
+  /** Frames that actually reached the canvas (framesDecoded counts attempts). */
+  framesPainted = 0
+  private renderStalled = false
+  private readonly RENDER_STALL_MS = 5000
 
   // Track video enabled state to make setVideoEnabled idempotent
   private _videoEnabled = true
@@ -1348,18 +1376,10 @@ export class WebSocketStream {
       console.log(`[WebSocketStream] First keyframe received (${frameData.length} bytes)`)
       this.receivedFirstKeyframe = true
 
-      // Video is flowing: this is the one and only proof that the stream works,
-      // so this is where the retry budget is refunded.
-      if (!this.receivedVideoThisConnection) {
-        this.receivedVideoThisConnection = true
-        this.connectionStabilized = true
-        if (this.reconnectAttempts > 0) {
-          console.log(`[WebSocketStream] Video flowing, reset reconnect counter (was ${this.reconnectAttempts})`)
-        }
-        this.reconnectAttempts = 0
-      }
-
-      // Notify that video is starting (first frame is being decoded)
+      // Notify that video is starting (first frame is being decoded). NOTE: this
+      // is decode, not display — the retry budget is refunded at the paint site,
+      // because a decoded frame that never reaches the canvas is not a working
+      // stream.
       this.dispatchInfoEvent({ type: "videoStarted" })
     }
 
@@ -2041,6 +2061,13 @@ export class WebSocketStream {
   // ============================================================================
 
   setCanvas(canvas: HTMLCanvasElement) {
+    // A canvas hands out one context per type for its lifetime. Re-attaching the
+    // same element (quality-mode switch, reconnect) must therefore REUSE the
+    // existing render target — tearing it down and re-acquiring yields a dead
+    // context that can never draw again.
+    if (this.canvas === canvas && (this.videoRenderer || this.canvasCtx)) {
+      return
+    }
     this.canvas = canvas
     this.videoRenderer?.dispose()
     this.videoRenderer = null
@@ -2051,11 +2078,18 @@ export class WebSocketStream {
     // the fastest path there; Safari/WebKit does NOT GPU-accelerate it (capped ~4fps
     // at 4K), so WebKit uses the WebGL2 texture path instead.
     if (isAppleWebKit()) {
+      // No 2D fallback here: this canvas is bound to WebGL2, so getContext("2d")
+      // would return null and every frame would be dropped in silence. If WebGL2
+      // is genuinely unavailable the stream cannot render, and that is reported.
       try {
         this.videoRenderer = new WebGLVideoRenderer(canvas)
       } catch (e) {
-        console.error("[WebSocketStream] WebGL2 renderer init failed, falling back to 2D:", e)
-        this.canvasCtx = canvas.getContext("2d", { alpha: false, desynchronized: true })
+        console.error("[WebSocketStream] WebGL2 renderer init failed:", e)
+        this.dispatchInfoEvent({
+          type: "renderStalled",
+          stalledMs: 0,
+          reason: "noRenderTarget",
+        })
       }
     } else {
       this.canvasCtx = canvas.getContext("2d", {
@@ -2290,9 +2324,46 @@ export class WebSocketStream {
     this.eventTarget.dispatchEvent(event)
   }
 
+  /**
+   * Detect "socket healthy, decoder healthy, nothing on screen". Every silent
+   * black-screen mode ends here: a lost GPU context, no render target at all, or
+   * a present path that has stopped delivering frames to the canvas.
+   */
+  private checkRenderHealth() {
+    if (!this._videoEnabled || !this.receivedFirstKeyframe) return
+    if (this.lastFramePaintedAt === 0) return
+
+    const stalledMs = Date.now() - this.lastFramePaintedAt
+    if (stalledMs < this.RENDER_STALL_MS) {
+      if (this.renderStalled) {
+        this.renderStalled = false
+        this.dispatchInfoEvent({ type: "renderRecovered" })
+      }
+      return
+    }
+    if (this.renderStalled) return
+
+    const reason = this.videoRenderer?.isContextLost()
+      ? "contextLost"
+      : !this.videoRenderer && !this.canvasCtx
+        ? "noRenderTarget"
+        : "notPresenting"
+    this.renderStalled = true
+    console.error(`[WebSocketStream] Render stalled ${stalledMs}ms (${reason})`)
+    this.dispatchInfoEvent({ type: "renderStalled", stalledMs, reason })
+  }
+
   private resetStreamState() {
     // Reset video state
     this.receivedFirstKeyframe = false
+    this.lastFramePaintedAt = 0
+    this.renderStalled = false
+    // A reconnect must not inherit the previous connection's render target state:
+    // close() drops the canvas, and without this the stream would come back up
+    // with nowhere to draw and report success anyway.
+    if (this.canvas && !this.videoRenderer && !this.canvasCtx) {
+      this.setCanvas(this.canvas)
+    }
   }
 
   private cleanupDecoders() {
@@ -2303,6 +2374,36 @@ export class WebSocketStream {
         // Ignore - decoder may already be closed
       }
       this.videoDecoder = null
+    }
+  }
+
+  /**
+   * Poll `document.hidden` while a reconnect is deferred. The visibilitychange
+   * listener alone is not enough: the heartbeat is stopped on disconnect, so if
+   * that one event is ever missed the deferral is never lifted and the stream
+   * stays dead with no way back. This timer is the only thing running then.
+   */
+  private startVisibilityRecheck() {
+    if (this.visibilityRecheckId !== null) return
+    this.visibilityRecheckId = setInterval(() => {
+      if (this.closed || this.connected || !this.reconnectWhenVisible) {
+        this.stopVisibilityRecheck()
+        return
+      }
+      if (!document.hidden) {
+        this.pageVisible = true
+        this.reconnectWhenVisible = false
+        this.stopVisibilityRecheck()
+        console.log("[WebSocketStream] Page visible again (poll), resuming deferred reconnect")
+        this.connect()
+      }
+    }, 2000)
+  }
+
+  private stopVisibilityRecheck() {
+    if (this.visibilityRecheckId !== null) {
+      clearInterval(this.visibilityRecheckId)
+      this.visibilityRecheckId = null
     }
   }
 
@@ -2325,6 +2426,7 @@ export class WebSocketStream {
         // Resume a reconnect we deferred while the tab was in the background.
         if (this.reconnectWhenVisible && !this.closed && !this.connected) {
           this.reconnectWhenVisible = false
+          this.stopVisibilityRecheck()
           console.log("[WebSocketStream] Page visible again, resuming deferred reconnect")
           this.connect()
         }
@@ -2352,6 +2454,8 @@ export class WebSocketStream {
       if (!this.pageVisible) {
         return
       }
+
+      this.checkRenderHealth()
 
       const now = Date.now()
       const elapsed = now - this.lastMessageTime
@@ -2481,15 +2585,16 @@ export class WebSocketStream {
     // Drop any buffered playout frames (closes VideoFrames, cancels the rAF loop)
     this.playout.dispose()
 
-    // CRITICAL: Clear canvas references FIRST to prevent any further rendering
-    // This must happen before decoder cleanup to ensure no frames are drawn
-    // after close() is called (even if decoder has frames in queue)
-    this.canvas = null
-    this.canvasCtx = null
-    this.videoRenderer?.dispose()
-    this.videoRenderer = null
+    // The render targets are NOT torn down here. close() is not only terminal —
+    // it also runs for bitrate and quality-mode switches, and the renderer's
+    // lifetime belongs to the canvas element, not to the socket. Rendering after
+    // close() is already prevented by the `closed` flag above. Destroying them
+    // here left a resumed stream with nowhere to draw, and (for WebGL) threw away
+    // the live context-restore handle that recovery depends on. They are released
+    // in setCanvas() when the canvas actually changes.
 
     // Cancel any pending reconnection
+    this.stopVisibilityRecheck()
     if (this.reconnectTimeoutId) {
       clearTimeout(this.reconnectTimeoutId)
       this.reconnectTimeoutId = null
