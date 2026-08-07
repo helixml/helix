@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
 
@@ -107,5 +107,34 @@ describe('ExternalAgentDesktopViewer sandbox mode', () => {
     )
 
     expect(screen.getByText(/no active Claude subscription is available/i)).toBeInTheDocument()
+  })
+
+  it('sends the user to connect the provider when a subscription is required', () => {
+    // Retrying cannot succeed until the subscription exists, so the connect
+    // action is the primary one and start is demoted rather than removed.
+    const onConnectSubscription = vi.fn()
+    renderViewer(
+      <ExternalAgentDesktopViewer
+        sessionId="ses_1"
+        mode="screenshot"
+        initialSandboxState="absent"
+        startupErrorMessage="agent is configured to use a Claude subscription, but no active Claude subscription is available"
+        connectSubscriptionLabel="Connect Claude"
+        onConnectSubscription={onConnectSubscription}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Claude' }))
+    expect(onConnectSubscription).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: /start desktop/i })).toBeInTheDocument()
+  })
+
+  it('offers no connect action for an ordinary pause', () => {
+    renderViewer(
+      <ExternalAgentDesktopViewer sessionId="ses_1" mode="screenshot" initialSandboxState="absent" />,
+    )
+
+    expect(screen.queryByRole('button', { name: /^Connect / })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /start desktop/i })).toBeInTheDocument()
   })
 })

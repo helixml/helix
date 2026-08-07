@@ -179,29 +179,34 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	// immediately (mirrors cloneTaskToProject behaviour). This bypasses the project's
 	// auto_start_backlog_tasks setting so the task starts even when project auto-start is off.
 	initialStatus := types.TaskStatusBacklog
+	assigneeID := req.AssigneeID
+	planningStartedBy := ""
 	if req.AutoStart {
 		if req.JustDoItMode {
 			initialStatus = types.TaskStatusQueuedImplementation
 		} else {
 			initialStatus = types.TaskStatusQueuedSpecGeneration
 		}
+		assigneeID = req.UserID
+		planningStartedBy = req.UserID
 	}
 
 	task := &types.SpecTask{
-		ID:             generateTaskID(),
-		ProjectID:      req.ProjectID,
-		UserID:         req.UserID,
-		OrganizationID: organizationID,
-		AssigneeID:     req.AssigneeID, // Optional: handler validates org membership before this is reached
-		Name:           GenerateTaskNameFromPrompt(req.Prompt),
-		Description:    req.Prompt,
-		Type:           req.Type,
-		Priority:       req.Priority,
-		Status:         initialStatus,
-		OriginalPrompt: req.Prompt,
-		CreatedBy:      req.UserID,
-		HelixAppID:     helixAppID,       // Helix agent used for entire workflow
-		JustDoItMode:   req.JustDoItMode, // Set Just Do It mode from request
+		ID:                generateTaskID(),
+		ProjectID:         req.ProjectID,
+		UserID:            req.UserID,
+		OrganizationID:    organizationID,
+		AssigneeID:        assigneeID, // Auto-started work is always assigned to the user who started it
+		Name:              GenerateTaskNameFromPrompt(req.Prompt),
+		Description:       req.Prompt,
+		Type:              req.Type,
+		Priority:          req.Priority,
+		Status:            initialStatus,
+		OriginalPrompt:    req.Prompt,
+		CreatedBy:         req.UserID,
+		PlanningStartedBy: planningStartedBy,
+		HelixAppID:        helixAppID,       // Helix agent used for entire workflow
+		JustDoItMode:      req.JustDoItMode, // Set Just Do It mode from request
 		// Credential-only override: whose Claude subscription authenticates this
 		// task's agent. Enforced at resolution time against the named user's
 		// delegation grant, so an unauthorised value simply has no effect.
@@ -671,7 +676,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
-		s.markTaskFailed(ctx, task, err.Error())
+		s.markTaskFailedErr(ctx, task, err)
 		return
 	}
 
@@ -1086,7 +1091,7 @@ Follow these guidelines when making changes:
 	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for Just Do It mode")
-		s.markTaskFailed(ctx, task, err.Error())
+		s.markTaskFailedErr(ctx, task, err)
 		return
 	}
 
@@ -1769,6 +1774,18 @@ func (s *SpecDrivenTaskService) selectZedAgent() string {
 }
 
 func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, errorMessage string) {
+	s.markTaskFailedWithCause(ctx, task, errorMessage, nil)
+}
+
+// markTaskFailedErr records a failure whose cause the browser may need to act
+// on. A missing subscription is not something a retry can fix — the user has to
+// connect the provider first — so the reason is persisted in a machine-readable
+// form alongside the message.
+func (s *SpecDrivenTaskService) markTaskFailedErr(ctx context.Context, task *types.SpecTask, err error) {
+	s.markTaskFailedWithCause(ctx, task, err.Error(), err)
+}
+
+func (s *SpecDrivenTaskService) markTaskFailedWithCause(ctx context.Context, task *types.SpecTask, errorMessage string, cause error) {
 	// Keep task in backlog status but set error metadata
 	now := time.Now()
 	task.Status = types.TaskStatusBacklog
@@ -1781,6 +1798,13 @@ func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.
 	}
 	task.Metadata["error"] = errorMessage
 	task.Metadata["error_timestamp"] = time.Now().Format(time.RFC3339)
+	delete(task.Metadata, types.TaskErrorCodeKey)
+	delete(task.Metadata, types.TaskErrorProviderKey)
+	var missingSubscription *types.MissingSubscriptionError
+	if errors.As(cause, &missingSubscription) {
+		task.Metadata[types.TaskErrorCodeKey] = types.TaskErrorSubscriptionRequired
+		task.Metadata[types.TaskErrorProviderKey] = missingSubscription.Provider
+	}
 
 	err := s.store.UpdateSpecTask(ctx, task)
 	if err != nil {

@@ -122,6 +122,13 @@ interface ExternalAgentDesktopViewerProps {
   apiClient?: Api<unknown>["api"]; // For prompt history sync
   defaultPanelOpen?: boolean; // Default state of the session panel (default: false)
   startupErrorMessage?: string;
+  /**
+   * Offered instead of "start desktop" when the launch was refused for a
+   * missing subscription — starting again cannot succeed until the provider
+   * is connected.
+   */
+  connectSubscriptionLabel?: string;
+  onConnectSubscription?: () => void;
   // Pre-computed sandbox state from the task list (avoids per-card session polling on Kanban)
   initialSandboxState?: string;
   initialSandboxStatusMessage?: string;
@@ -146,6 +153,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   apiClient,
   defaultPanelOpen = false,
   startupErrorMessage,
+  connectSubscriptionLabel,
+  onConnectSubscription,
   initialSandboxState,
   initialSandboxStatusMessage,
   sandboxMode = false,
@@ -479,6 +488,11 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               variant="overlay"
               tone="paused"
               detail={startupErrorMessage}
+              primaryAction={
+                connectSubscriptionLabel && onConnectSubscription
+                  ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
+                  : undefined
+              }
               title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
               description={
                 sandboxMode
@@ -617,6 +631,11 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             variant="overlay"
             tone="paused"
             detail={startupErrorMessage}
+            primaryAction={
+              connectSubscriptionLabel && onConnectSubscription
+                ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
+                : undefined
+            }
             title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
             description={
               sandboxMode
@@ -702,6 +721,11 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                   variant="overlay"
                   tone="paused"
                   detail={startupErrorMessage}
+                  primaryAction={
+                    connectSubscriptionLabel && onConnectSubscription
+                      ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
+                      : undefined
+                  }
                   title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
                   description={
                     sandboxMode

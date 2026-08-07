@@ -57,6 +57,7 @@ import ExternalAgentDesktopViewer, {
 } from "../external-agent/ExternalAgentDesktopViewer";
 import DiffViewer from "./DiffViewer";
 import TaskSessionPlaceholder from "./TaskSessionPlaceholder";
+import { subscriptionRequirementFromTask } from "./taskLaunchFailure";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import TaskAttachmentsPanel from "./TaskAttachmentsPanel";
@@ -700,6 +701,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   const taskMetadataError =
     typeof task?.metadata?.error === "string" ? task.metadata.error : "";
+
+  // A launch refused for a missing subscription is not retryable: send the user
+  // to the provider login instead of offering a start button that fails again.
+  const subscriptionRequirement = subscriptionRequirementFromTask(
+    task?.metadata as Record<string, unknown> | undefined,
+  );
+  const connectSubscription = useCallback(() => {
+    const organizationId = project?.organization_id;
+    if (organizationId) router.navigate("org_providers", { org_id: organizationId });
+  }, [project?.organization_id, router]);
 
   // Sync justDoItMode when task changes
   useEffect(() => {
@@ -2433,6 +2444,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       displayHeight={displaySettings.height}
                       displayFps={displaySettings.fps}
                       startupErrorMessage={taskMetadataError}
+                      connectSubscriptionLabel={
+                        subscriptionRequirement
+                          ? `Connect ${subscriptionRequirement.label}`
+                          : undefined
+                      }
+                      onConnectSubscription={connectSubscription}
                       initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                     />
                   ))}
@@ -2889,6 +2906,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     displayHeight={displaySettings.height}
                     displayFps={displaySettings.fps}
                     startupErrorMessage={taskMetadataError}
+                    connectSubscriptionLabel={
+                      subscriptionRequirement
+                        ? `Connect ${subscriptionRequirement.label}`
+                        : undefined
+                    }
+                    onConnectSubscription={connectSubscription}
                     initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                   />
                 )}

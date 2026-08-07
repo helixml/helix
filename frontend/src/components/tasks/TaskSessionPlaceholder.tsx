@@ -1,6 +1,6 @@
 import React, { FC, ReactNode } from "react";
 import { Box, Button, CircularProgress, Typography } from "@mui/material";
-import { CircleCheck, CircleSlash, MonitorPlay, Play } from "lucide-react";
+import { CircleCheck, CircleSlash, LogIn, MonitorPlay, Play } from "lucide-react";
 
 export type TaskSessionPlaceholderTone = "finished" | "archived" | "paused";
 
@@ -18,6 +18,12 @@ interface TaskSessionPlaceholderProps {
   onStart?: () => void;
   starting?: boolean;
   startLabel?: string;
+  /**
+   * The action that actually unblocks the user, when starting the desktop
+   * cannot. A refused launch offers this as the primary button and demotes
+   * the start action, because retrying fails identically until it is done.
+   */
+  primaryAction?: { label: string; onClick: () => void };
   /**
    * "overlay" renders on an opaque surface, for use on top of a dimmed
    * screenshot backdrop where a near-transparent card would not read.
@@ -48,6 +54,7 @@ const TaskSessionPlaceholder: FC<TaskSessionPlaceholderProps> = ({
   onStart,
   starting = false,
   startLabel = "Start desktop",
+  primaryAction,
   variant = "plain",
 }) => (
   <Box
@@ -105,20 +112,35 @@ const TaskSessionPlaceholder: FC<TaskSessionPlaceholderProps> = ({
           {detail}
         </Typography>
       )}
-      {onStart && (
-        <Button
-          variant="outlined"
-          size="small"
-          color="inherit"
-          startIcon={
-            starting ? <CircularProgress size={14} color="inherit" /> : <Play size={14} />
-          }
-          onClick={onStart}
-          disabled={starting}
-          sx={{ mt: 2.5, textTransform: "none" }}
-        >
-          {starting ? "Starting…" : startLabel}
-        </Button>
+      {(primaryAction || onStart) && (
+        <Box sx={{ display: "flex", justifyContent: "center", gap: 1, mt: 2.5, flexWrap: "wrap" }}>
+          {primaryAction && (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<LogIn size={14} />}
+              onClick={primaryAction.onClick}
+              sx={{ textTransform: "none" }}
+            >
+              {primaryAction.label}
+            </Button>
+          )}
+          {onStart && (
+            <Button
+              variant="outlined"
+              size="small"
+              color="inherit"
+              startIcon={
+                starting ? <CircularProgress size={14} color="inherit" /> : <Play size={14} />
+              }
+              onClick={onStart}
+              disabled={starting}
+              sx={{ textTransform: "none" }}
+            >
+              {starting ? "Starting…" : startLabel}
+            </Button>
+          )}
+        </Box>
       )}
     </Box>
   </Box>
