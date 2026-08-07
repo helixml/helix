@@ -1197,6 +1197,10 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive()
 	// was persisted after an in-memory streaming copy was created.
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-skip").Return(targetInteraction, nil).
 		MinTimes(1).MaxTimes(2)
+	// Completion also reconciles the owning spec task; this session has one.
+	// A healthy task means reconciliation finds nothing to release.
+	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).
+		Return(&types.SpecTask{ID: "task-skip", Status: types.TaskStatusImplementation}, nil).AnyTimes()
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
 
 	// ListInteractions is called for both the suppression check (PerPage=1)
@@ -1540,6 +1544,8 @@ func (s *WebSocketSyncSuite) TestAgentReady_Basic() {
 	s.server.externalAgentWSManager.initReadinessState("ses_ready", false, nil)
 	defer s.server.externalAgentWSManager.cleanupReadinessState("ses_ready")
 
+	// agent_ready reconciles the owning spec task; a plain session has none.
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_ready").Return(&types.Session{ID: "ses_ready"}, nil).AnyTimes()
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), "ses_ready").Return(nil, nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
@@ -1559,6 +1565,9 @@ func (s *WebSocketSyncSuite) TestAgentReady_Basic() {
 }
 
 func (s *WebSocketSyncSuite) TestAgentReady_NoReadinessState() {
+	// agent_ready reconciles the owning spec task; a plain session has none.
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_nostate").Return(&types.Session{ID: "ses_nostate"}, nil).AnyTimes()
+
 	// No initReadinessState called — should return nil without error
 	syncMsg := &types.SyncMessage{
 		EventType: "agent_ready",
@@ -1617,6 +1626,9 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 }
 
 func (s *WebSocketSyncSuite) TestAgentReady_ReconnectDoesNotSendOpenThread() {
+	// agent_ready reconciles the owning spec task; a plain session has none.
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_reconnect").Return(&types.Session{ID: "ses_reconnect"}, nil).AnyTimes()
+
 	// open_thread is now sent on connect (handleExternalAgentConnection), BEFORE
 	// the agent_ready gate. handleAgentReady should NOT send open_thread — doing
 	// so would cause it to arrive after the queued chat_message, triggering
@@ -1658,6 +1670,9 @@ func (s *WebSocketSyncSuite) TestAgentReady_NoOpenThreadWhenThreadIDPresent() {
 	// When agent_ready includes a thread_id (Zed loaded a specific thread),
 	// we should NOT send open_thread — Zed already has the subscription.
 	sessionID := "ses_already_loaded"
+
+	// agent_ready reconciles the owning spec task; a plain session has none.
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(&types.Session{ID: sessionID}, nil).AnyTimes()
 
 	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
 	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
