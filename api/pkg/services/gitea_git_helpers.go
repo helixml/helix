@@ -367,7 +367,7 @@ func ShortHash(hash string) string {
 
 // PreReceiveHookVersion is incremented when the hook logic changes.
 // The hook script contains this version and will be updated if it differs.
-const PreReceiveHookVersion = "4"
+const PreReceiveHookVersion = "5"
 
 // preReceiveHookScript is the shell script that:
 // 1. Protects helix-specs branch from force pushes
@@ -437,7 +437,20 @@ while read oldrev newrev refname; do
         if ! branch_allowed "$branch" "$ALLOWED_BRANCHES"; then
             echo "error: refusing to update refs/heads/$branch" >&2
             echo "hint: This push is restricted to: $ALLOWED_BRANCHES" >&2
-            echo "hint: Push to your assigned feature branch instead." >&2
+            # Only helix-specs allowed means the task has no BranchName, which it
+            # is given when it reaches implementation. Telling someone in that
+            # state to "push to your assigned feature branch" sends them hunting
+            # for a credentials or permissions fault, because the branch they are
+            # being told to use does not exist. Name the real cause instead.
+            if [ "$ALLOWED_BRANCHES" = "helix-specs" ]; then
+                echo "hint: Your task has no feature branch assigned yet, so only helix-specs is writable." >&2
+                echo "hint: A branch is assigned when the task reaches implementation. If it is sitting in" >&2
+                echo "hint: spec_review it is waiting for its specs to be approved, and until then it cannot" >&2
+                echo "hint: push code anywhere. This is not a credentials problem." >&2
+            else
+                echo "hint: Push to your assigned feature branch instead." >&2
+                echo "hint: The same branch name is used across every repo in the project." >&2
+            fi
             exit 1
         fi
     fi
