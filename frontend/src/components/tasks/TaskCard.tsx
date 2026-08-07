@@ -1092,7 +1092,7 @@ function TaskCardInner({
         <AssigneeSelector
           assigneeId={task.assignee_id}
           members={orgMembers}
-          currentUserId={account.user?.id}
+          currentUser={account.user}
           onAssigneeChange={handleAssigneeChange}
           isLoading={updateSpecTask.isPending}
           anchorEl={assigneeAnchorEl}
