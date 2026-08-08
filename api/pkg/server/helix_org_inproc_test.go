@@ -123,6 +123,45 @@ func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentI
 	require.Equal(t, replacement.ID, preserved.DefaultHelixAppID)
 }
 
+// A failure to stop the bot's desktop session must not abort the delete
+// cascade. stopExternalAgentSession 404s on an already-gone session, 400s on a
+// non-zed_external session and 500s when hydra is down; treating any of those
+// as fatal left the bot permanently undeletable.
+func TestInProcClient_DeleteLinkedAgentContinuesWhenSessionStopFails(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.App{}, &types.Knowledge{}, &types.KnowledgeVersion{}))
+	for _, statement := range []string{
+		`CREATE TABLE org_bot_runtime_state (org_id TEXT, bot_id TEXT)`,
+		`CREATE TABLE org_subscriptions (org_id TEXT, bot_id TEXT)`,
+		`CREATE TABLE org_bots (org_id TEXT, id TEXT, agent_app_id TEXT)`,
+	} {
+		require.NoError(t, db.Exec(statement).Error)
+	}
+	app := &types.App{ID: "app-agent"}
+	require.NoError(t, db.Create(app).Error)
+	require.NoError(t, db.Exec(
+		`INSERT INTO org_bots (org_id, id, agent_app_id) VALUES (?, ?, ?)`,
+		"org-test", "b-agent", app.ID,
+	).Error)
+
+	// memorystore has no session seeded, so StopExternalAgent resolves to a 404.
+	store := &gormBackedInProcStore{Store: memorystore.New(), db: db}
+	client := NewInProcHelixClient(&HelixAPIServer{Store: store})
+	ctx := runtimehelix.WithUser(context.Background(), &types.User{ID: "usr_request"})
+
+	require.NoError(t, client.DeleteLinkedAgent(ctx, "org-test", "b-agent", app.ID, "ses_missing"))
+
+	var appCount, botCount int64
+	require.NoError(t, db.Model(&types.App{}).Where("id = ?", app.ID).Count(&appCount).Error)
+	require.NoError(t, db.Table("org_bots").Where("org_id = ? AND id = ?", "org-test", "b-agent").Count(&botCount).Error)
+	require.Zero(t, appCount)
+	require.Zero(t, botCount)
+}
+
 // The org runtime — not the shared apply handler — is what classifies a bot's
 // agent app as org_agent. applyProject leaves the app as a coding agent so the
 // public apply endpoint stays usable for spec tasks.

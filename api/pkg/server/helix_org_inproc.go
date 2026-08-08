@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/hydra"
@@ -790,8 +791,18 @@ func (c *inProcHelixClient) DeleteApp(ctx context.Context, id string) error {
 
 func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID, sessionID string) error {
 	if sessionID != "" {
+		// Best-effort: stopping the desktop is a courtesy teardown, not a
+		// precondition for deleting the bot. stopExternalAgentSession 404s on an
+		// already-deleted session, 400s when the session isn't zed_external, and
+		// 500s when hydra is unreachable — none of which should leave the bot
+		// permanently undeletable. The container is reaped by its own lifecycle
+		// either way.
 		if err := c.StopExternalAgent(ctx, sessionID); err != nil {
-			return fmt.Errorf("stop linked agent session %s: %w", sessionID, err)
+			log.Warn().
+				Err(err).
+				Str("session_id", sessionID).
+				Str("bot_id", string(botID)).
+				Msg("failed to stop linked agent session; continuing with delete")
 		}
 	}
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
