@@ -2974,12 +2974,6 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		}
 
 		if req.AgentAppID != "" {
-			if agentApp.AgentKind != types.AgentKindOrg {
-				agentApp.AgentKind = types.AgentKindOrg
-				if _, err := s.Store.UpdateApp(r.Context(), agentApp); err != nil {
-					return nil, system.NewHTTPError500(fmt.Sprintf("failed to classify linked agent app: %v", err))
-				}
-			}
 			agentAppID = agentApp.ID
 		} else if agentApp != nil {
 			// Apply only owns name/runtime/provider/model/credentials/tools/
@@ -3003,12 +2997,16 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			}
 			agentAppID = agentApp.ID
 		} else {
+			// AgentKind is left to the store's classifier: an apply spec always
+			// produces a zed_external agent, so it lands as coding_agent and the
+			// project can run spec tasks. Org-bot projects are not special-cased
+			// here — the helix-org runtime reclassifies its own agent app to
+			// org_agent after apply (see inProcHelixClient.ApplyProject).
 			agentApp = &types.App{
 				ID:             system.GenerateUUID(),
 				Owner:          user.ID,
 				OwnerType:      types.OwnerTypeUser,
 				OrganizationID: orgID,
-				AgentKind:      types.AgentKindOrg,
 				Config: types.AppConfig{
 					Helix: appHelixConfig,
 				},

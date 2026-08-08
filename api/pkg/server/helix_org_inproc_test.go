@@ -123,6 +123,30 @@ func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentI
 	require.Equal(t, replacement.ID, preserved.DefaultHelixAppID)
 }
 
+// The org runtime — not the shared apply handler — is what classifies a bot's
+// agent app as org_agent. applyProject leaves the app as a coding agent so the
+// public apply endpoint stays usable for spec tasks.
+func TestInProcClient_MarkAgentAppAsOrgKind(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	existing := &types.App{ID: "app_bot", AgentKind: types.AgentKindCoding}
+	st.EXPECT().GetApp(gomock.Any(), "app_bot").Return(existing, nil)
+	st.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, app *types.App) (*types.App, error) {
+			require.Equal(t, types.AgentKindOrg, app.AgentKind)
+			return app, nil
+		},
+	)
+
+	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
+	require.NoError(t, client.markAgentAppAsOrgKind(context.Background(), "app_bot"))
+
+	// Already org_agent → no write.
+	already := &types.App{ID: "app_bot2", AgentKind: types.AgentKindOrg}
+	st.EXPECT().GetApp(gomock.Any(), "app_bot2").Return(already, nil)
+	require.NoError(t, client.markAgentAppAsOrgKind(context.Background(), "app_bot2"))
+}
+
 func TestInProcClient_ResolvesOrganizationOwnerWithoutAdmin(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	st := helixstore.NewMockStore(ctrl)

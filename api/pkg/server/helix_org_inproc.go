@@ -385,7 +385,36 @@ func (c *inProcHelixClient) ApplyProject(ctx context.Context, req types.ProjectA
 	if resp == nil {
 		return types.ProjectApplyResponse{}, errors.New("apply project: nil response")
 	}
+	// applyProject classifies the agent app it creates/links as a coding agent
+	// (the classification every non-org caller wants). A bot's agent belongs to
+	// the org graph instead, so reclassify here rather than in the shared
+	// handler — that keeps the public apply endpoint from silently converting a
+	// caller's coding agent into an org agent. Also repairs bots whose apps
+	// predate agent_kind.
+	if resp.AgentAppID != "" {
+		if err := c.markAgentAppAsOrgKind(ctx, resp.AgentAppID); err != nil {
+			return types.ProjectApplyResponse{}, err
+		}
+	}
 	return *resp, nil
+}
+
+// markAgentAppAsOrgKind flips an agent app to org_agent so it is excluded from
+// the coding-agent surfaces (spec-task selectors, project agent configuration,
+// the Apps "Coding Agents" tab) that org bots must not appear in.
+func (c *inProcHelixClient) markAgentAppAsOrgKind(ctx context.Context, appID string) error {
+	app, err := c.server.Store.GetApp(ctx, appID)
+	if err != nil {
+		return fmt.Errorf("get agent app %s: %w", appID, err)
+	}
+	if app.AgentKind == types.AgentKindOrg {
+		return nil
+	}
+	app.AgentKind = types.AgentKindOrg
+	if _, err := c.server.Store.UpdateApp(ctx, app); err != nil {
+		return fmt.Errorf("classify agent app %s as org agent: %w", appID, err)
+	}
+	return nil
 }
 
 // GetProject returns a project by ID. Maps 404 → runtimehelix.ErrProjectNotFound
