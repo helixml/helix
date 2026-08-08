@@ -35,16 +35,22 @@ type LLMModelConfig struct {
 	AcceptsNoneReasoningEffort bool
 }
 
-// applyReasoningEffort resolves the "none" sentinel against the model's
-// declared capability: sent verbatim when supported, stripped otherwise.
+// applyReasoningEffort resolves the effort actually sent on the wire.
+//
+// Callers such as decideNextAction build their request without an effort at
+// all, so the model's configured effort has to be filled in here — otherwise
+// the parameter is omitted and the provider silently applies its own default.
+// The "none" sentinel is then resolved against the model's declared
+// capability: sent verbatim when supported, stripped otherwise.
 func applyReasoningEffort(model *LLMModelConfig, params openai.ChatCompletionRequest) openai.ChatCompletionRequest {
-	if params.ReasoningEffort != "none" {
-		return params
+	effort := params.ReasoningEffort
+	if effort == "" && model != nil {
+		effort = model.ReasoningEffort
 	}
-	if model != nil && model.AcceptsNoneReasoningEffort {
-		return params
+	if effort == "none" && (model == nil || !model.AcceptsNoneReasoningEffort) {
+		effort = ""
 	}
-	params.ReasoningEffort = ""
+	params.ReasoningEffort = effort
 	return params
 }
 
