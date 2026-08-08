@@ -3,6 +3,8 @@ package openai
 import (
 	"context"
 	"net/http"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -238,33 +240,179 @@ func TestWaitForTokensRecoversAfterBackoffExpires(t *testing.T) {
 	assert.Zero(t, rl.backoffDuration, "backoff should be cleared once waited out")
 }
 
-// Concurrent traffic through a single limiter, with 429s interleaved — the
-// shape of real usage, and the case the -race detector is most useful for.
-func TestRateLimiterConcurrentAccess(t *testing.T) {
+// Concurrent traffic through every locking method at once. The interleaved
+// 429s keep zeroing the bucket, so WaitForTokens is expected to give up on its
+// context rather than succeed — what is under test is that all three methods
+// keep making progress against the shared mutex. Throughput semantics are
+// covered by TestWaitForTokensDoesNotOverAdmitUnderConcurrency.
+func TestRateLimiterConcurrentAccessDoesNotDeadlock(t *testing.T) {
 	rl := NewUniversalRateLimiter("openai")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 
 	headers := http.Header{}
 	headers.Set("x-ratelimit-limit-tokens", "150000")
 
-	done := make(chan struct{})
+	start := time.Now()
+
+	var wg sync.WaitGroup
+	wg.Add(3)
 	go func() {
-		defer close(done)
-		for range 50 {
+		defer wg.Done()
+		for range 200 {
 			rl.UpdateFromHeaders(headers)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			rl.Handle429Error(http.Header{})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for ctx.Err() == nil {
 			_ = rl.WaitForTokens(ctx, 10)
 		}
 	}()
 
-	for range 50 {
-		rl.Handle429Error(http.Header{})
-	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
 
 	select {
 	case <-done:
-	case <-time.After(15 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("concurrent rate limiter access deadlocked")
 	}
+
+	// Should finish as soon as the 500ms context expires; anything close to the
+	// 10s ceiling means callers are queueing behind a lock held across a sleep.
+	assert.Less(t, time.Since(start), 5*time.Second)
+}
+
+// Dropping the mutex around the sleeps must not drop the serialisation that is
+// doing the actual rate limiting. Concurrent callers all observe the same empty
+// bucket, so admitting on the strength of that stale snapshot lets every one of
+// them through at the same instant — N times the configured budget.
+func TestWaitForTokensDoesNotOverAdmitUnderConcurrency(t *testing.T) {
+	rl := NewUniversalRateLimiter("openai")
+
+	const tokensPerSecond = 1000
+	const callers = 3
+	const tokensEach = 200 // 200ms of budget each
+
+	now := time.Now()
+	rl.mu.Lock()
+	rl.tokensPerMinute = tokensPerSecond * 60
+	rl.maxTokens = tokensPerSecond * 60
+	rl.currentTokens = 0 // start empty so every caller has to wait its turn
+	rl.requestsPerMinute = 60000
+	rl.maxRequests = 60000
+	rl.currentRequests = 1000 // request limiting must not gate this test
+	rl.lastRefill = now
+	rl.lastRequestRefill = now
+	rl.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+
+	type admission struct {
+		at  time.Duration
+		err error
+	}
+
+	start := time.Now()
+	results := make(chan admission, callers)
+
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := rl.WaitForTokens(ctx, tokensEach)
+			results <- admission{at: time.Since(start), err: err}
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	var times []time.Duration
+	for r := range results {
+		require.NoError(t, r.err)
+		times = append(times, r.at)
+	}
+	require.Len(t, times, callers)
+	slices.Sort(times)
+
+	// Each caller must wait for the bucket to refill its own share — roughly
+	// 200ms apart. Admitting all three at once is the regression.
+	for i := 1; i < callers; i++ {
+		assert.GreaterOrEqualf(t, times[i]-times[i-1], 100*time.Millisecond,
+			"callers %d and %d were admitted %s apart; expected them to be serialised (all admissions: %v)",
+			i-1, i, times[i]-times[i-1], times)
+	}
+
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	assert.LessOrEqual(t, rl.currentTokens, int64(tokensPerSecond), "bucket should have been charged for every admission")
+}
+
+// A 429 that lands while another caller is asleep in its backoff must extend
+// the window, not be cleared out from under it when that sleep ends. Otherwise
+// the exponential ladder in Handle429Error resets to zero during exactly the
+// sustained-429 storm it exists for.
+func TestHandle429DuringBackoffIsNotDiscarded(t *testing.T) {
+	rl := NewUniversalRateLimiter("openai")
+
+	short := http.Header{}
+	short.Set("retry-after", "1")
+	rl.Handle429Error(short)
+
+	returned := make(chan error, 1)
+	go func() {
+		returned <- rl.WaitForTokens(t.Context(), 1)
+	}()
+
+	// Second 429 arrives while the waiter is still inside its 1s sleep.
+	time.Sleep(300 * time.Millisecond)
+	long := http.Header{}
+	long.Set("retry-after", "3600")
+	rl.Handle429Error(long)
+
+	select {
+	case err := <-returned:
+		t.Fatalf("WaitForTokens returned (err=%v) instead of honouring the second 429's backoff", err)
+	case <-time.After(2 * time.Second):
+		// Still waiting, as it should be.
+	}
+
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	assert.Equal(t, time.Hour, rl.backoffDuration, "the second 429's backoff was discarded")
+}
+
+// A request bigger than the provider's entire per-minute budget can never be
+// covered by the bucket. It must still be admitted once the bucket is full
+// rather than looping until the caller's context expires.
+func TestWaitForTokensAdmitsRequestLargerThanWholeBudget(t *testing.T) {
+	rl := NewUniversalRateLimiter("openai")
+
+	rl.mu.Lock()
+	rl.tokensPerMinute = 60000
+	rl.maxTokens = 1000
+	rl.currentTokens = 1000 // full
+	rl.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	require.NoError(t, rl.WaitForTokens(ctx, 5000)) // 5x the entire bucket
+
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	assert.Equal(t, int64(0), rl.currentTokens, "an oversized request should be charged the whole bucket")
 }

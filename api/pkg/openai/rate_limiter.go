@@ -81,94 +81,129 @@ func NewUniversalRateLimiter(provider string) *UniversalRateLimiter {
 	}
 }
 
-// WaitForTokens waits until the specified number of tokens are available.
+// minRateLimiterWait floors each wait so that a caller a few tokens short of
+// the bucket re-checks on a timer rather than spinning on the mutex.
+const minRateLimiterWait = 10 * time.Millisecond
+
+// WaitForTokens blocks until the request has been admitted against the token
+// bucket, or ctx is cancelled.
 //
 // The mutex is never held across a sleep: waiters would otherwise be serialised
 // behind whichever caller is backing off, and — because sync.Mutex.Lock is not
 // cancellable — they could not observe their own context being cancelled.
+//
+// Every pass re-evaluates the bucket under the lock and only returns once the
+// deduction has actually succeeded. Callers must not compute a wait, sleep, and
+// then admit themselves on the strength of that stale snapshot: concurrent
+// callers all see the same empty bucket, so they would wake together and admit
+// N requests' worth of tokens in one instant.
 func (rl *UniversalRateLimiter) WaitForTokens(ctx context.Context, tokensNeeded int64) error {
-	// Check if we need to wait due to previous 429 errors
-	rl.mu.Lock()
-	rl.refillTokens()
-	var backoffWait time.Duration
-	if rl.backoffDuration > 0 {
-		if remaining := time.Until(rl.lastRequestTime.Add(rl.backoffDuration)); remaining > 0 {
-			backoffWait = remaining
+	for {
+		rl.mu.Lock()
+		rl.refillTokens()
+
+		// Honour any backoff from a recent 429 before looking at the bucket.
+		if rl.backoffDuration > 0 {
+			remaining := time.Until(rl.lastRequestTime.Add(rl.backoffDuration))
+			if remaining > 0 {
+				provider := rl.provider
+				rl.mu.Unlock()
+
+				log.Warn().
+					Str("provider", provider).
+					Dur("wait_time", remaining).
+					Msg("Rate limiter waiting due to previous 429 error")
+
+				if err := sleepWithContext(ctx, remaining); err != nil {
+					return err
+				}
+				continue
+			}
+
+			// The window has elapsed. Re-checked under the lock on every pass
+			// so a 429 that lands while we sleep extends the backoff rather
+			// than being cleared out from under it — otherwise the exponential
+			// ladder in Handle429Error resets to zero during exactly the
+			// sustained-429 storm it exists for.
+			rl.backoffDuration = 0
 		}
-	}
-	provider := rl.provider
-	rl.mu.Unlock()
 
-	if backoffWait > 0 {
-		log.Warn().
-			Str("provider", provider).
-			Dur("wait_time", backoffWait).
-			Msg("Rate limiter waiting due to previous 429 error")
+		if rl.currentRequests >= 1 {
+			// Normal case: the bucket covers the request.
+			if rl.currentTokens >= tokensNeeded {
+				rl.currentTokens -= tokensNeeded
+				rl.currentRequests--
+				rl.lastRequestTime = time.Now()
+				rl.mu.Unlock()
+				return nil
+			}
 
-		if err := sleepWithContext(ctx, backoffWait); err != nil {
+			// A request larger than the entire budget can never be covered.
+			// Admit it once the bucket has refilled to the brim and charge it
+			// everything, rather than looping until ctx expires.
+			if tokensNeeded > rl.maxTokens && rl.currentTokens >= rl.maxTokens {
+				log.Warn().
+					Str("provider", rl.provider).
+					Int64("tokens_needed", tokensNeeded).
+					Int64("max_tokens", rl.maxTokens).
+					Msg("Rate limiter admitting request larger than the provider's entire token budget")
+
+				rl.currentTokens = 0
+				rl.currentRequests--
+				rl.lastRequestTime = time.Now()
+				rl.mu.Unlock()
+				return nil
+			}
+		}
+
+		waitTime := rl.waitTimeLocked(tokensNeeded)
+
+		log.Info().
+			Str("provider", rl.provider).
+			Int64("tokens_needed", tokensNeeded).
+			Int64("tokens_available", rl.currentTokens).
+			Dur("wait_time", waitTime).
+			Msg("Rate limiter waiting for tokens")
+		rl.mu.Unlock()
+
+		if err := sleepWithContext(ctx, waitTime); err != nil {
 			return err
 		}
-
-		rl.mu.Lock()
-		rl.backoffDuration = 0 // Reset backoff
-		rl.mu.Unlock()
 	}
+}
 
-	rl.mu.Lock()
-	rl.refillTokens()
+// waitTimeLocked estimates how long until the bucket can cover tokensNeeded.
+// Callers must hold rl.mu.
+func (rl *UniversalRateLimiter) waitTimeLocked(tokensNeeded int64) time.Duration {
+	// A request bigger than the whole budget waits for a full bucket, not for
+	// an amount the limiter will never accumulate.
+	target := min(tokensNeeded, rl.maxTokens)
 
-	// Check if we have enough tokens
-	if rl.currentTokens >= tokensNeeded && rl.currentRequests >= 1 {
-		rl.currentTokens -= tokensNeeded
-		rl.currentRequests--
-		rl.lastRequestTime = time.Now()
-		rl.mu.Unlock()
-		return nil
-	}
-
-	// Calculate wait time for token refill
-	tokensShortfall := tokensNeeded - rl.currentTokens
+	tokensShortfall := target - rl.currentTokens
 	if tokensShortfall <= 0 {
 		tokensShortfall = 1 // Need at least 1 token
 	}
 
-	waitSeconds := float64(tokensShortfall) / float64(rl.tokensPerMinute) * 60.0
-	waitTime := time.Duration(waitSeconds * float64(time.Second))
+	var waitTime time.Duration
+	if rl.tokensPerMinute > 0 {
+		waitSeconds := float64(tokensShortfall) / float64(rl.tokensPerMinute) * 60.0
+		waitTime = time.Duration(waitSeconds * float64(time.Second))
+	} else {
+		waitTime = time.Second
+	}
 
 	// Also check request rate limiting
 	if rl.currentRequests < 1 {
-		requestWaitTime := time.Duration(60.0/float64(rl.requestsPerMinute)) * time.Second
+		requestWaitTime := time.Second
+		if rl.requestsPerMinute > 0 {
+			requestWaitTime = time.Duration(60.0/float64(rl.requestsPerMinute)) * time.Second
+		}
 		if requestWaitTime > waitTime {
 			waitTime = requestWaitTime
 		}
 	}
 
-	log.Info().
-		Str("provider", rl.provider).
-		Int64("tokens_needed", tokensNeeded).
-		Int64("tokens_available", rl.currentTokens).
-		Dur("wait_time", waitTime).
-		Msg("Rate limiter waiting for tokens")
-	rl.mu.Unlock()
-
-	if err := sleepWithContext(ctx, waitTime); err != nil {
-		return err
-	}
-
-	// Refill again after waiting
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	rl.refillTokens()
-
-	// Deduct tokens and requests
-	if rl.currentTokens >= tokensNeeded {
-		rl.currentTokens -= tokensNeeded
-	}
-	if rl.currentRequests >= 1 {
-		rl.currentRequests--
-	}
-	rl.lastRequestTime = time.Now()
-	return nil
+	return max(waitTime, minRateLimiterWait)
 }
 
 // sleepWithContext sleeps for d, returning early with ctx.Err() if the context
@@ -399,6 +434,12 @@ func (rl *UniversalRateLimiter) Handle429Error(headers http.Header) {
 	// Zero out current tokens and requests to force waiting
 	rl.currentTokens = 0
 	rl.currentRequests = 0
+
+	// Anchor the backoff window to this 429 rather than to the last successful
+	// request. A slow request that 429s after the previous window has already
+	// elapsed would otherwise compute a zero wait and skip the server's
+	// retry-after entirely.
+	rl.lastRequestTime = time.Now()
 
 	log.Warn().
 		Str("provider", rl.provider).
