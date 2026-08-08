@@ -138,8 +138,8 @@ type HelixAPIServer struct {
 	// waiting interaction to the external agent. Keyed by interaction_id and
 	// held under contextMappingsMutex. See claimInteractionDispatch.
 	interactionDispatchClaims map[string]dispatchClaim
-	credentialTokensMu          sync.RWMutex
-	credentialTokens            map[string]map[string]struct{} // org_id -> minted tokens
+	credentialTokensMu        sync.RWMutex
+	credentialTokens          map[string]map[string]struct{} // org_id -> minted tokens
 	// (interaction → prompt link is now persisted on Interaction.PromptID
 	// so it survives API restart; the in-memory map was deleted in the
 	// 2026-04-30 stuck-queue fix.)

@@ -104,10 +104,10 @@ func toModelInfo(m ModelInfoData) types.ModelInfo {
 			}
 			return m.ReasoningConfig.SupportedReasoningEfforts
 		}(),
-		ContextLength:           m.ContextLength,
-		SupportedParameters:     m.Endpoint.SupportedParameters,
-		MaxCompletionTokens:     m.Endpoint.MaxCompletionTokens,
-		Pricing:                 m.Endpoint.Pricing,
+		ContextLength:       m.ContextLength,
+		SupportedParameters: m.Endpoint.SupportedParameters,
+		MaxCompletionTokens: m.Endpoint.MaxCompletionTokens,
+		Pricing:             m.Endpoint.Pricing,
 	}
 }
 

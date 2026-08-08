@@ -78,7 +78,7 @@ func (nodeMapper) ToRow(node orgchart.Node) (nodeRow, error) {
 	}, nil
 }
 
-	func (nodeMapper) ToDomain(row nodeRow) (orgchart.Node, error) {
+func (nodeMapper) ToDomain(row nodeRow) (orgchart.Node, error) {
 	var tools []tool.Name
 	if len(row.Tools) > 0 {
 		tools = make([]tool.Name, 0, len(row.Tools))
