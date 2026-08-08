@@ -27,7 +27,8 @@ import EditIcon from '@mui/icons-material/Edit'
 import useAccount from '../../hooks/useAccount'
 
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
-import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
+import { IApp } from '../../types'
+import { isCodingAgent } from '../../utils/apps'
 import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm, { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
@@ -80,11 +81,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   // Only show external agents — helix_agent types don't support project workflows
   const sortedApps = useMemo(() => {
     if (!apps) return []
-    return apps.filter((app) =>
-      app.config?.helix?.assistants?.some(
-        (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-      ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-    )
+    return apps.filter(isCodingAgent)
   }, [apps])
 
   // Auto-select first zed_external agent if available

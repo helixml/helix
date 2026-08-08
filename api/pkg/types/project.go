@@ -271,8 +271,9 @@ type Project struct {
 // ProjectSpecTaskAgent is the safe, minimal agent shape exposed to project
 // members when choosing the external agent for a new spec task.
 type ProjectSpecTaskAgent struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID               string           `json:"id"`
+	Name             string           `json:"name"`
+	CodeAgentRuntime CodeAgentRuntime `json:"code_agent_runtime"`
 }
 
 type ProjectStats struct {

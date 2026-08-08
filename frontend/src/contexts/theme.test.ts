@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getTooltipStyleOverrides } from './theme'
+import { getDialogStyleTokens, getTooltipStyleOverrides } from './theme'
 
 describe('tooltip theme', () => {
   it('uses the compact bordered surface in dark mode', () => {
@@ -23,6 +23,31 @@ describe('tooltip theme', () => {
     expect(getTooltipStyleOverrides(true)).toEqual({
       tooltip: {},
       arrow: {},
+    })
+  })
+})
+
+describe('dialog theme', () => {
+  it('lifts the dark dialog above the app background while preserving the glass treatment', () => {
+    expect(getDialogStyleTokens(false, '#0a0a0a')).toEqual({
+      surfaceFallback: '#191919',
+      surface: 'color-mix(in srgb, color-mix(in srgb, #0a0a0a 94%, white) 80%, transparent)',
+      surfaceFilter: 'blur(16px) saturate(1.08)',
+      border: '1px solid rgba(255, 255, 255, 0.08)',
+      shadow: 'inset 0 1px rgba(255, 255, 255, 0.04), 0 24px 72px -20px rgba(0, 0, 0, 0.90)',
+      backdropFallback: 'rgba(0, 0, 0, 0.64)',
+      backdrop: 'color-mix(in srgb, #0a0a0a 64%, transparent)',
+    })
+  })
+
+  it('keeps the same separation treatment in light mode', () => {
+    expect(getDialogStyleTokens(true, '#ffffff')).toMatchObject({
+      surfaceFallback: '#ffffff',
+      surface: 'color-mix(in srgb, #ffffff 80%, transparent)',
+      surfaceFilter: 'blur(12px) saturate(1.14)',
+      border: '1px solid rgba(0, 0, 0, 0.10)',
+      backdropFallback: 'rgba(255, 255, 255, 0.60)',
+      backdrop: 'color-mix(in srgb, #ffffff 60%, transparent)',
     })
   })
 })

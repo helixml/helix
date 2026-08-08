@@ -7,11 +7,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
@@ -21,6 +23,15 @@ import (
 	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+type gormBackedInProcStore struct {
+	helixstore.Store
+	db *gorm.DB
+}
+
+func (s *gormBackedInProcStore) GormDB() *gorm.DB {
+	return s.db
+}
 
 // newInProcTestSetup builds a NewTestServer-backed HelixAPIServer + an
 // inProcHelixClient with a request user. The single setup
@@ -46,6 +57,70 @@ func newInProcTestSetup(t *testing.T) (*HelixAPIServer, *memorystore.MemoryStore
 	client := NewInProcHelixClient(server)
 	ctx := runtimehelix.WithUser(context.Background(), user)
 	return server, store, client, user, ctx
+}
+
+func TestInProcClient_DeleteLinkedAgentPreservesConfiguredProjectAndUnsetsAgentID(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.App{}, &types.Knowledge{}, &types.KnowledgeVersion{}))
+	for _, statement := range []string{
+		`CREATE TABLE org_bot_runtime_state (org_id TEXT, bot_id TEXT)`,
+		`CREATE TABLE org_subscriptions (org_id TEXT, bot_id TEXT)`,
+		`CREATE TABLE org_bots (org_id TEXT, id TEXT, agent_app_id TEXT)`,
+	} {
+		require.NoError(t, db.Exec(statement).Error)
+	}
+
+	app := &types.App{ID: "app-agent"}
+	project := &types.Project{
+		ID:                "project-configured",
+		Name:              "Configured Project",
+		Description:       "Project state must outlive its org agent",
+		UserID:            "user-owner",
+		OrganizationID:    "org-test",
+		Status:            "active",
+		DefaultRepoID:     "repo-configured",
+		DefaultHelixAppID: app.ID,
+		Technologies:      []string{"go", "typescript"},
+	}
+	require.NoError(t, db.Create(app).Error)
+	require.NoError(t, db.Create(project).Error)
+	require.NoError(t, db.Exec(
+		`INSERT INTO org_bots (org_id, id, agent_app_id) VALUES (?, ?, ?)`,
+		"org-test", "b-agent", app.ID,
+	).Error)
+	require.NoError(t, db.Exec(
+		`INSERT INTO org_bot_runtime_state (org_id, bot_id) VALUES (?, ?)`,
+		"org-test", "b-agent",
+	).Error)
+
+	client := NewInProcHelixClient(&HelixAPIServer{Store: &gormBackedInProcStore{db: db}})
+	require.NoError(t, client.DeleteLinkedAgent(context.Background(), "org-test", "b-agent", app.ID, ""))
+
+	var preserved types.Project
+	require.NoError(t, db.First(&preserved, "id = ?", project.ID).Error)
+	require.Empty(t, preserved.DefaultHelixAppID)
+	require.Equal(t, project.Name, preserved.Name)
+	require.Equal(t, project.Description, preserved.Description)
+	require.Equal(t, project.UserID, preserved.UserID)
+	require.Equal(t, project.OrganizationID, preserved.OrganizationID)
+	require.Equal(t, project.Status, preserved.Status)
+	require.Equal(t, project.DefaultRepoID, preserved.DefaultRepoID)
+	require.Equal(t, project.Technologies, preserved.Technologies)
+	var appCount, botCount int64
+	require.NoError(t, db.Model(&types.App{}).Where("id = ?", app.ID).Count(&appCount).Error)
+	require.NoError(t, db.Table("org_bots").Where("org_id = ? AND id = ?", "org-test", "b-agent").Count(&botCount).Error)
+	require.Zero(t, appCount)
+	require.Zero(t, botCount)
+
+	replacement := &types.App{ID: "app-replacement"}
+	require.NoError(t, db.Create(replacement).Error)
+	require.NoError(t, db.Model(&preserved).Update("default_helix_app_id", replacement.ID).Error)
+	require.NoError(t, db.First(&preserved, "id = ?", project.ID).Error)
+	require.Equal(t, replacement.ID, preserved.DefaultHelixAppID)
 }
 
 func TestInProcClient_ResolvesOrganizationOwnerWithoutAdmin(t *testing.T) {
@@ -75,13 +150,14 @@ func TestInProcClient_CreateAgentUsesOrganizationOwnerWithoutRequestUser(t *test
 		func(_ context.Context, app *types.App) (*types.App, error) {
 			require.Equal(t, owner.ID, app.Owner)
 			require.Equal(t, "org_test", app.OrganizationID)
+			require.Equal(t, types.AgentKindOrg, app.AgentKind)
 			app.ID = "app_test"
 			return app, nil
 		},
 	)
 
 	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
-	appID, err := client.CreateAgent(context.Background(), "org_test", "Chief of Staff", "Lead")
+	appID, err := client.CreateAgent(context.Background(), "org_test", "Chief of Staff", "Lead", lifecycle.AgentConfig{})
 
 	require.NoError(t, err)
 	require.Equal(t, "app_test", appID)
@@ -114,7 +190,35 @@ func TestInProcClient_CreateAgentUsesConfiguredOrgDefaults(t *testing.T) {
 	)
 
 	client := NewInProcHelixClient(&HelixAPIServer{Store: st}, reg)
-	_, err = client.CreateAgent(ctx, "org-test", "Engineer", "Build")
+	_, err = client.CreateAgent(ctx, "org-test", "Engineer", "Build", lifecycle.AgentConfig{})
+	require.NoError(t, err)
+}
+
+func TestInProcClient_CreateAgentUsesExplicitConfig(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	ctx := runtimehelix.WithUser(context.Background(), &types.User{ID: "usr-owner"})
+	st.EXPECT().CreateApp(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, app *types.App) (*types.App, error) {
+			assistant := app.Config.Helix.Assistants[0]
+			require.Equal(t, types.CodeAgentRuntimeClaudeCode, assistant.CodeAgentRuntime)
+			require.Equal(t, types.CodeAgentCredentialTypeAPIKey, assistant.CodeAgentCredentialType)
+			require.Equal(t, "anthropic", assistant.Provider)
+			require.Equal(t, "claude-opus-4-6", assistant.Model)
+			require.Equal(t, "high", assistant.ReasoningEffort)
+			app.ID = "app-test"
+			return app, nil
+		},
+	)
+	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
+
+	_, err := client.CreateAgent(ctx, "org-test", "Engineer", "Build", lifecycle.AgentConfig{
+		CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+		CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+		Provider:                "anthropic",
+		Model:                   "claude-opus-4-6",
+		ReasoningEffort:         "high",
+	})
 	require.NoError(t, err)
 }
 

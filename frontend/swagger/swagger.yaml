@@ -319,9 +319,15 @@ definitions:
     type: object
   api.CreateBotRequest:
     properties:
+      code_agent_credential_type:
+        $ref: '#/definitions/types.CodeAgentCredentialType'
+      code_agent_runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
       content:
         type: string
       id:
+        type: string
+      model:
         type: string
       name:
         description: |-
@@ -340,6 +346,10 @@ definitions:
         type: string
       preserve_context:
         type: boolean
+      provider:
+        type: string
+      reasoning_effort:
+        type: string
       tools:
         items:
           type: string
@@ -1804,6 +1814,9 @@ definitions:
     type: object
   server.AgentCreateResponse:
     properties:
+      agent_kind:
+        description: AgentKind classifies where an agent belongs in the product.
+        type: string
       config:
         $ref: '#/definitions/types.AgentConfig'
       created:
@@ -1812,12 +1825,6 @@ definitions:
         type: boolean
       id:
         type: string
-      is_helix_org_agent:
-        description: |-
-          IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
-          (see api/pkg/org). Computed at list time, not persisted, so the frontend
-          can hide org-chart agents from the spec-task agent switchers.
-        type: boolean
       model_substitutions:
         items:
           $ref: '#/definitions/server.ModelSubstitution'
@@ -2781,6 +2788,22 @@ definitions:
       status:
         type: string
     type: object
+  server.PinChatRequest:
+    properties:
+      id:
+        type: string
+      kind:
+        type: string
+      project_id:
+        type: string
+    type: object
+  server.PinnedChatsResponse:
+    properties:
+      pinned_chats:
+        items:
+          $ref: '#/definitions/types.PinnedChat'
+        type: array
+    type: object
   server.PinnedProjectsResponse:
     properties:
       pinned_project_ids:
@@ -3578,6 +3601,9 @@ definitions:
     type: object
   types.Agent:
     properties:
+      agent_kind:
+        description: AgentKind classifies where an agent belongs in the product.
+        type: string
       config:
         $ref: '#/definitions/types.AgentConfig'
       created:
@@ -3586,12 +3612,6 @@ definitions:
         type: boolean
       id:
         type: string
-      is_helix_org_agent:
-        description: |-
-          IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
-          (see api/pkg/org). Computed at list time, not persisted, so the frontend
-          can hide org-chart agents from the spec-task agent switchers.
-        type: boolean
       organization_id:
         type: string
       owner:
@@ -7319,6 +7339,10 @@ definitions:
         type: integer
       active_users:
         type: integer
+      agent_runtime_time_series:
+        items:
+          $ref: '#/definitions/types.UsageAgentRuntimeTimeSeries'
+        type: array
       apps:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
@@ -7636,6 +7660,17 @@ definitions:
   types.PasswordUpdateRequest:
     properties:
       new_password:
+        type: string
+    type: object
+  types.PinnedChat:
+    properties:
+      id:
+        type: string
+      kind:
+        type: string
+      pinned_at:
+        type: string
+      project_id:
         type: string
     type: object
   types.Pricing:
@@ -8013,6 +8048,8 @@ definitions:
     type: object
   types.ProjectSpecTaskAgent:
     properties:
+      code_agent_runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
       id:
         type: string
       name:
@@ -9362,6 +9399,11 @@ definitions:
         type: string
       deployment_id:
         type: string
+      dev_subdomain:
+        description: |-
+          DevSubdomain is the base domain used for sandbox preview hostnames.
+          Empty means preview URLs are not configured on this deployment.
+        type: string
       disable_llm_call_logging:
         type: boolean
       edition:
@@ -9384,6 +9426,11 @@ definitions:
           Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
         type: integer
       organizations_create_enabled_for_non_admins:
+        type: boolean
+      preview_url_https:
+        description: |-
+          PreviewURLHTTPS controls whether generated sandbox preview URLs use
+          https:// (true) or http:// (false).
         type: boolean
       providers_management_enabled:
         description: Controls if users can add their own AI provider API keys
@@ -12087,6 +12134,17 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.UsageAgentRuntimeTimeSeries:
+    properties:
+      metrics:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
+      name:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+    type: object
   types.UsageBreakdownRow:
     properties:
       cache_read_cost:
@@ -12340,6 +12398,10 @@ definitions:
           (gsettings color-scheme) and Zed editor inside spec-task sessions owned
           by this user.
         type: string
+      pinned_chats:
+        items:
+          $ref: '#/definitions/types.PinnedChat'
+        type: array
       pinned_project_ids:
         items:
           type: string
@@ -12561,6 +12623,9 @@ definitions:
         type: string
       target_kind:
         $ref: '#/definitions/types.VHostTargetKind'
+      url:
+        description: public URL, populated by preview API handlers
+        type: string
       verification_token:
         description: |-
           VerificationToken is only meaningful for custom domains awaiting
@@ -19188,9 +19253,10 @@ paths:
       - HelixOrg
   /api/v1/orgs/{org}/agents/{id}:
     delete:
-      description: Delete an Agent after stopping its sessions and project, then atomically
-        remove its Agent App, knowledge, runtime state, subscriptions, reporting lines,
-        and org-chart row.
+      description: Delete an Agent after atomically detaching and deleting its Agent
+        App, knowledge, runtime state, subscriptions, reporting lines, and org-chart
+        row. Only the project's default agent ID is unset; the configured project,
+        repositories, tasks, and other project configuration are preserved.
       parameters:
       - description: Organization slug or ID
         in: path
@@ -19779,9 +19845,10 @@ paths:
       - HelixOrg
   /api/v1/orgs/{org}/bots/{id}:
     delete:
-      description: 'Delete a Bot. Cascades: stops sessions, deletes the Helix project
-        + agent app, clears runtime state, drops subscriptions + reporting lines,
-        then the bot row. Activations are preserved as audit.'
+      description: 'Delete a Bot. Cascades: detaches and deletes the Helix agent app,
+        clears runtime state, drops subscriptions + reporting lines, then the bot
+        row. Only the project''s default agent ID is unset; the configured project,
+        repositories, tasks, other project configuration, and activations are preserved.'
       parameters:
       - description: Bot ID
         in: path
@@ -27411,6 +27478,72 @@ paths:
       security:
       - BearerAuth: []
       summary: Complete onboarding
+      tags:
+      - Users
+  /api/v1/users/me/pinned-chats:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Chat to unpin
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.PinChatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedChatsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Unpin a chat
+      tags:
+      - Users
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedChatsResponse'
+      security:
+      - BearerAuth: []
+      summary: List pinned chats
+      tags:
+      - Users
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Chat to pin
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.PinChatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedChatsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Pin a chat
       tags:
       - Users
   /api/v1/users/me/pinned-projects:

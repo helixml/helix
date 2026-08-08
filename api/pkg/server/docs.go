@@ -9870,7 +9870,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Delete an Agent after stopping its sessions and project, then atomically remove its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row.",
+                "description": "Delete an Agent after atomically detaching and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Only the project's default agent ID is unset; the configured project, repositories, tasks, and other project configuration are preserved.",
                 "tags": [
                     "HelixOrg"
                 ],
@@ -10797,7 +10797,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Delete a Bot. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Activations are preserved as audit.",
+                "description": "Delete a Bot. Cascades: detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Only the project's default agent ID is unset; the configured project, repositories, tasks, other project configuration, and activations are preserved.",
                 "tags": [
                     "HelixOrg"
                 ],
@@ -22513,6 +22513,114 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/users/me/pinned-chats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "List pinned chats",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedChatsResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Pin a chat",
+                "parameters": [
+                    {
+                        "description": "Chat to pin",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.PinChatRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedChatsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Unpin a chat",
+                "parameters": [
+                    {
+                        "description": "Chat to unpin",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.PinChatRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedChatsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/me/pinned-projects": {
             "get": {
                 "security": [
@@ -23561,10 +23669,19 @@ const docTemplate = `{
         "api.CreateBotRequest": {
             "type": "object",
             "properties": {
+                "code_agent_credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
                 "content": {
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "model": {
                     "type": "string"
                 },
                 "name": {
@@ -23580,6 +23697,12 @@ const docTemplate = `{
                 },
                 "preserve_context": {
                     "type": "boolean"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
                 },
                 "tools": {
                     "type": "array",
@@ -25596,6 +25719,10 @@ const docTemplate = `{
         "server.AgentCreateResponse": {
             "type": "object",
             "properties": {
+                "agent_kind": {
+                    "description": "AgentKind classifies where an agent belongs in the product.",
+                    "type": "string"
+                },
                 "config": {
                     "$ref": "#/definitions/types.AgentConfig"
                 },
@@ -25607,10 +25734,6 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
-                },
-                "is_helix_org_agent": {
-                    "description": "IsHelixOrgAgent is true when this app backs a Helix org-chart Worker\n(see api/pkg/org). Computed at list time, not persisted, so the frontend\ncan hide org-chart agents from the spec-task agent switchers.",
-                    "type": "boolean"
                 },
                 "model_substitutions": {
                     "type": "array",
@@ -27080,6 +27203,31 @@ const docTemplate = `{
                 }
             }
         },
+        "server.PinChatRequest": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.PinnedChatsResponse": {
+            "type": "object",
+            "properties": {
+                "pinned_chats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.PinnedChat"
+                    }
+                }
+            }
+        },
         "server.PinnedProjectsResponse": {
             "type": "object",
             "properties": {
@@ -28157,6 +28305,10 @@ const docTemplate = `{
         "types.Agent": {
             "type": "object",
             "properties": {
+                "agent_kind": {
+                    "description": "AgentKind classifies where an agent belongs in the product.",
+                    "type": "string"
+                },
                 "config": {
                     "$ref": "#/definitions/types.AgentConfig"
                 },
@@ -28168,10 +28320,6 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
-                },
-                "is_helix_org_agent": {
-                    "description": "IsHelixOrgAgent is true when this app backs a Helix org-chart Worker\n(see api/pkg/org). Computed at list time, not persisted, so the frontend\ncan hide org-chart agents from the spec-task agent switchers.",
-                    "type": "boolean"
                 },
                 "organization_id": {
                     "type": "string"
@@ -33299,6 +33447,12 @@ const docTemplate = `{
                 "active_users": {
                     "type": "integer"
                 },
+                "agent_runtime_time_series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageAgentRuntimeTimeSeries"
+                    }
+                },
                 "apps": {
                     "type": "array",
                     "items": {
@@ -33746,6 +33900,23 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "new_password": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.PinnedChat": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "pinned_at": {
+                    "type": "string"
+                },
+                "project_id": {
                     "type": "string"
                 }
             }
@@ -34290,6 +34461,9 @@ const docTemplate = `{
         "types.ProjectSpecTaskAgent": {
             "type": "object",
             "properties": {
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -36035,6 +36209,10 @@ const docTemplate = `{
                 "deployment_id": {
                     "type": "string"
                 },
+                "dev_subdomain": {
+                    "description": "DevSubdomain is the base domain used for sandbox preview hostnames.\nEmpty means preview URLs are not configured on this deployment.",
+                    "type": "string"
+                },
                 "disable_llm_call_logging": {
                     "type": "boolean"
                 },
@@ -36060,6 +36238,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "organizations_create_enabled_for_non_admins": {
+                    "type": "boolean"
+                },
+                "preview_url_https": {
+                    "description": "PreviewURLHTTPS controls whether generated sandbox preview URLs use\nhttps:// (true) or http:// (false).",
                     "type": "boolean"
                 },
                 "providers_management_enabled": {
@@ -39694,6 +39876,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UsageAgentRuntimeTimeSeries": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AggregatedUsageMetric"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                }
+            }
+        },
         "types.UsageBreakdownRow": {
             "type": "object",
             "properties": {
@@ -40022,6 +40221,12 @@ const docTemplate = `{
                     "description": "ColorScheme is the user's preferred UI color scheme: \"light\" or \"dark\".\nEmpty string means follow OS preference. Propagated to the GNOME desktop\n(gsettings color-scheme) and Zed editor inside spec-task sessions owned\nby this user.",
                     "type": "string"
                 },
+                "pinned_chats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.PinnedChat"
+                    }
+                },
                 "pinned_project_ids": {
                     "type": "array",
                     "items": {
@@ -40348,6 +40553,10 @@ const docTemplate = `{
                 },
                 "target_kind": {
                     "$ref": "#/definitions/types.VHostTargetKind"
+                },
+                "url": {
+                    "description": "public URL, populated by preview API handlers",
+                    "type": "string"
                 },
                 "verification_token": {
                     "description": "VerificationToken is only meaningful for custom domains awaiting\nDNS-based verification. Null for default and preview rows.",

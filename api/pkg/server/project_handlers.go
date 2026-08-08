@@ -347,7 +347,15 @@ func (s *HelixAPIServer) listProjectSpecTaskAgents(_ http.ResponseWriter, r *htt
 		if name == "" && len(app.Config.Helix.Assistants) > 0 {
 			name = app.Config.Helix.Assistants[0].Name
 		}
-		agents = append(agents, types.ProjectSpecTaskAgent{ID: app.ID, Name: name})
+		runtime := types.CodeAgentRuntimeZedAgent
+		if len(app.Config.Helix.Assistants) > 0 && app.Config.Helix.Assistants[0].CodeAgentRuntime != "" {
+			runtime = app.Config.Helix.Assistants[0].CodeAgentRuntime
+		}
+		agents = append(agents, types.ProjectSpecTaskAgent{
+			ID:               app.ID,
+			Name:             name,
+			CodeAgentRuntime: runtime,
+		})
 	}
 	sort.Slice(agents, func(i, j int) bool {
 		return strings.ToLower(agents[i].Name) < strings.ToLower(agents[j].Name)
@@ -2934,6 +2942,12 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		}
 
 		if req.AgentAppID != "" {
+			if agentApp.AgentKind != types.AgentKindOrg {
+				agentApp.AgentKind = types.AgentKindOrg
+				if _, err := s.Store.UpdateApp(r.Context(), agentApp); err != nil {
+					return nil, system.NewHTTPError500(fmt.Sprintf("failed to classify linked agent app: %v", err))
+				}
+			}
 			agentAppID = agentApp.ID
 		} else if agentApp != nil {
 			// Apply only owns name/runtime/provider/model/credentials/tools/
@@ -2962,6 +2976,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				Owner:          user.ID,
 				OwnerType:      types.OwnerTypeUser,
 				OrganizationID: orgID,
+				AgentKind:      types.AgentKindOrg,
 				Config: types.AppConfig{
 					Helix: appHelixConfig,
 				},

@@ -1,4 +1,5 @@
 import { FC, MouseEvent, MutableRefObject, useState } from 'react'
+import { useQueries } from '@tanstack/react-query'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
@@ -12,13 +13,18 @@ import {
   ChevronRight,
   Folder,
   GitPullRequest,
+  Pin,
   Plus,
 } from 'lucide-react'
 
-import type { TypesOrganizationMembership, TypesProject, TypesUser } from '../../api/api'
+import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary, TypesUser } from '../../api/api'
+import type { TypesPinnedChat } from '../../api/api'
 import useLightTheme from '../../hooks/useLightTheme'
+import useApi from '../../hooks/useApi'
 import { useListSessions } from '../../services/sessionService'
 import { useSpecTasks } from '../../services/specTaskService'
+import type { SpecTask } from '../../services/specTaskService'
+import { useGetProjectRepositories } from '../../services/projectService'
 import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
 import {
   buildProjectChatGroups,
@@ -30,6 +36,7 @@ import {
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 import type { SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
 import type { SortableProjectHandleProps } from './SortableProject'
+import ProjectChatItemTooltip from './ProjectChatItemTooltip'
 
 const SHOW_MORE_COUNT = 20
 
@@ -57,6 +64,7 @@ type ProjectChatGroupProps = {
   currentUser?: TypesUser
   showTaskAvatars?: boolean
   archived?: boolean
+  pinnedChats?: TypesPinnedChat[]
   archivingItemId: string | null
   onToggle: () => void
   onNewTask?: () => void
@@ -84,6 +92,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   currentUser,
   showTaskAvatars = false,
   archived = false,
+  pinnedChats = [],
   archivingItemId,
   onToggle,
   onNewTask,
@@ -95,6 +104,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   dragInProgressRef,
   suppressClickAfterDragRef,
 }) => {
+  const api = useApi()
   const lightTheme = useLightTheme()
   const [additionalVisibleCount, setAdditionalVisibleCount] = useState(0)
   const visibleCount = visibleThreadCount + additionalVisibleCount
@@ -133,11 +143,57 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
     enabled: queriesEnabled && !!projectId,
     refetchInterval: archived ? false : 10000,
   })
+  const repositoriesQuery = useGetProjectRepositories(projectId || '', queriesEnabled && !!projectId)
 
   const sessionsPage = sessionsQuery.data?.data
-  const sessions = sessionsPage?.sessions || []
-  const tasks = projectId ? tasksQuery.data || [] : []
-  const group = buildProjectChatGroups(project ? [project] : [], tasks, sessions, threadSortOrder)
+  const pagedSessions = sessionsPage?.sessions || []
+  const pagedTasks = projectId ? tasksQuery.data || [] : []
+  const groupPins = pinnedChats.filter((pin) => (pin.project_id || undefined) === projectId)
+  const pinnedQueries = useQueries({
+    queries: groupPins.map((pin) => ({
+      queryKey: ['pinned-chat-detail', pin.kind, pin.id],
+      queryFn: async () => {
+        if (pin.kind === 'spec-task') return (await api.getApiClient().v1SpecTasksDetail(pin.id!)).data
+        const session = (await api.getApiClient().v1SessionsDetail(pin.id!)).data
+        return {
+          session_id: session.id,
+          name: session.name,
+          created: session.created,
+          updated: session.updated,
+          metadata: session.config,
+          archived: session.archived,
+        } satisfies TypesSessionSummary
+      },
+      enabled: queriesEnabled && !!pin.id,
+      staleTime: 10000,
+    })),
+  })
+  const pinnedSessions = pinnedQueries.flatMap((query, index) => (
+    groupPins[index]?.kind === 'session'
+      && query.data
+      && !!(query.data as TypesSessionSummary).archived === archived
+      ? [query.data as TypesSessionSummary]
+      : []
+  ))
+  const pinnedTasks = pinnedQueries.flatMap((query, index) => (
+    groupPins[index]?.kind === 'spec-task'
+      && query.data
+      && !!(query.data as SpecTask).archived === archived
+      ? [query.data as SpecTask]
+      : []
+  ))
+  const sessions = [...pinnedSessions, ...pagedSessions.filter((session) => (
+    !pinnedSessions.some((pinned) => pinned.session_id === session.session_id)
+  ))]
+  const tasks = [...pinnedTasks, ...pagedTasks.filter((task) => (
+    !pinnedTasks.some((pinned) => pinned.id === task.id)
+  ))]
+  const repositories = repositoriesQuery.data || []
+  const primaryRepository = repositories.find((repository) => repository.id === project?.default_repo_id)
+    || repositories[0]
+  const repositoryName = primaryRepository?.name
+  const pinnedAtByItemKey = new Map(pinnedChats.map((pin) => [`${pin.kind}:${pin.id}`, pin.pinned_at || '']))
+  const group = buildProjectChatGroups(project ? [project] : [], tasks, sessions, threadSortOrder, pinnedAtByItemKey)
     .find((candidate) => candidate.id === groupId)
   const items = group?.items || []
   const filteredItems = filterProjectChatGroups([{ id: groupId, name: groupName, items }], query)[0]?.items || []
@@ -320,8 +376,14 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             const taskPerson = resolveOrganizationUser(taskPersonId, organizationMembers, currentUser)
             const taskPersonRole = item.task?.assignee_id ? 'Assigned to' : 'Created by'
             return (
-              <Box
+              <ProjectChatItemTooltip
                 key={`${item.kind}:${item.id}`}
+                item={item}
+                repository={repositoryName}
+                branch={item.task?.branch_name || item.task?.base_branch || project?.default_branch}
+              >
+              <Box
+                className="project-chat-item"
                 role="button"
                 tabIndex={0}
                 onClick={() => onOpenItem(item)}
@@ -351,6 +413,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                   cursor: 'pointer',
                   textAlign: 'left',
                   outline: 'none',
+                  position: 'relative',
                   '&:hover, &:focus-visible': {
                     color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
                     backgroundColor: active
@@ -374,6 +437,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                         target={pullRequestIcon?.url ? '_blank' : undefined}
                         rel={pullRequestIcon?.url ? 'noopener noreferrer' : undefined}
                         aria-label={pullRequestIcon?.tooltip}
+                        onMouseOver={(event) => event.stopPropagation()}
                         onClick={(event) => {
                           event.stopPropagation()
                           if (!pullRequestIcon?.url) event.preventDefault()
@@ -389,7 +453,10 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                     </Tooltip>
                     {status && (
                       <Tooltip title={status.tooltip || ''} disableHoverListener={!status.tooltip}>
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45 }}>
+                        <Box
+                          onMouseOver={(event) => event.stopPropagation()}
+                          sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.45 }}
+                        >
                           <Box
                             sx={{
                               width: 5,
@@ -441,6 +508,30 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                     </Box>
                   </Tooltip>
                 )}
+                {item.pinnedAt && (
+                  <Tooltip title="Pinned">
+                    <Box
+                      component="span"
+                      className="sidebar-item-pin"
+                      aria-label="Pinned"
+                      onMouseOver={(event) => event.stopPropagation()}
+                      sx={{
+                        width: 14,
+                        height: 28,
+                        flexShrink: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: active
+                          ? (lightTheme.isLight ? 'rgba(39,39,42,0.68)' : 'rgba(241,243,247,0.78)')
+                          : (lightTheme.isLight ? 'rgba(113,113,122,0.65)' : 'rgba(163,163,163,0.62)'),
+                        transition: 'opacity 100ms ease',
+                      }}
+                    >
+                      <Pin size={11} fill="currentColor" strokeWidth={1.7} />
+                    </Box>
+                  </Tooltip>
+                )}
                 <Box sx={{ width: 28, height: 28, flexShrink: 0, position: 'relative' }}>
                   <Typography
                     className="sidebar-item-time"
@@ -469,6 +560,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                       size="small"
                       disabled={isArchiving}
                       aria-label={`${archiveVerb} ${item.kind === 'spec-task' ? 'task' : 'chat'} ${item.title}`}
+                      onMouseOver={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.stopPropagation()
                         onArchiveItem(item)
@@ -492,6 +584,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
                   </Tooltip>
                 </Box>
               </Box>
+              </ProjectChatItemTooltip>
             )
           })}
           {(canShowLess || hasMore) && (

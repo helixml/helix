@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -17,23 +19,18 @@ import (
 
 type lifecycleRuntime struct {
 	store            *store.Store
-	projectErr       error
 	linkedErr        error
 	deleteAppErr     error
 	projectDeleted   bool
 	deletedApps      []string
 	cleanupCancelled bool
 	linkedCancelled  bool
+	stoppedSessions  []string
 }
 
 func (r *lifecycleRuntime) DeleteProject(context.Context, string) error {
-	if r.projectDeleted {
-		return runtimehelix.ErrProjectNotFound
-	}
-	if r.projectErr == nil {
-		r.projectDeleted = true
-	}
-	return r.projectErr
+	r.projectDeleted = true
+	return nil
 }
 
 func (r *lifecycleRuntime) DeleteApp(ctx context.Context, id string) error {
@@ -42,10 +39,13 @@ func (r *lifecycleRuntime) DeleteApp(ctx context.Context, id string) error {
 	return r.deleteAppErr
 }
 
-func (r *lifecycleRuntime) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID string) error {
+func (r *lifecycleRuntime) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID, sessionID string) error {
 	r.linkedCancelled = ctx.Err() != nil
 	if r.linkedErr != nil {
 		return r.linkedErr
+	}
+	if sessionID != "" {
+		r.stoppedSessions = append(r.stoppedSessions, sessionID)
 	}
 	if r.store == nil {
 		return nil
@@ -62,7 +62,7 @@ type fixedAgentCreator struct {
 	id string
 }
 
-func (c fixedAgentCreator) CreateAgent(context.Context, string, string, string) (string, error) {
+func (c fixedAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (string, error) {
 	return c.id, nil
 }
 
@@ -169,13 +169,32 @@ func TestReconcileAgentLinksReportsClaimAndCleanupFailures(t *testing.T) {
 	}
 }
 
-func TestDeleteFailuresPreserveGraphAnchorAndRetry(t *testing.T) {
+func TestDeletePreservesConfiguredProject(t *testing.T) {
+	st := memory.New()
+	ctx := context.Background()
+	bot, err := orgchart.NewNode("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	bot = bot.WithAgentID("app-agent")
+	require.NoError(t, st.Nodes.Create(ctx, bot))
+	require.NoError(t, runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-configured", "app-agent", "repo-configured"))
+	require.NoError(t, runtimehelix.SaveSession(ctx, st, "org-test", bot.ID, "session-agent"))
+	runtime := &lifecycleRuntime{store: st}
+	svc := &lifecycle.Service{Store: st, Helix: runtime}
+
+	require.NoError(t, svc.Delete(ctx, "org-test", bot.ID))
+	require.False(t, runtime.projectDeleted, "configured project was deleted")
+	require.Equal(t, []string{"session-agent"}, runtime.stoppedSessions)
+	if _, err := st.Nodes.Get(ctx, "org-test", bot.ID); err == nil {
+		t.Fatal("node still exists")
+	}
+	require.NoError(t, st.Nodes.Create(ctx, bot.WithAgentID("app-replacement")))
+}
+
+func TestDeleteFailurePreservesGraphAnchorAndRetry(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		projectErr error
-		linkedErr  error
+		name      string
+		linkedErr error
 	}{
-		{name: "project", projectErr: errors.New("project delete failed")},
 		{name: "app", linkedErr: errors.New("app delete failed")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -192,7 +211,7 @@ func TestDeleteFailuresPreserveGraphAnchorAndRetry(t *testing.T) {
 			if err := runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-agent", "app-agent", "repo-agent"); err != nil {
 				t.Fatal(err)
 			}
-			runtime := &lifecycleRuntime{store: st, projectErr: tc.projectErr, linkedErr: tc.linkedErr}
+			runtime := &lifecycleRuntime{store: st, linkedErr: tc.linkedErr}
 			svc := &lifecycle.Service{Store: st, Helix: runtime}
 
 			if err := svc.Delete(ctx, "org-test", bot.ID); err == nil {
@@ -213,7 +232,6 @@ func TestDeleteFailuresPreserveGraphAnchorAndRetry(t *testing.T) {
 				t.Fatalf("runtime state changed: %+v", state)
 			}
 
-			runtime.projectErr = nil
 			runtime.linkedErr = nil
 			if err := svc.Delete(ctx, "org-test", bot.ID); err != nil {
 				t.Fatalf("retry delete: %v", err)

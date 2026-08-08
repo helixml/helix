@@ -688,7 +688,9 @@ const Layout: FC<{
               // Sidebar.tsx for the secondary nav's content column only.
               // Use dvh (dynamic viewport height) for iOS Safari compatibility.
               height: isBigScreen ? "100%" : "100dvh",
-              overflowY: "auto", // Both columns scroll together
+              // The primary rail must remain viewport-anchored. Secondary
+              // navigation owns its scrolling inside SlideMenuContainer.
+              overflowY: "hidden",
               display: "flex",
               flexDirection: "row",
               padding: 0,
@@ -703,7 +705,9 @@ const Layout: FC<{
               display: "flex",
               flexDirection: "row",
               height: "100%",
+              minHeight: 0,
               width: "100%",
+              overflow: "hidden",
             }}
           >
             {/* Always show UserOrgSelector - it will handle compact/expanded modes internally */}
@@ -712,7 +716,9 @@ const Layout: FC<{
                 minWidth: 64,
                 width: 64,
                 maxWidth: 64,
-                minHeight: "fit-content", // Natural height based on content
+                height: "100%",
+                minHeight: 0,
+                flexShrink: 0,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -738,7 +744,9 @@ const Layout: FC<{
                 sx={{
                   flex: 1,
                   minWidth: 0,
-                  minHeight: "fit-content", // Natural height based on content
+                  height: "100%",
+                  minHeight: 0,
+                  overflow: "hidden",
                   display: "flex",
                   flexDirection: "column",
                 }}

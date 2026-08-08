@@ -30,6 +30,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
@@ -54,7 +55,7 @@ func NewInProcHelixClient(s *HelixAPIServer, configs ...*configregistry.Registry
 	return client
 }
 
-func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instructions string) (string, error) {
+func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instructions string, config lifecycle.AgentConfig) (string, error) {
 	user, err := c.resolveUser(ctx)
 	if err != nil {
 		org, orgErr := c.server.lookupOrg(ctx, orgID)
@@ -88,10 +89,20 @@ func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instru
 		}
 		applyResolvedAgentDefaults(&assistant, defaults)
 	}
+	if config.CodeAgentRuntime != "" {
+		applyResolvedAgentDefaults(&assistant, types.AssistantConfig{
+			CodeAgentRuntime:        config.CodeAgentRuntime,
+			CodeAgentCredentialType: config.CodeAgentCredentialType,
+			Provider:                config.Provider,
+			Model:                   config.Model,
+			ReasoningEffort:         config.ReasoningEffort,
+		})
+	}
 	app, err := c.server.Store.CreateApp(ctx, &types.App{
 		Owner:          user.ID,
 		OwnerType:      types.OwnerTypeUser,
 		OrganizationID: orgID,
+		AgentKind:      types.AgentKindOrg,
 		Config: types.AppConfig{Helix: types.AppHelixConfig{
 			Name:                 name,
 			DefaultAgentType:     types.AgentTypeZedExternal,
@@ -742,12 +753,24 @@ func (c *inProcHelixClient) DeleteApp(ctx context.Context, id string) error {
 	return c.server.deleteAppData(ctx, id, false)
 }
 
-func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID string) error {
+func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID, sessionID string) error {
+	if sessionID != "" {
+		if err := c.StopExternalAgent(ctx, sessionID); err != nil {
+			return fmt.Errorf("stop linked agent session %s: %w", sessionID, err)
+		}
+	}
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
 	if !ok {
 		return fmt.Errorf("delete linked agent: store %T has no shared database", c.server.Store)
 	}
 	return accessor.GormDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Projects outlive org agents. Clear only the deleted app's default-agent
+		// link; repositories, tasks, secrets, and all other project state remain.
+		if err := tx.Model(&types.Project{}).
+			Where("default_helix_app_id = ?", appID).
+			Update("default_helix_app_id", "").Error; err != nil {
+			return fmt.Errorf("detach agent from projects: %w", err)
+		}
 		knowledgeIDs := tx.Model(&types.Knowledge{}).Select("id").Where("app_id = ?", appID)
 		if err := tx.Where("knowledge_id IN (?)", knowledgeIDs).Delete(&types.KnowledgeVersion{}).Error; err != nil {
 			return fmt.Errorf("delete knowledge versions: %w", err)
@@ -952,6 +975,19 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 		session.Metadata.OrgWorkerID = workerID
 		session.Metadata.RuntimeInstructions = instructions
 		changed = true
+	}
+	if session.ParentApp != "" {
+		app, appErr := c.server.Store.GetApp(ctx, session.ParentApp)
+		if appErr != nil {
+			return fmt.Errorf("get agent app %s for session %s: %w", session.ParentApp, sessionID, appErr)
+		}
+		runtime, modelName, ok := currentAgentInfo(app, session.Metadata.AssistantID)
+		if ok && (session.Metadata.CodeAgentRuntime != runtime || session.Metadata.ZedAgentName != runtime.ZedAgentName() || session.ModelName != modelName) {
+			session.Metadata.CodeAgentRuntime = runtime
+			session.Metadata.ZedAgentName = runtime.ZedAgentName()
+			session.ModelName = modelName
+			changed = true
+		}
 	}
 	if changed {
 		if _, err := c.server.Store.UpdateSession(ctx, *session); err != nil {

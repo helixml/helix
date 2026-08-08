@@ -38,6 +38,7 @@ import useApi from '../../hooks/useApi'
 import useDebouncedCallback from '../../hooks/useDebouncedCallback'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
+import AgentHarness from '../agent/AgentHarness'
 import {
   CLAUDE_SUBSCRIPTION_MODELS,
   CODEX_SUBSCRIPTION_MODELS,
@@ -684,53 +685,64 @@ const AppSettings: FC<AppSettingsProps> = ({
                     }
                   }}
                   disabled={readOnly}
-                  renderValue={(value) => {
-                    if (value === 'claude_code') return 'Claude Code'
-                    if (value === 'codex_cli') return 'Codex'
-                    if (value === 'qwen_code') return 'Qwen Code'
-                    if (value === 'goose_code') return 'Goose'
-                    return 'Zed Agent'
-                  }}
+                  renderValue={(runtime) => (
+                    <AgentHarness runtime={runtime} variant="long" size={16} />
+                  )}
                 >
                   <MenuItem value="zed_agent">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="zed_agent" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Zed Agent</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Built-in, Anthropic & OpenAI compatible
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="qwen_code">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="qwen_code" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Qwen Code</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Optimized for Qwen, including smaller models
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="claude_code">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="claude_code" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Claude Code</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Anthropic's coding agent
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="codex_cli">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="codex_cli" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Codex</Typography>
                       <Typography variant="caption" color="text.secondary">
                         OpenAI's coding agent
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="goose_code">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="goose_code" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Goose</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Open-source ACP agent (AAIF)
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                 </Select>
               </FormControl>

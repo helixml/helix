@@ -112,7 +112,7 @@ import {
   STREAM_H,
   STREAM_W,
 } from '../components/helix-org/chartNodeGeometry'
-import AgentRuntimeProviderIcon from '../components/helix-org/AgentRuntimeProviderIcon'
+import AgentHarness from '../components/agent/AgentHarness'
 import { isTranscriptTopic } from '../components/helix-org/helixOrgTopics'
 import { BotTaskStats, summarizeBotTasks } from '../components/helix-org/botTaskStats'
 import useAccount from '../hooks/useAccount'
@@ -743,7 +743,7 @@ export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
       </Stack>
       <BotTaskStatsRow stats={data.taskStats} isLight={lightTheme.isLight} />
       <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: muted, mt: 'auto', minWidth: 0 }}>
-        <AgentRuntimeProviderIcon runtime={data.agentRuntime} />
+        <AgentHarness runtime={data.agentRuntime} variant="short" />
         <Typography
           variant="caption"
           sx={{ color: 'inherit', fontSize: '0.65rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}

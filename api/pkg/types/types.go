@@ -1176,6 +1176,12 @@ type ServerConfigForFrontend struct {
 	// hitting the app via localhost / a dev port that GitHub can't
 	// reach.
 	ServerURL string `json:"server_url,omitempty"`
+	// DevSubdomain is the base domain used for sandbox preview hostnames.
+	// Empty means preview URLs are not configured on this deployment.
+	DevSubdomain string `json:"dev_subdomain"`
+	// PreviewURLHTTPS controls whether generated sandbox preview URLs use
+	// https:// (true) or http:// (false).
+	PreviewURLHTTPS bool `json:"preview_url_https"`
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1948,6 +1954,12 @@ func (Triggers) GormDataType() string {
 	return "json"
 }
 
+const (
+	AgentKindHelix  = "helix_agent"
+	AgentKindCoding = "coding_agent"
+	AgentKindOrg    = "org_agent"
+)
+
 type Agent struct {
 	ID             string    `json:"id" gorm:"primaryKey"`
 	Created        time.Time `json:"created"`
@@ -1962,10 +1974,8 @@ type Agent struct {
 
 	User User `json:"user" gorm:"-"` // Owner user struct, populated by the server for organization views
 
-	// IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
-	// (see api/pkg/org). Computed at list time, not persisted, so the frontend
-	// can hide org-chart agents from the spec-task agent switchers.
-	IsHelixOrgAgent bool `json:"is_helix_org_agent" gorm:"-"`
+	// AgentKind classifies where an agent belongs in the product.
+	AgentKind string `json:"agent_kind" gorm:"not null;default:helix_agent;index"`
 }
 
 func (Agent) TableName() string { return "apps" }
@@ -2895,6 +2905,12 @@ type UsageModelTimeSeries struct {
 	Metrics  []AggregatedUsageMetric `json:"metrics"`
 }
 
+type UsageAgentRuntimeTimeSeries struct {
+	Runtime CodeAgentRuntime        `json:"runtime"`
+	Name    string                  `json:"name"`
+	Metrics []AggregatedUsageMetric `json:"metrics"`
+}
+
 type UsageFilterOption struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -2905,33 +2921,34 @@ type UsageFilterOption struct {
 }
 
 type OrgUsageSummaryResponse struct {
-	Metrics         []*AggregatedUsageMetric `json:"metrics"`
-	Projects        []UsageBreakdownRow      `json:"projects"`
-	ProjectModels   []UsageBreakdownRow      `json:"project_models"`
-	Apps            []UsageBreakdownRow      `json:"apps"`
-	Tasks           []UsageBreakdownRow      `json:"tasks"`
-	Sessions        []UsageBreakdownRow      `json:"sessions"`
-	Models          []UsageBreakdownRow      `json:"models"`
-	ModelTimeSeries []UsageModelTimeSeries   `json:"model_time_series"`
-	Users           []UsageBreakdownRow      `json:"users"`
-	UsersTotal      int64                    `json:"users_total"`
-	ProjectsTotal   int64                    `json:"projects_total"`
-	TasksTotal      int64                    `json:"tasks_total"`
-	SessionsTotal   int64                    `json:"sessions_total"`
-	ActiveUsers     int                      `json:"active_users"`
-	ActiveSessions  int                      `json:"active_sessions"`
-	ActiveProjects  int                      `json:"active_projects"`
-	ActiveApps      int                      `json:"active_apps"`
-	FilterUsers     []UsageFilterOption      `json:"filter_users"`
-	FilterProjects  []UsageFilterOption      `json:"filter_projects"`
-	FilterApps      []UsageFilterOption      `json:"filter_apps"`
-	FilterModels    []UsageFilterOption      `json:"filter_models"`
-	ExportProjects  []UsageBreakdownRow      `json:"export_projects"`
-	ExportApps      []UsageBreakdownRow      `json:"export_apps"`
-	ExportTasks     []UsageBreakdownRow      `json:"export_tasks"`
-	ExportSessions  []UsageBreakdownRow      `json:"export_sessions"`
-	ExportModels    []UsageBreakdownRow      `json:"export_models"`
-	ExportUsers     []UsageBreakdownRow      `json:"export_users"`
+	Metrics                []*AggregatedUsageMetric      `json:"metrics"`
+	Projects               []UsageBreakdownRow           `json:"projects"`
+	ProjectModels          []UsageBreakdownRow           `json:"project_models"`
+	Apps                   []UsageBreakdownRow           `json:"apps"`
+	Tasks                  []UsageBreakdownRow           `json:"tasks"`
+	Sessions               []UsageBreakdownRow           `json:"sessions"`
+	Models                 []UsageBreakdownRow           `json:"models"`
+	ModelTimeSeries        []UsageModelTimeSeries        `json:"model_time_series"`
+	AgentRuntimeTimeSeries []UsageAgentRuntimeTimeSeries `json:"agent_runtime_time_series"`
+	Users                  []UsageBreakdownRow           `json:"users"`
+	UsersTotal             int64                         `json:"users_total"`
+	ProjectsTotal          int64                         `json:"projects_total"`
+	TasksTotal             int64                         `json:"tasks_total"`
+	SessionsTotal          int64                         `json:"sessions_total"`
+	ActiveUsers            int                           `json:"active_users"`
+	ActiveSessions         int                           `json:"active_sessions"`
+	ActiveProjects         int                           `json:"active_projects"`
+	ActiveApps             int                           `json:"active_apps"`
+	FilterUsers            []UsageFilterOption           `json:"filter_users"`
+	FilterProjects         []UsageFilterOption           `json:"filter_projects"`
+	FilterApps             []UsageFilterOption           `json:"filter_apps"`
+	FilterModels           []UsageFilterOption           `json:"filter_models"`
+	ExportProjects         []UsageBreakdownRow           `json:"export_projects"`
+	ExportApps             []UsageBreakdownRow           `json:"export_apps"`
+	ExportTasks            []UsageBreakdownRow           `json:"export_tasks"`
+	ExportSessions         []UsageBreakdownRow           `json:"export_sessions"`
+	ExportModels           []UsageBreakdownRow           `json:"export_models"`
+	ExportUsers            []UsageBreakdownRow           `json:"export_users"`
 }
 
 // Response for the user access endpoint

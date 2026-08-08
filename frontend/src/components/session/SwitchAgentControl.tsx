@@ -12,8 +12,9 @@ import ListItemText from "@mui/material/ListItemText";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
-import { Bot, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import AgentDropdown from "../agent/AgentDropdown";
+import AgentHarness, { getAgentHarnessRuntime } from "../agent/AgentHarness";
 import useApps from "../../hooks/useApps";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useGetSession, useSwitchAgent } from "../../services/sessionService";
@@ -124,11 +125,11 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
     return app?.config?.helix?.name || "the selected agent";
   }, [pendingTargetId, eligibleAgents]);
 
-  const currentAgentName = useMemo(() => {
-    if (!currentAppId) return "";
-    const app = eligibleAgents.find((a) => a.id === currentAppId);
-    return app?.config?.helix?.name || "the current agent";
+  const currentAgent = useMemo(() => {
+    if (!currentAppId) return undefined;
+    return eligibleAgents.find((a) => a.id === currentAppId);
   }, [currentAppId, eligibleAgents]);
+  const currentAgentName = currentAgent?.config?.helix?.name || (currentAppId ? "the current agent" : "");
 
   const isPaused = !!session?.config?.paused;
   const disabled = pending || isPaused || eligibleAgents.length === 0;
@@ -148,7 +149,9 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
               <Button
                 size="small"
                 disabled={disabled}
-                startIcon={<Bot size={15} />}
+                startIcon={currentAgent ? (
+                  <AgentHarness runtime={getAgentHarnessRuntime(currentAgent)} variant="short" size={15} />
+                ) : undefined}
                 endIcon={<ChevronDown size={13} />}
                 aria-label="Switch agent"
                 onClick={(event) => setMenuAnchor(event.currentTarget)}
@@ -201,7 +204,7 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
                 onClick={() => handleSelect(agent.id || "")}
               >
                 <ListItemIcon>
-                  <Bot size={16} />
+                  <AgentHarness runtime={getAgentHarnessRuntime(agent)} variant="short" size={16} />
                 </ListItemIcon>
                 <ListItemText
                   primary={agent.config?.helix?.name || "Unnamed agent"}

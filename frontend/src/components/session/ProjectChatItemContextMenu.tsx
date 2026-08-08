@@ -9,11 +9,12 @@ import ListItemText from '@mui/material/ListItemText'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import TextField from '@mui/material/TextField'
-import { Pencil } from 'lucide-react'
+import { Pencil, Pin, PinOff } from 'lucide-react'
 
 import useSnackbar from '../../hooks/useSnackbar'
 import { useRenameSession } from '../../services/sessionService'
 import { useUpdateSpecTask } from '../../services/specTaskService'
+import { usePinChat, useUnpinChat } from '../../services/chatPinService'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 
 export type ProjectChatContextMenuPosition = {
@@ -35,9 +36,27 @@ const ProjectChatItemContextMenu: FC<ProjectChatItemContextMenuProps> = ({
   const snackbar = useSnackbar()
   const renameSession = useRenameSession()
   const updateSpecTask = useUpdateSpecTask()
+  const pinChat = usePinChat()
+  const unpinChat = useUnpinChat()
   const [renameItem, setRenameItem] = useState<SidebarItem | null>(null)
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const togglePin = async () => {
+    if (!item) return
+    const pinned = !!item.pinnedAt
+    onClose()
+    try {
+      await (pinned ? unpinChat : pinChat).mutateAsync({
+        id: item.id,
+        kind: item.kind,
+        project_id: item.projectId,
+      })
+      snackbar.success(pinned ? 'Chat unpinned' : 'Chat pinned')
+    } catch {
+      snackbar.error(pinned ? 'Failed to unpin chat' : 'Failed to pin chat')
+    }
+  }
 
   const openRenameDialog = () => {
     if (!item) return
@@ -97,6 +116,12 @@ const ProjectChatItemContextMenu: FC<ProjectChatItemContextMenuProps> = ({
         anchorReference="anchorPosition"
         anchorPosition={position ? { top: position.mouseY, left: position.mouseX } : undefined}
       >
+        <MenuItem onClick={() => void togglePin()}>
+          <ListItemIcon>
+            {item?.pinnedAt ? <PinOff size={16} /> : <Pin size={16} />}
+          </ListItemIcon>
+          <ListItemText>{item?.pinnedAt ? 'Unpin' : 'Pin'}</ListItemText>
+        </MenuItem>
         <MenuItem onClick={openRenameDialog}>
           <ListItemIcon>
             <Pencil size={16} />

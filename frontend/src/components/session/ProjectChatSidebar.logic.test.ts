@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TypesAgentWorkState, TypesSpecTaskStatus } from '../../api/api'
+import { TypesAgentWorkState, TypesCodeAgentRuntime, TypesSpecTaskStatus } from '../../api/api'
 import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary } from '../../api/api'
 import type { SpecTask } from '../../services/specTaskService'
 import {
@@ -13,6 +13,8 @@ import {
   getSidebarPullRequestIcon,
   getSidebarMemberResults,
   getSidebarTaskStatus,
+  getChatShortcutNumber,
+  isChatShortcutModifier,
   isNewThreadShortcut,
   isTaskCompletedOrMerged,
   parseCollapsedGroupIds,
@@ -35,6 +37,20 @@ const projects: TypesProject[] = [
 ]
 
 describe('ProjectChatSidebar logic', () => {
+  it('uses Command on macOS and Control elsewhere for chat shortcuts', () => {
+    expect(isChatShortcutModifier({ metaKey: true, ctrlKey: false }, true)).toBe(true)
+    expect(isChatShortcutModifier({ metaKey: false, ctrlKey: true }, true)).toBe(false)
+    expect(isChatShortcutModifier({ metaKey: false, ctrlKey: true }, false)).toBe(true)
+    expect(isChatShortcutModifier({ metaKey: true, ctrlKey: false }, false)).toBe(false)
+  })
+
+  it('accepts only unmodified chat shortcut numbers 1 through 9', () => {
+    expect(getChatShortcutNumber({ key: '1', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, true)).toBe(1)
+    expect(getChatShortcutNumber({ key: '9', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }, false)).toBe(9)
+    expect(getChatShortcutNumber({ key: '0', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, true)).toBeNull()
+    expect(getChatShortcutNumber({ key: '2', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }, true)).toBeNull()
+  })
+
   it('groups tasks and project-linked chats by project, and puts direct chats in None', () => {
     const tasks: SpecTask[] = [{
       id: 'task-one',
@@ -47,8 +63,13 @@ describe('ProjectChatSidebar logic', () => {
       {
         session_id: 'task-session',
         name: 'Task work session',
+        model_name: 'claude-opus-4-6',
         updated: '2026-08-05T11:00:00Z',
-        metadata: { project_id: 'project-one', spec_task_id: 'task-one' },
+        metadata: {
+          project_id: 'project-one',
+          spec_task_id: 'task-one',
+          code_agent_runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+        },
       },
       {
         session_id: 'project-session',
@@ -74,6 +95,10 @@ describe('ProjectChatSidebar logic', () => {
     expect(groups.map((group) => group.name)).toEqual(['None', 'Project One', 'Project Two'])
     expect(groups[0]?.items.map((item) => item.id)).toEqual(['direct-session'])
     expect(groups[1]?.items.map((item) => item.id)).toEqual(['task-one', 'worker-session'])
+    expect(groups[1]?.items[0]?.session).toEqual(expect.objectContaining({
+      session_id: 'task-session',
+      model_name: 'claude-opus-4-6',
+    }))
     expect(groups[2]?.items.map((item) => item.id)).toEqual(['project-session'])
   })
 
@@ -144,6 +169,21 @@ describe('ProjectChatSidebar logic', () => {
 
     expect(buildProjectChatGroups([], [], sessions)[0]?.items.map((item) => item.id))
       .toEqual(['recent-message', 'recent-metadata'])
+  })
+
+  it('orders pinned chats before unpinned chats with newest pins first', () => {
+    const sessions: TypesSessionSummary[] = [
+      { session_id: 'newest-chat', created: '2026-08-08T00:00:00Z' },
+      { session_id: 'older-pin', created: '2026-08-01T00:00:00Z' },
+      { session_id: 'newer-pin', created: '2026-08-02T00:00:00Z' },
+    ]
+    const pins = new Map([
+      ['session:older-pin', '2026-08-06T00:00:00Z'],
+      ['session:newer-pin', '2026-08-07T00:00:00Z'],
+    ])
+
+    expect(buildProjectChatGroups([], [], sessions, 'updated_at', pins)[0]?.items.map((item) => item.id))
+      .toEqual(['newer-pin', 'older-pin', 'newest-chat'])
   })
 
   it('parses and clamps org-scoped local preferences', () => {

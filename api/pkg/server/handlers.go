@@ -101,6 +101,8 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 		Edition:                                apiServer.Cfg.Edition,
 		DefaultChatSystemPrompt:                types.DefaultChatSystemPrompt,
+		DevSubdomain:                           apiServer.Cfg.WebServer.DevSubdomain,
+		PreviewURLHTTPS:                        apiServer.Cfg.WebServer.PreviewURLHTTPS,
 		// ServerURL: operator-configured public origin. Empty when
 		// only the default localhost listen-URL is set, which signals
 		// the frontend to surface its window.location.origin instead
@@ -140,7 +142,6 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
 	return apiServer.getConfig(req.Context())
 }
-
 
 // status godoc
 // @Summary Get user status

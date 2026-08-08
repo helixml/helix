@@ -849,6 +849,42 @@ func (s *SessionAuthzSuite) TestListSessions_OwnerNoOrg() {
 	s.Equal(int64(1), result.TotalCount)
 }
 
+func (s *SessionAuthzSuite) TestListSessions_UsesCurrentAgentRuntimeAndModel() {
+	session := &types.Session{
+		ID:        "ses_org_agent",
+		Owner:     s.userID,
+		ParentApp: "app_org_agent",
+		ModelName: "llama3:instruct",
+		Metadata: types.SessionMetadata{
+			AgentType:        string(types.AgentTypeZedExternal),
+			CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+		},
+	}
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:           s.userID,
+		Page:            0,
+		PerPage:         50,
+		ExcludeArchived: true,
+	}).Return([]*types.Session{session}, int64(1), nil)
+	s.store.EXPECT().GetApp(gomock.Any(), session.ParentApp).Return(&types.App{
+		ID: session.ParentApp,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType:               types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model:                   "gpt-5.6-luna",
+		}}}},
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", http.NoBody).WithContext(s.authCtx)
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().Len(result.Sessions, 1)
+	s.Equal(types.CodeAgentRuntimeCodexCLI, result.Sessions[0].Metadata.CodeAgentRuntime)
+	s.Equal("gpt-5.6-luna", result.Sessions[0].ModelName)
+}
+
 func (s *SessionAuthzSuite) TestListSessions_IncludeExternalAgents() {
 	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
 		ID: s.orgID,

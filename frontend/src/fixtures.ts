@@ -8,6 +8,7 @@ export const APPS: IApp[] = [{
   updated: new Date(),
   owner: '',
   owner_type: 'user',
+  agent_kind: 'helix_agent',
   global: false,
   config: {
     secrets: {},
@@ -55,6 +56,7 @@ export const APPS: IApp[] = [{
   updated: new Date(),
   owner: '',
   owner_type: 'user',
+  agent_kind: 'helix_agent',
   global: false,
   config: {
     secrets: {},
@@ -88,6 +90,7 @@ export const APPS: IApp[] = [{
   updated: new Date(),
   owner: '',
   owner_type: 'user',
+  agent_kind: 'helix_agent',
   global: false,
   config: {
     secrets: {},

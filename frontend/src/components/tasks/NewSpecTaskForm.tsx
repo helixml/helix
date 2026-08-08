@@ -35,6 +35,7 @@ import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
 
 import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
+import { isCodingAgent } from "../../utils/apps";
 import {
   TypesSpecTaskPriority,
   TypesBranchMode,
@@ -296,31 +297,23 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
-  // Sort apps: project default first, then zed_external, then others
+  // Show coding agents only, with the project default first.
   const sortedApps = useMemo(() => {
     if (!apps.apps) return [];
-    const zedExternalApps: IApp[] = [];
-    const otherApps: IApp[] = [];
+    const codingApps: IApp[] = [];
     let defaultApp: IApp | null = null;
     const projectDefaultId = project?.default_helix_app_id;
 
     apps.apps.forEach((app) => {
+      if (!isCodingAgent(app)) return;
       if (projectDefaultId && app.id === projectDefaultId) {
         defaultApp = app;
         return;
       }
-      const hasZedExternal =
-        app.config?.helix?.assistants?.some(
-          (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-        ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
-      if (hasZedExternal) {
-        zedExternalApps.push(app);
-      } else {
-        otherApps.push(app);
-      }
+      codingApps.push(app);
     });
 
-    // Sort zed_external agents by model quality (opus > sonnet > haiku > other)
+    // Sort the remaining coding agents by model quality.
     const modelPriority = (app: IApp): number => {
       const name = (app.config?.helix?.name || "").toLowerCase();
       if (name.includes("opus")) return 0;
@@ -328,11 +321,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       if (name.includes("haiku")) return 3;
       return 2; // unknown models between sonnet and haiku
     };
-    zedExternalApps.sort((a, b) => modelPriority(a) - modelPriority(b));
+    codingApps.sort((a, b) => modelPriority(a) - modelPriority(b));
 
     const result: IApp[] = [];
     if (defaultApp) result.push(defaultApp);
-    result.push(...zedExternalApps, ...otherApps);
+    result.push(...codingApps);
     return result;
   }, [apps.apps, project?.default_helix_app_id]);
 

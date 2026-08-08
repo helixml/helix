@@ -21,10 +21,14 @@ func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.A
 	if app.Owner == "" {
 		return nil, fmt.Errorf("owner not specified")
 	}
+	if app.AgentKind != "" && !isValidAgentKind(app.AgentKind) {
+		return nil, fmt.Errorf("invalid agent kind %q", app.AgentKind)
+	}
 
 	app.Created = time.Now()
 
 	setAppDefaults(app)
+	setAgentKindDefault(app)
 	sortAppTools(app)
 
 	// Filter out empty triggers
@@ -35,6 +39,62 @@ func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.A
 		return nil, err
 	}
 	return s.GetApp(ctx, app.ID)
+}
+
+func isValidAgentKind(kind string) bool {
+	switch kind {
+	case types.AgentKindHelix, types.AgentKindCoding, types.AgentKindOrg:
+		return true
+	default:
+		return false
+	}
+}
+
+func setAgentKindDefault(app *types.App) {
+	if app.AgentKind != "" {
+		return
+	}
+	app.AgentKind = types.AgentKindHelix
+	if app.Config.Helix.DefaultAgentType == types.AgentTypeZedExternal {
+		app.AgentKind = types.AgentKindCoding
+		return
+	}
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.AgentType == types.AgentTypeZedExternal {
+			app.AgentKind = types.AgentKindCoding
+			return
+		}
+	}
+}
+
+func (s *PostgresStore) backfillAgentKinds(ctx context.Context) error {
+	if !s.gdb.Migrator().HasTable(&types.App{}) {
+		return nil
+	}
+	if err := s.gdb.WithContext(ctx).Exec(
+		"UPDATE apps SET agent_kind = ? WHERE agent_kind IS NULL OR agent_kind = ''",
+		types.AgentKindHelix,
+	).Error; err != nil {
+		return fmt.Errorf("backfill empty agent kinds: %w", err)
+	}
+	if err := s.gdb.WithContext(ctx).Exec(`
+		UPDATE apps
+		SET agent_kind = ?
+		WHERE agent_kind = ?
+		  AND (
+			config::jsonb -> 'helix' ->> 'default_agent_type' = ?
+			OR EXISTS (
+				SELECT 1
+				FROM jsonb_array_elements(
+					COALESCE(config::jsonb -> 'helix' -> 'assistants', '[]'::jsonb)
+				) AS assistant
+				WHERE assistant ->> 'agent_type' = ?
+			)
+		  )
+	`, types.AgentKindCoding, types.AgentKindHelix, types.AgentTypeZedExternal, types.AgentTypeZedExternal).Error; err != nil {
+		return fmt.Errorf("backfill coding agent kinds: %w", err)
+	}
+	return nil
 }
 
 func sortAppTools(app *types.App) {
@@ -53,6 +113,13 @@ func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.A
 
 	if app.Owner == "" {
 		return nil, fmt.Errorf("owner not specified")
+	}
+	if app.AgentKind != types.AgentKindOrg {
+		app.AgentKind = ""
+		setAgentKindDefault(app)
+	}
+	if !isValidAgentKind(app.AgentKind) {
+		return nil, fmt.Errorf("invalid agent kind %q", app.AgentKind)
 	}
 
 	app.Updated = time.Now()

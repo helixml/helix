@@ -79,7 +79,7 @@ describe("buildActivityTimeline", () => {
     ]);
   });
 
-  it("collapses the live tool history and hides thoughts while working", () => {
+  it("groups only contiguous live tool calls and hides thoughts while working", () => {
     const entries = [
       entry("1", "text", "Visible progress update"),
       entry("2", "tool_call", "first output", "first tool"),
@@ -99,10 +99,40 @@ describe("buildActivityTimeline", () => {
       },
       {
         type: "tools",
+        entries: [{ toolName: "first tool" }],
+      },
+      {
+        type: "tools",
+        entries: [{ toolName: "second tool" }],
+      },
+    ]);
+  });
+
+  it("keeps contiguous live tool calls in the same group", () => {
+    const entries = [
+      entry("1", "tool_call", "first output", "first tool"),
+      entry("2", "tool_call", "second output", "second tool"),
+      entry("3", "text", "Progress update"),
+      entry("4", "tool_call", "third output", "third tool"),
+    ];
+
+    const timeline = buildActivityTimeline(entries, true);
+
+    expect(timeline.activitySegments).toMatchObject([
+      {
+        type: "tools",
         entries: [
           { toolName: "first tool" },
           { toolName: "second tool" },
         ],
+      },
+      {
+        type: "text",
+        entry: { content: "Progress update" },
+      },
+      {
+        type: "tools",
+        entries: [{ toolName: "third tool" }],
       },
     ]);
   });

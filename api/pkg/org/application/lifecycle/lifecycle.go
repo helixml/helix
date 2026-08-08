@@ -4,7 +4,7 @@
 // This package owns the two halves of the Node lifecycle: Create (the
 // create cascade - node row, reporting line, topology reconcile,
 // create-activation dispatch) and Delete (the destroy cascade — Helix
-// project/app teardown, store cleanup, topology reconcile). Both REST
+// app teardown, store cleanup, topology reconcile). Both REST
 // and the MCP create_bot tool drive Create here, so the semantics
 // cannot drift between callers. Delete has no MCP counterpart by design
 // (the LLM should not be able to delete bots from chat), so it is a
@@ -27,6 +27,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // CreateDispatcher fires the per-create activation for a new Node. A
@@ -46,18 +47,25 @@ type TopicSubscriber interface {
 }
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
-// Delete cascade needs to tear down a Node's Helix-side project and
-// agent app. Production wiring satisfies this with the in-process
-// adapter used everywhere else; the interface exists so tests can
-// stub.
+// Delete cascade needs to tear down a Node's Helix-side agent app.
+// The configured project is deliberately preserved. Production wiring
+// satisfies this with the in-process adapter used everywhere else; the
+// interface exists so tests can stub.
 type HelixRuntime interface {
-	DeleteProject(ctx context.Context, id string) error
 	DeleteApp(ctx context.Context, id string) error
-	DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID string) error
+	DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID, sessionID string) error
 }
 
 type AgentCreator interface {
-	CreateAgent(ctx context.Context, orgID, name, instructions string) (string, error)
+	CreateAgent(ctx context.Context, orgID, name, instructions string, config AgentConfig) (string, error)
+}
+
+type AgentConfig struct {
+	CodeAgentRuntime        types.CodeAgentRuntime
+	CodeAgentCredentialType types.CodeAgentCredentialType
+	Provider                string
+	Model                   string
+	ReasoningEffort         string
 }
 
 func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -152,6 +160,7 @@ type CreateParams struct {
 	Topics          []streaming.TopicID
 	ParentID        orgchart.NodeID
 	PreserveContext bool
+	AgentConfig     AgentConfig
 	// DeferActivation creates the Agent and org topology without starting
 	// its runtime. Settings activation provisions it after the org default
 	// runtime is configured.
@@ -215,7 +224,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 	var agentAppID string
 	var err error
 	if s.Agents != nil {
-		agentAppID, err = s.Agents.CreateAgent(ctx, orgID, agentName, p.Content)
+		agentAppID, err = s.Agents.CreateAgent(ctx, orgID, agentName, p.Content, p.AgentConfig)
 		if err != nil {
 			return CreateResult{}, fmt.Errorf("create agent app: %w", err)
 		}
@@ -338,7 +347,7 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 		if name == "" {
 			name = string(node.ID)
 		}
-		appID, err := s.Agents.CreateAgent(ctx, orgID, name, node.Content)
+		appID, err := s.Agents.CreateAgent(ctx, orgID, name, node.Content, AgentConfig{})
 		if err != nil {
 			return fmt.Errorf("create agent app for %s: %w", node.ID, err)
 		}
@@ -371,17 +380,18 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 
 // Delete tears down a Node end-to-end:
 //
-//  1. Read the Helix-runtime state (project + app IDs) before clearing.
-//  2. DeleteProject on Helix — stops any active sessions.
-//  3. Atomically delete the agent app, NodeRuntimeState, subscriptions, and
-//     node row. The org_reporting_lines foreign keys drop its lines.
-//  4. Reconcile topology: tear down the deleted Node's own activation +
+//  1. Read the Helix-runtime state before clearing it.
+//  2. Atomically detach and delete the agent app, NodeRuntimeState,
+//     subscriptions, and node row. The org_reporting_lines foreign keys
+//     drop its lines.
+//  3. Reconcile topology: tear down the deleted Node's own activation +
 //     team Topics and collapse any ex-manager's team Topic that just
 //     lost its last report.
 //
 // Subscriptions are node-anchored, so they die with the node. Activation
 // events themselves are intentionally left behind as an audit trail; only
-// the Topic row is dropped.
+// the Topic row is dropped. A configured Helix project is not node-owned and
+// survives deletion; only its reference to the deleted default agent is unset.
 func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	if id == "" {
 		return errors.New("node id is empty")
@@ -410,18 +420,12 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 
 	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
 
-	if s.Helix != nil && state.ProjectID != "" {
-		if err := s.Helix.DeleteProject(ctx, state.ProjectID); err != nil && !errors.Is(err, helix.ErrProjectNotFound) {
-			return fmt.Errorf("delete helix project %s: %w", state.ProjectID, err)
-		}
-	}
-
 	agentAppID := node.AgentID
 	if agentAppID == "" {
 		agentAppID = state.AgentID
 	}
 	if s.Helix != nil && agentAppID != "" {
-		if err := s.Helix.DeleteLinkedAgent(ctx, orgID, id, agentAppID); err != nil {
+		if err := s.Helix.DeleteLinkedAgent(ctx, orgID, id, agentAppID, state.SessionID); err != nil {
 			return fmt.Errorf("delete linked agent %s: %w", agentAppID, err)
 		}
 	} else {

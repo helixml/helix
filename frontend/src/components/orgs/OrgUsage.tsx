@@ -18,7 +18,7 @@ import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContai
 import type { TooltipContentProps } from 'recharts'
 import { Download, Search, X } from 'lucide-react'
 
-import type { TypesAggregatedUsageMetric, TypesUsageBreakdownRow, TypesUsageFilterOption, TypesUsageModelTimeSeries } from '../../api/api'
+import type { TypesAggregatedUsageMetric, TypesUsageAgentRuntimeTimeSeries, TypesUsageBreakdownRow, TypesUsageFilterOption, TypesUsageModelTimeSeries } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useDebounce from '../../hooks/useDebounce'
@@ -26,6 +26,14 @@ import Page from '../system/Page'
 import SimpleTable, { ITableField } from '../widgets/SimpleTable'
 import ShadcnAreaChart, { ShadcnSeries } from '../usage/ShadcnAreaChart'
 import { useGetOrgUsage } from '../../services/orgService'
+import {
+  buildCacheHitRatioChartData,
+  getAggregateCacheHitRatio,
+  getCacheHitRatio,
+  getCacheUsageSeriesKey,
+  getTotalInputTokens,
+  getUncachedInputTokens,
+} from '../../utils/usageMetrics'
 
 type RangeKey = '7d' | '30d' | '90d'
 type UsageLoadingScope = 'filters' | 'projects' | 'tasks' | 'sessions' | 'users'
@@ -38,7 +46,7 @@ const TOKEN_SERIES: ShadcnSeries[] = [
   { key: 'output', label: 'Output', color: '#9333ea' },
 ]
 
-const MODEL_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#e11d48']
+const CHART_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#e11d48']
 
 const toDateInput = (date: Date) => date.toISOString().slice(0, 10)
 
@@ -82,6 +90,8 @@ const formatCost = (value?: number) => {
 
 const formatMs = (value?: number) => `${Math.round(value ?? 0).toLocaleString()} ms`
 
+const formatPercent = (ratio: number | null) => ratio === null ? '—' : `${(ratio * 100).toFixed(1)}%`
+
 const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString() : '-'
 
 const filterOptionLabel = (option: TypesUsageFilterOption) => {
@@ -111,14 +121,14 @@ const FilterAutocomplete: FC<{
 )
 
 const sumMetrics = (metrics: TypesAggregatedUsageMetric[] = []) => metrics.reduce((acc, metric) => ({
-  prompt: acc.prompt + (metric.prompt_tokens ?? 0),
+  input: acc.input + getTotalInputTokens(metric),
   completion: acc.completion + (metric.completion_tokens ?? 0),
   cacheRead: acc.cacheRead + (metric.cache_read_tokens ?? 0),
   cacheWrite: acc.cacheWrite + (metric.cache_write_tokens ?? 0),
   total: acc.total + (metric.total_tokens ?? 0),
   cost: acc.cost + (metric.total_cost ?? 0),
   requests: acc.requests + (metric.total_requests ?? 0),
-}), { prompt: 0, completion: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0, requests: 0 })
+}), { input: 0, completion: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0, requests: 0 })
 
 const csvEscape = (value: string | number | undefined) => `"${String(value ?? '').replace(/"/g, '""')}"`
 
@@ -140,6 +150,7 @@ const exportRows = (filename: string, rows: TypesUsageBreakdownRow[]) => {
     'output_tokens',
     'cache_read_tokens',
     'cache_write_tokens',
+    'cache_hit_ratio_percent',
     'total_tokens',
     'input_cost',
     'output_cost',
@@ -151,32 +162,36 @@ const exportRows = (filename: string, rows: TypesUsageBreakdownRow[]) => {
   ]
   const lines = [
     headers.join(','),
-    ...rows.map(row => [
-      row.id,
-      row.name,
-      row.email,
-      row.username,
-      row.provider,
-      row.model,
-      row.session_id,
-      row.total_requests,
-      row.session_count,
-      row.unique_users,
-      row.unique_projects,
-      row.unique_apps,
-      row.prompt_tokens,
-      row.completion_tokens,
-      row.cache_read_tokens,
-      row.cache_write_tokens,
-      row.total_tokens,
-      row.prompt_cost,
-      row.completion_cost,
-      row.cache_read_cost,
-      row.cache_write_cost,
-      row.total_cost,
-      row.latency_ms,
-      row.last_activity_at,
-    ].map(csvEscape).join(',')),
+    ...rows.map(row => {
+      const cacheHitRatio = getCacheHitRatio(row)
+      return [
+        row.id,
+        row.name,
+        row.email,
+        row.username,
+        row.provider,
+        row.model,
+        row.session_id,
+        row.total_requests,
+        row.session_count,
+        row.unique_users,
+        row.unique_projects,
+        row.unique_apps,
+        getTotalInputTokens(row),
+        row.completion_tokens,
+        row.cache_read_tokens,
+        row.cache_write_tokens,
+        cacheHitRatio === null ? undefined : cacheHitRatio * 100,
+        row.total_tokens,
+        row.prompt_cost,
+        row.completion_cost,
+        row.cache_read_cost,
+        row.cache_write_cost,
+        row.total_cost,
+        row.latency_ms,
+        row.last_activity_at,
+      ].map(csvEscape).join(',')
+    }),
   ]
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
@@ -188,7 +203,12 @@ const exportRows = (filename: string, rows: TypesUsageBreakdownRow[]) => {
 }
 
 const exportJSON = (filename: string, rows: TypesUsageBreakdownRow[]) => {
-  const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json;charset=utf-8' })
+  const exportedRows = rows.map(row => ({
+    ...row,
+    input_tokens: getTotalInputTokens(row),
+    cache_hit_ratio: getCacheHitRatio(row),
+  }))
+  const blob = new Blob([JSON.stringify(exportedRows, null, 2)], { type: 'application/json;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -262,7 +282,8 @@ const baseFields: ITableField[] = [
   { name: 'sessions', title: 'Sessions', numeric: true },
   { name: 'input', title: 'Input', numeric: true },
   { name: 'output', title: 'Output', numeric: true },
-  { name: 'cache', title: 'Cache', numeric: true },
+  { name: 'cache', title: 'Cache read', numeric: true },
+  { name: 'cacheHit', title: 'Hit ratio', numeric: true },
   { name: 'total', title: 'Total', numeric: true },
   { name: 'cost', title: 'Cost', numeric: true },
   { name: 'latency', title: 'Latency', numeric: true },
@@ -283,7 +304,8 @@ const sessionFields: ITableField[] = [
   { name: 'requests', title: 'LLM calls', numeric: true },
   { name: 'input', title: 'Input', numeric: true },
   { name: 'output', title: 'Output', numeric: true },
-  { name: 'cache', title: 'Cache', numeric: true },
+  { name: 'cache', title: 'Cache read', numeric: true },
+  { name: 'cacheHit', title: 'Hit ratio', numeric: true },
   { name: 'total', title: 'Total', numeric: true },
   { name: 'cost', title: 'Cost', numeric: true },
   { name: 'lastActivity', title: 'Last activity' },
@@ -326,9 +348,10 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameCli
   projects: <Typography variant="body2">{formatNumber(row.unique_projects)}</Typography>,
   sessions: <Typography variant="body2">{formatNumber(row.session_count)}</Typography>,
   requests: <Typography variant="body2">{formatNumber(row.total_requests)}</Typography>,
-  input: <Typography variant="body2">{formatNumber(row.prompt_tokens)}</Typography>,
+  input: <Typography variant="body2">{formatNumber(getTotalInputTokens(row))}</Typography>,
   output: <Typography variant="body2">{formatNumber(row.completion_tokens)}</Typography>,
-  cache: <Typography variant="body2">{formatNumber((row.cache_read_tokens ?? 0) + (row.cache_write_tokens ?? 0))}</Typography>,
+  cache: <Typography variant="body2">{formatNumber(row.cache_read_tokens)}</Typography>,
+  cacheHit: <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatPercent(getCacheHitRatio(row))}</Typography>,
   total: <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatNumber(row.total_tokens)}</Typography>,
   cost: <Typography variant="body2">{formatCost(row.total_cost)}</Typography>,
   latency: <Typography variant="body2">{formatMs(row.latency_ms)}</Typography>,
@@ -382,7 +405,7 @@ const LatencyChart: FC<{ data: Array<{ date: string; latency: number }> }> = ({ 
 
 const buildModelChart = (series: TypesUsageModelTimeSeries[] = []): UsageChartRow[] => {
   const dates = new Map<string, UsageChartRow>()
-  series.slice(0, MODEL_COLORS.length).forEach(model => {
+  series.slice(0, CHART_COLORS.length).forEach(model => {
     model.metrics?.forEach(metric => {
       if (!metric.date) return
       const entry = dates.get(metric.date) ?? { date: metric.date }
@@ -392,6 +415,10 @@ const buildModelChart = (series: TypesUsageModelTimeSeries[] = []): UsageChartRo
   })
   return Array.from(dates.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)))
 }
+
+const buildAgentCacheChart = (series: TypesUsageAgentRuntimeTimeSeries[] = []) => (
+  buildCacheHitRatioChartData(series)
+)
 
 const buildProjectModelChart = (rows: TypesUsageBreakdownRow[] = [], projects: TypesUsageBreakdownRow[] = []) => {
   const topProjectNames = new Set(projects.slice(0, 10).map(project => project.name || project.id || 'Unassigned'))
@@ -411,10 +438,10 @@ const buildProjectModelChart = (rows: TypesUsageBreakdownRow[] = [], projects: T
 
   const series = Array.from(modelTotals.values())
     .sort((a, b) => b.total - a.total)
-    .slice(0, MODEL_COLORS.length)
+    .slice(0, CHART_COLORS.length)
     .map((model, index) => ({
       ...model,
-      color: MODEL_COLORS[index],
+      color: CHART_COLORS[index],
     }))
 
   const allowedModels = new Set(series.map(model => model.key))
@@ -600,19 +627,28 @@ const OrgUsage: FC = () => {
     const cacheWrite = metric.cache_write_tokens ?? 0
     return {
       date: metric.date || '',
-      input: Math.max((metric.prompt_tokens ?? 0) - cacheRead - cacheWrite, 0),
+      input: getUncachedInputTokens(metric),
       output: metric.completion_tokens ?? 0,
       cacheRead,
       cacheWrite,
     }
   }), [metrics])
+  const cacheHitRatio = useMemo(() => getAggregateCacheHitRatio(metrics), [metrics])
 
-  const modelSeries = (usage.data?.model_time_series || []).slice(0, MODEL_COLORS.length)
+  const agentSeries = (usage.data?.agent_runtime_time_series || []).slice(0, CHART_COLORS.length)
+  const agentCacheChartData = buildAgentCacheChart(agentSeries)
+  const agentCacheChartSeries: ShadcnSeries[] = agentSeries.map((agent, index) => ({
+    key: getCacheUsageSeriesKey(agent, index),
+    label: agent.name || agent.runtime || 'Unattributed',
+    color: CHART_COLORS[index],
+  }))
+
+  const modelSeries = (usage.data?.model_time_series || []).slice(0, CHART_COLORS.length)
   const modelChartData = useMemo(() => buildModelChart(modelSeries), [modelSeries])
   const modelChartSeries: ShadcnSeries[] = modelSeries.map((model, index) => ({
     key: model.id || model.model || `model-${index}`,
     label: model.name || model.model || `Model ${index + 1}`,
-    color: MODEL_COLORS[index],
+    color: CHART_COLORS[index],
   }))
 
   const latencyData = useMemo(() => metrics.map(metric => ({
@@ -800,16 +836,16 @@ const OrgUsage: FC = () => {
 
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', xl: 'repeat(4, 1fr)' }, gap: 1.5 }}>
               <UsageCard label="LLM calls" value={formatNumber(totals.requests)} />
-              <UsageCard label="Input tokens" value={formatCompact(totals.prompt)} sublabel={formatCost(metrics.reduce((sum, metric) => sum + (metric.prompt_cost ?? 0), 0))} />
+              <UsageCard label="Input tokens" value={formatCompact(totals.input)} sublabel={formatCost(metrics.reduce((sum, metric) => sum + (metric.prompt_cost ?? 0), 0))} />
               <UsageCard label="Output tokens" value={formatCompact(totals.completion)} sublabel={formatCost(metrics.reduce((sum, metric) => sum + (metric.completion_cost ?? 0), 0))} />
-              <UsageCard label="Cache tokens" value={formatCompact(totals.cacheRead + totals.cacheWrite)} sublabel={`${formatCompact(totals.cacheRead)} read / ${formatCompact(totals.cacheWrite)} write`} />
+              <UsageCard label="Cache hit ratio" value={formatPercent(cacheHitRatio)} sublabel={`${formatCompact(totals.cacheRead)} read / ${formatCompact(totals.cacheWrite)} write`} />
               <UsageCard label="Total tokens" value={formatCompact(totals.total)} />
               <UsageCard label="Estimated cost" value={formatCost(totals.cost)} />
               <UsageCard label="Active users" value={formatNumber(usage.data?.active_users)} sublabel={`${formatNumber(usage.data?.active_sessions)} sessions`} />
               <UsageCard label="Active projects/apps" value={`${formatNumber(usage.data?.active_projects)} / ${formatNumber(usage.data?.active_apps)}`} />
             </Box>
             <Typography variant="caption" color="text.secondary">
-              Estimated cost uses Helix stored cost fields and separates input, output, cache read, and cache write categories where data exists.
+              Cache hit ratio is cache-read tokens divided by all input tokens; cache writes count as misses. Estimated cost uses Helix stored cost fields.
             </Typography>
 
             {usage.isLoading ? (
@@ -828,6 +864,16 @@ const OrgUsage: FC = () => {
                   />
                   <LatencyChart data={latencyData} />
                 </Box>
+
+                <ShadcnAreaChart
+                  title="CACHE HIT RATIO BY AGENT HARNESS"
+                  headline={formatPercent(cacheHitRatio)}
+                  data={agentCacheChartData}
+                  series={agentCacheChartSeries}
+                  valueFormatter={value => formatPercent(value)}
+                  stacked={false}
+                  zeroIsData
+                />
 
                 <ShadcnAreaChart
                   title="MODEL USAGE OVER TIME"

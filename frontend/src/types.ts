@@ -85,6 +85,10 @@ export type IAgentType = 'helix_basic' | 'helix_agent' | 'zed_external'
 export const AGENT_TYPE_HELIX_AGENT: IAgentType = 'helix_agent'
 export const AGENT_TYPE_ZED_EXTERNAL: IAgentType = 'zed_external'
 
+export const AGENT_KIND_HELIX = 'helix_agent'
+export const AGENT_KIND_CODING = 'coding_agent'
+export const AGENT_KIND_ORG = 'org_agent'
+
 export interface IExternalAgentConfig {
   workspace_dir?: string
   project_path?: string
@@ -770,10 +774,7 @@ export interface IApp {
   owner: string;
   owner_type: IOwnerType;
   user?: IUser;
-  // True when this app backs a Helix org-chart Worker. Computed server-side at
-  // list time (not persisted); used to hide org-chart agents from the spec-task
-  // agent switchers.
-  is_helix_org_agent?: boolean;
+  agent_kind: string;
 }
 
 export interface IAppUpdate {

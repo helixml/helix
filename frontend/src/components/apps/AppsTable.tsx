@@ -3,23 +3,22 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
 import { LineChart } from '@mui/x-charts';
 
-import { Copy, Edit, Trash } from 'lucide-react'
+import { Copy, Edit, EllipsisVertical, Trash } from 'lucide-react'
 
 import SimpleTable from '../widgets/SimpleTable'
-import Row from '../widgets/Row'
-import Cell from '../widgets/Cell'
-
 import useTheme from '@mui/material/styles/useTheme'
 import useApi from '../../hooks/useApi'
 import useAccount from '../../hooks/useAccount'
 
 import {
+  AGENT_KIND_CODING,
+  AGENT_KIND_HELIX,
+  AGENT_KIND_ORG,
   IApp,
 } from '../../types'
 
@@ -29,16 +28,11 @@ import {
 
 import {  
   getAppName,
-  isHelixOrgChartAgent,
 } from '../../utils/apps'
-
-import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
-
-// Import the Helix icon
-import HelixIcon from '../../../assets/img/logo.png'
 
 // Import DuplicateDialog
 import DuplicateDialog from '../app/DuplicateDialog'
+import AgentHarness, { getAgentHarnessRuntime } from '../agent/AgentHarness'
 
 const AppsDataGrid: FC<React.PropsWithChildren<{
   authenticated: boolean,
@@ -46,22 +40,20 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   onEdit: (app: IApp) => void,
   onDelete: (app: IApp) => void,
   orgId: string,
+  agentKind: string,
 }>> = ({
   authenticated,
   data,
   onEdit,
   onDelete,
   orgId,
+  agentKind,
 }) => {
 
   const api = useApi()
   const apiClient = api.getApiClient()
   const theme = useTheme()
   const account = useAccount()
-  const orgMembers = account.organizationTools.organization?.memberships || []
-  const orgMembersKey = orgMembers
-    .map((membership) => `${membership.user_id}:${membership.user?.full_name || membership.user?.username || membership.user?.email || ''}`)
-    .join('|')
   // Add state for usage data with proper typing
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({})
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -129,9 +121,6 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
     }
     fetchUsageData()
   }, [data])
-
-  // Check if we're in an organization context
-  const isOrgContext = Boolean(account.organizationTools.organization)
 
   const tableData = useMemo(() => {
     return data.map(app => {
@@ -225,56 +214,47 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         </>
       ) : null
 
-      const creatorUser = resolveOrganizationUser(app.owner, orgMembers, account.user) || app.user
-      const creator = creatorUser?.full_name || creatorUser?.username || creatorUser?.email || 'Unknown'
-
       const description = app.config.helix?.description || ''
+      const model = assistant?.code_agent_runtime === 'claude_code'
+        && assistant.code_agent_credential_type === 'subscription'
+        ? assistant.claude_subscription_model || 'Default'
+        : assistant?.model || assistant?.generation_model || 'Default'
 
       const baseRow = {
         id: app.id,
         _data: app,
         name: (
-          <Row>
-            <Cell sx={{pr: 2,}}>
-              <img src={HelixIcon} alt="Helix" style={{ width: '24px', height: '24px' }} />
-            </Cell>
-            <Cell grow>
-              <Box>
-                <Typography variant="body1" component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <a
-                    style={{
-                      textDecoration: 'none',
-                      fontWeight: 'bold',
-                      color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-                    }}
-                    href="#"
-                    onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      onEdit(app)
-                    }}
-                  >
-                    { getAppName(app) }
-                  </a>
-                  {isHelixOrgChartAgent(app) && (
-                    <Chip label="Org Chart" size="small" color="primary" variant="outlined" />
-                  )}
-                </Typography>
-                {description && (
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: theme.palette.text.secondary,
-                      display: 'block',
-                      mt: 0.25,
-                    }}
-                  >
-                    {description}
-                  </Typography>
-                )}
-              </Box>
-            </Cell>
-          </Row>
+          <Box>
+            <Typography variant="body1" component="div">
+              <a
+                style={{
+                  textDecoration: 'none',
+                  fontWeight: 'bold',
+                  color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+                }}
+                href="#"
+                onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onEdit(app)
+                }}
+              >
+                { getAppName(app) }
+              </a>
+            </Typography>
+            {description && (
+              <Typography
+                variant="caption"
+                sx={{
+                  color: theme.palette.text.secondary,
+                  display: 'block',
+                  mt: 0.25,
+                }}
+              >
+                {description}
+              </Typography>
+            )}
+          </Box>
         ),
         skills: (
           <Box sx={{ 
@@ -306,6 +286,14 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               />
             ))}
           </Box>
+        ),
+        harness: (
+          <AgentHarness runtime={getAgentHarnessRuntime(app)} variant="long" size={16} />
+        ),
+        model: (
+          <Typography variant="body2" color="text.secondary">
+            {model}
+          </Typography>
         ),
         usage: (
           <Box 
@@ -376,41 +364,12 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         ),
       }
 
-      // Only add creator field if in organization context
-      if (isOrgContext) {
-        return {
-          ...baseRow,
-          creator: (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Tooltip
-                title={creator}
-                placement="top"
-                arrow
-                slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
-              >
-                <OrganizationUserAvatar
-                  userId={app.owner}
-                  members={orgMembers}
-                  currentUser={account.user}
-                  size={32}
-                  fontSize="0.875rem"
-                  iconSize={24}
-                />
-              </Tooltip>            
-            </Box>
-          ),
-        }
-      }
-
       return baseRow
     })
   }, [
     theme,
     data,
     usageData,
-    isOrgContext,
-    orgMembersKey,
-    account.user?.id,
   ])
 
   const getActions = useCallback((app: any) => {
@@ -421,42 +380,43 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         aria-haspopup="true"
         onClick={(e) => handleMenuClick(e, app)}
       >
-        <MoreVertIcon />
+        <EllipsisVertical size={18} />
       </IconButton>
     )
   }, [])
 
-  // Define table fields conditionally based on organization context
   const tableFields = useMemo(() => {
-    const baseFields = [
+    return [
       {
         name: 'name',
         title: 'Name',
-      }, 
-      {
-        name: 'skills',
-        title: 'Tools',
       },
-      {
-        name: 'triggers',
-        title: 'Triggers',
-      },
+      ...([AGENT_KIND_CODING, AGENT_KIND_ORG].includes(agentKind) ? [
+        {
+          name: 'harness',
+          title: 'Harness',
+        },
+        {
+          name: 'model',
+          title: 'Model',
+        },
+      ] : []),
+      ...(agentKind === AGENT_KIND_HELIX ? [
+        {
+          name: 'skills',
+          title: 'Tools',
+        },
+        {
+          name: 'triggers',
+          title: 'Triggers',
+        },
+      ] : []),
       {
         name: 'usage',
         title: 'Token Usage',
-      }
+      },
     ]
-
-    // Only add creator field if in organization context
-    if (isOrgContext) {
-      baseFields.push({
-        name: 'creator',
-        title: 'Creator',
-      })
-    }
-
-    return baseFields
-  }, [isOrgContext])
+  }, [agentKind])
 
   return (
     <>

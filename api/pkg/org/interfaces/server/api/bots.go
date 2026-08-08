@@ -136,6 +136,13 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		ParentID:        orgchart.NodeID(strings.TrimSpace(req.ParentID)),
 		PreserveContext: req.PreserveContext,
 		DeferActivation: deferActivation,
+		AgentConfig: lifecycle.AgentConfig{
+			CodeAgentRuntime:        req.CodeAgentRuntime,
+			CodeAgentCredentialType: req.CodeAgentCredentialType,
+			Provider:                strings.TrimSpace(req.Provider),
+			Model:                   strings.TrimSpace(req.Model),
+			ReasoningEffort:         strings.TrimSpace(req.ReasoningEffort),
+		},
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -350,11 +357,11 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteBot tears down a Bot via the lifecycle service. Cascades the
-// Helix project + app, runtime state, subscriptions, reporting lines,
-// then the bot row.
+// Helix app, runtime state, subscriptions, reporting lines, then the bot
+// row. The configured project is preserved.
 //
 // @Summary Helix-org: delete a bot
-// @Description Delete a Bot. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Activations are preserved as audit.
+// @Description Delete a Bot. Cascades: detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Only the project's default agent ID is unset; the configured project, repositories, tasks, other project configuration, and activations are preserved.
 // @Tags HelixOrg
 // @Param id path string true "Bot ID"
 // @Success 204

@@ -181,12 +181,17 @@ type CreateBotRequest struct {
 	ID string `json:"id,omitempty"`
 	// Name is the human-readable display label (e.g. "Chief of Staff").
 	// Optional; the ID stays the immutable handle.
-	Name            string   `json:"name,omitempty"`
-	Content         string   `json:"content"`
-	Tools           []string `json:"tools,omitempty"`
-	Topics          []string `json:"topics,omitempty"`
-	ParentID        string   `json:"parent_id,omitempty"`
-	PreserveContext bool     `json:"preserve_context,omitempty"`
+	Name                    string                        `json:"name,omitempty"`
+	Content                 string                        `json:"content"`
+	Tools                   []string                      `json:"tools,omitempty"`
+	Topics                  []string                      `json:"topics,omitempty"`
+	ParentID                string                        `json:"parent_id,omitempty"`
+	PreserveContext         bool                          `json:"preserve_context,omitempty"`
+	CodeAgentRuntime        types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`
+	CodeAgentCredentialType types.CodeAgentCredentialType `json:"code_agent_credential_type,omitempty"`
+	Provider                string                        `json:"provider,omitempty"`
+	Model                   string                        `json:"model,omitempty"`
+	ReasoningEffort         string                        `json:"reasoning_effort,omitempty"`
 	// Owner makes this a manager Bot: it receives the canonical owner
 	// tool set (every org-graph mutation - create_bot, delete_bot,
 	// set_bot_content, subscribe, ... - plus the read baseline) so it can

@@ -18,7 +18,7 @@ import {
 
 import useRouter from '../../hooks/useRouter'
 import useApp from '../../hooks/useApp'
-import { isHelixOrgChartAgent } from '../../utils/apps'
+import { isOrgAgent } from '../../utils/apps'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
 const AppSidebar: FC = () => {
@@ -65,7 +65,7 @@ const AppSidebar: FC = () => {
     },
     {
       id: 'skills',
-      label: app && isHelixOrgChartAgent(app) ? 'MCPs & APIs' : 'Tools',
+      label: app && isOrgAgent(app) ? 'MCPs & APIs' : 'Tools',
       icon: <Lightbulb size={20} />,
       isActive: currentTab === 'skills',
       onClick: () => handleNavigationClick('skills')
@@ -123,7 +123,7 @@ const AppSidebar: FC = () => {
 
   const sections: ContextSidebarSection[] = [{ items }]
 
-  if (app?.organization_id && (userAccess?.isAdmin || isHelixOrgChartAgent(app))) {
+  if (app?.organization_id && (userAccess?.isAdmin || isOrgAgent(app))) {
     items.push({
       id: 'access',
       label: 'Access',
