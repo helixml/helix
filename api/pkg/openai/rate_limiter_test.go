@@ -629,6 +629,31 @@ func TestInterceptorOnlyResetsLadderOnSuccessStatus(t *testing.T) {
 	}
 }
 
+// A zero *limit* would leave a bucket that can never accrue — the same
+// spin-until-ctx trap as the truncation bug, reached from the header path. A
+// zero *remaining* is legitimate and must still be honoured.
+func TestZeroLimitHeadersDoNotWedgeTheBucket(t *testing.T) {
+	rl := NewUniversalRateLimiter("openai")
+
+	before := rl.requestsPerMinute
+
+	headers := http.Header{}
+	headers.Set("x-ratelimit-limit-requests", "0")
+	headers.Set("x-ratelimit-limit-tokens", "0")
+	headers.Set("x-ratelimit-remaining-requests", "0")
+	rl.UpdateFromHeaders(headers)
+
+	rl.mu.RLock()
+	assert.Equal(t, before, rl.requestsPerMinute, "a zero limit must be ignored")
+	assert.Positive(t, rl.maxTokens)
+	assert.Equal(t, int64(0), rl.currentRequests, "a zero remaining must still be honoured")
+	rl.mu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, rl.WaitForTokens(ctx, 1), "bucket was wedged by a zero limit")
+}
+
 // A request bigger than the provider's entire per-minute budget can never be
 // covered by the bucket. It must still be admitted once the bucket is full
 // rather than looping until the caller's context expires.

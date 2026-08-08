@@ -270,6 +270,11 @@ func (rl *UniversalRateLimiter) UpdateFromHeaders(headers http.Header) {
 // updateFromHeadersLocked is UpdateFromHeaders without the locking, for callers
 // that already hold rl.mu. sync.RWMutex is not reentrant, so a lock holder that
 // called UpdateFromHeaders would deadlock itself permanently.
+//
+// Only positive *limits* are applied: a zero limit would leave a bucket that can
+// never accrue, so WaitForTokens would poll until its caller's context expired.
+// A zero *remaining* is honoured — that is a provider legitimately saying the
+// bucket is empty right now.
 func (rl *UniversalRateLimiter) updateFromHeadersLocked(headers http.Header) {
 	// Try to parse headers from different providers
 	rl.parseOpenAIHeaders(headers)
@@ -290,7 +295,7 @@ func (rl *UniversalRateLimiter) updateFromHeadersLocked(headers http.Header) {
 func (rl *UniversalRateLimiter) parseOpenAIHeaders(headers http.Header) {
 	// Request limits
 	if requestLimitStr := headers.Get("x-ratelimit-limit-requests"); requestLimitStr != "" {
-		if limit, err := strconv.ParseInt(requestLimitStr, 10, 64); err == nil {
+		if limit, err := strconv.ParseInt(requestLimitStr, 10, 64); err == nil && limit > 0 {
 			rl.requestLimit = limit
 			rl.requestsPerMinute = limit
 			rl.maxRequests = limit
@@ -306,7 +311,7 @@ func (rl *UniversalRateLimiter) parseOpenAIHeaders(headers http.Header) {
 
 	// Token limits
 	if tokenLimitStr := headers.Get("x-ratelimit-limit-tokens"); tokenLimitStr != "" {
-		if limit, err := strconv.ParseInt(tokenLimitStr, 10, 64); err == nil {
+		if limit, err := strconv.ParseInt(tokenLimitStr, 10, 64); err == nil && limit > 0 {
 			rl.tokenLimit = limit
 			rl.tokensPerMinute = limit
 			rl.maxTokens = limit
@@ -332,7 +337,7 @@ func (rl *UniversalRateLimiter) parseOpenAIHeaders(headers http.Header) {
 func (rl *UniversalRateLimiter) parseAnthropicHeaders(headers http.Header) {
 	// Request limits
 	if requestLimitStr := headers.Get("anthropic-ratelimit-requests-limit"); requestLimitStr != "" {
-		if limit, err := strconv.ParseInt(requestLimitStr, 10, 64); err == nil {
+		if limit, err := strconv.ParseInt(requestLimitStr, 10, 64); err == nil && limit > 0 {
 			rl.requestLimit = limit
 			rl.requestsPerMinute = limit
 			rl.maxRequests = limit
@@ -348,13 +353,13 @@ func (rl *UniversalRateLimiter) parseAnthropicHeaders(headers http.Header) {
 
 	// Token limits (try both tokens and input-tokens headers)
 	if tokenLimitStr := headers.Get("anthropic-ratelimit-tokens-limit"); tokenLimitStr != "" {
-		if limit, err := strconv.ParseInt(tokenLimitStr, 10, 64); err == nil {
+		if limit, err := strconv.ParseInt(tokenLimitStr, 10, 64); err == nil && limit > 0 {
 			rl.tokenLimit = limit
 			rl.tokensPerMinute = limit
 			rl.maxTokens = limit
 		}
 	} else if inputTokenLimitStr := headers.Get("anthropic-ratelimit-input-tokens-limit"); inputTokenLimitStr != "" {
-		if limit, err := strconv.ParseInt(inputTokenLimitStr, 10, 64); err == nil {
+		if limit, err := strconv.ParseInt(inputTokenLimitStr, 10, 64); err == nil && limit > 0 {
 			rl.tokenLimit = limit
 			rl.tokensPerMinute = limit
 			rl.maxTokens = limit
@@ -385,7 +390,7 @@ func (rl *UniversalRateLimiter) parseAnthropicHeaders(headers http.Header) {
 func (rl *UniversalRateLimiter) parseTogetherAIHeaders(headers http.Header) {
 	// Request limits
 	if requestLimitStr := headers.Get("x-ratelimit-limit"); requestLimitStr != "" {
-		if limit, err := strconv.ParseInt(requestLimitStr, 10, 64); err == nil {
+		if limit, err := strconv.ParseInt(requestLimitStr, 10, 64); err == nil && limit > 0 {
 			rl.requestLimit = limit
 			rl.requestsPerMinute = limit * 60 // Together AI reports per-second, convert to per-minute
 			rl.maxRequests = rl.requestsPerMinute
@@ -401,7 +406,7 @@ func (rl *UniversalRateLimiter) parseTogetherAIHeaders(headers http.Header) {
 
 	// Token limits
 	if tokenLimitStr := headers.Get("x-tokenlimit-limit"); tokenLimitStr != "" {
-		if limit, err := strconv.ParseInt(tokenLimitStr, 10, 64); err == nil {
+		if limit, err := strconv.ParseInt(tokenLimitStr, 10, 64); err == nil && limit > 0 {
 			rl.tokenLimit = limit
 			rl.tokensPerMinute = limit * 60 // Together AI reports per-second, convert to per-minute
 			rl.maxTokens = rl.tokensPerMinute
