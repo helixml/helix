@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/agent/tests"
@@ -287,6 +288,14 @@ func (suite *AgentTestSuite) TestAgent_BasicKnowledge() {
 	suite.Require().Contains(resp.Choices[0].Message.Content, "black")
 }
 
+// chatCompletionTimeout bounds a single agent call. It must stay comfortably
+// under `go test -timeout` (8m in CI): an unbounded call turns any upstream
+// stall — a rate limit, an exhausted provider balance, a wedged request — into
+// a process-level timeout panic that takes the whole package down and prints a
+// goroutine dump instead of the reason. With a deadline the test fails on its
+// own terms, and TestMain gets to dump the server logs.
+const chatCompletionTimeout = 3 * time.Minute
+
 func chatCompletions(t *testing.T, apiKey string, request *openai.ChatCompletionRequest) (*openai.ChatCompletionResponse, error) {
 	t.Helper()
 
@@ -295,8 +304,14 @@ func chatCompletions(t *testing.T, apiKey string, request *openai.ChatCompletion
 
 	client := openai.NewClientWithConfig(config)
 
-	response, err := client.CreateChatCompletion(context.Background(), *request)
+	ctx, cancel := context.WithTimeout(context.Background(), chatCompletionTimeout)
+	defer cancel()
+
+	response, err := client.CreateChatCompletion(ctx, *request)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("chat completion did not return within %s (model %q): %w", chatCompletionTimeout, request.Model, err)
+		}
 		return nil, err
 	}
 
