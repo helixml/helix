@@ -168,14 +168,6 @@ func (apiServer *HelixAPIServer) resolveForkTarget(
 	parent *types.Session,
 	body ForkSessionRequest,
 ) (types.CodeAgentRuntime, string, error) {
-	if body.CodeAgentRuntime != "" {
-		appID := body.HelixAppID
-		if appID == "" {
-			appID = parent.ParentApp
-		}
-		return body.CodeAgentRuntime, appID, nil
-	}
-
 	appID := body.HelixAppID
 	if appID == "" {
 		appID = parent.ParentApp
@@ -187,6 +179,19 @@ func (apiServer *HelixAPIServer) resolveForkTarget(
 	app, err := apiServer.Store.GetApp(ctx, appID)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to look up target app %s: %w", appID, err)
+	}
+	expectedKind := types.AgentKindCoding
+	if parent.ParentApp != "" {
+		currentApp, currentErr := apiServer.Store.GetApp(ctx, parent.ParentApp)
+		if currentErr == nil && currentApp.AgentKind == types.AgentKindOrg {
+			expectedKind = types.AgentKindOrg
+		}
+	}
+	if err := requireAgentKind(app, expectedKind, "agent switching"); err != nil {
+		return "", "", err
+	}
+	if body.CodeAgentRuntime != "" {
+		return body.CodeAgentRuntime, appID, nil
 	}
 	for _, assistant := range app.Config.Helix.Assistants {
 		if assistant.AgentType != types.AgentTypeZedExternal {
@@ -341,7 +346,7 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 			continue
 		}
 		copyInteraction := *in
-		copyInteraction.ID = ""             // let the store mint a fresh ID
+		copyInteraction.ID = "" // let the store mint a fresh ID
 		copyInteraction.SessionID = createdChild.ID
 		copyInteraction.GenerationID = createdChild.GenerationID
 		copyInteraction.Trigger = types.InteractionTriggerForkInherited

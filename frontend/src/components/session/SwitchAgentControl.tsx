@@ -77,17 +77,11 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
 
   // Switching only makes sense between external-agent frameworks that run
   // inside Zed, and never to a Helix org-chart Worker agent — those belong to
-  // the org chart, not to spec tasks. The session's current agent is kept
-  // visible even if it would be filtered out, so its name still renders.
+  // the org chart, not to spec tasks.
   const eligibleAgents = useMemo(() => {
     if (!apps.apps) return [];
-    const list = apps.apps.filter(isSpecTaskSwitchableAgent);
-    if (currentAppId && !list.some((a) => a.id === currentAppId)) {
-      const current = apps.apps.find((a) => a.id === currentAppId);
-      if (current) list.unshift(current);
-    }
-    return list;
-  }, [apps.apps, currentAppId]);
+    return apps.apps.filter(isSpecTaskSwitchableAgent);
+  }, [apps.apps]);
 
   const handleSelect = (newAppId: string) => {
     setMenuAnchor(null);

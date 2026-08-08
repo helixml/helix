@@ -100,6 +100,10 @@ export const isSpecTaskSwitchableAgent = (app: IApp): boolean => {
   return isCodingAgent(app)
 }
 
+export const isChatSelectableAgent = (app: IApp): boolean => {
+  return isHelixAgent(app)
+}
+
 export const getAssistant = (app: IApp, assistantID: string): IAssistantConfig | undefined => {
   if(!app || !app.config) return
   const byID = app.config.helix?.assistants?.find((assistant) => assistant.id === assistantID)

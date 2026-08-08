@@ -427,6 +427,9 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	if err := s.authorizeUserToApp(r.Context(), user, defaultApp, types.ActionGet); err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	if err := requireAgentKind(defaultApp, types.AgentKindCoding, "project spec tasks"); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 
 	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
 	if err != nil {
@@ -642,6 +645,32 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	for _, selection := range []struct {
+		field string
+		appID *string
+	}{
+		{field: "default_helix_app_id", appID: req.DefaultHelixAppID},
+		{field: "project_manager_helix_app_id", appID: req.ProjectManagerHelixAppID},
+		{field: "pull_request_reviewer_helix_app_id", appID: req.PullRequestReviewerHelixAppID},
+	} {
+		if selection.appID == nil || *selection.appID == "" {
+			continue
+		}
+		app, appErr := s.Store.GetApp(r.Context(), *selection.appID)
+		if appErr != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid %s: agent not found", selection.field))
+		}
+		if app.OrganizationID != "" && app.OrganizationID != project.OrganizationID {
+			return nil, system.NewHTTPError400(fmt.Sprintf("%s must be in the same organization as the project", selection.field))
+		}
+		if appErr := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet); appErr != nil {
+			return nil, system.NewHTTPError403(appErr.Error())
+		}
+		if appErr := requireAgentKind(app, types.AgentKindCoding, "project agent configuration"); appErr != nil {
+			return nil, system.NewHTTPError400(appErr.Error())
+		}
 	}
 
 	// Apply updates

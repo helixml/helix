@@ -416,18 +416,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     });
   }, [taskId]);
 
-  // Agents the task can switch to: external agents that are not part of the
-  // Helix org chart. The currently-assigned agent is kept visible even if it
-  // would be filtered out, so the dropdown selection stays valid.
+  // Spec tasks can only select coding agents.
   const eligibleApps = useMemo(() => {
     if (!apps.apps) return [];
-    const list = apps.apps.filter(isSpecTaskSwitchableAgent);
-    if (selectedAgent && !list.some((a) => a.id === selectedAgent)) {
-      const current = apps.apps.find((a) => a.id === selectedAgent);
-      if (current) list.unshift(current);
-    }
-    return list;
-  }, [apps.apps, selectedAgent]);
+    return apps.apps.filter(isSpecTaskSwitchableAgent);
+  }, [apps.apps]);
 
   // Get display settings from the task's app configuration
   const displaySettings = useMemo(() => {

@@ -465,6 +465,9 @@ func (s *HelixAPIServer) executeQuestionSet(_ http.ResponseWriter, req *http.Req
 		}
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get app: %s", err))
 	}
+	if err := requireAgentKind(app, types.AgentKindHelix, "question sets"); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 
 	startTime := time.Now()
 	execution := &types.QuestionSetExecution{

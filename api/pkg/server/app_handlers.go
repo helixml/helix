@@ -372,6 +372,16 @@ func isSpecTaskSelectableAgent(app *types.Agent) bool {
 	return app != nil && app.AgentKind == types.AgentKindCoding
 }
 
+func requireAgentKind(app *types.Agent, expectedKind, surface string) error {
+	if app == nil {
+		return fmt.Errorf("agent is required")
+	}
+	if app.AgentKind != expectedKind {
+		return fmt.Errorf("%s requires agent kind %q, got %q", surface, expectedKind, app.AgentKind)
+	}
+	return nil
+}
+
 // createAgent godoc
 // @Summary Create new agent
 // @Description Create new agent. Helix agents are configured with tools and knowledge. Supports both legacy format and new structured format with YAML config.

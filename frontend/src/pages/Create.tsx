@@ -8,6 +8,7 @@ import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import { getNewSessionBreadcrumbs } from '../utils/session'
 import { ISessionMode, ISessionType } from '../types'
+import { isChatSelectableAgent } from '../utils/apps'
 
 const Create: FC = () => {
   const router = useRouter()
@@ -34,6 +35,12 @@ const Create: FC = () => {
     apps.loadApp(appID).finally(() => setIsLoadingApp(false))
     return () => apps.setApp(undefined)
   }, [appID, orgId])
+
+  useEffect(() => {
+    if (apps.app?.id === appID && !isChatSelectableAgent(apps.app)) {
+      account.orgNavigate('chat')
+    }
+  }, [appID, apps.app?.id, apps.app?.agent_kind])
 
   if (appID && (isLoadingApp || !apps.app)) {
     return null

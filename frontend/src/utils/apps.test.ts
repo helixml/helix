@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isCodingAgent, isHelixAgent, isOrgAgent, isSpecTaskSwitchableAgent, usesFocusedAgentDetails } from './apps'
+import { isChatSelectableAgent, isCodingAgent, isHelixAgent, isOrgAgent, isSpecTaskSwitchableAgent, usesFocusedAgentDetails } from './apps'
 import { AGENT_KIND_CODING, AGENT_KIND_HELIX, AGENT_KIND_ORG, IApp } from '../types'
 
 // Minimal IApp builder — only the fields the predicates read.
@@ -49,5 +49,13 @@ describe('isSpecTaskSwitchableAgent', () => {
     expect(
       isSpecTaskSwitchableAgent(makeApp({ agentKind: AGENT_KIND_HELIX })),
     ).toBe(false)
+  })
+})
+
+describe('isChatSelectableAgent', () => {
+  it('only permits native Helix agents', () => {
+    expect(isChatSelectableAgent(makeApp({ agentKind: AGENT_KIND_HELIX }))).toBe(true)
+    expect(isChatSelectableAgent(makeApp({ agentKind: AGENT_KIND_CODING }))).toBe(false)
+    expect(isChatSelectableAgent(makeApp({ agentKind: AGENT_KIND_ORG }))).toBe(false)
   })
 })

@@ -161,6 +161,31 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		http.Error(w, "prompt is required", http.StatusBadRequest)
 		return
 	}
+	if req.AppID == "" {
+		project, err := s.Store.GetProject(ctx, req.ProjectID)
+		if err != nil {
+			http.Error(w, "project not found", http.StatusBadRequest)
+			return
+		}
+		req.AppID = project.DefaultHelixAppID
+	}
+	if req.AppID == "" {
+		http.Error(w, "project has no default coding agent", http.StatusBadRequest)
+		return
+	}
+	app, err := s.Store.GetApp(ctx, req.AppID)
+	if err != nil {
+		http.Error(w, "selected agent not found", http.StatusBadRequest)
+		return
+	}
+	if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if err := requireAgentKind(app, types.AgentKindCoding, "spec tasks"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Create task via spec-driven service
 	task, err := s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req)
@@ -1153,6 +1178,19 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		task.JustDoItMode = *updateReq.JustDoItMode
 	}
 	if updateReq.HelixAppID != "" {
+		app, err := s.Store.GetApp(ctx, updateReq.HelixAppID)
+		if err != nil {
+			http.Error(w, "selected agent not found", http.StatusBadRequest)
+			return
+		}
+		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if err := requireAgentKind(app, types.AgentKindCoding, "spec tasks"); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		task.HelixAppID = updateReq.HelixAppID
 
 		// Sync session's ParentApp so restart uses new agent's display settings

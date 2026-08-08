@@ -151,6 +151,9 @@ func (s *HelixAPIServer) createAppTrigger(_ http.ResponseWriter, r *http.Request
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	if err := requireAgentKind(app, types.AgentKindHelix, "agent triggers"); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 
 	// Set the app ID and organization ID
 	triggerConfig.AppID = app.ID
@@ -236,6 +239,9 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 	err = s.authorizeUserToApp(ctx, user, app, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+	if err := requireAgentKind(app, types.AgentKindHelix, "agent triggers"); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
 	}
 
 	// Get the existing trigger configuration

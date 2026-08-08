@@ -98,8 +98,9 @@ func seedParentWithInteractions(t *testing.T, mem *memorystore.MemoryStore, pare
 }
 
 func TestResolveForkTarget_ExplicitRuntimeWins(t *testing.T) {
-	srv, _ := newForkTestServer(t)
+	srv, mem := newForkTestServer(t)
 	parent := newTestParentSession("user_a")
+	mem.SeedApp(&types.App{ID: "app_other", AgentKind: types.AgentKindCoding})
 
 	runtime, appID, err := srv.resolveForkTarget(context.Background(), parent, ForkSessionRequest{
 		CodeAgentRuntime: types.CodeAgentRuntimeQwenCode,
@@ -114,7 +115,8 @@ func TestResolveForkTarget_ResolveFromHelixApp(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	parent := newTestParentSession("user_a")
 	mem.SeedApp(&types.App{
-		ID: "app_target",
+		ID:        "app_target",
+		AgentKind: types.AgentKindCoding,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Assistants: []types.AssistantConfig{
@@ -137,7 +139,8 @@ func TestResolveForkTarget_AppMissingZedExternalAssistant(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	parent := newTestParentSession("user_a")
 	mem.SeedApp(&types.App{
-		ID: "app_no_zed",
+		ID:        "app_no_zed",
+		AgentKind: types.AgentKindCoding,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Assistants: []types.AssistantConfig{{AgentType: types.AgentTypeHelixBasic}},

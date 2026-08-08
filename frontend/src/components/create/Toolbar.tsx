@@ -19,6 +19,7 @@ import {
   ISessionType,
   SESSION_MODE_INFERENCE
 } from '../../types'
+import { isChatSelectableAgent } from '../../utils/apps'
 
 const CreateToolbar: FC<{
   mode: ISessionMode,
@@ -50,13 +51,14 @@ const CreateToolbar: FC<{
   } = useApps()
 
   const appRequested = params.app_id
+  const chatApps = apps.filter(isChatSelectableAgent)
 
   return (
     <Row>
-      {!appRequested && apps.length > 0 && mode == SESSION_MODE_INFERENCE && (
+      {!appRequested && chatApps.length > 0 && mode == SESSION_MODE_INFERENCE && (
         <Cell>
           <AppPicker
-            apps={apps}
+            apps={chatApps}
             selectedApp={app}
             onSelectApp={(app) => {
               if(!app) return

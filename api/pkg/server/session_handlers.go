@@ -785,6 +785,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	} else {
 		// Create session
 		newSession = true
+		if startReq.AppID != "" {
+			app, appErr := s.Store.GetApp(ctx, startReq.AppID)
+			if appErr != nil {
+				http.Error(rw, "selected agent not found", http.StatusBadRequest)
+				return
+			}
+			if appErr := requireAgentKind(app, types.AgentKindHelix, "chat"); appErr != nil {
+				http.Error(rw, appErr.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 
 		// Set default agent type if not specified
 		if startReq.AgentType == "" {
