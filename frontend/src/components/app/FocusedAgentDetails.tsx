@@ -1,8 +1,11 @@
 import { FC, ReactNode } from 'react'
+import Alert from '@mui/material/Alert'
+import CircularProgress from '@mui/material/CircularProgress'
 
 import { IAppFlatState } from '../../types'
 import AppSettings from './AppSettings'
 import OrgAgentSettings from './OrgAgentSettings'
+import { BotDetailDTO } from '../../services/helixOrgService'
 import {
   AgentSettingsPage,
   AgentSettingsRow,
@@ -18,6 +21,8 @@ interface FocusedAgentDetailsProps {
   readOnly: boolean
   showErrors: boolean
   isAdmin: boolean
+  orgAgentDetail?: BotDetailDTO
+  orgAgentDetailLoading?: boolean
   accessManagement?: ReactNode
 }
 
@@ -30,8 +35,30 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
   readOnly,
   showErrors,
   isAdmin,
+  orgAgentDetail,
+  orgAgentDetailLoading = false,
   accessManagement,
 }) => {
+  if (kind === 'org' && orgAgentDetailLoading) {
+    return (
+      <AgentSettingsPage>
+        <AgentSettingsRow>
+          <CircularProgress size={22} aria-label="Loading org agent settings" />
+        </AgentSettingsRow>
+      </AgentSettingsPage>
+    )
+  }
+
+  if (kind === 'org' && !orgAgentDetail) {
+    return (
+      <AgentSettingsPage>
+        <Alert severity="warning">
+          This backing agent is no longer linked to an organization worker. Open the current worker from the Helix Org Agents list.
+        </Alert>
+      </AgentSettingsPage>
+    )
+  }
+
   const appSettings = (view: 'configuration' | 'desktop') => (
     <AppSettings
       id={agentID}
@@ -63,6 +90,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
               section="basics"
               readOnly={readOnly}
               onCanonicalUpdate={onCanonicalUpdate}
+              detail={orgAgentDetail}
               embedded
             />
           ) : (
@@ -81,7 +109,13 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
         </AgentSettingsRow>
         {kind === 'org' && (
           <AgentSettingsRow>
-            <OrgAgentSettings agentID={agentID} section="runtime" readOnly={readOnly} embedded />
+            <OrgAgentSettings
+              agentID={agentID}
+              section="runtime"
+              readOnly={readOnly}
+              detail={orgAgentDetail}
+              embedded
+            />
           </AgentSettingsRow>
         )}
       </AgentSettingsSection>
@@ -114,6 +148,7 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
                 section="instructions"
                 readOnly={readOnly}
                 onCanonicalUpdate={onCanonicalUpdate}
+                detail={orgAgentDetail}
                 embedded
               />
             </AgentSettingsRow>
@@ -124,7 +159,13 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
             description="Choose the organization capabilities this worker can call."
           >
             <AgentSettingsRow>
-              <OrgAgentSettings agentID={agentID} section="tools" readOnly={readOnly} embedded />
+              <OrgAgentSettings
+                agentID={agentID}
+                section="tools"
+                readOnly={readOnly}
+                detail={orgAgentDetail}
+                embedded
+              />
             </AgentSettingsRow>
           </AgentSettingsSection>
 
@@ -133,7 +174,13 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
             description="Choose the organization topics that trigger this worker."
           >
             <AgentSettingsRow>
-              <OrgAgentSettings agentID={agentID} section="subscriptions" readOnly={readOnly} embedded />
+              <OrgAgentSettings
+                agentID={agentID}
+                section="subscriptions"
+                readOnly={readOnly}
+                detail={orgAgentDetail}
+                embedded
+              />
             </AgentSettingsRow>
           </AgentSettingsSection>
 
@@ -142,7 +189,13 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
             description="Control the projects this worker can use and who can access its backing agent."
           >
             <AgentSettingsRow>
-              <OrgAgentSettings agentID={agentID} section="access" readOnly={readOnly} embedded />
+              <OrgAgentSettings
+                agentID={agentID}
+                section="access"
+                readOnly={readOnly}
+                detail={orgAgentDetail}
+                embedded
+              />
             </AgentSettingsRow>
             {accessManagement && <AgentSettingsRow>{accessManagement}</AgentSettingsRow>}
           </AgentSettingsSection>

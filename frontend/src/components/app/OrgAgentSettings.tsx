@@ -17,9 +17,8 @@ import useSnackbar from '../../hooks/useSnackbar'
 import { useListProjects } from '../../services/projectService'
 import {
   ToolDTO,
-  useHelixOrgBot,
+  BotDetailDTO,
   useListBotSubscriptions,
-  useListHelixOrgBots,
   useListHelixOrgTopics,
   useListHelixOrgTools,
   useSubscribeBot,
@@ -34,21 +33,19 @@ const OrgAgentSettings: FC<{
   readOnly: boolean
   onCanonicalUpdate?: () => Promise<unknown> | void
   embedded?: boolean
-}> = ({ agentID, section, readOnly, onCanonicalUpdate, embedded = false }) => {
+  detail?: BotDetailDTO
+}> = ({ agentID, section, readOnly, onCanonicalUpdate, embedded = false, detail }) => {
   const snackbar = useSnackbar()
-  const { data: agents = [] } = useListHelixOrgBots()
-  const linkedAgent = agents.find((agent) => (agent.agent_id ?? agent.agent_app_id) === agentID)
-  const { data: detail } = useHelixOrgBot(linkedAgent?.id, { enabled: !!linkedAgent?.id })
   const updateAgent = useUpdateBot()
-  const { data: projects = [] } = useListProjects(linkedAgent?.organization_id, { enabled: section === 'access' && !!linkedAgent?.organization_id })
-  const { data: catalogue = [] } = useListHelixOrgTools({ enabled: section === 'tools' && !!linkedAgent })
-  const { data: topicsData, isLoading: topicsLoading } = useListHelixOrgTopics({ enabled: section === 'subscriptions' && !!linkedAgent })
-  const { data: subscriptionsData, isLoading: subscriptionsLoading } = useListBotSubscriptions(linkedAgent?.id, { enabled: section === 'subscriptions' && !!linkedAgent })
-  const subscribe = useSubscribeBot(linkedAgent?.id)
-  const unsubscribe = useUnsubscribeBot(linkedAgent?.id)
+  const agent = detail?.bot
+  const { data: projects = [] } = useListProjects(agent?.organization_id, { enabled: section === 'access' && !!agent?.organization_id })
+  const { data: catalogue = [] } = useListHelixOrgTools({ enabled: section === 'tools' && !!agent })
+  const { data: topicsData, isLoading: topicsLoading } = useListHelixOrgTopics({ enabled: section === 'subscriptions' && !!agent })
+  const { data: subscriptionsData, isLoading: subscriptionsLoading } = useListBotSubscriptions(agent?.id, { enabled: section === 'subscriptions' && !!agent })
+  const subscribe = useSubscribeBot(agent?.id)
+  const unsubscribe = useUnsubscribeBot(agent?.id)
   const [editingTools, setEditingTools] = useState(false)
 
-  const agent = detail?.bot ?? linkedAgent
   const projectID = detail?.project_id
   const projectIDs = Array.from(new Set([...(agent?.project_ids ?? []), ...(projectID ? [projectID] : [])]))
   const knownTools = new Set(catalogue.map((tool) => tool.name))

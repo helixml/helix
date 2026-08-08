@@ -42,7 +42,20 @@ describe('FocusedAgentDetails', () => {
   })
 
   it('includes org-agent behavior, triggers, tools, and permissions', () => {
-    renderDetails('org', <div data-testid="agent-access" />)
+    render(
+      <FocusedAgentDetails
+        agentID="app_test"
+        app={{ name: 'Test agent' } as IAppFlatState}
+        kind="org"
+        onUpdate={async () => {}}
+        onCanonicalUpdate={async () => {}}
+        readOnly={false}
+        showErrors={false}
+        isAdmin
+        orgAgentDetail={{ bot: { id: 'worker_test' } }}
+        accessManagement={<div data-testid="agent-access" />}
+      />,
+    )
 
     for (const title of ['General', 'Desktop', 'Instructions', 'Available tools', 'Subscriptions', 'Permissions']) {
       expect(screen.getByRole('heading', { name: title })).toBeInTheDocument()
@@ -51,5 +64,11 @@ describe('FocusedAgentDetails', () => {
       expect(screen.getByTestId(`org-${section}`)).toBeInTheDocument()
     }
     expect(screen.getByTestId('agent-access')).toBeInTheDocument()
+  })
+
+  it('explains when an org backing agent is no longer linked to a worker', () => {
+    renderDetails('org')
+
+    expect(screen.getByText(/no longer linked to an organization worker/i)).toBeInTheDocument()
   })
 })

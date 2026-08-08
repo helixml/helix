@@ -39,7 +39,11 @@ import OrgAgentSettings from '../components/app/OrgAgentSettings'
 import FocusedAgentDetails from '../components/app/FocusedAgentDetails'
 import MemoriesManagement from '../components/app/MemoriesManagement'
 import HelixOrgTopNav from '../components/helix-org/HelixOrgTopNav'
-import { useActivateBot, useListHelixOrgBots } from '../services/helixOrgService'
+import {
+  useActivateBot,
+  useListHelixOrgBotDetails,
+  useListHelixOrgBots,
+} from '../services/helixOrgService'
 import { AGENT_TYPE_ZED_EXTERNAL } from '../types'
 import { isOrgAgent, usesFocusedAgentDetails } from '../utils/apps'
 
@@ -52,10 +56,20 @@ const App: FC = () => {
   const { params } = router
 
   const appTools = useApp(params.app_id)
-  const { data: orgAgents = [] } = useListHelixOrgBots()
-  const linkedOrgAgent = orgAgents.find(
-    (agent) => (agent.agent_id ?? agent.agent_app_id) === params.app_id,
+  const appIsOrgAgent = isOrgAgent(appTools.app)
+  const { data: orgAgents = [], isLoading: orgAgentsLoading } = useListHelixOrgBots({
+    enabled: appIsOrgAgent,
+  })
+  const orgAgentDetails = useListHelixOrgBotDetails(
+    orgAgents.map((agent) => agent.id).filter((id): id is string => !!id),
+    { enabled: appIsOrgAgent },
   )
+  const linkedOrgAgentDetail = orgAgentDetails.find(
+    (detail) => (detail?.agent_id ?? detail?.agent_app_id) === params.app_id,
+  )
+  const linkedOrgAgent = linkedOrgAgentDetail?.bot
+  const orgAgentDetailLoading = orgAgentsLoading
+    || (orgAgents.length > 0 && orgAgentDetails.some((detail) => !detail))
   const activateOrgAgent = useActivateBot()
   // Get user access information from appTools
   const { userAccess } = appTools
@@ -100,7 +114,6 @@ const App: FC = () => {
   if (!appTools.app) return null
 
   const isReadOnly = appTools.isReadOnly || !appTools.isSafeToSave
-  const appIsOrgAgent = isOrgAgent(appTools.app)
   const appIsFocusedAgent = usesFocusedAgentDetails(appTools.app)
 
   const openChat = async () => {
@@ -144,7 +157,7 @@ const App: FC = () => {
             color="secondary"
             startIcon={activateOrgAgent.isPending ? <CircularProgress size={16} /> : <ChatOutlinedIcon />}
             onClick={() => void openChat()}
-            disabled={activateOrgAgent.isPending}
+            disabled={activateOrgAgent.isPending || (appIsOrgAgent && !linkedOrgAgent)}
           >
             Open chat
           </Button>
@@ -178,6 +191,8 @@ const App: FC = () => {
                         readOnly={isReadOnly}
                         showErrors={appTools.showErrors}
                         isAdmin={account.admin}
+                        orgAgentDetail={linkedOrgAgentDetail}
+                        orgAgentDetailLoading={orgAgentDetailLoading}
                         accessManagement={userAccess?.isAdmin ? (
                           <AccessManagement
                             appId={appTools.id}
@@ -225,7 +240,12 @@ const App: FC = () => {
                             />
                           )}
                           {appIsOrgAgent && (
-                            <OrgAgentSettings agentID={appTools.id} section="runtime" readOnly={isReadOnly} />
+                            <OrgAgentSettings
+                              agentID={appTools.id}
+                              section="runtime"
+                              readOnly={isReadOnly}
+                              detail={linkedOrgAgentDetail}
+                            />
                           )}
                         </Grid>
                         <Grid item xs={12} md={4}>
