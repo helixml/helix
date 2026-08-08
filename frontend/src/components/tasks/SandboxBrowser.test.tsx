@@ -56,6 +56,14 @@ describe('SandboxBrowser', () => {
       'http://share-blue-fox.dev.localhost:8080/docs?q=one',
     )
     expect(frame).toHaveStyle('color-scheme: dark')
+    expect(screen.getByRole('link', { name: 'Open browser preview in new tab' })).toHaveAttribute(
+      'href',
+      'http://share-blue-fox.dev.localhost:8080/docs?q=one',
+    )
+    expect(screen.getByRole('link', { name: 'Open browser preview in new tab' })).toHaveAttribute(
+      'target',
+      '_blank',
+    )
     expect(previewMocks.refetch).not.toHaveBeenCalled()
     expect(previewMocks.create).not.toHaveBeenCalled()
     await waitFor(() => expect(window.localStorage.getItem('helix.sandboxBrowser.url.ses_test'))

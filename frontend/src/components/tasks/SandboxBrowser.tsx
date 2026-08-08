@@ -136,6 +136,9 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
   const current = activeTab && activeTab.historyIndex >= 0
     ? activeTab.history[activeTab.historyIndex]
     : undefined
+  const externalPreviewUrl = current
+    ? sandboxPreviewURLWithScheme(current.previewUrl, previewURLHTTPS)
+    : undefined
   const isLoading = createToken.isPending
 
   if (configQuery.isLoading) {
@@ -444,14 +447,18 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
         <Tooltip title="Open preview in a new tab">
           <span>
             <IconButton
+              component="a"
               aria-label="Open browser preview in new tab"
-              disabled={!current}
-              onClick={() => current && window.open(
-                sandboxPreviewURLWithScheme(current.previewUrl, previewURLHTTPS),
-                '_blank',
-                'noopener',
-              )}
-              sx={browserButtonSx}
+              aria-disabled={!externalPreviewUrl}
+              href={externalPreviewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              tabIndex={externalPreviewUrl ? 0 : -1}
+              sx={{
+                ...browserButtonSx,
+                pointerEvents: externalPreviewUrl ? 'auto' : 'none',
+                opacity: externalPreviewUrl ? 1 : 0.38,
+              }}
             >
               <ExternalLink />
             </IconButton>
