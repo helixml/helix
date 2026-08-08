@@ -98,6 +98,9 @@ func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instru
 			ReasoningEffort:         config.ReasoningEffort,
 		})
 	}
+	if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+		return "", fmt.Errorf("create agent: %w", err)
+	}
 	app, err := c.server.Store.CreateApp(ctx, &types.App{
 		Owner:          user.ID,
 		OwnerType:      types.OwnerTypeUser,
@@ -129,6 +132,9 @@ func (c *inProcHelixClient) ApplyAgentDefaults(ctx context.Context, appID string
 		return nil
 	}
 	applyResolvedAgentDefaults(assistant, defaults)
+	if err := types.ValidateCodeAgentModelCompatibility(*assistant); err != nil {
+		return fmt.Errorf("apply agent defaults: %w", err)
+	}
 	_, err = c.server.Store.UpdateApp(ctx, app)
 	return err
 }

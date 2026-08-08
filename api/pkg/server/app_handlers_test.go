@@ -1236,6 +1236,19 @@ func TestValidateProvidersAndModels_HelixAgentRejectsTopLevelProviderModel(t *te
 	assert.Contains(t, err.Error(), "must not set top-level provider/model")
 }
 
+func TestValidateProvidersAndModelsRejectsIncompatibleCodeHarnessModel(t *testing.T) {
+	server := &HelixAPIServer{}
+	err := server.validateProvidersAndModels(context.Background(), &types.User{ID: "user1"}, &types.App{
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Name:             "bad-codex",
+			CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+			Model:            "claude-opus-4-8",
+		}}}},
+	})
+
+	require.ErrorContains(t, err, "codex_cli requires a Codex model")
+}
+
 func TestValidateProvidersAndModels_HelixAgentRequiresModelProviders(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

@@ -222,6 +222,22 @@ func TestInProcClient_CreateAgentUsesExplicitConfig(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestInProcClient_CreateAgentRejectsIncompatibleHarnessModel(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	ctx := runtimehelix.WithUser(context.Background(), &types.User{ID: "usr-owner"})
+	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
+
+	_, err := client.CreateAgent(ctx, "org-test", "Engineer", "Build", lifecycle.AgentConfig{
+		CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+		CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+		Provider:                "openai",
+		Model:                   "gpt-5.6-sol",
+	})
+
+	require.ErrorContains(t, err, "claude_code requires an Anthropic Claude model")
+}
+
 func TestInProcClient_DeferredDefaultsApplyOnlyToUntouchedScaffold(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	st := helixstore.NewMockStore(ctrl)

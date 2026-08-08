@@ -2932,6 +2932,9 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			assistant.Browser = types.AssistantBrowser{Enabled: agentSpec.Tools.Browser}
 			assistant.Calculator = types.AssistantCalculator{Enabled: agentSpec.Tools.Calculator}
 		}
+		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid agent configuration: %v", err))
+		}
 
 		appHelixConfig := types.AppHelixConfig{
 			Name:             agentSpec.Name,

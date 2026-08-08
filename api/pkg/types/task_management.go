@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -106,6 +108,44 @@ const (
 	TaskTypeBatch         TaskType = "batch"          // Specific deliverable (e.g., "Implement feature X")
 	TaskTypeCodingSession TaskType = "coding_session" // Focused session (e.g., "Debug performance issue")
 )
+
+// ValidateCodeAgentModelCompatibility rejects model families that cannot be
+// used by runtimes with a fixed provider. Other runtimes deliberately remain
+// permissive because they support arbitrary OpenAI-compatible providers.
+func ValidateCodeAgentModelCompatibility(assistant AssistantConfig) error {
+	models := []string{assistant.Model}
+	if assistant.GenerationModel != "" {
+		models = append(models, assistant.GenerationModel)
+	}
+	if assistant.ClaudeSubscriptionModel != "" {
+		models = append(models, assistant.ClaudeSubscriptionModel)
+	}
+
+	for _, model := range models {
+		model = strings.TrimSpace(strings.ToLower(model))
+		if model == "" {
+			continue
+		}
+		if slash := strings.LastIndex(model, "/"); slash >= 0 {
+			model = model[slash+1:]
+		}
+
+		switch assistant.CodeAgentRuntime {
+		case CodeAgentRuntimeCodexCLI:
+			if !strings.HasPrefix(model, "gpt-5") && !strings.HasPrefix(model, "codex-") {
+				return fmt.Errorf("codex_cli requires a Codex model (gpt-5* or codex-*), got %q", model)
+			}
+		case CodeAgentRuntimeClaudeCode:
+			isClaudeAlias := model == "opus" || strings.HasPrefix(model, "opus[") || strings.HasPrefix(model, "opus-") ||
+				model == "sonnet" || strings.HasPrefix(model, "sonnet[") || strings.HasPrefix(model, "sonnet-") ||
+				model == "haiku" || strings.HasPrefix(model, "haiku[") || strings.HasPrefix(model, "haiku-")
+			if !strings.Contains(model, "claude-") && !isClaudeAlias {
+				return fmt.Errorf("claude_code requires an Anthropic Claude model, got %q", model)
+			}
+		}
+	}
+	return nil
+}
 
 type TaskStatus string
 

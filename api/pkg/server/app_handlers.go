@@ -619,6 +619,12 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 // validateProvidersAndModels checks if the provider and model are valid. Provider
 // can be empty, however model is required
 func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *types.User, app *types.Agent) error {
+	for _, assistant := range app.Config.Helix.Assistants {
+		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+			return fmt.Errorf("assistant %q: %w", assistant.Name, err)
+		}
+	}
+
 	endpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
 	if err != nil {
 		log.Error().
@@ -2096,6 +2102,11 @@ func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*
 
 	app.Config.Helix.Name = r.URL.Query().Get("name")
 	normalizeHelixAgentAssistantSpecs(app)
+	for _, assistant := range app.Config.Helix.Assistants {
+		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+			return nil, system.NewHTTPError400(err.Error())
+		}
+	}
 
 	app, err = s.Store.CreateApp(r.Context(), app)
 	if err != nil {
