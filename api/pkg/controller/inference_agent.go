@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/memory"
 	"github.com/helixml/helix/api/pkg/agent/skill/project"
 	"github.com/helixml/helix/api/pkg/agent/skill/repository"
+	modelpkg "github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -336,9 +338,27 @@ func (c *Controller) getLLMModelConfig(ctx context.Context, owner, provider, mod
 	}
 
 	return &agent.LLMModelConfig{
-		Client: client,
-		Model:  model,
+		Client:                     client,
+		Model:                      model,
+		AcceptsNoneReasoningEffort: c.modelAcceptsNoneReasoningEffort(ctx, provider, model),
 	}, nil
+}
+
+// modelAcceptsNoneReasoningEffort reports whether the model's catalog entry
+// lists "none" among its supported reasoning efforts. Unknown models answer
+// false, which preserves the historical behaviour of stripping "none".
+func (c *Controller) modelAcceptsNoneReasoningEffort(ctx context.Context, provider, modelName string) bool {
+	if c.Options.ModelInfoProvider == nil {
+		return false
+	}
+	info, err := c.Options.ModelInfoProvider.GetModelInfo(ctx, &modelpkg.ModelInfoRequest{
+		Provider: provider,
+		Model:    modelName,
+	})
+	if err != nil || info == nil {
+		return false
+	}
+	return slices.Contains(info.SupportedReasoningEfforts, "none")
 }
 
 func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionResponse, error) {

@@ -23,6 +23,29 @@ type LLMModelConfig struct {
 	Client          helix_openai.Client
 	Model           string
 	ReasoningEffort string
+	// AcceptsNoneReasoningEffort is true when the model's catalog entry lists
+	// "none" among its supported reasoning efforts. For those models "none"
+	// must be SENT, not dropped: omitting reasoning_effort makes the provider
+	// apply the model's default (e.g. "medium" on GPT-5.x), and on gpt-5.6-*
+	// that default is rejected outright when the request carries function
+	// tools ("Function tools with reasoning_effort are not supported ... set
+	// reasoning_effort to 'none'"). Models that predate the value (o1/o3) must
+	// keep having it stripped, hence the capability gate rather than a blanket
+	// passthrough.
+	AcceptsNoneReasoningEffort bool
+}
+
+// applyReasoningEffort resolves the "none" sentinel against the model's
+// declared capability: sent verbatim when supported, stripped otherwise.
+func applyReasoningEffort(model *LLMModelConfig, params openai.ChatCompletionRequest) openai.ChatCompletionRequest {
+	if params.ReasoningEffort != "none" {
+		return params
+	}
+	if model != nil && model.AcceptsNoneReasoningEffort {
+		return params
+	}
+	params.ReasoningEffort = ""
+	return params
 }
 
 func NewLLM(reasoningModel *LLMModelConfig, generationModel *LLMModelConfig, smallReasoningModel *LLMModelConfig, smallGenerationModel *LLMModelConfig) *LLM {
@@ -35,10 +58,7 @@ func NewLLM(reasoningModel *LLMModelConfig, generationModel *LLMModelConfig, sma
 }
 
 func (c *LLM) New(ctx context.Context, model *LLMModelConfig, params openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-	// Reset the reasoning effort to none if it's not set
-	if params.ReasoningEffort == "none" {
-		params.ReasoningEffort = ""
-	}
+	params = applyReasoningEffort(model, params)
 
 	resp, err := model.Client.CreateChatCompletion(ctx, params)
 	if err != nil {
@@ -58,10 +78,7 @@ func (c *LLM) New(ctx context.Context, model *LLMModelConfig, params openai.Chat
 }
 
 func (c *LLM) NewStreaming(ctx context.Context, model *LLMModelConfig, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
-	// Reset the reasoning effort to none if it's not set
-	if params.ReasoningEffort == "none" {
-		params.ReasoningEffort = ""
-	}
+	params = applyReasoningEffort(model, params)
 
 	params.StreamOptions = &openai.StreamOptions{
 		IncludeUsage: true,

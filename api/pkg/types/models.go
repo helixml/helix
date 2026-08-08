@@ -207,6 +207,9 @@ type ModelInfo struct { //nolint:revive
 	OutputModalities        []Modality `json:"output_modalities"`
 	SupportsReasoning       bool       `json:"supports_reasoning"`
 	SupportsReasoningEffort bool       `json:"supports_reasoning_effort"`
+	// SupportedReasoningEfforts lists the effort values the model accepts,
+	// e.g. ["high","low","medium","none","xhigh"]. Empty when unknown.
+	SupportedReasoningEfforts []string `json:"supported_reasoning_efforts"`
 	ContextLength           int        `json:"context_length"`
 	MaxCompletionTokens     int        `json:"max_completion_tokens"`
 	Pricing                 Pricing    `json:"pricing"`
