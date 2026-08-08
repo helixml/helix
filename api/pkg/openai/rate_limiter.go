@@ -81,38 +81,48 @@ func NewUniversalRateLimiter(provider string) *UniversalRateLimiter {
 	}
 }
 
-// WaitForTokens waits until the specified number of tokens are available
+// WaitForTokens waits until the specified number of tokens are available.
+//
+// The mutex is never held across a sleep: waiters would otherwise be serialised
+// behind whichever caller is backing off, and — because sync.Mutex.Lock is not
+// cancellable — they could not observe their own context being cancelled.
 func (rl *UniversalRateLimiter) WaitForTokens(ctx context.Context, tokensNeeded int64) error {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	// Refill tokens based on elapsed time
-	rl.refillTokens()
-
 	// Check if we need to wait due to previous 429 errors
+	rl.mu.Lock()
+	rl.refillTokens()
+	var backoffWait time.Duration
 	if rl.backoffDuration > 0 {
-		backoffEnd := rl.lastRequestTime.Add(rl.backoffDuration)
-		if time.Now().Before(backoffEnd) {
-			waitTime := time.Until(backoffEnd)
-			log.Warn().
-				Str("provider", rl.provider).
-				Dur("wait_time", waitTime).
-				Msg("Rate limiter waiting due to previous 429 error")
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(waitTime):
-				rl.backoffDuration = 0 // Reset backoff
-			}
+		if remaining := time.Until(rl.lastRequestTime.Add(rl.backoffDuration)); remaining > 0 {
+			backoffWait = remaining
 		}
 	}
+	provider := rl.provider
+	rl.mu.Unlock()
+
+	if backoffWait > 0 {
+		log.Warn().
+			Str("provider", provider).
+			Dur("wait_time", backoffWait).
+			Msg("Rate limiter waiting due to previous 429 error")
+
+		if err := sleepWithContext(ctx, backoffWait); err != nil {
+			return err
+		}
+
+		rl.mu.Lock()
+		rl.backoffDuration = 0 // Reset backoff
+		rl.mu.Unlock()
+	}
+
+	rl.mu.Lock()
+	rl.refillTokens()
 
 	// Check if we have enough tokens
 	if rl.currentTokens >= tokensNeeded && rl.currentRequests >= 1 {
 		rl.currentTokens -= tokensNeeded
 		rl.currentRequests--
 		rl.lastRequestTime = time.Now()
+		rl.mu.Unlock()
 		return nil
 	}
 
@@ -139,22 +149,38 @@ func (rl *UniversalRateLimiter) WaitForTokens(ctx context.Context, tokensNeeded 
 		Int64("tokens_available", rl.currentTokens).
 		Dur("wait_time", waitTime).
 		Msg("Rate limiter waiting for tokens")
+	rl.mu.Unlock()
+
+	if err := sleepWithContext(ctx, waitTime); err != nil {
+		return err
+	}
+
+	// Refill again after waiting
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rl.refillTokens()
+
+	// Deduct tokens and requests
+	if rl.currentTokens >= tokensNeeded {
+		rl.currentTokens -= tokensNeeded
+	}
+	if rl.currentRequests >= 1 {
+		rl.currentRequests--
+	}
+	rl.lastRequestTime = time.Now()
+	return nil
+}
+
+// sleepWithContext sleeps for d, returning early with ctx.Err() if the context
+// is cancelled first.
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(waitTime):
-		// Refill again after waiting
-		rl.refillTokens()
-
-		// Deduct tokens and requests
-		if rl.currentTokens >= tokensNeeded {
-			rl.currentTokens -= tokensNeeded
-		}
-		if rl.currentRequests >= 1 {
-			rl.currentRequests--
-		}
-		rl.lastRequestTime = time.Now()
+	case <-timer.C:
 		return nil
 	}
 }
@@ -185,6 +211,13 @@ func (rl *UniversalRateLimiter) UpdateFromHeaders(headers http.Header) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
+	rl.updateFromHeadersLocked(headers)
+}
+
+// updateFromHeadersLocked is UpdateFromHeaders without the locking, for callers
+// that already hold rl.mu. sync.RWMutex is not reentrant, so a lock holder that
+// called UpdateFromHeaders would deadlock itself permanently.
+func (rl *UniversalRateLimiter) updateFromHeadersLocked(headers http.Header) {
 	// Try to parse headers from different providers
 	rl.parseOpenAIHeaders(headers)
 	rl.parseAnthropicHeaders(headers)
@@ -336,7 +369,7 @@ func (rl *UniversalRateLimiter) Handle429Error(headers http.Header) {
 	defer rl.mu.Unlock()
 
 	// Update from headers first
-	rl.UpdateFromHeaders(headers)
+	rl.updateFromHeadersLocked(headers)
 
 	// Check for retry-after header first (standard)
 	if retryAfterStr := headers.Get("retry-after"); retryAfterStr != "" {
