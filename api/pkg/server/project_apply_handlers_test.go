@@ -623,12 +623,19 @@ func (s *ApplyProjectSuite) TestApply_LinkedAgentPreservesCanonicalConfig() {
 			return nil
 		}).Times(2)
 	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(existingApp, nil)
+	s.store.EXPECT().
+		UpdateApp(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
+			s.Equal(types.AgentKindOrg, app.AgentKind)
+			return app, nil
+		})
 
 	resp, httpErr := s.server.applyProject(httptest.NewRecorder(), s.applyRequest(req))
 
 	s.Nil(httpErr)
 	s.Require().NotNil(resp)
 	s.Equal(appID, resp.AgentAppID)
+	s.Equal(types.AgentKindOrg, existingApp.AgentKind)
 	after, err := json.Marshal(existingApp.Config)
 	s.Require().NoError(err)
 	s.Equal(string(before), string(after))

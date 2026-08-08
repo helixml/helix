@@ -1,4 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectChatItemContextMenu from './ProjectChatItemContextMenu'
@@ -26,11 +28,26 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+const renderContextMenu = (component: ReactElement) => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  })
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {component}
+    </QueryClientProvider>,
+  )
+}
+
 describe('ProjectChatItemContextMenu', () => {
   it('renames a spec task through its user title override', async () => {
     mocks.updateSpecTask.mockResolvedValue({})
     const onClose = vi.fn()
-    render(
+    renderContextMenu(
       <ProjectChatItemContextMenu
         item={{ id: 'task-one', kind: 'spec-task', title: 'Old task name' }}
         position={{ mouseX: 50, mouseY: 80 }}
@@ -55,7 +72,7 @@ describe('ProjectChatItemContextMenu', () => {
 
   it('renames a normal chat session', async () => {
     mocks.renameSession.mockResolvedValue({})
-    render(
+    renderContextMenu(
       <ProjectChatItemContextMenu
         item={{ id: 'session-one', kind: 'session', title: 'Old chat name' }}
         position={{ mouseX: 50, mouseY: 80 }}
