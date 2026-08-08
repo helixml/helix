@@ -4021,3 +4021,204 @@ func TestLockPromptDrainSerializesPerSession(t *testing.T) {
 		t.Fatal("lockPromptDrain for a different session blocked — lock is not per-session")
 	}
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Duplicate-dispatch regression tests
+//
+// Incident: an agent switch made two senders (RunExternalAgent and
+// pickupWaitingInteraction, via /agent-config-applied) deliver the SAME waiting
+// interaction with the SAME request_id and an empty acp_thread_id. Zed opened
+// two ACP threads for the one turn; the second thread_created looked
+// user-initiated and forked a throwaway session, and the agent's entire
+// response streamed there instead of into the task.
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestClaimInteractionDispatch_SecondSenderLoses() {
+	requestID, won := s.server.claimInteractionDispatch("ses_1", "int_1", "req_a")
+	s.True(won, "first sender must win the claim")
+	s.Equal("req_a", requestID)
+
+	// A second sender arriving with a different request_id must lose, and must
+	// be handed the winner's request_id so it can still attach its response
+	// channels to the live turn.
+	requestID, won = s.server.claimInteractionDispatch("ses_1", "int_1", "req_b")
+	s.False(won, "second sender must lose the claim")
+	s.Equal("req_a", requestID, "loser must be given the winner's request_id")
+
+	// A different interaction is unaffected.
+	_, won = s.server.claimInteractionDispatch("ses_1", "int_2", "req_c")
+	s.True(won)
+}
+
+func (s *WebSocketSyncSuite) TestReleaseInteractionDispatch_AllowsRedelivery() {
+	_, won := s.server.claimInteractionDispatch("ses_1", "int_1", "req_a")
+	s.Require().True(won)
+
+	s.server.releaseInteractionDispatch("int_1")
+
+	_, won = s.server.claimInteractionDispatch("ses_1", "int_1", "req_b")
+	s.True(won, "a released interaction must be claimable again (retry path)")
+}
+
+func (s *WebSocketSyncSuite) TestReleaseDispatchClaimByRequest() {
+	_, won := s.server.claimInteractionDispatch("ses_1", "int_1", "req_a")
+	s.Require().True(won)
+
+	// cleanupResponseChannel only knows the request_id, not the interaction id.
+	s.server.releaseDispatchClaimByRequest("req_a")
+
+	_, won = s.server.claimInteractionDispatch("ses_1", "int_1", "req_b")
+	s.True(won, "claim must be released when the turn's channels are torn down")
+}
+
+func (s *WebSocketSyncSuite) TestReleaseSessionDispatchClaims_OnReconnect() {
+	_, won := s.server.claimInteractionDispatch("ses_1", "int_1", "req_a")
+	s.Require().True(won)
+	_, won = s.server.claimInteractionDispatch("ses_2", "int_2", "req_b")
+	s.Require().True(won)
+
+	// A reconnect means the in-flight dispatch died with the old connection, so
+	// that session's waiting interaction must become re-deliverable — without
+	// disturbing any other session's in-flight turn.
+	s.server.releaseSessionDispatchClaims("ses_1")
+
+	_, won = s.server.claimInteractionDispatch("ses_1", "int_1", "req_c")
+	s.True(won, "reconnect must free the session's own claims")
+
+	_, won = s.server.claimInteractionDispatch("ses_2", "int_2", "req_d")
+	s.False(won, "another session's in-flight turn must be left alone")
+}
+
+// TestThreadCreated_DuplicateThreadForInFlightTurn_RebindsInsteadOfForking is
+// the regression test for the visible symptom: the agent works but nothing
+// streams into the task.
+func (s *WebSocketSyncSuite) TestThreadCreated_DuplicateThreadForInFlightTurn_RebindsInsteadOfForking() {
+	const (
+		requestID     = "int_turn_1"
+		interactionID = "int_turn_1"
+		sessionID     = "ses_task"
+		firstThread   = "thread-first"
+		secondThread  = "thread-second"
+	)
+
+	// State after the FIRST thread_created: PRIORITY 1 consumed the
+	// request_id → session mapping, but the turn is still in flight so the
+	// request_id → interaction mapping is still live.
+	s.server.contextMappings[firstThread] = sessionID
+	s.server.requestToInteractionMapping[requestID] = interactionID
+
+	taskSession := &types.Session{
+		ID:    sessionID,
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType:   "zed_external",
+			ZedThreadID: firstThread,
+		},
+	}
+
+	// PRIORITY 3 looks for a session already bound to the new thread id; there
+	// isn't one, which is what used to fall through to session creation.
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).
+		Return([]*types.Session{taskSession}, int64(1), nil)
+
+	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).
+		Return(&types.Interaction{ID: interactionID, SessionID: sessionID}, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(taskSession, nil)
+
+	var rebound string
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			rebound = session.Metadata.ZedThreadID
+			return &session, nil
+		},
+	)
+
+	// The whole point: no throwaway session may be created. gomock fails the
+	// test on any unexpected CreateSession call.
+	err := s.server.handleThreadCreated("ses_task", &types.SyncMessage{
+		EventType: "thread_created",
+		Data: map[string]interface{}{
+			"acp_thread_id": secondThread,
+			"title":         "New Conversation",
+			"request_id":    requestID,
+		},
+	})
+
+	s.Require().NoError(err)
+	s.Equal(secondThread, rebound, "session must be rebound to the thread Zed actually streams on")
+	s.Equal(sessionID, s.server.contextMappings[secondThread],
+		"the duplicate thread must route to the turn's own session, not a new one")
+}
+
+// TestThreadCreated_GenuineUserThreadStillForks guards the fix from over-reaching:
+// a thread Zed opens on its own carries no request_id and must still get its own
+// Helix session.
+func (s *WebSocketSyncSuite) TestThreadCreated_GenuineUserThreadStillForks() {
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{}, int64(0), nil)
+	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			session.ID = "ses_new"
+			return &session, nil
+		},
+	)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			interaction.ID = "int_new"
+			return interaction, nil
+		},
+	)
+	s.store.EXPECT().GetSession(gomock.Any(), "agent-1").Return(nil, fmt.Errorf("record not found")).AnyTimes()
+
+	err := s.server.handleThreadCreated("agent-1", &types.SyncMessage{
+		EventType: "thread_created",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-user",
+			"title":         "New Conversation",
+		},
+	})
+
+	s.Require().NoError(err)
+	s.Equal("ses_new", s.server.contextMappings["thread-user"])
+}
+
+// TestPickupWaitingInteraction_SkipsClaimedInteraction is the end-to-end check
+// for layer 1: once a turn is claimed, the reconnect / agent-switch delivery
+// path must not send a second chat_message for it. It must also not skip ahead
+// to a newer waiting interaction — that would run two turns at once — and it
+// must hand back the in-flight request_id so the caller's open_thread still
+// correlates with the running turn.
+func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_SkipsClaimedInteraction() {
+	const sessionID = "ses_claimed"
+
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+		},
+	}
+	waiting := &types.Interaction{
+		ID:            "int_waiting",
+		SessionID:     sessionID,
+		State:         types.InteractionStateWaiting,
+		PromptMessage: "do the thing",
+	}
+
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{waiting}, int64(1), nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int_waiting").Return(waiting, nil)
+
+	// RunExternalAgent got there first.
+	winner, won := s.server.claimInteractionDispatch(sessionID, "int_waiting", "req_live")
+	s.Require().True(won)
+	s.Require().Equal("req_live", winner)
+
+	// No agent connection is registered, so a delivery attempt would have to go
+	// through queueOrSend. The assertion that matters is the returned request_id:
+	// the claim short-circuits before any send.
+	got := s.server.pickupWaitingInteraction(context.Background(), sessionID, session, "agent-1")
+
+	s.Equal("req_live", got, "must return the in-flight request_id, not mint a new one")
+	s.Equal("req_live", s.server.interactionDispatchClaims["int_waiting"].requestID,
+		"the original claim must be left intact")
+}

@@ -134,6 +134,10 @@ type HelixAPIServer struct {
 	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	requestToInteractionMapping map[string]string // request_id -> interaction_id (for routing message_added/completed to correct interaction)
+	// interactionDispatchClaims guards against two senders delivering the same
+	// waiting interaction to the external agent. Keyed by interaction_id and
+	// held under contextMappingsMutex. See claimInteractionDispatch.
+	interactionDispatchClaims map[string]dispatchClaim
 	credentialTokensMu          sync.RWMutex
 	credentialTokens            map[string]map[string]struct{} // org_id -> minted tokens
 	// (interaction → prompt link is now persisted on Interaction.PromptID
@@ -371,6 +375,7 @@ func NewServer(
 		contextMappings:            make(map[string]string),
 
 		requestToSessionMapping:     make(map[string]string),
+		interactionDispatchClaims:   make(map[string]dispatchClaim),
 		credentialTokens:            make(map[string]map[string]struct{}),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
@@ -487,6 +492,8 @@ func NewServer(
 		CleanupResponseChannel:       apiServer.cleanupResponseChannel,
 		SetRequestInteractionMapping: contextMappings.SetRequestInteractionMapping,
 		SetRequestSessionMapping:     contextMappings.SetRequestSessionMapping,
+		ClaimInteractionDispatch:     apiServer.claimInteractionDispatch,
+		ReleaseInteractionDispatch:   apiServer.releaseInteractionDispatch,
 	})
 
 	// Initialize auth middleware with session manager for BFF authentication

@@ -98,6 +98,12 @@ func toModelInfo(m ModelInfoData) types.ModelInfo {
 		OutputModalities:        m.OutputModalities,
 		SupportsReasoning:       m.Endpoint.SupportsReasoning,
 		SupportsReasoningEffort: m.ReasoningConfig != nil && m.ReasoningConfig.SupportsReasoningEffort,
+		SupportedReasoningEfforts: func() []string {
+			if m.ReasoningConfig == nil {
+				return nil
+			}
+			return m.ReasoningConfig.SupportedReasoningEfforts
+		}(),
 		ContextLength:           m.ContextLength,
 		SupportedParameters:     m.Endpoint.SupportedParameters,
 		MaxCompletionTokens:     m.Endpoint.MaxCompletionTokens,

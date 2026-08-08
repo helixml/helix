@@ -392,6 +392,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Janitor:               janitor,
 		Notifier:              notifier,
 		ProviderManager:       providerManager,
+		ModelInfoProvider:     dynamicInfoProvider,
 		Browser:               browserPool,
 		SearchProvider:        searchProvider,
 		GitRepositoryService:  gitRepositoryService,
