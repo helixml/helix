@@ -1,4 +1,4 @@
-import { FC, Key, useState } from 'react'
+import { FC, Key, useEffect, useMemo, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -13,6 +13,7 @@ import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 
 import ToolPickerDialog from '../helix-org/ToolPickerDialog'
+import AgentConfigForm, { AgentConfigValue } from '../helix-org/BotRuntimeForm'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useListProjects } from '../../services/projectService'
 import {
@@ -25,13 +26,15 @@ import {
   useSubscribeBot,
   useUnsubscribeBot,
   useUpdateBot,
+  UpdateBotRequest,
 } from '../../services/helixOrgService'
 
 const OrgAgentSettings: FC<{
   agentID: string
-  section: 'runtime' | 'tools' | 'access' | 'subscriptions'
+  section: 'basics' | 'runtime' | 'tools' | 'access' | 'subscriptions'
   readOnly: boolean
-}> = ({ agentID, section, readOnly }) => {
+  onCanonicalUpdate?: () => Promise<unknown> | void
+}> = ({ agentID, section, readOnly, onCanonicalUpdate }) => {
   const snackbar = useSnackbar()
   const { data: agents = [] } = useListHelixOrgBots()
   const linkedAgent = agents.find((agent) => (agent.agent_id ?? agent.agent_app_id) === agentID)
@@ -56,15 +59,89 @@ const OrgAgentSettings: FC<{
       .map((name) => ({ name, description: '(not in current catalogue)' })),
   ]
 
+  const [name, setName] = useState('')
+  const [runtimeConfig, setRuntimeConfig] = useState<AgentConfigValue>({
+    runtime: '',
+    credentials: 'api_key',
+    provider: '',
+    model: '',
+    reasoning_effort: 'none',
+  })
+
+  useEffect(() => {
+    setName(agent?.name ?? '')
+    setRuntimeConfig({
+      runtime: agent?.code_agent_runtime ?? '',
+      credentials: agent?.code_agent_credential_type ?? 'api_key',
+      provider: agent?.provider ?? '',
+      model: agent?.model ?? '',
+      reasoning_effort: agent?.reasoning_effort ?? 'none',
+    })
+  }, [agent?.name, agent?.code_agent_runtime, agent?.code_agent_credential_type, agent?.provider, agent?.model, agent?.reasoning_effort])
+
+  const basicsDirty = useMemo(() => {
+    if (!agent) return false
+    return name !== (agent.name ?? '')
+      || runtimeConfig.runtime !== (agent.code_agent_runtime ?? '')
+      || runtimeConfig.credentials !== (agent.code_agent_credential_type ?? 'api_key')
+      || runtimeConfig.provider !== (agent.provider ?? '')
+      || runtimeConfig.model !== (agent.model ?? '')
+      || (runtimeConfig.reasoning_effort ?? 'none') !== (agent.reasoning_effort ?? 'none')
+  }, [agent, name, runtimeConfig])
+
   if (!agent?.id) return null
 
-  const update = async (patch: { tools?: string[]; project_ids?: string[]; preserve_context?: boolean }) => {
+  const update = async (patch: UpdateBotRequest) => {
     try {
       await updateAgent.mutateAsync({ id: agent.id ?? '', ...patch })
+      await onCanonicalUpdate?.()
       snackbar.success('Org agent updated')
     } catch (error: any) {
       snackbar.error(error?.response?.data?.error ?? error?.message ?? 'update failed')
     }
+  }
+
+  if (section === 'basics') {
+    return (
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" sx={{ mb: 0.5 }}>Basics</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Configure the org agent's name, coding harness, model, and reasoning effort.
+        </Typography>
+        <Stack spacing={3}>
+          <TextField
+            label="Agent name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            disabled={readOnly || updateAgent.isPending}
+            helperText="Use a name that makes this agent easy to identify."
+            fullWidth
+          />
+          <AgentConfigForm
+            value={runtimeConfig}
+            onChange={(patch) => setRuntimeConfig((current) => ({ ...current, ...patch }))}
+            showReasoningEffort
+            disabled={readOnly || updateAgent.isPending}
+          />
+          <Box>
+            <Button
+              variant="contained"
+              disabled={readOnly || updateAgent.isPending || !basicsDirty || !name.trim() || !runtimeConfig.runtime}
+              onClick={() => void update({
+                name: name.trim(),
+                code_agent_runtime: runtimeConfig.runtime as NonNullable<typeof agent.code_agent_runtime>,
+                code_agent_credential_type: runtimeConfig.credentials as NonNullable<typeof agent.code_agent_credential_type>,
+                provider: runtimeConfig.provider,
+                model: runtimeConfig.model,
+                reasoning_effort: runtimeConfig.reasoning_effort ?? 'none',
+              })}
+            >
+              Save basics
+            </Button>
+          </Box>
+        </Stack>
+      </Box>
+    )
   }
 
   if (section === 'runtime') {

@@ -61,6 +61,7 @@ import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
 import { LIGHT_SIDEBAR_COLORS } from "../styles/themeTokens";
 import { TOOLBAR_HEIGHT } from "../config";
+import { usesFocusedAgentDetails } from "../utils/apps";
 
 // Admin and Connected Services are rendered as full-screen dialog overlays
 // so the user stays within their current org-scoped URL
@@ -498,12 +499,19 @@ const Layout: FC<{
   const isConversationRoute = ["org_chat", "org_chat-task", "org_session", "org_new"].includes(
     router.name,
   );
+  const routedAgent = router.params.app_id
+    ? apps.apps.find((candidate) => candidate.id === router.params.app_id)
+    : undefined;
+  const isFocusedAgentRoute = router.name === "org_agent" && (
+    !routedAgent || usesFocusedAgentDetails(routedAgent)
+  );
 
   // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer
   const shouldShowSidebar =
     router.meta.drawer &&
     !isHelixOrgRoute &&
     !isProjectsIndex &&
+    !isFocusedAgentRoute &&
     !(router.name === "org_new" && router.params.app_id);
 
   if (shouldShowSidebar) {

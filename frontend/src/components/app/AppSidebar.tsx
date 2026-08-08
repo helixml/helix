@@ -18,7 +18,7 @@ import {
 
 import useRouter from '../../hooks/useRouter'
 import useApp from '../../hooks/useApp'
-import { isOrgAgent } from '../../utils/apps'
+import { isOrgAgent, usesFocusedAgentDetails } from '../../utils/apps'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
 const AppSidebar: FC = () => {
@@ -29,6 +29,8 @@ const AppSidebar: FC = () => {
   // Get app data and user access information
   const appTools = useApp(app_id)
   const { userAccess, app } = appTools
+
+  if (!app || usesFocusedAgentDetails(app)) return null
 
   const handleNavigationClick = (tabValue: string) => {
     router.setParams({ tab: tabValue })

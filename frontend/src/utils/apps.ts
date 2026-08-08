@@ -92,6 +92,10 @@ export const isOrgAgent = (app: IApp | null | undefined): boolean => {
   return app?.agent_kind === AGENT_KIND_ORG
 }
 
+export const usesFocusedAgentDetails = (app: IApp | null | undefined): boolean => {
+  return isCodingAgent(app) || isOrgAgent(app)
+}
+
 export const isSpecTaskSwitchableAgent = (app: IApp): boolean => {
   return isCodingAgent(app)
 }

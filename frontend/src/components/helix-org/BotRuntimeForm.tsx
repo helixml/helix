@@ -47,7 +47,8 @@ export const AgentConfigForm: FC<{
   value: AgentConfigValue
   onChange: (patch: Partial<AgentConfigValue>) => void
   showReasoningEffort?: boolean
-}> = ({ value, onChange, showReasoningEffort = false }) => {
+  disabled?: boolean
+}> = ({ value, onChange, showReasoningEffort = false, disabled = false }) => {
   const { data: providers } = useHelixProviders()
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
@@ -109,6 +110,7 @@ export const AgentConfigForm: FC<{
           <Select
             value={value.runtime}
             onChange={(e) => onRuntime(e.target.value)}
+            disabled={disabled}
             renderValue={(runtime) => (
               <AgentHarness runtime={runtime} variant="long" size={16} />
             )}
@@ -182,7 +184,7 @@ export const AgentConfigForm: FC<{
               <FormControlLabel
                 value="subscription"
                 control={<Radio size="small" />}
-                disabled={!hasRuntimeSubscription}
+                disabled={disabled || !hasRuntimeSubscription}
                 label={
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography variant="body2">{isClaude ? 'Claude Subscription' : 'ChatGPT Subscription'}</Typography>
@@ -197,7 +199,7 @@ export const AgentConfigForm: FC<{
               <FormControlLabel
                 value="api_key"
                 control={<Radio size="small" />}
-                disabled={!hasRuntimeAPIKey}
+                disabled={disabled || !hasRuntimeAPIKey}
                 label={
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography variant="body2">{isClaude ? 'Anthropic API Key' : 'OpenAI API Key'}</Typography>
@@ -225,13 +227,16 @@ export const AgentConfigForm: FC<{
               hint="Select the default agent model"
               selectedProvider={value.provider}
               selectedModelId={value.model}
-              onSelectModel={(prov, modelId) => onChange({ provider: prov, model: modelId })}
+              disabled={disabled}
+              onSelectModel={(prov, modelId) => {
+                if (!disabled) onChange({ provider: prov, model: modelId })
+              }}
               currentType="text"
               displayMode="short"
             />
           </Box>
           {canConfigureEffort && (
-            <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} />
+            <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} disabled={disabled} />
           )}
         </Stack>
       ) : hasRuntimeSubscription ? (
@@ -243,6 +248,7 @@ export const AgentConfigForm: FC<{
                 <Select
                   value={value.model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
                   onChange={(event) => onChange({ model: event.target.value })}
+                  disabled={disabled}
                 >
                   {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
                     <MenuItem key={supportedModel.id} value={supportedModel.id}>
@@ -253,7 +259,7 @@ export const AgentConfigForm: FC<{
               </FormControl>
             </Box>
             {canConfigureEffort && (
-              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} />
+              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} disabled={disabled} />
             )}
           </Stack>
         ) : isClaude ? (
@@ -264,6 +270,7 @@ export const AgentConfigForm: FC<{
                 <Select
                   value={value.model || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL}
                   onChange={(event) => onChange({ model: event.target.value })}
+                  disabled={disabled}
                 >
                   {CLAUDE_SUBSCRIPTION_MODELS.map((supportedModel) => (
                     <MenuItem key={supportedModel.id} value={supportedModel.id}>
@@ -274,14 +281,14 @@ export const AgentConfigForm: FC<{
               </FormControl>
             </Box>
             {canConfigureEffort && (
-              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} />
+              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} disabled={disabled} />
             )}
           </Stack>
         ) : (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
             <Typography variant="caption" color="text.secondary" sx={{ flex: 1, pt: 1 }}>Uses the connected subscription.</Typography>
             {canConfigureEffort && (
-              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} />
+              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} disabled={disabled} />
             )}
           </Stack>
         )

@@ -118,6 +118,8 @@ interface AppSettingsProps {
   section: 'general' | 'runtime',
   hideAgentType?: boolean,
   generalAside?: React.ReactNode,
+  focusedExternal?: boolean,
+  externalRuntimeView?: 'all' | 'desktop',
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}.`
@@ -191,6 +193,8 @@ const AppSettings: FC<AppSettingsProps> = ({
   section,
   hideAgentType = false,
   generalAside,
+  focusedExternal = false,
+  externalRuntimeView = 'all',
 }) => {
   // State for form fields
   const [name, setName] = useState(app.name || '')
@@ -572,9 +576,14 @@ const AppSettings: FC<AppSettingsProps> = ({
     <Box sx={{ mt: 2, mr: 2 }}>
       {section === 'general' && (
       <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" sx={{ mb: 3 }}>
-          General
+        <Typography variant="h5" sx={{ mb: focusedExternal ? 0.5 : 3 }}>
+          {focusedExternal ? 'Basics' : 'General'}
         </Typography>
+        {focusedExternal && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            The name used to identify this agent across the organization.
+          </Typography>
+        )}
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems="flex-start" sx={{ mb: 3 }}>
           <TextField
             id="app-name"
@@ -605,6 +614,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             </Box>
           )}
         </Stack>
+        {!focusedExternal && (<>
         <Stack direction="row" alignItems="center">
           <Typography gutterBottom>System Instructions</Typography>
           <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
@@ -639,14 +649,26 @@ const AppSettings: FC<AppSettingsProps> = ({
             Markdown supported. Cmd/Ctrl+S saves immediately.
           </Typography>
         </Box>
+        </>)}
       </Box>
       )}
 
       {section === 'runtime' && (
       <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" sx={{ mb: 3 }}>
-          Runtime
+        <Typography variant="h5" sx={{ mb: focusedExternal ? 0.5 : 3 }}>
+          {focusedExternal && externalRuntimeView === 'desktop'
+            ? 'Desktop configuration'
+            : focusedExternal
+              ? 'Provider and model'
+              : 'Runtime'}
         </Typography>
+        {focusedExternal && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            {externalRuntimeView === 'desktop'
+              ? 'Configure the desktop environment available to this agent.'
+              : 'Choose the coding harness, credentials, model, and reasoning effort.'}
+          </Typography>
+        )}
 
         {/* Agent Type Selection */}
       {!hideAgentType && (
@@ -666,7 +688,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
         <Box sx={{ mb: 3 }}>
           {/* Agent Runtime & Model - compact section */}
-          <Stack spacing={2} sx={{ mb: 3 }}>
+          <Stack spacing={2} sx={{ mb: 3, display: externalRuntimeView === 'desktop' ? 'none' : undefined }}>
             <Box>
               <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
                 Agent Runtime
@@ -1006,10 +1028,11 @@ const AppSettings: FC<AppSettingsProps> = ({
             )}
           </Stack>
 
-          <Divider sx={{ my: 2 }} />
+          <Divider sx={{ my: 2, display: externalRuntimeView === 'all' ? undefined : 'none' }} />
 
+          <Box>
           <Typography variant="h6" sx={{ mb: 2 }}>
-            Sandbox settings
+            {focusedExternal ? 'Desktop' : 'Sandbox settings'}
           </Typography>
           <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
             Display
@@ -1188,6 +1211,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 }}
               />
             </Box>
+          </Box>
         </Box>
       )}
 

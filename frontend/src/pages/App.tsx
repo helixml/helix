@@ -36,11 +36,12 @@ import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
 import Skills from '../components/app/Skills'
 import OrgAgentSettings from '../components/app/OrgAgentSettings'
+import FocusedAgentDetails from '../components/app/FocusedAgentDetails'
 import MemoriesManagement from '../components/app/MemoriesManagement'
 import HelixOrgTopNav from '../components/helix-org/HelixOrgTopNav'
 import { useActivateBot, useListHelixOrgBots } from '../services/helixOrgService'
 import { AGENT_TYPE_ZED_EXTERNAL } from '../types'
-import { isOrgAgent } from '../utils/apps'
+import { isOrgAgent, usesFocusedAgentDetails } from '../utils/apps'
 
 const App: FC = () => {
   const account = useAccount()  
@@ -100,6 +101,7 @@ const App: FC = () => {
 
   const isReadOnly = appTools.isReadOnly || !appTools.isSafeToSave
   const appIsOrgAgent = isOrgAgent(appTools.app)
+  const appIsFocusedAgent = usesFocusedAgentDetails(appTools.app)
 
   const openChat = async () => {
     if (!linkedOrgAgent?.id) {
@@ -165,7 +167,30 @@ const App: FC = () => {
             }}>
               <Box sx={{ width: '100%' }}>
                 <Grid container spacing={0}>
-                  {tabValue === 'general' ? (
+                  {appIsFocusedAgent && appTools.flatApp ? (
+                    <Grid item xs={12} sx={{ pb: 8 }}>
+                      <FocusedAgentDetails
+                        agentID={appTools.id}
+                        app={appTools.flatApp}
+                        kind={appIsOrgAgent ? 'org' : 'coding'}
+                        onUpdate={appTools.saveFlatApp}
+                        onCanonicalUpdate={() => appTools.loadApp(appTools.id)}
+                        readOnly={isReadOnly}
+                        showErrors={appTools.showErrors}
+                        isAdmin={account.admin}
+                        accessManagement={userAccess?.isAdmin ? (
+                          <AccessManagement
+                            appId={appTools.id}
+                            accessGrants={appTools.accessGrants}
+                            isLoading={false}
+                            isReadOnly={isReadOnly}
+                            onCreateGrant={appTools.createAccessGrant}
+                            onDeleteGrant={appTools.deleteAccessGrant}
+                          />
+                        ) : undefined}
+                      />
+                    </Grid>
+                  ) : tabValue === 'general' ? (
                     <Grid item xs={12} sx={{ pb: 8 }}>
                       <Grid container spacing={4}>
                         <Grid item xs={12} md={8}>
