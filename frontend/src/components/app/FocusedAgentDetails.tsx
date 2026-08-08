@@ -1,12 +1,13 @@
 import { FC, ReactNode } from 'react'
-import Box from '@mui/material/Box'
-import Divider from '@mui/material/Divider'
-import Stack from '@mui/material/Stack'
-import Typography from '@mui/material/Typography'
 
 import { IAppFlatState } from '../../types'
 import AppSettings from './AppSettings'
 import OrgAgentSettings from './OrgAgentSettings'
+import {
+  AgentSettingsPage,
+  AgentSettingsRow,
+  AgentSettingsSection,
+} from './AgentSettingsLayout'
 
 interface FocusedAgentDetailsProps {
   agentID: string
@@ -20,8 +21,6 @@ interface FocusedAgentDetailsProps {
   accessManagement?: ReactNode
 }
 
-const SectionDivider = () => <Divider sx={{ my: 4 }} />
-
 const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
   agentID,
   app,
@@ -32,82 +31,125 @@ const FocusedAgentDetails: FC<FocusedAgentDetailsProps> = ({
   showErrors,
   isAdmin,
   accessManagement,
-}) => (
-  <Box sx={{ maxWidth: 880, pb: 8 }}>
-    <Stack spacing={0}>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" sx={{ mb: 0.75 }}>
-          {kind === 'org' ? 'Helix org agent' : 'Coding agent'}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {kind === 'org'
-            ? 'Configure the worker runtime, desktop, organization tools, and permissions.'
-            : 'Configure the coding harness, model, and desktop environment.'}
-        </Typography>
-      </Box>
+}) => {
+  const appSettings = (view: 'configuration' | 'desktop') => (
+    <AppSettings
+      id={agentID}
+      app={app}
+      onUpdate={onUpdate}
+      readOnly={readOnly}
+      showErrors={showErrors}
+      isAdmin={isAdmin}
+      section="runtime"
+      hideAgentType
+      focusedExternal
+      externalRuntimeView={view}
+      embedded
+    />
+  )
 
-      {kind === 'org' ? (
-        <>
-          <OrgAgentSettings
-            agentID={agentID}
-            section="basics"
-            readOnly={readOnly}
-            onCanonicalUpdate={onCanonicalUpdate}
-          />
-          <OrgAgentSettings agentID={agentID} section="runtime" readOnly={readOnly} />
-        </>
-      ) : (
-        <AppSettings
-          id={agentID}
-          app={app}
-          onUpdate={onUpdate}
-          readOnly={readOnly}
-          showErrors={showErrors}
-          isAdmin={isAdmin}
-          section="general"
-          focusedExternal
-        />
+  return (
+    <AgentSettingsPage>
+      <AgentSettingsSection
+        title="General"
+        description={kind === 'org'
+          ? 'Set the worker name, coding harness, model, and reasoning effort.'
+          : 'Choose the name used to identify this coding agent across the organization.'}
+      >
+        <AgentSettingsRow>
+          {kind === 'org' ? (
+            <OrgAgentSettings
+              agentID={agentID}
+              section="basics"
+              readOnly={readOnly}
+              onCanonicalUpdate={onCanonicalUpdate}
+              embedded
+            />
+          ) : (
+            <AppSettings
+              id={agentID}
+              app={app}
+              onUpdate={onUpdate}
+              readOnly={readOnly}
+              showErrors={showErrors}
+              isAdmin={isAdmin}
+              section="general"
+              focusedExternal
+              embedded
+            />
+          )}
+        </AgentSettingsRow>
+        {kind === 'org' && (
+          <AgentSettingsRow>
+            <OrgAgentSettings agentID={agentID} section="runtime" readOnly={readOnly} embedded />
+          </AgentSettingsRow>
+        )}
+      </AgentSettingsSection>
+
+      {kind === 'coding' && (
+        <AgentSettingsSection
+          title="Provider and model"
+          description="Choose the coding harness, credentials, model, and reasoning effort."
+        >
+          <AgentSettingsRow>{appSettings('configuration')}</AgentSettingsRow>
+        </AgentSettingsSection>
       )}
 
-      <SectionDivider />
-
-      <AppSettings
-        id={agentID}
-        app={app}
-        onUpdate={onUpdate}
-        readOnly={readOnly}
-        showErrors={showErrors}
-        isAdmin={isAdmin}
-        section="runtime"
-        hideAgentType
-        focusedExternal
-        externalRuntimeView={kind === 'org' ? 'desktop' : 'all'}
-      />
+      <AgentSettingsSection
+        title="Desktop"
+        description="Configure the desktop environment available when this agent starts a session."
+      >
+        <AgentSettingsRow>{appSettings('desktop')}</AgentSettingsRow>
+      </AgentSettingsSection>
 
       {kind === 'org' && (
         <>
-          <SectionDivider />
-          <Box>
-            <Typography variant="h5" sx={{ mb: 0.5 }}>Available tools</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Choose the organization capabilities this worker can call.
-            </Typography>
-            <OrgAgentSettings agentID={agentID} section="tools" readOnly={readOnly} />
-          </Box>
+          <AgentSettingsSection
+            title="Instructions"
+            description="Define this worker's role, operating rules, and expected behavior."
+          >
+            <AgentSettingsRow>
+              <OrgAgentSettings
+                agentID={agentID}
+                section="instructions"
+                readOnly={readOnly}
+                onCanonicalUpdate={onCanonicalUpdate}
+                embedded
+              />
+            </AgentSettingsRow>
+          </AgentSettingsSection>
 
-          <SectionDivider />
-          <Box>
-            <Typography variant="h5" sx={{ mb: 0.5 }}>Permissions</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Control the projects this worker can use and who can access its backing agent.
-            </Typography>
-            <OrgAgentSettings agentID={agentID} section="access" readOnly={readOnly} />
-            {accessManagement}
-          </Box>
+          <AgentSettingsSection
+            title="Available tools"
+            description="Choose the organization capabilities this worker can call."
+          >
+            <AgentSettingsRow>
+              <OrgAgentSettings agentID={agentID} section="tools" readOnly={readOnly} embedded />
+            </AgentSettingsRow>
+          </AgentSettingsSection>
+
+          <AgentSettingsSection
+            title="Subscriptions"
+            description="Choose the organization topics that trigger this worker."
+          >
+            <AgentSettingsRow>
+              <OrgAgentSettings agentID={agentID} section="subscriptions" readOnly={readOnly} embedded />
+            </AgentSettingsRow>
+          </AgentSettingsSection>
+
+          <AgentSettingsSection
+            title="Permissions"
+            description="Control the projects this worker can use and who can access its backing agent."
+          >
+            <AgentSettingsRow>
+              <OrgAgentSettings agentID={agentID} section="access" readOnly={readOnly} embedded />
+            </AgentSettingsRow>
+            {accessManagement && <AgentSettingsRow>{accessManagement}</AgentSettingsRow>}
+          </AgentSettingsSection>
         </>
       )}
-    </Stack>
-  </Box>
-)
+    </AgentSettingsPage>
+  )
+}
 
 export default FocusedAgentDetails
