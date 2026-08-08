@@ -654,6 +654,33 @@ func TestZeroLimitHeadersDoNotWedgeTheBucket(t *testing.T) {
 	require.NoError(t, rl.WaitForTokens(ctx, 1), "bucket was wedged by a zero limit")
 }
 
+// A remaining-header with no matching limit-header can seed a count above the
+// cap. The full-bucket branch is the only one such a count ever reaches, so it
+// has to clamp — otherwise the excess sticks there indefinitely.
+func TestRefillClampsACountSeededAboveTheCap(t *testing.T) {
+	rl := NewUniversalRateLimiter("openai")
+	maxTokens := rl.maxTokens
+
+	headers := http.Header{}
+	headers.Set("x-ratelimit-remaining-tokens", "400000") // no limit header alongside
+	rl.UpdateFromHeaders(headers)
+
+	rl.mu.RLock()
+	seeded := rl.currentTokens
+	rl.mu.RUnlock()
+	require.Greater(t, seeded, maxTokens, "precondition: the header should have seeded above the cap")
+
+	time.Sleep(20 * time.Millisecond)
+
+	rl.mu.Lock()
+	rl.refillTokens()
+	rl.mu.Unlock()
+
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	assert.Equal(t, maxTokens, rl.currentTokens, "an over-cap count must be clamped, not left to stick")
+}
+
 // A request bigger than the provider's entire per-minute budget can never be
 // covered by the bucket. It must still be admitted once the bucket is full
 // rather than looping until the caller's context expires.

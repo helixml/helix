@@ -243,9 +243,11 @@ func accrue(current, maximum, ratePerMinute int64, last, now time.Time) (int64, 
 	}
 
 	// Already full: nothing to earn, and idle time must not bank credit that
-	// would let a later burst exceed the bucket.
+	// would let a later burst exceed the bucket. Clamp on the way past, since a
+	// remaining-header without a matching limit-header can seed a count above
+	// the cap, and this branch is the only one such a count ever reaches.
 	if current >= maximum {
-		return current, now
+		return maximum, now
 	}
 
 	newUnits := int64(float64(ratePerMinute) * elapsed.Seconds() / 60.0)
