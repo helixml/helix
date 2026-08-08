@@ -46,10 +46,14 @@ import (
 // embedded Queue and focuses on the event-side fan-out.
 type Dispatcher struct {
 	store           *store.Store
-	queue           *activation.Queue
+	queue           ActivationQueue
 	logger          *slog.Logger
 	outbound        map[transport.Kind]streaming.Outbound
 	processorRunner ProcessorRunner
+}
+
+type ActivationQueue interface {
+	Enqueue(orgID string, agentID orgchart.NodeID, trigger activation.Trigger)
 }
 
 // ProcessorRunner is the late-bound execution arm that turns an Event
@@ -93,6 +97,14 @@ func (d *Dispatcher) RegisterOutbound(kind transport.Kind, e streaming.Outbound)
 // processor fan-out no-ops.
 func (d *Dispatcher) RegisterProcessorRunner(r ProcessorRunner) {
 	d.processorRunner = r
+}
+
+// RegisterActivationQueue replaces the in-memory activation queue. Production
+// uses this to install restart-safe delivery without changing dispatch callers.
+func (d *Dispatcher) RegisterActivationQueue(q ActivationQueue) {
+	if q != nil {
+		d.queue = q
+	}
 }
 
 // DispatchHire fires a hire-time activation for a freshly-created AI
