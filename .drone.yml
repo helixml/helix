@@ -250,15 +250,15 @@ steps:
       START_HELIX_TEST_SERVER: "true"
       # Agent configuration
       REASONING_MODEL_PROVIDER: openai
-      REASONING_MODEL: o3-mini
+      REASONING_MODEL: gpt-5.6-luna
       REASONING_MODEL_EFFORT: none
       GENERATION_MODEL_PROVIDER: openai
-      GENERATION_MODEL: gpt-4o
+      GENERATION_MODEL: gpt-5.6-luna
       SMALL_REASONING_MODEL_PROVIDER: openai
-      SMALL_REASONING_MODEL: o3-mini
+      SMALL_REASONING_MODEL: gpt-5.6-luna
       SMALL_REASONING_MODEL_EFFORT: none
       SMALL_GENERATION_MODEL_PROVIDER: openai
-      SMALL_GENERATION_MODEL: gpt-4o-mini
+      SMALL_GENERATION_MODEL: gpt-5.6-luna
 
     commands:
       - apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*

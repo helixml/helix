@@ -187,7 +187,7 @@ func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
 		// which then fails the assertProviderServesModel fence in
 		// controller.getClient. The agent code uses the assistant's
 		// GenerationModel internally; this only satisfies the routing fence.
-		Model: "openai/gpt-4o-mini",
+		Model: "openai/gpt-5.6-luna",
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    "user",
@@ -274,7 +274,7 @@ func (suite *AgentTestSuite) TestAgent_BasicKnowledge() {
 
 	resp, err := chatCompletions(suite.T(), apiKeys[0].Key, &openai.ChatCompletionRequest{
 		// See note in TestAgent_CurrencyExchange about why Model must be set.
-		Model: "openai/gpt-4o-mini",
+		Model: "openai/gpt-5.6-luna",
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    "user",
