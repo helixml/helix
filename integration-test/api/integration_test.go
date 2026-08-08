@@ -119,7 +119,11 @@ func TestMain(m *testing.M) {
 	runTests := m.Run()
 
 	if startServer {
-		// Any failure is worth the server's side of the story.
+		// The server's logs are the only place the cause of a failure is
+		// recorded — the test binary sees an HTTP response, not why the agent
+		// produced it. Dumping them only on startup failure meant a red CI run
+		// showed the assertion and nothing else, which is a long way to go to
+		// find out a provider was returning 429.
 		if runTests != 0 {
 			buf.dump("tests failed")
 		}
