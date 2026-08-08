@@ -1338,7 +1338,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_AlreadyCompleteStillSignalsDon
 	// Register a waiter the same way RunExternalAgent does.
 	doneChan := make(chan bool, 1)
 	s.server.storeResponseChannel(helixSessionID, requestID, make(chan string, 1), doneChan, make(chan error, 1))
-	defer s.server.cleanupResponseChannel(helixSessionID, requestID)
+	defer s.server.cleanupResponseChannel(helixSessionID, requestID, true)
 
 	session := &types.Session{ID: helixSessionID, Owner: "user-1"}
 	s.store.EXPECT().GetSession(gomock.Any(), helixSessionID).Return(session, nil).AnyTimes()
@@ -1383,7 +1383,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SignalsDoneUnderInteractionID(
 
 	doneChan := make(chan bool, 1)
 	s.server.storeResponseChannel(helixSessionID, interactionID, make(chan string, 1), doneChan, make(chan error, 1))
-	defer s.server.cleanupResponseChannel(helixSessionID, interactionID)
+	defer s.server.cleanupResponseChannel(helixSessionID, interactionID, true)
 
 	session := &types.Session{ID: helixSessionID, Owner: "user-1"}
 	s.store.EXPECT().GetSession(gomock.Any(), helixSessionID).Return(session, nil).AnyTimes()
@@ -4069,6 +4069,23 @@ func (s *WebSocketSyncSuite) TestReleaseDispatchClaimByRequest() {
 
 	_, won = s.server.claimInteractionDispatch("ses_1", "int_1", "req_b")
 	s.True(won, "claim must be released when the turn's channels are torn down")
+}
+
+func (s *WebSocketSyncSuite) TestCleanupResponseChannel_OnlyOwnerReleasesClaim() {
+	_, won := s.server.claimInteractionDispatch("ses_1", "int_1", "req_a")
+	s.Require().True(won)
+
+	// A caller that lost the claim registered its channels under the WINNER's
+	// request_id. Its teardown must leave the claim alone — the winner's
+	// chat_message is still in flight.
+	s.server.cleanupResponseChannel("ses_1", "req_a", false)
+	_, won = s.server.claimInteractionDispatch("ses_1", "int_1", "req_b")
+	s.False(won, "a loser's teardown must not free the winner's in-flight claim")
+
+	// The owner's teardown does release it.
+	s.server.cleanupResponseChannel("ses_1", "req_a", true)
+	_, won = s.server.claimInteractionDispatch("ses_1", "int_1", "req_c")
+	s.True(won, "claim must be released when the owning turn's channels are torn down")
 }
 
 func (s *WebSocketSyncSuite) TestReleaseSessionDispatchClaims_OnReconnect() {

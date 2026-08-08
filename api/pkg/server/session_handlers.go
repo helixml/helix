@@ -1962,12 +1962,20 @@ func (s *HelixAPIServer) storeResponseChannel(sessionID, requestID string, respo
 	errorChannels[sessionID][requestID] = errorChan
 }
 
-// cleanupResponseChannel cleans up channels for a request
-func (s *HelixAPIServer) cleanupResponseChannel(sessionID, requestID string) {
+// cleanupResponseChannel cleans up channels for a request.
+//
+// releaseDispatchClaim must be true only for the caller that won the dispatch
+// claim for this turn. A caller that lost the claim attaches its channels to
+// the winner's request_id, so releasing on its teardown would free a claim that
+// is still in flight and let the reconnect / agent-switch path re-send the same
+// turn — the exact duplicate-ACP-thread case the claim exists to prevent.
+func (s *HelixAPIServer) cleanupResponseChannel(sessionID, requestID string, releaseDispatchClaim bool) {
 	// Tearing down the channels is the point the turn is over however it ended,
 	// so it is also where the interaction's dispatch claim is dropped. Done
 	// before taking channelMutex — these two locks are never nested.
-	s.releaseDispatchClaimByRequest(requestID)
+	if releaseDispatchClaim {
+		s.releaseDispatchClaimByRequest(requestID)
+	}
 
 	channelMutex.Lock()
 	defer channelMutex.Unlock()

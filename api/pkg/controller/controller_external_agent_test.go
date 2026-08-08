@@ -102,7 +102,7 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 			}
 			mu.Unlock()
 		},
-		CleanupResponseChannel: func(_ string, _ string) {
+		CleanupResponseChannel: func(_ string, _ string, _ bool) {
 			cleanupCalled = true
 		},
 		SetRequestInteractionMapping: func(requestID, interactionID string) {
@@ -135,6 +135,84 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 	assert.Equal(t, "session-1", mappedSessionID)
 	assert.Equal(t, result.RequestID, mappedRequestID)
 	assert.True(t, cleanupCalled)
+}
+
+// A caller that LOSES the dispatch claim attaches to the winner's request_id.
+// Its teardown must not release the claim: the winner's chat_message is still
+// in flight, and freeing the claim lets the reconnect / agent-switch path send
+// a second chat_message for the same turn — two ACP threads for one turn.
+func TestRunExternalAgentLoserDoesNotReleaseDispatchClaim(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockExecutor := external_agent.NewMockExecutor(ctrl)
+	c := &Controller{
+		Options: Options{
+			Store:                 mockStore,
+			ExternalAgentExecutor: mockExecutor,
+		},
+	}
+
+	session := &types.Session{
+		ID:           "session-loser",
+		Metadata:     types.SessionMetadata{ZedThreadID: "thread-loser"},
+		Interactions: []*types.Interaction{{ID: "interaction-loser", SessionID: "session-loser", UserID: "user-1"}},
+	}
+
+	mockExecutor.EXPECT().
+		GetSession("session-loser").
+		Return(&external_agent.ZedSession{SessionID: "session-loser", Status: "ready"}, nil)
+	mockStore.EXPECT().
+		GetInteraction(gomock.Any(), "interaction-loser").
+		Return(&types.Interaction{ID: "interaction-loser", SessionID: "session-loser", ResponseMessage: "winner's reply"}, nil)
+	mockStore.EXPECT().
+		UpdateInteraction(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			return interaction, nil
+		})
+
+	sendCalled := false
+	var releasedClaim bool
+	var cleanupRequestID string
+
+	c.SetExternalAgentHooks(ExternalAgentHooks{
+		WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error { return nil },
+		GetAgentNameForSession:    func(_ context.Context, _ *types.Session) string { return "qwen" },
+		SendCommand: func(_ string, _ types.ExternalAgentCommand) error {
+			sendCalled = true
+			return nil
+		},
+		StoreResponseChannel: func(_ string, _ string, _ chan string, doneChan chan bool, _ chan error) {
+			// Stand in for the winner's response landing on the shared channels.
+			go func() { doneChan <- true }()
+		},
+		CleanupResponseChannel: func(_ string, requestID string, releaseDispatchClaim bool) {
+			cleanupRequestID = requestID
+			releasedClaim = releaseDispatchClaim
+		},
+		SetRequestInteractionMapping: func(_, _ string) {},
+		SetRequestSessionMapping:     func(_, _ string) {},
+		ClaimInteractionDispatch: func(_, _, _ string) (string, bool) {
+			return "req-winner", false
+		},
+	})
+
+	result, err := c.RunExternalAgent(context.Background(), RunExternalAgentRequest{
+		Session: session,
+		ChatCompletionRequest: openai.ChatCompletionRequest{
+			Messages: []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleUser, Content: "hello"}},
+		},
+		Mode:  ExternalAgentModeBlocking,
+		Start: time.Now(),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, sendCalled, "loser must not send a duplicate chat_message")
+	assert.Equal(t, "req-winner", result.RequestID, "loser attaches to the winner's request_id")
+	assert.Equal(t, "req-winner", cleanupRequestID)
+	assert.False(t, releasedClaim, "loser must not release the winner's in-flight dispatch claim")
 }
 
 func TestRunExternalAgentStreaming(t *testing.T) {
@@ -212,7 +290,7 @@ func TestRunExternalAgentStreaming(t *testing.T) {
 			}
 			mu.Unlock()
 		},
-		CleanupResponseChannel:       func(_ string, _ string) {},
+		CleanupResponseChannel:       func(_ string, _ string, _ bool) {},
 		SetRequestInteractionMapping: func(_, _ string) {},
 		SetRequestSessionMapping:     func(_, _ string) {},
 	})
@@ -280,7 +358,7 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 			WaitForExternalAgentReady:    func(_ context.Context, _ string, _ time.Duration) error { return nil },
 			SendCommand:                  func(_ string, _ types.ExternalAgentCommand) error { return nil },
 			StoreResponseChannel:         func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
-			CleanupResponseChannel:       func(_ string, _ string) {},
+			CleanupResponseChannel:       func(_ string, _ string, _ bool) {},
 			SetRequestInteractionMapping: func(_, _ string) {},
 			SetRequestSessionMapping:     func(_, _ string) {},
 		})
@@ -346,7 +424,7 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 				return fmt.Errorf("send failed")
 			},
 			StoreResponseChannel:         func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
-			CleanupResponseChannel:       func(_ string, _ string) {},
+			CleanupResponseChannel:       func(_ string, _ string, _ bool) {},
 			SetRequestInteractionMapping: func(_, _ string) {},
 			SetRequestSessionMapping: func(_, _ string) {
 			},
@@ -394,7 +472,7 @@ func TestRunExternalAgentWaitsBeforeExecutorLookup(t *testing.T) {
 		},
 		SendCommand:                  func(_ string, _ types.ExternalAgentCommand) error { return fmt.Errorf("stop after ordering assertion") },
 		StoreResponseChannel:         func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
-		CleanupResponseChannel:       func(_ string, _ string) {},
+		CleanupResponseChannel:       func(_ string, _ string, _ bool) {},
 		SetRequestInteractionMapping: func(_, _ string) {},
 		SetRequestSessionMapping:     func(_, _ string) {},
 	})
@@ -463,7 +541,7 @@ func TestRunExternalAgentUsesInteractionIDAsRequestID(t *testing.T) {
 			storedRequestID = requestID
 			go func() { doneChan <- true }()
 		},
-		CleanupResponseChannel:       func(_ string, _ string) {},
+		CleanupResponseChannel:       func(_ string, _ string, _ bool) {},
 		SetRequestInteractionMapping: func(requestID, _ string) { mappedRequestID = requestID },
 		SetRequestSessionMapping:     func(_, _ string) {},
 	})
@@ -550,7 +628,7 @@ func TestWaitTimeoutPreservesStreamedContent(t *testing.T) {
 		// Never signal done — force the timeout path.
 		SendCommand:                  func(_ string, _ types.ExternalAgentCommand) error { return nil },
 		StoreResponseChannel:         func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
-		CleanupResponseChannel:       func(_ string, _ string) {},
+		CleanupResponseChannel:       func(_ string, _ string, _ bool) {},
 		SetRequestInteractionMapping: func(_, _ string) {},
 		SetRequestSessionMapping:     func(_, _ string) {},
 	})
@@ -636,7 +714,7 @@ func TestWaitExtendsWhileInteractionStillUpdating(t *testing.T) {
 		GetAgentNameForSession:       func(_ context.Context, _ *types.Session) string { return "zed-agent" },
 		SendCommand:                  func(_ string, _ types.ExternalAgentCommand) error { return nil },
 		StoreResponseChannel:         func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
-		CleanupResponseChannel:       func(_ string, _ string) {},
+		CleanupResponseChannel:       func(_ string, _ string, _ bool) {},
 		SetRequestInteractionMapping: func(_, _ string) {},
 		SetRequestSessionMapping:     func(_, _ string) {},
 	})
@@ -701,7 +779,7 @@ func TestWaitTimeoutAlreadyCompleteIsSuccess(t *testing.T) {
 		GetAgentNameForSession:       func(_ context.Context, _ *types.Session) string { return "zed-agent" },
 		SendCommand:                  func(_ string, _ types.ExternalAgentCommand) error { return nil },
 		StoreResponseChannel:         func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
-		CleanupResponseChannel:       func(_ string, _ string) {},
+		CleanupResponseChannel:       func(_ string, _ string, _ bool) {},
 		SetRequestInteractionMapping: func(_, _ string) {},
 		SetRequestSessionMapping:     func(_, _ string) {},
 	})
@@ -778,7 +856,7 @@ func TestAgentErrorPreservesStreamedContent(t *testing.T) {
 				errorChan <- fmt.Errorf("agent process exited")
 			}()
 		},
-		CleanupResponseChannel:       func(_ string, _ string) {},
+		CleanupResponseChannel:       func(_ string, _ string, _ bool) {},
 		SetRequestInteractionMapping: func(_, _ string) {},
 		SetRequestSessionMapping:     func(_, _ string) {},
 	})

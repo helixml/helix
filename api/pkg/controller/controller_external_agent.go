@@ -32,11 +32,16 @@ const (
 )
 
 type ExternalAgentHooks struct {
-	WaitForExternalAgentReady    func(ctx context.Context, sessionID string, timeout time.Duration) error
-	GetAgentNameForSession       func(ctx context.Context, session *types.Session) string
-	SendCommand                  func(sessionID string, command types.ExternalAgentCommand) error
-	StoreResponseChannel         func(sessionID, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error)
-	CleanupResponseChannel       func(sessionID, requestID string)
+	WaitForExternalAgentReady func(ctx context.Context, sessionID string, timeout time.Duration) error
+	GetAgentNameForSession    func(ctx context.Context, session *types.Session) string
+	SendCommand               func(sessionID string, command types.ExternalAgentCommand) error
+	StoreResponseChannel      func(sessionID, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error)
+	// CleanupResponseChannel drops the waiter channels registered under
+	// requestID. releaseDispatchClaim must be true only for the caller that won
+	// the dispatch claim: a caller that lost attaches to the *winner's*
+	// request_id, so releasing on its teardown would free a claim that is still
+	// in flight and let the reconnect path re-send the same turn.
+	CleanupResponseChannel       func(sessionID, requestID string, releaseDispatchClaim bool)
 	SetRequestInteractionMapping func(requestID, interactionID string)
 	SetRequestSessionMapping     func(requestID, sessionID string)
 	// ClaimInteractionDispatch reserves an interaction for delivery to the
@@ -192,14 +197,14 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	// in-flight request_id above and just waits for that turn's response.
 	if dispatchMine {
 		if err := hooks.SendCommand(req.Session.ID, command); err != nil {
-			hooks.CleanupResponseChannel(req.Session.ID, requestID)
+			hooks.CleanupResponseChannel(req.Session.ID, requestID, dispatchMine)
 			c.markExternalAgentInteractionError(req.Session, interaction, req.Start, err.Error(), "")
 			return nil, fmt.Errorf("failed to send command to external agent: %w", err)
 		}
 	}
 
 	if req.Mode == ExternalAgentModeStreaming {
-		stream := c.startExternalAgentStreamWorker(ctx, req, hooks, requestID, interaction, responseChan, doneChan, errorChan)
+		stream := c.startExternalAgentStreamWorker(ctx, req, hooks, requestID, interaction, responseChan, doneChan, errorChan, dispatchMine)
 		return &RunExternalAgentResponse{
 			RequestID: requestID,
 			Model:     req.ChatCompletionRequest.Model,
@@ -208,7 +213,7 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	}
 
 	fullResponse, err := c.waitForExternalAgentResponse(ctx, req, requestID, interaction, responseChan, doneChan, errorChan, nil)
-	hooks.CleanupResponseChannel(req.Session.ID, requestID)
+	hooks.CleanupResponseChannel(req.Session.ID, requestID, dispatchMine)
 	if err != nil {
 		return nil, err
 	}
@@ -229,6 +234,7 @@ func (c *Controller) startExternalAgentStreamWorker(
 	responseChan chan string,
 	doneChan chan bool,
 	errorChan chan error,
+	dispatchMine bool,
 ) *ExternalAgentStream {
 	chunksOut := make(chan string, 32)
 	doneOut := make(chan struct{}, 1)
@@ -238,7 +244,7 @@ func (c *Controller) startExternalAgentStreamWorker(
 		defer close(chunksOut)
 		defer close(doneOut)
 		defer close(errorsOut)
-		defer hooks.CleanupResponseChannel(req.Session.ID, requestID)
+		defer hooks.CleanupResponseChannel(req.Session.ID, requestID, dispatchMine)
 
 		_, err := c.waitForExternalAgentResponse(ctx, req, requestID, interaction, responseChan, doneChan, errorChan, func(chunk string) error {
 			select {
