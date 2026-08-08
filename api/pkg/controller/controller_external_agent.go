@@ -39,6 +39,13 @@ type ExternalAgentHooks struct {
 	CleanupResponseChannel       func(sessionID, requestID string)
 	SetRequestInteractionMapping func(requestID, interactionID string)
 	SetRequestSessionMapping     func(requestID, sessionID string)
+	// ClaimInteractionDispatch reserves an interaction for delivery to the
+	// external agent, so that the reconnect / agent-switch delivery path does
+	// not send a second chat_message for the same turn. Returns the request_id
+	// the turn is being delivered under and whether this caller won the claim.
+	// Optional: when nil, delivery is unguarded (pre-existing behaviour).
+	ClaimInteractionDispatch   func(sessionID, interactionID, requestID string) (string, bool)
+	ReleaseInteractionDispatch func(interactionID string)
 }
 
 type RunExternalAgentRequest struct {
@@ -109,7 +116,40 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 
 	interaction := req.Session.Interactions[len(req.Session.Interactions)-1]
 
+	// Use the interaction ID as request_id so completion events map 1:1 with
+	// the waiter channels and with NotifyExternalAgentOfNewInteraction's
+	// convention. A synthetic req_<nano> id diverged from the int_… id used
+	// by the notify path, which caused message_completed to miss doneChan
+	// and the idle timeout to clobber a finished reply.
+	requestID := interaction.ID
+
+	// Claim the interaction BEFORE waiting for readiness. The wait can run for
+	// minutes while a container boots, and pickupWaitingInteraction fires during
+	// that window on agent reconnect and on the settings-sync daemon's
+	// /agent-config-applied callback after an agent switch. Without the claim
+	// both paths send a chat_message for the same request_id and Zed opens two
+	// ACP threads for one turn.
+	dispatchMine := true
+	if hooks.ClaimInteractionDispatch != nil {
+		winnerRequestID, won := hooks.ClaimInteractionDispatch(req.Session.ID, interaction.ID, requestID)
+		dispatchMine = won
+		if !won {
+			// Another sender is already delivering this turn. Attach to its
+			// request_id so the response still streams back to this caller,
+			// but do not send a duplicate chat_message.
+			requestID = winnerRequestID
+			log.Info().
+				Str("session_id", req.Session.ID).
+				Str("interaction_id", interaction.ID).
+				Str("request_id", requestID).
+				Msg("external agent turn already dispatched by another sender; attaching without re-sending")
+		}
+	}
+
 	if err := hooks.WaitForExternalAgentReady(ctx, req.Session.ID, req.ReadyTimeout); err != nil {
+		if dispatchMine && hooks.ReleaseInteractionDispatch != nil {
+			hooks.ReleaseInteractionDispatch(interaction.ID)
+		}
 		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, fmt.Sprintf("External agent not ready: %s", err.Error()), "")
 		return nil, fmt.Errorf("external agent not ready: %w", err)
 	}
@@ -125,12 +165,6 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 		Str("mode", string(req.Mode)).
 		Msg("sending message to external agent")
 
-	// Use the interaction ID as request_id so completion events map 1:1 with
-	// the waiter channels and with NotifyExternalAgentOfNewInteraction's
-	// convention. A synthetic req_<nano> id diverged from the int_… id used
-	// by the notify path, which caused message_completed to miss doneChan
-	// and the idle timeout to clobber a finished reply.
-	requestID := interaction.ID
 	agentName := "zed-agent"
 	if hooks.GetAgentNameForSession != nil {
 		agentName = hooks.GetAgentNameForSession(ctx, req.Session)
@@ -154,10 +188,14 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	hooks.SetRequestInteractionMapping(requestID, interaction.ID)
 	hooks.SetRequestSessionMapping(requestID, req.Session.ID)
 
-	if err := hooks.SendCommand(req.Session.ID, command); err != nil {
-		hooks.CleanupResponseChannel(req.Session.ID, requestID)
-		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, err.Error(), "")
-		return nil, fmt.Errorf("failed to send command to external agent: %w", err)
+	// Only the claim winner sends. A loser has attached its channels to the
+	// in-flight request_id above and just waits for that turn's response.
+	if dispatchMine {
+		if err := hooks.SendCommand(req.Session.ID, command); err != nil {
+			hooks.CleanupResponseChannel(req.Session.ID, requestID)
+			c.markExternalAgentInteractionError(req.Session, interaction, req.Start, err.Error(), "")
+			return nil, fmt.Errorf("failed to send command to external agent: %w", err)
+		}
 	}
 
 	if req.Mode == ExternalAgentModeStreaming {

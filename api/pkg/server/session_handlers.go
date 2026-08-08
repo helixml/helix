@@ -1964,6 +1964,11 @@ func (s *HelixAPIServer) storeResponseChannel(sessionID, requestID string, respo
 
 // cleanupResponseChannel cleans up channels for a request
 func (s *HelixAPIServer) cleanupResponseChannel(sessionID, requestID string) {
+	// Tearing down the channels is the point the turn is over however it ended,
+	// so it is also where the interaction's dispatch claim is dropped. Done
+	// before taking channelMutex — these two locks are never nested.
+	s.releaseDispatchClaimByRequest(requestID)
+
 	channelMutex.Lock()
 	defer channelMutex.Unlock()
 

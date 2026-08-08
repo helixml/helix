@@ -752,9 +752,16 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 
 		// Handle 429 and 529 errors
 		if resp.StatusCode == 429 {
+			// Log the body, not just the status. OpenAI returns 429 both for
+			// ordinary throttling ("rate_limit_exceeded") and for an account
+			// with no credit left ("insufficient_quota") — indistinguishable
+			// from the status code alone, and the difference is the difference
+			// between "retry later" and "nobody can run inference until this
+			// account is topped up".
 			log.Warn().
 				Str("url", req.URL.String()).
 				Int("status_code", resp.StatusCode).
+				Str("body", peekResponseBody(resp)).
 				Msg("Received 429 Too Many Requests")
 
 			c.rateLimiter.Handle429Error(resp.Header)
@@ -766,6 +773,7 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 			log.Warn().
 				Str("url", req.URL.String()).
 				Int("status_code", resp.StatusCode).
+				Str("body", peekResponseBody(resp)).
 				Msg("Received 529 Overloaded")
 
 			// For 529 errors, we can also use the same backoff logic as 429
@@ -786,6 +794,33 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 	}
 
 	return resp, err
+}
+
+// peekErrorBodyLimit bounds how much of an upstream error body we read for
+// logging. Provider error payloads are small; anything larger is not a
+// diagnostic, it is log spam.
+const peekErrorBodyLimit = 2048
+
+// peekResponseBody returns the start of resp.Body for logging and leaves the
+// body fully readable by the caller — the response is handed back to go-openai,
+// which still needs to parse the error out of it.
+func peekResponseBody(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, peekErrorBodyLimit))
+	if err != nil && len(body) == 0 {
+		return fmt.Sprintf("<unreadable: %v>", err)
+	}
+	// Splice the consumed prefix back in front of whatever is left.
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{
+		Reader: io.MultiReader(bytes.NewReader(body), resp.Body),
+		Closer: resp.Body,
+	}
+	return strings.TrimSpace(string(body))
 }
 
 // reasoningFieldMapper wraps a response body and rewrites the "reasoning"

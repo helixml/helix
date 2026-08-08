@@ -87,6 +87,13 @@ type SessionFileManager interface {
 
 type ReasoningConfig struct {
 	SupportsReasoningEffort bool `json:"supports_reasoning_effort"`
+	// SupportedReasoningEfforts lists the effort values the model accepts.
+	// Models in the GPT-5 family accept "none", and for those an explicit
+	// "none" is meaningfully different from omitting the parameter: omitting
+	// it makes the provider apply DefaultReasoningEffort, which on some models
+	// (gpt-5.6-*) makes the request incompatible with function tools.
+	SupportedReasoningEfforts []string `json:"supported_reasoning_efforts"`
+	DefaultReasoningEffort    string   `json:"default_reasoning_effort"`
 }
 
 type ModelInfoResponse struct { //nolint:revive

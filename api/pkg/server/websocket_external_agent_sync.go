@@ -453,6 +453,10 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			// Clear stale streaming context from previous connection.
 			apiServer.flushAndClearStreamingContext(ctx, helixSessionID)
 
+			// A reconnect means any dispatch in flight on the old connection is
+			// gone. Drop its claim so the waiting interaction can be re-delivered.
+			apiServer.releaseSessionDispatchClaims(helixSessionID)
+
 			// Find and queue the waiting interaction for the agent
 			requestID := apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
 
@@ -531,6 +535,111 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 	apiServer.handleExternalAgentReceiver(ctx, wsConn)
 }
 
+// sessionForInteraction resolves the Helix session an interaction belongs to.
+func (apiServer *HelixAPIServer) sessionForInteraction(ctx context.Context, interactionID string) (*types.Session, error) {
+	if interactionID == "" {
+		return nil, fmt.Errorf("empty interaction id")
+	}
+	interaction, err := apiServer.Controller.Options.Store.GetInteraction(ctx, interactionID)
+	if err != nil {
+		return nil, err
+	}
+	if interaction.SessionID == "" {
+		return nil, fmt.Errorf("interaction %s has no session", interactionID)
+	}
+	return apiServer.Controller.Options.Store.GetSession(ctx, interaction.SessionID)
+}
+
+// dispatchClaim records which request_id is currently delivering a waiting
+// interaction to the external agent, and on whose session.
+type dispatchClaim struct {
+	requestID string
+	sessionID string
+}
+
+// claimInteractionDispatch atomically reserves interactionID for delivery to the
+// external agent under requestID.
+//
+// Two independent paths can deliver the same waiting interaction: RunExternalAgent
+// (the live chat turn) and pickupWaitingInteraction (agent reconnect, and the
+// settings-sync daemon's /agent-config-applied callback after an agent switch).
+// Both used to fire during RunExternalAgent's readiness wait, sending two
+// chat_message commands carrying the SAME request_id and an empty acp_thread_id.
+// Zed has no request_id dedupe, so it opened TWO ACP threads for one turn; the
+// second thread_created looked user-initiated and was forked into a throwaway
+// "New Conversation" session, which is where the agent's entire response then
+// streamed — invisible from the task it belonged to.
+//
+// Returns the request_id the interaction is being delivered under (the winner's,
+// so a loser can still attach its response channels to the live turn) and whether
+// this caller won. A loser must NOT send a second chat_message.
+func (apiServer *HelixAPIServer) claimInteractionDispatch(sessionID, interactionID, requestID string) (string, bool) {
+	apiServer.contextMappingsMutex.Lock()
+	defer apiServer.contextMappingsMutex.Unlock()
+	return apiServer.claimInteractionDispatchLocked(sessionID, interactionID, requestID)
+}
+
+// claimInteractionDispatchLocked is claimInteractionDispatch for callers that
+// already hold contextMappingsMutex (pickupWaitingInteraction claims inside the
+// same critical section that picks the request_id, so the two cannot diverge).
+func (apiServer *HelixAPIServer) claimInteractionDispatchLocked(sessionID, interactionID, requestID string) (string, bool) {
+	if interactionID == "" || requestID == "" {
+		return requestID, true
+	}
+	if apiServer.interactionDispatchClaims == nil {
+		apiServer.interactionDispatchClaims = make(map[string]dispatchClaim)
+	}
+	if existing, claimed := apiServer.interactionDispatchClaims[interactionID]; claimed {
+		return existing.requestID, false
+	}
+	apiServer.interactionDispatchClaims[interactionID] = dispatchClaim{requestID: requestID, sessionID: sessionID}
+	return requestID, true
+}
+
+// releaseInteractionDispatch drops the claim on interactionID so the turn can be
+// re-delivered (retry, reconnect).
+func (apiServer *HelixAPIServer) releaseInteractionDispatch(interactionID string) {
+	if interactionID == "" {
+		return
+	}
+	apiServer.contextMappingsMutex.Lock()
+	delete(apiServer.interactionDispatchClaims, interactionID)
+	apiServer.contextMappingsMutex.Unlock()
+}
+
+// releaseDispatchClaimByRequest drops the claim held under requestID. Called when
+// a turn's response channels are torn down, which is the point the turn is over
+// regardless of how it ended.
+func (apiServer *HelixAPIServer) releaseDispatchClaimByRequest(requestID string) {
+	if requestID == "" {
+		return
+	}
+	apiServer.contextMappingsMutex.Lock()
+	for interactionID, claim := range apiServer.interactionDispatchClaims {
+		if claim.requestID == requestID {
+			delete(apiServer.interactionDispatchClaims, interactionID)
+		}
+	}
+	apiServer.contextMappingsMutex.Unlock()
+}
+
+// releaseSessionDispatchClaims drops every claim belonging to a session. Called
+// when the external agent (re)connects: a reconnect means an in-flight dispatch
+// may have died with the old connection, so pickupWaitingInteraction must be
+// free to re-deliver the still-waiting interaction.
+func (apiServer *HelixAPIServer) releaseSessionDispatchClaims(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	apiServer.contextMappingsMutex.Lock()
+	for interactionID, claim := range apiServer.interactionDispatchClaims {
+		if claim.sessionID == sessionID {
+			delete(apiServer.interactionDispatchClaims, interactionID)
+		}
+	}
+	apiServer.contextMappingsMutex.Unlock()
+}
+
 // pickupWaitingInteraction finds the most recent waiting interaction for a session
 // and queues the initial chat_message for the external agent. If no
 // requestToSessionMapping entry exists (e.g. session created via session handler
@@ -590,6 +699,25 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 				Str("request_id", requestID).
 				Msg("🔧 [HELIX] Created request_id mapping from waiting interaction ID")
 		}
+		// Claim the interaction before queueing. If RunExternalAgent is already
+		// delivering this turn (it claims before its readiness wait), sending
+		// again would make Zed open a second ACP thread for the same request_id.
+		//
+		// Return rather than moving to the next waiting interaction: this one is
+		// in flight, and delivering a newer one alongside it would break the
+		// oldest-first, one-turn-at-a-time ordering described above. The winner's
+		// request_id goes back to the caller so the open_thread it sends on
+		// reconnect still correlates with the turn that is actually running.
+		if winnerRequestID, won := apiServer.claimInteractionDispatchLocked(helixSessionID, interactionID, requestID); !won {
+			apiServer.contextMappingsMutex.Unlock()
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", interactionID).
+				Str("request_id", winnerRequestID).
+				Msg("⏭️ [HELIX] Interaction already being delivered by another sender — not re-sending")
+			return winnerRequestID
+		}
+
 		// Map request_id → interaction_id for FIFO queue matching
 		if apiServer.requestToInteractionMapping == nil {
 			apiServer.requestToInteractionMapping = make(map[string]string)
@@ -641,6 +769,9 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 				Str("helix_session_id", helixSessionID).
 				Msg("✅ [HELIX] Queued initial chat_message for Zed (will send when agent_ready)")
 		} else {
+			// Nothing was delivered — drop the claim so the next reconnect or
+			// retry can pick this interaction up again.
+			apiServer.releaseInteractionDispatch(interactionID)
 			log.Warn().
 				Str("agent_session_id", agentID).
 				Msg("⚠️ [HELIX] Failed to queue initial message")
@@ -899,6 +1030,50 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		}
 
 		return nil
+	}
+
+	// PRIORITY 4: A second thread_created carrying a request_id that still has an
+	// in-flight turn is NOT a user opening a thread in Zed — it is a duplicate
+	// thread for a turn Helix itself dispatched. (PRIORITY 1 consumed the
+	// request_id → session mapping for the first thread, so without this check
+	// the duplicate falls through and forks a throwaway session; the agent then
+	// streams its whole response into a session nobody is looking at.)
+	//
+	// Rebind onto the turn's own session and point it at the newest thread —
+	// that is the thread Zed foregrounds and streams the prompt on.
+	if requestID != "" {
+		apiServer.contextMappingsMutex.RLock()
+		inFlightInteractionID, inFlight := apiServer.requestToInteractionMapping[requestID]
+		apiServer.contextMappingsMutex.RUnlock()
+		if inFlight {
+			if boundSession, err := apiServer.sessionForInteraction(context.Background(), inFlightInteractionID); err == nil && boundSession != nil {
+				log.Warn().
+					Str("agent_session_id", sessionID).
+					Str("helix_session_id", boundSession.ID).
+					Str("acp_thread_id", acpThreadID).
+					Str("request_id", requestID).
+					Str("previous_zed_thread_id", boundSession.Metadata.ZedThreadID).
+					Msg("⚠️ [HELIX] Duplicate thread_created for an in-flight turn — rebinding to its session instead of forking a new one")
+
+				boundSession.Metadata.ZedThreadID = contextID
+				boundSession.Updated = time.Now()
+				if _, err := apiServer.Controller.Options.Store.UpdateSession(context.Background(), *boundSession); err != nil {
+					return fmt.Errorf("failed to rebind session %s to duplicate thread: %w", boundSession.ID, err)
+				}
+
+				apiServer.contextMappingsMutex.Lock()
+				if apiServer.contextMappings == nil {
+					apiServer.contextMappings = make(map[string]string)
+				}
+				apiServer.contextMappings[contextID] = boundSession.ID
+				apiServer.contextMappingsMutex.Unlock()
+
+				if boundSession.Metadata.SpecTaskID != "" {
+					go apiServer.trackSpecTaskZedThread(context.Background(), boundSession, acpThreadID, title)
+				}
+				return nil
+			}
+		}
 	}
 
 	// If no helixSessionID provided and no existing session found, this is a genuinely NEW context

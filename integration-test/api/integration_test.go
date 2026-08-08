@@ -1,12 +1,13 @@
 package api
 
 import (
-	"bytes"
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,13 +26,81 @@ import (
 var serverCmd *exec.Cmd
 var serverExited = make(chan error, 1) // signals when the server process exits
 
+// serverLogTailBytes bounds how much of the server's (debug-level) output we
+// keep. Enough to cover the requests around a failure without holding minutes
+// of trace output in memory.
+const serverLogTailBytes = 4 << 20 // 4 MiB
+
+// serverLogBuffer keeps the tail of the API server's output. exec writes to it
+// from its stdout and stderr copier goroutines while the test goroutine reads
+// it, so every access is mutex guarded.
+type serverLogBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (b *serverLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf = append(b.buf, p...)
+	if excess := len(b.buf) - serverLogTailBytes; excess > 0 {
+		b.buf = b.buf[excess:]
+	}
+	return len(p), nil
+}
+
+func (b *serverLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.buf)
+}
+
+// dump writes the captured server output to stderr. Without this the logs that
+// explain a failure (upstream 429s, exhausted provider balance, panics) are
+// collected and then silently discarded, leaving only an opaque test timeout.
+func (b *serverLogBuffer) dump(reason string) {
+	if b == nil {
+		return
+	}
+	contents := b.String()
+	if contents == "" {
+		fmt.Fprintf(os.Stderr, "\n===== API server logs (%s): EMPTY =====\n", reason)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\n===== API server logs (%s), last %d bytes =====\n%s\n===== end API server logs =====\n",
+		reason, len(contents), contents)
+}
+
+// dumpServerLogsBeforeTestTimeout arms a watchdog that prints the server logs
+// shortly before `go test -timeout` panics the process. The panic kills the
+// test binary outright, so anything deferred until after m.Run() never runs —
+// which is exactly how an 8 minute hang produced a stack trace with no server
+// side context at all.
+func dumpServerLogsBeforeTestTimeout(logs *serverLogBuffer) {
+	f := flag.Lookup("test.timeout")
+	if f == nil {
+		return
+	}
+	timeout, err := time.ParseDuration(f.Value.String())
+	if err != nil || timeout <= 0 {
+		return
+	}
+	lead := 30 * time.Second
+	if timeout <= lead {
+		lead = timeout / 4
+	}
+	time.AfterFunc(timeout-lead, func() {
+		logs.dump(fmt.Sprintf("watchdog: %s test timeout approaching", timeout))
+	})
+}
+
 func TestMain(m *testing.M) {
 	// Load file
 	_ = godotenv.Load(".test.env")
 
 	startServer := os.Getenv("START_HELIX_TEST_SERVER") == "true"
 	// Accumulate server logs
-	var buf *bytes.Buffer
+	var buf *serverLogBuffer
 
 	if startServer {
 		// Start server
@@ -40,9 +109,11 @@ func TestMain(m *testing.M) {
 		// Wait for server to be ready
 		if err := waitForAPIServer(buf); err != nil {
 			log.Printf("Failed to start API server: %v", err)
-			log.Printf("Server logs:\n%s", buf.String())
+			buf.dump("server failed to start")
 			os.Exit(1)
 		}
+
+		dumpServerLogsBeforeTestTimeout(buf)
 	}
 
 	runTests := m.Run()
@@ -53,8 +124,8 @@ func TestMain(m *testing.M) {
 		// produced it. Dumping them only on startup failure meant a red CI run
 		// showed the assertion and nothing else, which is a long way to go to
 		// find out a provider was returning 429.
-		if runTests != 0 && buf != nil {
-			log.Printf("Tests failed. Server logs:\n%s", buf.String())
+		if runTests != 0 {
+			buf.dump("tests failed")
 		}
 
 		// Clean up the server process
@@ -68,8 +139,8 @@ func TestMain(m *testing.M) {
 	os.Exit(runTests)
 }
 
-func startAPIServer() *bytes.Buffer {
-	buf := bytes.NewBuffer(nil)
+func startAPIServer() *serverLogBuffer {
+	buf := &serverLogBuffer{}
 
 	serverCmd = exec.Command("helix", "serve")
 	serverCmd.Stdout = buf
@@ -108,7 +179,7 @@ func startAPIServer() *bytes.Buffer {
 }
 
 // waitForAPIServer polls the server until it responds or the process exits.
-func waitForAPIServer(serverLogs *bytes.Buffer) error {
+func waitForAPIServer(serverLogs *serverLogBuffer) error {
 	httpClient := &http.Client{
 		Timeout: 5 * time.Second,
 	}

@@ -39,6 +39,7 @@ type Options struct {
 	Janitor               *janitor.Janitor
 	Notifier              notification.Notifier
 	ProviderManager       manager.ProviderManager // OpenAI client provider
+	ModelInfoProvider     model.ModelInfoProvider // Model capability/pricing catalog
 	OAuthManager     *oauth.Manager
 	Browser          *browser.Browser
 	SearchProvider   searxng.SearchProvider
