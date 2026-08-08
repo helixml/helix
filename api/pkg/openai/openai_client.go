@@ -772,6 +772,13 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 			c.rateLimiter.Handle429Error(resp.Header)
 			// Return the 529 error so retry logic can handle it
 		}
+
+		// The provider accepted the request, so the backoff ladder has done its
+		// job — reset it. Without this the ladder only ever climbs, and a single
+		// 429 hours ago would still be throttling healthy traffic.
+		if resp.StatusCode != 429 && resp.StatusCode != 529 {
+			c.rateLimiter.HandleSuccess()
+		}
 	}
 
 	return resp, err

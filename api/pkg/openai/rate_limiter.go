@@ -120,12 +120,12 @@ func (rl *UniversalRateLimiter) WaitForTokens(ctx context.Context, tokensNeeded 
 				continue
 			}
 
-			// The window has elapsed. Re-checked under the lock on every pass
-			// so a 429 that lands while we sleep extends the backoff rather
-			// than being cleared out from under it — otherwise the exponential
-			// ladder in Handle429Error resets to zero during exactly the
-			// sustained-429 storm it exists for.
-			rl.backoffDuration = 0
+			// The window has elapsed, so this caller may proceed — but the
+			// ladder itself is deliberately left standing. It is reset by
+			// HandleSuccess when the provider actually accepts a request.
+			// Clearing it here would restart the ladder at 1s on every retry,
+			// so it would never escalate during exactly the sustained-429
+			// storm it exists for.
 		}
 
 		if rl.currentRequests >= 1 {
@@ -447,6 +447,26 @@ func (rl *UniversalRateLimiter) Handle429Error(headers http.Header) {
 		Int64("tokens_remaining", rl.tokenRemainingLimit).
 		Int64("requests_remaining", rl.requestRemainingLimit).
 		Msg("Handling 429 error with backoff")
+}
+
+// HandleSuccess resets the exponential backoff ladder after the provider
+// accepts a request. Backoff escalates across consecutive 429s and is cleared
+// only on success — never merely by waiting a window out, which would restart
+// the ladder at its base on every retry.
+func (rl *UniversalRateLimiter) HandleSuccess() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	if rl.backoffDuration == 0 {
+		return
+	}
+
+	log.Debug().
+		Str("provider", rl.provider).
+		Dur("previous_backoff", rl.backoffDuration).
+		Msg("Provider accepted a request, resetting rate limiter backoff")
+
+	rl.backoffDuration = 0
 }
 
 // EstimateTokens estimates the number of tokens in a request (very rough estimate)

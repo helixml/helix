@@ -235,9 +235,51 @@ func TestWaitForTokensRecoversAfterBackoffExpires(t *testing.T) {
 	require.NoError(t, rl.WaitForTokens(ctx, 1))
 	assert.GreaterOrEqual(t, time.Since(start), 500*time.Millisecond, "should have honoured the retry-after backoff")
 
+	// Waiting the window out lets the caller through but deliberately leaves the
+	// ladder standing — only a successful request resets it.
+	rl.mu.RLock()
+	assert.Equal(t, time.Second, rl.backoffDuration)
+	rl.mu.RUnlock()
+
+	rl.HandleSuccess()
+
 	rl.mu.RLock()
 	defer rl.mu.RUnlock()
-	assert.Zero(t, rl.backoffDuration, "backoff should be cleared once waited out")
+	assert.Zero(t, rl.backoffDuration, "backoff should be cleared once the provider accepts a request")
+}
+
+// Backoff must escalate across consecutive 429s even though callers wait each
+// window out in between — that is the sustained-outage case it exists for — and
+// must reset once the provider accepts a request.
+func TestBackoffEscalatesAcrossRetriesAndResetsOnSuccess(t *testing.T) {
+	rl := NewUniversalRateLimiter("openai")
+	headers := http.Header{} // no retry-after, so the exponential ladder applies
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	// Two 429s, each with the window fully waited out in between, as the
+	// client's retry loop does.
+	rl.Handle429Error(headers)
+	require.NoError(t, rl.WaitForTokens(ctx, 1))
+
+	rl.mu.RLock()
+	afterFirst := rl.backoffDuration
+	rl.mu.RUnlock()
+	assert.Equal(t, 1*time.Second, afterFirst)
+
+	rl.Handle429Error(headers)
+
+	rl.mu.RLock()
+	afterSecond := rl.backoffDuration
+	rl.mu.RUnlock()
+	assert.Equal(t, 2*time.Second, afterSecond, "ladder must climb on consecutive 429s, not restart at its base")
+
+	rl.HandleSuccess()
+
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	assert.Zero(t, rl.backoffDuration)
 }
 
 // Concurrent traffic through every locking method at once. The interleaved
