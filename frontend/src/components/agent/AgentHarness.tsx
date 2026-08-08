@@ -6,8 +6,8 @@ import useTheme from '@mui/material/styles/useTheme'
 import { Bot, Sparkles } from 'lucide-react'
 
 import OpenAILogo from '../providers/logos/openai'
-import gooseMark from '../../assets/harness/goose.svg'
-import qwenCodeMark from '../../assets/harness/qwen-code.svg'
+import gooseMark from '../../assets/harness/goose.svg?no-inline'
+import qwenCodeMark from '../../assets/harness/qwen-code.svg?no-inline'
 import zedAgentMark from '../../assets/harness/zed-agent.svg'
 
 export type AgentHarnessVariant = 'long' | 'short'
@@ -79,11 +79,12 @@ const MaskMark: FC<{ runtime: string; src: string; size: number; color: string }
       height: size,
       display: 'inline-block',
       bgcolor: color,
-      maskImage: `url(${src})`,
+      maskImage: `url("${src}")`,
+      maskMode: 'alpha',
       maskPosition: 'center',
       maskRepeat: 'no-repeat',
       maskSize: 'contain',
-      WebkitMaskImage: `url(${src})`,
+      WebkitMaskImage: `url("${src}")`,
       WebkitMaskPosition: 'center',
       WebkitMaskRepeat: 'no-repeat',
       WebkitMaskSize: 'contain',
