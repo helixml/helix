@@ -48,6 +48,15 @@ func TestMain(m *testing.M) {
 	runTests := m.Run()
 
 	if startServer {
+		// The server's logs are the only place the cause of a failure is
+		// recorded — the test binary sees an HTTP response, not why the agent
+		// produced it. Dumping them only on startup failure meant a red CI run
+		// showed the assertion and nothing else, which is a long way to go to
+		// find out a provider was returning 429.
+		if runTests != 0 && buf != nil {
+			log.Printf("Tests failed. Server logs:\n%s", buf.String())
+		}
+
 		// Clean up the server process
 		if serverCmd != nil && serverCmd.Process != nil {
 			if err := serverCmd.Process.Kill(); err != nil {

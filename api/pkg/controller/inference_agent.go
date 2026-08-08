@@ -341,22 +341,51 @@ func (c *Controller) getLLMModelConfig(ctx context.Context, owner, provider, mod
 	}, nil
 }
 
+// collectAgentResponse drains an agent session, accumulating its text until the
+// agent signals End.
+//
+// An Error response is returned as an error rather than dropped. Dropping it
+// meant a failed inference produced HTTP 200 with an empty assistant message —
+// so a provider outage read as "the model said nothing", and a 429 surfaced as
+// an integration test asserting on an empty string instead of a legible error.
+//
+// The drain continues to End even after an error, because the agent still emits
+// it; abandoning the channel early would leave the producer blocked on a send
+// nobody reads.
+func collectAgentResponse(next func() agent.Response) (string, error) {
+	var (
+		response strings.Builder
+		agentErr error
+	)
+
+	for {
+		out := next()
+
+		switch out.Type {
+		case agent.ResponseTypePartialText:
+			response.WriteString(out.Content)
+		case agent.ResponseTypeError:
+			if agentErr == nil {
+				agentErr = fmt.Errorf("agent error: %s", out.Content)
+			}
+		case agent.ResponseTypeEnd:
+			if agentErr != nil {
+				return "", agentErr
+			}
+			return response.String(), nil
+		}
+	}
+}
+
 func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionResponse, error) {
 	session, ragAccumulator, err := c.runAgent(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	var response string
-	for {
-		out := session.Out()
-
-		if out.Type == agent.ResponseTypePartialText {
-			response += out.Content
-		}
-		if out.Type == agent.ResponseTypeEnd {
-			break
-		}
+	response, err := collectAgentResponse(session.Out)
+	if err != nil {
+		return nil, err
 	}
 
 	// Update session metadata with accumulated RAG results for citation rendering
