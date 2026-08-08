@@ -192,7 +192,11 @@ func (rl *UniversalRateLimiter) waitTimeLocked(tokensNeeded int64) time.Duration
 	if rl.currentRequests < 1 {
 		requestWaitTime := time.Second
 		if rl.requestsPerMinute > 0 {
-			requestWaitTime = time.Duration(60.0/float64(rl.requestsPerMinute)) * time.Second
+			// Scale before converting. time.Duration(60.0/rpm) * time.Second
+			// truncates the float to integer nanoseconds first, so every rate
+			// that doesn't divide 60 exactly collapses to zero — and the caller
+			// then polls at the minimum wait without ever accruing a slot.
+			requestWaitTime = time.Duration(float64(time.Minute) / float64(rl.requestsPerMinute))
 		}
 		if requestWaitTime > waitTime {
 			waitTime = requestWaitTime
@@ -216,25 +220,43 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// refillTokens refills the token bucket based on elapsed time
+// refillTokens refills the token and request buckets based on elapsed time
 func (rl *UniversalRateLimiter) refillTokens() {
 	now := time.Now()
 
-	// Refill tokens
-	tokenElapsed := now.Sub(rl.lastRefill)
-	if tokenElapsed > 0 {
-		newTokens := int64(float64(rl.tokensPerMinute) * tokenElapsed.Seconds() / 60.0)
-		rl.currentTokens = min(rl.maxTokens, rl.currentTokens+newTokens)
-		rl.lastRefill = now
+	rl.currentTokens, rl.lastRefill = accrue(rl.currentTokens, rl.maxTokens, rl.tokensPerMinute, rl.lastRefill, now)
+	rl.currentRequests, rl.lastRequestRefill = accrue(rl.currentRequests, rl.maxRequests, rl.requestsPerMinute, rl.lastRequestRefill, now)
+}
+
+// accrue adds whole units earned at ratePerMinute since last, returning the new
+// count and an updated timestamp.
+//
+// The timestamp only advances by the time the granted units actually consumed.
+// Advancing it to now would discard the remaining fraction, so a caller polling
+// faster than one unit's interval — which WaitForTokens does whenever it is
+// waiting on the request bucket — would throw away every partial interval and
+// never accrue anything at all.
+func accrue(current, maximum, ratePerMinute int64, last, now time.Time) (int64, time.Time) {
+	elapsed := now.Sub(last)
+	if elapsed <= 0 || ratePerMinute <= 0 {
+		return current, last
 	}
 
-	// Refill requests
-	requestElapsed := now.Sub(rl.lastRequestRefill)
-	if requestElapsed > 0 {
-		newRequests := int64(float64(rl.requestsPerMinute) * requestElapsed.Seconds() / 60.0)
-		rl.currentRequests = min(rl.maxRequests, rl.currentRequests+newRequests)
-		rl.lastRequestRefill = now
+	// Already full: nothing to earn, and idle time must not bank credit that
+	// would let a later burst exceed the bucket.
+	if current >= maximum {
+		return current, now
 	}
+
+	newUnits := int64(float64(ratePerMinute) * elapsed.Seconds() / 60.0)
+	if newUnits <= 0 {
+		// Less than one whole unit so far — carry the elapsed fraction into the
+		// next call rather than dropping it.
+		return current, last
+	}
+
+	consumed := time.Duration(float64(newUnits) / float64(ratePerMinute) * float64(time.Minute))
+	return min(maximum, current+newUnits), last.Add(consumed)
 }
 
 // UpdateFromHeaders updates the rate limiter state from provider response headers
@@ -449,6 +471,10 @@ func (rl *UniversalRateLimiter) Handle429Error(headers http.Header) {
 // accepts a request. Backoff escalates across consecutive 429s and is cleared
 // only on success — never merely by waiting a window out, which would restart
 // the ladder at its base on every retry.
+//
+// Any window already open is deliberately left to expire on its own. Under load
+// some requests succeed while others 429, and a success on one is not licence to
+// cancel a retry-after the server explicitly asked for on another.
 func (rl *UniversalRateLimiter) HandleSuccess() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -463,7 +489,6 @@ func (rl *UniversalRateLimiter) HandleSuccess() {
 		Msg("Provider accepted a request, resetting rate limiter backoff")
 
 	rl.backoffDuration = 0
-	rl.backoffUntil = time.Time{}
 }
 
 // EstimateTokens estimates the number of tokens in a request (very rough estimate)

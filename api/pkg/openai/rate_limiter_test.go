@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"sync"
 	"testing"
@@ -468,6 +469,164 @@ func TestAdmissionDoesNotReArmBackoffWindow(t *testing.T) {
 	require.NoError(t, rl.WaitForTokens(ctx, 1))
 	assert.Less(t, time.Since(start), 300*time.Millisecond,
 		"second caller served a fresh backoff window re-armed by the first caller's admission")
+}
+
+// time.Duration(60.0/rpm) * time.Second truncates the float to integer
+// nanoseconds before scaling, so every rate that doesn't divide 60 exactly
+// collapses to zero. 60 is the one value that happens to work.
+func TestWaitTimeForEmptyRequestBucket(t *testing.T) {
+	for _, tc := range []struct {
+		requestsPerMinute int64
+		want              time.Duration
+	}{
+		{60, time.Second},
+		{100, 600 * time.Millisecond},
+		{500, 120 * time.Millisecond},
+		{1000, 60 * time.Millisecond},
+	} {
+		rl := NewUniversalRateLimiter("openai")
+
+		rl.mu.Lock()
+		rl.requestsPerMinute = tc.requestsPerMinute
+		rl.maxRequests = tc.requestsPerMinute
+		rl.currentRequests = 0 // at the request limit
+		rl.currentTokens = rl.maxTokens
+		got := rl.waitTimeLocked(1)
+		rl.mu.Unlock()
+
+		assert.Equalf(t, tc.want, got, "waitTimeLocked at %d requests/min", tc.requestsPerMinute)
+	}
+}
+
+// refillTokens must not advance its timestamps past the time the granted units
+// actually consumed. Polling faster than one unit's interval would otherwise
+// discard every partial interval, so the bucket never accrues at all.
+func TestRefillAccruesAcrossPollsShorterThanOneUnit(t *testing.T) {
+	rl := NewUniversalRateLimiter("openai")
+
+	const requestsPerMinute = 600 // one slot per 100ms
+	now := time.Now()
+
+	rl.mu.Lock()
+	rl.requestsPerMinute = requestsPerMinute
+	rl.maxRequests = requestsPerMinute
+	rl.currentRequests = 0
+	rl.lastRequestRefill = now
+	rl.mu.Unlock()
+
+	// 100 polls at 10ms each — a tenth of the interval that grants one slot.
+	for range 100 {
+		time.Sleep(10 * time.Millisecond)
+		rl.mu.Lock()
+		rl.refillTokens()
+		rl.mu.Unlock()
+	}
+
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	assert.GreaterOrEqual(t, rl.currentRequests, int64(8),
+		"a second of 10ms polls at %d req/min should have accrued ~10 slots, got %d",
+		requestsPerMinute, rl.currentRequests)
+}
+
+// The two defects above compound: the loop polls at the 10ms floor while the
+// bucket never accrues, so the caller spins until its context expires. This is
+// the normal header path — any provider reporting remaining-requests: 0.
+func TestWaitForTokensConvergesWhenRequestBucketIsEmpty(t *testing.T) {
+	rl := NewUniversalRateLimiter("openai")
+
+	headers := http.Header{}
+	headers.Set("x-ratelimit-limit-requests", "500")
+	headers.Set("x-ratelimit-remaining-requests", "0")
+	rl.UpdateFromHeaders(headers)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	require.NoError(t, rl.WaitForTokens(ctx, 1), "spun until the context expired instead of accruing a request slot")
+
+	// 500 req/min is one slot per 120ms.
+	assert.Less(t, time.Since(start), 2*time.Second)
+}
+
+// Under load some requests succeed while others 429. A success on one must not
+// cancel a retry-after the server explicitly asked for on another.
+func TestHandleSuccessLeavesAnOpenWindowStanding(t *testing.T) {
+	rl := NewUniversalRateLimiter("openai")
+
+	headers := http.Header{}
+	headers.Set("retry-after", "60")
+	rl.Handle429Error(headers)
+
+	rl.mu.RLock()
+	windowBefore := rl.backoffUntil
+	rl.mu.RUnlock()
+	require.False(t, windowBefore.IsZero())
+
+	rl.HandleSuccess()
+
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	assert.Zero(t, rl.backoffDuration, "the ladder should reset on success")
+	assert.Equal(t, windowBefore, rl.backoffUntil, "a concurrent success cancelled the server's retry-after window")
+	assert.Greater(t, time.Until(rl.backoffUntil), 30*time.Second)
+}
+
+// Only 2xx is acceptance. An overloaded provider alternating 503 and 429 would
+// otherwise be knocked back to the base rung on every other response.
+func TestInterceptorOnlyResetsLadderOnSuccessStatus(t *testing.T) {
+	for _, tc := range []struct {
+		status      int
+		wantCleared bool
+	}{
+		{http.StatusOK, true},
+		{http.StatusNoContent, true},
+		{http.StatusInternalServerError, false},
+		{http.StatusBadGateway, false},
+		{http.StatusServiceUnavailable, false},
+		{http.StatusUnauthorized, false},
+	} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+		}))
+
+		rl := NewUniversalRateLimiter("openai")
+		rl.Handle429Error(http.Header{})
+		rl.Handle429Error(http.Header{}) // ladder at 2s
+
+		// Only the ladder is under test here — clear the window and refill the
+		// buckets so Do() isn't waiting out a real backoff on every case.
+		rl.mu.Lock()
+		rl.backoffUntil = time.Time{}
+		rl.currentTokens = rl.maxTokens
+		rl.currentRequests = rl.maxRequests
+		rl.mu.Unlock()
+
+		interceptor := &openAIClientInterceptor{
+			Client:      *http.DefaultClient,
+			rateLimiter: rl,
+			baseURL:     ts.URL,
+		}
+
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+		require.NoError(t, err)
+
+		resp, err := interceptor.Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		ts.Close()
+
+		rl.mu.RLock()
+		ladder := rl.backoffDuration
+		rl.mu.RUnlock()
+
+		if tc.wantCleared {
+			assert.Zerof(t, ladder, "HTTP %d should reset the ladder", tc.status)
+		} else {
+			assert.Equalf(t, 2*time.Second, ladder, "HTTP %d must not count as acceptance", tc.status)
+		}
+	}
 }
 
 // A request bigger than the provider's entire per-minute budget can never be
