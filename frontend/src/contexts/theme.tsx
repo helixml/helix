@@ -58,6 +58,31 @@ export const getDialogStyleTokens = (isLight: boolean, background: string) => {
   }
 }
 
+export const getFlatSelectOverrides = (isLight: boolean) => ({
+  '&:has(> .MuiSelect-select)': {
+    borderRadius: '6px',
+    backgroundColor: 'transparent',
+    transition: 'background-color 0.1s, color 0.1s',
+    '& .MuiOutlinedInput-notchedOutline': {
+      border: '0 !important',
+    },
+    '&:before, &:after': {
+      borderBottom: '0 !important',
+    },
+    '& > .MuiSelect-select': {
+      paddingTop: '6px',
+      paddingBottom: '6px',
+      paddingLeft: '8px',
+    },
+    '&:hover': {
+      backgroundColor: isLight ? 'rgba(0,0,0,0.045)' : 'rgba(255,255,255,0.055)',
+    },
+    '&.Mui-focused': {
+      backgroundColor: isLight ? 'rgba(0,0,0,0.075)' : 'rgba(255,255,255,0.085)',
+    },
+  },
+})
+
 export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const themeConfig = useThemeConfig()
   const api = useApi()
@@ -313,6 +338,21 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
                 zIndex: 100003,
               },
             },
+          },
+        },
+        MuiOutlinedInput: {
+          styleOverrides: {
+            root: getFlatSelectOverrides(isLight),
+          },
+        },
+        MuiInput: {
+          styleOverrides: {
+            root: getFlatSelectOverrides(isLight),
+          },
+        },
+        MuiFilledInput: {
+          styleOverrides: {
+            root: getFlatSelectOverrides(isLight),
           },
         },
       },

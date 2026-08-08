@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getDialogStyleTokens, getTooltipStyleOverrides } from './theme'
+import { getDialogStyleTokens, getFlatSelectOverrides, getTooltipStyleOverrides } from './theme'
 
 describe('tooltip theme', () => {
   it('uses the compact bordered surface in dark mode', () => {
@@ -48,6 +48,25 @@ describe('dialog theme', () => {
       border: '1px solid rgba(0, 0, 0, 0.10)',
       backdropFallback: 'rgba(255, 255, 255, 0.60)',
       backdrop: 'color-mix(in srgb, #ffffff 60%, transparent)',
+    })
+  })
+})
+
+describe('select theme', () => {
+  it('renders outlined selects as flat controls', () => {
+    expect(getFlatSelectOverrides(false)).toMatchObject({
+      '&:has(> .MuiSelect-select)': {
+        backgroundColor: 'transparent',
+        '& .MuiOutlinedInput-notchedOutline': {
+          border: '0 !important',
+        },
+        '&:before, &:after': {
+          borderBottom: '0 !important',
+        },
+        '&:hover': {
+          backgroundColor: 'rgba(255,255,255,0.055)',
+        },
+      },
     })
   })
 })

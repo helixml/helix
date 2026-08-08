@@ -191,7 +191,13 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
               Agent kind
             </Typography>
-            <Stack spacing={1}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                gap: 1,
+              }}
+            >
               {kindOptions.map((option) => {
                 const Icon = option.icon
                 const selected = kind === option.value
@@ -204,8 +210,11 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
                     aria-pressed={selected}
                     sx={{
                       textTransform: 'none',
-                      justifyContent: 'flex-start',
-                      textAlign: 'left',
+                      minWidth: 0,
+                      aspectRatio: '1 / 1',
+                      flexDirection: 'column',
+                      justifyContent: 'center',
+                      textAlign: 'center',
                       px: 1.5,
                       py: 1.25,
                       borderColor: selected ? 'secondary.main' : 'divider',
@@ -216,19 +225,19 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
                       },
                     }}
                   >
-                    <Icon size={18} color={option.color} />
-                    <Box sx={{ ml: 1.5 }}>
+                    <Icon size={20} color={option.color} />
+                    <Box sx={{ mt: 1 }}>
                       <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
                         {option.label}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.3 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, lineHeight: 1.3 }}>
                         {option.description}
                       </Typography>
                     </Box>
                   </Button>
                 )
               })}
-            </Stack>
+            </Box>
           </Box>
 
           {needsRuntime && (
