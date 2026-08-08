@@ -34,9 +34,11 @@ type UniversalRateLimiter struct {
 	requestRemainingLimit int64
 	resetTime             time.Time
 
-	// Rate limiting state
-	lastRequestTime time.Time
+	// Rate limiting state. backoffDuration is the current step of the
+	// exponential ladder — it survives until a request succeeds — while
+	// backoffUntil is the deadline of the window opened by the last 429.
 	backoffDuration time.Duration
+	backoffUntil    time.Time
 
 	// Provider identification
 	provider string
@@ -77,7 +79,6 @@ func NewUniversalRateLimiter(provider string) *UniversalRateLimiter {
 
 		lastRefill:        now,
 		lastRequestRefill: now,
-		lastRequestTime:   now,
 	}
 }
 
@@ -102,30 +103,27 @@ func (rl *UniversalRateLimiter) WaitForTokens(ctx context.Context, tokensNeeded 
 		rl.mu.Lock()
 		rl.refillTokens()
 
-		// Honour any backoff from a recent 429 before looking at the bucket.
-		if rl.backoffDuration > 0 {
-			remaining := time.Until(rl.lastRequestTime.Add(rl.backoffDuration))
-			if remaining > 0 {
-				provider := rl.provider
-				rl.mu.Unlock()
+		// Honour the window opened by the last 429 before looking at the bucket.
+		// Re-read on every pass, so a 429 that lands while we sleep pushes the
+		// deadline out rather than being missed.
+		//
+		// Nothing here mutates the ladder. It is reset by HandleSuccess when the
+		// provider accepts a request: clearing it on the way past a window would
+		// restart it at 1s on every retry, so it would never escalate during
+		// exactly the sustained-429 storm it exists for.
+		if remaining := time.Until(rl.backoffUntil); remaining > 0 {
+			provider := rl.provider
+			rl.mu.Unlock()
 
-				log.Warn().
-					Str("provider", provider).
-					Dur("wait_time", remaining).
-					Msg("Rate limiter waiting due to previous 429 error")
+			log.Warn().
+				Str("provider", provider).
+				Dur("wait_time", remaining).
+				Msg("Rate limiter waiting due to previous 429 error")
 
-				if err := sleepWithContext(ctx, remaining); err != nil {
-					return err
-				}
-				continue
+			if err := sleepWithContext(ctx, remaining); err != nil {
+				return err
 			}
-
-			// The window has elapsed, so this caller may proceed — but the
-			// ladder itself is deliberately left standing. It is reset by
-			// HandleSuccess when the provider actually accepts a request.
-			// Clearing it here would restart the ladder at 1s on every retry,
-			// so it would never escalate during exactly the sustained-429
-			// storm it exists for.
+			continue
 		}
 
 		if rl.currentRequests >= 1 {
@@ -133,7 +131,6 @@ func (rl *UniversalRateLimiter) WaitForTokens(ctx context.Context, tokensNeeded 
 			if rl.currentTokens >= tokensNeeded {
 				rl.currentTokens -= tokensNeeded
 				rl.currentRequests--
-				rl.lastRequestTime = time.Now()
 				rl.mu.Unlock()
 				return nil
 			}
@@ -150,7 +147,6 @@ func (rl *UniversalRateLimiter) WaitForTokens(ctx context.Context, tokensNeeded 
 
 				rl.currentTokens = 0
 				rl.currentRequests--
-				rl.lastRequestTime = time.Now()
 				rl.mu.Unlock()
 				return nil
 			}
@@ -435,11 +431,11 @@ func (rl *UniversalRateLimiter) Handle429Error(headers http.Header) {
 	rl.currentTokens = 0
 	rl.currentRequests = 0
 
-	// Anchor the backoff window to this 429 rather than to the last successful
-	// request. A slow request that 429s after the previous window has already
-	// elapsed would otherwise compute a zero wait and skip the server's
-	// retry-after entirely.
-	rl.lastRequestTime = time.Now()
+	// Anchor the window to this 429. Deriving it from the last request instead
+	// would let a slow request that 429s after the previous window elapsed
+	// compute a zero wait and skip the server's retry-after entirely; and any
+	// admission would silently re-arm the window for another full step.
+	rl.backoffUntil = time.Now().Add(rl.backoffDuration)
 
 	log.Warn().
 		Str("provider", rl.provider).
@@ -467,6 +463,7 @@ func (rl *UniversalRateLimiter) HandleSuccess() {
 		Msg("Provider accepted a request, resetting rate limiter backoff")
 
 	rl.backoffDuration = 0
+	rl.backoffUntil = time.Time{}
 }
 
 // EstimateTokens estimates the number of tokens in a request (very rough estimate)

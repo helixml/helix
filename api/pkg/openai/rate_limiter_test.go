@@ -437,6 +437,39 @@ func TestHandle429DuringBackoffIsNotDiscarded(t *testing.T) {
 	assert.Equal(t, time.Hour, rl.backoffDuration, "the second 429's backoff was discarded")
 }
 
+// The backoff window belongs to the 429 that opened it. Deriving it from the
+// last request instead means every admission silently re-arms it for another
+// full step, so callers keep paying the backoff long after the window it was
+// granted for has passed.
+func TestAdmissionDoesNotReArmBackoffWindow(t *testing.T) {
+	rl := NewUniversalRateLimiter("openai")
+
+	headers := http.Header{}
+	headers.Set("retry-after", "1")
+	rl.Handle429Error(headers)
+
+	// Take request-rate limiting out of the picture — the openai default of 60
+	// requests/min grants a slot only once a second, which would otherwise be
+	// what the second caller is measured waiting for.
+	rl.mu.Lock()
+	rl.requestsPerMinute = 60000
+	rl.maxRequests = 60000
+	rl.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	// First caller waits the window out.
+	require.NoError(t, rl.WaitForTokens(ctx, 1))
+
+	// The window has now passed, so the next caller should go straight through
+	// rather than serving a fresh one re-armed by that admission.
+	start := time.Now()
+	require.NoError(t, rl.WaitForTokens(ctx, 1))
+	assert.Less(t, time.Since(start), 300*time.Millisecond,
+		"second caller served a fresh backoff window re-armed by the first caller's admission")
+}
+
 // A request bigger than the provider's entire per-minute budget can never be
 // covered by the bucket. It must still be admitted once the bucket is full
 // rather than looping until the caller's context expires.
