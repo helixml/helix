@@ -4180,3 +4180,45 @@ func (s *WebSocketSyncSuite) TestThreadCreated_GenuineUserThreadStillForks() {
 	s.Require().NoError(err)
 	s.Equal("ses_new", s.server.contextMappings["thread-user"])
 }
+
+// TestPickupWaitingInteraction_SkipsClaimedInteraction is the end-to-end check
+// for layer 1: once a turn is claimed, the reconnect / agent-switch delivery
+// path must not send a second chat_message for it. It must also not skip ahead
+// to a newer waiting interaction — that would run two turns at once — and it
+// must hand back the in-flight request_id so the caller's open_thread still
+// correlates with the running turn.
+func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_SkipsClaimedInteraction() {
+	const sessionID = "ses_claimed"
+
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+		},
+	}
+	waiting := &types.Interaction{
+		ID:            "int_waiting",
+		SessionID:     sessionID,
+		State:         types.InteractionStateWaiting,
+		PromptMessage: "do the thing",
+	}
+
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{waiting}, int64(1), nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int_waiting").Return(waiting, nil)
+
+	// RunExternalAgent got there first.
+	winner, won := s.server.claimInteractionDispatch(sessionID, "int_waiting", "req_live")
+	s.Require().True(won)
+	s.Require().Equal("req_live", winner)
+
+	// No agent connection is registered, so a delivery attempt would have to go
+	// through queueOrSend. The assertion that matters is the returned request_id:
+	// the claim short-circuits before any send.
+	got := s.server.pickupWaitingInteraction(context.Background(), sessionID, session, "agent-1")
+
+	s.Equal("req_live", got, "must return the in-flight request_id, not mint a new one")
+	s.Equal("req_live", s.server.interactionDispatchClaims["int_waiting"].requestID,
+		"the original claim must be left intact")
+}

@@ -702,13 +702,20 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 		// Claim the interaction before queueing. If RunExternalAgent is already
 		// delivering this turn (it claims before its readiness wait), sending
 		// again would make Zed open a second ACP thread for the same request_id.
-		if _, won := apiServer.claimInteractionDispatchLocked(helixSessionID, interactionID, requestID); !won {
+		//
+		// Return rather than moving to the next waiting interaction: this one is
+		// in flight, and delivering a newer one alongside it would break the
+		// oldest-first, one-turn-at-a-time ordering described above. The winner's
+		// request_id goes back to the caller so the open_thread it sends on
+		// reconnect still correlates with the turn that is actually running.
+		if winnerRequestID, won := apiServer.claimInteractionDispatchLocked(helixSessionID, interactionID, requestID); !won {
 			apiServer.contextMappingsMutex.Unlock()
 			log.Info().
 				Str("helix_session_id", helixSessionID).
 				Str("interaction_id", interactionID).
+				Str("request_id", winnerRequestID).
 				Msg("⏭️ [HELIX] Interaction already being delivered by another sender — not re-sending")
-			continue
+			return winnerRequestID
 		}
 
 		// Map request_id → interaction_id for FIFO queue matching
