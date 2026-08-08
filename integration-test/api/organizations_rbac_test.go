@@ -202,6 +202,7 @@ func (suite *OrganizationsRBACTestSuite) TestProjectVisibilityAndRepositoryAcces
 				Assistants: []types.AssistantConfig{{
 					Name:             "assistant",
 					Model:            "openai/gpt-oss-20b",
+					AgentType:        types.AgentTypeZedExternal,
 					CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
 				}},
 			},
