@@ -23,11 +23,80 @@ func (suite *PostgresStoreTestSuite) TestCreateApp() {
 	suite.Equal(app.Owner, createdApp.Owner)
 	suite.Equal(app.OwnerType, createdApp.OwnerType)
 	suite.NotEmpty(createdApp.ID)
+	suite.Equal(types.AgentKindHelix, createdApp.AgentKind)
 
 	suite.T().Cleanup(func() {
 		err := suite.db.DeleteApp(suite.ctx, createdApp.ID)
 		suite.NoError(err)
 	})
+}
+
+func (suite *PostgresStoreTestSuite) TestCreateCodingAgentKind() {
+	app := &types.App{
+		Owner:     "test-" + system.GenerateUUID(),
+		OwnerType: types.OwnerTypeUser,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			DefaultAgentType: types.AgentTypeZedExternal,
+		}},
+	}
+
+	createdApp, err := suite.db.CreateApp(suite.ctx, app)
+	suite.Require().NoError(err)
+	suite.Equal(types.AgentKindCoding, createdApp.AgentKind)
+	suite.T().Cleanup(func() {
+		suite.NoError(suite.db.DeleteApp(suite.ctx, createdApp.ID))
+	})
+}
+
+func (suite *PostgresStoreTestSuite) TestCreateExplicitOrgAgentKind() {
+	app := &types.App{
+		Owner:     "test-" + system.GenerateUUID(),
+		OwnerType: types.OwnerTypeUser,
+		AgentKind: types.AgentKindOrg,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			DefaultAgentType: types.AgentTypeZedExternal,
+		}},
+	}
+
+	createdApp, err := suite.db.CreateApp(suite.ctx, app)
+	suite.Require().NoError(err)
+	suite.Equal(types.AgentKindOrg, createdApp.AgentKind)
+	suite.T().Cleanup(func() {
+		suite.NoError(suite.db.DeleteApp(suite.ctx, createdApp.ID))
+	})
+}
+
+func (suite *PostgresStoreTestSuite) TestUpdateAgentKindLifecycle() {
+	app, err := suite.db.CreateApp(suite.ctx, &types.App{
+		Owner:     "test-" + system.GenerateUUID(),
+		OwnerType: types.OwnerTypeUser,
+		Config:    types.AppConfig{},
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() {
+		suite.NoError(suite.db.DeleteApp(suite.ctx, app.ID))
+	})
+
+	app.Config.Helix.DefaultAgentType = types.AgentTypeZedExternal
+	app, err = suite.db.UpdateApp(suite.ctx, app)
+	suite.Require().NoError(err)
+	suite.Equal(types.AgentKindCoding, app.AgentKind)
+
+	app.Config.Helix.DefaultAgentType = types.AgentTypeHelixAgent
+	app, err = suite.db.UpdateApp(suite.ctx, app)
+	suite.Require().NoError(err)
+	suite.Equal(types.AgentKindHelix, app.AgentKind)
+
+	app.AgentKind = types.AgentKindOrg
+	app.Config.Helix.DefaultAgentType = types.AgentTypeZedExternal
+	app, err = suite.db.UpdateApp(suite.ctx, app)
+	suite.Require().NoError(err)
+	suite.Equal(types.AgentKindOrg, app.AgentKind)
+
+	app.Config.Helix.DefaultAgentType = types.AgentTypeHelixAgent
+	app, err = suite.db.UpdateApp(suite.ctx, app)
+	suite.Require().NoError(err)
+	suite.Equal(types.AgentKindOrg, app.AgentKind)
 }
 
 func (suite *PostgresStoreTestSuite) TestGetApp() {

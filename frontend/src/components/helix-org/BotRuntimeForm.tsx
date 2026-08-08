@@ -19,9 +19,15 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
-import { CODEX_SUBSCRIPTION_MODELS, DEFAULT_CODEX_SUBSCRIPTION_MODEL } from '../agent/CodingAgentForm'
+import {
+  CLAUDE_SUBSCRIPTION_MODELS,
+  CODEX_SUBSCRIPTION_MODELS,
+  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+} from '../agent/CodingAgentForm'
 import CodeAgentEffortSelect, { getCodeAgentEffortOptions } from '../agent/CodeAgentEffortSelect'
 import { useHelixModelsForProvider, useHelixProviders } from '../../services/helixOrgService'
+import AgentHarness from '../agent/AgentHarness'
 
 export interface AgentConfigValue {
   runtime: string
@@ -41,7 +47,8 @@ export const AgentConfigForm: FC<{
   value: AgentConfigValue
   onChange: (patch: Partial<AgentConfigValue>) => void
   showReasoningEffort?: boolean
-}> = ({ value, onChange, showReasoningEffort = false }) => {
+  disabled?: boolean
+}> = ({ value, onChange, showReasoningEffort = false, disabled = false }) => {
   const { data: providers } = useHelixProviders()
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
@@ -69,13 +76,26 @@ export const AgentConfigForm: FC<{
 
   const onRuntime = (v: string) => {
     const patch: Partial<AgentConfigValue> = { runtime: v }
-    if (v === 'codex_cli' && !value.model) {
+    if (v === 'claude_code' && value.credentials === 'subscription') {
+      patch.model = DEFAULT_CLAUDE_SUBSCRIPTION_MODEL
+    } else if (v === 'codex_cli' && value.credentials === 'subscription') {
       patch.model = DEFAULT_CODEX_SUBSCRIPTION_MODEL
     }
     // Runtimes without subscription support are always API-key routed; keep the stored value
     // consistent with what the server coerces to.
     if (v !== 'claude_code' && v !== 'codex_cli' && value.credentials !== 'api_key') {
       patch.credentials = 'api_key'
+    }
+    onChange(patch)
+  }
+
+  const onCredentials = (credentials: string) => {
+    const patch: Partial<AgentConfigValue> = { credentials }
+    if (credentials === 'subscription') {
+      patch.provider = ''
+      patch.model = isClaude ? DEFAULT_CLAUDE_SUBSCRIPTION_MODEL : DEFAULT_CODEX_SUBSCRIPTION_MODEL
+    } else if (value.credentials === 'subscription') {
+      patch.model = ''
     }
     onChange(patch)
   }
@@ -90,53 +110,65 @@ export const AgentConfigForm: FC<{
           <Select
             value={value.runtime}
             onChange={(e) => onRuntime(e.target.value)}
-            renderValue={(v) => {
-              if (v === 'claude_code') return 'Claude Code'
-              if (v === 'codex_cli') return 'Codex'
-              if (v === 'qwen_code') return 'Qwen Code'
-              if (v === 'goose_code') return 'Goose'
-              return 'Zed Agent'
-            }}
+            disabled={disabled}
+            renderValue={(runtime) => (
+              <AgentHarness runtime={runtime} variant="long" size={16} />
+            )}
           >
             <MenuItem value="zed_agent">
-              <Box>
-                <Typography variant="body2">Zed Agent</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Built-in, Anthropic & OpenAI compatible
-                </Typography>
-              </Box>
+              <Stack direction="row" spacing={1.25} alignItems="center">
+                <AgentHarness runtime="zed_agent" variant="short" size={18} />
+                <Box>
+                  <Typography variant="body2">Zed Agent</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Built-in, Anthropic & OpenAI compatible
+                  </Typography>
+                </Box>
+              </Stack>
             </MenuItem>
             <MenuItem value="qwen_code">
-              <Box>
-                <Typography variant="body2">Qwen Code</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Optimized for Qwen, including smaller models
-                </Typography>
-              </Box>
+              <Stack direction="row" spacing={1.25} alignItems="center">
+                <AgentHarness runtime="qwen_code" variant="short" size={18} />
+                <Box>
+                  <Typography variant="body2">Qwen Code</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Optimized for Qwen, including smaller models
+                  </Typography>
+                </Box>
+              </Stack>
             </MenuItem>
             <MenuItem value="claude_code">
-              <Box>
-                <Typography variant="body2">Claude Code</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Anthropic's coding agent
-                </Typography>
-              </Box>
+              <Stack direction="row" spacing={1.25} alignItems="center">
+                <AgentHarness runtime="claude_code" variant="short" size={18} />
+                <Box>
+                  <Typography variant="body2">Claude Code</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Anthropic's coding agent
+                  </Typography>
+                </Box>
+              </Stack>
             </MenuItem>
             <MenuItem value="codex_cli">
-              <Box>
-                <Typography variant="body2">Codex</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  OpenAI's coding agent
-                </Typography>
-              </Box>
+              <Stack direction="row" spacing={1.25} alignItems="center">
+                <AgentHarness runtime="codex_cli" variant="short" size={18} />
+                <Box>
+                  <Typography variant="body2">Codex</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    OpenAI's coding agent
+                  </Typography>
+                </Box>
+              </Stack>
             </MenuItem>
             <MenuItem value="goose_code">
-              <Box>
-                <Typography variant="body2">Goose</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Open-source ACP agent (AAIF)
-                </Typography>
-              </Box>
+              <Stack direction="row" spacing={1.25} alignItems="center">
+                <AgentHarness runtime="goose_code" variant="short" size={18} />
+                <Box>
+                  <Typography variant="body2">Goose</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Open-source ACP agent (AAIF)
+                  </Typography>
+                </Box>
+              </Stack>
             </MenuItem>
           </Select>
         </FormControl>
@@ -148,11 +180,11 @@ export const AgentConfigForm: FC<{
             Credentials
           </Typography>
           <FormControl>
-            <RadioGroup value={value.credentials} onChange={(e) => onChange({ credentials: e.target.value })}>
+            <RadioGroup value={value.credentials} onChange={(e) => onCredentials(e.target.value)}>
               <FormControlLabel
                 value="subscription"
                 control={<Radio size="small" />}
-                disabled={!hasRuntimeSubscription}
+                disabled={disabled || !hasRuntimeSubscription}
                 label={
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography variant="body2">{isClaude ? 'Claude Subscription' : 'ChatGPT Subscription'}</Typography>
@@ -167,7 +199,7 @@ export const AgentConfigForm: FC<{
               <FormControlLabel
                 value="api_key"
                 control={<Radio size="small" />}
-                disabled={!hasRuntimeAPIKey}
+                disabled={disabled || !hasRuntimeAPIKey}
                 label={
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography variant="body2">{isClaude ? 'Anthropic API Key' : 'OpenAI API Key'}</Typography>
@@ -195,13 +227,16 @@ export const AgentConfigForm: FC<{
               hint="Select the default agent model"
               selectedProvider={value.provider}
               selectedModelId={value.model}
-              onSelectModel={(prov, modelId) => onChange({ provider: prov, model: modelId })}
+              disabled={disabled}
+              onSelectModel={(prov, modelId) => {
+                if (!disabled) onChange({ provider: prov, model: modelId })
+              }}
               currentType="text"
               displayMode="short"
             />
           </Box>
           {canConfigureEffort && (
-            <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} />
+            <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} disabled={disabled} />
           )}
         </Stack>
       ) : hasRuntimeSubscription ? (
@@ -213,6 +248,7 @@ export const AgentConfigForm: FC<{
                 <Select
                   value={value.model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
                   onChange={(event) => onChange({ model: event.target.value })}
+                  disabled={disabled}
                 >
                   {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
                     <MenuItem key={supportedModel.id} value={supportedModel.id}>
@@ -223,16 +259,36 @@ export const AgentConfigForm: FC<{
               </FormControl>
             </Box>
             {canConfigureEffort && (
-              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} />
+              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} disabled={disabled} />
+            )}
+          </Stack>
+        ) : isClaude ? (
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
+            <Box sx={{ flex: 1, width: '100%' }}>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Model</Typography>
+              <FormControl fullWidth size="small">
+                <Select
+                  value={value.model || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL}
+                  onChange={(event) => onChange({ model: event.target.value })}
+                  disabled={disabled}
+                >
+                  {CLAUDE_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                    <MenuItem key={supportedModel.id} value={supportedModel.id}>
+                      <Typography variant="body2">{supportedModel.label}</Typography>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+            {canConfigureEffort && (
+              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} disabled={disabled} />
             )}
           </Stack>
         ) : (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
-            <Typography variant="caption" color="text.secondary" sx={{ flex: 1, pt: 1 }}>
-              Uses your connected Claude subscription — no model selection needed.
-            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ flex: 1, pt: 1 }}>Uses the connected subscription.</Typography>
             {canConfigureEffort && (
-              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} />
+              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} disabled={disabled} />
             )}
           </Stack>
         )

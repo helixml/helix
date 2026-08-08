@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -45,6 +46,8 @@ const usageTriggerExecutionsJoin = `
 		LIMIT 1
 	) usage_trigger_executions ON true
 `
+
+const usageAppIDExpr = "COALESCE(NULLIF(usage_metrics.app_id, ''), NULLIF(usage_interactions.app_id, ''), '')"
 
 func (s *PostgresStore) CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
 	if metric.ID == "" {
@@ -343,7 +346,7 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 		query = query.Where("usage_metrics.organization_id = ?", q.OrganizationID)
 	}
 	if q.AppID != "" {
-		query = query.Where("COALESCE(NULLIF(usage_metrics.app_id, ''), usage_interactions.app_id) = ?", q.AppID)
+		query = query.Where(usageAppIDExpr+" = ?", q.AppID)
 	}
 	if q.SessionID != "" {
 		query = query.Where("usage_interactions.session_id = ?", q.SessionID)
@@ -518,12 +521,27 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 		return nil, err
 	}
 
-	// Phase 2: model time series depends on which models came out on top.
-	modelSeries, err := s.getOrgUsageModelTimeSeries(ctx, q, resp.Models)
-	if err != nil {
+	// Phase 2: model time series depend on which models came out on top.
+	seriesGroup, seriesCtx := errgroup.WithContext(ctx)
+	seriesGroup.Go(func() error {
+		modelSeries, err := s.getOrgUsageModelTimeSeries(seriesCtx, q, resp.Models)
+		if err != nil {
+			return err
+		}
+		resp.ModelTimeSeries = modelSeries
+		return nil
+	})
+	seriesGroup.Go(func() error {
+		runtimeSeries, err := s.getOrgUsageAgentRuntimeTimeSeries(seriesCtx, q)
+		if err != nil {
+			return err
+		}
+		resp.AgentRuntimeTimeSeries = runtimeSeries
+		return nil
+	})
+	if err := seriesGroup.Wait(); err != nil {
 		return nil, err
 	}
-	resp.ModelTimeSeries = modelSeries
 
 	return resp, nil
 }
@@ -586,7 +604,7 @@ func (s *PostgresStore) orgUsageBreakdownQuery(ctx context.Context, q *GetOrgUsa
 			Group("usage_metrics.project_id, projects.name, usage_metrics.provider, usage_metrics.model").
 			Order("total_tokens DESC")
 	case "app":
-		appIDExpr := "COALESCE(NULLIF(usage_metrics.app_id, ''), usage_interactions.app_id)"
+		appIDExpr := usageAppIDExpr
 		appNameExpr := "COALESCE(MAX(NULLIF(apps.config->'helix'->>'name', '')), NULLIF(apps.id, ''), 'Unassigned')"
 		return query.
 			Joins("LEFT JOIN apps ON apps.id = " + appIDExpr).
@@ -656,7 +674,7 @@ func (s *PostgresStore) orgUsageBaseQuery(ctx context.Context, q *GetOrgUsageSum
 		query = query.Where("usage_metrics.project_id = ?", q.ProjectID)
 	}
 	if q.AppID != "" {
-		query = query.Where("COALESCE(NULLIF(usage_metrics.app_id, ''), usage_interactions.app_id) = ?", q.AppID)
+		query = query.Where(usageAppIDExpr+" = ?", q.AppID)
 	}
 	if q.SessionID != "" {
 		query = query.Where("usage_interactions.session_id = ?", q.SessionID)
@@ -737,7 +755,7 @@ func (s *PostgresStore) orgUsageFilterOptions(ctx context.Context, q *GetOrgUsag
 	})
 
 	g.Go(func() error {
-		appIDExpr := "COALESCE(NULLIF(usage_metrics.app_id, ''), usage_interactions.app_id)"
+		appIDExpr := usageAppIDExpr
 		appNameExpr := "COALESCE(MAX(NULLIF(apps.config->'helix'->>'name', '')), NULLIF(apps.id, ''), " + appIDExpr + ")"
 		return s.orgUsageBaseQuery(gctx, &optionQuery).
 			Joins("LEFT JOIN apps ON apps.id = " + appIDExpr).
@@ -898,6 +916,109 @@ func (s *PostgresStore) getOrgUsageModelTimeSeries(ctx context.Context, q *GetOr
 	}
 
 	return series, nil
+}
+
+func (s *PostgresStore) getOrgUsageAgentRuntimeTimeSeries(ctx context.Context, q *GetOrgUsageSummaryQuery) ([]types.UsageAgentRuntimeTimeSeries, error) {
+	const unattributedRuntime types.CodeAgentRuntime = "unattributed"
+	runtimeExpr := `COALESCE(
+		NULLIF(usage_sessions.config->>'code_agent_runtime', ''),
+		'unattributed'
+	)`
+	var rows []struct {
+		Date             time.Time `gorm:"column:date"`
+		Runtime          string    `gorm:"column:runtime"`
+		PromptTokens     int       `gorm:"column:prompt_tokens"`
+		CompletionTokens int       `gorm:"column:completion_tokens"`
+		CacheReadTokens  int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens int       `gorm:"column:cache_write_tokens"`
+		TotalTokens      int       `gorm:"column:total_tokens"`
+	}
+	err := s.orgUsageBaseQuery(ctx, q).
+		Joins(`LEFT JOIN sessions usage_sessions ON usage_sessions.id = COALESCE(
+			NULLIF(usage_interactions.session_id, ''),
+			CASE WHEN usage_metrics.source = 'acp' THEN NULLIF(split_part(usage_metrics.source_id, ':', 1), '') END
+		)`).
+		Select(`
+			usage_metrics.date,
+			` + runtimeExpr + ` as runtime,
+			SUM(usage_metrics.prompt_tokens) as prompt_tokens,
+			SUM(usage_metrics.completion_tokens) as completion_tokens,
+			SUM(usage_metrics.cache_read_tokens) as cache_read_tokens,
+			SUM(usage_metrics.cache_write_tokens) as cache_write_tokens,
+			SUM(usage_metrics.total_tokens) as total_tokens
+		`).
+		Group("usage_metrics.date, " + runtimeExpr).
+		Order("usage_metrics.date ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	metricsByRuntime := make(map[types.CodeAgentRuntime][]*types.AggregatedUsageMetric)
+	tokensByRuntime := make(map[types.CodeAgentRuntime]int)
+	for _, row := range rows {
+		runtime := types.CodeAgentRuntime(row.Runtime)
+		if runtime == "" {
+			runtime = unattributedRuntime
+		}
+		metricsByRuntime[runtime] = append(metricsByRuntime[runtime], &types.AggregatedUsageMetric{
+			Date:             row.Date,
+			PromptTokens:     row.PromptTokens,
+			CompletionTokens: row.CompletionTokens,
+			CacheReadTokens:  row.CacheReadTokens,
+			CacheWriteTokens: row.CacheWriteTokens,
+			TotalTokens:      row.TotalTokens,
+		})
+		tokensByRuntime[runtime] += row.TotalTokens
+	}
+
+	runtimes := make([]types.CodeAgentRuntime, 0, len(metricsByRuntime))
+	for runtime := range metricsByRuntime {
+		runtimes = append(runtimes, runtime)
+	}
+	sort.Slice(runtimes, func(i, j int) bool {
+		if tokensByRuntime[runtimes[i]] == tokensByRuntime[runtimes[j]] {
+			return runtimes[i] < runtimes[j]
+		}
+		return tokensByRuntime[runtimes[i]] > tokensByRuntime[runtimes[j]]
+	})
+
+	series := make([]types.UsageAgentRuntimeTimeSeries, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		complete := fillInMissingDates(metricsByRuntime[runtime], q.From, q.To)
+		converted := make([]types.AggregatedUsageMetric, len(complete))
+		for i, metric := range complete {
+			converted[i] = *metric
+		}
+		series = append(series, types.UsageAgentRuntimeTimeSeries{
+			Runtime: runtime,
+			Name:    usageAgentRuntimeName(runtime),
+			Metrics: converted,
+		})
+	}
+
+	return series, nil
+}
+
+func usageAgentRuntimeName(runtime types.CodeAgentRuntime) string {
+	switch runtime {
+	case types.CodeAgentRuntimeCodexCLI:
+		return "Codex"
+	case types.CodeAgentRuntimeClaudeCode:
+		return "Claude Code"
+	case types.CodeAgentRuntimeQwenCode:
+		return "Qwen Code"
+	case types.CodeAgentRuntimeGeminiCLI:
+		return "Gemini CLI"
+	case types.CodeAgentRuntimeGooseCode:
+		return "Goose"
+	case types.CodeAgentRuntimeZedAgent:
+		return "Zed Agent"
+	case "unattributed":
+		return "Unattributed"
+	default:
+		return string(runtime)
+	}
 }
 
 func (s *PostgresStore) GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {

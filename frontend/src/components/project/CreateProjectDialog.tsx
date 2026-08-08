@@ -42,8 +42,8 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 import { GITHUB_VCS_SCOPES } from '../../hooks/useOAuthFlow'
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
-import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
+import { isSpecTaskSwitchableAgent } from '../../utils/apps'
 import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm from '../agent/CodingAgentForm'
 import type { CodingAgentFormHandle } from '../agent/CodingAgentForm'
@@ -213,15 +213,11 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     }
   }, [name, userModifiedRepoName, repoMode])
 
-  // Sort apps: zed_external first, then others
-  // Only show external agents — helix_agent types don't support project workflows
+  // Project workflows require external coding agents. Org-chart agents are
+  // reserved for org chat even when their runtime is also zed_external.
   const sortedApps = useMemo(() => {
     if (!apps) return []
-    return apps.filter((app) =>
-      app.config?.helix?.assistants?.some(
-        (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-      ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-    )
+    return apps.filter(isSpecTaskSwitchableAgent)
   }, [apps])
 
   // Filter out internal repos - they're deprecated
@@ -473,7 +469,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [isSubmitDisabled, handleSubmit])
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth onKeyDown={handleKeyDown}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      onKeyDown={handleKeyDown}
+    >
       <DialogTitle>Create New Project</DialogTitle>
       <DialogContent>
         <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>

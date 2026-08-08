@@ -965,6 +965,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Pinned projects
 	authRouter.HandleFunc("/users/me/pinned-projects", system.Wrapper(apiServer.getPinnedProjects)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/users/me/pinned-chats", system.Wrapper(apiServer.getPinnedChats)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/users/me/pinned-chats", system.Wrapper(apiServer.pinChat)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/users/me/pinned-chats", system.Wrapper(apiServer.unpinChat)).Methods(http.MethodDelete)
 
 	// Onboarding
 	authRouter.HandleFunc("/users/me/onboarding", apiServer.completeOnboarding).Methods(http.MethodPost)

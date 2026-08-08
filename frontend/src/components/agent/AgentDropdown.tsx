@@ -10,9 +10,9 @@ import {
   Tooltip,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
-import { Bot } from 'lucide-react'
 import { IApp } from '../../types'
 import useAccount from '../../hooks/useAccount'
+import AgentHarness, { getAgentHarnessRuntime } from './AgentHarness'
 
 interface AgentDropdownProps {
   /** Currently selected agent ID */
@@ -56,13 +56,19 @@ const AgentDropdown: FC<AgentDropdownProps> = ({
         disabled={disabled}
         renderValue={(selectedValue) => {
           const app = agents.find(a => a.id === selectedValue)
-          return app?.config?.helix?.name || 'Select Agent'
+          if (!app) return 'Select Agent'
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AgentHarness runtime={getAgentHarnessRuntime(app)} variant="short" size={16} />
+              <span>{app.config?.helix?.name || 'Unnamed Agent'}</span>
+            </Box>
+          )
         }}
       >
         {agents.map((app) => (
           <MenuItem key={app.id} value={app.id}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-              <Bot size={18} color="#9e9e9e" />
+              <AgentHarness runtime={getAgentHarnessRuntime(app)} variant="short" size={18} />
               <span style={{ flex: 1 }}>{app.config?.helix?.name || 'Unnamed Agent'}</span>
               <Tooltip title="Edit agent">
                 <IconButton

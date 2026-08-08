@@ -1,12 +1,13 @@
 import React, { forwardRef, useImperativeHandle, useState } from 'react'
 import { useCodingAgentProviderState } from './useCodingAgentProviderState'
-import { Alert, Box, Button, CircularProgress, FormControl, FormControlLabel, MenuItem, Radio, RadioGroup, Select, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, FormControl, FormControlLabel, MenuItem, Radio, RadioGroup, Select, Stack, TextField, Typography } from '@mui/material'
 import { SxProps, Theme } from '@mui/material/styles'
 
 import { CodeAgentRuntime, ICreateAgentParams } from '../../contexts/apps'
 import useApps from '../../hooks/useApps'
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../../types'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
+import AgentHarness from './AgentHarness'
 
 export type ClaudeCodeMode = 'subscription' | 'api_key'
 
@@ -241,6 +242,9 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
           disabled={disabled}
           size="small"
           sx={selectSx}
+          renderValue={(runtime) => (
+            <AgentHarness runtime={runtime} variant="long" size={16} />
+          )}
           MenuProps={{
             PaperProps: {
               sx: menuPaperSx,
@@ -248,46 +252,61 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
           }}
         >
           <MenuItem value="zed_agent">
-            <Box>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <AgentHarness runtime="zed_agent" variant="short" size={18} />
+              <Box>
               <Typography variant="body2">Zed Agent (Built-in)</Typography>
               <Typography variant="caption" color="text.secondary">
                 Uses Zed&apos;s native agent panel with direct API integration
               </Typography>
-            </Box>
+              </Box>
+            </Stack>
           </MenuItem>
           <MenuItem value="qwen_code">
-            <Box>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <AgentHarness runtime="qwen_code" variant="short" size={18} />
+              <Box>
               <Typography variant="body2">Qwen Code</Typography>
               <Typography variant="caption" color="text.secondary">
                 Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
               </Typography>
-            </Box>
+              </Box>
+            </Stack>
           </MenuItem>
           {showClaudeCodeOption && (
             <MenuItem value="claude_code">
-              <Box>
+              <Stack direction="row" spacing={1.25} alignItems="center">
+                <AgentHarness runtime="claude_code" variant="short" size={18} />
+                <Box>
                 <Typography variant="body2">Claude Code</Typography>
                 <Typography variant="caption" color="text.secondary">
                   Anthropic&apos;s coding agent — works with Claude subscriptions
                 </Typography>
-              </Box>
+                </Box>
+              </Stack>
             </MenuItem>
           )}
           <MenuItem value="codex_cli">
-            <Box>
-              <Typography variant="body2">Codex CLI</Typography>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <AgentHarness runtime="codex_cli" variant="short" size={18} />
+              <Box>
+              <Typography variant="body2">Codex</Typography>
               <Typography variant="caption" color="text.secondary">
                 OpenAI&apos;s coding agent with ChatGPT subscription support
               </Typography>
-            </Box>
+              </Box>
+            </Stack>
           </MenuItem>
           <MenuItem value="goose_code">
-            <Box>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <AgentHarness runtime="goose_code" variant="short" size={18} />
+              <Box>
               <Typography variant="body2">Goose</Typography>
               <Typography variant="caption" color="text.secondary">
                 Open-source ACP agent from the Agentic AI Foundation (AAIF)
               </Typography>
-            </Box>
+              </Box>
+            </Stack>
           </MenuItem>
         </Select>
       </FormControl>

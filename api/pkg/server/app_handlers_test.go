@@ -10,12 +10,10 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	orgbots "github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	orgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -27,16 +25,8 @@ import (
 
 type failingAgentCreator struct{}
 
-func (failingAgentCreator) CreateAgent(context.Context, string, string, string) (string, error) {
+func (failingAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (string, error) {
 	return "", fmt.Errorf("reconcile failed")
-}
-
-type failingNodes struct {
-	orgstore.Nodes
-}
-
-func (failingNodes) List(context.Context, string) ([]orgchart.Node, error) {
-	return nil, fmt.Errorf("list failed")
 }
 
 func TestUpdateAppRejectsInvalidLinkedOrgAgentShape(t *testing.T) {
@@ -105,7 +95,7 @@ func TestUpdateAppRejectsMismatchedBodyID(t *testing.T) {
 	require.Contains(t, httpErr.Message, "does not match URL")
 }
 
-func TestUpdateAppResponseMarksLinkedOrgAgent(t *testing.T) {
+func TestUpdateAppPreservesAgentKind(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	helixStore := store.NewMockStore(ctrl)
 	orgStore := orgmemory.New()
@@ -118,6 +108,7 @@ func TestUpdateAppResponseMarksLinkedOrgAgent(t *testing.T) {
 		ID:             "app-linked",
 		Owner:          "user-test",
 		OrganizationID: "org-test",
+		AgentKind:      types.AgentKindOrg,
 		Config: types.AppConfig{Helix: types.AppHelixConfig{
 			Name:       "Linked",
 			Assistants: []types.AssistantConfig{{Name: "Linked"}},
@@ -152,43 +143,7 @@ func TestUpdateAppResponseMarksLinkedOrgAgent(t *testing.T) {
 
 	require.Nil(t, httpErr)
 	require.NotNil(t, updated)
-	assert.True(t, updated.IsHelixOrgAgent)
-}
-
-func Test_markHelixOrgAgents_UsesNodesRepository(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	orgStore := orgmemory.New()
-	node, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org_1")
-	require.NoError(t, err)
-	require.NoError(t, orgStore.Nodes.Create(context.Background(), node.WithAgentID("app_1")))
-
-	server := &HelixAPIServer{
-		Store: store.NewMockStore(ctrl),
-		Cfg:   &config.ServerConfig{},
-		helixOrg: &helixOrgHandlers{
-			store: orgStore,
-		},
-	}
-
-	apps := []*types.App{{ID: "app_1"}, {ID: "app_2"}}
-
-	httpErr := server.markHelixOrgAgents(context.Background(), "org_1", apps)
-	require.Nil(t, httpErr)
-	assert.True(t, apps[0].IsHelixOrgAgent)
-	assert.False(t, apps[1].IsHelixOrgAgent)
-}
-
-func Test_markHelixOrgAgents_ReportsRepositoryFailure(t *testing.T) {
-	server := &HelixAPIServer{
-		helixOrg: &helixOrgHandlers{
-			store: &orgstore.Store{Nodes: failingNodes{}},
-		},
-	}
-
-	httpErr := server.markHelixOrgAgents(context.Background(), "org_1", []*types.App{{ID: "app_1"}})
-	require.NotNil(t, httpErr)
-	require.Equal(t, http.StatusInternalServerError, httpErr.StatusCode)
-	require.Contains(t, httpErr.Message, "list failed")
+	assert.Equal(t, types.AgentKindOrg, updated.AgentKind)
 }
 
 func TestIsSpecTaskSelectableAgent(t *testing.T) {
@@ -199,26 +154,17 @@ func TestIsSpecTaskSelectableAgent(t *testing.T) {
 	}{
 		{
 			name: "standalone external agent",
-			app: &types.Agent{Config: types.AgentConfig{Helix: types.AgentHelixConfig{
-				Assistants: []types.AssistantConfig{{AgentType: types.AgentTypeZedExternal}},
-			}}},
+			app:  &types.Agent{AgentKind: types.AgentKindCoding},
 			want: true,
 		},
 		{
 			name: "external org worker",
-			app: &types.Agent{
-				IsHelixOrgAgent: true,
-				Config: types.AgentConfig{Helix: types.AgentHelixConfig{
-					DefaultAgentType: types.AgentTypeZedExternal,
-				}},
-			},
+			app:  &types.Agent{AgentKind: types.AgentKindOrg},
 			want: false,
 		},
 		{
 			name: "helix agent",
-			app: &types.Agent{Config: types.AgentConfig{Helix: types.AgentHelixConfig{
-				DefaultAgentType: types.AgentTypeHelixAgent,
-			}}},
+			app:  &types.Agent{AgentKind: types.AgentKindHelix},
 			want: false,
 		},
 	}

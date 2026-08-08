@@ -17,6 +17,7 @@ export type SidebarItem = {
   projectId?: string
   session?: TypesSessionSummary
   task?: SpecTask
+  pinnedAt?: string
 }
 
 export type SidebarGroup = {
@@ -270,6 +271,19 @@ export const isNewThreadShortcut = (
   && event.key.toLowerCase() === 'o'
 )
 
+export const isChatShortcutModifier = (
+  event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey'>,
+  isMac: boolean,
+): boolean => isMac ? event.metaKey : event.ctrlKey
+
+export const getChatShortcutNumber = (
+  event: Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'key' | 'metaKey' | 'shiftKey'>,
+  isMac: boolean,
+): number | null => {
+  if (!isChatShortcutModifier(event, isMac) || event.altKey || event.shiftKey) return null
+  return /^[1-9]$/.test(event.key) ? Number(event.key) : null
+}
+
 const getSidebarWorkflowStatus = (task?: SpecTask): SidebarStatus | null => {
   switch (task?.status) {
     case 'queued_spec_generation':
@@ -412,6 +426,7 @@ export const buildProjectChatGroups = (
   specTasks: SpecTask[],
   sessions: TypesSessionSummary[],
   sortOrder: SidebarThreadSortOrder = 'updated_at',
+  pinnedAtByItemKey: ReadonlyMap<string, string> = new Map(),
 ): SidebarGroup[] => {
   const defaultGroup: SidebarGroup = { id: 'default', name: 'None', items: [] }
   const groupsByProjectId = new Map<string, SidebarGroup>()
@@ -425,12 +440,13 @@ export const buildProjectChatGroups = (
   })
 
   const taskIds = new Set<string>()
+  const taskItemsById = new Map<string, SidebarItem>()
   specTasks.forEach((task) => {
     if (!task.id || !task.project_id) return
     const group = groupsByProjectId.get(task.project_id)
     if (!group) return
     taskIds.add(task.id)
-    group.items.push({
+    const item: SidebarItem = {
       id: task.id,
       kind: 'spec-task',
       title: task.user_short_title || task.short_title || task.name || 'Untitled task',
@@ -438,13 +454,20 @@ export const buildProjectChatGroups = (
       updatedAt: specTaskSortKey(task, sortOrder),
       projectId: task.project_id,
       task,
-    })
+      pinnedAt: pinnedAtByItemKey.get(`spec-task:${task.id}`),
+    }
+    group.items.push(item)
+    taskItemsById.set(task.id, item)
   })
 
   sessions.forEach((session) => {
     if (!session.session_id) return
     const metadata = session.metadata
-    if (metadata?.spec_task_id && taskIds.has(metadata.spec_task_id)) return
+    if (metadata?.spec_task_id && taskIds.has(metadata.spec_task_id)) {
+      const taskItem = taskItemsById.get(metadata.spec_task_id)
+      if (taskItem) taskItem.session = session
+      return
+    }
 
     if (metadata?.spec_task_id && metadata.project_id && groupsByProjectId.has(metadata.project_id)) {
       groupsByProjectId.get(metadata.project_id)?.items.push({
@@ -471,6 +494,7 @@ export const buildProjectChatGroups = (
       updatedAt: session.last_message_at || session.created,
       projectId: projectGroup?.id,
       session,
+      pinnedAt: pinnedAtByItemKey.get(`session:${session.session_id}`),
     })
   })
 
@@ -487,6 +511,9 @@ export const buildProjectChatGroups = (
     .map((group) => ({
       ...group,
       items: [...group.items].sort((left, right) => (
+        sortableTimestamp(right.pinnedAt) - sortableTimestamp(left.pinnedAt)
+        || (right.pinnedAt ? 1 : 0) - (left.pinnedAt ? 1 : 0)
+        ||
         sortableTimestamp(sortOrder === 'created_at' ? right.createdAt : right.updatedAt)
         - sortableTimestamp(sortOrder === 'created_at' ? left.createdAt : left.updatedAt)
       )),

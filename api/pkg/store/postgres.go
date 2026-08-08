@@ -252,6 +252,9 @@ func (s *PostgresStore) runMigrations() error {
 	if err != nil {
 		return err
 	}
+	if err := s.backfillAgentKinds(context.Background()); err != nil {
+		return err
+	}
 
 	// Relax prompt_history_entries.spec_task_id / project_id to nullable. The
 	// queue is now session-scoped: general/system sends (org bots via

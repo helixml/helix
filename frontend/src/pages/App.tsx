@@ -36,11 +36,16 @@ import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
 import Skills from '../components/app/Skills'
 import OrgAgentSettings from '../components/app/OrgAgentSettings'
+import FocusedAgentDetails from '../components/app/FocusedAgentDetails'
 import MemoriesManagement from '../components/app/MemoriesManagement'
 import HelixOrgTopNav from '../components/helix-org/HelixOrgTopNav'
-import { useActivateBot, useListHelixOrgBots } from '../services/helixOrgService'
+import {
+  useActivateBot,
+  useListHelixOrgBotDetails,
+  useListHelixOrgBots,
+} from '../services/helixOrgService'
 import { AGENT_TYPE_ZED_EXTERNAL } from '../types'
-import { isHelixOrgChartAgent } from '../utils/apps'
+import { isOrgAgent, usesFocusedAgentDetails } from '../utils/apps'
 
 const App: FC = () => {
   const account = useAccount()  
@@ -51,10 +56,20 @@ const App: FC = () => {
   const { params } = router
 
   const appTools = useApp(params.app_id)
-  const { data: orgAgents = [] } = useListHelixOrgBots()
-  const linkedOrgAgent = orgAgents.find(
-    (agent) => (agent.agent_id ?? agent.agent_app_id) === params.app_id,
+  const appIsOrgAgent = isOrgAgent(appTools.app)
+  const { data: orgAgents = [], isLoading: orgAgentsLoading } = useListHelixOrgBots({
+    enabled: appIsOrgAgent,
+  })
+  const orgAgentDetails = useListHelixOrgBotDetails(
+    orgAgents.map((agent) => agent.id).filter((id): id is string => !!id),
+    { enabled: appIsOrgAgent },
   )
+  const linkedOrgAgentDetail = orgAgentDetails.find(
+    (detail) => (detail?.agent_id ?? detail?.agent_app_id) === params.app_id,
+  )
+  const linkedOrgAgent = linkedOrgAgentDetail?.bot
+  const orgAgentDetailLoading = orgAgentsLoading
+    || (orgAgents.length > 0 && orgAgentDetails.some((detail) => !detail))
   const activateOrgAgent = useActivateBot()
   // Get user access information from appTools
   const { userAccess } = appTools
@@ -99,7 +114,7 @@ const App: FC = () => {
   if (!appTools.app) return null
 
   const isReadOnly = appTools.isReadOnly || !appTools.isSafeToSave
-  const isOrgAgent = isHelixOrgChartAgent(appTools.app)
+  const appIsFocusedAgent = usesFocusedAgentDetails(appTools.app)
 
   const openChat = async () => {
     if (!linkedOrgAgent?.id) {
@@ -142,7 +157,7 @@ const App: FC = () => {
             color="secondary"
             startIcon={activateOrgAgent.isPending ? <CircularProgress size={16} /> : <ChatOutlinedIcon />}
             onClick={() => void openChat()}
-            disabled={activateOrgAgent.isPending}
+            disabled={activateOrgAgent.isPending || (appIsOrgAgent && !linkedOrgAgent)}
           >
             Open chat
           </Button>
@@ -165,7 +180,32 @@ const App: FC = () => {
             }}>
               <Box sx={{ width: '100%' }}>
                 <Grid container spacing={0}>
-                  {tabValue === 'general' ? (
+                  {appIsFocusedAgent && appTools.flatApp ? (
+                    <Grid item xs={12} sx={{ pb: 8 }}>
+                      <FocusedAgentDetails
+                        agentID={appTools.id}
+                        app={appTools.flatApp}
+                        kind={appIsOrgAgent ? 'org' : 'coding'}
+                        onUpdate={appTools.saveFlatApp}
+                        onCanonicalUpdate={() => appTools.loadApp(appTools.id)}
+                        readOnly={isReadOnly}
+                        showErrors={appTools.showErrors}
+                        isAdmin={account.admin}
+                        orgAgentDetail={linkedOrgAgentDetail}
+                        orgAgentDetailLoading={orgAgentDetailLoading}
+                        accessManagement={userAccess?.isAdmin ? (
+                          <AccessManagement
+                            appId={appTools.id}
+                            accessGrants={appTools.accessGrants}
+                            isLoading={false}
+                            isReadOnly={isReadOnly}
+                            onCreateGrant={appTools.createAccessGrant}
+                            onDeleteGrant={appTools.deleteAccessGrant}
+                          />
+                        ) : undefined}
+                      />
+                    </Grid>
+                  ) : tabValue === 'general' ? (
                     <Grid item xs={12} sx={{ pb: 8 }}>
                       <Grid container spacing={4}>
                         <Grid item xs={12} md={8}>
@@ -199,8 +239,13 @@ const App: FC = () => {
                               section="conversation-starters"
                             />
                           )}
-                          {isOrgAgent && (
-                            <OrgAgentSettings agentID={appTools.id} section="runtime" readOnly={isReadOnly} />
+                          {appIsOrgAgent && (
+                            <OrgAgentSettings
+                              agentID={appTools.id}
+                              section="runtime"
+                              readOnly={isReadOnly}
+                              detail={linkedOrgAgentDetail}
+                            />
                           )}
                         </Grid>
                         <Grid item xs={12} md={4}>
@@ -220,7 +265,7 @@ const App: FC = () => {
                             showErrors={appTools.showErrors}
                             isAdmin={account.admin}
                             section="runtime"
-                            hideAgentType={isOrgAgent}
+                            hideAgentType={appIsOrgAgent}
                           />
                         )}
                       </Box>
@@ -241,7 +286,7 @@ const App: FC = () => {
                             onUpdate={appTools.saveFlatApp}
                           />
                         )}
-                        {isOrgAgent && (
+                        {appIsOrgAgent && (
                           <OrgAgentSettings agentID={appTools.id} section="tools" readOnly={isReadOnly} />
                         )}
                       </Box>
@@ -298,7 +343,7 @@ const App: FC = () => {
                   ) : tabValue === 'triggers' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ maxWidth: 1100 }}>
-                        {isOrgAgent && (
+                        {appIsOrgAgent && (
                           <OrgAgentSettings agentID={appTools.id} section="subscriptions" readOnly={isReadOnly} />
                         )}
                         <Triggers
@@ -313,7 +358,7 @@ const App: FC = () => {
                   ) : tabValue === 'access' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ mt: 2, maxWidth: 1100 }}>
-                        {isOrgAgent && (
+                        {appIsOrgAgent && (
                           <OrgAgentSettings agentID={appTools.id} section="access" readOnly={isReadOnly} />
                         )}
                         {userAccess?.isAdmin && (

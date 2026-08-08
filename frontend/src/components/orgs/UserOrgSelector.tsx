@@ -386,11 +386,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const navigationButtons = useMemo(() => {
     const baseButtons = [
       {
-        icon: <Network size={NAV_BUTTON_SIZE} />,
-        tooltip: "View org chart",
-        isActive: router.name.startsWith('helix_org'),
-        onClick: handleHelixOrgClick,
-        label: "Chart",
+        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
+        tooltip: "AI chat assistant",
+        isActive: isActive(['chat', 'session']),
+        onClick: () => orgNavigateTo('chat'),
+        label: "Chat",
       },
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
@@ -400,18 +400,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         label: "Projects",
       },
       {
+        icon: <Network size={NAV_BUTTON_SIZE} />,
+        tooltip: "View org chart",
+        isActive: router.name.startsWith('helix_org'),
+        onClick: handleHelixOrgClick,
+        label: "Chart",
+      },
+      {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
         tooltip: "View agents",
         isActive: isActive(['agents', 'agent']),
         onClick: () => orgNavigateTo('agents'),
         label: "Agents",
-      },
-      {
-        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
-        tooltip: "AI chat assistant",
-        isActive: isActive(['chat', 'session']),
-        onClick: () => orgNavigateTo('chat'),
-        label: "Chat",
       },
       // Q&A now lives in the org Settings sub-nav (OrgSidebar -> Agent Q&A);
       // no longer a top-level rail entry.

@@ -1,7 +1,9 @@
 import {
   IApp,
   IAssistantConfig,
-  AGENT_TYPE_ZED_EXTERNAL,
+  AGENT_KIND_CODING,
+  AGENT_KIND_HELIX,
+  AGENT_KIND_ORG,
 } from '../types'
 
 export const getAppImage = (app: IApp): string => {
@@ -78,26 +80,24 @@ export const getAssistantDescription = (app: IApp, assistantID: string): string 
 }
 
 
-// An "external" agent runs an external framework inside Zed (zed_external),
-// either as one of its assistants or as the app's default agent type.
-export const isExternalAgent = (app: IApp): boolean => {
-  return (
-    app.config?.helix?.assistants?.some(
-      (a) => a.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-    ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-  ) || false
+export const isHelixAgent = (app: IApp | null | undefined): boolean => {
+  return app?.agent_kind === AGENT_KIND_HELIX
 }
 
-// True when this app backs a Helix org-chart Worker (flagged server-side).
-// These belong to the org chart, not to spec tasks.
-export const isHelixOrgChartAgent = (app: IApp | null | undefined): boolean => {
-  return app?.is_helix_org_agent === true
+export const isCodingAgent = (app: IApp | null | undefined): boolean => {
+  return app?.agent_kind === AGENT_KIND_CODING
 }
 
-// Agents you can switch a spec task to: external agents that are not part of
-// the Helix org chart.
+export const isOrgAgent = (app: IApp | null | undefined): boolean => {
+  return app?.agent_kind === AGENT_KIND_ORG
+}
+
+export const usesFocusedAgentDetails = (app: IApp | null | undefined): boolean => {
+  return isCodingAgent(app) || isOrgAgent(app)
+}
+
 export const isSpecTaskSwitchableAgent = (app: IApp): boolean => {
-  return isExternalAgent(app) && !isHelixOrgChartAgent(app)
+  return isCodingAgent(app)
 }
 
 export const getAssistant = (app: IApp, assistantID: string): IAssistantConfig | undefined => {

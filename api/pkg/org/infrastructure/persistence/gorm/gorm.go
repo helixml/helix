@@ -229,6 +229,15 @@ func installAgentAppLinks(db *gorm.DB) error {
 	if err := backfillProjectAgentApps(db); err != nil {
 		return err
 	}
+	if err := db.Exec(`
+		UPDATE apps AS app
+		SET agent_kind = ?
+		FROM org_bots AS bot
+		WHERE bot.agent_app_id = app.id
+		  AND bot.agent_app_id IS NOT NULL
+	`, types.AgentKindOrg).Error; err != nil {
+		return fmt.Errorf("backfill org agent kinds: %w", err)
+	}
 	return nil
 }
 

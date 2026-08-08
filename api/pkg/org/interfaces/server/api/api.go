@@ -143,7 +143,7 @@ type Deps struct {
 	ProjectEnsurer ProjectEnsurer
 
 	// Lifecycle owns the cross-cutting Create + Delete cascades (bot
-	// row, reporting lines, Helix project + app teardown, store
+	// row, reporting lines, Helix app teardown, store
 	// cleanup, topology reconcile). nil disables POST /bots and
 	// DELETE /bots/{id} (returns 501).
 	Lifecycle           *lifecycle.Service

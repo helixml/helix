@@ -241,11 +241,30 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	}
 
 	sessionSummaries := []*types.SessionSummary{}
+	appsByID := make(map[string]*types.App)
+	missingApps := make(map[string]struct{})
 	for _, session := range sessions {
 		summary, err := data.GetSessionSummary(session)
 		if err != nil {
 			log.Error().Err(err).Str("session_id", session.ID).Msg("failed to get session summary")
 			continue
+		}
+		if summary.AppID != "" {
+			app, ok := appsByID[summary.AppID]
+			if !ok {
+				if _, missing := missingApps[summary.AppID]; !missing {
+					app, err = apiServer.Store.GetApp(ctx, summary.AppID)
+					if err != nil {
+						missingApps[summary.AppID] = struct{}{}
+						log.Warn().Err(err).Str("app_id", summary.AppID).Msg("failed to resolve current agent config for session summary")
+					} else {
+						appsByID[summary.AppID] = app
+					}
+				}
+			}
+			if app != nil {
+				applyCurrentAgentInfoToSummary(summary, app)
+			}
 		}
 		sessionSummaries = append(sessionSummaries, summary)
 	}
@@ -257,6 +276,40 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		TotalCount: totalCount,
 		TotalPages: int(math.Ceil(float64(totalCount) / float64(pageSize))),
 	}, nil
+}
+
+func currentAgentInfo(app *types.App, assistantID string) (types.CodeAgentRuntime, string, bool) {
+	assistant := data.GetAssistant(app, assistantID)
+	if assistant == nil || assistant.AgentType != types.AgentTypeZedExternal {
+		return "", "", false
+	}
+	runtime := assistant.CodeAgentRuntime
+	if runtime == "" {
+		runtime = types.CodeAgentRuntimeZedAgent
+	}
+	modelName := assistant.Model
+	if runtime == types.CodeAgentRuntimeClaudeCode &&
+		assistant.CodeAgentCredentialType.IsSubscription() &&
+		assistant.ClaudeSubscriptionModel != "" {
+		modelName = assistant.ClaudeSubscriptionModel
+	}
+	if modelName == "" {
+		modelName = assistant.GenerationModel
+	}
+	return runtime, modelName, true
+}
+
+func applyCurrentAgentInfoToSummary(summary *types.SessionSummary, app *types.App) {
+	runtime, modelName, ok := currentAgentInfo(app, summary.Metadata.AssistantID)
+	if !ok {
+		return
+	}
+	summary.Metadata.CodeAgentRuntime = runtime
+	summary.Metadata.ZedAgentName = runtime.ZedAgentName()
+	// The session's model_name is only the Helix inference model captured when
+	// the row was created. ACP harnesses resolve their model from the app, which
+	// may change later, so the app is authoritative for this projection.
+	summary.ModelName = modelName
 }
 
 // deleteSession godoc

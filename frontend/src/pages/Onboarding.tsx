@@ -35,7 +35,8 @@ import useApi from "../hooks/useApi";
 import useLightTheme from "../hooks/useLightTheme";
 import useSnackbar from "../hooks/useSnackbar";
 import useRouter from "../hooks/useRouter";
-import { IApp, AGENT_TYPE_ZED_EXTERNAL } from "../types";
+import { IApp } from "../types";
+import { isCodingAgent } from "../utils/apps";
 import { CodeAgentRuntime, generateAgentName } from "../contexts/apps";
 import BrowseProvidersDialog from "../components/project/BrowseProvidersDialog";
 import { SELECTED_ORG_STORAGE_KEY } from "../utils/localStorage";
@@ -536,23 +537,17 @@ export default function Onboarding() {
 
   const [orgApps, setOrgApps] = useState<IApp[]>([]);
 
-  const zedExternalAgents = useMemo(() => {
+  const codingAgents = useMemo(() => {
     if (!orgApps) return [];
-    return orgApps.filter((app: IApp) => {
-      return (
-        app.config?.helix?.assistants?.some(
-          (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-        ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-      );
-    });
+    return orgApps.filter(isCodingAgent);
   }, [orgApps]);
 
   useEffect(() => {
-    if (zedExternalAgents.length > 0 && !selectedAgentId) {
+    if (codingAgents.length > 0 && !selectedAgentId) {
       setAgentMode("select");
-      setSelectedAgentId(zedExternalAgents[0].id);
+      setSelectedAgentId(codingAgents[0].id);
     }
-  }, [zedExternalAgents, selectedAgentId]);
+  }, [codingAgents, selectedAgentId]);
 
   useEffect(() => {
     if (activeStep !== 4 || !createdOrg) return;
@@ -2074,7 +2069,7 @@ export default function Onboarding() {
                 AI Agent
               </Typography>
 
-              {zedExternalAgents.length > 0 && (
+              {codingAgents.length > 0 && (
                 <Box sx={{ display: "flex", gap: 1.5, mb: 2 }}>
                   <Box
                     onClick={() => setAgentMode("select")}
@@ -2179,7 +2174,7 @@ export default function Onboarding() {
                 </Box>
               )}
 
-              {agentMode === "select" && zedExternalAgents.length > 0 ? (
+              {agentMode === "select" && codingAgents.length > 0 ? (
                 <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                   <InputLabel
                     sx={{
@@ -2205,7 +2200,7 @@ export default function Onboarding() {
                       "& .MuiSvgIcon-root": { color: palette.TEXT_FADED },
                     }}
                     renderValue={(value) => {
-                      const app = zedExternalAgents.find(
+                      const app = codingAgents.find(
                         (a: IApp) => a.id === value,
                       );
                       return app?.config?.helix?.name || "Select Agent";
@@ -2220,7 +2215,7 @@ export default function Onboarding() {
                       },
                     }}
                   >
-                    {zedExternalAgents.map((app: IApp) => (
+                    {codingAgents.map((app: IApp) => (
                       <MenuItem
                         key={app.id}
                         value={app.id}

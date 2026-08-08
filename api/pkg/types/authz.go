@@ -433,15 +433,23 @@ type UserGuidelinesResponse struct {
 }
 
 type UserConfig struct {
-	StripeSubscriptionActive bool     `json:"stripe_subscription_active"`
-	StripeCustomerID         string   `json:"stripe_customer_id"`
-	StripeSubscriptionID     string   `json:"stripe_subscription_id"`
-	PinnedProjectIDs         []string `json:"pinned_project_ids,omitempty"`
+	StripeSubscriptionActive bool         `json:"stripe_subscription_active"`
+	StripeCustomerID         string       `json:"stripe_customer_id"`
+	StripeSubscriptionID     string       `json:"stripe_subscription_id"`
+	PinnedProjectIDs         []string     `json:"pinned_project_ids,omitempty"`
+	PinnedChats              []PinnedChat `json:"pinned_chats,omitempty"`
 	// ColorScheme is the user's preferred UI color scheme: "light" or "dark".
 	// Empty string means follow OS preference. Propagated to the GNOME desktop
 	// (gsettings color-scheme) and Zed editor inside spec-task sessions owned
 	// by this user.
 	ColorScheme string `json:"color_scheme,omitempty"`
+}
+
+type PinnedChat struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	ProjectID string    `json:"project_id,omitempty"`
+	PinnedAt  time.Time `json:"pinned_at"`
 }
 
 // UpdateUserColorSchemeRequest is the request body for setting a user's color scheme.

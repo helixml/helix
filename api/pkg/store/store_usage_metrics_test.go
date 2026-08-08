@@ -243,9 +243,9 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_PaginatesAndExportsAl
 		{ID: "spt_" + system.GenerateID(), Name: "Low task", ProjectID: projects[2].ID, UserID: users[2].ID, OrganizationID: orgID},
 	}
 	sessions := []types.Session{
-		{ID: "ses_" + system.GenerateID(), Name: "High session", Created: from.Add(2 * time.Hour), Updated: from.Add(3 * time.Hour), OrganizationID: orgID, ProjectID: projects[0].ID, ParentApp: apps[0].ID, Owner: users[0].ID},
-		{ID: "ses_" + system.GenerateID(), Name: "Middle session", Created: from.AddDate(0, 0, 1), Updated: from.AddDate(0, 0, 1).Add(time.Hour), OrganizationID: orgID, ProjectID: projects[1].ID, ParentApp: apps[1].ID, Owner: users[1].ID},
-		{ID: "ses_" + system.GenerateID(), Name: "Low session", Created: from.AddDate(0, 0, 2), Updated: from.AddDate(0, 0, 2).Add(time.Hour), OrganizationID: orgID, ProjectID: projects[2].ID, ParentApp: apps[2].ID, Owner: users[2].ID},
+		{ID: "ses_" + system.GenerateID(), Name: "High session", Created: from.Add(2 * time.Hour), Updated: from.Add(3 * time.Hour), OrganizationID: orgID, ProjectID: projects[0].ID, ParentApp: apps[0].ID, Owner: users[0].ID, Metadata: types.SessionMetadata{CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI}},
+		{ID: "ses_" + system.GenerateID(), Name: "Middle session", Created: from.AddDate(0, 0, 1), Updated: from.AddDate(0, 0, 1).Add(time.Hour), OrganizationID: orgID, ProjectID: projects[1].ID, ParentApp: apps[1].ID, Owner: users[1].ID, Metadata: types.SessionMetadata{CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode}},
+		{ID: "ses_" + system.GenerateID(), Name: "Low session", Created: from.AddDate(0, 0, 2), Updated: from.AddDate(0, 0, 2).Add(time.Hour), OrganizationID: orgID, ProjectID: projects[2].ID, ParentApp: apps[2].ID, Owner: users[2].ID, Metadata: types.SessionMetadata{CodeAgentRuntime: types.CodeAgentRuntimeZedAgent}},
 	}
 	suite.insertOrgUsageDimensions(users, projects, apps, tasks, sessions)
 	cronTask := suite.insertTriggerConfiguration(orgID, users[0].ID, apps[0].ID, "High cron task")
@@ -311,6 +311,9 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_PaginatesAndExportsAl
 	suite.Equal(3, resp.ActiveProjects)
 	suite.Equal(3, resp.ActiveApps)
 	suite.Equal(3, resp.ActiveSessions)
+	suite.Require().Len(resp.AgentRuntimeTimeSeries, 3)
+	suite.Equal(types.CodeAgentRuntimeCodexCLI, resp.AgentRuntimeTimeSeries[0].Runtime)
+	suite.Equal("Codex", resp.AgentRuntimeTimeSeries[0].Name)
 
 	suite.EqualValues(3, resp.ProjectsTotal)
 	suite.Require().Len(resp.Projects, 1)

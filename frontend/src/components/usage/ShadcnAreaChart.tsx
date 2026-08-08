@@ -36,11 +36,13 @@ export interface ShadcnAreaChartProps {
   hideLegend?: boolean;
   /** Height for the chart body (title bar sits above). Default 220. */
   chartHeight?: number;
+  /** Treat an explicit zero as data instead of an empty series. */
+  zeroIsData?: boolean;
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number) => string) => {
+const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number) => string, zeroIsData: boolean) => {
   const TooltipComponent: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
     const lightTheme = useLightTheme();
     if (!active || !payload || !payload.length) return null;
@@ -70,8 +72,9 @@ const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number)
         </Typography>
         {seriesConfig.map(s => {
           const entry = byKey.get(s.key);
-          const value = typeof entry?.value === 'number' ? entry.value : 0;
-          if (!value) return null;
+          if (!entry || typeof entry.value !== 'number') return null;
+          const value = entry.value;
+          if (!zeroIsData && !value) return null;
           return (
             <Box
               key={s.key}
@@ -109,12 +112,15 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   stacked = true,
   hideLegend = false,
   chartHeight = 220,
+  zeroIsData = false,
 }) => {
   const lightTheme = useLightTheme();
   // Unique gradient ids so multiple charts on the same page don't collide.
   const gradientPrefix = React.useMemo(() => `shadcn-${uid()}`, []);
 
-  const hasData = data.some(d => series.some(s => (Number(d[s.key]) || 0) > 0));
+  const hasData = data.some(d => series.some(s => (
+    Object.prototype.hasOwnProperty.call(d, s.key) && (zeroIsData || (Number(d[s.key]) || 0) > 0)
+  )));
 
   return (
     <Box
@@ -199,7 +205,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
               />
               <Tooltip
                 cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
-                content={React.createElement(ShadcnTooltip(series, valueFormatter))}
+                content={React.createElement(ShadcnTooltip(series, valueFormatter, zeroIsData))}
               />
               {/* Recharts' default legend lays items at whatever order they
                   enter the chart and wraps awkwardly when there are many

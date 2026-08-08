@@ -73,54 +73,45 @@ export function buildActivityTimeline(
   responseEntries: ResponseEntry[],
   isStreaming: boolean,
 ): { activitySegments: ActivitySegment[]; finalTextIndex: number | undefined } {
-  if (isStreaming) {
-    let latestToolIndex = -1;
-    const toolEntries: ToolActivitySegment["entries"] = [];
-
-    responseEntries.forEach((entry, index) => {
-      if (entry.type === "tool_call") {
-        latestToolIndex = index;
-        toolEntries.push(toolActivityEntry(entry, index, responseEntries.length, true));
-      }
-    });
-
-    const activitySegments: ActivitySegment[] = [];
-    responseEntries.forEach((entry, index) => {
-      if (entry.type !== "text") return;
-
-      const renderContent = hasVisibleAssistantText(entry.content);
-      if (renderContent) {
-        activitySegments.push({
-          type: "text",
-          entry,
-          index,
-          renderThinking: false,
-          renderContent,
-        });
-      }
-    });
-
-    if (toolEntries.length > 0) {
-      activitySegments.push({ type: "tools", index: latestToolIndex, entries: toolEntries });
-    }
-    activitySegments.sort((left, right) => left.index - right.index);
-
-    return { activitySegments, finalTextIndex: undefined };
-  }
-
   let finalTextIndex: number | undefined;
-  for (let index = responseEntries.length - 1; index >= 0; index -= 1) {
-    if (
-      responseEntries[index].type === "text" &&
-      hasVisibleAssistantText(responseEntries[index].content)
-    ) {
-      finalTextIndex = index;
-      break;
+  if (!isStreaming) {
+    for (let index = responseEntries.length - 1; index >= 0; index -= 1) {
+      if (
+        responseEntries[index].type === "text" &&
+        hasVisibleAssistantText(responseEntries[index].content)
+      ) {
+        finalTextIndex = index;
+        break;
+      }
     }
   }
+
   const activitySegments: ActivitySegment[] = [];
+  let currentToolSegment: ToolActivitySegment | undefined;
 
   responseEntries.forEach((entry, index) => {
+    if (entry.type === "tool_call") {
+      const toolEntry = toolActivityEntry(
+        entry,
+        index,
+        responseEntries.length,
+        isStreaming,
+      );
+
+      if (currentToolSegment) {
+        currentToolSegment.entries.push(toolEntry);
+        currentToolSegment.index = index;
+      } else {
+        currentToolSegment = { type: "tools", index, entries: [toolEntry] };
+        activitySegments.push(currentToolSegment);
+      }
+      return;
+    }
+
+    // Any text entry ends the current tool run, even when its thinking content
+    // is hidden while streaming.
+    currentToolSegment = undefined;
+
     if (index === finalTextIndex) {
       if (hasThinking(entry.content)) {
         activitySegments.push({
@@ -134,20 +125,7 @@ export function buildActivityTimeline(
       return;
     }
 
-    if (entry.type === "tool_call") {
-      const toolEntry = toolActivityEntry(entry, index, responseEntries.length, false);
-      const previousSegment = activitySegments[activitySegments.length - 1];
-
-      if (previousSegment?.type === "tools") {
-        previousSegment.entries.push(toolEntry);
-        previousSegment.index = index;
-      } else {
-        activitySegments.push({ type: "tools", index, entries: [toolEntry] });
-      }
-      return;
-    }
-
-    const renderThinking = hasThinking(entry.content);
+    const renderThinking = !isStreaming && hasThinking(entry.content);
     const renderContent = hasVisibleAssistantText(entry.content);
     if (renderThinking || renderContent) {
       activitySegments.push({

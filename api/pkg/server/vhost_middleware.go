@@ -162,8 +162,10 @@ func (m *VHostMiddleware) serveVHostLookup(w http.ResponseWriter, r *http.Reques
 }
 
 // dispatchSandboxPreview proxies a preview-token request to the
-// underlying session or sandbox container. For sessions, the session's
-// SandboxID is looked up to find the host device for RevDial.
+// underlying session or sandbox container. External-agent sessions store the
+// RevDial host assignment directly in Session.SandboxID (the same convention
+// used by session terminal handlers), so it must not be looked up as a Sandbox
+// API row.
 func (m *VHostMiddleware) dispatchSandboxPreview(w http.ResponseWriter, r *http.Request, route *types.VHostRoute) {
 	targetID := route.TargetID
 	if strings.HasPrefix(targetID, "ses_") {
@@ -176,12 +178,7 @@ func (m *VHostMiddleware) dispatchSandboxPreview(w http.ResponseWriter, r *http.
 			http.Error(w, "preview target session has no sandbox", http.StatusServiceUnavailable)
 			return
 		}
-		sb, err := m.apiServer.Store.GetSandbox(r.Context(), sess.SandboxID)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("preview target sandbox not found: %s", err), http.StatusNotFound)
-			return
-		}
-		m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, targetID, route.Port, r.URL.Path, "")
+		m.apiServer.proxyToContainer(w, r, sess.SandboxID, targetID, route.Port, r.URL.Path, "")
 		return
 	}
 	if strings.HasPrefix(targetID, "sbx_") {
