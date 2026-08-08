@@ -640,6 +640,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
     try {
       setSavingProject(true);
+      // Agent selections are NOT sent here. Each AgentDropdown persists its own
+      // change on select, and the server only accepts coding agents for these
+      // fields — re-sending a project's existing agent would 400 every unrelated
+      // save (name, guidelines, …) whenever that agent is an org agent.
       await updateProjectMutation.mutateAsync({
         name,
         description,
@@ -647,9 +651,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         guidelines,
         auto_start_backlog_tasks: autoStartBacklogTasks,
         pull_request_reviews_enabled: pullRequestReviewsEnabled,
-        default_helix_app_id: selectedAgentId || undefined,
-        project_manager_helix_app_id:
-          selectedProjectManagerAgentId || undefined,
         metadata: {
           board_settings: {
             wip_limits: wipLimits,
