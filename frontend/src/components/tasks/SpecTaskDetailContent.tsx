@@ -2451,7 +2451,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
                   leadingActions={(
-                    <SwitchAgentControl sessionId={activeSessionId} displayMode="compact" />
+                    <SwitchAgentControl
+                      sessionId={activeSessionId}
+                      projectId={task.project_id || ""}
+                      displayMode="compact"
+                    />
                   )}
                   footerContent={taskChatMetadata}
                   placeholder={
@@ -3200,7 +3204,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
                   leadingActions={(
-                    <SwitchAgentControl sessionId={activeSessionId} displayMode="compact" />
+                    <SwitchAgentControl
+                      sessionId={activeSessionId}
+                      projectId={task.project_id || ""}
+                      displayMode="compact"
+                    />
                   )}
                   footerContent={taskChatMetadata}
                   placeholder={
