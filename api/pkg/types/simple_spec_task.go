@@ -82,6 +82,36 @@ type StartPlanningOptions struct {
 	Timezone string `json:"timezone,omitempty"`
 }
 
+// CodeAgentOverrides customizes the coding model for one SpecTask without
+// mutating the reusable Agent configuration it was created from.
+type CodeAgentOverrides struct {
+	ProviderRef     string `json:"provider_ref,omitempty"`
+	Model           string `json:"model,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	ServiceTier     string `json:"service_tier,omitempty"`
+}
+
+// SandboxResourceOverrides is the desired CPU and memory limit for the single
+// desktop container owned by a SpecTask. A nil value preserves the legacy
+// uncapped behaviour for existing tasks.
+type SandboxResourceOverrides struct {
+	VCPUs    int `json:"vcpus,omitempty"`
+	MemoryMB int `json:"memory_mb,omitempty"`
+}
+
+func (r SandboxResourceOverrides) ValidPreset() bool {
+	switch r.VCPUs {
+	case 1:
+		return r.MemoryMB == 2048
+	case 4:
+		return r.MemoryMB == 8192
+	case 8:
+		return r.MemoryMB == 16384
+	default:
+		return false
+	}
+}
+
 // Request types
 type CreateTaskRequest struct {
 	ProjectID    string           `json:"project_id"`
@@ -95,6 +125,9 @@ type CreateTaskRequest struct {
 	AutoStart    bool             `json:"auto_start"`            // Optional: Skip backlog and start immediately, regardless of project auto-start setting
 	DependsOn    []string         `json:"depends_on"`            // Optional: IDs of tasks this task depends on
 	AssigneeID   string           `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
+
+	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 
 	// CredentialOwnerID optionally names the user whose Claude subscription should
 	// authenticate this task's agent, for orchestrators dispatching work on a
@@ -150,6 +183,9 @@ type SpecTask struct {
 
 	// NEW: Single Helix Agent for entire workflow (App type in code)
 	HelixAppID string `json:"helix_app_id,omitempty" gorm:"size:255;index"`
+
+	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Git repository attachments: REMOVED - now inherited from parent Project
 	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
@@ -400,6 +436,20 @@ type SpecTaskUpdateRequest struct {
 	KeepAlive        *bool            `json:"keep_alive,omitempty"`         // Pointer to allow explicit false — prevent auto-idle-shutdown
 	DependsOn        []string         `json:"depends_on"`                   // IDs of tasks this task depends on
 	AssigneeID       *string          `json:"assignee_id,omitempty"`        // Pointer to allow clearing (set to empty string to unassign)
+}
+
+// SpecTaskExecutionConfigUpdateRequest replaces either task-level execution
+// override. Omitted fields are left unchanged.
+type SpecTaskExecutionConfigUpdateRequest struct {
+	AgentID                  string                    `json:"agent_id,omitempty"`
+	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+}
+
+type SpecTaskExecutionConfigUpdateResponse struct {
+	Task                    *SpecTask `json:"task"`
+	AgentThreadRestarted    bool      `json:"agent_thread_restarted"`
+	SandboxResourcesApplied bool      `json:"sandbox_resources_applied"`
 }
 
 type SpecTaskStatus string

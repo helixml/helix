@@ -37,12 +37,14 @@ import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
 import { isCodingAgent } from "../../utils/apps";
 import {
+  TypesCodeAgentOverrides,
+  TypesCreateTaskRequest,
   TypesSpecTaskPriority,
   TypesBranchMode,
+  TypesSandboxResourceOverrides,
   TypesSpecTask,
   TypesSpecTaskStatus,
 } from "../../api/api";
-import AgentDropdown from "../agent/AgentDropdown";
 import CodingAgentForm, {
   CodingAgentFormHandle,
 } from "../agent/CodingAgentForm";
@@ -58,6 +60,7 @@ import {
   SPEC_TASK_ATTACHMENT_MAX_PER_TASK,
   useUploadSpecTaskAttachments,
 } from "../../services/specTaskAttachmentsService";
+import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
 
 const ATTACHMENT_ACCEPT_ATTR = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
   .flatMap(([mime, exts]) => [mime, ...exts])
@@ -138,6 +141,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     string[]
   >([]);
   const [selectedHelixAgent, setSelectedHelixAgent] = useState("");
+  const [codeAgentOverrides, setCodeAgentOverrides] = useState<TypesCodeAgentOverrides>({});
+  const [sandboxResourceOverrides, setSandboxResourceOverrides] = useState<TypesSandboxResourceOverrides>({
+    vcpus: 4,
+    memory_mb: 8192,
+  });
   // Goose recipe selection — only meaningful when the selected agent's runtime
   // is goose_code. Empty selectedRecipeName means "use vanilla goose"; the
   // backend skips baking and the agent's declared recipes are still available
@@ -422,6 +430,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
+    setCodeAgentOverrides({});
+    setSandboxResourceOverrides({ vcpus: 4, memory_mb: 8192 });
     setSelectedRecipeName("");
     setRecipeParams({});
     // justDoItMode and autoStart intentionally kept — they persist to the next
@@ -470,7 +480,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         agentId = createdAgent.id;
       }
 
-      const createTaskRequest = {
+      const createTaskRequest: TypesCreateTaskRequest = {
         prompt: taskPrompt,
         priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId,
@@ -497,6 +507,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           selectedRecipeName && Object.keys(recipeParams).length > 0
             ? recipeParams
             : undefined,
+        code_agent_overrides: Object.values(codeAgentOverrides).some(Boolean)
+          ? codeAgentOverrides
+          : undefined,
+        sandbox_resource_overrides: sandboxResourceOverrides,
       };
 
       const response = await api
@@ -1124,14 +1138,20 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             </Box>
           )}
 
-          {/* Agent Selection (dropdown) */}
+          {/* Coding agent and execution configuration */}
           <Box>
             {!showCreateAgentForm ? (
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                <AgentDropdown
-                  value={selectedHelixAgent}
-                  onChange={setSelectedHelixAgent}
+                <SpecTaskExecutionControls
                   agents={sortedApps}
+                  selectedAgentId={selectedHelixAgent}
+                  codeAgentOverrides={codeAgentOverrides}
+                  sandboxResourceOverrides={sandboxResourceOverrides}
+                  onAgentModelChange={(agentId, overrides) => {
+                    setSelectedHelixAgent(agentId);
+                    setCodeAgentOverrides(overrides);
+                  }}
+                  onSandboxResourceOverridesChange={setSandboxResourceOverrides}
                 />
                 {selectedAgentIsGoose && (
                   <GooseRecipeSelector
@@ -1182,6 +1202,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   onCreateStateChange={setCreatingAgent}
                   onAgentCreated={(app) => {
                     setSelectedHelixAgent(app.id);
+                    setCodeAgentOverrides({});
                     setShowCreateAgentForm(false);
                   }}
                   modelPickerHint="Choose a capable model for agentic coding."
@@ -1201,6 +1222,17 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 )}
               </Box>
             )}
+            <Box sx={{ mt: 1 }}>
+              {showCreateAgentForm && (
+                <SpecTaskExecutionControls
+                  agents={[]}
+                  selectedAgentId=""
+                  sandboxResourceOverrides={sandboxResourceOverrides}
+                  onAgentModelChange={() => undefined}
+                  onSandboxResourceOverridesChange={setSandboxResourceOverrides}
+                />
+              )}
+            </Box>
           </Box>
 
           {/* Skip Spec Checkbox */}

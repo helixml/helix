@@ -43,8 +43,8 @@ interface SwitchAgentControlProps {
  * Chat-panel agent selector that switches the agentic framework on the
  * current session IN PLACE. Unlike the old fork flow, the session keeps its
  * id, desktop container, and workspace — only the agent changes. The backend
- * restarts Zed with the new agent's config and repopulates a fresh thread with
- * the prior transcript, so the conversation continues seamlessly.
+ * restarts Zed with the new agent's config and seeds a fresh thread with a
+ * normalized transcript of the prior conversation.
  *
  * Disabled on paused sessions — switch on the active descendant instead.
  *
@@ -260,10 +260,12 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
             This switches the agent for this session to{" "}
             <strong>{pendingTargetName}</strong>
             {currentAgentName ? ` (currently ${currentAgentName})` : ""}. Your
-            environment, files, and workspace stay exactly as they are — only the
-            agent changes. The new agent picks up with the full prior
-            conversation as context. There may be a brief pause while the new
-            agent starts up.
+            task, branch, files, sandbox, and readable conversation history stay
+            in place. This starts a new agent thread: agent-native state and the
+            provider prompt cache do not carry over. Helix sends prior
+            conversation as context, which can substantially increase token
+            usage; older history may be truncated. There may be a brief pause
+            while the new agent starts.
           </DialogContentText>
           {switchError && (
             <Alert severity="error" sx={{ mt: 2 }} onClose={() => setSwitchError(null)}>

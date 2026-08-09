@@ -12,15 +12,19 @@ import {
 } from '@mui/material'
 import { ChevronDown, Folder, Hammer, ListTodo, MessageCircle } from 'lucide-react'
 
-import { TypesProjectSpecTaskAgent } from '../api/api'
+import {
+  TypesCodeAgentOverrides,
+  TypesSandboxResourceOverrides,
+} from '../api/api'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
-import AgentHarness from '../components/agent/AgentHarness'
 import RobustPromptInput from '../components/common/RobustPromptInput'
+import SpecTaskExecutionControls from '../components/tasks/SpecTaskExecutionControls'
 import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
 import { useStreaming } from '../contexts/streaming'
 import { getBrowserLocale } from '../hooks/useBrowserLocale'
 import useLightTheme from '../hooks/useLightTheme'
+import useApps from '../hooks/useApps'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import { useListProjectSpecTaskAgents, useListProjects } from '../services'
@@ -81,10 +85,6 @@ const selectorButtonSx = {
   },
 }
 
-function agentName(app?: TypesProjectSpecTaskAgent): string {
-  return app?.name || 'Unnamed agent'
-}
-
 function taskAttachmentValidation(file: File): string | null {
   if (TASK_ATTACHMENT_MIME_TYPES.has(file.type)) return null
   const lowerName = file.name.toLowerCase()
@@ -104,6 +104,7 @@ const Home: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
+  const apps = useApps()
   const { NewInference } = useStreaming()
   const orgId = account.organizationTools.organization?.id || ''
   const requestedProjectId = router.params.project_id || ''
@@ -130,8 +131,12 @@ const Home: FC = () => {
     readNewChatReasoningEffort(localStorage.getItem('helix_reasoning_effort'))
   ))
   const [selectedAgentId, setSelectedAgentId] = useState('')
+  const [taskCodeAgentOverrides, setTaskCodeAgentOverrides] = useState<TypesCodeAgentOverrides>({})
+  const [taskSandboxResources, setTaskSandboxResources] = useState<TypesSandboxResourceOverrides>({
+    vcpus: 4,
+    memory_mb: 8192,
+  })
   const [taskMode, setTaskMode] = useState<NewChatTaskMode>('build')
-  const [agentMenuAnchor, setAgentMenuAnchor] = useState<HTMLElement | null>(null)
   const [modeMenuAnchor, setModeMenuAnchor] = useState<HTMLElement | null>(null)
   const [effortMenuAnchor, setEffortMenuAnchor] = useState<HTMLElement | null>(null)
   const [projectMenuAnchor, setProjectMenuAnchor] = useState<HTMLElement | null>(null)
@@ -169,7 +174,15 @@ const Home: FC = () => {
     localStorage.setItem(agentStorageKey, selectedAgentId)
   }, [agentStorageKey, codingAgentIds, orgId, selectedAgentId])
 
-  const selectedAgent = codingAgents.find((agent) => agent.id === selectedAgentId)
+  useEffect(() => {
+    setTaskCodeAgentOverrides({})
+    setTaskSandboxResources({ vcpus: 4, memory_mb: 8192 })
+  }, [selectedProjectId])
+
+  const taskAgents = codingAgents.flatMap((summary) => {
+    const app = apps.apps.find((candidate) => candidate.id === summary.id)
+    return app ? [app] : []
+  })
   const isProjectContext = !!selectedProjectId
   const supportsReasoningEffort = modelSupportsReasoningEffort(
     providers,
@@ -233,6 +246,8 @@ const Home: FC = () => {
         mode: taskMode,
         projectId: selectedProjectId,
         prompt: message,
+        codeAgentOverrides: taskCodeAgentOverrides,
+        sandboxResourceOverrides: taskSandboxResources,
       }))
       taskId = task?.id || ''
       if (!taskId) throw new Error('Task creation returned no task ID')
@@ -266,56 +281,6 @@ const Home: FC = () => {
       setSubmitting(false)
     }
   }
-
-  const agentSelector = (
-    <>
-      <Tooltip title="Choose the coding agent for this task">
-        <Box component="span" sx={{ display: 'flex', minWidth: 0, maxWidth: 220, flexShrink: 1 }}>
-          <Button
-            disabled={submitting || codingAgents.length === 0}
-            startIcon={(
-              <AgentHarness
-                runtime={selectedAgent?.code_agent_runtime}
-                variant="short"
-                size={15}
-              />
-            )}
-            endIcon={<ChevronDown size={13} />}
-            onClick={(event) => setAgentMenuAnchor(event.currentTarget)}
-            sx={{ ...selectorButtonSx, width: '100%', overflow: 'hidden' }}
-          >
-            <Box
-              component="span"
-              sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            >
-              {codingAgents.length === 0 ? 'No external agents' : agentName(selectedAgent)}
-            </Box>
-          </Button>
-        </Box>
-      </Tooltip>
-      <Menu
-        anchorEl={agentMenuAnchor}
-        open={!!agentMenuAnchor}
-        onClose={() => setAgentMenuAnchor(null)}
-      >
-        {codingAgents.map((agent) => (
-          <MenuItem
-            key={agent.id || agentName(agent)}
-            selected={agent.id === selectedAgentId}
-            onClick={() => {
-              setSelectedAgentId(agent.id || '')
-              setAgentMenuAnchor(null)
-            }}
-          >
-            <ListItemIcon>
-              <AgentHarness runtime={agent.code_agent_runtime} variant="short" size={16} />
-            </ListItemIcon>
-            <ListItemText primary={agentName(agent)} />
-          </MenuItem>
-        ))}
-      </Menu>
-    </>
-  )
 
   const modeSelector = (
     <>
@@ -360,7 +325,19 @@ const Home: FC = () => {
 
   const projectActions = (
     <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
-      {agentSelector}
+      <SpecTaskExecutionControls
+        agents={taskAgents}
+        selectedAgentId={selectedAgentId}
+        codeAgentOverrides={taskCodeAgentOverrides}
+        sandboxResourceOverrides={taskSandboxResources}
+        onAgentModelChange={(agentId, overrides) => {
+          setSelectedAgentId(agentId)
+          setTaskCodeAgentOverrides(overrides)
+        }}
+        onSandboxResourceOverridesChange={setTaskSandboxResources}
+        disabled={submitting}
+        compact
+      />
       <Box
         aria-hidden="true"
         sx={{

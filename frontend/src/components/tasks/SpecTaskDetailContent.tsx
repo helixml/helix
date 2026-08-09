@@ -43,7 +43,11 @@ import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import UndoIcon from "@mui/icons-material/Undo";
-import { TypesSpecTaskStatus } from "../../api/api";
+import {
+  TypesCodeAgentOverrides,
+  TypesSandboxResourceOverrides,
+  TypesSpecTaskStatus,
+} from "../../api/api";
 import ExternalAgentDesktopViewer, {
   useSandboxState,
 } from "../external-agent/ExternalAgentDesktopViewer";
@@ -82,6 +86,7 @@ import {
   useProjectLabels,
   useAddLabel,
   useRemoveLabel,
+  useUpdateSpecTaskExecutionConfig,
 } from "../../services/specTaskService";
 import {
   useGetProject,
@@ -91,7 +96,6 @@ import { useMoveToBacklog } from "../../services/specTaskWorkflowService";
 import { getUserById } from "../../services/userService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import SpecTaskShareDialog from "./SpecTaskShareDialog";
-import AgentDropdown from "../agent/AgentDropdown";
 import AssigneeSelector from "./AssigneeSelector";
 import OrganizationUserAvatar, { resolveOrganizationUser } from "../widgets/OrganizationUserAvatar";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
@@ -99,7 +103,7 @@ import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import AgentChat from "../session/AgentChat";
 import { getChatColors } from "../session/chatStyles";
-import SwitchAgentControl from "../session/SwitchAgentControl";
+import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
 import SharePreviewSection from "./SharePreviewSection";
 import SandboxBrowser from "./SandboxBrowser";
 import SpecTaskLaunchWindow, {
@@ -241,6 +245,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const streaming = useStreaming();
   const apps = useApps();
   const updateSpecTask = useUpdateSpecTask();
+  const updateExecutionConfig = useUpdateSpecTaskExecutionConfig(taskId);
   const autoSaveSpecTask = useUpdateSpecTask();
   const moveToBacklogMutation = useMoveToBacklog(taskId);
   const queryClient = useQueryClient();
@@ -341,9 +346,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     task?.original_prompt,
   ]);
 
-  // Agent selection state
-  const [selectedAgent, setSelectedAgent] = useState("");
-  const [updatingAgent, setUpdatingAgent] = useState(false);
   const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<HTMLElement | null>(null);
   const orgMembers = account.organizationTools.organization?.memberships || [];
   const assignedUser = resolveOrganizationUser(task?.assignee_id, orgMembers, account.user);
@@ -422,6 +424,32 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     return selectCodingAgents(apps.apps);
   }, [apps.apps]);
 
+  const handleAgentModelChange = useCallback(async (
+    agentId: string,
+    codeAgentOverrides: TypesCodeAgentOverrides,
+  ) => {
+    const result = await updateExecutionConfig.mutateAsync({
+      agent_id: agentId,
+      code_agent_overrides: codeAgentOverrides,
+    });
+    snackbar.success(
+      result?.agent_thread_restarted
+        ? "Coding configuration updated — a new agent thread is starting"
+        : "Coding configuration updated",
+    );
+  }, [updateExecutionConfig, snackbar]);
+
+  const handleSandboxResourcesChange = useCallback(async (sandboxResourceOverrides: TypesSandboxResourceOverrides) => {
+    const result = await updateExecutionConfig.mutateAsync({
+      sandbox_resource_overrides: sandboxResourceOverrides,
+    });
+    snackbar.success(
+      result?.sandbox_resources_applied
+        ? "Running sandbox resized"
+        : "Sandbox size will apply when the task starts",
+    );
+  }, [updateExecutionConfig, snackbar]);
+
   // Get display settings from the task's app configuration
   const displaySettings = useMemo(() => {
     const taskApp = apps.apps?.find((a) => a.id === task?.helix_app_id);
@@ -444,13 +472,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
     return getTokenExpiryStatus(sub.access_token_expires_at);
   }, [task?.helix_app_id, apps.apps, claudeSubscriptions]);
-
-  // Sync selected agent when task changes
-  useEffect(() => {
-    if (task?.helix_app_id) {
-      setSelectedAgent(task.helix_app_id);
-    }
-  }, [task?.helix_app_id]);
 
   // Load apps on mount
   useEffect(() => {
@@ -993,32 +1014,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       setUpdatingJustDoIt(false);
     }
   }, [task?.id, justDoItMode, updatingJustDoIt, updateSpecTask, snackbar]);
-
-  // Handle agent change
-  const handleAgentChange = useCallback(
-    async (newAgentId: string) => {
-      if (!task?.id || updatingAgent || newAgentId === selectedAgent) return;
-
-      setUpdatingAgent(true);
-      const previousAgent = selectedAgent;
-      setSelectedAgent(newAgentId);
-
-      try {
-        await updateSpecTask.mutateAsync({
-          taskId: task.id,
-          updates: { helix_app_id: newAgentId },
-        });
-        snackbar.success("Agent updated");
-      } catch (err) {
-        console.error("Failed to update agent:", err);
-        snackbar.error("Failed to update agent");
-        setSelectedAgent(previousAgent);
-      } finally {
-        setUpdatingAgent(false);
-      }
-    },
-    [task?.id, selectedAgent, updatingAgent, updateSpecTask, snackbar],
-  );
 
   const handleAssigneeChange = useCallback(
     async (userId: string | null) => {
@@ -1852,12 +1847,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       {/* Agent Selection */}
       <Box sx={{ mb: 2 }}>
-        <AgentDropdown
-          value={selectedAgent}
-          onChange={handleAgentChange}
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Execution
+        </Typography>
+        <SpecTaskExecutionControls
           agents={eligibleApps}
-          disabled={updatingAgent}
-          size="small"
+          selectedAgentId={task?.helix_app_id || ""}
+          codeAgentOverrides={task?.code_agent_overrides}
+          sandboxResourceOverrides={task?.sandbox_resource_overrides}
+          onAgentModelChange={handleAgentModelChange}
+          onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+          confirmCodeAgentChanges={!!task?.planning_session_id}
+          disabled={updateExecutionConfig.isPending || !!task?.archived}
         />
       </Box>
 
@@ -2451,10 +2452,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
                   leadingActions={(
-                    <SwitchAgentControl
-                      sessionId={activeSessionId}
-                      projectId={task.project_id || ""}
-                      displayMode="compact"
+                    <SpecTaskExecutionControls
+                      agents={eligibleApps}
+                      selectedAgentId={task.helix_app_id || ""}
+                      codeAgentOverrides={task.code_agent_overrides}
+                      sandboxResourceOverrides={task.sandbox_resource_overrides}
+                      onAgentModelChange={handleAgentModelChange}
+                      onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+                      confirmCodeAgentChanges
+                      disabled={updateExecutionConfig.isPending}
+                      compact
                     />
                   )}
                   footerContent={taskChatMetadata}
@@ -3204,10 +3211,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
                   leadingActions={(
-                    <SwitchAgentControl
-                      sessionId={activeSessionId}
-                      projectId={task.project_id || ""}
-                      displayMode="compact"
+                    <SpecTaskExecutionControls
+                      agents={eligibleApps}
+                      selectedAgentId={task.helix_app_id || ""}
+                      codeAgentOverrides={task.code_agent_overrides}
+                      sandboxResourceOverrides={task.sandbox_resource_overrides}
+                      onAgentModelChange={handleAgentModelChange}
+                      onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+                      confirmCodeAgentChanges
+                      disabled={updateExecutionConfig.isPending}
+                      compact
                     />
                   )}
                   footerContent={taskChatMetadata}

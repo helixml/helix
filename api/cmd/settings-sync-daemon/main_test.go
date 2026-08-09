@@ -664,6 +664,7 @@ func TestCodexAgentServerUsesConfiguredReasoningEffort(t *testing.T) {
 		Runtime:         "codex_cli",
 		BaseURL:         "http://api/v1",
 		ReasoningEffort: "ultra",
+		ServiceTier:     "fast",
 	}}
 
 	cfg := d.generateAgentServerConfig()
@@ -673,7 +674,7 @@ func TestCodexAgentServerUsesConfiguredReasoningEffort(t *testing.T) {
 	assert.True(t, ok)
 	codexConfig, ok := env["CODEX_CONFIG"].(string)
 	assert.True(t, ok)
-	assert.JSONEq(t, `{"model_reasoning_effort":"ultra"}`, codexConfig)
+	assert.JSONEq(t, `{"model_reasoning_effort":"ultra","service_tier":"fast"}`, codexConfig)
 }
 
 // TestComputeEffectiveTheme exercises every branch of the helper that decides

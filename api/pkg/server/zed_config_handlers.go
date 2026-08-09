@@ -54,12 +54,23 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Get app (for external agents, parent_app may be empty)
+	// Get app (for external agents, parent_app may be empty). SpecTasks are
+	// authoritative for both the Agent reference and task-level overrides.
 	var app *types.App
-	if session.ParentApp != "" {
-		app, err = apiServer.Store.GetApp(ctx, session.ParentApp)
+	var specTask *types.SpecTask
+	if session.Metadata.SpecTaskID != "" {
+		if loadedTask, taskErr := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); taskErr == nil {
+			specTask = loadedTask
+		}
+	}
+	appID := session.ParentApp
+	if specTask != nil && specTask.HelixAppID != "" {
+		appID = specTask.HelixAppID
+	}
+	if appID != "" {
+		app, err = apiServer.Store.GetApp(ctx, appID)
 		if err != nil {
-			log.Warn().Err(err).Str("app_id", session.ParentApp).Str("session_id", sessionID).Msg("Parent app not found - falling back to default config")
+			log.Warn().Err(err).Str("app_id", appID).Str("session_id", sessionID).Msg("Parent app not found - falling back to default config")
 			// Fall back to default config if app doesn't exist
 			app = &types.App{
 				ID:     "external-agent-default",
@@ -74,6 +85,12 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			Config: types.AppConfig{},
 		}
 	}
+	app = external_agent.ApplyCodeAgentOverrides(app, func() *types.CodeAgentOverrides {
+		if specTask == nil {
+			return nil
+		}
+		return specTask.CodeAgentOverrides
+	}())
 
 	// Generate Zed MCP config
 	// Use SERVER_URL for external-facing URLs (browser access)
@@ -287,23 +304,18 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// spec-task path was covered.
 	var codeAgentConfig *types.CodeAgentConfig
 	var sessionProjectID = session.Metadata.ProjectID
-	if session.Metadata.SpecTaskID != "" {
-		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil {
-			if specTask.ProjectID != "" {
-				sessionProjectID = specTask.ProjectID
-			}
-			if specTask.HelixAppID != "" {
-				if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
-					codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
-					apiServer.applySpecTaskGooseRecipe(ctx, specTask, codeAgentConfig)
-				}
-			}
+	if specTask != nil {
+		if specTask.ProjectID != "" {
+			sessionProjectID = specTask.ProjectID
 		}
+		codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
+		if codeAgentConfig != nil && specTask.CodeAgentOverrides != nil {
+			codeAgentConfig.ServiceTier = specTask.CodeAgentOverrides.ServiceTier
+		}
+		apiServer.applySpecTaskGooseRecipe(ctx, specTask, codeAgentConfig)
 	}
 	if codeAgentConfig == nil && session.ParentApp != "" {
-		if app, err := apiServer.Store.GetApp(ctx, session.ParentApp); err == nil {
-			codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
-		}
+		codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
 	}
 
 	// Check if user has an active subscription (for credential sync in containers).
@@ -1024,7 +1036,8 @@ func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context
 	// the heal-on-read rewrite — runner-token entry into this code path is
 	// not a thing for these handlers.
 	apiServer.healLegacyProviderRefs(ctx, app, snapshot, true)
-	return external_agent.ValidateAssistantModelConfig(app, snapshot), nil
+	effectiveApp := external_agent.ApplyCodeAgentOverrides(app, task.CodeAgentOverrides)
+	return external_agent.ValidateAssistantModelConfig(effectiveApp, snapshot), nil
 }
 
 // healLegacyProviderRefs rewrites name-based provider references on the app
