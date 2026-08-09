@@ -152,7 +152,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 	targetRuntime types.CodeAgentRuntime,
 	targetAppID string,
 ) *system.HTTPError {
-	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, targetAppID, true)
+	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, targetAppID, true, "")
 }
 
 // reconcileSessionAgentWithApp repairs sessions whose persisted ACP binding
@@ -190,7 +190,7 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 		Str("target_agent_name", targetRuntime.ZedAgentName()).
 		Msg("reconciling stale session agent binding before next turn")
 
-	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, session.ParentApp, false)
+	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, session.ParentApp, false, "")
 }
 
 func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
@@ -199,6 +199,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	targetRuntime types.CodeAgentRuntime,
 	targetAppID string,
 	createHandoff bool,
+	handoffReason string,
 ) *system.HTTPError {
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    session.ID,
@@ -291,6 +292,14 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 				"confirming you're ready, then wait for the user's next message.]",
 			newLabel, prevLabel,
 		)
+		if handoffReason != "" {
+			handoffPrompt = fmt.Sprintf(
+				"[System: %s The environment, files, and workspace are unchanged, and the prior "+
+					"conversation is included above for context. Do not summarise or restate it — "+
+					"just reply with a single short line confirming you're ready, then wait for the user's next message.]",
+				handoffReason,
+			)
+		}
 		handoffInteraction := &types.Interaction{
 			Created:       now,
 			Updated:       now,

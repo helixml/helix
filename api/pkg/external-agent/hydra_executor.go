@@ -389,6 +389,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Privileged:     true, // Required for inner dockerd (docker-in-desktop mode)
 		ProjectID:      agent.ProjectID,
 		GoldenBuild:    agent.GoldenBuild,
+		VCPUs:          agent.VCPUs,
+		MemoryMB:       agent.MemoryMB,
 	}
 
 	// Create dev container via Hydra
@@ -576,6 +578,42 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		SandboxID:      sandboxID,
 		DevContainerID: resp.ContainerID, // Container ID for exploratory session tracking
 	}, nil
+}
+
+func (h *HydraExecutor) UpdateDesktopResources(ctx context.Context, sessionID string, resources *types.SandboxResourceOverrides) error {
+	if resources == nil {
+		return fmt.Errorf("sandbox resources are required")
+	}
+	sessionLock := h.getOrCreateSessionLock(sessionID)
+	sessionLock.Lock()
+	defer sessionLock.Unlock()
+
+	sandboxID := ""
+	h.mutex.RLock()
+	if session := h.sessions[sessionID]; session != nil {
+		sandboxID = session.SandboxID
+	}
+	h.mutex.RUnlock()
+	if sandboxID == "" {
+		dbSession, err := h.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return fmt.Errorf("failed to load session: %w", err)
+		}
+		sandboxID = dbSession.SandboxID
+	}
+	if sandboxID == "" {
+		sandboxID = "local"
+	}
+
+	client := hydra.NewRevDialClient(h.connman, fmt.Sprintf("hydra-%s", sandboxID))
+	_, err := client.UpdateDevContainerResources(ctx, sessionID, &hydra.UpdateDevContainerResourcesRequest{
+		VCPUs:    resources.VCPUs,
+		MemoryMB: resources.MemoryMB,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update desktop resources: %w", err)
+	}
+	return nil
 }
 
 func (h *HydraExecutor) attachSessionBootstrap(ctx context.Context, agent *types.DesktopAgent) error {
@@ -890,7 +928,7 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 		return false
 	}
 
-	if session.Status != "running" || session.ContainerID == "" {
+	if session.ContainerID == "" {
 		return false
 	}
 
@@ -905,7 +943,7 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 		hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
 		hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
 
-		_, err := hydraClient.GetDevContainer(ctx, sessionID)
+		container, err := hydraClient.GetDevContainer(ctx, sessionID)
 		if err != nil {
 			// Container no longer exists on sandbox — clean up stale entry
 			log.Info().
@@ -935,9 +973,10 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 			}
 			return false
 		}
+		return container.Status == hydra.DevContainerStatusRunning
 	}
 
-	return true
+	return session.Status == "running"
 }
 
 // Helper methods

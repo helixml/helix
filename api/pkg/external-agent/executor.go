@@ -24,6 +24,7 @@ type Executor interface {
 
 	// Reconciliation support
 	HasRunningContainer(ctx context.Context, sessionID string) bool
+	UpdateDesktopResources(ctx context.Context, sessionID string, resources *types.SandboxResourceOverrides) error
 
 	// Container discovery from sandbox
 	DiscoverContainersFromSandbox(ctx context.Context, sandboxID string) error

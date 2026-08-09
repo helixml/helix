@@ -178,6 +178,33 @@ func (c *Client) GetDevContainer(ctx context.Context, sessionID string) (*DevCon
 	return &result, nil
 }
 
+func (c *Client) UpdateDevContainerResources(ctx context.Context, sessionID string, req *UpdateDevContainerResourcesRequest) (*DevContainerResourcesResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	url := fmt.Sprintf("%s/api/v1/dev-containers/%s/resources", c.baseURL, sessionID)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+	var result DevContainerResourcesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
 // ListDevContainers lists all dev containers via Unix socket
 func (c *Client) ListDevContainers(ctx context.Context) (*ListDevContainersResponse, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/dev-containers", nil)
@@ -326,6 +353,23 @@ func (c *RevDialClient) GetDevContainer(ctx context.Context, sessionID string) (
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	return &result, nil
+}
+
+func (c *RevDialClient) UpdateDevContainerResources(ctx context.Context, sessionID string, req *UpdateDevContainerResourcesRequest) (*DevContainerResourcesResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	path := fmt.Sprintf("/api/v1/dev-containers/%s/resources", sessionID)
+	respBody, err := c.doRequest(ctx, http.MethodPatch, path, body)
+	if err != nil {
+		return nil, err
+	}
+	var result DevContainerResourcesResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
 	return &result, nil
 }
 

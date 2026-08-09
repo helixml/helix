@@ -1365,3 +1365,51 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSpecTaskZedThreadByZed
 	suite.Error(err)
 	suite.Contains(err.Error(), "spec task zed thread not found for zed thread ID")
 }
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteSpecTaskRemovesThreadTracking() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	task := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Task with an ACP handoff",
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Test task deletion after a model switch",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	suite.Require().NoError(suite.db.CreateSpecTask(suite.ctx, task))
+
+	helixSession := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "test-user",
+		Created: time.Now(),
+		Updated: time.Now(),
+	}
+	_, err := suite.db.CreateSession(suite.ctx, helixSession)
+	suite.Require().NoError(err)
+
+	workSession := &types.SpecTaskWorkSession{
+		SpecTaskID:     task.ID,
+		HelixSessionID: helixSession.ID,
+		Phase:          types.SpecTaskPhaseImplementation,
+		Status:         types.SpecTaskWorkSessionStatusActive,
+	}
+	suite.Require().NoError(suite.db.CreateSpecTaskWorkSession(suite.ctx, workSession))
+	suite.Require().NoError(suite.db.CreateSpecTaskZedThread(suite.ctx, &types.SpecTaskZedThread{
+		WorkSessionID: workSession.ID,
+		SpecTaskID:    task.ID,
+		ZedThreadID:   "zed-thread-" + system.GenerateUUID(),
+	}))
+
+	suite.Require().NoError(suite.db.DeleteSpecTask(suite.ctx, task.ID))
+	_, err = suite.db.GetSpecTask(suite.ctx, task.ID)
+	suite.Error(err)
+	workSessions, err := suite.db.ListSpecTaskWorkSessions(suite.ctx, task.ID)
+	suite.Require().NoError(err)
+	suite.Empty(workSessions)
+}

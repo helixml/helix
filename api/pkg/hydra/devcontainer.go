@@ -1038,12 +1038,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		},
 	}
 	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
-	if req.VCPUs > 0 {
-		resources.NanoCPUs = int64(req.VCPUs) * 1_000_000_000
-	}
-	if req.MemoryMB > 0 {
-		resources.Memory = int64(req.MemoryMB) * 1024 * 1024
-	}
+	resources.NanoCPUs, resources.Memory, resources.MemorySwap = sandboxResourceLimits(req.VCPUs, req.MemoryMB)
 
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
@@ -1097,6 +1092,17 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	hostConfig.Mounts = mounts
 
 	return hostConfig, nil
+}
+
+func sandboxResourceLimits(vcpus, memoryMB int) (nanoCPUs, memory, memorySwap int64) {
+	if vcpus > 0 {
+		nanoCPUs = int64(vcpus) * 1_000_000_000
+	}
+	if memoryMB > 0 {
+		memory = int64(memoryMB) * 1024 * 1024
+		memorySwap = memory * 2
+	}
+	return nanoCPUs, memory, memorySwap
 }
 
 // resolveDockerDataDir determines the host path for a session's /var/lib/docker mount.
@@ -2132,6 +2138,7 @@ func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID st
 	// a container restart; a stale cached IP causes "no route to host" 502s on
 	// the proxy path. Since the proxy calls GetDevContainer on every request,
 	// refreshing the IP here keeps routing correct without any retry logic.
+	var vcpus, memoryMB int
 	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
 	if err == nil {
 		defer dockerClient.Close()
@@ -2157,6 +2164,10 @@ func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID st
 				dc.IPAddress = ip
 			}
 			dm.mu.Unlock()
+			if inspect.HostConfig != nil {
+				vcpus = int(inspect.HostConfig.NanoCPUs / 1_000_000_000)
+				memoryMB = int(inspect.HostConfig.Memory / (1024 * 1024))
+			}
 		}
 	}
 
@@ -2167,6 +2178,70 @@ func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID st
 		Status:        dc.Status,
 		IPAddress:     dc.IPAddress,
 		ContainerType: dc.ContainerType,
+		VCPUs:         vcpus,
+		MemoryMB:      memoryMB,
+	}, nil
+}
+
+// UpdateDevContainerResources changes cgroup CPU and memory limits without
+// recreating the container. Memory reductions are refused while current usage
+// is above 90% of the requested limit to avoid an immediate OOM kill.
+func (dm *DevContainerManager) UpdateDevContainerResources(ctx context.Context, sessionID string, req *UpdateDevContainerResourcesRequest) (*DevContainerResourcesResponse, error) {
+	dm.mu.RLock()
+	dc, exists := dm.containers[sessionID]
+	dm.mu.RUnlock()
+	if !exists {
+		return nil, fmt.Errorf("dev container not found for session: %s", sessionID)
+	}
+
+	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+	}
+	defer dockerClient.Close()
+
+	inspect, err := dockerClient.ContainerInspect(ctx, dc.ContainerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+	requestedNanoCPUs, requestedMemory, requestedMemorySwap := sandboxResourceLimits(req.VCPUs, req.MemoryMB)
+	if requestedMemory == 0 {
+		requestedMemorySwap = -1
+	}
+	if requestedMemory > 0 && inspect.HostConfig != nil && (inspect.HostConfig.Memory == 0 || requestedMemory < inspect.HostConfig.Memory) {
+		statsResp, statsErr := dockerClient.ContainerStatsOneShot(ctx, dc.ContainerID)
+		if statsErr != nil {
+			return nil, fmt.Errorf("failed to read memory usage before resize: %w", statsErr)
+		}
+		defer statsResp.Body.Close()
+		var stats dockertypes.Stats
+		if err := json.NewDecoder(statsResp.Body).Decode(&stats); err != nil {
+			return nil, fmt.Errorf("failed to decode memory usage before resize: %w", err)
+		}
+		if stats.MemoryStats.Usage > uint64(requestedMemory*9/10) {
+			return nil, fmt.Errorf("cannot reduce memory to %d MB while the container is using %d MB", req.MemoryMB, stats.MemoryStats.Usage/(1024*1024))
+		}
+	}
+
+	_, err = dockerClient.ContainerUpdate(ctx, dc.ContainerID, container.UpdateConfig{
+		Resources: container.Resources{
+			NanoCPUs:   requestedNanoCPUs,
+			Memory:     requestedMemory,
+			MemorySwap: requestedMemorySwap,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update container resources: %w", err)
+	}
+
+	updated, err := dockerClient.ContainerInspect(ctx, dc.ContainerID)
+	if err != nil {
+		return nil, fmt.Errorf("resources updated but verification failed: %w", err)
+	}
+	return &DevContainerResourcesResponse{
+		SessionID: sessionID,
+		VCPUs:     int(updated.HostConfig.NanoCPUs / 1_000_000_000),
+		MemoryMB:  int(updated.HostConfig.Memory / (1024 * 1024)),
 	}, nil
 }
 

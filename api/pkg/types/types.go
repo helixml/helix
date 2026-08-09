@@ -2062,6 +2062,11 @@ type DesktopAgent struct {
 	// Golden build mode: session builds a golden Docker cache snapshot
 	GoldenBuild bool `json:"golden_build,omitempty"`
 
+	// Optional task-level resource limits. Zero preserves the existing uncapped
+	// behaviour used by legacy SpecTasks and non-task desktop sessions.
+	VCPUs    int `json:"vcpus,omitempty"`
+	MemoryMB int `json:"memory_mb,omitempty"`
+
 	// OnBeforeCreate is called inside the session lock, after the "already running"
 	// check passes, right before creating the container. Used to refresh API keys
 	// that may have been revoked by a concurrent StopDesktop.
@@ -2459,6 +2464,9 @@ type CodeAgentConfig struct {
 	// ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.
 	// Empty means the runtime/model default.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// ServiceTier controls provider scheduling for runtimes that support it.
+	// Codex uses "fast" for priority processing; empty uses the normal tier.
+	ServiceTier string `json:"service_tier,omitempty"`
 	// MaxTokens is the model's context window size (max input tokens)
 	// Looked up from model_info.json, 0 if not found
 	MaxTokens int `json:"max_tokens,omitempty"`

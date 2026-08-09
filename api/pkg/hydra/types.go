@@ -159,6 +159,19 @@ type DevContainerResponse struct {
 	DesktopVersion string `json:"desktop_version,omitempty"` // helix-ubuntu image version (commit hash)
 	GPUVendor      string `json:"gpu_vendor,omitempty"`      // nvidia, amd, intel, or ""
 	RenderNode     string `json:"render_node,omitempty"`     // /dev/dri/renderD128 or SOFTWARE
+	VCPUs          int    `json:"vcpus,omitempty"`
+	MemoryMB       int    `json:"memory_mb,omitempty"`
+}
+
+type UpdateDevContainerResourcesRequest struct {
+	VCPUs    int `json:"vcpus"`
+	MemoryMB int `json:"memory_mb"`
+}
+
+type DevContainerResourcesResponse struct {
+	SessionID string `json:"session_id"`
+	VCPUs     int    `json:"vcpus"`
+	MemoryMB  int    `json:"memory_mb"`
 }
 
 // DevContainer represents a running dev container managed by Hydra

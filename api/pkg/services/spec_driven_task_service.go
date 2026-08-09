@@ -133,6 +133,9 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
+		return nil, fmt.Errorf("invalid sandbox resource preset")
+	}
 	// Fetch project to get organization ID and default agent
 	var project *types.Project
 	if req.ProjectID != "" {
@@ -192,21 +195,23 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	}
 
 	task := &types.SpecTask{
-		ID:                generateTaskID(),
-		ProjectID:         req.ProjectID,
-		UserID:            req.UserID,
-		OrganizationID:    organizationID,
-		AssigneeID:        assigneeID, // Auto-started work is always assigned to the user who started it
-		Name:              GenerateTaskNameFromPrompt(req.Prompt),
-		Description:       req.Prompt,
-		Type:              req.Type,
-		Priority:          req.Priority,
-		Status:            initialStatus,
-		OriginalPrompt:    req.Prompt,
-		CreatedBy:         req.UserID,
-		PlanningStartedBy: planningStartedBy,
-		HelixAppID:        helixAppID,       // Helix agent used for entire workflow
-		JustDoItMode:      req.JustDoItMode, // Set Just Do It mode from request
+		ID:                       generateTaskID(),
+		ProjectID:                req.ProjectID,
+		UserID:                   req.UserID,
+		OrganizationID:           organizationID,
+		AssigneeID:               assigneeID, // Auto-started work is always assigned to the user who started it
+		Name:                     GenerateTaskNameFromPrompt(req.Prompt),
+		Description:              req.Prompt,
+		Type:                     req.Type,
+		Priority:                 req.Priority,
+		Status:                   initialStatus,
+		OriginalPrompt:           req.Prompt,
+		CreatedBy:                req.UserID,
+		PlanningStartedBy:        planningStartedBy,
+		HelixAppID:               helixAppID, // Helix agent used for entire workflow
+		CodeAgentOverrides:       req.CodeAgentOverrides,
+		SandboxResourceOverrides: req.SandboxResourceOverrides,
+		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
 		// Credential-only override: whose Claude subscription authenticates this
 		// task's agent. Enforced at resolution time against the named user's
 		// delegation grant, so an unauthorised value simply has no effect.
@@ -636,6 +641,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		ProjectID:      task.ProjectID, // For golden Docker cache overlay
 		ProjectPath:    "workspace",    // Use relative path
 		SpecTaskID:     task.ID,        // For task-scoped workspace
+		VCPUs:          sandboxVCPUs(task),
+		MemoryMB:       sandboxMemoryMB(task),
 		// RepositoryIDs / PrimaryRepositoryID set by SetRepoContext below.
 		DisplayWidth:       displayWidth,
 		DisplayHeight:      displayHeight,
@@ -1072,8 +1079,10 @@ Follow these guidelines when making changes:
 		ProjectID:           task.ProjectID, // For golden Docker cache overlay
 		ProjectPath:         "workspace",    // Use relative path
 		SpecTaskID:          task.ID,        // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID,  // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs,  // ALL project repos to checkout
+		VCPUs:               sandboxVCPUs(task),
+		MemoryMB:            sandboxMemoryMB(task),
+		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
 		DisplayWidth:        displayWidthJDI,
 		DisplayHeight:       displayHeightJDI,
 		DisplayRefreshRate:  displayRefreshRateJDI,
@@ -1107,6 +1116,20 @@ Follow these guidelines when making changes:
 	if s.auditLogService != nil {
 		s.auditLogService.LogAgentStarted(ctx, task, session.ID, task.CreatedBy, "")
 	}
+}
+
+func sandboxVCPUs(task *types.SpecTask) int {
+	if task == nil || task.SandboxResourceOverrides == nil {
+		return 0
+	}
+	return task.SandboxResourceOverrides.VCPUs
+}
+
+func sandboxMemoryMB(task *types.SpecTask) int {
+	if task == nil || task.SandboxResourceOverrides == nil {
+		return 0
+	}
+	return task.SandboxResourceOverrides.MemoryMB
 }
 
 // buildEnvWithLocale constructs the environment variable array for desktop containers
@@ -2163,6 +2186,8 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",
 		SpecTaskID:          task.ID,
+		VCPUs:               sandboxVCPUs(task),
+		MemoryMB:            sandboxMemoryMB(task),
 		PrimaryRepositoryID: primaryRepoID,
 		RepositoryIDs:       repositoryIDs,
 		DisplayWidth:        displayWidth,
