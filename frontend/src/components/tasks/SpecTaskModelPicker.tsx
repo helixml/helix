@@ -112,7 +112,12 @@ const SpecTaskModelPickerView: FC<{
   }, [activeAgent?.agent.id, agents, anchor]);
 
   const activeRuntime = activeAgent?.assistant?.code_agent_runtime || "zed_agent";
-  const activeAgentName = activeAgent?.agent.config?.helix?.name || "Select agent";
+  const activeModel = activeAgent?.models.find((option) => option.id === model
+    && (!option.provider || matchesStoredRef(option.provider, providerRefValue)))
+    || activeAgent?.models.find((option) => option.id === model);
+  const activeModelLabel = activeModel?.label.replace(/ \(.+\)$/, "")
+    || model.split("/").pop()
+    || "Select model";
 
   return (
     <>
@@ -123,10 +128,12 @@ const SpecTaskModelPickerView: FC<{
         sx={triggerSx}
       >
         <Box component="span" sx={{ display: "inline-flex", flexShrink: 0 }}>
-          <AgentHarness runtime={activeRuntime} variant="short" size={16} />
+          {activeModel?.provider
+            ? <ProviderIcon provider={activeModel.provider} size={16} />
+            : <AgentHarness runtime={activeRuntime} variant="short" size={16} showTooltip={false} />}
         </Box>
         <Box component="span" sx={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {activeAgentName}
+          {activeModelLabel}
         </Box>
         <ChevronDown size={13} aria-hidden="true" />
       </Button>
@@ -156,7 +163,17 @@ const SpecTaskModelPickerView: FC<{
           {!searching && (
             <Stack
               spacing={0.5}
-              sx={{ width: 46, flexShrink: 0, p: 0.5, bgcolor: "action.hover", borderRight: "1px solid", borderColor: "divider" }}
+              sx={{
+                width: 46,
+                minHeight: 0,
+                flexShrink: 0,
+                p: 0.5,
+                bgcolor: "action.hover",
+                borderRight: "1px solid",
+                borderColor: "divider",
+                overflowY: "auto",
+                overscrollBehavior: "contain",
+              }}
             >
               {agents.map(({ agent, assistant }) => {
                 const selected = agent.id === browsedAgent?.agent.id;
@@ -175,7 +192,12 @@ const SpecTaskModelPickerView: FC<{
                       "&:hover": { bgcolor: "action.selected" },
                     }}
                   >
-                    <AgentHarness runtime={assistant?.code_agent_runtime || "zed_agent"} variant="short" size={20} />
+                    <AgentHarness
+                      runtime={assistant?.code_agent_runtime || "zed_agent"}
+                      variant="short"
+                      size={20}
+                      tooltipPlacement="left"
+                    />
                   </IconButton>
                 );
               })}
@@ -242,7 +264,12 @@ const SpecTaskModelPickerView: FC<{
                       <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.5 }}>
                         {option.provider
                           ? <ProviderIcon provider={option.provider} size={13} />
-                          : <AgentHarness runtime={agent.assistant?.code_agent_runtime || "zed_agent"} variant="short" size={13} />}
+                          : <AgentHarness
+                              runtime={agent.assistant?.code_agent_runtime || "zed_agent"}
+                              variant="short"
+                              size={13}
+                              showTooltip={false}
+                            />}
                         <Typography variant="caption" color="text.secondary" noWrap>
                           {agentName}{option.providerLabel && option.providerLabel !== agentName ? ` · ${option.providerLabel}` : ""}
                         </Typography>

@@ -59,6 +59,8 @@ describe("SpecTaskExecutionControls", () => {
       />,
     );
 
+    expect(screen.getByRole("button", { name: "Change coding model" })).toHaveTextContent("GPT-5.6 Sol");
+    expect(screen.getByRole("button", { name: "Change coding model" })).not.toHaveTextContent("Codex");
     fireEvent.click(screen.getByRole("button", { name: "Change coding model" }));
     expect(screen.getByRole("textbox", { name: "Search models" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "Search models" }), {
