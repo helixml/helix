@@ -18,9 +18,8 @@ import {
   IconButton,
   Tooltip,
 } from '@mui/material'
-import AddIcon from '@mui/icons-material/Add'
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import EditIcon from '@mui/icons-material/Edit'
+import { useTheme } from '@mui/material/styles'
+import { CircleCheck, Pencil, Plus } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 
@@ -48,6 +47,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   description = 'Choose a default agent for this project. You can override this when creating individual tasks.',
 }) => {
   const account = useAccount()
+  const muiTheme = useTheme()
   const { apps, loadApps } = useContext(AppsContext)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -166,11 +166,11 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                                 account.orgNavigate('agent', { app_id: app.id })
                               }}
                             >
-                              <EditIcon fontSize="small" />
+                              <Pencil size={18} />
                             </IconButton>
                           </Tooltip>
                           {isSelected && (
-                            <CheckCircleIcon color="primary" />
+                            <CircleCheck size={20} color={muiTheme.palette.primary.main} />
                           )}
                         </Box>
                       </ListItemButton>
@@ -188,7 +188,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
 
             {/* Create new agent button */}
             <Button
-              startIcon={<AddIcon />}
+              startIcon={<Plus size={18} />}
               onClick={() => setShowCreateForm(true)}
               fullWidth
               variant="outlined"
