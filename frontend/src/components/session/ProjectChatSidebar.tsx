@@ -54,6 +54,7 @@ import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
 import SortableProject from './SortableProject'
 import useProjectChatSidebarDrag from './useProjectChatSidebarDrag'
 import useProjectChatSidebarPreferences from './useProjectChatSidebarPreferences'
+import ChatSidebarBrandHeader from './ChatSidebarBrandHeader'
 
 const RELATIVE_TIME_REFRESH_MS = 15000
 const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
@@ -74,7 +75,10 @@ const readParticipantIds = (storageKey: string): string[] | null => {
   }
 }
 
-const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }) => {
+const ProjectChatSidebar: FC<{
+  onCollapse: () => void
+  onOpenSession: () => void
+}> = ({ onCollapse, onOpenSession }) => {
   const account = useAccount()
   const router = useRouter()
   const lightTheme = useLightTheme()
@@ -439,6 +443,8 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
         },
       }}
     >
+      <ChatSidebarBrandHeader onCollapse={onCollapse} />
+
       <Box
         sx={{
           height: 60,

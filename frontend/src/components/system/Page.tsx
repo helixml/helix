@@ -9,6 +9,7 @@ import { SxProps } from '@mui/system'
 import SearchIcon from '@mui/icons-material/Search'
 import LightModeIcon from '@mui/icons-material/LightMode'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
+import { PanelLeft } from 'lucide-react'
 
 import AppBar from './AppBar'
 import GlobalSearchDialog from './GlobalSearchDialog'
@@ -20,6 +21,7 @@ import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
 import useDocumentTitle from '../../hooks/useDocumentTitle'
 import { ThemeContext } from '../../contexts/theme'
+import { useChatSidebar } from '../../contexts/chatSidebar'
 
 import {
   IPageBreadcrumb,
@@ -77,7 +79,14 @@ const Page: React.FC<{
   const account = useAccount()
   const lightTheme = useLightTheme()
   const { mode, toggleMode } = useContext(ThemeContext)
+  const chatSidebar = useChatSidebar()
   const [searchDialogOpen, setSearchDialogOpen] = useState(false)
+  const showChatSidebarButton = chatSidebar.collapsed && [
+    'org_chat',
+    'org_chat-task',
+    'org_session',
+    'org_new',
+  ].includes(router.name)
 
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -248,6 +257,22 @@ const Page: React.FC<{
           >
             <AppBar
               title={ useTopbarTitle }
+              leadingContent={showChatSidebarButton ? (
+                <Tooltip title="Open chat panel">
+                  <IconButton
+                    onClick={chatSidebar.expand}
+                    aria-label="Open chat panel"
+                    sx={{
+                      width: 30,
+                      height: 30,
+                      color: 'text.secondary',
+                      '&:hover': { color: 'text.primary' },
+                    }}
+                  >
+                    <PanelLeft size={18} strokeWidth={1.7} />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
               leftContent={ topbarLeftContent }
               px={ px }
               onOpenDrawer={ showDrawerButton ? () => account.setMobileMenuOpen(true) : undefined }

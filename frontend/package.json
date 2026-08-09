@@ -24,6 +24,7 @@
     "@emotion/styled": "^11.6.0",
     "@fontsource-variable/dm-sans": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource-variable/sora": "^5.3.0",
     "@hookform/resolvers": "^3.10.0",
     "@inovua/reactdatagrid-community": "^5.10.2",
     "@mui/icons-material": "^5.3.1",

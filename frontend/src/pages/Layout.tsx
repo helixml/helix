@@ -62,6 +62,11 @@ import useUserMenuHeight from "../hooks/useUserMenuHeight";
 import { LIGHT_SIDEBAR_COLORS } from "../styles/themeTokens";
 import { TOOLBAR_HEIGHT } from "../config";
 import { usesFocusedAgentDetails } from "../utils/apps";
+import { ChatSidebarProvider } from "../contexts/chatSidebar";
+import {
+  chatSidebarCollapsedStorageKey,
+  parseChatSidebarCollapsed,
+} from "../components/session/chatSidebarVisibility";
 
 // Admin and Connected Services are rendered as full-screen dialog overlays
 // so the user stays within their current org-scoped URL
@@ -270,6 +275,7 @@ const Layout: FC<{
   const floatingModal = useFloatingModal();
   const orgId = router.params.org_id || "";
   const sidebarWidthStorageKey = chatSidebarWidthStorageKey(orgId);
+  const sidebarCollapsedStorageKey = chatSidebarCollapsedStorageKey(orgId);
   const defaultChatSidebarWidth = themeConfig.drawerWidth || CHAT_SIDEBAR_DEFAULT_WIDTH;
   const [chatSidebarWidth, setChatSidebarWidth] = useState(() => {
     try {
@@ -282,6 +288,13 @@ const Layout: FC<{
     }
   });
   const [isResizingChatSidebar, setIsResizingChatSidebar] = useState(false);
+  const [chatSidebarCollapsed, setChatSidebarCollapsed] = useState(() => {
+    try {
+      return parseChatSidebarCollapsed(window.localStorage.getItem(sidebarCollapsedStorageKey));
+    } catch {
+      return false;
+    }
+  });
   const chatSidebarWidthRef = useRef(chatSidebarWidth);
   const [showVersionBanner, setShowVersionBanner] = useState(true);
   const [showLocalProviderBanner, setShowLocalProviderBanner] = useState(true);
@@ -297,6 +310,25 @@ const Layout: FC<{
     useState(false);
   const licenseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const userMenuHeight = useUserMenuHeight();
+
+  useEffect(() => {
+    try {
+      setChatSidebarCollapsed(parseChatSidebarCollapsed(
+        window.localStorage.getItem(sidebarCollapsedStorageKey),
+      ));
+    } catch {
+      setChatSidebarCollapsed(false);
+    }
+  }, [sidebarCollapsedStorageKey]);
+
+  const setChatSidebarCollapsedAndPersist = (collapsed: boolean) => {
+    setChatSidebarCollapsed(collapsed);
+    try {
+      window.localStorage.setItem(sidebarCollapsedStorageKey, String(collapsed));
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  };
 
   useEffect(() => {
     try {
@@ -578,7 +610,15 @@ const Layout: FC<{
         return <FilesSidebar onOpenFile={() => {}} />;
 
       default:
-        return <ProjectChatSidebar onOpenSession={onOpenSession} />;
+        return (
+          <ProjectChatSidebar
+            onCollapse={() => {
+              if (isBigScreen) setChatSidebarCollapsedAndPersist(true);
+              else account.setMobileMenuOpen(false);
+            }}
+            onOpenSession={onOpenSession}
+          />
+        );
     }
   }
 
@@ -600,8 +640,15 @@ const Layout: FC<{
     );
   }
 
+  const desktopChatSidebarCollapsed = isBigScreen && isConversationRoute && chatSidebarCollapsed;
+  const visibleChatSidebarWidth = desktopChatSidebarCollapsed ? 64 : chatSidebarWidth;
+
   return (
-    <>
+    <ChatSidebarProvider
+      collapsed={desktopChatSidebarCollapsed}
+      collapse={() => setChatSidebarCollapsedAndPersist(true)}
+      expand={() => setChatSidebarCollapsedAndPersist(false)}
+    >
       <MuiSnackbar
         open={showVersionBanner && hasNewVersion}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
@@ -683,7 +730,7 @@ const Layout: FC<{
               width: shouldShowSidebar
                 ? isBigScreen
                   ? isConversationRoute
-                    ? chatSidebarWidth
+                    ? visibleChatSidebarWidth
                     : themeConfig.drawerWidth
                   : themeConfig.smallDrawerWidth
                 : 64,
@@ -747,7 +794,7 @@ const Layout: FC<{
                 sidebarVisible={shouldShowSidebar && !isConversationRoute}
               />
             </Box>
-            {shouldShowSidebar && (
+            {shouldShowSidebar && !desktopChatSidebarCollapsed && (
               <Box
                 sx={{
                   flex: 1,
@@ -763,7 +810,7 @@ const Layout: FC<{
               </Box>
             )}
           </Box>
-          {isBigScreen && shouldShowSidebar && isConversationRoute && (
+          {isBigScreen && shouldShowSidebar && isConversationRoute && !desktopChatSidebarCollapsed && (
             <Box
               data-chat-sidebar-resize-handle
               role="separator"
@@ -843,7 +890,7 @@ const Layout: FC<{
               },
               "& [data-page-toolbar] > .MuiAppBar-root": {
                 position: "fixed",
-                left: isConversationRoute ? chatSidebarWidth : 64,
+                left: isConversationRoute ? visibleChatSidebarWidth : 64,
                 right: 0,
                 width: "auto",
                 zIndex: (theme) => theme.zIndex.drawer + 1,
@@ -944,7 +991,7 @@ const Layout: FC<{
       {licenseRequired && (
         <LicenseKeyPrompt gracePeriodExpired={licenseGracePeriodExpired} />
       )}
-    </>
+    </ChatSidebarProvider>
   );
 };
 
