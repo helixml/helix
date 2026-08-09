@@ -45,10 +45,21 @@ describe('ProjectChatSidebar logic', () => {
   })
 
   it('accepts only unmodified chat shortcut numbers 1 through 9', () => {
-    expect(getChatShortcutNumber({ key: '1', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, true)).toBe(1)
-    expect(getChatShortcutNumber({ key: '9', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }, false)).toBe(9)
-    expect(getChatShortcutNumber({ key: '0', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, true)).toBeNull()
-    expect(getChatShortcutNumber({ key: '2', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }, true)).toBeNull()
+    expect(getChatShortcutNumber({ key: '1', code: 'Digit1', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, true)).toBe(1)
+    expect(getChatShortcutNumber({ key: '9', code: 'Digit9', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }, false)).toBe(9)
+    expect(getChatShortcutNumber({ key: '0', code: 'Digit0', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, true)).toBeNull()
+    expect(getChatShortcutNumber({ key: '2', code: 'Digit2', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }, true)).toBeNull()
+  })
+
+  it('handles iPad hardware keyboard digit events while Command is tracked separately', () => {
+    expect(getChatShortcutNumber({
+      key: 'Unidentified',
+      code: 'Digit4',
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    }, true, true)).toBe(4)
   })
 
   it('groups tasks and project-linked chats by project, and puts direct chats in None', () => {

@@ -98,6 +98,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const [showArchived, setShowArchived] = useState(false)
   const [chatShortcutsVisible, setChatShortcutsVisible] = useState(false)
   const sidebarRef = useRef<HTMLDivElement | null>(null)
+  const chatShortcutModifierHeldRef = useRef(false)
   const [participantIdsOverride, setParticipantIdsOverride] = useState<string[] | null>(() => (
     readParticipantIds(peopleFilterStorageKey)
   ))
@@ -206,9 +207,22 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
 
   useEffect(() => {
     const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
-    const hideShortcuts = () => setChatShortcutsVisible(false)
+    const hideShortcuts = () => {
+      chatShortcutModifierHeldRef.current = false
+      setChatShortcutsVisible(false)
+    }
     const handleKeyDown = (event: KeyboardEvent) => {
-      const shortcutNumber = getChatShortcutNumber(event, isMac)
+      const modifierKey = isMac ? 'Meta' : 'Control'
+      if (event.key === modifierKey) {
+        chatShortcutModifierHeldRef.current = true
+        setChatShortcutsVisible(true)
+        return
+      }
+      const shortcutNumber = getChatShortcutNumber(
+        event,
+        isMac,
+        chatShortcutModifierHeldRef.current,
+      )
       if (shortcutNumber !== null) {
         const item = sidebarRef.current?.querySelector<HTMLElement>(
           `.project-chat-item[data-chat-shortcut="${shortcutNumber}"]`,
@@ -219,7 +233,10 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
         item.click()
         return
       }
-      if (isChatShortcutModifier(event, isMac)) setChatShortcutsVisible(true)
+      if (isChatShortcutModifier(event, isMac)) {
+        chatShortcutModifierHeldRef.current = true
+        setChatShortcutsVisible(true)
+      }
     }
     const handleKeyUp = (event: KeyboardEvent) => {
       if ((isMac && event.key === 'Meta') || (!isMac && event.key === 'Control')) hideShortcuts()

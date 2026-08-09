@@ -277,11 +277,14 @@ export const isChatShortcutModifier = (
 ): boolean => isMac ? event.metaKey : event.ctrlKey
 
 export const getChatShortcutNumber = (
-  event: Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'key' | 'metaKey' | 'shiftKey'>,
+  event: Pick<KeyboardEvent, 'altKey' | 'code' | 'ctrlKey' | 'key' | 'metaKey' | 'shiftKey'>,
   isMac: boolean,
+  modifierHeld = false,
 ): number | null => {
-  if (!isChatShortcutModifier(event, isMac) || event.altKey || event.shiftKey) return null
-  return /^[1-9]$/.test(event.key) ? Number(event.key) : null
+  if ((!modifierHeld && !isChatShortcutModifier(event, isMac)) || event.altKey || event.shiftKey) return null
+  if (/^[1-9]$/.test(event.key)) return Number(event.key)
+  const codeMatch = /^Digit([1-9])$/.exec(event.code)
+  return codeMatch ? Number(codeMatch[1]) : null
 }
 
 const getSidebarWorkflowStatus = (task?: SpecTask): SidebarStatus | null => {
