@@ -18,7 +18,7 @@ import AgentHarness, { getAgentHarnessRuntime } from "../agent/AgentHarness";
 import useApps from "../../hooks/useApps";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useGetSession, useSwitchAgent } from "../../services/sessionService";
-import { isSpecTaskSwitchableAgent } from "../../utils/apps";
+import { selectCodingAgents } from "../../utils/apps";
 import { getChatColors } from "./chatStyles";
 
 interface SwitchAgentControlProps {
@@ -80,7 +80,7 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
   // the org chart, not to spec tasks.
   const eligibleAgents = useMemo(() => {
     if (!apps.apps) return [];
-    return apps.apps.filter(isSpecTaskSwitchableAgent);
+    return selectCodingAgents(apps.apps);
   }, [apps.apps]);
 
   const handleSelect = (newAppId: string) => {

@@ -28,7 +28,7 @@ import GitHubIcon from "@mui/icons-material/GitHub";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
 import CloseIcon from "@mui/icons-material/Close";
 import IconButton from "@mui/material/IconButton";
-import { Bot, Server } from "lucide-react";
+import { Server } from "lucide-react";
 
 import useAccount from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
@@ -36,7 +36,7 @@ import useLightTheme from "../hooks/useLightTheme";
 import useSnackbar from "../hooks/useSnackbar";
 import useRouter from "../hooks/useRouter";
 import { IApp } from "../types";
-import { isCodingAgent } from "../utils/apps";
+import { selectCodingAgents } from "../utils/apps";
 import { CodeAgentRuntime, generateAgentName } from "../contexts/apps";
 import BrowseProvidersDialog from "../components/project/BrowseProvidersDialog";
 import { SELECTED_ORG_STORAGE_KEY } from "../utils/localStorage";
@@ -52,6 +52,7 @@ import ClaudeSubscriptionConnect, {
   useClaudeSubscriptions,
 } from "../components/account/ClaudeSubscriptionConnect";
 import AnthropicLogo from "../components/providers/logos/anthropic";
+import AgentDropdown from "../components/agent/AgentDropdown";
 import CodingAgentForm from "../components/agent/CodingAgentForm";
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import { useGetConfig } from "../services/userService";
@@ -539,7 +540,7 @@ export default function Onboarding() {
 
   const codingAgents = useMemo(() => {
     if (!orgApps) return [];
-    return orgApps.filter(isCodingAgent);
+    return selectCodingAgents(orgApps);
   }, [orgApps]);
 
   useEffect(() => {
@@ -2175,64 +2176,24 @@ export default function Onboarding() {
               )}
 
               {agentMode === "select" && codingAgents.length > 0 ? (
-                <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                  <InputLabel
-                    sx={{
-                      color: palette.TEXT_FADED,
-                      fontSize: "0.82rem",
+                <Box sx={{ mb: 2 }}>
+                  <AgentDropdown
+                    value={selectedAgentId}
+                    onChange={setSelectedAgentId}
+                    agents={codingAgents}
+                    label="Select Agent"
+                    labelSx={{
+                      ...palette.labelSx,
                       "&.Mui-focused": { color: ACCENT },
                     }}
-                  >
-                    Select Agent
-                  </InputLabel>
-                  <Select
-                    value={selectedAgentId}
-                    onChange={(e) => setSelectedAgentId(e.target.value)}
-                    label="Select Agent"
-                    sx={{
-                      color: palette.TEXT_PRIMARY,
-                      fontSize: "0.82rem",
-                      "& fieldset": { borderColor: palette.INPUT_BORDER },
-                      "&:hover fieldset": {
-                        borderColor: palette.INPUT_BORDER_HOVER,
-                      },
-                      "&.Mui-focused fieldset": { borderColor: ACCENT },
-                      "& .MuiSvgIcon-root": { color: palette.TEXT_FADED },
+                    selectSx={palette.selectSx}
+                    menuPaperSx={{
+                      bgcolor: palette.MENU_BG,
+                      color: palette.MENU_TEXT,
+                      maxHeight: 280,
                     }}
-                    renderValue={(value) => {
-                      const app = codingAgents.find(
-                        (a: IApp) => a.id === value,
-                      );
-                      return app?.config?.helix?.name || "Select Agent";
-                    }}
-                    MenuProps={{
-                      PaperProps: {
-                        sx: {
-                          bgcolor: palette.MENU_BG,
-                          color: palette.MENU_TEXT,
-                          maxHeight: 280,
-                        },
-                      },
-                    }}
-                  >
-                    {codingAgents.map((app: IApp) => (
-                      <MenuItem
-                        key={app.id}
-                        value={app.id}
-                        sx={{ fontSize: "0.82rem" }}
-                      >
-                        <Box
-                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                        >
-                          <Bot size={16} color={palette.TEXT_FADED} />
-                          <span>
-                            {app.config?.helix?.name || "Unnamed Agent"}
-                          </span>
-                        </Box>
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                  />
+                </Box>
               ) : (
                 <Box
                   sx={{

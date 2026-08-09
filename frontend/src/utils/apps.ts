@@ -96,8 +96,15 @@ export const usesFocusedAgentDetails = (app: IApp | null | undefined): boolean =
   return isCodingAgent(app) || isOrgAgent(app)
 }
 
-export const isSpecTaskSwitchableAgent = (app: IApp): boolean => {
-  return isCodingAgent(app)
+/**
+ * The agents a project workflow can run on. Org-chart agents are excluded even
+ * though their runtime is also zed_external — the server rejects them for
+ * project/spec-task configuration, so offering them would only produce a 400.
+ * Use this everywhere a coding agent is picked so the surfaces cannot drift.
+ */
+export const selectCodingAgents = (apps: IApp[] | null | undefined): IApp[] => {
+  if (!apps) return []
+  return apps.filter(isCodingAgent)
 }
 
 export const isChatSelectableAgent = (app: IApp): boolean => {

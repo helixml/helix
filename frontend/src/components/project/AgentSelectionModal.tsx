@@ -12,14 +12,12 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Avatar,
   CircularProgress,
   Divider,
   Alert,
   IconButton,
   Tooltip,
 } from '@mui/material'
-import { Bot } from 'lucide-react'
 import AddIcon from '@mui/icons-material/Add'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import EditIcon from '@mui/icons-material/Edit'
@@ -28,7 +26,8 @@ import useAccount from '../../hooks/useAccount'
 
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { IApp } from '../../types'
-import { isCodingAgent } from '../../utils/apps'
+import { selectCodingAgents } from '../../utils/apps'
+import AgentHarness, { getAgentHarnessLabel, getAgentHarnessRuntime } from '../agent/AgentHarness'
 import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm, { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
@@ -79,10 +78,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   }, [open, loadApps])
 
   // Only show external agents — helix_agent types don't support project workflows
-  const sortedApps = useMemo(() => {
-    if (!apps) return []
-    return apps.filter(isCodingAgent)
-  }, [apps])
+  const sortedApps = useMemo(() => selectCodingAgents(apps), [apps])
 
   // Auto-select first zed_external agent if available
   useEffect(() => {
@@ -154,17 +150,12 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                           pr: 10, // Make room for edit and check icons
                         }}
                       >
-                        <ListItemIcon>
-                          <Avatar
-                            src={app.config?.helix?.avatar}
-                            sx={{ width: 40, height: 40 }}
-                          >
-                            <Bot size={24} />
-                          </Avatar>
+                        <ListItemIcon sx={{ minWidth: 40 }}>
+                          <AgentHarness runtime={getAgentHarnessRuntime(app)} variant="short" size={24} />
                         </ListItemIcon>
                         <ListItemText
                           primary={app.config?.helix?.name || 'Unnamed Agent'}
-                          secondary={app.config?.helix?.description || 'No description'}
+                          secondary={getAgentHarnessLabel(getAgentHarnessRuntime(app))}
                         />
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <Tooltip title="Edit agent">

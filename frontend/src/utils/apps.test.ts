@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isChatSelectableAgent, isCodingAgent, isHelixAgent, isOrgAgent, isSpecTaskSwitchableAgent, usesFocusedAgentDetails } from './apps'
+import { isChatSelectableAgent, isCodingAgent, isHelixAgent, isOrgAgent, selectCodingAgents, usesFocusedAgentDetails } from './apps'
 import { AGENT_KIND_CODING, AGENT_KIND_HELIX, AGENT_KIND_ORG, IApp } from '../types'
 
 // Minimal IApp builder — only the fields the predicates read.
@@ -31,24 +31,27 @@ describe('agent kind predicates', () => {
   })
 })
 
-describe('isSpecTaskSwitchableAgent', () => {
-  it('keeps an external agent that is not part of the org chart', () => {
+describe('selectCodingAgents', () => {
+  it('keeps external agents that are not part of the org chart', () => {
     expect(
-      isSpecTaskSwitchableAgent(makeApp({ agentKind: AGENT_KIND_CODING })),
-    ).toBe(true)
+      selectCodingAgents([makeApp({ agentKind: AGENT_KIND_CODING })]).length,
+    ).toBe(1)
   })
 
-  it('drops an external agent that backs an org-chart Worker', () => {
+  it('drops external agents that back an org-chart Worker', () => {
     const app = makeApp({ agentKind: AGENT_KIND_ORG })
     expect(isOrgAgent(null)).toBe(false)
     expect(isOrgAgent(app)).toBe(true)
-    expect(isSpecTaskSwitchableAgent(app)).toBe(false)
+    expect(selectCodingAgents([app])).toEqual([])
   })
 
-  it('drops a non-external agent', () => {
-    expect(
-      isSpecTaskSwitchableAgent(makeApp({ agentKind: AGENT_KIND_HELIX })),
-    ).toBe(false)
+  it('drops non-external agents', () => {
+    expect(selectCodingAgents([makeApp({ agentKind: AGENT_KIND_HELIX })])).toEqual([])
+  })
+
+  it('tolerates a missing list', () => {
+    expect(selectCodingAgents(undefined)).toEqual([])
+    expect(selectCodingAgents(null)).toEqual([])
   })
 })
 

@@ -62,7 +62,7 @@ import {
   generateAgentName,
 } from "../contexts/apps";
 import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
-import { isCodingAgent } from "../utils/apps";
+import { selectCodingAgents } from "../utils/apps";
 import { RECOMMENDED_CODING_MODELS } from "../constants/models";
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
@@ -577,7 +577,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const sortedApps = useMemo(() => {
     if (!apps) return [];
-    return apps.filter(isCodingAgent);
+    return selectCodingAgents(apps);
   }, [apps]);
 
   const primaryRepoIsExternal = useMemo(() => {

@@ -72,7 +72,7 @@ import {
   useGetSession,
   GET_SESSION_QUERY_KEY,
 } from "../../services/sessionService";
-import { isSpecTaskSwitchableAgent } from "../../utils/apps";
+import { selectCodingAgents } from "../../utils/apps";
 import {
   useUpdateSpecTask,
   useSpecTask,
@@ -419,7 +419,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Spec tasks can only select coding agents.
   const eligibleApps = useMemo(() => {
     if (!apps.apps) return [];
-    return apps.apps.filter(isSpecTaskSwitchableAgent);
+    return selectCodingAgents(apps.apps);
   }, [apps.apps]);
 
   // Get display settings from the task's app configuration
