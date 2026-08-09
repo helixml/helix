@@ -2,6 +2,7 @@ import { FC, useEffect, useRef, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import CircularProgress from '@mui/material/CircularProgress'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
@@ -106,6 +107,7 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
   const [name, setName] = useState('')
   const [kind, setKind] = useState(initialKind)
   const [runtimeConfig, setRuntimeConfig] = useState<AgentConfigValue>(emptyRuntimeConfig)
+  const [runtimeInitialized, setRuntimeInitialized] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
   const initializedRuntime = useRef(false)
@@ -117,6 +119,7 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
     setName('')
     setKind(initialKind)
     setRuntimeConfig(emptyRuntimeConfig())
+    setRuntimeInitialized(false)
     setCreating(false)
     setError('')
     initializedRuntime.current = false
@@ -132,11 +135,13 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
     if (preferredRuntime) {
       setRuntimeConfig(preferredRuntime)
       initializedRuntime.current = true
+      setRuntimeInitialized(true)
       return
     }
 
     if (codexSubscriptionsFetched && claudeSubscriptionsFetched) {
       initializedRuntime.current = true
+      setRuntimeInitialized(true)
     }
   }, [
     open,
@@ -302,7 +307,13 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
             </Box>
           </Box>
 
-          {needsRuntime && (
+          {needsRuntime && !runtimeInitialized && (
+            <Box sx={{ minHeight: 80, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CircularProgress size={20} />
+            </Box>
+          )}
+
+          {needsRuntime && runtimeInitialized && (
             <AgentConfigForm
               value={runtimeConfig}
               onChange={(patch) => {

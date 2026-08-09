@@ -2467,9 +2467,8 @@ export interface TypesAssistantConfig {
    * "claude_code" and CodeAgentCredentialType is "subscription". It flows through
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
-   * model — otherwise Claude Code defaults to Sonnet. Empty means "opus[1m]"
-   * (the 1M-context Opus; resolveModelPreference resolves the "[1m]" hint to the
-   * 1M row, while a bare "opus" resolves to the 200k sibling).
+   * model — otherwise Claude Code defaults to Sonnet. Empty means
+   * "claude-opus-5" (the current 1M-context Opus model).
    */
   claude_subscription_model?: string;
   /**
@@ -3433,6 +3432,24 @@ export interface TypesCronTrigger {
   input?: string;
   /** File path in helix-specs worktree to use as prompt (overrides Input) */
   input_file?: string;
+  /**
+   * JustDoItMode makes the spec_task action skip spec generation and go straight
+   * to implementation, exactly as the "Just Do It" checkbox does for a task
+   * dispatched by hand.
+   *
+   * It matters more than it looks. Without it a scheduled run is created in
+   * spec_generation and parks in spec_review waiting for a human to approve
+   * specs — which, for an unattended job that fires at 9am daily, nobody ever
+   * does. Worse, a task that never reaches implementation is never assigned a
+   * BranchName, and the git pre-receive hook derives its allow-list from exactly
+   * that field: the agent is then refused any push except helix-specs ("This
+   * push is restricted to: helix-specs"), so its work cannot land at all. That
+   * is the mechanism behind "scheduled runs never do their job".
+   *
+   * Defaults false so existing triggers keep their current behaviour; an
+   * orchestrator scheduling autonomous work should set it true.
+   */
+  just_do_it_mode?: boolean;
   /** Target project for spec_task action */
   project_id?: string;
   schedule?: string;
@@ -4429,6 +4446,11 @@ export interface TypesModelInfo {
   provider_slug?: string;
   slug?: string;
   supported_parameters?: string[];
+  /**
+   * SupportedReasoningEfforts lists the effort values the model accepts,
+   * e.g. ["high","low","medium","none","xhigh"]. Empty when unknown.
+   */
+  supported_reasoning_efforts?: string[];
   supports_reasoning?: boolean;
   supports_reasoning_effort?: boolean;
 }
@@ -13033,7 +13055,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete an Agent after atomically detaching and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. The configured project is preserved.
+     * @description Delete an Agent after atomically detaching and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Only the project's default agent ID is unset; the configured project, repositories, tasks, and other project configuration are preserved.
      *
      * @tags HelixOrg
      * @name V1OrgsAgentsDelete
@@ -13457,7 +13479,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a Bot. Cascades: detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. The configured project and activations are preserved.
+     * @description Delete a Bot. Cascades: detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Only the project's default agent ID is unset; the configured project, repositories, tasks, other project configuration, and activations are preserved.
      *
      * @tags HelixOrg
      * @name V1OrgsBotsDelete
