@@ -14,7 +14,7 @@ describe('ChatSidebarBrandHeader', () => {
       </ThemeProvider>,
     )
 
-    expect(screen.getByText('Helix')).toBeInTheDocument()
+    expect(screen.getByText('helix')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse chat panel' }))
     expect(onCollapse).toHaveBeenCalledOnce()
   })

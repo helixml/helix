@@ -7,7 +7,8 @@ import { PanelLeft } from 'lucide-react'
 
 import { TOOLBAR_HEIGHT } from '../../config'
 import useLightTheme from '../../hooks/useLightTheme'
-import { APP_FONT_FAMILY } from '../../styles/typography'
+
+const HELIX_WORDMARK_FONT_FAMILY = '"Sora Variable", "Sora", sans-serif'
 
 const ChatSidebarBrandHeader: FC<{ onCollapse: () => void }> = ({ onCollapse }) => {
   const lightTheme = useLightTheme()
@@ -102,11 +103,11 @@ const ChatSidebarBrandHeader: FC<{ onCollapse: () => void }> = ({ onCollapse }) 
         sx={{
           flex: 1,
           minWidth: 0,
-          fontFamily: APP_FONT_FAMILY,
-          fontSize: '17px',
-          fontWeight: 720,
+          fontFamily: HELIX_WORDMARK_FONT_FAMILY,
+          fontSize: '18px',
+          fontWeight: 680,
           lineHeight: 1,
-          letterSpacing: '-0.045em',
+          letterSpacing: '-0.055em',
           background: lightTheme.isLight
             ? 'linear-gradient(105deg, #111827 10%, #0e7490 62%, #86198f 100%)'
             : 'linear-gradient(105deg, #ffffff 12%, #a5f3fc 62%, #f0abfc 100%)',
@@ -117,7 +118,7 @@ const ChatSidebarBrandHeader: FC<{ onCollapse: () => void }> = ({ onCollapse }) 
           textShadow: lightTheme.isLight ? 'none' : '0 0 18px rgba(103,232,249,0.12)',
         }}
       >
-        Helix
+        helix
       </Typography>
 
       <Tooltip title="Collapse chat panel">
