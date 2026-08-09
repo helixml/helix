@@ -17,8 +17,9 @@ import AgentDropdown from "../agent/AgentDropdown";
 import AgentHarness, { getAgentHarnessRuntime } from "../agent/AgentHarness";
 import useApps from "../../hooks/useApps";
 import useSnackbar from "../../hooks/useSnackbar";
+import { useListProjectSpecTaskAgents } from "../../services/projectService";
 import { useGetSession, useSwitchAgent } from "../../services/sessionService";
-import { selectCodingAgents } from "../../utils/apps";
+import { AGENT_KIND_CODING, IApp } from "../../types";
 import { getChatColors } from "./chatStyles";
 
 interface SwitchAgentControlProps {
@@ -26,6 +27,8 @@ interface SwitchAgentControlProps {
    *  reflects this session's parent_app; picking a different agent switches
    *  the agent IN PLACE on this same session (no fork, no new container). */
   sessionId: string;
+  /** Project whose access-controlled coding agents can run this spec task. */
+  projectId: string;
   /** Optional callback after a successful switch. The session id is
    *  unchanged, so this is just a hook for the parent to refresh/react —
    *  there is nothing to navigate to. */
@@ -49,6 +52,7 @@ interface SwitchAgentControlProps {
  */
 const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
   sessionId,
+  projectId,
   onSwitched,
   size = "small",
   displayMode = "field",
@@ -69,19 +73,41 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
   });
   const session = sessionResponse?.data;
   const switchMutation = useSwitchAgent(sessionId);
+  const { data: projectAgents = [] } = useListProjectSpecTaskAgents(projectId, !!projectId);
 
   // The dropdown value reflects the session's parent_app (the helix app the
   // agent was launched from). For sessions without parent_app the dropdown
   // shows "Select Agent" and any selection becomes a switch.
   const currentAppId = session?.parent_app || "";
 
-  // Switching only makes sense between external-agent frameworks that run
-  // inside Zed, and never to a Helix org-chart Worker agent — those belong to
-  // the org chart, not to spec tasks.
+  // The project endpoint is the authoritative, access-controlled allow-list.
+  // Hydrate its minimal records from AppsContext for richer harness metadata.
+  // Do not filter AppsContext by agent_kind here: older API deployments omit
+  // that field even though the project endpoint correctly identifies coding
+  // agents, which previously made this selector empty and disabled.
   const eligibleAgents = useMemo(() => {
-    if (!apps.apps) return [];
-    return selectCodingAgents(apps.apps);
-  }, [apps.apps]);
+    return projectAgents.flatMap((agent): IApp[] => {
+      if (!agent.id) return [];
+      const fullAgent = apps.apps?.find((app) => app.id === agent.id);
+      if (fullAgent) {
+        return [{ ...fullAgent, agent_kind: AGENT_KIND_CODING }];
+      }
+      return [{
+        id: agent.id,
+        agent_kind: AGENT_KIND_CODING,
+        config: {
+          helix: {
+            name: agent.name || "Unnamed agent",
+            description: "",
+            external_url: "",
+            assistants: [{ code_agent_runtime: agent.code_agent_runtime || "zed_agent" }],
+          },
+          secrets: {},
+          allowed_domains: [],
+        },
+      } as unknown as IApp];
+    });
+  }, [apps.apps, projectAgents]);
 
   const handleSelect = (newAppId: string) => {
     setMenuAnchor(null);
