@@ -31,6 +31,7 @@ import {
   Chip,
   Switch,
   IconButton,
+  Tooltip,
 } from "@mui/material";
 import CodeIcon from "@mui/icons-material/Code";
 import AddIcon from "@mui/icons-material/Add";
@@ -47,7 +48,7 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import MoveUpIcon from "@mui/icons-material/MoveUp";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import HubIcon from "@mui/icons-material/Hub";
-import EditIcon from "@mui/icons-material/Edit";
+import SettingsIcon from "@mui/icons-material/Settings";
 
 import Skills from "../components/app/Skills";
 import { TypesAssistantSkills, TypesProject, TypesSecretScope, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
@@ -61,6 +62,7 @@ import {
   generateAgentName,
 } from "../contexts/apps";
 import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
+import { selectCodingAgents } from "../utils/apps";
 import { RECOMMENDED_CODING_MODELS } from "../constants/models";
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
@@ -73,6 +75,7 @@ import useAccount from "../hooks/useAccount";
 import useRouter from "../hooks/useRouter";
 import useSnackbar from "../hooks/useSnackbar";
 import useApi from "../hooks/useApi";
+import { useSettingsDialog } from "../contexts/settingsDialog";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import {
   useGetProject,
@@ -114,6 +117,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const { navigate } = useRouter();
   const snackbar = useSnackbar();
   const api = useApi();
+  const { closeDialog } = useSettingsDialog();
   const queryClient = useQueryClient();
   const { apps, loadApps } = useContext(AppsContext);
 
@@ -573,20 +577,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const sortedApps = useMemo(() => {
     if (!apps) return [];
-    const zedExternalApps: IApp[] = [];
-    const otherApps: IApp[] = [];
-    apps.forEach((app) => {
-      const hasZedExternal =
-        app.config?.helix?.assistants?.some(
-          (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-        ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
-      if (hasZedExternal) {
-        zedExternalApps.push(app);
-      } else {
-        otherApps.push(app);
-      }
-    });
-    return [...zedExternalApps, ...otherApps];
+    return selectCodingAgents(apps);
   }, [apps]);
 
   const primaryRepoIsExternal = useMemo(() => {
@@ -649,6 +640,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
     try {
       setSavingProject(true);
+      // Agent selections are NOT sent here. Each AgentDropdown persists its own
+      // change on select, and the server only accepts coding agents for these
+      // fields — re-sending a project's existing agent would 400 every unrelated
+      // save (name, guidelines, …) whenever that agent is an org agent.
       await updateProjectMutation.mutateAsync({
         name,
         description,
@@ -656,9 +651,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         guidelines,
         auto_start_backlog_tasks: autoStartBacklogTasks,
         pull_request_reviews_enabled: pullRequestReviewsEnabled,
-        default_helix_app_id: selectedAgentId || undefined,
-        project_manager_helix_app_id:
-          selectedProjectManagerAgentId || undefined,
         metadata: {
           board_settings: {
             wip_limits: wipLimits,
@@ -785,6 +777,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       await deleteProjectMutation.mutateAsync(projectId);
       snackbar.success("Project deleted successfully");
       setDeleteDialogOpen(false);
+      closeDialog();
       account.orgNavigate("projects");
     } catch (err) {
       snackbar.error("Failed to delete project");
@@ -1412,6 +1405,11 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     </Box>
   );
 
+  const handleOpenAgentSettings = (agentId: string) => {
+    closeDialog();
+    account.orgNavigate("agent", { app_id: agentId });
+  };
+
   const renderAgentsTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <Box>
@@ -1426,7 +1424,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
         {!showCreateAgentForm ? (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {/* Default Agent with edit button */}
+            {/* Default Agent with settings button */}
             <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
               <Box sx={{ flex: 1 }}>
                 <AgentDropdown
@@ -1441,23 +1439,24 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                   label="Default Agent"
                 />
               </Box>
-              <IconButton
-                  size="small"
-                  disabled={!selectedAgentId}
-                  onClick={() => {
-                    const orgName = currentOrg?.name;
-                    if (orgName && selectedAgentId) {
-                      window.open(`/orgs/${orgName}/app/${selectedAgentId}`, '_blank');
+              <Tooltip title="Open agent settings">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={!selectedAgentId}
+                    onClick={() =>
+                      selectedAgentId && handleOpenAgentSettings(selectedAgentId)
                     }
-                  }}
-                  sx={{ mt: 0.5 }}
-                  title="Edit agent"
-                >
-                  <EditIcon fontSize="small" />
-                </IconButton>
+                    sx={{ mt: 0.5 }}
+                    aria-label="Open default agent settings"
+                  >
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </Box>
 
-            {/* Project Manager Agent with edit button */}
+            {/* Project Manager Agent with settings button */}
             <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
               <Box sx={{ flex: 1 }}>
                 <AgentDropdown
@@ -1472,23 +1471,25 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                   label="Project Manager Agent"
                 />
               </Box>
-              <IconButton
-                  size="small"
-                  disabled={!selectedProjectManagerAgentId}
-                  onClick={() => {
-                    const orgName = currentOrg?.name;
-                    if (orgName && selectedProjectManagerAgentId) {
-                      window.open(`/orgs/${orgName}/app/${selectedProjectManagerAgentId}`, '_blank');
+              <Tooltip title="Open agent settings">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={!selectedProjectManagerAgentId}
+                    onClick={() =>
+                      selectedProjectManagerAgentId &&
+                      handleOpenAgentSettings(selectedProjectManagerAgentId)
                     }
-                  }}
-                  sx={{ mt: 0.5 }}
-                  title="Edit agent"
-                >
-                  <EditIcon fontSize="small" />
-                </IconButton>
+                    sx={{ mt: 0.5 }}
+                    aria-label="Open project manager agent settings"
+                  >
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </Box>
 
-            {/* PR Reviewer Agent with edit button */}
+            {/* PR Reviewer Agent with settings button */}
             <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
               <Box sx={{ flex: 1 }}>
                 <AgentDropdown
@@ -1510,20 +1511,24 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                   }
                 />
               </Box>
-              <IconButton
-                  size="small"
-                  disabled={!selectedPullRequestReviewerAgentId}
-                  onClick={() => {
-                    const orgName = currentOrg?.name;
-                    if (orgName && selectedPullRequestReviewerAgentId) {
-                      window.open(`/orgs/${orgName}/app/${selectedPullRequestReviewerAgentId}`, '_blank');
+              <Tooltip title="Open agent settings">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={!selectedPullRequestReviewerAgentId}
+                    onClick={() =>
+                      selectedPullRequestReviewerAgentId &&
+                      handleOpenAgentSettings(
+                        selectedPullRequestReviewerAgentId,
+                      )
                     }
-                  }}
-                  sx={{ mt: 0.5 }}
-                  title="Edit agent"
-                >
-                  <EditIcon fontSize="small" />
-                </IconButton>
+                    sx={{ mt: 0.5 }}
+                    aria-label="Open pull request reviewer agent settings"
+                  >
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </Box>
 
             <Button

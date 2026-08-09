@@ -72,7 +72,7 @@ import {
   useGetSession,
   GET_SESSION_QUERY_KEY,
 } from "../../services/sessionService";
-import { isSpecTaskSwitchableAgent } from "../../utils/apps";
+import { selectCodingAgents } from "../../utils/apps";
 import {
   useUpdateSpecTask,
   useSpecTask,
@@ -101,6 +101,7 @@ import AgentChat from "../session/AgentChat";
 import { getChatColors } from "../session/chatStyles";
 import SwitchAgentControl from "../session/SwitchAgentControl";
 import SharePreviewSection from "./SharePreviewSection";
+import SandboxBrowser from "./SandboxBrowser";
 import SpecTaskLaunchWindow, {
   getSpecTaskLaunchPhase,
 } from "./SpecTaskLaunchWindow";
@@ -122,6 +123,7 @@ import {
   Files,
   SlidersHorizontal,
   GitCompare,
+  Globe2,
   Lock as LockLucide,
   LockOpen as LockOpenLucide,
   MonitorPlay,
@@ -195,6 +197,7 @@ const taskDetailsTextFieldSx = {
 
 type TaskTextField = "name" | "description";
 type TaskTextSaveStatus = "idle" | "saving" | "saved" | "error";
+type TaskView = "chat" | "desktop" | "browser" | "changes" | "files" | "details";
 
 interface SpecTaskDetailContentProps {
   taskId: string;
@@ -214,7 +217,7 @@ interface SpecTaskDetailContentProps {
   /** Called when task is archived - parent should close all tabs showing this task */
   onTaskArchived?: (taskId: string) => void;
   /**
-   * Whether to sync the active view (chat/desktop/changes/details) with the URL `view` query param.
+   * Whether to sync the active view (chat/desktop/browser/changes/details) with the URL `view` query param.
    * Defaults to true. Set to false when this component is rendered inside a multi-panel container
    * (e.g. TabsView split-screen) where each panel must own its view independently — otherwise all
    * visible instances mirror the same URL param.
@@ -413,18 +416,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     });
   }, [taskId]);
 
-  // Agents the task can switch to: external agents that are not part of the
-  // Helix org chart. The currently-assigned agent is kept visible even if it
-  // would be filtered out, so the dropdown selection stays valid.
+  // Spec tasks can only select coding agents.
   const eligibleApps = useMemo(() => {
     if (!apps.apps) return [];
-    const list = apps.apps.filter(isSpecTaskSwitchableAgent);
-    if (selectedAgent && !list.some((a) => a.id === selectedAgent)) {
-      const current = apps.apps.find((a) => a.id === selectedAgent);
-      if (current) list.unshift(current);
-    }
-    return list;
-  }, [apps.apps, selectedAgent]);
+    return selectCodingAgents(apps.apps);
+  }, [apps.apps]);
 
   // Get display settings from the task's app configuration
   const displaySettings = useMemo(() => {
@@ -463,7 +459,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
   // Initialize from URL query param 'view' if present (only when syncing with URL)
-  const getInitialView = (): "chat" | "desktop" | "changes" | "files" | "details" => {
+  const getInitialView = (): TaskView => {
     if (!syncViewWithUrl) {
       return "desktop";
     }
@@ -471,6 +467,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (
       viewParam === "chat" ||
       viewParam === "desktop" ||
+      viewParam === "browser" ||
       viewParam === "changes" ||
       viewParam === "files" ||
       viewParam === "details"
@@ -483,9 +480,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     const isMobile = window.matchMedia("(max-width: 899.95px)").matches;
     return isMobile ? "chat" : "desktop";
   };
-  const [currentView, setCurrentView] = useState<
-    "chat" | "desktop" | "changes" | "files" | "details"
-  >(getInitialView);
+  const [currentView, setCurrentView] = useState<TaskView>(getInitialView);
   const [clientUniqueId, setClientUniqueId] = useState<string>("");
 
   // Sync currentView with URL query param (only when syncing with URL).
@@ -498,6 +493,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       viewParam &&
       (viewParam === "chat" ||
         viewParam === "desktop" ||
+        viewParam === "browser" ||
         viewParam === "changes" ||
         viewParam === "files" ||
         viewParam === "details")
@@ -510,7 +506,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Update URL when view changes (only when syncing with URL)
   const handleViewChange = useCallback(
-    (newView: "chat" | "desktop" | "changes" | "files" | "details" | null) => {
+    (newView: TaskView | null) => {
       if (newView && newView !== currentView) {
         setCurrentView(newView);
         if (syncViewWithUrl) {
@@ -2565,6 +2561,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         Desktop
                       </Typography>
                     </ToggleButton>
+                    <ToggleButton value="browser" aria-label="Browser view">
+                      <Globe2 size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        Browser
+                      </Typography>
+                    </ToggleButton>
                     <ToggleButton value="changes" aria-label="Diff view">
                       <GitCompare size={18} />
                       <Typography
@@ -2783,6 +2792,29 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                     />
                   ))}
+                {currentView === "browser" &&
+                  (isTaskArchived ? (
+                    <TaskSessionPlaceholder
+                      tone="archived"
+                      title="Task rejected"
+                      description="This task has been archived. The agent session has ended."
+                    />
+                  ) : effectiveIsDesktopPaused ? (
+                    <TaskSessionPlaceholder
+                      tone={isTaskCompleted ? "finished" : "paused"}
+                      title={isTaskCompleted ? "Task finished" : "Desktop not running"}
+                      description={
+                        isTaskCompleted
+                          ? "This task has been merged to the default branch. Start the desktop to preview its web apps."
+                          : "Start the desktop to preview a localhost web app from this sandbox."
+                      }
+                      detail={desktopStartupMessage}
+                      onStart={handleStartSession}
+                      starting={isStarting || isDesktopStarting}
+                    />
+                  ) : (
+                    <SandboxBrowser sessionId={activeSessionId} />
+                  ))}
                 {(currentView === "changes" || currentView === "files") && (
                   <DiffViewer
                     sessionId={activeSessionId}
@@ -2894,6 +2926,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       }}
                     >
                       Desktop
+                    </Typography>
+                  </ToggleButton>
+                )}
+                {activeSessionId && (
+                  <ToggleButton value="browser" aria-label="Browser view">
+                    <Globe2 size={18} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      Browser
                     </Typography>
                   </ToggleButton>
                 )}
@@ -3205,6 +3252,42 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     onConnectSubscription={connectSubscription}
                     initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                   />
+                )}
+              </Box>
+            )}
+
+            {/* Browser View - mobile */}
+            {activeSessionId && currentView === "browser" && (
+              <Box
+                sx={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  minHeight: 0,
+                  overflow: "hidden",
+                }}
+              >
+                {isTaskArchived ? (
+                  <TaskSessionPlaceholder
+                    tone="archived"
+                    title="Task rejected"
+                    description="This task has been archived. The agent session has ended."
+                  />
+                ) : effectiveIsDesktopPaused ? (
+                  <TaskSessionPlaceholder
+                    tone={isTaskCompleted ? "finished" : "paused"}
+                    title={isTaskCompleted ? "Task finished" : "Desktop not running"}
+                    description={
+                      isTaskCompleted
+                        ? "This task has been merged to the default branch. Start the desktop to preview its web apps."
+                        : "Start the desktop to preview a localhost web app from this sandbox."
+                    }
+                    detail={desktopStartupMessage}
+                    onStart={handleStartSession}
+                    starting={isStarting || isDesktopStarting}
+                  />
+                ) : (
+                  <SandboxBrowser sessionId={activeSessionId} />
                 )}
               </Box>
             )}

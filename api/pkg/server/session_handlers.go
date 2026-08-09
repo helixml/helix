@@ -241,11 +241,30 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	}
 
 	sessionSummaries := []*types.SessionSummary{}
+	appsByID := make(map[string]*types.App)
+	missingApps := make(map[string]struct{})
 	for _, session := range sessions {
 		summary, err := data.GetSessionSummary(session)
 		if err != nil {
 			log.Error().Err(err).Str("session_id", session.ID).Msg("failed to get session summary")
 			continue
+		}
+		if summary.AppID != "" {
+			app, ok := appsByID[summary.AppID]
+			if !ok {
+				if _, missing := missingApps[summary.AppID]; !missing {
+					app, err = apiServer.Store.GetApp(ctx, summary.AppID)
+					if err != nil {
+						missingApps[summary.AppID] = struct{}{}
+						log.Warn().Err(err).Str("app_id", summary.AppID).Msg("failed to resolve current agent config for session summary")
+					} else {
+						appsByID[summary.AppID] = app
+					}
+				}
+			}
+			if app != nil {
+				applyCurrentAgentInfoToSummary(summary, app)
+			}
 		}
 		sessionSummaries = append(sessionSummaries, summary)
 	}
@@ -257,6 +276,40 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		TotalCount: totalCount,
 		TotalPages: int(math.Ceil(float64(totalCount) / float64(pageSize))),
 	}, nil
+}
+
+func currentAgentInfo(app *types.App, assistantID string) (types.CodeAgentRuntime, string, bool) {
+	assistant := data.GetAssistant(app, assistantID)
+	if assistant == nil || assistant.AgentType != types.AgentTypeZedExternal {
+		return "", "", false
+	}
+	runtime := assistant.CodeAgentRuntime
+	if runtime == "" {
+		runtime = types.CodeAgentRuntimeZedAgent
+	}
+	modelName := assistant.Model
+	if runtime == types.CodeAgentRuntimeClaudeCode &&
+		assistant.CodeAgentCredentialType.IsSubscription() &&
+		assistant.ClaudeSubscriptionModel != "" {
+		modelName = assistant.ClaudeSubscriptionModel
+	}
+	if modelName == "" {
+		modelName = assistant.GenerationModel
+	}
+	return runtime, modelName, true
+}
+
+func applyCurrentAgentInfoToSummary(summary *types.SessionSummary, app *types.App) {
+	runtime, modelName, ok := currentAgentInfo(app, summary.Metadata.AssistantID)
+	if !ok {
+		return
+	}
+	summary.Metadata.CodeAgentRuntime = runtime
+	summary.Metadata.ZedAgentName = runtime.ZedAgentName()
+	// The session's model_name is only the Helix inference model captured when
+	// the row was created. ACP harnesses resolve their model from the app, which
+	// may change later, so the app is authoritative for this projection.
+	summary.ModelName = modelName
 }
 
 // deleteSession godoc
@@ -732,6 +785,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	} else {
 		// Create session
 		newSession = true
+		if startReq.AppID != "" {
+			app, appErr := s.Store.GetApp(ctx, startReq.AppID)
+			if appErr != nil {
+				http.Error(rw, "selected agent not found", http.StatusBadRequest)
+				return
+			}
+			if appErr := requireAgentKind(app, types.AgentKindHelix, "chat"); appErr != nil {
+				http.Error(rw, appErr.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 
 		// Set default agent type if not specified
 		if startReq.AgentType == "" {
@@ -1898,12 +1962,20 @@ func (s *HelixAPIServer) storeResponseChannel(sessionID, requestID string, respo
 	errorChannels[sessionID][requestID] = errorChan
 }
 
-// cleanupResponseChannel cleans up channels for a request
-func (s *HelixAPIServer) cleanupResponseChannel(sessionID, requestID string) {
+// cleanupResponseChannel cleans up channels for a request.
+//
+// releaseDispatchClaim must be true only for the caller that won the dispatch
+// claim for this turn. A caller that lost the claim attaches its channels to
+// the winner's request_id, so releasing on its teardown would free a claim that
+// is still in flight and let the reconnect / agent-switch path re-send the same
+// turn — the exact duplicate-ACP-thread case the claim exists to prevent.
+func (s *HelixAPIServer) cleanupResponseChannel(sessionID, requestID string, releaseDispatchClaim bool) {
 	// Tearing down the channels is the point the turn is over however it ended,
 	// so it is also where the interaction's dispatch claim is dropped. Done
 	// before taking channelMutex — these two locks are never nested.
-	s.releaseDispatchClaimByRequest(requestID)
+	if releaseDispatchClaim {
+		s.releaseDispatchClaimByRequest(requestID)
+	}
 
 	channelMutex.Lock()
 	defer channelMutex.Unlock()

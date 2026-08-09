@@ -35,6 +35,15 @@ func callForkHTTP(t *testing.T, srv *HelixAPIServer, user *types.User, sessionID
 // owner-equality auth check fires.
 func seedRunningParent(t *testing.T, srv *HelixAPIServer, user *types.User, runtime types.CodeAgentRuntime, n int) *types.Session {
 	t.Helper()
+	seeder, ok := srv.Store.(interface{ SeedApp(*types.App) })
+	require.True(t, ok)
+	seeder.SeedApp(&types.App{
+		ID:        "app_test",
+		AgentKind: types.AgentKindCoding,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: runtime,
+		}}}},
+	})
 	parent := &types.Session{
 		ID:        "ses_" + randSuffix(),
 		Name:      "Parent",
@@ -141,7 +150,8 @@ func TestForkSessionHTTP_RepointsSpecTaskToChild(t *testing.T) {
 
 	// Seed a second app to fork to (different from the parent's app).
 	mem.SeedApp(&types.App{
-		ID: "app_test_qwen",
+		ID:        "app_test_qwen",
+		AgentKind: types.AgentKindCoding,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Assistants: []types.AssistantConfig{{
@@ -180,7 +190,8 @@ func TestForkSessionHTTP_AllowsSameRuntimeDifferentApp(t *testing.T) {
 	// Parent is already bound to "app_test" via seedRunningParent. Seed a
 	// SECOND app with the same runtime to fork to.
 	mem.SeedApp(&types.App{
-		ID: "app_test_sonnet",
+		ID:        "app_test_sonnet",
+		AgentKind: types.AgentKindCoding,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Assistants: []types.AssistantConfig{{

@@ -200,8 +200,10 @@ func (suite *OrganizationsRBACTestSuite) TestProjectVisibilityAndRepositoryAcces
 				Name:        "project-rbac-agent-" + uuid.New().String(),
 				Description: "project rbac test agent",
 				Assistants: []types.AssistantConfig{{
-					Name:  "assistant",
-					Model: "openai/gpt-oss-20b",
+					Name:             "assistant",
+					Model:            "openai/gpt-oss-20b",
+					AgentType:        types.AgentTypeZedExternal,
+					CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
 				}},
 			},
 		},

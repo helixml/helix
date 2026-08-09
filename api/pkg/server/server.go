@@ -138,8 +138,8 @@ type HelixAPIServer struct {
 	// waiting interaction to the external agent. Keyed by interaction_id and
 	// held under contextMappingsMutex. See claimInteractionDispatch.
 	interactionDispatchClaims map[string]dispatchClaim
-	credentialTokensMu          sync.RWMutex
-	credentialTokens            map[string]map[string]struct{} // org_id -> minted tokens
+	credentialTokensMu        sync.RWMutex
+	credentialTokens          map[string]map[string]struct{} // org_id -> minted tokens
 	// (interaction → prompt link is now persisted on Interaction.PromptID
 	// so it survives API restart; the in-memory map was deleted in the
 	// 2026-04-30 stuck-queue fix.)
@@ -965,6 +965,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Pinned projects
 	authRouter.HandleFunc("/users/me/pinned-projects", system.Wrapper(apiServer.getPinnedProjects)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/users/me/pinned-chats", system.Wrapper(apiServer.getPinnedChats)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/users/me/pinned-chats", system.Wrapper(apiServer.pinChat)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/users/me/pinned-chats", system.Wrapper(apiServer.unpinChat)).Methods(http.MethodDelete)
 
 	// Onboarding
 	authRouter.HandleFunc("/users/me/onboarding", apiServer.completeOnboarding).Methods(http.MethodPost)

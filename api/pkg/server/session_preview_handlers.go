@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -38,6 +40,9 @@ func (s *HelixAPIServer) listSessionPreviewTokens(_ http.ResponseWriter, r *http
 	routes, err := s.Store.ListVHostRoutesByTarget(r.Context(), types.VHostTargetSandboxPreview, sessionID)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
+	}
+	for _, route := range routes {
+		s.setSessionPreviewURL(route)
 	}
 	return routes, nil
 }
@@ -93,6 +98,7 @@ func (s *HelixAPIServer) mintSessionPreviewToken(_ http.ResponseWriter, r *http.
 	if err := s.Store.CreateVHostRoute(r.Context(), route); err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+	s.setSessionPreviewURL(route)
 	return route, nil
 }
 
@@ -142,7 +148,23 @@ func (s *HelixAPIServer) rotateSessionPreviewToken(_ http.ResponseWriter, r *htt
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+	s.setSessionPreviewURL(updated)
 	return updated, nil
+}
+
+func (s *HelixAPIServer) setSessionPreviewURL(route *types.VHostRoute) {
+	if route == nil {
+		return
+	}
+	scheme := "http"
+	if s.Cfg.WebServer.PreviewURLHTTPS {
+		scheme = "https"
+	}
+	host := strings.TrimSpace(route.Hostname)
+	if serverURL, err := url.Parse(s.Cfg.WebServer.URL); err == nil && serverURL.Port() != "" {
+		host += ":" + serverURL.Port()
+	}
+	route.URL = scheme + "://" + host
 }
 
 // deleteSessionPreviewToken godoc

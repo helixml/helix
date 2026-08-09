@@ -1,4 +1,4 @@
-import { FC, MouseEvent, useCallback, useEffect, useState } from 'react'
+import { FC, MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import {
   closestCenter,
   DndContext,
@@ -29,10 +29,13 @@ import { useListHelixOrgBots } from '../../services/helixOrgService'
 import { useListProjects } from '../../services/projectService'
 import { useArchiveSession } from '../../services/sessionService'
 import { useArchiveSpecTask } from '../../services/specTaskService'
+import { usePinnedChats } from '../../services/chatPinService'
 import CreateProjectDialog from '../project/CreateProjectDialog'
 import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
   collapsedGroupsStorageKey,
+  getChatShortcutNumber,
+  isChatShortcutModifier,
   isNewThreadShortcut,
   parseSidebarParticipantIds,
   shouldConfirmArchive,
@@ -93,6 +96,9 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const [archivingItemId, setArchivingItemId] = useState<string | null>(null)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [chatShortcutsVisible, setChatShortcutsVisible] = useState(false)
+  const sidebarRef = useRef<HTMLDivElement | null>(null)
+  const chatShortcutModifierHeldRef = useRef(false)
   const [participantIdsOverride, setParticipantIdsOverride] = useState<string[] | null>(() => (
     readParticipantIds(peopleFilterStorageKey)
   ))
@@ -136,6 +142,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
   const createGitRepository = useCreateGitRepository()
   const archiveSession = useArchiveSession()
   const archiveSpecTask = useArchiveSpecTask()
+  const { data: pinnedChats = [] } = usePinnedChats(!!account.user?.id)
   const activeItemId = router.params.taskId || router.params.session_id || ''
   const organizationMembers = account.organizationTools.organization?.memberships || []
   const memberUserIds = new Set(organizationMembers.flatMap((member) => (
@@ -180,6 +187,70 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
     window.addEventListener('keydown', handleNewThreadShortcut, { capture: true })
     return () => window.removeEventListener('keydown', handleNewThreadShortcut, { capture: true })
   }, [openNewThread])
+
+  useEffect(() => {
+    const sidebar = sidebarRef.current
+    if (!sidebar) return
+
+    const assignShortcuts = () => {
+      const items = sidebar.querySelectorAll<HTMLElement>('.project-chat-item')
+      items.forEach((item, index) => {
+        if (index < 9) item.dataset.chatShortcut = String(index + 1)
+        else delete item.dataset.chatShortcut
+      })
+    }
+    assignShortcuts()
+    const observer = new MutationObserver(assignShortcuts)
+    observer.observe(sidebar, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+    const hideShortcuts = () => {
+      chatShortcutModifierHeldRef.current = false
+      setChatShortcutsVisible(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const modifierKey = isMac ? 'Meta' : 'Control'
+      if (event.key === modifierKey) {
+        chatShortcutModifierHeldRef.current = true
+        setChatShortcutsVisible(true)
+        return
+      }
+      const shortcutNumber = getChatShortcutNumber(
+        event,
+        isMac,
+        chatShortcutModifierHeldRef.current,
+      )
+      if (shortcutNumber !== null) {
+        const item = sidebarRef.current?.querySelector<HTMLElement>(
+          `.project-chat-item[data-chat-shortcut="${shortcutNumber}"]`,
+        )
+        if (!item) return
+        event.preventDefault()
+        event.stopPropagation()
+        item.click()
+        return
+      }
+      if (isChatShortcutModifier(event, isMac)) {
+        chatShortcutModifierHeldRef.current = true
+        setChatShortcutsVisible(true)
+      }
+    }
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if ((isMac && event.key === 'Meta') || (!isMac && event.key === 'Control')) hideShortcuts()
+    }
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
+    window.addEventListener('keyup', handleKeyUp, { capture: true })
+    window.addEventListener('blur', hideShortcuts)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true })
+      window.removeEventListener('keyup', handleKeyUp, { capture: true })
+      window.removeEventListener('blur', hideShortcuts)
+    }
+  }, [])
 
   const createRepository = async (
     name: string,
@@ -332,6 +403,8 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
 
   return (
     <Box
+      ref={sidebarRef}
+      data-chat-shortcuts-visible={chatShortcutsVisible}
       sx={{
         height: '100%',
         minHeight: 0,
@@ -341,6 +414,29 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
         color: lightTheme.isLight ? '#27272a' : '#f1f3f7',
         backgroundColor: lightTheme.isLight ? '#fafafa' : '#000000',
         '& .MuiTypography-root': { fontFamily: 'inherit' },
+        '&[data-chat-shortcuts-visible="true"] .project-chat-item[data-chat-shortcut]::after': {
+          content: 'attr(data-chat-shortcut)',
+          position: 'absolute',
+          right: 42,
+          top: 7,
+          width: 14,
+          height: 18,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: '4px',
+          color: lightTheme.isLight ? '#52525b' : '#d4d4d8',
+          backgroundColor: lightTheme.isLight ? 'rgba(39,39,42,0.08)' : 'rgba(241,243,247,0.12)',
+          fontSize: '10px',
+          fontWeight: 600,
+          lineHeight: 1,
+          fontVariantNumeric: 'tabular-nums',
+          pointerEvents: 'none',
+          zIndex: 1,
+        },
+        '&[data-chat-shortcuts-visible="true"] .project-chat-item[data-chat-shortcut] .sidebar-item-pin': {
+          opacity: 0,
+        },
       }}
     >
       <Box
@@ -478,6 +574,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
               currentUser={account.user}
               showTaskAvatars={selectedParticipantIds.some((userId) => userId !== currentUserId)}
               archived={showArchived}
+              pinnedChats={pinnedChats}
               archivingItemId={archivingItemId}
               onToggle={() => toggleGroup('default')}
               onNewTask={showArchived ? undefined : () => account.orgNavigate('chat')}
@@ -517,6 +614,7 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
                         currentUser={account.user}
                         showTaskAvatars={selectedParticipantIds.some((userId) => userId !== currentUserId)}
                         archived={showArchived}
+                        pinnedChats={pinnedChats}
                         archivingItemId={archivingItemId}
                         onToggle={() => toggleGroup(project.id!)}
                         onNewTask={showArchived

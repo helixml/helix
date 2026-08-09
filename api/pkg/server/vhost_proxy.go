@@ -78,8 +78,8 @@ func (apiServer *HelixAPIServer) proxyToContainer(
 	}
 
 	proxy.Transport = &revdialTransport{
-		apiServer:  apiServer,
-		sandboxID:  sandboxID,
+		apiServer:   apiServer,
+		sandboxID:   sandboxID,
 		dialTimeout: 60 * time.Second,
 	}
 
@@ -262,16 +262,43 @@ func (t *revdialTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return nil, fmt.Errorf("write request: %w", err)
 	}
 
-	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	resp, err := readRevdialResponse(conn, req)
 	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("read response: %w", err)
 	}
-	// Body wraps both the response and the underlying conn so we
-	// release the dial as soon as the client finishes reading.
+	return resp, nil
+}
+
+// readRevdialResponse keeps the underlying tunnel available for protocol
+// upgrades. httputil.ReverseProxy requires a 101 response body to implement
+// io.ReadWriteCloser; http.ReadResponse only exposes an io.ReadCloser even
+// though the connection becomes a bidirectional WebSocket stream after the
+// handshake.
+func readRevdialResponse(conn net.Conn, req *http.Request) (*http.Response, error) {
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		resp.Body = &upgradedConnBody{reader: reader, conn: conn}
+		return resp, nil
+	}
+	// Body wraps both the response and the underlying conn so we release the
+	// dial as soon as the client finishes reading.
 	resp.Body = &connReleasingBody{ReadCloser: resp.Body, conn: conn}
 	return resp, nil
 }
+
+type upgradedConnBody struct {
+	reader *bufio.Reader
+	conn   net.Conn
+}
+
+func (b *upgradedConnBody) Read(p []byte) (int, error)  { return b.reader.Read(p) }
+func (b *upgradedConnBody) Write(p []byte) (int, error) { return b.conn.Write(p) }
+func (b *upgradedConnBody) Close() error                { return b.conn.Close() }
 
 // connReleasingBody closes the RevDial conn once the response body is
 // drained / closed by the reverse proxy.

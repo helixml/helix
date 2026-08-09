@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import {
   DialogTitle,
@@ -24,6 +24,7 @@ import { useCreateQuestionSet, useUpdateQuestionSet, useQuestionSet, useExecuteQ
 import useAccount from '../../hooks/useAccount';
 import useSnackbar from '../../hooks/useSnackbar';
 import { IApp } from '../../types';
+import { isChatSelectableAgent } from '../../utils/apps';
 
 interface QuestionSetDialogProps {
   open: boolean;
@@ -49,6 +50,7 @@ const QuestionSetDialog: React.FC<QuestionSetDialogProps> = ({ open, onClose, qu
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [createdQuestionSetId, setCreatedQuestionSetId] = useState<string | undefined>(questionSetId);
+  const eligibleApps = useMemo(() => apps.filter(isChatSelectableAgent), [apps]);
 
   const { data: existingQuestionSet, isLoading: isLoadingQuestionSet } = useQuestionSet(
     questionSetId || '',
@@ -60,10 +62,14 @@ const QuestionSetDialog: React.FC<QuestionSetDialogProps> = ({ open, onClose, qu
   const executeMutation = useExecuteQuestionSet();
 
   useEffect(() => {
-    if (apps.length > 0 && !selectedAgent) {
-      setSelectedAgent(apps[0]);
+    if (eligibleApps.length === 0) {
+      setSelectedAgent(undefined);
+      return;
     }
-  }, [apps]);
+    if (!selectedAgent || !eligibleApps.some((app) => app.id === selectedAgent.id)) {
+      setSelectedAgent(eligibleApps[0]);
+    }
+  }, [eligibleApps, selectedAgent]);
 
   useEffect(() => {
     setCreatedQuestionSetId(questionSetId);
@@ -416,7 +422,7 @@ const QuestionSetDialog: React.FC<QuestionSetDialogProps> = ({ open, onClose, qu
       >
         <Box sx={{ display: 'flex', gap: 1 }}>
           <AgentSelector
-            apps={apps}
+            apps={eligibleApps}
             selectedAgent={selectedAgent}
             onAgentSelect={setSelectedAgent}
           />
@@ -455,4 +461,3 @@ const QuestionSetDialog: React.FC<QuestionSetDialogProps> = ({ open, onClose, qu
 };
 
 export default QuestionSetDialog;
-

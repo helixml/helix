@@ -65,6 +65,7 @@ func (suite *AppTriggerSuite) TestCreateAppTrigger_Success() {
 	app := &types.App{
 		ID:             "app_id_test",
 		OrganizationID: suite.orgID,
+		AgentKind:      types.AgentKindHelix,
 	}
 
 	triggerConfig := &types.TriggerConfiguration{
@@ -132,6 +133,7 @@ func (suite *AppTriggerSuite) TestCreateAppTrigger_Unauthorized() {
 	app := &types.App{
 		ID:             "app_id_test",
 		OrganizationID: suite.orgID,
+		AgentKind:      types.AgentKindHelix,
 		Owner:          "different_user", // Different owner
 	}
 
@@ -171,6 +173,7 @@ func (suite *AppTriggerSuite) TestUpdateAppTrigger_Success() {
 	app := &types.App{
 		ID:             "app_id_test",
 		OrganizationID: suite.orgID,
+		AgentKind:      types.AgentKindHelix,
 	}
 
 	existingTrigger := &types.TriggerConfiguration{

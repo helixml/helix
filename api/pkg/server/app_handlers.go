@@ -351,13 +351,6 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Flag apps that back a Helix org-chart Worker so the frontend can hide
-	// them from the spec-task agent switchers. Done before the owner/member
-	// split so both return paths carry the flag.
-	if httpErr := s.markHelixOrgAgents(ctx, orgID, apps); httpErr != nil {
-		return nil, httpErr
-	}
-
 	// Org owners see all apps
 	if orgMembership.Role == types.OrganizationRoleOwner {
 		return apps, nil
@@ -375,50 +368,18 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 	return authorizedApps, nil
 }
 
-// markHelixOrgAgents sets IsHelixOrgAgent on any app that backs a Helix
-// org-chart Worker for the given org. Org-chart Workers are always
-// org-scoped, so this is a no-op without an org id or apps.
-func (s *HelixAPIServer) markHelixOrgAgents(ctx context.Context, orgID string, apps []*types.Agent) *system.HTTPError {
-	if orgID == "" || len(apps) == 0 {
-		return nil
-	}
-
-	if s.helixOrg == nil || s.helixOrg.store == nil || s.helixOrg.store.Nodes == nil {
-		return nil
-	}
-
-	nodes, err := s.helixOrg.store.Nodes.List(ctx, orgID)
-	if err != nil {
-		return system.NewHTTPError500(fmt.Sprintf("failed to list helix-org agent apps: %s", err))
-	}
-
-	orgAgents := make(map[string]struct{}, len(nodes))
-	for _, node := range nodes {
-		if node.AgentID != "" {
-			orgAgents[node.AgentID] = struct{}{}
-		}
-	}
-	for _, app := range apps {
-		if _, ok := orgAgents[app.ID]; ok {
-			app.IsHelixOrgAgent = true
-		}
-	}
-	return nil
+func isSpecTaskSelectableAgent(app *types.Agent) bool {
+	return app != nil && app.AgentKind == types.AgentKindCoding
 }
 
-func isSpecTaskSelectableAgent(app *types.Agent) bool {
-	if app == nil || app.IsHelixOrgAgent {
-		return false
+func requireAgentKind(app *types.Agent, expectedKind, surface string) error {
+	if app == nil {
+		return fmt.Errorf("agent is required")
 	}
-	if app.Config.Helix.DefaultAgentType == types.AgentTypeZedExternal {
-		return true
+	if app.AgentKind != expectedKind {
+		return fmt.Errorf("%s requires agent kind %q, got %q", surface, expectedKind, app.AgentKind)
 	}
-	for _, assistant := range app.Config.Helix.Assistants {
-		if assistant.AgentType == types.AgentTypeZedExternal {
-			return true
-		}
-	}
-	return false
+	return nil
 }
 
 // createAgent godoc
@@ -591,6 +552,8 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
+	// Agent kind is assigned by the creation path, not by API callers.
+	app.AgentKind = ""
 
 	// Validate and default tools
 	for idx := range app.Config.Helix.Assistants {
@@ -656,6 +619,12 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 // validateProvidersAndModels checks if the provider and model are valid. Provider
 // can be empty, however model is required
 func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *types.User, app *types.Agent) error {
+	for _, assistant := range app.Config.Helix.Assistants {
+		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+			return fmt.Errorf("assistant %q: %w", assistant.Name, err)
+		}
+	}
+
 	endpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
 	if err != nil {
 		log.Error().
@@ -1064,10 +1033,6 @@ func (s *HelixAPIServer) getAgent(_ http.ResponseWriter, r *http.Request) (*type
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
-	if httpErr := s.markHelixOrgAgents(r.Context(), app.OrganizationID, []*types.Agent{app}); httpErr != nil {
-		return nil, httpErr
-	}
-
 	return app, nil
 }
 
@@ -1114,6 +1079,7 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	update.Owner = existing.Owner
 	update.OwnerType = existing.OwnerType
 	update.Created = existing.Created
+	update.AgentKind = existing.AgentKind
 
 	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
 	if err != nil {
@@ -1198,10 +1164,6 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
-	if httpErr := s.markHelixOrgAgents(r.Context(), updated.OrganizationID, []*types.Agent{updated}); httpErr != nil {
-		return nil, httpErr
-	}
-
 	return updated, nil
 }
 
@@ -2136,15 +2098,20 @@ func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*
 	app.Owner = user.ID
 	app.OwnerType = user.Type
 	app.Updated = time.Now()
+	app.AgentKind = ""
 
 	app.Config.Helix.Name = r.URL.Query().Get("name")
 	normalizeHelixAgentAssistantSpecs(app)
+	for _, assistant := range app.Config.Helix.Assistants {
+		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+			return nil, system.NewHTTPError400(err.Error())
+		}
+	}
 
 	app, err = s.Store.CreateApp(r.Context(), app)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
-
 	return app, nil
 }
 

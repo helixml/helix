@@ -451,6 +451,50 @@ func (s *ApplyProjectSuite) TestApply_MultiRepo_PrimarySetCorrectly() {
 	s.Nil(httpErr)
 }
 
+// TestApply_NewAgentAppIsCodingAgent: the agent app apply provisions must be
+// classified as a coding agent. Stamping org_agent here made every project
+// created through the public apply endpoint (the CLI) unable to run a spec
+// task: createTaskFromPrompt, listProjectSpecTaskAgents and updateProject all
+// reject anything that isn't coding_agent, so the project was a dead end.
+func (s *ApplyProjectSuite) TestApply_NewAgentAppIsCodingAgent() {
+	existingProject := &types.Project{
+		ID:     "proj-new-agent",
+		Name:   "cli-project",
+		UserID: s.userID,
+	}
+	req := types.ProjectApplyRequest{
+		Name: existingProject.Name,
+		Spec: types.ProjectSpec{
+			Agent: &types.ProjectAgentSpec{
+				Name:    "cli-agent",
+				Runtime: "claude_code",
+			},
+		},
+	}
+
+	s.store.EXPECT().
+		ListProjects(gomock.Any(), &store.ListProjectsQuery{UserID: s.userID}).
+		Return([]*types.Project{existingProject}, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+
+	var created *types.App
+	s.store.EXPECT().
+		CreateApp(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
+			created = app
+			return app, nil
+		})
+
+	resp, httpErr := s.server.applyProject(httptest.NewRecorder(), s.applyRequest(req))
+	s.Nil(httpErr)
+	s.Require().NotNil(resp)
+	s.Require().NotNil(created)
+	// Empty means "let the store classify it" — DefaultAgentType is
+	// zed_external here, so setAgentKindDefault lands on coding_agent.
+	s.NotEqual(types.AgentKindOrg, created.AgentKind)
+	s.Equal(types.AgentTypeZedExternal, created.Config.Helix.DefaultAgentType)
+}
+
 // ---------------------------------------------------------------------------
 // Validation errors
 // ---------------------------------------------------------------------------
@@ -576,7 +620,8 @@ func (s *ApplyProjectSuite) TestApply_LinkedAgentPreservesCanonicalConfig() {
 		UserID: s.userID,
 	}
 	existingApp := &types.App{
-		ID: appID,
+		ID:        appID,
+		AgentKind: types.AgentKindCoding,
 		Config: types.AppConfig{Helix: types.AppHelixConfig{
 			Name:                 "Canonical",
 			DefaultAgentType:     types.AgentTypeZedExternal,
@@ -623,12 +668,17 @@ func (s *ApplyProjectSuite) TestApply_LinkedAgentPreservesCanonicalConfig() {
 			return nil
 		}).Times(2)
 	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(existingApp, nil)
+	// No UpdateApp: linking an app to a project must not rewrite the app —
+	// neither its config nor its kind. Reclassifying a caller's coding agent to
+	// org_agent here would silently drop it out of every coding-agent surface
+	// with no way back. gomock fails the test if UpdateApp is called.
 
 	resp, httpErr := s.server.applyProject(httptest.NewRecorder(), s.applyRequest(req))
 
 	s.Nil(httpErr)
 	s.Require().NotNil(resp)
 	s.Equal(appID, resp.AgentAppID)
+	s.Equal(types.AgentKindCoding, existingApp.AgentKind)
 	after, err := json.Marshal(existingApp.Config)
 	s.Require().NoError(err)
 	s.Equal(string(before), string(after))

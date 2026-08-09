@@ -107,7 +107,7 @@ func TestSwitchAgent_RepairsStaleAgentNameForCurrentApp(t *testing.T) {
 	ctx := context.Background()
 	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
 
-	mem.SeedApp(&types.App{ID: "app_target", Config: types.AppConfig{Helix: types.AppHelixConfig{
+	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
 			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
 		}},
@@ -128,11 +128,28 @@ func TestSwitchAgent_RepairsStaleAgentNameForCurrentApp(t *testing.T) {
 	assert.Empty(t, updated.Metadata.ZedThreadID)
 }
 
+func TestSwitchAgent_RejectsOrgAgentForCodingSession(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
+
+	mem.SeedApp(&types.App{ID: "app_org", AgentKind: types.AgentKindOrg, Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+		}},
+	}}})
+	session := newTestParentSession(user.ID)
+	seedParentWithInteractions(t, mem, session, 1)
+
+	rr := callSwitchAgentHTTP(t, srv, user, session.ID, SwitchAgentRequest{HelixAppID: "app_org"})
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	require.Contains(t, rr.Body.String(), types.AgentKindCoding)
+}
+
 func TestReconcileSessionAgentWithApp_RepairsBeforeUserTurn(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
 
-	mem.SeedApp(&types.App{ID: "app_codex", Config: types.AppConfig{Helix: types.AppHelixConfig{
+	mem.SeedApp(&types.App{ID: "app_codex", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
 			ID: "0", AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
 		}},
@@ -202,13 +219,13 @@ func TestSwitchAgentInPlace_RepointsSpecTaskHelixAppID(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
 
-	mem.SeedApp(&types.App{ID: "app_opus", Config: types.AppConfig{Helix: types.AppHelixConfig{
+	mem.SeedApp(&types.App{ID: "app_opus", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Name: "Opus",
 		Assistants: []types.AssistantConfig{{
 			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode, Model: "claude-opus-4-5",
 		}},
 	}}})
-	mem.SeedApp(&types.App{ID: "app_sonnet", Config: types.AppConfig{Helix: types.AppHelixConfig{
+	mem.SeedApp(&types.App{ID: "app_sonnet", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Name: "Sonnet",
 		Assistants: []types.AssistantConfig{{
 			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode, Model: "claude-sonnet-4-5",

@@ -347,7 +347,15 @@ func (s *HelixAPIServer) listProjectSpecTaskAgents(_ http.ResponseWriter, r *htt
 		if name == "" && len(app.Config.Helix.Assistants) > 0 {
 			name = app.Config.Helix.Assistants[0].Name
 		}
-		agents = append(agents, types.ProjectSpecTaskAgent{ID: app.ID, Name: name})
+		runtime := types.CodeAgentRuntimeZedAgent
+		if len(app.Config.Helix.Assistants) > 0 && app.Config.Helix.Assistants[0].CodeAgentRuntime != "" {
+			runtime = app.Config.Helix.Assistants[0].CodeAgentRuntime
+		}
+		agents = append(agents, types.ProjectSpecTaskAgent{
+			ID:               app.ID,
+			Name:             name,
+			CodeAgentRuntime: runtime,
+		})
 	}
 	sort.Slice(agents, func(i, j int) bool {
 		return strings.ToLower(agents[i].Name) < strings.ToLower(agents[j].Name)
@@ -418,6 +426,9 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if err := s.authorizeUserToApp(r.Context(), user, defaultApp, types.ActionGet); err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+	if err := requireAgentKind(defaultApp, types.AgentKindCoding, "project spec tasks"); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
 	}
 
 	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
@@ -634,6 +645,32 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	for _, selection := range []struct {
+		field string
+		appID *string
+	}{
+		{field: "default_helix_app_id", appID: req.DefaultHelixAppID},
+		{field: "project_manager_helix_app_id", appID: req.ProjectManagerHelixAppID},
+		{field: "pull_request_reviewer_helix_app_id", appID: req.PullRequestReviewerHelixAppID},
+	} {
+		if selection.appID == nil || *selection.appID == "" {
+			continue
+		}
+		app, appErr := s.Store.GetApp(r.Context(), *selection.appID)
+		if appErr != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid %s: agent not found", selection.field))
+		}
+		if app.OrganizationID != "" && app.OrganizationID != project.OrganizationID {
+			return nil, system.NewHTTPError400(fmt.Sprintf("%s must be in the same organization as the project", selection.field))
+		}
+		if appErr := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet); appErr != nil {
+			return nil, system.NewHTTPError403(appErr.Error())
+		}
+		if appErr := requireAgentKind(app, types.AgentKindCoding, "project agent configuration"); appErr != nil {
+			return nil, system.NewHTTPError400(appErr.Error())
+		}
 	}
 
 	// Apply updates
@@ -2895,6 +2932,9 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			assistant.Browser = types.AssistantBrowser{Enabled: agentSpec.Tools.Browser}
 			assistant.Calculator = types.AssistantCalculator{Enabled: agentSpec.Tools.Calculator}
 		}
+		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid agent configuration: %v", err))
+		}
 
 		appHelixConfig := types.AppHelixConfig{
 			Name:             agentSpec.Name,
@@ -2957,6 +2997,11 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			}
 			agentAppID = agentApp.ID
 		} else {
+			// AgentKind is left to the store's classifier: an apply spec always
+			// produces a zed_external agent, so it lands as coding_agent and the
+			// project can run spec tasks. Org-bot projects are not special-cased
+			// here — the helix-org runtime reclassifies its own agent app to
+			// org_agent after apply (see inProcHelixClient.ApplyProject).
 			agentApp = &types.App{
 				ID:             system.GenerateUUID(),
 				Owner:          user.ID,

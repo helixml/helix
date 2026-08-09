@@ -38,6 +38,51 @@ export const getTooltipStyleOverrides = (isLight: boolean) => ({
   },
 })
 
+export const getDialogStyleTokens = (isLight: boolean, background: string) => {
+  const surfaceBase = isLight
+    ? background
+    : `color-mix(in srgb, ${background} 94%, white)`
+
+  return {
+    surfaceFallback: isLight ? background : '#191919',
+    surface: `color-mix(in srgb, ${surfaceBase} 80%, transparent)`,
+    surfaceFilter: `blur(${isLight ? 12 : 16}px) saturate(${isLight ? 1.14 : 1.08})`,
+    border: isLight
+      ? '1px solid rgba(0, 0, 0, 0.10)'
+      : '1px solid rgba(255, 255, 255, 0.08)',
+    shadow: isLight
+      ? '0 24px 64px -24px rgba(0, 0, 0, 0.35)'
+      : 'inset 0 1px rgba(255, 255, 255, 0.04), 0 24px 72px -20px rgba(0, 0, 0, 0.90)',
+    backdropFallback: isLight ? 'rgba(255, 255, 255, 0.60)' : 'rgba(0, 0, 0, 0.64)',
+    backdrop: `color-mix(in srgb, ${background} ${isLight ? 60 : 64}%, transparent)`,
+  }
+}
+
+export const getFlatSelectOverrides = (isLight: boolean) => ({
+  '&:has(> .MuiSelect-select)': {
+    borderRadius: '6px',
+    backgroundColor: 'transparent',
+    transition: 'background-color 0.1s, color 0.1s',
+    '& .MuiOutlinedInput-notchedOutline': {
+      border: '0 !important',
+    },
+    '&:before, &:after': {
+      borderBottom: '0 !important',
+    },
+    '& > .MuiSelect-select': {
+      paddingTop: '6px',
+      paddingBottom: '6px',
+      paddingLeft: '8px',
+    },
+    '&:hover': {
+      backgroundColor: isLight ? 'rgba(0,0,0,0.045)' : 'rgba(255,255,255,0.055)',
+    },
+    '&.Mui-focused': {
+      backgroundColor: isLight ? 'rgba(0,0,0,0.075)' : 'rgba(255,255,255,0.085)',
+    },
+  },
+})
+
 export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const themeConfig = useThemeConfig()
   const api = useApi()
@@ -92,9 +137,8 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
     const menuDividerColor = isLight ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.09)'
     const menuShadow = isLight ? '0 10px 30px rgba(0,0,0,0.14)' : '0 10px 30px rgba(0,0,0,0.38)'
 
-    const dialogBg = isLight ? '#ffffff' : '#181A20'
+    const dialogStyles = getDialogStyleTokens(isLight, bg)
     const dialogColor = isLight ? '#333' : '#F1F1F1'
-    const dialogShadow = isLight ? '0 8px 32px rgba(0, 0, 0, 0.15)' : '0 8px 32px rgba(0, 0, 0, 0.5)'
 
     return createTheme({
       palette: {
@@ -242,15 +286,27 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
           },
           styleOverrides: {
             paper: {
-              background: dialogBg,
+              backgroundColor: dialogStyles.surfaceFallback,
+              background: dialogStyles.surface,
+              backgroundImage: 'none',
+              WebkitBackdropFilter: dialogStyles.surfaceFilter,
+              backdropFilter: dialogStyles.surfaceFilter,
+              border: dialogStyles.border,
               color: dialogColor,
               borderRadius: 16,
-              boxShadow: dialogShadow,
+              boxShadow: dialogStyles.shadow,
               transition: 'all 0.2s ease-in-out',
             },
             root: {
               zIndex: 100002, // Above floating windows (z-index 9999); tooltips (100004) render above
               transition: 'all 0.2s ease-in-out',
+              '& .MuiBackdrop-root': {
+                backgroundColor: dialogStyles.backdropFallback,
+                background: dialogStyles.backdrop,
+                WebkitBackdropFilter: 'blur(4px)',
+                backdropFilter: 'blur(4px)',
+                transition: 'background 0.2s ease-in-out, backdrop-filter 0.2s ease-in-out',
+              },
             },
           },
         },
@@ -282,6 +338,21 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
                 zIndex: 100003,
               },
             },
+          },
+        },
+        MuiOutlinedInput: {
+          styleOverrides: {
+            root: getFlatSelectOverrides(isLight),
+          },
+        },
+        MuiInput: {
+          styleOverrides: {
+            root: getFlatSelectOverrides(isLight),
+          },
+        },
+        MuiFilledInput: {
+          styleOverrides: {
+            root: getFlatSelectOverrides(isLight),
           },
         },
       },

@@ -38,6 +38,7 @@ import useApi from '../../hooks/useApi'
 import useDebouncedCallback from '../../hooks/useDebouncedCallback'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
+import AgentHarness from '../agent/AgentHarness'
 import {
   CLAUDE_SUBSCRIPTION_MODELS,
   CODEX_SUBSCRIPTION_MODELS,
@@ -117,6 +118,9 @@ interface AppSettingsProps {
   section: 'general' | 'runtime',
   hideAgentType?: boolean,
   generalAside?: React.ReactNode,
+  focusedExternal?: boolean,
+  externalRuntimeView?: 'all' | 'configuration' | 'desktop',
+  embedded?: boolean,
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}.`
@@ -190,6 +194,9 @@ const AppSettings: FC<AppSettingsProps> = ({
   section,
   hideAgentType = false,
   generalAside,
+  focusedExternal = false,
+  externalRuntimeView = 'all',
+  embedded = false,
 }) => {
   // State for form fields
   const [name, setName] = useState(app.name || '')
@@ -568,13 +575,20 @@ const AppSettings: FC<AppSettingsProps> = ({
   };
 
   return (
-    <Box sx={{ mt: 2, mr: 2 }}>
+    <Box sx={{ mt: embedded ? 0 : 2, mr: embedded ? 0 : 2 }}>
       {section === 'general' && (
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" sx={{ mb: 3 }}>
-          General
+      <Box sx={{ mb: embedded ? 0 : 3 }}>
+        {!embedded && (<>
+        <Typography variant="h5" sx={{ mb: focusedExternal ? 0.5 : 3 }}>
+          {focusedExternal ? 'Basics' : 'General'}
         </Typography>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems="flex-start" sx={{ mb: 3 }}>
+        {focusedExternal && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            The name used to identify this agent across the organization.
+          </Typography>
+        )}
+        </>)}
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems="flex-start" sx={{ mb: focusedExternal ? 0 : 3 }}>
           <TextField
             id="app-name"
             name="app-name"
@@ -604,6 +618,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             </Box>
           )}
         </Stack>
+        {!focusedExternal && (<>
         <Stack direction="row" alignItems="center">
           <Typography gutterBottom>System Instructions</Typography>
           <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
@@ -638,14 +653,28 @@ const AppSettings: FC<AppSettingsProps> = ({
             Markdown supported. Cmd/Ctrl+S saves immediately.
           </Typography>
         </Box>
+        </>)}
       </Box>
       )}
 
       {section === 'runtime' && (
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" sx={{ mb: 3 }}>
-          Runtime
+      <Box sx={{ mb: embedded ? 0 : 3 }}>
+        {!embedded && (<>
+        <Typography variant="h5" sx={{ mb: focusedExternal ? 0.5 : 3 }}>
+          {focusedExternal && externalRuntimeView === 'desktop'
+            ? 'Desktop configuration'
+            : focusedExternal
+              ? 'Provider and model'
+              : 'Runtime'}
         </Typography>
+        {focusedExternal && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            {externalRuntimeView === 'desktop'
+              ? 'Configure the desktop environment available to this agent.'
+              : 'Choose the coding harness, credentials, model, and reasoning effort.'}
+          </Typography>
+        )}
+        </>)}
 
         {/* Agent Type Selection */}
       {!hideAgentType && (
@@ -663,9 +692,9 @@ const AppSettings: FC<AppSettingsProps> = ({
 
       {/* External Agent Configuration */}
       {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
-        <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: embedded ? 0 : 3 }}>
           {/* Agent Runtime & Model - compact section */}
-          <Stack spacing={2} sx={{ mb: 3 }}>
+          <Stack spacing={2} sx={{ mb: externalRuntimeView === 'all' ? 3 : 0, display: externalRuntimeView === 'desktop' ? 'none' : undefined }}>
             <Box>
               <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
                 Agent Runtime
@@ -684,53 +713,64 @@ const AppSettings: FC<AppSettingsProps> = ({
                     }
                   }}
                   disabled={readOnly}
-                  renderValue={(value) => {
-                    if (value === 'claude_code') return 'Claude Code'
-                    if (value === 'codex_cli') return 'Codex'
-                    if (value === 'qwen_code') return 'Qwen Code'
-                    if (value === 'goose_code') return 'Goose'
-                    return 'Zed Agent'
-                  }}
+                  renderValue={(runtime) => (
+                    <AgentHarness runtime={runtime} variant="long" size={16} />
+                  )}
                 >
                   <MenuItem value="zed_agent">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="zed_agent" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Zed Agent</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Built-in, Anthropic & OpenAI compatible
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="qwen_code">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="qwen_code" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Qwen Code</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Optimized for Qwen, including smaller models
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="claude_code">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="claude_code" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Claude Code</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Anthropic's coding agent
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="codex_cli">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="codex_cli" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Codex</Typography>
                       <Typography variant="caption" color="text.secondary">
                         OpenAI's coding agent
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="goose_code">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="goose_code" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Goose</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Open-source ACP agent (AAIF)
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                 </Select>
               </FormControl>
@@ -994,11 +1034,14 @@ const AppSettings: FC<AppSettingsProps> = ({
             )}
           </Stack>
 
-          <Divider sx={{ my: 2 }} />
+          <Divider sx={{ my: 2, display: externalRuntimeView === 'all' ? undefined : 'none' }} />
 
+          <Box sx={{ display: externalRuntimeView === 'configuration' ? 'none' : undefined }}>
+          {!embedded && (
           <Typography variant="h6" sx={{ mb: 2 }}>
-            Sandbox settings
+            {focusedExternal ? 'Desktop' : 'Sandbox settings'}
           </Typography>
+          )}
           <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
             Display
           </Typography>
@@ -1176,6 +1219,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 }}
               />
             </Box>
+          </Box>
         </Box>
       )}
 

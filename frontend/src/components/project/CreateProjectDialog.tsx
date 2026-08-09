@@ -29,8 +29,7 @@ import {
 } from '@mui/material'
 import GitHubIcon from '@mui/icons-material/GitHub'
 import LockIcon from '@mui/icons-material/Lock'
-import { FolderGit2, Link as LinkIcon, Plus, Bot, RefreshCw, Search } from 'lucide-react'
-import EditIcon from '@mui/icons-material/Edit'
+import { FolderGit2, Link as LinkIcon, Plus, RefreshCw, Search } from 'lucide-react'
 import { TypesExternalRepositoryType, TypesRepositoryInfo } from '../../api/api'
 import type { TypesGitRepository, TypesAzureDevOps } from '../../api/api'
 import NewRepoForm from './forms/NewRepoForm'
@@ -42,9 +41,10 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 import { GITHUB_VCS_SCOPES } from '../../hooks/useOAuthFlow'
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
-import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
+import { selectCodingAgents } from '../../utils/apps'
 import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
+import AgentDropdown from '../agent/AgentDropdown'
 import CodingAgentForm from '../agent/CodingAgentForm'
 import type { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
@@ -213,16 +213,9 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     }
   }, [name, userModifiedRepoName, repoMode])
 
-  // Sort apps: zed_external first, then others
-  // Only show external agents — helix_agent types don't support project workflows
-  const sortedApps = useMemo(() => {
-    if (!apps) return []
-    return apps.filter((app) =>
-      app.config?.helix?.assistants?.some(
-        (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-      ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-    )
-  }, [apps])
+  // Project workflows require external coding agents. Org-chart agents are
+  // reserved for org chat even when their runtime is also zed_external.
+  const sortedApps = useMemo(() => selectCodingAgents(apps), [apps])
 
   // Filter out internal repos - they're deprecated
   const codeRepos = repositories.filter(r => r.repo_type !== 'internal')
@@ -473,7 +466,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [isSubmitDisabled, handleSubmit])
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth onKeyDown={handleKeyDown}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      onKeyDown={handleKeyDown}
+    >
       <DialogTitle>Create New Project</DialogTitle>
       <DialogContent>
         <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -972,44 +971,12 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
 
           {!showCreateAgentForm ? (
             <>
-              <FormControl fullWidth size="small">
-                <InputLabel>Select Agent</InputLabel>
-                <Select
-                  value={selectedAgentId}
-                  label="Select Agent"
-                  onChange={(e) => setSelectedAgentId(e.target.value)}
-                  renderValue={(value) => {
-                    const app = sortedApps.find(a => a.id === value)
-                    return app?.config?.helix?.name || 'Select Agent'
-                  }}
-                >
-                  {sortedApps.map((app) => (
-                    <MenuItem key={app.id} value={app.id}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                        <Bot size={18} color="#9e9e9e" />
-                        <span style={{ flex: 1 }}>{app.config?.helix?.name || 'Unnamed Agent'}</span>
-                        <Tooltip title="Edit agent">
-                          <IconButton
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              account.orgNavigate('agent', { app_id: app.id })
-                            }}
-                            sx={{ ml: 'auto' }}
-                          >
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </MenuItem>
-                  ))}
-                  {sortedApps.length === 0 && (
-                    <MenuItem disabled value="">
-                      No agents available
-                    </MenuItem>
-                  )}
-                </Select>
-              </FormControl>
+              <AgentDropdown
+                value={selectedAgentId}
+                onChange={setSelectedAgentId}
+                agents={sortedApps}
+                label="Select Agent"
+              />
               <Button
                 size="small"
                 onClick={() => setShowCreateAgentForm(true)}

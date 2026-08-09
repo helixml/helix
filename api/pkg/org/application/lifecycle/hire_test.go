@@ -19,7 +19,7 @@ func hireClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC
 
 type fakeAgentCreator struct{}
 
-func (fakeAgentCreator) CreateAgent(context.Context, string, string, string) (string, error) {
+func (fakeAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (string, error) {
 	return "app-agent", nil
 }
 

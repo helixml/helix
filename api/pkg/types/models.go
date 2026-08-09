@@ -210,9 +210,9 @@ type ModelInfo struct { //nolint:revive
 	// SupportedReasoningEfforts lists the effort values the model accepts,
 	// e.g. ["high","low","medium","none","xhigh"]. Empty when unknown.
 	SupportedReasoningEfforts []string `json:"supported_reasoning_efforts"`
-	ContextLength           int        `json:"context_length"`
-	MaxCompletionTokens     int        `json:"max_completion_tokens"`
-	Pricing                 Pricing    `json:"pricing"`
+	ContextLength             int      `json:"context_length"`
+	MaxCompletionTokens       int      `json:"max_completion_tokens"`
+	Pricing                   Pricing  `json:"pricing"`
 }
 
 type Pricing struct {

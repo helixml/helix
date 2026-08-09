@@ -12,6 +12,11 @@ const mocks = vi.hoisted(() => ({
   taskOptions: [] as any[],
 }))
 
+vi.mock('@tanstack/react-query', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@tanstack/react-query')>(),
+  useQueries: () => [],
+}))
+
 vi.mock('../../hooks/useLightTheme', () => ({
   default: () => ({ isLight: false }),
 }))
@@ -46,6 +51,10 @@ vi.mock('../../services/specTaskService', () => ({
       isError: false,
     }
   },
+}))
+
+vi.mock('../../services/projectService', () => ({
+  useGetProjectRepositories: () => ({ data: [] }),
 }))
 
 afterEach(() => {
@@ -145,6 +154,33 @@ describe('ProjectChatGroup', () => {
       expect.objectContaining({ id: 'session-1', kind: 'session' }),
     )
     expect(onOpenItem).not.toHaveBeenCalled()
+  })
+
+  it('shows a pin indicator next to a pinned chat', () => {
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        pinnedChats={[{
+          id: 'session-1',
+          kind: 'session',
+          pinned_at: '2026-08-06T11:00:00Z',
+        }]}
+        archivingItemId={null}
+        onToggle={vi.fn()}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText('Pinned')).toBeInTheDocument()
   })
 })
 

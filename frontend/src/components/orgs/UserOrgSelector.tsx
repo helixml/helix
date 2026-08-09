@@ -281,9 +281,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     if (!firstAccessibleOrg) return
     const firstOrgSlug = firstAccessibleOrg.name
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, firstOrgSlug)
-    const useRouteName = router.name.startsWith('org_') ? router.name : orgLandingRoute()
-    const useParams = Object.assign({}, router.params, { org_id: firstOrgSlug })
-    router.navigate(useRouteName, useParams)
+    router.navigate(orgLandingRoute(), { org_id: firstOrgSlug })
   }, [listOrgs, account.user])
 
   // Handle org select, also remember the last org user has been in
@@ -386,11 +384,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const navigationButtons = useMemo(() => {
     const baseButtons = [
       {
-        icon: <Network size={NAV_BUTTON_SIZE} />,
-        tooltip: "View org chart",
-        isActive: router.name.startsWith('helix_org'),
-        onClick: handleHelixOrgClick,
-        label: "Chart",
+        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
+        tooltip: "AI chat assistant",
+        isActive: isActive(['chat', 'session']),
+        onClick: () => orgNavigateTo('chat'),
+        label: "Chat",
       },
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
@@ -400,18 +398,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         label: "Projects",
       },
       {
+        icon: <Network size={NAV_BUTTON_SIZE} />,
+        tooltip: "View org chart",
+        isActive: router.name.startsWith('helix_org'),
+        onClick: handleHelixOrgClick,
+        label: "Chart",
+      },
+      {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
         tooltip: "View agents",
         isActive: isActive(['agents', 'agent']),
         onClick: () => orgNavigateTo('agents'),
         label: "Agents",
-      },
-      {
-        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
-        tooltip: "AI chat assistant",
-        isActive: isActive(['chat', 'session']),
-        onClick: () => orgNavigateTo('chat'),
-        label: "Chat",
       },
       // Q&A now lives in the org Settings sub-nav (OrgSidebar -> Agent Q&A);
       // no longer a top-level rail entry.

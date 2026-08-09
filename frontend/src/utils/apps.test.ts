@@ -1,55 +1,64 @@
 import { describe, it, expect } from 'vitest'
-import { isExternalAgent, isHelixOrgChartAgent, isSpecTaskSwitchableAgent } from './apps'
-import { IApp, AGENT_TYPE_ZED_EXTERNAL, AGENT_TYPE_HELIX_AGENT } from '../types'
+import { isChatSelectableAgent, isCodingAgent, isHelixAgent, isOrgAgent, selectCodingAgents, usesFocusedAgentDetails } from './apps'
+import { AGENT_KIND_CODING, AGENT_KIND_HELIX, AGENT_KIND_ORG, IApp } from '../types'
 
 // Minimal IApp builder — only the fields the predicates read.
 const makeApp = (opts: {
-  agentType?: string
-  defaultAgentType?: string
-  isHelixOrgAgent?: boolean
+  agentKind: string
 }): IApp =>
   ({
     id: 'app_test',
     config: {
       helix: {
-        assistants: opts.agentType ? [{ agent_type: opts.agentType }] : [],
-        default_agent_type: opts.defaultAgentType,
+        assistants: [],
       },
     },
-    is_helix_org_agent: opts.isHelixOrgAgent,
+    agent_kind: opts.agentKind,
   } as unknown as IApp)
 
-describe('isExternalAgent', () => {
-  it('is true when an assistant is zed_external', () => {
-    expect(isExternalAgent(makeApp({ agentType: AGENT_TYPE_ZED_EXTERNAL }))).toBe(true)
+describe('agent kind predicates', () => {
+  it('uses the persisted kind instead of execution config', () => {
+    expect(isHelixAgent(makeApp({ agentKind: AGENT_KIND_HELIX }))).toBe(true)
+    expect(isCodingAgent(makeApp({ agentKind: AGENT_KIND_CODING }))).toBe(true)
+    expect(isOrgAgent(makeApp({ agentKind: AGENT_KIND_ORG }))).toBe(true)
   })
 
-  it('is true when default_agent_type is zed_external', () => {
-    expect(isExternalAgent(makeApp({ defaultAgentType: AGENT_TYPE_ZED_EXTERNAL }))).toBe(true)
-  })
-
-  it('is false for a non-external agent', () => {
-    expect(isExternalAgent(makeApp({ agentType: AGENT_TYPE_HELIX_AGENT }))).toBe(false)
+  it('uses focused details only for coding and org agents', () => {
+    expect(usesFocusedAgentDetails(makeApp({ agentKind: AGENT_KIND_CODING }))).toBe(true)
+    expect(usesFocusedAgentDetails(makeApp({ agentKind: AGENT_KIND_ORG }))).toBe(true)
+    expect(usesFocusedAgentDetails(makeApp({ agentKind: AGENT_KIND_HELIX }))).toBe(false)
+    expect(usesFocusedAgentDetails(makeApp({ agentKind: 'future_agent_kind' }))).toBe(false)
   })
 })
 
-describe('isSpecTaskSwitchableAgent', () => {
-  it('keeps an external agent that is not part of the org chart', () => {
+describe('selectCodingAgents', () => {
+  it('keeps external agents that are not part of the org chart', () => {
     expect(
-      isSpecTaskSwitchableAgent(makeApp({ agentType: AGENT_TYPE_ZED_EXTERNAL })),
-    ).toBe(true)
+      selectCodingAgents([makeApp({ agentKind: AGENT_KIND_CODING })]).length,
+    ).toBe(1)
   })
 
-  it('drops an external agent that backs an org-chart Worker', () => {
-    const app = makeApp({ agentType: AGENT_TYPE_ZED_EXTERNAL, isHelixOrgAgent: true })
-    expect(isHelixOrgChartAgent(null)).toBe(false)
-    expect(isHelixOrgChartAgent(app)).toBe(true)
-    expect(isSpecTaskSwitchableAgent(app)).toBe(false)
+  it('drops external agents that back an org-chart Worker', () => {
+    const app = makeApp({ agentKind: AGENT_KIND_ORG })
+    expect(isOrgAgent(null)).toBe(false)
+    expect(isOrgAgent(app)).toBe(true)
+    expect(selectCodingAgents([app])).toEqual([])
   })
 
-  it('drops a non-external agent', () => {
-    expect(
-      isSpecTaskSwitchableAgent(makeApp({ agentType: AGENT_TYPE_HELIX_AGENT })),
-    ).toBe(false)
+  it('drops non-external agents', () => {
+    expect(selectCodingAgents([makeApp({ agentKind: AGENT_KIND_HELIX })])).toEqual([])
+  })
+
+  it('tolerates a missing list', () => {
+    expect(selectCodingAgents(undefined)).toEqual([])
+    expect(selectCodingAgents(null)).toEqual([])
+  })
+})
+
+describe('isChatSelectableAgent', () => {
+  it('only permits native Helix agents', () => {
+    expect(isChatSelectableAgent(makeApp({ agentKind: AGENT_KIND_HELIX }))).toBe(true)
+    expect(isChatSelectableAgent(makeApp({ agentKind: AGENT_KIND_CODING }))).toBe(false)
+    expect(isChatSelectableAgent(makeApp({ agentKind: AGENT_KIND_ORG }))).toBe(false)
   })
 })

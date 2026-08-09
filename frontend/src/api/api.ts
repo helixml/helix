@@ -215,8 +215,11 @@ export interface ApiCreateAssetRequest {
 }
 
 export interface ApiCreateBotRequest {
+  code_agent_credential_type?: TypesCodeAgentCredentialType;
+  code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
   id?: string;
+  model?: string;
   /**
    * Name is the human-readable display label (e.g. "Chief of Staff").
    * Optional; the ID stays the immutable handle.
@@ -232,6 +235,8 @@ export interface ApiCreateBotRequest {
   owner?: boolean;
   parent_id?: string;
   preserve_context?: boolean;
+  provider?: string;
+  reasoning_effort?: string;
   tools?: string[];
   topics?: string[];
 }
@@ -1183,16 +1188,12 @@ export interface ServerAgentConfigAppliedResponse {
 }
 
 export interface ServerAgentCreateResponse {
+  /** AgentKind classifies where an agent belongs in the product. */
+  agent_kind?: string;
   config?: TypesAgentConfig;
   created?: string;
   global?: boolean;
   id?: string;
-  /**
-   * IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
-   * (see api/pkg/org). Computed at list time, not persisted, so the frontend
-   * can hide org-chart agents from the spec-task agent switchers.
-   */
-  is_helix_org_agent?: boolean;
   model_substitutions?: ServerModelSubstitution[];
   organization_id?: string;
   /** uuid of user ID */
@@ -1767,6 +1768,16 @@ export interface ServerPhaseProgress {
   status?: string;
 }
 
+export interface ServerPinChatRequest {
+  id?: string;
+  kind?: string;
+  project_id?: string;
+}
+
+export interface ServerPinnedChatsResponse {
+  pinned_chats?: TypesPinnedChat[];
+}
+
 export interface ServerPinnedProjectsResponse {
   pinned_project_ids?: string[];
 }
@@ -2305,16 +2316,12 @@ export interface TypesAffectedProjectInfo {
 }
 
 export interface TypesAgent {
+  /** AgentKind classifies where an agent belongs in the product. */
+  agent_kind?: string;
   config?: TypesAgentConfig;
   created?: string;
   global?: boolean;
   id?: string;
-  /**
-   * IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
-   * (see api/pkg/org). Computed at list time, not persisted, so the frontend
-   * can hide org-chart agents from the spec-task agent switchers.
-   */
-  is_helix_org_agent?: boolean;
   organization_id?: string;
   /** uuid of user ID */
   owner?: string;
@@ -4614,6 +4621,7 @@ export interface TypesOrgUsageSummaryResponse {
   active_projects?: number;
   active_sessions?: number;
   active_users?: number;
+  agent_runtime_time_series?: TypesUsageAgentRuntimeTimeSeries[];
   apps?: TypesUsageBreakdownRow[];
   export_apps?: TypesUsageBreakdownRow[];
   export_models?: TypesUsageBreakdownRow[];
@@ -4780,6 +4788,13 @@ export interface TypesPasswordResetRequest {
 
 export interface TypesPasswordUpdateRequest {
   new_password?: string;
+}
+
+export interface TypesPinnedChat {
+  id?: string;
+  kind?: string;
+  pinned_at?: string;
+  project_id?: string;
 }
 
 export interface TypesPricing {
@@ -5020,6 +5035,7 @@ export interface TypesProjectSpec {
 }
 
 export interface TypesProjectSpecTaskAgent {
+  code_agent_runtime?: TypesCodeAgentRuntime;
   id?: string;
   name?: string;
 }
@@ -5900,6 +5916,11 @@ export interface TypesServerConfigForFrontend {
    */
   default_chat_system_prompt?: string;
   deployment_id?: string;
+  /**
+   * DevSubdomain is the base domain used for sandbox preview hostnames.
+   * Empty means preview URLs are not configured on this deployment.
+   */
+  dev_subdomain?: string;
   disable_llm_call_logging?: boolean;
   /** "mac-desktop", "server", "cloud", etc. */
   edition?: string;
@@ -5916,6 +5937,11 @@ export interface TypesServerConfigForFrontend {
    */
   max_concurrent_desktops?: number;
   organizations_create_enabled_for_non_admins?: boolean;
+  /**
+   * PreviewURLHTTPS controls whether generated sandbox preview URLs use
+   * https:// (true) or http:// (false).
+   */
+  preview_url_https?: boolean;
   /** Controls if users can add their own AI provider API keys */
   providers_management_enabled?: boolean;
   /**
@@ -7578,6 +7604,12 @@ export interface TypesUsage {
   total_tokens?: number;
 }
 
+export interface TypesUsageAgentRuntimeTimeSeries {
+  metrics?: TypesAggregatedUsageMetric[];
+  name?: string;
+  runtime?: TypesCodeAgentRuntime;
+}
+
 export interface TypesUsageBreakdownRow {
   cache_read_cost?: number;
   cache_read_tokens?: number;
@@ -7748,6 +7780,7 @@ export interface TypesUserConfig {
    * by this user.
    */
   color_scheme?: string;
+  pinned_chats?: TypesPinnedChat[];
   pinned_project_ids?: string[];
   stripe_customer_id?: string;
   stripe_subscription_active?: boolean;
@@ -7878,6 +7911,8 @@ export interface TypesVHostRoute {
   rotated_at?: string;
   target_id?: string;
   target_kind?: TypesVHostTargetKind;
+  /** public URL, populated by preview API handlers */
+  url?: string;
   /**
    * VerificationToken is only meaningful for custom domains awaiting
    * DNS-based verification. Null for default and preview rows.
@@ -12998,7 +13033,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete an Agent after stopping its sessions and project, then atomically remove its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row.
+     * @description Delete an Agent after atomically detaching and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. The configured project is preserved.
      *
      * @tags HelixOrg
      * @name V1OrgsAgentsDelete
@@ -13422,7 +13457,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a Bot. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Activations are preserved as audit.
+     * @description Delete a Bot. Cascades: detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. The configured project and activations are preserved.
      *
      * @tags HelixOrg
      * @name V1OrgsBotsDelete
@@ -18565,6 +18600,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users/me/onboarding`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Users
+     * @name V1UsersMePinnedChatsDelete
+     * @summary Unpin a chat
+     * @request DELETE:/api/v1/users/me/pinned-chats
+     * @secure
+     */
+    v1UsersMePinnedChatsDelete: (request: ServerPinChatRequest, params: RequestParams = {}) =>
+      this.request<ServerPinnedChatsResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/pinned-chats`,
+        method: "DELETE",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Users
+     * @name V1UsersMePinnedChatsList
+     * @summary List pinned chats
+     * @request GET:/api/v1/users/me/pinned-chats
+     * @secure
+     */
+    v1UsersMePinnedChatsList: (params: RequestParams = {}) =>
+      this.request<ServerPinnedChatsResponse, any>({
+        path: `/api/v1/users/me/pinned-chats`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Users
+     * @name V1UsersMePinnedChatsCreate
+     * @summary Pin a chat
+     * @request POST:/api/v1/users/me/pinned-chats
+     * @secure
+     */
+    v1UsersMePinnedChatsCreate: (request: ServerPinChatRequest, params: RequestParams = {}) =>
+      this.request<ServerPinnedChatsResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/pinned-chats`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

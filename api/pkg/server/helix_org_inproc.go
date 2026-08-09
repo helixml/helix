@@ -26,10 +26,12 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
@@ -54,7 +56,7 @@ func NewInProcHelixClient(s *HelixAPIServer, configs ...*configregistry.Registry
 	return client
 }
 
-func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instructions string) (string, error) {
+func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instructions string, config lifecycle.AgentConfig) (string, error) {
 	user, err := c.resolveUser(ctx)
 	if err != nil {
 		org, orgErr := c.server.lookupOrg(ctx, orgID)
@@ -88,10 +90,23 @@ func (c *inProcHelixClient) CreateAgent(ctx context.Context, orgID, name, instru
 		}
 		applyResolvedAgentDefaults(&assistant, defaults)
 	}
+	if config.CodeAgentRuntime != "" {
+		applyResolvedAgentDefaults(&assistant, types.AssistantConfig{
+			CodeAgentRuntime:        config.CodeAgentRuntime,
+			CodeAgentCredentialType: config.CodeAgentCredentialType,
+			Provider:                config.Provider,
+			Model:                   config.Model,
+			ReasoningEffort:         config.ReasoningEffort,
+		})
+	}
+	if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+		return "", fmt.Errorf("create agent: %w", err)
+	}
 	app, err := c.server.Store.CreateApp(ctx, &types.App{
 		Owner:          user.ID,
 		OwnerType:      types.OwnerTypeUser,
 		OrganizationID: orgID,
+		AgentKind:      types.AgentKindOrg,
 		Config: types.AppConfig{Helix: types.AppHelixConfig{
 			Name:                 name,
 			DefaultAgentType:     types.AgentTypeZedExternal,
@@ -118,6 +133,9 @@ func (c *inProcHelixClient) ApplyAgentDefaults(ctx context.Context, appID string
 		return nil
 	}
 	applyResolvedAgentDefaults(assistant, defaults)
+	if err := types.ValidateCodeAgentModelCompatibility(*assistant); err != nil {
+		return fmt.Errorf("apply agent defaults: %w", err)
+	}
 	_, err = c.server.Store.UpdateApp(ctx, app)
 	return err
 }
@@ -368,7 +386,36 @@ func (c *inProcHelixClient) ApplyProject(ctx context.Context, req types.ProjectA
 	if resp == nil {
 		return types.ProjectApplyResponse{}, errors.New("apply project: nil response")
 	}
+	// applyProject classifies the agent app it creates/links as a coding agent
+	// (the classification every non-org caller wants). A bot's agent belongs to
+	// the org graph instead, so reclassify here rather than in the shared
+	// handler — that keeps the public apply endpoint from silently converting a
+	// caller's coding agent into an org agent. Also repairs bots whose apps
+	// predate agent_kind.
+	if resp.AgentAppID != "" {
+		if err := c.markAgentAppAsOrgKind(ctx, resp.AgentAppID); err != nil {
+			return types.ProjectApplyResponse{}, err
+		}
+	}
 	return *resp, nil
+}
+
+// markAgentAppAsOrgKind flips an agent app to org_agent so it is excluded from
+// the coding-agent surfaces (spec-task selectors, project agent configuration,
+// the Apps "Coding Agents" tab) that org bots must not appear in.
+func (c *inProcHelixClient) markAgentAppAsOrgKind(ctx context.Context, appID string) error {
+	app, err := c.server.Store.GetApp(ctx, appID)
+	if err != nil {
+		return fmt.Errorf("get agent app %s: %w", appID, err)
+	}
+	if app.AgentKind == types.AgentKindOrg {
+		return nil
+	}
+	app.AgentKind = types.AgentKindOrg
+	if _, err := c.server.Store.UpdateApp(ctx, app); err != nil {
+		return fmt.Errorf("classify agent app %s as org agent: %w", appID, err)
+	}
+	return nil
 }
 
 // GetProject returns a project by ID. Maps 404 → runtimehelix.ErrProjectNotFound
@@ -742,12 +789,34 @@ func (c *inProcHelixClient) DeleteApp(ctx context.Context, id string) error {
 	return c.server.deleteAppData(ctx, id, false)
 }
 
-func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID string) error {
+func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID, sessionID string) error {
+	if sessionID != "" {
+		// Best-effort: stopping the desktop is a courtesy teardown, not a
+		// precondition for deleting the bot. stopExternalAgentSession 404s on an
+		// already-deleted session, 400s when the session isn't zed_external, and
+		// 500s when hydra is unreachable — none of which should leave the bot
+		// permanently undeletable. The container is reaped by its own lifecycle
+		// either way.
+		if err := c.StopExternalAgent(ctx, sessionID); err != nil {
+			log.Warn().
+				Err(err).
+				Str("session_id", sessionID).
+				Str("bot_id", string(botID)).
+				Msg("failed to stop linked agent session; continuing with delete")
+		}
+	}
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
 	if !ok {
 		return fmt.Errorf("delete linked agent: store %T has no shared database", c.server.Store)
 	}
 	return accessor.GormDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Projects outlive org agents. Clear only the deleted app's default-agent
+		// link; repositories, tasks, secrets, and all other project state remain.
+		if err := tx.Model(&types.Project{}).
+			Where("default_helix_app_id = ?", appID).
+			Update("default_helix_app_id", "").Error; err != nil {
+			return fmt.Errorf("detach agent from projects: %w", err)
+		}
 		knowledgeIDs := tx.Model(&types.Knowledge{}).Select("id").Where("app_id = ?", appID)
 		if err := tx.Where("knowledge_id IN (?)", knowledgeIDs).Delete(&types.KnowledgeVersion{}).Error; err != nil {
 			return fmt.Errorf("delete knowledge versions: %w", err)
@@ -952,6 +1021,19 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 		session.Metadata.OrgWorkerID = workerID
 		session.Metadata.RuntimeInstructions = instructions
 		changed = true
+	}
+	if session.ParentApp != "" {
+		app, appErr := c.server.Store.GetApp(ctx, session.ParentApp)
+		if appErr != nil {
+			return fmt.Errorf("get agent app %s for session %s: %w", session.ParentApp, sessionID, appErr)
+		}
+		runtime, modelName, ok := currentAgentInfo(app, session.Metadata.AssistantID)
+		if ok && (session.Metadata.CodeAgentRuntime != runtime || session.Metadata.ZedAgentName != runtime.ZedAgentName() || session.ModelName != modelName) {
+			session.Metadata.CodeAgentRuntime = runtime
+			session.Metadata.ZedAgentName = runtime.ZedAgentName()
+			session.ModelName = modelName
+			changed = true
+		}
 	}
 	if changed {
 		if _, err := c.server.Store.UpdateSession(ctx, *session); err != nil {

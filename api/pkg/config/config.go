@@ -890,6 +890,11 @@ type WebServer struct {
 	// Example: p8080-ses_abc123.dev.helix.example.com → session ses_abc123, port 8080
 	DevSubdomain string `envconfig:"DEV_SUBDOMAIN" description:"Subdomain prefix for dev container port proxying. Format: 'dev' or 'dev.helix.example.com'"`
 
+	// PreviewURLHTTPS controls the public scheme used in generated sandbox
+	// preview URLs. It is independent of VHostTLSMode because TLS may terminate
+	// at an upstream ingress rather than in the Helix API process.
+	PreviewURLHTTPS bool `envconfig:"PREVIEW_URL_HTTPS" default:"true" description:"Generate sandbox preview URLs with HTTPS. Set false for HTTP-only development deployments."`
+
 	// SandboxAPIURL is the URL that sandbox containers use to connect back to the API.
 	// This is needed when the main SERVER_URL goes through a reverse proxy that doesn't
 	// support HTTP hijacking (used by RevDial). If not set, defaults to SERVER_URL.

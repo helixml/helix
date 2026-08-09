@@ -18,9 +18,13 @@ func externalAgentApp(id, name string) *types.Agent {
 		ID:             id,
 		OrganizationID: "org-test",
 		Owner:          "user-someone-else",
+		AgentKind:      types.AgentKindCoding,
 		Config: types.AgentConfig{Helix: types.AgentHelixConfig{
 			Name:             name,
 			DefaultAgentType: types.AgentTypeZedExternal,
+			Assistants: []types.AssistantConfig{{
+				CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+			}},
 		}},
 	}
 }
@@ -95,5 +99,6 @@ func TestListProjectSpecTaskAgents_OrgOwnerSeesEligibleAgentsSorted(t *testing.T
 	require.Nil(t, httpErr)
 	require.Len(t, agents, 2)
 	require.Equal(t, "app-alpha", agents[0].ID)
+	require.Equal(t, types.CodeAgentRuntimeCodexCLI, agents[0].CodeAgentRuntime)
 	require.Equal(t, "app-zeta", agents[1].ID)
 }

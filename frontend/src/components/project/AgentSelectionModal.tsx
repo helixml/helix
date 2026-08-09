@@ -12,22 +12,21 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Avatar,
   CircularProgress,
   Divider,
   Alert,
   IconButton,
   Tooltip,
 } from '@mui/material'
-import { Bot } from 'lucide-react'
-import AddIcon from '@mui/icons-material/Add'
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import EditIcon from '@mui/icons-material/Edit'
+import { useTheme } from '@mui/material/styles'
+import { CircleCheck, Pencil, Plus } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
-import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
+import { IApp } from '../../types'
+import { selectCodingAgents } from '../../utils/apps'
+import AgentHarness, { getAgentHarnessLabel, getAgentHarnessRuntime } from '../agent/AgentHarness'
 import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm, { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
@@ -48,6 +47,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   description = 'Choose a default agent for this project. You can override this when creating individual tasks.',
 }) => {
   const account = useAccount()
+  const muiTheme = useTheme()
   const { apps, loadApps } = useContext(AppsContext)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -78,14 +78,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   }, [open, loadApps])
 
   // Only show external agents — helix_agent types don't support project workflows
-  const sortedApps = useMemo(() => {
-    if (!apps) return []
-    return apps.filter((app) =>
-      app.config?.helix?.assistants?.some(
-        (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-      ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-    )
-  }, [apps])
+  const sortedApps = useMemo(() => selectCodingAgents(apps), [apps])
 
   // Auto-select first zed_external agent if available
   useEffect(() => {
@@ -157,17 +150,12 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                           pr: 10, // Make room for edit and check icons
                         }}
                       >
-                        <ListItemIcon>
-                          <Avatar
-                            src={app.config?.helix?.avatar}
-                            sx={{ width: 40, height: 40 }}
-                          >
-                            <Bot size={24} />
-                          </Avatar>
+                        <ListItemIcon sx={{ minWidth: 40 }}>
+                          <AgentHarness runtime={getAgentHarnessRuntime(app)} variant="short" size={24} />
                         </ListItemIcon>
                         <ListItemText
                           primary={app.config?.helix?.name || 'Unnamed Agent'}
-                          secondary={app.config?.helix?.description || 'No description'}
+                          secondary={getAgentHarnessLabel(getAgentHarnessRuntime(app))}
                         />
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <Tooltip title="Edit agent">
@@ -178,11 +166,11 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                                 account.orgNavigate('agent', { app_id: app.id })
                               }}
                             >
-                              <EditIcon fontSize="small" />
+                              <Pencil size={18} />
                             </IconButton>
                           </Tooltip>
                           {isSelected && (
-                            <CheckCircleIcon color="primary" />
+                            <CircleCheck size={20} color={muiTheme.palette.primary.main} />
                           )}
                         </Box>
                       </ListItemButton>
@@ -200,7 +188,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
 
             {/* Create new agent button */}
             <Button
-              startIcon={<AddIcon />}
+              startIcon={<Plus size={18} />}
               onClick={() => setShowCreateForm(true)}
               fullWidth
               variant="outlined"

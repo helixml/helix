@@ -10,10 +10,11 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { Bot, ChevronDown, Folder, Hammer, ListTodo, MessageCircle } from 'lucide-react'
+import { ChevronDown, Folder, Hammer, ListTodo, MessageCircle } from 'lucide-react'
 
 import { TypesProjectSpecTaskAgent } from '../api/api'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
+import AgentHarness from '../components/agent/AgentHarness'
 import RobustPromptInput from '../components/common/RobustPromptInput'
 import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
@@ -272,7 +273,13 @@ const Home: FC = () => {
         <Box component="span" sx={{ display: 'flex', minWidth: 0, maxWidth: 220, flexShrink: 1 }}>
           <Button
             disabled={submitting || codingAgents.length === 0}
-            startIcon={<Bot size={15} />}
+            startIcon={(
+              <AgentHarness
+                runtime={selectedAgent?.code_agent_runtime}
+                variant="short"
+                size={15}
+              />
+            )}
             endIcon={<ChevronDown size={13} />}
             onClick={(event) => setAgentMenuAnchor(event.currentTarget)}
             sx={{ ...selectorButtonSx, width: '100%', overflow: 'hidden' }}
@@ -300,7 +307,9 @@ const Home: FC = () => {
               setAgentMenuAnchor(null)
             }}
           >
-            <ListItemIcon><Bot size={16} /></ListItemIcon>
+            <ListItemIcon>
+              <AgentHarness runtime={agent.code_agent_runtime} variant="short" size={16} />
+            </ListItemIcon>
             <ListItemText primary={agentName(agent)} />
           </MenuItem>
         ))}
