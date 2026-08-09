@@ -13,7 +13,7 @@ import IconButton from '@mui/material/IconButton'
 import InputBase from '@mui/material/InputBase'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { Archive, FolderPlus, Search, SquarePen } from 'lucide-react'
+import { Archive, FolderPlus, PanelLeft, Search, SquarePen } from 'lucide-react'
 
 import {
   TypesExternalRepositoryType,
@@ -54,6 +54,7 @@ import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
 import SortableProject from './SortableProject'
 import useProjectChatSidebarDrag from './useProjectChatSidebarDrag'
 import useProjectChatSidebarPreferences from './useProjectChatSidebarPreferences'
+import { TOOLBAR_HEIGHT } from '../../config'
 
 const RELATIVE_TIME_REFRESH_MS = 15000
 const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
@@ -74,7 +75,10 @@ const readParticipantIds = (storageKey: string): string[] | null => {
   }
 }
 
-const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }) => {
+const ProjectChatSidebar: FC<{
+  onCollapse: () => void
+  onOpenSession: () => void
+}> = ({ onCollapse, onOpenSession }) => {
   const account = useAccount()
   const router = useRouter()
   const lightTheme = useLightTheme()
@@ -439,6 +443,35 @@ const ProjectChatSidebar: FC<{ onOpenSession: () => void }> = ({ onOpenSession }
         },
       }}
     >
+      <Box
+        sx={{
+          height: TOOLBAR_HEIGHT,
+          minHeight: TOOLBAR_HEIGHT,
+          px: 1.5,
+          display: 'flex',
+          alignItems: 'center',
+          borderBottom: lightTheme.border,
+        }}
+      >
+        <Typography sx={{ flex: 1, fontSize: '16px', fontWeight: 600 }}>
+          Helix
+        </Typography>
+        <Tooltip title="Collapse chat panel">
+          <IconButton
+            onClick={onCollapse}
+            aria-label="Collapse chat panel"
+            sx={{
+              width: 30,
+              height: 30,
+              color: 'text.secondary',
+              '&:hover': { color: 'text.primary' },
+            }}
+          >
+            <PanelLeft size={18} strokeWidth={1.7} />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
       <Box
         sx={{
           height: 60,
