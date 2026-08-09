@@ -4,6 +4,8 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -38,6 +40,10 @@ export interface ShadcnAreaChartProps {
   chartHeight?: number;
   /** Treat an explicit zero as data instead of an empty series. */
   zeroIsData?: boolean;
+  /** Render unfilled comparison lines instead of filled areas. */
+  variant?: 'area' | 'line';
+  /** Fixed Y-axis bounds for values with a known range. */
+  yDomain?: [number, number];
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -113,8 +119,11 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   hideLegend = false,
   chartHeight = 220,
   zeroIsData = false,
+  variant = 'area',
+  yDomain,
 }) => {
   const lightTheme = useLightTheme();
+  const Chart = variant === 'line' ? LineChart : AreaChart;
   // Unique gradient ids so multiple charts on the same page don't collide.
   const gradientPrefix = React.useMemo(() => `shadcn-${uid()}`, []);
 
@@ -164,7 +173,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
       <Box sx={{ height: chartHeight, width: '100%' }}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 10, right: 12, left: 16, bottom: 0 }}>
+            <Chart data={data} margin={{ top: 10, right: 12, left: 16, bottom: 0 }}>
               <defs>
                 {series.map(s => (
                   <linearGradient
@@ -202,6 +211,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 width={72}
                 tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={valueFormatter}
+                domain={yDomain}
               />
               <Tooltip
                 cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
@@ -211,7 +221,20 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                   enter the chart and wraps awkwardly when there are many
                   series — items end up in two ragged rows. We render our own
                   legend below the chart instead (see <ChartLegend/> below). */}
-              {series.map(s => (
+              {series.map(s => variant === 'line' ? (
+                <Line
+                  key={s.key}
+                  type="linear"
+                  dataKey={s.key}
+                  name={s.label}
+                  stroke={s.color}
+                  strokeWidth={2}
+                  dot={{ r: 2.5, fill: s.color, strokeWidth: 0 }}
+                  activeDot={{ r: 4, fill: s.color, strokeWidth: 0 }}
+                  connectNulls={false}
+                  isAnimationActive={false}
+                />
+              ) : (
                 <Area
                   key={s.key}
                   type="monotone"
@@ -224,7 +247,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                   isAnimationActive={false}
                 />
               ))}
-            </AreaChart>
+            </Chart>
           </ResponsiveContainer>
         ) : (
           <Box

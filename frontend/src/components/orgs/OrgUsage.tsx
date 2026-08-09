@@ -873,6 +873,8 @@ const OrgUsage: FC = () => {
                   valueFormatter={value => formatPercent(value)}
                   stacked={false}
                   zeroIsData
+                  variant="line"
+                  yDomain={[0, 1]}
                 />
 
                 <ShadcnAreaChart
