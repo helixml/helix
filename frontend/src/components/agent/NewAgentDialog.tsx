@@ -235,6 +235,7 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
       PaperProps={{
         sx: {
           width: 600,
+          height: { xs: 'auto', sm: 660 },
           maxHeight: 'calc(100dvh - 16px)',
           m: { xs: 1, sm: 2 },
         },
