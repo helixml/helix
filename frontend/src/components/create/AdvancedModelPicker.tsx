@@ -404,7 +404,13 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
       {externalOpen === undefined && (
         <Tooltip title={tooltipTitle} placement="top-start">
           {/* Wrap button in a span if disabled to allow tooltip to show */}
-          <span style={{ display: 'inline-block', cursor: disabled ? 'not-allowed' : 'pointer' }}>
+          <span
+            style={{
+              display: buttonProps?.fullWidth ? 'block' : 'inline-block',
+              width: buttonProps?.fullWidth ? '100%' : undefined,
+              cursor: disabled ? 'not-allowed' : 'pointer',
+            }}
+          >
             <Button
               variant="text"
               onClick={handleOpenDialog}
@@ -418,9 +424,10 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                 padding: '4px 8px',
                 height: '32px',
                 minWidth: 'auto',
-                maxWidth: '200px',
+                maxWidth: buttonProps?.fullWidth ? 'none' : '200px',
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: buttonProps?.fullWidth ? 'space-between' : undefined,
                 border: buttonVariant === 'outlined'
                   ? `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.2)' : '#353945'}`
                   : 'none',

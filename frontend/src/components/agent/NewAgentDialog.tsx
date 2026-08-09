@@ -1,4 +1,4 @@
-import { FC, useEffect, useState } from 'react'
+import { FC, useEffect, useRef, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -17,6 +17,7 @@ import {
   ICreateAgentParams,
 } from '../../contexts/apps'
 import useApps from '../../hooks/useApps'
+import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import { useCreateBot, useListHelixOrgBots } from '../../services/helixOrgService'
 import {
   AGENT_KIND_CODING,
@@ -25,6 +26,11 @@ import {
   AGENT_TYPE_ZED_EXTERNAL,
 } from '../../types'
 import AgentConfigForm, { AgentConfigValue } from '../helix-org/BotRuntimeForm'
+import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import {
+  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+} from './CodingAgentForm'
 
 const kindOptions = [
   {
@@ -58,6 +64,29 @@ const emptyRuntimeConfig = (): AgentConfigValue => ({
   reasoning_effort: 'none',
 })
 
+export const preferredSubscriptionRuntimeConfig = (
+  codexSubscriptionCount: number,
+  claudeSubscriptionCount: number,
+): AgentConfigValue | undefined => {
+  if (codexSubscriptionCount > 0) {
+    return {
+      ...emptyRuntimeConfig(),
+      runtime: 'codex_cli',
+      credentials: 'subscription',
+      model: DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+    }
+  }
+
+  if (claudeSubscriptionCount > 0) {
+    return {
+      ...emptyRuntimeConfig(),
+      runtime: 'claude_code',
+      credentials: 'subscription',
+      model: DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+    }
+  }
+}
+
 const slugify = (value: string): string =>
   value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 
@@ -72,11 +101,16 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
   const apps = useApps()
   const createOrgAgent = useCreateBot()
   const { data: orgAgents } = useListHelixOrgBots({ enabled: open })
+  const { data: claudeSubscriptions, isFetched: claudeSubscriptionsFetched } = useClaudeSubscriptions()
+  const { data: codexSubscriptions, isFetched: codexSubscriptionsFetched } = useCodexSubscriptions()
   const [name, setName] = useState('')
   const [kind, setKind] = useState(initialKind)
   const [runtimeConfig, setRuntimeConfig] = useState<AgentConfigValue>(emptyRuntimeConfig)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
+  const initializedRuntime = useRef(false)
+  const claudeSubscriptionCount = claudeSubscriptions?.length ?? 0
+  const codexSubscriptionCount = codexSubscriptions?.length ?? 0
 
   useEffect(() => {
     if (!open) return
@@ -85,7 +119,33 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
     setRuntimeConfig(emptyRuntimeConfig())
     setCreating(false)
     setError('')
+    initializedRuntime.current = false
   }, [open, initialKind])
+
+  useEffect(() => {
+    if (!open || initializedRuntime.current) return
+
+    const preferredRuntime = preferredSubscriptionRuntimeConfig(
+      codexSubscriptionCount,
+      claudeSubscriptionCount,
+    )
+    if (preferredRuntime) {
+      setRuntimeConfig(preferredRuntime)
+      initializedRuntime.current = true
+      return
+    }
+
+    if (codexSubscriptionsFetched && claudeSubscriptionsFetched) {
+      initializedRuntime.current = true
+    }
+  }, [
+    open,
+    initialKind,
+    codexSubscriptionCount,
+    claudeSubscriptionCount,
+    codexSubscriptionsFetched,
+    claudeSubscriptionsFetched,
+  ])
 
   const trimmedName = name.trim()
   const needsRuntime = kind === AGENT_KIND_CODING || kind === AGENT_KIND_ORG
@@ -166,19 +226,18 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
       open={open}
       onClose={creating ? undefined : onClose}
       fullWidth
-      maxWidth="md"
+      maxWidth="sm"
       PaperProps={{
         sx: {
-          width: 760,
-          height: 640,
+          width: 600,
           maxHeight: 'calc(100dvh - 16px)',
           m: { xs: 1, sm: 2 },
         },
       }}
     >
-      <DialogTitle>New Agent</DialogTitle>
-      <DialogContent dividers sx={{ py: 2 }}>
-        <Stack spacing={2}>
+      <DialogTitle sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>New Agent</DialogTitle>
+      <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2.5 }}>
+        <Stack spacing={2.5} sx={{ width: '100%', maxWidth: 536, mx: 'auto' }}>
           <TextField
             label="Agent name"
             value={name}
@@ -196,10 +255,9 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
             <Box
               sx={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                gap: 1,
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+                gap: 1.25,
                 width: '100%',
-                maxWidth: 390,
               }}
             >
               {kindOptions.map((option) => {
@@ -215,12 +273,12 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
                     sx={{
                       textTransform: 'none',
                       minWidth: 0,
-                      aspectRatio: '1 / 1',
+                      minHeight: { xs: 88, sm: 116 },
                       flexDirection: 'column',
                       justifyContent: 'center',
                       textAlign: 'center',
-                      px: 1,
-                      py: 1,
+                      px: 1.25,
+                      py: 1.5,
                       borderColor: selected ? 'secondary.main' : 'divider',
                       backgroundColor: selected ? 'action.selected' : 'transparent',
                       '&:hover': {
@@ -247,7 +305,10 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
           {needsRuntime && (
             <AgentConfigForm
               value={runtimeConfig}
-              onChange={(patch) => setRuntimeConfig((current) => ({ ...current, ...patch }))}
+              onChange={(patch) => {
+                initializedRuntime.current = true
+                setRuntimeConfig((current) => ({ ...current, ...patch }))
+              }}
               showReasoningEffort
             />
           )}
@@ -260,7 +321,7 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
       </DialogContent>
-      <DialogActions>
+      <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: 1.25 }}>
         <Button onClick={onClose} disabled={creating}>Cancel</Button>
         <Button onClick={create} variant="contained" disabled={!canCreate || creating}>
           {creating ? 'Creating…' : 'Create Agent'}
