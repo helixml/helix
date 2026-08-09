@@ -160,7 +160,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
       // backend on org create — see api/pkg/server/org_graph_seed.go. The
       // frontend no longer creates it.
 
-      // Land the operator on the freshly created org chart.
+      // Land the operator on the default page for the new organization.
       if (!org && created && created.name) {
         localStorage.setItem(SELECTED_ORG_STORAGE_KEY, created.name)
         router.navigate(orgLandingRoute(), { org_id: created.name })

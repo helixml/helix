@@ -1,7 +1,7 @@
 import { TypesOrganization, TypesOrganizationRole, TypesOrganizationMembership } from '../api/api'
 
 export function orgLandingRoute(): string {
-  return 'helix_org_chart'
+  return 'org_chat'
 }
 
 /**
