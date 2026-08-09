@@ -224,6 +224,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	now := time.Now()
 	prevRuntime := session.Metadata.CodeAgentRuntime
 	prevAppID := session.ParentApp
+	prevThreadID := session.Metadata.ZedThreadID
 	childAppID := targetAppID
 	if childAppID == "" {
 		childAppID = prevAppID
@@ -242,6 +243,13 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	if _, err := apiServer.Store.UpdateSession(ctx, *session); err != nil {
 		return system.NewHTTPError500(fmt.Sprintf("failed to update session for agent switch: %v", err))
 	}
+
+	// The old ACP thread may keep emitting buffered tool output after its turn is
+	// cancelled. Once the session has been repointed, that thread is no longer a
+	// valid source for this session. Remove its routing entry before the handoff is
+	// dispatched so late events cannot fall back to the new Waiting interaction.
+	apiServer.detachSupersededExternalAgentThread(session.ID, prevThreadID)
+	apiServer.flushAndClearStreamingContext(ctx, session.ID)
 
 	// Repoint the spec task's HelixAppID to the target app. CRITICAL for
 	// spec-task sessions: getZedConfig resolves code_agent_config (which drives
@@ -283,6 +291,10 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	// generate a big summary before the user could continue, which is the bulk
 	// of the perceived switch latency.
 	if createHandoff {
+		configSnapshot, snapshotErr := apiServer.codeAgentConfigSnapshot(ctx, session)
+		if snapshotErr != nil {
+			return system.NewHTTPError500(snapshotErr.Error())
+		}
 		prevLabel := apiServer.agentDescriptor(ctx, prevAppID, prevRuntime, session.ModelName, "the previous agent")
 		newLabel := apiServer.agentDescriptor(ctx, childAppID, targetRuntime, session.ModelName, "the new agent")
 		handoffPrompt := fmt.Sprintf(
@@ -301,15 +313,16 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 			)
 		}
 		handoffInteraction := &types.Interaction{
-			Created:       now,
-			Updated:       now,
-			SessionID:     session.ID,
-			UserID:        session.Owner,
-			GenerationID:  session.GenerationID,
-			Mode:          types.SessionModeInference,
-			Trigger:       types.InteractionTriggerForkHandoff,
-			State:         types.InteractionStateWaiting,
-			PromptMessage: handoffPrompt,
+			Created:                 now,
+			Updated:                 now,
+			SessionID:               session.ID,
+			UserID:                  session.Owner,
+			GenerationID:            session.GenerationID,
+			Mode:                    types.SessionModeInference,
+			Trigger:                 types.InteractionTriggerForkHandoff,
+			State:                   types.InteractionStateWaiting,
+			PromptMessage:           handoffPrompt,
+			CodeAgentConfigSnapshot: configSnapshot,
 		}
 		if _, err := apiServer.Store.CreateInteraction(ctx, handoffInteraction); err != nil {
 			// Best-effort: a failed handoff just degrades to "cold until the
@@ -346,6 +359,27 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 		Msg("switch-agent: repointed session to new agent in place (live hot-reload path)")
 
 	return nil
+}
+
+func (apiServer *HelixAPIServer) detachSupersededExternalAgentThread(sessionID, threadID string) {
+	apiServer.contextMappingsMutex.Lock()
+	defer apiServer.contextMappingsMutex.Unlock()
+
+	if threadID != "" && apiServer.contextMappings[threadID] == sessionID {
+		delete(apiServer.contextMappings, threadID)
+	}
+	for requestID, mappedSessionID := range apiServer.requestToSessionMapping {
+		if mappedSessionID != sessionID {
+			continue
+		}
+		delete(apiServer.requestToSessionMapping, requestID)
+		delete(apiServer.requestToInteractionMapping, requestID)
+	}
+	for interactionID, claim := range apiServer.interactionDispatchClaims {
+		if claim.sessionID == sessionID {
+			delete(apiServer.interactionDispatchClaims, interactionID)
+		}
+	}
 }
 
 // switchAgentLiveDeliveryTimeout bounds how long we wait for the fast

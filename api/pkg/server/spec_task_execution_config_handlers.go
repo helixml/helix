@@ -122,14 +122,15 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 		writeResponse(w, response, http.StatusOK)
 		return
 	}
+	var session *types.Session
 	if task.PlanningSessionID != "" {
-		busy, err := s.specTaskSessionBusy(ctx, task.PlanningSessionID)
+		session, err = s.Store.GetSession(ctx, task.PlanningSessionID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to check agent state: %v", err), http.StatusInternalServerError)
+			http.Error(w, "task session not found", http.StatusConflict)
 			return
 		}
-		if busy {
-			http.Error(w, "the agent is working; wait for the current turn to finish before changing its model", http.StatusConflict)
+		if cancelErr := s.cancelSpecTaskTurnsForSwitch(ctx, session.ID); cancelErr != nil {
+			http.Error(w, fmt.Sprintf("failed to stop the current agent turn before switching: %v", cancelErr), http.StatusConflict)
 			return
 		}
 	}
@@ -143,14 +144,6 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 		return
 	}
 	if task.PlanningSessionID != "" {
-		session, err := s.Store.GetSession(ctx, task.PlanningSessionID)
-		if err != nil {
-			task.HelixAppID = oldAgentID
-			task.CodeAgentOverrides = oldOverrides
-			_ = s.Store.UpdateSpecTask(ctx, task)
-			http.Error(w, "task session not found", http.StatusConflict)
-			return
-		}
 		runtime, err := s.codeAgentRuntimeForTask(ctx, task)
 		if err != nil {
 			task.HelixAppID = oldAgentID
@@ -170,6 +163,20 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 	}
 	response.Task = task
 	writeResponse(w, response, http.StatusOK)
+}
+
+func (s *HelixAPIServer) cancelSpecTaskTurnsForSwitch(ctx context.Context, sessionID string) error {
+	const maxTurns = 100
+	for i := 0; i < maxTurns; i++ {
+		status, err := s.cancelActiveTurn(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		if status == "noop" {
+			return nil
+		}
+	}
+	return fmt.Errorf("more than %d active turns remain", maxTurns)
 }
 
 func (s *HelixAPIServer) validateTaskCodeAgentOverrides(ctx context.Context, task *types.SpecTask, overrides *types.CodeAgentOverrides, actorID string) error {
@@ -226,16 +233,4 @@ func (s *HelixAPIServer) codeAgentRuntimeForTask(ctx context.Context, task *type
 		return types.CodeAgentRuntimeZedAgent, nil
 	}
 	return assistant.CodeAgentRuntime, nil
-}
-
-func (s *HelixAPIServer) specTaskSessionBusy(ctx context.Context, sessionID string) (bool, error) {
-	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID: sessionID,
-		PerPage:   1,
-		Order:     "id DESC",
-	})
-	if err != nil {
-		return false, err
-	}
-	return len(interactions) > 0 && interactions[0].State == types.InteractionStateWaiting, nil
 }

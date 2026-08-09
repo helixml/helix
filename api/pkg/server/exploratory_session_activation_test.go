@@ -334,7 +334,7 @@ func (s *ExploratorySessionActivationSuite) TestAppSessionPersistsAgentRuntimeBi
 				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
 			}},
 		}},
-	}, nil)
+	}, nil).Times(2)
 
 	var capturedSession *types.Session
 	s.store.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()

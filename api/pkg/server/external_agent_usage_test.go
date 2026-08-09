@@ -44,6 +44,13 @@ func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsSubscriptionTurn() {
 		},
 	}}
 
+	s.store.EXPECT().GetSpecTask(gomock.Any(), "task_123").Return(&types.SpecTask{
+		ID:         "task_123",
+		HelixAppID: "app_123",
+		CodeAgentOverrides: &types.CodeAgentOverrides{
+			Model: "gpt-5.6-luna",
+		},
+	}, nil)
 	s.store.EXPECT().GetApp(gomock.Any(), "app_123").Return(app, nil)
 	s.store.EXPECT().CreateUsageMetric(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
@@ -51,7 +58,7 @@ func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsSubscriptionTurn() {
 			assert.Equal(s.T(), "ses_123:int_123", metric.SourceID)
 			assert.True(s.T(), metric.UsageKnown)
 			assert.Equal(s.T(), "openai", metric.Provider)
-			assert.Equal(s.T(), "gpt-5.3-codex", metric.Model)
+			assert.Equal(s.T(), "gpt-5.6-luna", metric.Model)
 			assert.Equal(s.T(), 100, metric.PromptTokens)
 			assert.Equal(s.T(), 75, metric.CompletionTokens)
 			assert.Equal(s.T(), 175, metric.TotalTokens)
@@ -96,6 +103,40 @@ func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsUnknownUsageAsActivity() 
 	require.NoError(s.T(), err)
 }
 
+func (s *WebSocketSyncSuite) TestRecordACPUsage_UsesInteractionSnapshotAfterModelSwitch() {
+	s.store.EXPECT().CreateUsageMetric(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
+			assert.Equal(s.T(), "app_luna", metric.AppID)
+			assert.Equal(s.T(), "openai", metric.Provider)
+			assert.Equal(s.T(), "gpt-5.6-luna", metric.Model)
+			return metric, nil
+		},
+	)
+
+	err := s.server.recordACPUsage(
+		context.Background(),
+		&types.Session{
+			ID:        "ses_123",
+			ParentApp: "app_terra",
+			Metadata:  types.SessionMetadata{SpecTaskID: "task_123"},
+		},
+		&types.Interaction{
+			ID: "int_123",
+			CodeAgentConfigSnapshot: &types.InteractionCodeAgentConfigSnapshot{
+				AppID:          "app_luna",
+				Provider:       "openai",
+				Model:          "gpt-5.6-luna",
+				Runtime:        types.CodeAgentRuntimeCodexCLI,
+				CredentialType: types.CodeAgentCredentialTypeSubscription,
+			},
+		},
+		&types.SyncMessage{Data: map[string]interface{}{
+			"usage": map[string]interface{}{"total_tokens": float64(1)},
+		}},
+	)
+	require.NoError(s.T(), err)
+}
+
 // Zed's message_completed carries neither `usage` nor `agent_name` when the
 // binary predates the ACP turn-usage change. The turn must still be recorded so
 // request counts and activity remain visible.
@@ -108,6 +149,10 @@ func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsTurnWithoutUsageOrAgentNa
 			Model:                   "gpt-5.6-sol",
 		}},
 	}}}
+	s.store.EXPECT().GetSpecTask(gomock.Any(), "task_123").Return(&types.SpecTask{
+		ID:         "task_123",
+		HelixAppID: "app_123",
+	}, nil)
 	s.store.EXPECT().GetApp(gomock.Any(), "app_123").Return(app, nil)
 	s.store.EXPECT().CreateUsageMetric(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {

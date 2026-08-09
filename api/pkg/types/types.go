@@ -97,6 +97,12 @@ type Interaction struct {
 
 	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
 
+	// CodeAgentConfigSnapshot records the effective coding configuration that
+	// executed this turn. SpecTask overrides can change while the Helix session
+	// stays the same, so usage attribution cannot be reconstructed from the
+	// session or task after the fact.
+	CodeAgentConfigSnapshot *InteractionCodeAgentConfigSnapshot `json:"-" gorm:"type:jsonb;serializer:json"`
+
 	Feedback        Feedback `json:"feedback" gorm:"index"`
 	FeedbackMessage string   `json:"feedback_message"`
 
@@ -115,6 +121,14 @@ type Interaction struct {
 	// relying on an in-memory map that doesn't survive API restarts. See
 	// design/2026-04-30-queue-and-other-stuck-state-bugs.md.
 	PromptID string `json:"prompt_id,omitempty" gorm:"index"`
+}
+
+type InteractionCodeAgentConfigSnapshot struct {
+	AppID          string                  `json:"app_id,omitempty"`
+	Provider       string                  `json:"provider,omitempty"`
+	Model          string                  `json:"model,omitempty"`
+	Runtime        CodeAgentRuntime        `json:"runtime,omitempty"`
+	CredentialType CodeAgentCredentialType `json:"credential_type,omitempty"`
 }
 
 type FeedbackRequest struct {

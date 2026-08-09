@@ -41,19 +41,18 @@ func (s *HelixAPIServer) recordACPUsage(
 		usageKnown = true
 	}
 
-	if session.ParentApp == "" {
-		return nil
+	snapshot := interaction.CodeAgentConfigSnapshot
+	if snapshot == nil {
+		var err error
+		snapshot, err = s.codeAgentConfigSnapshot(ctx, session)
+		if err != nil {
+			return err
+		}
 	}
-	app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
-	if err != nil {
-		return fmt.Errorf("failed to get app %s for ACP usage: %w", session.ParentApp, err)
-	}
-	assistant := external_agent.FindZedExternalAssistant(app)
-	if assistant == nil || !assistant.CodeAgentCredentialType.IsSubscription() {
+	if snapshot == nil || !snapshot.CredentialType.IsSubscription() {
 		return nil
 	}
 
-	provider, model := acpUsageProviderAndModel(assistant)
 	if !usageKnown {
 		// The turn still gets a metric row (request counts stay accurate), but
 		// token totals will read zero. The usual cause is a Zed build predating
@@ -62,7 +61,7 @@ func (s *HelixAPIServer) recordACPUsage(
 			Str("session_id", session.ID).
 			Str("interaction_id", interaction.ID).
 			Str("agent_name", agentName).
-			Str("code_agent_runtime", string(assistant.CodeAgentRuntime)).
+			Str("code_agent_runtime", string(snapshot.Runtime)).
 			Msg("ACP turn completed without usage data; recording metric with usage_known=false")
 	}
 	durationMs := interaction.DurationMs
@@ -70,15 +69,15 @@ func (s *HelixAPIServer) recordACPUsage(
 		durationMs = int(interaction.Completed.Sub(interaction.Created).Milliseconds())
 	}
 
-	_, err = openailogger.NewUsageLogger(s.Controller.Options.Store).CreateUsageMetric(ctx, &types.UsageMetric{
+	_, err := openailogger.NewUsageLogger(s.Controller.Options.Store).CreateUsageMetric(ctx, &types.UsageMetric{
 		OrganizationID:   session.OrganizationID,
-		AppID:            session.ParentApp,
+		AppID:            snapshot.AppID,
 		UserID:           session.Owner,
 		InteractionID:    interaction.ID,
 		ProjectID:        session.ProjectID,
 		SpecTaskID:       session.Metadata.SpecTaskID,
-		Provider:         provider,
-		Model:            model,
+		Provider:         snapshot.Provider,
+		Model:            snapshot.Model,
 		Source:           types.UsageMetricSourceACP,
 		SourceID:         session.ID + ":" + interaction.ID,
 		UsageKnown:       usageKnown,
@@ -92,6 +91,65 @@ func (s *HelixAPIServer) recordACPUsage(
 	if err != nil {
 		return fmt.Errorf("failed to record ACP usage: %w", err)
 	}
+	return nil
+}
+
+// codeAgentConfigSnapshot resolves the effective configuration for the next
+// ACP turn. SpecTask configuration is authoritative because a task can switch
+// models or coding agents without replacing its Helix session.
+func (s *HelixAPIServer) codeAgentConfigSnapshot(ctx context.Context, session *types.Session) (*types.InteractionCodeAgentConfigSnapshot, error) {
+	if session == nil {
+		return nil, fmt.Errorf("session is required for ACP usage attribution")
+	}
+
+	appID := session.ParentApp
+	var overrides *types.CodeAgentOverrides
+	if session.Metadata.SpecTaskID != "" {
+		task, err := s.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get spec task %s for ACP usage: %w", session.Metadata.SpecTaskID, err)
+		}
+		if task.HelixAppID != "" {
+			appID = task.HelixAppID
+		}
+		overrides = task.CodeAgentOverrides
+	}
+	if appID == "" {
+		return nil, nil
+	}
+
+	app, err := s.Controller.Options.Store.GetApp(ctx, appID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get app %s for ACP usage: %w", appID, err)
+	}
+	effectiveApp := external_agent.ApplyCodeAgentOverrides(app, overrides)
+	assistant := external_agent.FindZedExternalAssistant(effectiveApp)
+	if assistant == nil {
+		return nil, nil
+	}
+	provider, model := acpUsageProviderAndModel(assistant)
+	return &types.InteractionCodeAgentConfigSnapshot{
+		AppID:          appID,
+		Provider:       provider,
+		Model:          model,
+		Runtime:        assistant.CodeAgentRuntime,
+		CredentialType: assistant.CodeAgentCredentialType,
+	}, nil
+}
+
+func (s *HelixAPIServer) snapshotLatestCodeAgentInteraction(ctx context.Context, session *types.Session) error {
+	if session == nil || session.Metadata.AgentType != "zed_external" || len(session.Interactions) == 0 {
+		return nil
+	}
+	interaction := session.Interactions[len(session.Interactions)-1]
+	if interaction.CodeAgentConfigSnapshot != nil {
+		return nil
+	}
+	snapshot, err := s.codeAgentConfigSnapshot(ctx, session)
+	if err != nil {
+		return err
+	}
+	interaction.CodeAgentConfigSnapshot = snapshot
 	return nil
 }
 
