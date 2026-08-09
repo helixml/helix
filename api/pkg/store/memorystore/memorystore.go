@@ -750,3 +750,14 @@ func (m *MemoryStore) SeedProject(p *types.Project) {
 func (m *MemoryStore) GetZedSettingsOverride(_ context.Context, _ string) (*types.ZedSettingsOverride, error) {
 	return nil, store.ErrNotFound
 }
+
+// FinishTriggerExecution — always return "not found".
+//
+// The shared chat failure handlers call this for every session; ordinary chat
+// sessions have no linked trigger execution, and failRunningTriggerExecution
+// already treats ErrNotFound as a no-op. Without this the embedded nil
+// store.Store panicked on every chat_response_error, killing the sync
+// connection mid-turn and turning any error-path test into a timeout.
+func (m *MemoryStore) FinishTriggerExecution(_ context.Context, _ string, _ types.TriggerExecutionStatus, _ string) (*types.TriggerExecution, error) {
+	return nil, store.ErrNotFound
+}

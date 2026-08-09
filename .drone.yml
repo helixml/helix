@@ -1628,8 +1628,14 @@ steps:
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
+      # NB: the secret NAMES here are misleading. `openai_api_key` is a
+      # Together.ai key (the api-integration-test step feeds it to
+      # TOGETHER_API_KEY, paired with `openai_base_url`), and it fails auth
+      # against api.openai.com. The real OpenAI key is `openai_tools` — same
+      # mapping the two steps above use. gpt-5.6-luna is an OpenAI model, so it
+      # needs this one.
       OPENAI_API_KEY:
-        from_secret: openai_api_key
+        from_secret: openai_tools
     commands:
       - |
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
