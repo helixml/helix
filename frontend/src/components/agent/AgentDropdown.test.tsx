@@ -27,6 +27,12 @@ const CODING_AGENTS = [
 ]
 
 describe('AgentDropdown', () => {
+  it('does not show a redundant generic label', () => {
+    render(<AgentDropdown value="app_codex" onChange={vi.fn()} agents={CODING_AGENTS} />)
+
+    expect(screen.queryByText('Agent')).not.toBeInTheDocument()
+  })
+
   it('shows the harness mark for the selected agent in the closed state', () => {
     render(<AgentDropdown value="app_zed" onChange={vi.fn()} agents={CODING_AGENTS} />)
 

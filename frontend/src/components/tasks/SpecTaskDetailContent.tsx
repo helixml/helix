@@ -1856,7 +1856,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           value={selectedAgent}
           onChange={handleAgentChange}
           agents={eligibleApps}
-          label="Agent"
           disabled={updatingAgent}
           size="small"
         />

@@ -516,14 +516,12 @@ type ClaudeModel struct {
 // @Security BearerAuth
 // @Router /api/v1/claude-subscriptions/models [get]
 func (apiServer *HelixAPIServer) listClaudeModels(_ http.ResponseWriter, req *http.Request) ([]*ClaudeModel, *system.HTTPError) {
-	// The "[1m]" context hint selects the 1M-context row of a tier; Claude
-	// Code's resolveModelPreference() canonicalizes "opus[1m]" to the 1M model
-	// while a bare "opus" resolves to the 200k row.
 	models := []*ClaudeModel{
-		{ID: "opus[1m]", Name: "Claude Opus (1M context)", Description: "Most capable Claude model, 1M-token context"},
-		{ID: "opus", Name: "Claude Opus (200k context)", Description: "Most capable Claude model, 200k-token context"},
-		{ID: "sonnet", Name: "Claude Sonnet", Description: "Best balance of speed and capability"},
-		{ID: "haiku", Name: "Claude Haiku", Description: "Fastest Claude model"},
+		{ID: "claude-opus-5", Name: "Claude Opus 5 (1M context)", Description: "Recommended Opus model with a 1M-token context window"},
+		{ID: "claude-fable-5", Name: "Claude Fable 5 (1M context)", Description: "Most capable generally available Claude model"},
+		{ID: "claude-opus-4-8", Name: "Claude Opus 4.8 (1M context)", Description: "Previous Opus model with a 1M-token context window"},
+		{ID: "sonnet", Name: "Claude Sonnet (latest)", Description: "Best balance of speed and capability"},
+		{ID: "haiku", Name: "Claude Haiku (latest)", Description: "Fastest Claude model"},
 	}
 	return models, nil
 }

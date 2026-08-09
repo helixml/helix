@@ -33340,7 +33340,7 @@
                         "$ref": "#/components/schemas/types.AssistantCalculator"
                     },
                     "claude_subscription_model": {
-                        "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means \"opus[1m]\"\n(the 1M-context Opus; resolveModelPreference resolves the \"[1m]\" hint to the\n1M row, while a bare \"opus\" resolves to the 200k sibling).",
+                        "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\n\"claude-opus-5\" (the current 1M-context Opus model).",
                         "type": "string"
                     },
                     "code_agent_credential_type": {
@@ -35349,6 +35349,10 @@
                     "input_file": {
                         "description": "File path in helix-specs worktree to use as prompt (overrides Input)",
                         "type": "string"
+                    },
+                    "just_do_it_mode": {
+                        "description": "JustDoItMode makes the spec_task action skip spec generation and go straight\nto implementation, exactly as the \"Just Do It\" checkbox does for a task\ndispatched by hand.\n\nIt matters more than it looks. Without it a scheduled run is created in\nspec_generation and parks in spec_review waiting for a human to approve\nspecs — which, for an unattended job that fires at 9am daily, nobody ever\ndoes. Worse, a task that never reaches implementation is never assigned a\nBranchName, and the git pre-receive hook derives its allow-list from exactly\nthat field: the agent is then refused any push except helix-specs (\"This\npush is restricted to: helix-specs\"), so its work cannot land at all. That\nis the mechanism behind \"scheduled runs never do their job\".\n\nDefaults false so existing triggers keep their current behaviour; an\norchestrator scheduling autonomous work should set it true.",
+                        "type": "boolean"
                     },
                     "project_id": {
                         "description": "Target project for spec_task action",
@@ -37595,6 +37599,13 @@
                         "type": "string"
                     },
                     "supported_parameters": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "supported_reasoning_efforts": {
+                        "description": "SupportedReasoningEfforts lists the effort values the model accepts,\ne.g. [\"high\",\"low\",\"medium\",\"none\",\"xhigh\"]. Empty when unknown.",
                         "type": "array",
                         "items": {
                             "type": "string"

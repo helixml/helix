@@ -233,6 +233,7 @@ export const AgentConfigForm: FC<{
               }}
               currentType="text"
               displayMode="short"
+              buttonProps={{ fullWidth: true }}
             />
           </Box>
           {canConfigureEffort && (

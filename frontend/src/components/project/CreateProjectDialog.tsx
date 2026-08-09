@@ -975,7 +975,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                 value={selectedAgentId}
                 onChange={setSelectedAgentId}
                 agents={sortedApps}
-                label="Select Agent"
               />
               <Button
                 size="small"

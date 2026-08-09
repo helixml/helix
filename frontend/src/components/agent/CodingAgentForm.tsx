@@ -11,18 +11,17 @@ import AgentHarness from './AgentHarness'
 
 export type ClaudeCodeMode = 'subscription' | 'api_key'
 
-// Tier-level shorthand IDs for Claude subscription mode. Claude Code's
-// resolveModelPreference() resolves these to the latest version of each tier.
-// The "[1m]" context hint selects the 1M-context row of a tier (Claude Code
-// canonicalizes "opus[1m]" / "opus-1m" / "claude-opus-*-1m" to the same model);
-// a bare "opus" resolves to the 200k row.
+// Claude Code model IDs available in subscription mode. Keep flagship models
+// versioned so the UI says exactly what will run; Sonnet and Haiku intentionally
+// use Claude Code's rolling aliases.
 export const CLAUDE_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
-  { id: 'opus[1m]', label: 'Claude Opus (1M context, recommended)' },
-  { id: 'opus', label: 'Claude Opus (200k context)' },
-  { id: 'sonnet', label: 'Claude Sonnet' },
-  { id: 'haiku', label: 'Claude Haiku' },
+  { id: 'claude-opus-5', label: 'Claude Opus 5 (1M context, recommended)' },
+  { id: 'claude-fable-5', label: 'Claude Fable 5 (1M context)' },
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 (1M context)' },
+  { id: 'sonnet', label: 'Claude Sonnet (latest)' },
+  { id: 'haiku', label: 'Claude Haiku (latest)' },
 ]
-export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'opus[1m]'
+export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'claude-opus-5'
 
 export const CODEX_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
   { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
