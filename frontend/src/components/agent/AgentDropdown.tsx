@@ -54,7 +54,7 @@ const AgentDropdown: FC<AgentDropdownProps> = ({
   value,
   onChange,
   agents,
-  label = 'Agent',
+  label,
   disabled = false,
   size = 'small',
   helperText,
@@ -67,10 +67,10 @@ const AgentDropdown: FC<AgentDropdownProps> = ({
 
   return (
     <FormControl fullWidth size={size}>
-      <InputLabel sx={labelSx}>{label}</InputLabel>
+      {label && <InputLabel sx={labelSx}>{label}</InputLabel>}
       <Select
         value={value}
-        label={label}
+        label={label || undefined}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         sx={selectSx}

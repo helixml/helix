@@ -214,7 +214,6 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
               value={currentAppId}
               onChange={handleSelect}
               agents={eligibleAgents}
-              label="Agent"
               disabled={disabled}
               size={size}
             />
