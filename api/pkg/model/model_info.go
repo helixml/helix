@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -32,6 +33,7 @@ type BaseModelInfoProvider struct {
 	data       map[string]types.ModelInfo // Keyed by provider_model_id
 	normalized map[string]types.ModelInfo // Keyed by normalizeModelID(provider_model_id)
 	providers  map[string]string          // Keyed by provider base URL
+	aliases    map[string]types.ModelInfo // Subscription aliases keyed by model family
 }
 
 func NewBaseModelInfoProvider() (*BaseModelInfoProvider, error) {
@@ -58,6 +60,11 @@ func NewBaseModelInfoProvider() (*BaseModelInfoProvider, error) {
 	data := make(map[string]types.ModelInfo, len(response.Data))
 	normalized := make(map[string]types.ModelInfo)
 	normalizedIsDirect := make(map[string]bool)
+	type aliasCandidate struct {
+		info         types.ModelInfo
+		major, minor int
+	}
+	aliasCandidates := make(map[string]aliasCandidate)
 	for _, m := range response.Data {
 		pmid := m.Endpoint.ProviderModelID
 		if pmid == "" {
@@ -66,6 +73,14 @@ func NewBaseModelInfoProvider() (*BaseModelInfoProvider, error) {
 		providers[m.Endpoint.ProviderInfo.BaseURL] = m.Endpoint.ProviderInfo.Slug
 		mi := toModelInfo(m)
 		data[pmid] = mi
+		if m.Endpoint.ProviderInfo.Slug == "anthropic" {
+			if family, major, minor, ok := anthropicFamilyVersion(pmid); ok {
+				current, exists := aliasCandidates[family]
+				if !exists || major > current.major || major == current.major && minor > current.minor {
+					aliasCandidates[family] = aliasCandidate{info: mi, major: major, minor: minor}
+				}
+			}
+		}
 		n := normalizeModelID(pmid)
 		if n == "" || n == pmid {
 			continue
@@ -77,11 +92,17 @@ func NewBaseModelInfoProvider() (*BaseModelInfoProvider, error) {
 		}
 	}
 
+	aliases := make(map[string]types.ModelInfo, len(aliasCandidates))
+	for family, candidate := range aliasCandidates {
+		aliases[family] = candidate.info
+	}
+
 	return &BaseModelInfoProvider{
 		dataMu:     &sync.RWMutex{},
 		data:       data,
 		normalized: normalized,
 		providers:  providers,
+		aliases:    aliases,
 	}, nil
 }
 
@@ -138,6 +159,11 @@ func (p *BaseModelInfoProvider) GetModelInfo(_ context.Context, request *ModelIn
 	modelInfo, ok = p.data[modelName]
 	if ok {
 		return &modelInfo, nil
+	}
+	if family := anthropicAliasFamily(modelName); request.Provider == "anthropic" && family != "" {
+		if modelInfo, ok = p.aliases[family]; ok {
+			return &modelInfo, nil
+		}
 	}
 
 	provider, ok := p.getProvider(request.BaseURL)
@@ -252,6 +278,34 @@ func (p *BaseModelInfoProvider) getProvider(baseURL string) (string, bool) {
 }
 
 var anthropicDateSuffixRe = regexp.MustCompile(`-\d{8}$`)
+var anthropicFamilyVersionRe = regexp.MustCompile(`^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?(?:$|-)`)
+
+func anthropicAliasFamily(model string) string {
+	model = strings.ToLower(model)
+	if model == "claude-subscription" {
+		return "opus"
+	}
+	for _, family := range []string{"opus", "sonnet", "haiku"} {
+		if model == family || strings.HasPrefix(model, family+"[") {
+			return family
+		}
+	}
+	return ""
+}
+
+func anthropicFamilyVersion(model string) (string, int, int, bool) {
+	matches := anthropicFamilyVersionRe.FindStringSubmatch(strings.ToLower(model))
+	if len(matches) == 0 || strings.Contains(model, "-fast") {
+		return "", 0, 0, false
+	}
+	major, majorErr := strconv.Atoi(matches[2])
+	minor := 0
+	var minorErr error
+	if matches[3] != "" {
+		minor, minorErr = strconv.Atoi(matches[3])
+	}
+	return matches[1], major, minor, majorErr == nil && minorErr == nil
+}
 
 func trimAnthropicDateSuffix(slug string) string {
 	return anthropicDateSuffixRe.ReplaceAllString(slug, "")

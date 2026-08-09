@@ -2910,6 +2910,32 @@ type UsageAgentRuntimeTimeSeries struct {
 	Metrics []AggregatedUsageMetric `json:"metrics"`
 }
 
+type UsageProviderTimeSeries struct {
+	Provider string                  `json:"provider"`
+	Name     string                  `json:"name"`
+	Metrics  []AggregatedUsageMetric `json:"metrics"`
+}
+
+// UsageCostBreakdownRow retains the source dimension needed to distinguish
+// subscription usage from metered Helix inference. It is an internal input to
+// the API's pricing pass and is not serialized in the response.
+type UsageCostBreakdownRow struct {
+	Date             time.Time         `json:"-"`
+	Source           UsageMetricSource `json:"-"`
+	Provider         string            `json:"-"`
+	Model            string            `json:"-"`
+	PromptTokens     int               `json:"-"`
+	CompletionTokens int               `json:"-"`
+	TotalTokens      int               `json:"-"`
+	CacheReadTokens  int               `json:"-"`
+	CacheWriteTokens int               `json:"-"`
+	PromptCost       float64           `json:"-"`
+	CompletionCost   float64           `json:"-"`
+	CacheReadCost    float64           `json:"-"`
+	CacheWriteCost   float64           `json:"-"`
+	TotalCost        float64           `json:"-"`
+}
+
 type UsageFilterOption struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -2921,6 +2947,8 @@ type UsageFilterOption struct {
 
 type OrgUsageSummaryResponse struct {
 	Metrics                []*AggregatedUsageMetric      `json:"metrics"`
+	Providers              []UsageBreakdownRow           `json:"providers"`
+	ProviderTimeSeries     []UsageProviderTimeSeries     `json:"provider_time_series"`
 	Projects               []UsageBreakdownRow           `json:"projects"`
 	ProjectModels          []UsageBreakdownRow           `json:"project_models"`
 	Apps                   []UsageBreakdownRow           `json:"apps"`
@@ -2948,6 +2976,11 @@ type OrgUsageSummaryResponse struct {
 	ExportSessions         []UsageBreakdownRow           `json:"export_sessions"`
 	ExportModels           []UsageBreakdownRow           `json:"export_models"`
 	ExportUsers            []UsageBreakdownRow           `json:"export_users"`
+	RawTokenCost           float64                       `json:"raw_token_cost"`
+	SubscriptionSavings    float64                       `json:"subscription_savings"`
+	CacheSavings           float64                       `json:"cache_savings"`
+	HelixCredits           float64                       `json:"helix_credits"`
+	CostBreakdown          []UsageCostBreakdownRow       `json:"-" swaggerignore:"true"`
 }
 
 // Response for the user access endpoint

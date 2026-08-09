@@ -516,6 +516,36 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 	g.Go(func() error {
 		return s.orgUsageExportRows(gctx, q, resp)
 	})
+	g.Go(func() error {
+		return s.orgUsageBaseQuery(gctx, q).
+			Select(`
+				usage_metrics.date,
+				usage_metrics.source,
+				usage_metrics.provider,
+				usage_metrics.model,
+				SUM(usage_metrics.prompt_tokens) as prompt_tokens,
+				SUM(usage_metrics.completion_tokens) as completion_tokens,
+				SUM(usage_metrics.total_tokens) as total_tokens,
+				SUM(usage_metrics.cache_read_tokens) as cache_read_tokens,
+				SUM(usage_metrics.cache_write_tokens) as cache_write_tokens,
+				SUM(usage_metrics.prompt_cost) as prompt_cost,
+				SUM(usage_metrics.completion_cost) as completion_cost,
+				SUM(usage_metrics.cache_read_cost) as cache_read_cost,
+				SUM(usage_metrics.cache_write_cost) as cache_write_cost,
+				SUM(usage_metrics.total_cost) as total_cost
+			`).
+			Group("usage_metrics.date, usage_metrics.source, usage_metrics.provider, usage_metrics.model").
+			Order("usage_metrics.date ASC").
+			Scan(&resp.CostBreakdown).Error
+	})
+	g.Go(func() error {
+		credits, err := s.getOrgHelixCredits(gctx, q)
+		if err != nil {
+			return err
+		}
+		resp.HelixCredits = credits
+		return nil
+	})
 
 	if err := g.Wait(); err != nil {
 		return nil, err
@@ -554,6 +584,42 @@ func boundedUsageLimit(limit int) int {
 		return 100
 	}
 	return limit
+}
+
+func (s *PostgresStore) getOrgHelixCredits(ctx context.Context, q *GetOrgUsageSummaryQuery) (float64, error) {
+	var credits float64
+	query := s.gdb.WithContext(ctx).
+		Model(&types.Transaction{}).
+		Joins("JOIN wallets ON wallets.id = transactions.wallet_id").
+		Joins("JOIN llm_calls ON llm_calls.id = transactions.llm_call_id").
+		Where("wallets.org_id = ?", q.OrganizationID).
+		Where("transactions.type = ?", types.TransactionTypeUsage).
+		Where("transactions.llm_call_id <> ''").
+		Where("transactions.created_at >= ? AND transactions.created_at <= ?", q.From, q.To)
+
+	if q.UserID != "" {
+		query = query.Where("llm_calls.user_id = ?", q.UserID)
+	}
+	if q.ProjectID != "" {
+		query = query.Where("llm_calls.project_id = ?", q.ProjectID)
+	}
+	if q.AppID != "" {
+		query = query.Where("llm_calls.app_id = ?", q.AppID)
+	}
+	if q.SessionID != "" {
+		query = query.Where("llm_calls.session_id = ?", q.SessionID)
+	}
+	if q.Provider != "" {
+		query = query.Where("llm_calls.provider = ?", q.Provider)
+	}
+	if q.Model != "" {
+		query = query.Where("llm_calls.model = ?", q.Model)
+	}
+
+	if err := query.Select("COALESCE(SUM(-transactions.amount), 0)").Scan(&credits).Error; err != nil {
+		return 0, err
+	}
+	return credits, nil
 }
 
 func (s *PostgresStore) countOrgUsageBreakdownRows(ctx context.Context, q *GetOrgUsageSummaryQuery, dimension string) (int64, error) {

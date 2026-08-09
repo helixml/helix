@@ -246,6 +246,24 @@ func Test_GetOpus47_NewModel(t *testing.T) {
 	assert.NotEmpty(t, mi.Pricing.Completion)
 }
 
+func Test_GetAnthropicSubscriptionAliases(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	for _, alias := range []string{"opus", "opus[1m]", "claude-subscription"} {
+		t.Run(alias, func(t *testing.T) {
+			mi, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "anthropic",
+				Model:    alias,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "anthropic", mi.ProviderSlug)
+			assert.Contains(t, mi.ProviderModelID, "claude-opus-")
+			assert.NotEmpty(t, mi.Pricing.Prompt)
+		})
+	}
+}
+
 // TestGPT56Family_SupportsNoneReasoningEffort pins the catalog data the
 // reasoning-effort gate depends on. The GPT-5.6 models default to "medium"
 // reasoning effort, and OpenAI rejects that combination with function tools

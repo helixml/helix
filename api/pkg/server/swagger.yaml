@@ -7371,6 +7371,8 @@ definitions:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
         type: array
+      cache_savings:
+        type: number
       export_apps:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
@@ -7411,6 +7413,8 @@ definitions:
         items:
           $ref: '#/definitions/types.UsageFilterOption'
         type: array
+      helix_credits:
+        type: number
       metrics:
         items:
           $ref: '#/definitions/types.AggregatedUsageMetric'
@@ -7433,12 +7437,24 @@ definitions:
         type: array
       projects_total:
         type: integer
+      provider_time_series:
+        items:
+          $ref: '#/definitions/types.UsageProviderTimeSeries'
+        type: array
+      providers:
+        items:
+          $ref: '#/definitions/types.UsageBreakdownRow'
+        type: array
+      raw_token_cost:
+        type: number
       sessions:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
         type: array
       sessions_total:
         type: integer
+      subscription_savings:
+        type: number
       tasks:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
@@ -12257,6 +12273,17 @@ definitions:
         type: array
       model:
         type: string
+      name:
+        type: string
+      provider:
+        type: string
+    type: object
+  types.UsageProviderTimeSeries:
+    properties:
+      metrics:
+        items:
+          $ref: '#/definitions/types.AggregatedUsageMetric'
+        type: array
       name:
         type: string
       provider:

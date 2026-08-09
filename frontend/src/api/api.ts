@@ -4645,6 +4645,7 @@ export interface TypesOrgUsageSummaryResponse {
   active_users?: number;
   agent_runtime_time_series?: TypesUsageAgentRuntimeTimeSeries[];
   apps?: TypesUsageBreakdownRow[];
+  cache_savings?: number;
   export_apps?: TypesUsageBreakdownRow[];
   export_models?: TypesUsageBreakdownRow[];
   export_projects?: TypesUsageBreakdownRow[];
@@ -4655,14 +4656,19 @@ export interface TypesOrgUsageSummaryResponse {
   filter_models?: TypesUsageFilterOption[];
   filter_projects?: TypesUsageFilterOption[];
   filter_users?: TypesUsageFilterOption[];
+  helix_credits?: number;
   metrics?: TypesAggregatedUsageMetric[];
   model_time_series?: TypesUsageModelTimeSeries[];
   models?: TypesUsageBreakdownRow[];
   project_models?: TypesUsageBreakdownRow[];
   projects?: TypesUsageBreakdownRow[];
   projects_total?: number;
+  provider_time_series?: TypesUsageProviderTimeSeries[];
+  providers?: TypesUsageBreakdownRow[];
+  raw_token_cost?: number;
   sessions?: TypesUsageBreakdownRow[];
   sessions_total?: number;
+  subscription_savings?: number;
   tasks?: TypesUsageBreakdownRow[];
   tasks_total?: number;
   users?: TypesUsageBreakdownRow[];
@@ -7678,6 +7684,12 @@ export interface TypesUsageModelTimeSeries {
   id?: string;
   metrics?: TypesAggregatedUsageMetric[];
   model?: string;
+  name?: string;
+  provider?: string;
+}
+
+export interface TypesUsageProviderTimeSeries {
+  metrics?: TypesAggregatedUsageMetric[];
   name?: string;
   provider?: string;
 }

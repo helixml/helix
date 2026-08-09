@@ -38117,6 +38117,9 @@
                             "$ref": "#/components/schemas/types.UsageBreakdownRow"
                         }
                     },
+                    "cache_savings": {
+                        "type": "number"
+                    },
                     "export_apps": {
                         "type": "array",
                         "items": {
@@ -38177,6 +38180,9 @@
                             "$ref": "#/components/schemas/types.UsageFilterOption"
                         }
                     },
+                    "helix_credits": {
+                        "type": "number"
+                    },
                     "metrics": {
                         "type": "array",
                         "items": {
@@ -38210,6 +38216,21 @@
                     "projects_total": {
                         "type": "integer"
                     },
+                    "provider_time_series": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageProviderTimeSeries"
+                        }
+                    },
+                    "providers": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageBreakdownRow"
+                        }
+                    },
+                    "raw_token_cost": {
+                        "type": "number"
+                    },
                     "sessions": {
                         "type": "array",
                         "items": {
@@ -38218,6 +38239,9 @@
                     },
                     "sessions_total": {
                         "type": "integer"
+                    },
+                    "subscription_savings": {
+                        "type": "number"
                     },
                     "tasks": {
                         "type": "array",
@@ -44683,6 +44707,23 @@
                     },
                     "model": {
                         "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.UsageProviderTimeSeries": {
+                "type": "object",
+                "properties": {
+                    "metrics": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.AggregatedUsageMetric"
+                        }
                     },
                     "name": {
                         "type": "string"
