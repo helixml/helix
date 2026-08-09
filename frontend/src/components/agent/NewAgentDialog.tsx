@@ -166,17 +166,19 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
       open={open}
       onClose={creating ? undefined : onClose}
       fullWidth
-      maxWidth="sm"
+      maxWidth="md"
       PaperProps={{
         sx: {
-          height: 600,
-          maxHeight: 'calc(100% - 64px)',
+          width: 760,
+          height: 640,
+          maxHeight: 'calc(100dvh - 16px)',
+          m: { xs: 1, sm: 2 },
         },
       }}
     >
       <DialogTitle>New Agent</DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={2.5}>
+      <DialogContent dividers sx={{ py: 2 }}>
+        <Stack spacing={2}>
           <TextField
             label="Agent name"
             value={name}
@@ -196,6 +198,8 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
                 display: 'grid',
                 gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
                 gap: 1,
+                width: '100%',
+                maxWidth: 390,
               }}
             >
               {kindOptions.map((option) => {
@@ -215,8 +219,8 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
                       flexDirection: 'column',
                       justifyContent: 'center',
                       textAlign: 'center',
-                      px: 1.5,
-                      py: 1.25,
+                      px: 1,
+                      py: 1,
                       borderColor: selected ? 'secondary.main' : 'divider',
                       backgroundColor: selected ? 'action.selected' : 'transparent',
                       '&:hover': {
@@ -225,12 +229,12 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
                       },
                     }}
                   >
-                    <Icon size={20} color={option.color} />
-                    <Box sx={{ mt: 1 }}>
-                      <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
+                    <Icon size={18} color={option.color} />
+                    <Box sx={{ mt: 0.75 }}>
+                      <Typography color="text.primary" sx={{ fontSize: '0.78rem', fontWeight: 600, lineHeight: 1.25 }}>
                         {option.label}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, lineHeight: 1.3 }}>
+                      <Typography color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' }, mt: 0.25, fontSize: '0.66rem', lineHeight: 1.25 }}>
                         {option.description}
                       </Typography>
                     </Box>
