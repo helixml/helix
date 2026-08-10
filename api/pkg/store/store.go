@@ -536,6 +536,7 @@ type Store interface {
 	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 	GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error)
 	GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
+	GetOrgComputeUsage(ctx context.Context, q *GetOrgComputeUsageQuery) (*types.OrgComputeUsage, error)
 
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
@@ -839,12 +840,14 @@ type Store interface {
 	// User Sandbox methods (Sandboxes API — POST /organizations/{org}/sandboxes etc.)
 	CreateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
 	GetSandbox(ctx context.Context, id string) (*types.Sandbox, error)
+	GetSandboxBySession(ctx context.Context, sessionID string) (*types.Sandbox, error)
 	ListSandboxes(ctx context.Context, q *ListSandboxesQuery) ([]*types.Sandbox, error)
 	UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
 	SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error
 	SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error
 	SetRunningSandboxesBillingLastChargedAt(ctx context.Context, chargedAt time.Time) error
 	SetSandboxContainer(ctx context.Context, id string, hostDeviceID, containerID string) error
+	SetSandboxResources(ctx context.Context, id string, vcpus, memoryMB int) error
 	DeleteSandbox(ctx context.Context, id string) error
 	ListExpiredSandboxes(ctx context.Context, now time.Time) ([]*types.Sandbox, error)
 	ListStoppedNonPersistentSandboxes(ctx context.Context, before time.Time) ([]*types.Sandbox, error)

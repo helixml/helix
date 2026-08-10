@@ -75,6 +75,23 @@ type Sandbox struct {
 	// uses it to bind-mount the per-project durable data dir at /data.
 	Purpose string `json:"purpose,omitempty" gorm:"size:32;index"`
 
+	// SessionID links the row to the Helix session that owns the container,
+	// for sandboxes whose container is provisioned by the external-agent
+	// executor rather than by sandbox.Controller.provision (spec-task
+	// desktops, exploratory sessions, subscription desktops). The row exists
+	// so those containers are metered, quota-checked and visible in the
+	// Sandboxes UI on the same terms as user-created sandboxes.
+	//
+	// Non-empty is the discriminator for "session-backed": hydra registers
+	// every operation for such a container under the session id, so callers
+	// must route hydra ops via HydraOpsID() rather than the row id.
+	SessionID string `json:"session_id,omitempty" gorm:"size:64;index"`
+
+	// SpecTaskID is the spec task that owns the session, when there is one.
+	// Denormalised from the session purely so the Sandboxes list can link back
+	// to the task without joining through sessions.
+	SpecTaskID string `json:"spec_task_id,omitempty" gorm:"size:64;index"`
+
 	// Display fields apply to desktop runtimes.
 	DisplayWidth  int `json:"display_width,omitempty"`
 	DisplayHeight int `json:"display_height,omitempty"`
@@ -98,6 +115,22 @@ type Sandbox struct {
 // TableName tells GORM which table to use.
 func (Sandbox) TableName() string {
 	return "sandboxes"
+}
+
+// SessionBacked reports whether the underlying container is provisioned and
+// torn down by the external-agent executor instead of sandbox.Controller.
+func (s *Sandbox) SessionBacked() bool {
+	return s != nil && s.SessionID != ""
+}
+
+// HydraOpsID is the key hydra filed the container under. Controller-managed
+// sandboxes are created with the row id as their hydra session id; session-
+// backed ones use the Helix session id.
+func (s *Sandbox) HydraOpsID() string {
+	if s.SessionBacked() {
+		return s.SessionID
+	}
+	return s.ID
 }
 
 // CreateSandboxRequest is the API payload for POST /organizations/{org}/sandboxes.
@@ -137,6 +170,25 @@ type UpdateSandboxRequest struct {
 	Name           *string            `json:"name,omitempty"`
 	TimeoutSeconds *int               `json:"timeout_seconds,omitempty"`
 	Tags           *map[string]string `json:"tags,omitempty"`
+}
+
+// BeginSandboxSessionRequest opens the billing/quota record for a container
+// that the external-agent executor is about to provision itself. Lives in
+// types so the executor and the sandbox controller can talk without either
+// importing the other.
+type BeginSandboxSessionRequest struct {
+	SessionID      string
+	OrganizationID string
+	Owner          string
+	ProjectID      string
+	SpecTaskID     string
+	Name           string
+	Runtime        SandboxRuntime
+	VCPUs          int
+	MemoryMB       int
+	DisplayWidth   int
+	DisplayHeight  int
+	DisplayFPS     int
 }
 
 // SandboxListResponse is the API response for GET /organizations/{org}/sandboxes.

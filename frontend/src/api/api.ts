@@ -4647,6 +4647,21 @@ export interface TypesOpenAIUsage {
   total_tokens?: number;
 }
 
+export interface TypesOrgComputeUsage {
+  /**
+   * BillingEnabled reports whether compute is actually charged. When false
+   * the credits above are historical and nothing new is accruing.
+   */
+  billing_enabled?: boolean;
+  daily?: TypesUsageComputeDailyPoint[];
+  desktop_credits?: number;
+  headless_credits?: number;
+  /** RunningSandboxes is a point-in-time count, not a range aggregate. */
+  running_sandboxes?: number;
+  sandboxes?: TypesUsageComputeBreakdownRow[];
+  total_credits?: number;
+}
+
 export interface TypesOrgDetails {
   members?: TypesUser[];
   organization?: TypesOrganization;
@@ -4662,6 +4677,12 @@ export interface TypesOrgUsageSummaryResponse {
   agent_runtime_time_series?: TypesUsageAgentRuntimeTimeSeries[];
   apps?: TypesUsageBreakdownRow[];
   cache_savings?: number;
+  /**
+   * Compute is sandbox runtime spend. It answers the date range and the
+   * project filter; the token-shaped filters (model, provider, session)
+   * don't apply to a container and leave it untouched.
+   */
+  compute?: TypesOrgComputeUsage;
   export_apps?: TypesUsageBreakdownRow[];
   export_models?: TypesUsageBreakdownRow[];
   export_projects?: TypesUsageBreakdownRow[];
@@ -5714,6 +5735,25 @@ export interface TypesSandbox {
    */
   purpose?: string;
   runtime?: TypesSandboxRuntime;
+  /**
+   * SessionID links the row to the Helix session that owns the container,
+   * for sandboxes whose container is provisioned by the external-agent
+   * executor rather than by sandbox.Controller.provision (spec-task
+   * desktops, exploratory sessions, subscription desktops). The row exists
+   * so those containers are metered, quota-checked and visible in the
+   * Sandboxes UI on the same terms as user-created sandboxes.
+   *
+   * Non-empty is the discriminator for "session-backed": hydra registers
+   * every operation for such a container under the session id, so callers
+   * must route hydra ops via HydraOpsID() rather than the row id.
+   */
+  session_id?: string;
+  /**
+   * SpecTaskID is the spec task that owns the session, when there is one.
+   * Denormalised from the session purely so the Sandboxes list can link back
+   * to the task without joining through sessions.
+   */
+  spec_task_id?: string;
   started_at?: string;
   status?: TypesSandboxStatus;
   status_message?: string;
@@ -7718,6 +7758,24 @@ export interface TypesUsageBreakdownRow {
   unique_sessions?: number;
   unique_users?: number;
   username?: string;
+}
+
+export interface TypesUsageComputeBreakdownRow {
+  credits?: number;
+  name?: string;
+  pricing_type?: string;
+  project_id?: string;
+  runtime?: string;
+  sandbox_id?: string;
+  spec_task_id?: string;
+  vcpus?: number;
+}
+
+export interface TypesUsageComputeDailyPoint {
+  date?: string;
+  desktop?: number;
+  headless?: number;
+  total?: number;
 }
 
 export interface TypesUsageFilterOption {

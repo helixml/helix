@@ -10,6 +10,8 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import SimpleTable from '../widgets/SimpleTable'
 import SandboxStatusBadge from './SandboxStatusBadge'
+import SandboxProject from './SandboxProject'
+import SandboxSource from './SandboxSource'
 import { TypesSandbox } from '../../api/api'
 
 interface SandboxesTableProps {
@@ -36,29 +38,41 @@ const SandboxesTable: FC<SandboxesTableProps> = ({ sandboxes, onOpen, onDelete }
   const tableData = useMemo(() => sandboxes.map((sb) => ({
     id: sb.id,
     _data: sb,
+    // Names are not unique — spec-task runners inherit their task's name, and
+    // two projects in the same org can both have a task called "test". The
+    // project line underneath is what tells those rows apart.
     name: (
-      <Typography variant="body1">
-        <a
-          style={{
-            textDecoration: 'none',
-            fontWeight: 'bold',
-            color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-            fontFamily: 'monospace',
-          }}
-          href="#"
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onOpen(sb)
-          }}
-        >
-          {sb.name || sb.id}
-        </a>
-      </Typography>
+      <>
+        <Typography variant="body1">
+          <a
+            style={{
+              textDecoration: 'none',
+              fontWeight: 'bold',
+              color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+              fontFamily: 'monospace',
+            }}
+            href="#"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onOpen(sb)
+            }}
+          >
+            {sb.name || sb.id}
+          </a>
+        </Typography>
+        <SandboxProject sandbox={sb} />
+      </>
     ),
     runtime: (
       <Typography variant="body2" color="text.secondary">
         {sb.runtime || 'ubuntu-desktop'}
+      </Typography>
+    ),
+    source: <SandboxSource sandbox={sb} />,
+    resources: (
+      <Typography variant="body2" color="text.secondary">
+        {`${sb.vcpus ?? 1} vCPU · ${Math.round((sb.memory_mb ?? 2048) / 1024)} GB`}
       </Typography>
     ),
     status: <SandboxStatusBadge status={sb.status} message={sb.status_message} />,
@@ -89,7 +103,9 @@ const SandboxesTable: FC<SandboxesTableProps> = ({ sandboxes, onOpen, onDelete }
         authenticated={true}
         fields={[
           { name: 'name', title: 'Name' },
+          { name: 'source', title: 'Source' },
           { name: 'runtime', title: 'Runtime' },
+          { name: 'resources', title: 'Resources' },
           { name: 'status', title: 'Status' },
           { name: 'created', title: 'Created' },
           { name: 'expires', title: 'Expires' },

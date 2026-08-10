@@ -268,6 +268,22 @@ func (s *HelixAPIServer) getOrgUsageSummary(_ http.ResponseWriter, r *http.Reque
 	}
 	s.enrichOrgUsageCosts(r.Context(), summary)
 
+	// Sandbox runtime is the other half of the bill. It comes from the wallet
+	// ledger rather than usage_metrics, so it is a separate query rather than
+	// part of GetOrgUsageSummary. A failure here must not blank the token
+	// numbers the page is mainly about.
+	compute, err := s.Store.GetOrgComputeUsage(r.Context(), &store.GetOrgComputeUsageQuery{
+		OrganizationID: orgID,
+		ProjectID:      r.URL.Query().Get("project_id"),
+		From:           from,
+		To:             to,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Msg("failed to load organization compute usage")
+	} else {
+		summary.Compute = compute
+	}
+
 	return summary, nil
 }
 
@@ -376,6 +392,11 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 		metric.CacheReadTokens += row.CacheReadTokens
 		metric.CacheWriteTokens += row.CacheWriteTokens
 		metric.TotalCost += estimatedCost
+		// Accumulate total duration here and average it once all rows for the
+		// provider-day are in — averaging per row would weight a day with one
+		// slow call the same as a day with a thousand fast ones.
+		metric.LatencyMs += row.DurationMs
+		metric.TotalRequests += row.TotalRequests
 	}
 
 	for index := range summary.Models {
@@ -410,7 +431,15 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 			if metric == nil {
 				metric = &types.AggregatedUsageMetric{Date: totalMetric.Date}
 			}
-			series.Metrics = append(series.Metrics, *metric)
+			point := *metric
+			// LatencyMs accumulated total duration above; publish the mean per
+			// request, which is what the latency chart plots.
+			if point.TotalRequests > 0 {
+				point.LatencyMs = point.LatencyMs / float64(point.TotalRequests)
+			} else {
+				point.LatencyMs = 0
+			}
+			series.Metrics = append(series.Metrics, point)
 		}
 		summary.ProviderTimeSeries = append(summary.ProviderTimeSeries, series)
 	}

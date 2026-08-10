@@ -237,7 +237,7 @@ func (s *HelixAPIServer) runSandboxCommand(rw http.ResponseWriter, r *http.Reque
 	}
 
 	req := &hydra.ExecRequest{
-		SandboxID:      sb.ID,
+		SandboxID:      sb.HydraOpsID(),
 		CmdID:          system.GenerateSandboxCommandID(),
 		Cmd:            body.Cmd,
 		Args:           body.Args,
@@ -247,7 +247,7 @@ func (s *HelixAPIServer) runSandboxCommand(rw http.ResponseWriter, r *http.Reque
 		Detached:       body.Detached,
 		TimeoutSeconds: body.TimeoutSeconds,
 	}
-	resp, err := client.RunSandboxCommand(r.Context(), sb.ID, req)
+	resp, err := client.RunSandboxCommand(r.Context(), sb.HydraOpsID(), req)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -275,7 +275,7 @@ func (s *HelixAPIServer) listSandboxCommands(rw http.ResponseWriter, r *http.Req
 		http.Error(rw, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	resp, err := client.ListSandboxCommands(r.Context(), sb.ID)
+	resp, err := client.ListSandboxCommands(r.Context(), sb.HydraOpsID())
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -305,7 +305,7 @@ func (s *HelixAPIServer) getSandboxCommand(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 	cmdID := mux.Vars(r)["cmd_id"]
-	resp, err := client.GetSandboxCommand(r.Context(), sb.ID, cmdID)
+	resp, err := client.GetSandboxCommand(r.Context(), sb.HydraOpsID(), cmdID)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusNotFound)
 		return
@@ -339,7 +339,7 @@ func (s *HelixAPIServer) streamSandboxCommandLogs(rw http.ResponseWriter, r *htt
 	stream := r.URL.Query().Get("stream")
 	follow := r.URL.Query().Get("follow") == "1"
 
-	body, err := client.StreamSandboxCommandLogs(r.Context(), sb.ID, cmdID, stream, follow)
+	body, err := client.StreamSandboxCommandLogs(r.Context(), sb.HydraOpsID(), cmdID, stream, follow)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -387,7 +387,7 @@ func (s *HelixAPIServer) killSandboxCommand(rw http.ResponseWriter, r *http.Requ
 		return
 	}
 	cmdID := mux.Vars(r)["cmd_id"]
-	if err := client.KillSandboxCommand(r.Context(), sb.ID, cmdID, r.URL.Query().Get("signal")); err != nil {
+	if err := client.KillSandboxCommand(r.Context(), sb.HydraOpsID(), cmdID, r.URL.Query().Get("signal")); err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -425,7 +425,7 @@ func (s *HelixAPIServer) sandboxFile(rw http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		data, err := client.ReadSandboxFile(r.Context(), sb.ID, path)
+		data, err := client.ReadSandboxFile(r.Context(), sb.HydraOpsID(), path)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -448,14 +448,14 @@ func (s *HelixAPIServer) sandboxFile(rw http.ResponseWriter, r *http.Request) {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := client.WriteSandboxFile(r.Context(), sb.ID, path, body, mode); err != nil {
+		if err := client.WriteSandboxFile(r.Context(), sb.HydraOpsID(), path, body, mode); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		rw.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
 		recursive := r.URL.Query().Get("recursive") == "1"
-		if err := client.DeleteSandboxFile(r.Context(), sb.ID, path, recursive); err != nil {
+		if err := client.DeleteSandboxFile(r.Context(), sb.HydraOpsID(), path, recursive); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -486,7 +486,7 @@ func (s *HelixAPIServer) listSandboxFiles(rw http.ResponseWriter, r *http.Reques
 		http.Error(rw, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	resp, err := client.ListSandboxFiles(r.Context(), sb.ID, r.URL.Query().Get("path"))
+	resp, err := client.ListSandboxFiles(r.Context(), sb.HydraOpsID(), r.URL.Query().Get("path"))
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -516,7 +516,7 @@ func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request
 		http.Error(rw, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	s.openPersistentTerminal(rw, r, client, sb.ID, "", "")
+	s.openPersistentTerminal(rw, r, client, sb.HydraOpsID(), "", "")
 }
 
 // openPersistentTerminal bridges a browser terminal to a development
@@ -673,10 +673,12 @@ func (s *HelixAPIServer) sandboxScreenshot(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 	// The desktop container registers a RevDial endpoint as
-	// `desktop-{HELIX_SESSION_ID}` — for sandboxes, HELIX_SESSION_ID is the
-	// sandbox id, so we dial `desktop-{sbx_…}` and forward an HTTP GET to
-	// localhost:9876/screenshot (the in-container desktop-bridge port).
-	runnerID := fmt.Sprintf("desktop-%s", sb.ID)
+	// `desktop-{HELIX_SESSION_ID}`. For controller-managed sandboxes
+	// HELIX_SESSION_ID is the sandbox id; for session-backed rows (spec-task
+	// desktops) it is the Helix session id — HydraOpsID() picks the right one.
+	// We dial it and forward an HTTP GET to localhost:9876/screenshot (the
+	// in-container desktop-bridge port).
+	runnerID := fmt.Sprintf("desktop-%s", sb.HydraOpsID())
 	conn, err := s.connman.Dial(r.Context(), runnerID)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("desktop bridge not connected: %v", err), http.StatusServiceUnavailable)
@@ -872,7 +874,7 @@ func (s *HelixAPIServer) sandboxTerminalSessions(rw http.ResponseWriter, r *http
 		http.Error(rw, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	s.listPersistentTerminalSessions(rw, r, client, sb.ID)
+	s.listPersistentTerminalSessions(rw, r, client, sb.HydraOpsID())
 }
 
 func (s *HelixAPIServer) listPersistentTerminalSessions(rw http.ResponseWriter, r *http.Request, client *hydra.RevDialClient, targetID string) {

@@ -7362,6 +7362,31 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.OrgComputeUsage:
+    properties:
+      billing_enabled:
+        description: |-
+          BillingEnabled reports whether compute is actually charged. When false
+          the credits above are historical and nothing new is accruing.
+        type: boolean
+      daily:
+        items:
+          $ref: '#/definitions/types.UsageComputeDailyPoint'
+        type: array
+      desktop_credits:
+        type: number
+      headless_credits:
+        type: number
+      running_sandboxes:
+        description: RunningSandboxes is a point-in-time count, not a range aggregate.
+        type: integer
+      sandboxes:
+        items:
+          $ref: '#/definitions/types.UsageComputeBreakdownRow'
+        type: array
+      total_credits:
+        type: number
+    type: object
   types.OrgDetails:
     properties:
       members:
@@ -7397,6 +7422,13 @@ definitions:
         type: array
       cache_savings:
         type: number
+      compute:
+        allOf:
+        - $ref: '#/definitions/types.OrgComputeUsage'
+        description: |-
+          Compute is sandbox runtime spend. It answers the date range and the
+          project filter; the token-shaped filters (model, provider, session)
+          don't apply to a container and leave it untouched.
       export_apps:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
@@ -9118,6 +9150,25 @@ definitions:
         type: string
       runtime:
         $ref: '#/definitions/types.SandboxRuntime'
+      session_id:
+        description: |-
+          SessionID links the row to the Helix session that owns the container,
+          for sandboxes whose container is provisioned by the external-agent
+          executor rather than by sandbox.Controller.provision (spec-task
+          desktops, exploratory sessions, subscription desktops). The row exists
+          so those containers are metered, quota-checked and visible in the
+          Sandboxes UI on the same terms as user-created sandboxes.
+
+          Non-empty is the discriminator for "session-backed": hydra registers
+          every operation for such a container under the session id, so callers
+          must route hydra ops via HydraOpsID() rather than the row id.
+        type: string
+      spec_task_id:
+        description: |-
+          SpecTaskID is the spec task that owns the session, when there is one.
+          Denormalised from the session purely so the Sandboxes list can link back
+          to the task without joining through sessions.
+        type: string
       started_at:
         type: string
       status:
@@ -12325,6 +12376,36 @@ definitions:
         type: integer
       username:
         type: string
+    type: object
+  types.UsageComputeBreakdownRow:
+    properties:
+      credits:
+        type: number
+      name:
+        type: string
+      pricing_type:
+        type: string
+      project_id:
+        type: string
+      runtime:
+        type: string
+      sandbox_id:
+        type: string
+      spec_task_id:
+        type: string
+      vcpus:
+        type: integer
+    type: object
+  types.UsageComputeDailyPoint:
+    properties:
+      date:
+        type: string
+      desktop:
+        type: number
+      headless:
+        type: number
+      total:
+        type: number
     type: object
   types.UsageFilterOption:
     properties:

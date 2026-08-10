@@ -2885,6 +2885,48 @@ type AggregatedUsageMetric struct {
 	TotalRequests     int     `json:"total_requests"`
 }
 
+// UsageComputeDailyPoint is one day of sandbox compute spend, split by
+// pricing class so the chart can show what the desktops cost versus the
+// headless containers.
+type UsageComputeDailyPoint struct {
+	Date     time.Time `json:"date"`
+	Desktop  float64   `json:"desktop"`
+	Headless float64   `json:"headless"`
+	Total    float64   `json:"total"`
+}
+
+// UsageComputeBreakdownRow is one sandbox's compute spend over the range.
+// Rows survive the sandbox itself — charges are ledger entries, so a torn-down
+// desktop still accounts for what it cost.
+type UsageComputeBreakdownRow struct {
+	SandboxID   string  `json:"sandbox_id"`
+	Name        string  `json:"name,omitempty"`
+	Runtime     string  `json:"runtime,omitempty"`
+	PricingType string  `json:"pricing_type,omitempty"`
+	SpecTaskID  string  `json:"spec_task_id,omitempty"`
+	ProjectID   string  `json:"project_id,omitempty"`
+	VCPUs       int     `json:"vcpus,omitempty"`
+	Credits     float64 `json:"credits"`
+}
+
+// OrgComputeUsage is the sandbox-compute half of an org's bill: the credits
+// actually debited for running containers, as opposed to LLM tokens.
+//
+// Sourced from the wallet ledger rather than from live sandbox rows, so the
+// numbers hold for sandboxes that have since been deleted.
+type OrgComputeUsage struct {
+	TotalCredits    float64                    `json:"total_credits"`
+	DesktopCredits  float64                    `json:"desktop_credits"`
+	HeadlessCredits float64                    `json:"headless_credits"`
+	Daily           []UsageComputeDailyPoint   `json:"daily"`
+	Sandboxes       []UsageComputeBreakdownRow `json:"sandboxes"`
+	// RunningSandboxes is a point-in-time count, not a range aggregate.
+	RunningSandboxes int `json:"running_sandboxes"`
+	// BillingEnabled reports whether compute is actually charged. When false
+	// the credits above are historical and nothing new is accruing.
+	BillingEnabled bool `json:"billing_enabled"`
+}
+
 type UsageBreakdownRow struct {
 	ID                string     `json:"id"`
 	Name              string     `json:"name"`
@@ -2956,6 +2998,13 @@ type UsageCostBreakdownRow struct {
 	CacheReadCost    float64           `json:"-"`
 	CacheWriteCost   float64           `json:"-"`
 	TotalCost        float64           `json:"-"`
+	// DurationMs and TotalRequests carry timing at the same (date, provider,
+	// model, source) grain as the token columns, so the per-provider latency
+	// series can be derived from the same pass that resolves a row's display
+	// provider. Deriving it separately would key on the raw provider string
+	// and diverge from the provider breakdown whenever model info remaps it.
+	DurationMs    float64 `json:"-"`
+	TotalRequests int     `json:"-"`
 }
 
 type UsageFilterOption struct {
@@ -3002,6 +3051,10 @@ type OrgUsageSummaryResponse struct {
 	SubscriptionSavings    float64                       `json:"subscription_savings"`
 	CacheSavings           float64                       `json:"cache_savings"`
 	HelixCredits           float64                       `json:"helix_credits"`
+	// Compute is sandbox runtime spend. It answers the date range and the
+	// project filter; the token-shaped filters (model, provider, session)
+	// don't apply to a container and leave it untouched.
+	Compute *OrgComputeUsage `json:"compute,omitempty"`
 	CostBreakdown          []UsageCostBreakdownRow       `json:"-" swaggerignore:"true"`
 }
 

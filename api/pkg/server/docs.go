@@ -33549,6 +33549,40 @@ const docTemplate = `{
                 }
             }
         },
+        "types.OrgComputeUsage": {
+            "type": "object",
+            "properties": {
+                "billing_enabled": {
+                    "description": "BillingEnabled reports whether compute is actually charged. When false\nthe credits above are historical and nothing new is accruing.",
+                    "type": "boolean"
+                },
+                "daily": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageComputeDailyPoint"
+                    }
+                },
+                "desktop_credits": {
+                    "type": "number"
+                },
+                "headless_credits": {
+                    "type": "number"
+                },
+                "running_sandboxes": {
+                    "description": "RunningSandboxes is a point-in-time count, not a range aggregate.",
+                    "type": "integer"
+                },
+                "sandboxes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageComputeBreakdownRow"
+                    }
+                },
+                "total_credits": {
+                    "type": "number"
+                }
+            }
+        },
         "types.OrgDetails": {
             "type": "object",
             "properties": {
@@ -33601,6 +33635,14 @@ const docTemplate = `{
                 },
                 "cache_savings": {
                     "type": "number"
+                },
+                "compute": {
+                    "description": "Compute is sandbox runtime spend. It answers the date range and the\nproject filter; the token-shaped filters (model, provider, session)\ndon't apply to a container and leave it untouched.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OrgComputeUsage"
+                        }
+                    ]
                 },
                 "export_apps": {
                     "type": "array",
@@ -35987,6 +36029,14 @@ const docTemplate = `{
                 },
                 "runtime": {
                     "$ref": "#/definitions/types.SandboxRuntime"
+                },
+                "session_id": {
+                    "description": "SessionID links the row to the Helix session that owns the container,\nfor sandboxes whose container is provisioned by the external-agent\nexecutor rather than by sandbox.Controller.provision (spec-task\ndesktops, exploratory sessions, subscription desktops). The row exists\nso those containers are metered, quota-checked and visible in the\nSandboxes UI on the same terms as user-created sandboxes.\n\nNon-empty is the discriminator for \"session-backed\": hydra registers\nevery operation for such a container under the session id, so callers\nmust route hydra ops via HydraOpsID() rather than the row id.",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "description": "SpecTaskID is the spec task that owns the session, when there is one.\nDenormalised from the session purely so the Sandboxes list can link back\nto the task without joining through sessions.",
+                    "type": "string"
                 },
                 "started_at": {
                     "type": "string"
@@ -40232,6 +40282,52 @@ const docTemplate = `{
                 },
                 "username": {
                     "type": "string"
+                }
+            }
+        },
+        "types.UsageComputeBreakdownRow": {
+            "type": "object",
+            "properties": {
+                "credits": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pricing_type": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "vcpus": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.UsageComputeDailyPoint": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "desktop": {
+                    "type": "number"
+                },
+                "headless": {
+                    "type": "number"
+                },
+                "total": {
+                    "type": "number"
                 }
             }
         },

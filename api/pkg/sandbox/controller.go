@@ -58,6 +58,11 @@ type Controller struct {
 	// fake to capture CreateDevContainer requests.
 	newHydraClient func(hostID string) hydraProvisionClient
 
+	// stopDesktop tears down session-backed containers (spec-task desktops and
+	// friends), which the external-agent executor owns. Injected via
+	// SetDesktopStopper — see controller_session.go.
+	stopDesktop DesktopStopper
+
 	// provisionWG tracks in-flight provision goroutines launched by Create().
 	// Tests use waitProvisions() to wait for them to settle.
 	provisionWG sync.WaitGroup
@@ -234,6 +239,19 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 	}
 
 	_ = c.store.SetSandboxStatus(ctx, id, types.SandboxStatusStopping, "")
+
+	// Session-backed rows meter a container the external-agent executor
+	// provisioned and registered under the SESSION id. Tearing it down here
+	// with the row id would silently miss, so hand teardown back to the
+	// executor. This is also the path credit exhaustion takes to actually stop
+	// a spec-task desktop.
+	if sandbox.SessionBacked() {
+		if err := c.stopSessionDesktop(ctx, sandbox); err != nil {
+			return err
+		}
+		c.revokeSandboxAPIToken(ctx, sandbox)
+		return c.store.DeleteSandbox(ctx, id)
+	}
 
 	if sandbox.HostDeviceID != "" {
 		hydraClient := c.newHydraClient(sandbox.HostDeviceID)

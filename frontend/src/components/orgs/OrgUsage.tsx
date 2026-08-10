@@ -40,6 +40,7 @@ import {
 type RangeKey = '7d' | '30d' | '90d'
 type UsageLoadingScope = 'filters' | 'projects' | 'tasks' | 'sessions' | 'users'
 type OverviewMetric = 'cost' | 'tokens'
+type LatencyMetric = 'per-request' | 'per-1k-output'
 type UsageChartRow = { date: string; [key: string]: number | string }
 
 const TOKEN_SERIES: ShadcnSeries[] = [
@@ -50,6 +51,13 @@ const TOKEN_SERIES: ShadcnSeries[] = [
 ]
 
 const CHART_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#e11d48']
+
+// Two hues from the page palette so compute reads as part of the same system
+// as the token charts above it. Desktops first: they are the expensive half.
+const COMPUTE_SERIES: ShadcnSeries[] = [
+  { key: 'desktop', label: 'Desktops', color: CHART_COLORS[0] },
+  { key: 'headless', label: 'Headless', color: CHART_COLORS[4] },
+]
 
 const PROVIDER_COLORS: Record<string, string> = {
   anthropic: '#d97757',
@@ -297,6 +305,15 @@ const ProviderSummaryRow: FC<{
   )
 }
 
+// UsagePanel is the outlined card the Sandbox compute block uses. Everything
+// on the page sits in one, so the charts and tables read as parts of a single
+// system instead of floating panes on the page background.
+const UsagePanel: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <Paper variant="outlined" sx={{ p: 2, overflow: 'hidden' }}>
+    {children}
+  </Paper>
+)
+
 const Section: FC<{ title: string; action?: React.ReactNode; children: React.ReactNode }> = ({ title, action, children }) => (
   <Box sx={{ width: '100%' }}>
     <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2} sx={{ mb: 1.5 }}>
@@ -349,6 +366,18 @@ const modelOverviewFields: ITableField[] = [
   { name: 'cost', title: 'API-rate cost', numeric: true },
   { name: 'share', title: 'Share', numeric: true },
   { name: 'tokens', title: 'Tokens', numeric: true },
+]
+
+const computeSandboxFields: ITableField[] = [
+  { name: 'name', title: 'Sandbox' },
+  // Spec-task runners inherit their task's name, so two projects in the same
+  // org routinely produce identically-named rows. Project is what makes the
+  // cost attributable.
+  { name: 'project', title: 'Project' },
+  { name: 'kind', title: 'Kind' },
+  { name: 'size', title: 'Size', numeric: true },
+  { name: 'credits', title: 'Credits', numeric: true },
+  { name: 'share', title: 'Share', numeric: true },
 ]
 
 const sessionFields: ITableField[] = [
@@ -411,51 +440,6 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameCli
   latency: <Typography variant="body2">{formatMs(row.latency_ms)}</Typography>,
   lastActivity: <Typography variant="body2" color="text.secondary">{formatDateTime(row.last_activity_at)}</Typography>,
 })
-
-const LatencyTooltip: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null
-  return (
-    <Box sx={{ bgcolor: 'rgba(10,10,15,0.95)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, px: 1.5, py: 1 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-        {label ? new Date(label as string).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}
-      </Typography>
-      <Typography variant="body2">{formatMs(payload[0]?.value as number)}</Typography>
-    </Box>
-  )
-}
-
-const LatencyChart: FC<{ data: Array<{ date: string; latency: number }> }> = ({ data }) => {
-  const hasData = data.some(row => row.latency > 0)
-  return (
-    <Box sx={{ height: 300, bgcolor: 'rgba(0,0,0,0.2)', borderRadius: 2, p: 2 }}>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontWeight: 500, letterSpacing: '0.04em' }}>
-        LATENCY
-      </Typography>
-      {hasData ? (
-        <ResponsiveContainer width="100%" height={230}>
-          <LineChart data={data} margin={{ top: 10, right: 12, left: 16, bottom: 0 }}>
-            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-            <XAxis
-              dataKey="date"
-              tickLine={false}
-              axisLine={false}
-              tickMargin={8}
-              tick={{ fill: '#94A3B8', fontSize: 12 }}
-              tickFormatter={(v: string) => new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-            />
-            <YAxis tickLine={false} axisLine={false} tickMargin={10} width={80} tick={{ fill: '#94A3B8', fontSize: 12 }} tickFormatter={(v: number) => `${Math.round(v)}ms`} />
-            <Tooltip content={React.createElement(LatencyTooltip)} cursor={{ stroke: 'rgba(255,255,255,0.2)' }} />
-            <Line type="monotone" dataKey="latency" stroke="#14b8a6" strokeWidth={2} dot={false} isAnimationActive={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      ) : (
-        <Box sx={{ height: 230, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Typography variant="body2" color="text.secondary">No latency data</Typography>
-        </Box>
-      )}
-    </Box>
-  )
-}
 
 const buildModelChart = (series: TypesUsageModelTimeSeries[] = []): UsageChartRow[] => {
   const dates = new Map<string, UsageChartRow>()
@@ -627,6 +611,7 @@ const OrgUsage: FC = () => {
   const [sessionPage, setSessionPage] = useState(0)
   const [sessionRowsPerPage, setSessionRowsPerPage] = useState(10)
   const [overviewMetric, setOverviewMetric] = useState<OverviewMetric>('cost')
+  const [latencyMetric, setLatencyMetric] = useState<LatencyMetric>('per-request')
   const [loadingScope, setLoadingScope] = useState<UsageLoadingScope | null>(null)
   const sessionId = useDebounce(sessionIdInput.trim(), 400)
   const userSearch = useDebounce(userSearchInput.trim(), 300)
@@ -698,6 +683,85 @@ const OrgUsage: FC = () => {
   const subscriptionSavings = usage.data?.subscription_savings ?? 0
   const cacheSavings = usage.data?.cache_savings ?? 0
   const helixCredits = usage.data?.helix_credits ?? 0
+  const compute = usage.data?.compute
+  const computeTotals = useMemo(() => {
+    const daily = compute?.daily || []
+    const computeActiveDays = daily.filter(point => (point.total ?? 0) > 0).length
+    const total = compute?.total_credits ?? 0
+    return {
+      total,
+      desktop: compute?.desktop_credits ?? 0,
+      headless: compute?.headless_credits ?? 0,
+      activeDays: computeActiveDays,
+      perActiveDay: computeActiveDays > 0 ? total / computeActiveDays : 0,
+    }
+  }, [compute])
+  const computeChartData = useMemo<UsageChartRow[]>(() => (compute?.daily || []).map(point => ({
+    date: point.date || '',
+    desktop: point.desktop ?? 0,
+    headless: point.headless ?? 0,
+  })), [compute])
+  // Project names come from the filter options the same response already
+  // carries, so no extra request is needed to attribute a sandbox.
+  const projectNames = useMemo(() => {
+    const names: Record<string, string> = {}
+    for (const option of usage.data?.filter_projects || []) {
+      if (option.id) names[option.id] = option.name || option.id
+    }
+    return names
+  }, [usage.data?.filter_projects])
+  const computeSandboxRows = useMemo(() => (compute?.sandboxes || []).map(row => {
+    const share = computeTotals.total > 0 ? (row.credits ?? 0) / computeTotals.total : 0
+    return {
+      id: row.sandbox_id || '',
+      _data: row,
+      // Project separates same-named tasks across projects, but two tasks in
+      // ONE project can also share a name. The task link is what makes every
+      // row individually resolvable.
+      name: row.spec_task_id && row.project_id ? (
+        <Typography
+          variant="body2"
+          component="a"
+          href="#"
+          onClick={(e: React.MouseEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+            router.navigate('org_project-task-detail', {
+              org_id: router.params.org_id,
+              id: row.project_id,
+              taskId: row.spec_task_id,
+            })
+          }}
+          sx={{ fontWeight: 600, color: 'text.primary', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+          noWrap
+        >
+          {row.name || row.sandbox_id || 'Unknown'}
+        </Typography>
+      ) : (
+        <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+          {row.name || row.sandbox_id || 'Unknown'}
+        </Typography>
+      ),
+      project: (
+        <Typography variant="body2" color="text.secondary" noWrap>
+          {row.project_id ? (projectNames[row.project_id] || row.project_id) : 'Org-scoped'}
+        </Typography>
+      ),
+      kind: (
+        <Typography variant="body2" color="text.secondary">
+          {row.spec_task_id ? 'Spec task' : row.pricing_type === 'desktop' ? 'Desktop' : 'Headless'}
+        </Typography>
+      ),
+      size: (
+        <Typography variant="body2" color="text.secondary">
+          {row.vcpus ? `${row.vcpus} vCPU` : '—'}
+        </Typography>
+      ),
+      credits: <Typography variant="body2">{formatCost(row.credits)}</Typography>,
+      share: <Typography variant="body2" color="text.secondary">{formatPercent(share)}</Typography>,
+    }
+  }), [compute, computeTotals.total, projectNames, router])
+
   const activeDays = metrics.filter(metric => (metric.total_tokens ?? 0) > 0).length
   const averageTokens = activeDays > 0 ? totals.total / activeDays : 0
   const cachedShare = totals.input > 0 ? totals.cacheRead / totals.input : 0
@@ -744,10 +808,55 @@ const OrgUsage: FC = () => {
     color: CHART_COLORS[index],
   }))
 
-  const latencyData = useMemo(() => metrics.map(metric => ({
-    date: metric.date || '',
-    latency: metric.latency_ms ?? 0,
-  })), [metrics])
+  // Latency per provider. Mean request duration answers "how long does a call
+  // take", but it tracks response length as much as provider speed — a
+  // provider used for long agentic turns looks slow even when it streams
+  // faster. Normalising by output tokens is the comparison that actually
+  // ranks providers, so both are offered.
+  const latencyChartData = useMemo<UsageChartRow[]>(() => {
+    const byDate = new Map<string, UsageChartRow>()
+    for (const series of providerTimeSeries) {
+      const key = series.provider || 'unknown'
+      for (const metric of series.metrics || []) {
+        const date = metric.date || ''
+        let row = byDate.get(date)
+        if (!row) {
+          row = { date }
+          byDate.set(date, row)
+        }
+        // The API emits a zero-filled point for every provider on every date.
+        // Plotting those zeros drags each line to the floor and back on days a
+        // provider simply wasn't used, which reads as wild latency swings.
+        // Leave the key unset instead so the point is absent, and let the
+        // chart bridge the gap.
+        const requests = metric.total_requests ?? 0
+        if (requests === 0) continue
+        const meanMs = metric.latency_ms ?? 0
+        if (latencyMetric === 'per-request') {
+          row[key] = meanMs
+          continue
+        }
+        // Reconstruct total time from the mean the API publishes, then divide
+        // by output volume.
+        const completion = metric.completion_tokens ?? 0
+        if (completion <= 0) continue
+        row[key] = (meanMs * requests) / (completion / 1000)
+      }
+    }
+    return Array.from(byDate.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)))
+  }, [providerTimeSeries, latencyMetric])
+  const latencyChartSeries: ShadcnSeries[] = providerTimeSeries.map((item, index) => ({
+    key: item.provider || 'unknown',
+    label: item.name || item.provider || 'Unknown',
+    color: providerColor(item.provider || 'unknown', index, lightTheme.isLight),
+  }))
+  const latencyHeadline = useMemo(() => {
+    const values = latencyChartData.flatMap(row => latencyChartSeries
+      .map(s => Number(row[s.key]) || 0)
+      .filter(v => v > 0))
+    if (!values.length) return '—'
+    return formatMs(values.reduce((a, b) => a + b, 0) / values.length)
+  }, [latencyChartData, latencyChartSeries])
   const userOptions = usage.data?.filter_users || []
   const projectOptions = usage.data?.filter_projects || []
   const appOptions = usage.data?.filter_apps || []
@@ -865,7 +974,7 @@ const OrgUsage: FC = () => {
               <Box>
                 <Typography variant="h5" component="h2" sx={{ mb: 1 }}>Usage</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  LLM calls, tokens, cost, and latency for this organization.
+                  LLM calls, tokens, cost, latency, and sandbox compute for this organization.
                 </Typography>
               </Box>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
@@ -1036,147 +1145,261 @@ const OrgUsage: FC = () => {
               Savings use current model API rates. Helix credits include only metered token charges debited by Helix; provider subscriptions and external API keys are excluded.
             </Typography>
 
+            {!usage.isLoading && compute && (
+              <Paper variant="outlined" sx={{ p: 0, overflow: 'hidden' }}>
+                <Box sx={{ px: 2, pt: 2, pb: 1.5 }}>
+                  <Typography variant="overline" color="text.secondary">Sandbox compute</Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
+                    {formatCost(computeTotals.total)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {compute.billing_enabled
+                      ? 'Credits debited for running desktops and containers'
+                      : 'Compute billing is disabled — this is historical spend and nothing new is accruing'}
+                  </Typography>
+                </Box>
+
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' },
+                    gap: '1px',
+                    bgcolor: 'divider',
+                    borderTop: '1px solid',
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                  }}
+                >
+                  <OverviewStat
+                    label="Desktops"
+                    value={formatCost(computeTotals.desktop)}
+                    detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.desktop / computeTotals.total)} of compute spend` : 'No desktop spend'}
+                  />
+                  <OverviewStat
+                    label="Headless"
+                    value={formatCost(computeTotals.headless)}
+                    detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.headless / computeTotals.total)} of compute spend` : 'No headless spend'}
+                  />
+                  <OverviewStat
+                    label="Per active day"
+                    value={formatCost(computeTotals.perActiveDay)}
+                    detail={`${computeTotals.activeDays} ${computeTotals.activeDays === 1 ? 'day' : 'days'} with compute spend`}
+                  />
+                  <OverviewStat
+                    label="Running now"
+                    value={`${compute.running_sandboxes ?? 0}`}
+                    detail="Sandboxes currently billing"
+                  />
+                </Box>
+
+                <Box sx={{ p: 2 }}>
+                  <ShadcnAreaChart
+                    title="DAILY COMPUTE SPEND"
+                    headline={formatCost(computeTotals.total)}
+                    data={computeChartData}
+                    series={COMPUTE_SERIES}
+                    valueFormatter={formatCost}
+                    zeroIsData
+                  />
+                </Box>
+
+                {computeSandboxRows.length > 0 && (
+                  <Box sx={{ px: 2, pb: 2 }}>
+                    <Section title="Sandbox breakdown">
+                      <SimpleTable authenticated fields={computeSandboxFields} data={computeSandboxRows} compact />
+                    </Section>
+                  </Box>
+                )}
+
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Compute spend answers the date range and the project filter only — model, provider, session and user filters describe tokens, not containers.
+                  </Typography>
+                </Box>
+              </Paper>
+            )}
+
             {!usage.isLoading && (
               <>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.35fr) minmax(0, 1fr)' }, gap: 2 }}>
-                  <ShadcnAreaChart
-                    title="TOKENS OVER TIME"
-                    headline={formatCompact(totals.total)}
-                    data={tokenChartData}
-                    series={TOKEN_SERIES}
-                    valueFormatter={formatCompact}
-                  />
-                  <LatencyChart data={latencyData} />
+                  <UsagePanel>
+                    <ShadcnAreaChart
+                      title="TOKENS OVER TIME"
+                      headline={formatCompact(totals.total)}
+                      data={tokenChartData}
+                      series={TOKEN_SERIES}
+                      valueFormatter={formatCompact}
+                    />
+                  </UsagePanel>
+                  <UsagePanel>
+                    <Stack direction="row" alignItems="center" justifyContent="flex-end" sx={{ mb: 1 }}>
+                      <ToggleButtonGroup
+                        value={latencyMetric}
+                        exclusive
+                        size="small"
+                        onChange={(_, next: LatencyMetric | null) => next && setLatencyMetric(next)}
+                      >
+                        <ToggleButton value="per-request">Per request</ToggleButton>
+                        <ToggleButton value="per-1k-output">Per 1k output</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Stack>
+                    <ShadcnAreaChart
+                      title={latencyMetric === 'per-request' ? 'LATENCY BY PROVIDER' : 'LATENCY PER 1K OUTPUT TOKENS'}
+                      headline={latencyHeadline}
+                      data={latencyChartData}
+                      series={latencyChartSeries}
+                      valueFormatter={formatMs}
+                      stacked={false}
+                      variant="line"
+                      connectNulls
+                    />
+                  </UsagePanel>
                 </Box>
 
-                <ShadcnAreaChart
-                  title="CACHE HIT RATIO BY AGENT HARNESS"
-                  headline={formatPercent(cacheHitRatio)}
-                  data={agentCacheChartData}
-                  series={agentCacheChartSeries}
-                  valueFormatter={value => formatPercent(value)}
-                  stacked={false}
-                  zeroIsData
-                  variant="line"
-                  yDomain={[0, 1]}
-                />
+                <UsagePanel>
+                  <ShadcnAreaChart
+                    title="CACHE HIT RATIO BY AGENT HARNESS"
+                    headline={formatPercent(cacheHitRatio)}
+                    data={agentCacheChartData}
+                    series={agentCacheChartSeries}
+                    valueFormatter={value => formatPercent(value)}
+                    stacked={false}
+                    zeroIsData
+                    variant="line"
+                    yDomain={[0, 1]}
+                  />
+                </UsagePanel>
 
-                <ShadcnAreaChart
-                  title="MODEL USAGE OVER TIME"
-                  headline={`${modelSeries.length} models`}
-                  data={modelChartData}
-                  series={modelChartSeries}
-                  valueFormatter={formatCompact}
-                  stacked={false}
-                />
+                <UsagePanel>
+                  <ShadcnAreaChart
+                    title="MODEL USAGE OVER TIME"
+                    headline={`${modelSeries.length} models`}
+                    data={modelChartData}
+                    series={modelChartSeries}
+                    valueFormatter={formatCompact}
+                    stacked={false}
+                  />
+                </UsagePanel>
 
-                <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
+                <UsagePanel>
+                  <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
+                </UsagePanel>
 
                 <Stack spacing={3} sx={{ width: '100%' }}>
-                  <Section title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} />
-                    <TablePagination
-                      component="div"
-                      count={usage.data?.projects_total || 0}
-                      page={projectPage}
-                      rowsPerPage={projectRowsPerPage}
-                      onPageChange={(_, nextPage) => {
-                        setLoadingScope('projects')
-                        setProjectPage(nextPage)
-                      }}
-                      onRowsPerPageChange={event => {
-                        setLoadingScope('projects')
-                        setProjectRowsPerPage(parseInt(event.target.value, 10))
-                        setProjectPage(0)
-                      }}
-                      rowsPerPageOptions={[10, 25, 50, 100]}
-                    />
-                  </Section>
+                  <UsagePanel>
+                    <Section title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
+                      <SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} />
+                      <TablePagination
+                        component="div"
+                        count={usage.data?.projects_total || 0}
+                        page={projectPage}
+                        rowsPerPage={projectRowsPerPage}
+                        onPageChange={(_, nextPage) => {
+                          setLoadingScope('projects')
+                          setProjectPage(nextPage)
+                        }}
+                        onRowsPerPageChange={event => {
+                          setLoadingScope('projects')
+                          setProjectRowsPerPage(parseInt(event.target.value, 10))
+                          setProjectPage(0)
+                        }}
+                        rowsPerPageOptions={[10, 25, 50, 100]}
+                      />
+                    </Section>
+                  </UsagePanel>
 
-                  <Section title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact />
-                  </Section>
+                  <UsagePanel>
+                    <Section title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
+                      <SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact />
+                    </Section>
+                  </UsagePanel>
 
-                  <Section title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} />
-                    <TablePagination
-                      component="div"
-                      count={usage.data?.tasks_total || 0}
-                      page={taskPage}
-                      rowsPerPage={taskRowsPerPage}
-                      onPageChange={(_, nextPage) => {
-                        setLoadingScope('tasks')
-                        setTaskPage(nextPage)
-                      }}
-                      onRowsPerPageChange={event => {
-                        setLoadingScope('tasks')
-                        setTaskRowsPerPage(parseInt(event.target.value, 10))
-                        setTaskPage(0)
-                      }}
-                      rowsPerPageOptions={[10, 25, 50, 100]}
-                    />
-                  </Section>
+                  <UsagePanel>
+                    <Section title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
+                      <SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} />
+                      <TablePagination
+                        component="div"
+                        count={usage.data?.tasks_total || 0}
+                        page={taskPage}
+                        rowsPerPage={taskRowsPerPage}
+                        onPageChange={(_, nextPage) => {
+                          setLoadingScope('tasks')
+                          setTaskPage(nextPage)
+                        }}
+                        onRowsPerPageChange={event => {
+                          setLoadingScope('tasks')
+                          setTaskRowsPerPage(parseInt(event.target.value, 10))
+                          setTaskPage(0)
+                        }}
+                        rowsPerPageOptions={[10, 25, 50, 100]}
+                      />
+                    </Section>
+                  </UsagePanel>
 
-                  <Section title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
-                    <SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} />
-                    <TablePagination
-                      component="div"
-                      count={usage.data?.sessions_total || 0}
-                      page={sessionPage}
-                      rowsPerPage={sessionRowsPerPage}
-                      onPageChange={(_, nextPage) => {
-                        setLoadingScope('sessions')
-                        setSessionPage(nextPage)
-                      }}
-                      onRowsPerPageChange={event => {
-                        setLoadingScope('sessions')
-                        setSessionRowsPerPage(parseInt(event.target.value, 10))
-                        setSessionPage(0)
-                      }}
-                      rowsPerPageOptions={[10, 25, 50, 100]}
-                    />
-                  </Section>
+                  <UsagePanel>
+                    <Section title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
+                      <SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} />
+                      <TablePagination
+                        component="div"
+                        count={usage.data?.sessions_total || 0}
+                        page={sessionPage}
+                        rowsPerPage={sessionRowsPerPage}
+                        onPageChange={(_, nextPage) => {
+                          setLoadingScope('sessions')
+                          setSessionPage(nextPage)
+                        }}
+                        onRowsPerPageChange={event => {
+                          setLoadingScope('sessions')
+                          setSessionRowsPerPage(parseInt(event.target.value, 10))
+                          setSessionPage(0)
+                        }}
+                        rowsPerPageOptions={[10, 25, 50, 100]}
+                      />
+                    </Section>
+                  </UsagePanel>
 
-                  <Section
-                    title="Users"
-                    action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.export_users || usage.data?.users || []} />}
-                  >
-                    <TextField
-                      size="small"
-                      placeholder="Search username or email"
-                      value={userSearchInput}
-                      onChange={e => {
-                        setLoadingScope('users')
-                        setUserSearchInput(e.target.value)
-                        setUserPage(0)
-                      }}
-                      sx={{ mb: 1.5, width: '100%', maxWidth: 360 }}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <Search size={16} />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} />
-                    <TablePagination
-                      component="div"
-                      count={usage.data?.users_total || 0}
-                      page={userPage}
-                      rowsPerPage={userRowsPerPage}
-                      onPageChange={(_, nextPage) => {
-                        setLoadingScope('users')
-                        setUserPage(nextPage)
-                      }}
-                      onRowsPerPageChange={event => {
-                        setLoadingScope('users')
-                        setUserRowsPerPage(parseInt(event.target.value, 10))
-                        setUserPage(0)
-                      }}
-                      rowsPerPageOptions={[10, 25, 50, 100]}
-                    />
-                  </Section>
+                  <UsagePanel>
+                    <Section
+                      title="Users"
+                      action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.export_users || usage.data?.users || []} />}
+                    >
+                      <TextField
+                        size="small"
+                        placeholder="Search username or email"
+                        value={userSearchInput}
+                        onChange={e => {
+                          setLoadingScope('users')
+                          setUserSearchInput(e.target.value)
+                          setUserPage(0)
+                        }}
+                        sx={{ mb: 1.5, width: '100%', maxWidth: 360 }}
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <Search size={16} />
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                      <SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} />
+                      <TablePagination
+                        component="div"
+                        count={usage.data?.users_total || 0}
+                        page={userPage}
+                        rowsPerPage={userRowsPerPage}
+                        onPageChange={(_, nextPage) => {
+                          setLoadingScope('users')
+                          setUserPage(nextPage)
+                        }}
+                        onRowsPerPageChange={event => {
+                          setLoadingScope('users')
+                          setUserRowsPerPage(parseInt(event.target.value, 10))
+                          setUserPage(0)
+                        }}
+                        rowsPerPageOptions={[10, 25, 50, 100]}
+                      />
+                    </Section>
+                  </UsagePanel>
                 </Stack>
               </>
             )}

@@ -532,7 +532,9 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 				SUM(usage_metrics.completion_cost) as completion_cost,
 				SUM(usage_metrics.cache_read_cost) as cache_read_cost,
 				SUM(usage_metrics.cache_write_cost) as cache_write_cost,
-				SUM(usage_metrics.total_cost) as total_cost
+				SUM(usage_metrics.total_cost) as total_cost,
+				SUM(usage_metrics.duration_ms) as duration_ms,
+				COUNT(*) as total_requests
 			`).
 			Group("usage_metrics.date, usage_metrics.source, usage_metrics.provider, usage_metrics.model").
 			Order("usage_metrics.date ASC").
