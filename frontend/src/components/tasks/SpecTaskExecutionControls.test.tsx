@@ -159,7 +159,7 @@ describe("SpecTaskExecutionControls", () => {
     expect(screen.queryByText("Uncapped")).not.toBeInTheDocument();
   });
 
-  it("warns about thread and cache loss before a live effort change", async () => {
+  it("applies a live effort change immediately", async () => {
     const update = vi.fn().mockResolvedValue(undefined);
     render(
       <SpecTaskExecutionControls
@@ -169,41 +169,39 @@ describe("SpecTaskExecutionControls", () => {
         sandboxResourceOverrides={{ vcpus: 4, memory_mb: 8192 }}
         onAgentModelChange={update}
         onSandboxResourceOverridesChange={vi.fn()}
-        confirmCodeAgentChanges
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Change reasoning and service tier" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "High" }));
 
-    expect(update).not.toHaveBeenCalled();
-    expect(screen.getByText(/provider prompt cache do not carry over/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Change" }));
-
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_codex",
       { reasoning_effort: "high" },
     ));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("names both models in a same-agent model-change warning", () => {
+  it("applies a same-agent model change immediately", async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
     render(
       <SpecTaskExecutionControls
         agents={[claudeAgent]}
         selectedAgentId={claudeAgent.id}
         codeAgentOverrides={{ model: "claude-opus-5" }}
         sandboxResourceOverrides={{ vcpus: 4, memory_mb: 8192 }}
-        onAgentModelChange={vi.fn()}
+        onAgentModelChange={update}
         onSandboxResourceOverridesChange={vi.fn()}
-        confirmCodeAgentChanges
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Change coding model" }));
     fireEvent.click(screen.getByRole("button", { name: /Claude Sonnet.*Claude Code/ }));
 
-    expect(screen.getByRole("heading", { name: "Switch model?" })).toBeInTheDocument();
-    expect(screen.getByText(/Switch Claude Opus 5 to Claude Sonnet/)).toBeInTheDocument();
-    expect(screen.getByText(/cannot reuse Claude Opus 5's provider prompt cache/)).toBeInTheDocument();
+    await waitFor(() => expect(update).toHaveBeenCalledWith(
+      "app_claude",
+      { provider_ref: "", model: "sonnet" },
+    ));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

@@ -1863,7 +1863,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           sandboxResourceOverrides={task?.sandbox_resource_overrides}
           onAgentModelChange={handleAgentModelChange}
           onSandboxResourceOverridesChange={handleSandboxResourcesChange}
-          confirmCodeAgentChanges={!!task?.planning_session_id}
           disabled={updateExecutionConfig.isPending || !!task?.archived}
         />
       </Box>
@@ -2466,7 +2465,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       onAgentModelChange={handleAgentModelChange}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
-                      confirmCodeAgentChanges
                       disabled={updateExecutionConfig.isPending}
                       compact
                     />
@@ -3226,7 +3224,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       onAgentModelChange={handleAgentModelChange}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
-                      confirmCodeAgentChanges
                       disabled={updateExecutionConfig.isPending}
                       compact
                     />

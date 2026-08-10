@@ -1,14 +1,8 @@
 import React, { FC, useMemo, useState } from "react";
 import {
-  Alert,
   Box,
   Button,
   Divider,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
   ListSubheader,
   Menu,
   MenuItem,
@@ -25,8 +19,6 @@ import {
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, IAssistantConfig } from "../../types";
 import useSnackbar from "../../hooks/useSnackbar";
 import {
-  CODEX_SUBSCRIPTION_MODELS,
-  CLAUDE_SUBSCRIPTION_MODELS,
   DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
   DEFAULT_CODEX_SUBSCRIPTION_MODEL,
 } from "../agent/CodingAgentForm";
@@ -43,7 +35,6 @@ interface SpecTaskExecutionControlsProps {
   sandboxResourceOverrides?: TypesSandboxResourceOverrides;
   onAgentModelChange: (agentId: string, value: TypesCodeAgentOverrides) => MaybePromise;
   onSandboxResourceOverridesChange: (value: TypesSandboxResourceOverrides) => MaybePromise;
-  confirmCodeAgentChanges?: boolean;
   disabled?: boolean;
   compact?: boolean;
 }
@@ -106,13 +97,6 @@ function getBaseProvider(assistant?: IAssistantConfig): string {
   return assistant.provider || assistant.generation_model_provider || "";
 }
 
-function formatModel(model: string): string {
-  const known = [...CODEX_SUBSCRIPTION_MODELS, ...CLAUDE_SUBSCRIPTION_MODELS]
-    .find((option) => option.id === model);
-  if (known) return known.label.replace(/ \(.+\)$/, "");
-  return model.split("/").pop() || "Model";
-}
-
 const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   agents,
   selectedAgentId,
@@ -121,22 +105,13 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   sandboxResourceOverrides,
   onAgentModelChange,
   onSandboxResourceOverridesChange,
-  confirmCodeAgentChanges = false,
   disabled = false,
   compact = false,
 }) => {
   const snackbar = useSnackbar();
   const [agentSettingsAnchor, setAgentSettingsAnchor] = useState<HTMLElement | null>(null);
   const [cpuAnchor, setCpuAnchor] = useState<HTMLElement | null>(null);
-  const [pendingChange, setPendingChange] = useState<{
-    agentId: string;
-    overrides: TypesCodeAgentOverrides;
-    kind: "model" | "agent" | "settings";
-    previousModel?: string;
-  } | null>(null);
-  const [pendingDescription, setPendingDescription] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState("");
 
   const agent = useMemo(
     () => agents.find((candidate) => candidate.id === selectedAgentId),
@@ -165,32 +140,12 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   const applyCodeAgentChange = async (
     agentId: string,
     next: TypesCodeAgentOverrides,
-    description: string,
-    kind: "model" | "agent" | "settings",
-    previousModel?: string,
   ) => {
-    setError("");
-    if (confirmCodeAgentChanges) {
-      setPendingChange({ agentId, overrides: next, kind, previousModel });
-      setPendingDescription(description);
-      return;
-    }
+    setIsSaving(true);
     try {
       await onAgentModelChange(agentId, next);
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : "Failed to update model configuration");
-    }
-  };
-
-  const confirmChange = async () => {
-    if (!pendingChange) return;
-    setIsSaving(true);
-    setError("");
-    try {
-      await onAgentModelChange(pendingChange.agentId, pendingChange.overrides);
-      setPendingChange(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update model configuration");
     } finally {
       setIsSaving(false);
     }
@@ -201,16 +156,9 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     const targetAssistant = getAssistant(targetAgent);
     const targetUsesSubscription = targetAssistant?.code_agent_credential_type === "subscription";
     const baseOverrides = agentId === selectedAgentId ? codeAgentOverrides : {};
-    const targetName = targetAgent?.config?.helix?.name || "coding agent";
-    const sameAgent = agentId === selectedAgentId;
     void applyCodeAgentChange(
       agentId,
       { ...baseOverrides, provider_ref: targetUsesSubscription ? "" : provider, model },
-      sameAgent
-        ? `Switch ${formatModel(effectiveModel)} to ${formatModel(model)}`
-        : `Switch to ${targetName} using ${formatModel(model)}`,
-      sameAgent ? "model" : "agent",
-      sameAgent ? effectiveModel : undefined,
     );
   };
 
@@ -300,8 +248,6 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
               void applyCodeAgentChange(
                 selectedAgentId,
                 { ...codeAgentOverrides, reasoning_effort },
-                `Change reasoning effort to ${option.label}`,
-                "settings",
               );
             }}
           >
@@ -326,8 +272,6 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
                 void applyCodeAgentChange(
                   selectedAgentId,
                   { ...codeAgentOverrides, service_tier: option.value },
-                  `Change service tier to ${option.label}`,
-                  "settings",
                 );
               }}
             >
@@ -356,48 +300,6 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
           </MenuItem>
         ))}
       </Menu>
-
-      <Dialog
-        open={!!pendingChange}
-        onClose={() => !isSaving && setPendingChange(null)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          {pendingChange?.kind === "model"
-            ? "Switch model?"
-            : pendingChange?.kind === "agent"
-              ? "Switch coding agent?"
-              : "Change coding configuration?"}
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            {pendingDescription}. {pendingChange?.kind === "model" ? (
-              <>
-                The new model cannot reuse {formatModel(pendingChange.previousModel || "the current model")}&apos;s
-                provider prompt cache. Helix starts a new {agent?.config?.helix?.name || "coding agent"} thread
-                and sends the prior conversation as readable context. The task, branch, files, and sandbox stay
-                in place, but agent-native state does not carry over. This can substantially increase token usage;
-                older history may be truncated.
-              </>
-            ) : (
-              <>
-                This starts a new agent thread. The task, branch, files, sandbox, and readable conversation
-                history stay in place, but agent-native state and the provider prompt cache do not carry over.
-                Helix sends prior conversation as context, which can substantially increase token usage; older
-                history may be truncated.
-              </>
-            )}
-          </DialogContentText>
-          {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-        </DialogContent>
-        <DialogActions>
-          <Button disabled={isSaving} onClick={() => setPendingChange(null)}>Cancel</Button>
-          <Button disabled={isSaving} variant="contained" onClick={() => void confirmChange()}>
-            {isSaving ? "Changing…" : "Change"}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </>
   );
 };
