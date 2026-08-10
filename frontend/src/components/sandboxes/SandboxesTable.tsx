@@ -10,6 +10,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import SimpleTable from '../widgets/SimpleTable'
 import SandboxStatusBadge from './SandboxStatusBadge'
+import SandboxSource from './SandboxSource'
 import { TypesSandbox } from '../../api/api'
 
 interface SandboxesTableProps {
@@ -61,6 +62,12 @@ const SandboxesTable: FC<SandboxesTableProps> = ({ sandboxes, onOpen, onDelete }
         {sb.runtime || 'ubuntu-desktop'}
       </Typography>
     ),
+    source: <SandboxSource sandbox={sb} />,
+    resources: (
+      <Typography variant="body2" color="text.secondary">
+        {`${sb.vcpus ?? 1} vCPU · ${Math.round((sb.memory_mb ?? 2048) / 1024)} GB`}
+      </Typography>
+    ),
     status: <SandboxStatusBadge status={sb.status} message={sb.status_message} />,
     created: (
       <Typography variant="body2" color="text.secondary">
@@ -89,7 +96,9 @@ const SandboxesTable: FC<SandboxesTableProps> = ({ sandboxes, onOpen, onDelete }
         authenticated={true}
         fields={[
           { name: 'name', title: 'Name' },
+          { name: 'source', title: 'Source' },
           { name: 'runtime', title: 'Runtime' },
+          { name: 'resources', title: 'Resources' },
           { name: 'status', title: 'Status' },
           { name: 'created', title: 'Created' },
           { name: 'expires', title: 'Expires' },

@@ -35988,6 +35988,14 @@ const docTemplate = `{
                 "runtime": {
                     "$ref": "#/definitions/types.SandboxRuntime"
                 },
+                "session_id": {
+                    "description": "SessionID links the row to the Helix session that owns the container,\nfor sandboxes whose container is provisioned by the external-agent\nexecutor rather than by sandbox.Controller.provision (spec-task\ndesktops, exploratory sessions, subscription desktops). The row exists\nso those containers are metered, quota-checked and visible in the\nSandboxes UI on the same terms as user-created sandboxes.\n\nNon-empty is the discriminator for \"session-backed\": hydra registers\nevery operation for such a container under the session id, so callers\nmust route hydra ops via HydraOpsID() rather than the row id.",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "description": "SpecTaskID is the spec task that owns the session, when there is one.\nDenormalised from the session purely so the Sandboxes list can link back\nto the task without joining through sessions.",
+                    "type": "string"
+                },
                 "started_at": {
                     "type": "string"
                 },

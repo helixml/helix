@@ -122,12 +122,21 @@ func (c *Controller) billSandbox(ctx context.Context, settings *types.SystemSett
 }
 
 func (c *Controller) ensureSandboxCredits(ctx context.Context, orgID string, spec *RuntimeSpec, settings *types.SystemSettings, vcpus int) error {
+	return c.ensureCreditsForType(ctx, orgID, sandboxPricingTypeForSpec(spec), settings, vcpus)
+}
+
+// ensureCreditsForType requires the org to hold at least one minute of runway
+// at the requested size before we start (or grow) a container.
+func (c *Controller) ensureCreditsForType(ctx context.Context, orgID, pricingType string, settings *types.SystemSettings, vcpus int) error {
 	if !settings.SandboxBillingEnabled {
 		return nil
 	}
-	pricePerSecond, _ := sandboxPriceForSpec(settings, spec)
+	pricePerSecond := sandboxPriceForType(settings, pricingType)
 	if pricePerSecond <= 0 {
 		return nil
+	}
+	if vcpus < 1 {
+		vcpus = 1
 	}
 	required := pricePerSecond * 60 * float64(vcpus)
 	wallet, err := c.store.GetWalletByOrg(ctx, orgID)
@@ -148,10 +157,16 @@ func sandboxBillableCores(sb *types.Sandbox) int {
 }
 
 func (c *Controller) ensureSandboxLimits(ctx context.Context, orgID string, spec *RuntimeSpec, settings *types.SystemSettings) error {
+	return c.ensureSandboxLimitsForType(ctx, orgID, sandboxPricingTypeForSpec(spec), "", settings)
+}
+
+// ensureSandboxLimitsForType enforces the org's concurrency cap for one
+// pricing class. excludeID drops a single row from the count, so a restart
+// isn't blocked by the slot it is itself about to reoccupy.
+func (c *Controller) ensureSandboxLimitsForType(ctx context.Context, orgID, pricingType, excludeID string, settings *types.SystemSettings) error {
 	if settings == nil {
 		settings = &types.SystemSettings{}
 	}
-	pricingType := sandboxPricingTypeForSpec(spec)
 	limit := settings.EffectiveMaxConcurrentHeadlessSandboxes()
 	if pricingType == "desktop" {
 		limit = settings.EffectiveMaxConcurrentDesktopSandboxes()
@@ -169,6 +184,9 @@ func (c *Controller) ensureSandboxLimits(ctx context.Context, orgID string, spec
 		if sb == nil || !isActiveSandboxStatus(sb.Status) {
 			continue
 		}
+		if excludeID != "" && sb.ID == excludeID {
+			continue
+		}
 		if sandboxPricingTypeForRuntime(sb.Runtime) == pricingType {
 			active++
 		}
@@ -179,18 +197,16 @@ func (c *Controller) ensureSandboxLimits(ctx context.Context, orgID string, spec
 	return nil
 }
 
-func sandboxPriceForSpec(settings *types.SystemSettings, spec *RuntimeSpec) (float64, string) {
-	if sandboxPricingTypeForSpec(spec) == "desktop" {
-		return settings.SandboxDesktopPriceCreditsPerSecond, "desktop"
+func sandboxPriceForType(settings *types.SystemSettings, pricingType string) float64 {
+	if pricingType == "desktop" {
+		return settings.SandboxDesktopPriceCreditsPerSecond
 	}
-	return settings.SandboxHeadlessPriceCreditsPerSecond, "headless"
+	return settings.SandboxHeadlessPriceCreditsPerSecond
 }
 
 func sandboxPrice(settings *types.SystemSettings, runtime types.SandboxRuntime) (float64, string) {
-	if sandboxPricingTypeForRuntime(runtime) == "desktop" {
-		return settings.SandboxDesktopPriceCreditsPerSecond, "desktop"
-	}
-	return settings.SandboxHeadlessPriceCreditsPerSecond, "headless"
+	pricingType := sandboxPricingTypeForRuntime(runtime)
+	return sandboxPriceForType(settings, pricingType), pricingType
 }
 
 func sandboxPricingTypeForSpec(spec *RuntimeSpec) string {

@@ -11,6 +11,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
+import SandboxSource from './SandboxSource'
 import SandboxStatusBadge from './SandboxStatusBadge'
 import SandboxTerminal from './SandboxTerminal'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -160,19 +161,21 @@ const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete, orgId })
                   >
                     {sandbox.name || sandbox.id}
                   </Typography>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: 'text.secondary',
-                      fontSize: '0.7rem',
-                      display: 'block',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {meta.label}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: 'text.secondary',
+                        fontSize: '0.7rem',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {meta.label}
+                    </Typography>
+                    <SandboxSource sandbox={sandbox} />
+                  </Box>
                 </Box>
               </Box>
             )

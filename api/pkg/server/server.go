@@ -442,6 +442,14 @@ func NewServer(
 	apiServer.webServiceController = webservice.New(store, apiServer.sandboxController)
 	go webservice.NewDomainVerifier(store).Start(context.Background())
 
+	// Unify compute billing: desktops provisioned by the external-agent
+	// executor (spec tasks, exploratory sessions, subscription desktops) get a
+	// sandbox row so they are metered, quota-checked and listed on the same
+	// terms as user-created sandboxes. The two halves are wired to each other
+	// here because neither package may import the other.
+	externalAgentExecutor.SetSandboxMeter(apiServer.sandboxController)
+	apiServer.sandboxController.SetDesktopStopper(externalAgentExecutor.StopDesktop)
+
 	// Bootstrap the compute subsystem (cloud-side host provisioning).
 	// Returns (nil, nil) when HELIX_COMPUTE_PROVIDER is unset, leaving
 	// Helix on the legacy self-registered-host path. A non-nil error

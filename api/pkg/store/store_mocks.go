@@ -3486,6 +3486,21 @@ func (mr *MockStoreMockRecorder) GetSandbox(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSandbox", reflect.TypeOf((*MockStore)(nil).GetSandbox), ctx, id)
 }
 
+// GetSandboxBySession mocks base method.
+func (m *MockStore) GetSandboxBySession(ctx context.Context, sessionID string) (*types.Sandbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSandboxBySession", ctx, sessionID)
+	ret0, _ := ret[0].(*types.Sandbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSandboxBySession indicates an expected call of GetSandboxBySession.
+func (mr *MockStoreMockRecorder) GetSandboxBySession(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSandboxBySession", reflect.TypeOf((*MockStore)(nil).GetSandboxBySession), ctx, sessionID)
+}
+
 // GetSandboxInstance mocks base method.
 func (m *MockStore) GetSandboxInstance(ctx context.Context, id string) (*types.SandboxInstance, error) {
 	m.ctrl.T.Helper()
@@ -6169,6 +6184,20 @@ func (m *MockStore) SetSandboxContainerCount(ctx context.Context, id string, cou
 func (mr *MockStoreMockRecorder) SetSandboxContainerCount(ctx, id, count any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxContainerCount", reflect.TypeOf((*MockStore)(nil).SetSandboxContainerCount), ctx, id, count)
+}
+
+// SetSandboxResources mocks base method.
+func (m *MockStore) SetSandboxResources(ctx context.Context, id string, vcpus, memoryMB int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSandboxResources", ctx, id, vcpus, memoryMB)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSandboxResources indicates an expected call of SetSandboxResources.
+func (mr *MockStoreMockRecorder) SetSandboxResources(ctx, id, vcpus, memoryMB any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxResources", reflect.TypeOf((*MockStore)(nil).SetSandboxResources), ctx, id, vcpus, memoryMB)
 }
 
 // SetSandboxStatus mocks base method.

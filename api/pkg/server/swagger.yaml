@@ -9118,6 +9118,25 @@ definitions:
         type: string
       runtime:
         $ref: '#/definitions/types.SandboxRuntime'
+      session_id:
+        description: |-
+          SessionID links the row to the Helix session that owns the container,
+          for sandboxes whose container is provisioned by the external-agent
+          executor rather than by sandbox.Controller.provision (spec-task
+          desktops, exploratory sessions, subscription desktops). The row exists
+          so those containers are metered, quota-checked and visible in the
+          Sandboxes UI on the same terms as user-created sandboxes.
+
+          Non-empty is the discriminator for "session-backed": hydra registers
+          every operation for such a container under the session id, so callers
+          must route hydra ops via HydraOpsID() rather than the row id.
+        type: string
+      spec_task_id:
+        description: |-
+          SpecTaskID is the spec task that owns the session, when there is one.
+          Denormalised from the session purely so the Sandboxes list can link back
+          to the task without joining through sessions.
+        type: string
       started_at:
         type: string
       status:

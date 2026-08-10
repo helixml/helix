@@ -65,6 +65,35 @@ type HydraExecutor struct {
 	// Callback to fetch project secrets, set via SetProjectSecretsGetter
 	// after HelixAPIServer is constructed (mirrors SetQuotaManager wiring).
 	getProjectSecrets ProjectSecretsGetter
+
+	// sandboxMeter opens/closes the sandbox row that bills and quota-checks
+	// each desktop. Set via SetSandboxMeter after the sandbox controller is
+	// constructed. Nil means desktops run unmetered.
+	sandboxMeter SandboxMeter
+}
+
+// SandboxMeter is the billing/quota record behind a desktop container.
+// Implemented by *sandbox.Controller; declared here so external-agent and the
+// sandbox controller depend only on types, not on each other.
+//
+// StartDesktop is the single choke point every desktop passes through — spec
+// tasks, exploratory sessions, session forks, subscription desktops and golden
+// builds all land here — so metering at this level is what makes compute
+// billing uniform.
+type SandboxMeter interface {
+	// BeginSession enforces the org's concurrency limit and credit floor and
+	// opens a pending row. Returning an error aborts the desktop start.
+	BeginSession(ctx context.Context, req *types.BeginSandboxSessionRequest) (*types.Sandbox, error)
+	// MarkSessionRunning opens the billing window once the container is up.
+	MarkSessionRunning(ctx context.Context, sessionID, hostDeviceID, containerID string) error
+	// MarkSessionStopped settles the final partial minute and closes the row.
+	MarkSessionStopped(ctx context.Context, sessionID string) error
+	// MarkSessionFailed closes the row after a failed start.
+	MarkSessionFailed(ctx context.Context, sessionID, reason string) error
+	// EnsureSessionResizeCredits checks affordability before growing a container.
+	EnsureSessionResizeCredits(ctx context.Context, sessionID string, vcpus int) error
+	// ResizeSession settles charges at the old size, then records the new one.
+	ResizeSession(ctx context.Context, sessionID string, vcpus, memoryMB int) error
 }
 
 // connmanInterface abstracts the connection manager for RevDial connections to sandboxes
@@ -106,6 +135,10 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 
 func (h *HydraExecutor) SetQuotaManager(quotaManager QuotaManager) {
 	h.quotaManager = quotaManager
+}
+
+func (h *HydraExecutor) SetSandboxMeter(meter SandboxMeter) {
+	h.sandboxMeter = meter
 }
 
 func (h *HydraExecutor) SetProjectSecretsGetter(getter ProjectSecretsGetter) {
@@ -210,6 +243,37 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	if limitReached != nil && limitReached.LimitReached {
 		return nil, fmt.Errorf("desktop limit reached (%d). Stop some of the existing sessions or upgrade your plan", limitReached.Limit)
 	}
+
+	// A spec task owns a sandbox size the user picked. Only the three launch
+	// paths in spec_driven_task_service set it on the agent; resume, fork and
+	// design-review rebuild the agent from the session and would otherwise
+	// start the desktop uncapped — running bigger than the user asked for and
+	// billing at the default. Resolve it here so every spec-task desktop honours
+	// the task's preset.
+	if err := h.resolveSpecTaskResources(ctx, agent); err != nil {
+		return nil, err
+	}
+
+	// Open the sandbox row that bills and quota-checks this desktop. This
+	// enforces the org's desktop concurrency cap and credit floor, so it must
+	// happen before we spend minutes booting a container the org can't pay
+	// for. Billing itself doesn't start until markSessionRunning below.
+	meterOpened, err := h.beginSandboxMetering(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
+	desktopStarted := false
+	defer func() {
+		if !meterOpened || desktopStarted {
+			return
+		}
+		// Every failure path between here and the successful return must close
+		// the row, otherwise a desktop that never booted keeps consuming a
+		// concurrency slot forever (pending counts as active).
+		if err := h.sandboxMeter.MarkSessionFailed(context.Background(), agent.SessionID, "desktop start failed"); err != nil {
+			log.Warn().Err(err).Str("session_id", agent.SessionID).Msg("Failed to close sandbox billing row after failed desktop start")
+		}
+	}()
 
 	// Get Hydra client via RevDial
 	// Hydra runner ID follows pattern: hydra-{SANDBOX_INSTANCE_ID}
@@ -568,6 +632,17 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
+	// Container is up: record where it landed and open the billing window.
+	if meterOpened {
+		if err := h.sandboxMeter.MarkSessionRunning(ctx, agent.SessionID, sandboxID, resp.ContainerID); err != nil {
+			// The desktop is running and usable; refusing to return it because
+			// bookkeeping failed would be the worse outcome. Log loudly — an
+			// unopened window means this desktop runs free until it restarts.
+			log.Error().Err(err).Str("session_id", agent.SessionID).Msg("Failed to open sandbox billing window; desktop is running unmetered")
+		}
+	}
+	desktopStarted = true
+
 	return &types.DesktopAgentResponse{
 		SessionID:      agent.SessionID,
 		ScreenshotURL:  fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
@@ -578,6 +653,78 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		SandboxID:      sandboxID,
 		DevContainerID: resp.ContainerID, // Container ID for exploratory session tracking
 	}, nil
+}
+
+// resolveSpecTaskResources fills in the sandbox size from the owning spec task
+// when the caller didn't supply one. A caller that set resources explicitly
+// wins — it already knows what it wants.
+func (h *HydraExecutor) resolveSpecTaskResources(ctx context.Context, agent *types.DesktopAgent) error {
+	if agent.SpecTaskID == "" || (agent.VCPUs > 0 && agent.MemoryMB > 0) {
+		return nil
+	}
+	task, err := h.store.GetSpecTask(ctx, agent.SpecTaskID)
+	if err != nil {
+		return fmt.Errorf("load spec task %s for sandbox sizing: %w", agent.SpecTaskID, err)
+	}
+	resources := types.EffectiveSpecTaskSandboxResources(task.SandboxResourceOverrides)
+	agent.VCPUs = resources.VCPUs
+	agent.MemoryMB = resources.MemoryMB
+	return nil
+}
+
+// beginSandboxMetering opens the billing/quota row for a desktop that is about
+// to start. Returns false when there is nothing to meter (no meter wired, or
+// no owning organization — wallets are org-scoped).
+func (h *HydraExecutor) beginSandboxMetering(ctx context.Context, agent *types.DesktopAgent) (bool, error) {
+	if h.sandboxMeter == nil || agent.OrganizationID == "" {
+		return false, nil
+	}
+	vcpus, memoryMB := desktopBillingResources(agent)
+	sb, err := h.sandboxMeter.BeginSession(ctx, &types.BeginSandboxSessionRequest{
+		SessionID:      agent.SessionID,
+		OrganizationID: agent.OrganizationID,
+		Owner:          agent.UserID,
+		ProjectID:      agent.ProjectID,
+		SpecTaskID:     agent.SpecTaskID,
+		Name:           h.desktopSandboxName(ctx, agent),
+		Runtime:        types.SandboxRuntimeUbuntuDesktop,
+		VCPUs:          vcpus,
+		MemoryMB:       memoryMB,
+		DisplayWidth:   agent.DisplayWidth,
+		DisplayHeight:  agent.DisplayHeight,
+		DisplayFPS:     agent.DisplayRefreshRate,
+	})
+	if err != nil {
+		return false, fmt.Errorf("cannot start desktop: %w", err)
+	}
+	return sb != nil, nil
+}
+
+// desktopBillingResources is what we charge for, which is not always what the
+// container is capped at. Desktops started without an explicit preset run
+// uncapped (hydra treats 0 as "no cap"), and charging those a single core
+// would systematically undercharge the largest consumers. They are billed at
+// the standard desktop preset instead — the same allocation an equivalent spec
+// task gets. Capping those containers for real is a separate product change.
+func desktopBillingResources(agent *types.DesktopAgent) (int, int) {
+	if agent.VCPUs > 0 && agent.MemoryMB > 0 {
+		return agent.VCPUs, agent.MemoryMB
+	}
+	standard := types.EffectiveSpecTaskSandboxResources(nil)
+	return standard.VCPUs, standard.MemoryMB
+}
+
+// desktopSandboxName gives the row a label a human can recognise in the
+// Sandboxes list. One indexed lookup on a path that is about to spend minutes
+// booting a container.
+func (h *HydraExecutor) desktopSandboxName(ctx context.Context, agent *types.DesktopAgent) string {
+	if agent.SpecTaskID != "" {
+		if task, err := h.store.GetSpecTask(ctx, agent.SpecTaskID); err == nil && task != nil && task.Name != "" {
+			return task.Name
+		}
+		return agent.SpecTaskID
+	}
+	return fmt.Sprintf("Session %s", strings.TrimPrefix(agent.SessionID, "ses_"))
 }
 
 func (h *HydraExecutor) UpdateDesktopResources(ctx context.Context, sessionID string, resources *types.SandboxResourceOverrides) error {
@@ -605,6 +752,13 @@ func (h *HydraExecutor) UpdateDesktopResources(ctx context.Context, sessionID st
 		sandboxID = "local"
 	}
 
+	// Refuse to grow a container the org can't pay to run at the new size.
+	if h.sandboxMeter != nil {
+		if err := h.sandboxMeter.EnsureSessionResizeCredits(ctx, sessionID, resources.VCPUs); err != nil {
+			return fmt.Errorf("cannot resize desktop: %w", err)
+		}
+	}
+
 	client := hydra.NewRevDialClient(h.connman, fmt.Sprintf("hydra-%s", sandboxID))
 	_, err := client.UpdateDevContainerResources(ctx, sessionID, &hydra.UpdateDevContainerResourcesRequest{
 		VCPUs:    resources.VCPUs,
@@ -612,6 +766,15 @@ func (h *HydraExecutor) UpdateDesktopResources(ctx context.Context, sessionID st
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update desktop resources: %w", err)
+	}
+
+	// Settle charges at the old core count before the row starts billing at
+	// the new one — see sandbox.Controller.ResizeSession. Only after the
+	// runtime resize actually succeeded, so a failed resize never reprices.
+	if h.sandboxMeter != nil {
+		if err := h.sandboxMeter.ResizeSession(ctx, sessionID, resources.VCPUs, resources.MemoryMB); err != nil {
+			log.Error().Err(err).Str("session_id", sessionID).Msg("Desktop resized but sandbox billing row not updated; charges will lag the real allocation")
+		}
 	}
 	return nil
 }
@@ -751,6 +914,14 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 				Str("sandbox_id", sandboxID).
 				Str("session_id", sessionID).
 				Msg("Failed to decrement active_sandboxes on Runner; counter may drift high")
+		}
+	}
+
+	// Settle the final partial minute and close the billing row. Done after
+	// the container delete so we bill for every second it was actually up.
+	if h.sandboxMeter != nil {
+		if err := h.sandboxMeter.MarkSessionStopped(ctx, sessionID); err != nil {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to close sandbox billing row on desktop stop")
 		}
 	}
 
@@ -1775,6 +1946,16 @@ func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxI
 		h.mutex.Lock()
 		delete(h.sessions, session.ID)
 		h.mutex.Unlock()
+
+		// Close the billing row too. Without this, a container destroyed
+		// outside StopDesktop (host redeploy, OOM kill, manual docker rm)
+		// leaves a row in `running` and the reaper keeps charging the org
+		// every minute for a container that no longer exists.
+		if h.sandboxMeter != nil {
+			if err := h.sandboxMeter.MarkSessionStopped(ctx, session.ID); err != nil {
+				log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to close sandbox billing row for stale container")
+			}
+		}
 
 		log.Info().
 			Str("session_id", session.ID).
