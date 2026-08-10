@@ -45,13 +45,9 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	helixorg.RegisterConfigSpecs(reg)
 
 	const orgID = "org-test"
-	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`))
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`))
 	store := helixstore.NewMockStore(gomock.NewController(t))
 	store.EXPECT().GetOrganization(gomock.Any(), &helixstore.GetOrganizationQuery{ID: orgID}).
-		Return(&types.Organization{ID: orgID, Owner: "usr-owner"}, nil).Times(2)
-	store.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hlx-test-key"}).
-		Return(&types.ApiKey{Key: "hlx-test-key", Owner: "usr-owner"}, nil)
+		Return(&types.Organization{ID: orgID, Owner: "usr-owner"}, nil)
 
 	_, _, projectSvc, _, _ := newInProcTestSetup(t)
 	hub := wakebus.New(pubsub.NewNoop())
@@ -73,76 +69,6 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	// Same pointer round-tripped — confirms the builder copies the
 	// host-provided service, not some other one constructed inside.
 	require.Same(t, projectSvc, cfg.ProjectService.(*inProcHelixClient))
-}
-
-func TestBuildHelixOrgSpawnerConfig_ReplacesStaleServiceKey(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	const orgID = "org-test"
-	const ownerID = "usr-owner"
-
-	orgStore := orggorm.GetOrgTestDB(t)
-	reg := helixorgconfig.New(orgStore.Configs)
-	helixorg.RegisterConfigSpecs(reg)
-	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-stale"`))
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`))
-
-	store := helixstore.NewMockStore(gomock.NewController(t))
-	store.EXPECT().GetOrganization(gomock.Any(), &helixstore.GetOrganizationQuery{ID: orgID}).
-		Return(&types.Organization{ID: orgID, Owner: ownerID}, nil).Times(2)
-	store.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hlx-stale"}).
-		Return(nil, helixstore.ErrNotFound)
-	store.EXPECT().GetUser(gomock.Any(), &helixstore.GetUserQuery{ID: ownerID}).
-		Return(&types.User{ID: ownerID}, nil)
-	store.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, key *types.ApiKey) (*types.ApiKey, error) { return key, nil })
-
-	_, _, projectSvc, _, _ := newInProcTestSetup(t)
-	cfg, err := buildHelixOrgSpawnerConfig(ctx, orgID, spawnerDeps{
-		Cfg:        reg,
-		HelixStore: store,
-		ProjectSvc: projectSvc,
-		OrgStore:   orgStore,
-		Hub:        wakebus.New(pubsub.NewNoop()),
-		PubSub:     pubsub.NewNoop(),
-		Logger:     slog.Default(),
-		NewID:      func() string { return "id" },
-		Now:        func() time.Time { return time.Unix(0, 0).UTC() },
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, cfg.MCPAuthBearer)
-	require.NotEqual(t, "hlx-stale", cfg.MCPAuthBearer)
-	stored, err := reg.GetString(ctx, orgID, "helix.api_key")
-	require.NoError(t, err)
-	require.Equal(t, cfg.MCPAuthBearer, stored)
-}
-
-func TestBuildHelixOrgProjectApplier_ReplacesStaleServiceKey(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	const orgID = "org-test"
-	const ownerID = "usr-owner"
-
-	orgStore := orggorm.GetOrgTestDB(t)
-	reg := helixorgconfig.New(orgStore.Configs)
-	helixorg.RegisterConfigSpecs(reg)
-	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-stale"`))
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`))
-
-	store := helixstore.NewMockStore(gomock.NewController(t))
-	store.EXPECT().GetOrganization(gomock.Any(), &helixstore.GetOrganizationQuery{ID: orgID}).
-		Return(&types.Organization{ID: orgID, Owner: ownerID}, nil)
-	store.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hlx-stale"}).
-		Return(nil, helixstore.ErrNotFound)
-	store.EXPECT().GetUser(gomock.Any(), &helixstore.GetUserQuery{ID: ownerID}).
-		Return(&types.User{ID: ownerID}, nil)
-	store.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, key *types.ApiKey) (*types.ApiKey, error) { return key, nil })
-
-	_, bearer, err := buildHelixOrgProjectApplier(ctx, orgID, reg, store, nil, orgStore, slog.Default())
-	require.NoError(t, err)
-	require.NotEmpty(t, bearer)
-	require.NotEqual(t, "hlx-stale", bearer)
 }
 
 type mcpRepairProjectService struct {
@@ -167,7 +93,7 @@ func (s *mcpRepairProjectService) UpdateAppConfig(_ context.Context, appID strin
 	return nil
 }
 
-func TestRepairHelixOrgMCPServiceKeys_UpdatesLinkedApps(t *testing.T) {
+func TestRemoveLegacyHelixOrgMCPs_UpdatesLinkedApps(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	const orgID = "org-test"
@@ -178,20 +104,15 @@ func TestRepairHelixOrgMCPServiceKeys_UpdatesLinkedApps(t *testing.T) {
 	worker = worker.WithAgentID("app-worker")
 	require.NoError(t, orgStore.Nodes.Create(ctx, worker))
 
-	reg := helixorgconfig.New(orgStore.Configs)
-	helixorg.RegisterConfigSpecs(reg)
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`))
 	svc := &mcpRepairProjectService{config: types.AppConfig{Helix: types.AppHelixConfig{
-		Assistants: []types.AssistantConfig{{MCPs: []types.AssistantMCP{{
-			Name: "helix", Headers: map[string]string{"Authorization": "Bearer hlx-stale"},
-		}}}},
+		Assistants: []types.AssistantConfig{{MCPs: []types.AssistantMCP{{Name: "helix"}, {Name: "other", URL: "stdio://other"}}}},
 	}}}
 
-	require.NoError(t, repairHelixOrgMCPServiceKeys(ctx, orgID, "hlx-fresh", reg, orgStore, svc))
-	require.Equal(t, "Bearer hlx-fresh", svc.updated.Helix.Assistants[0].MCPs[0].Headers["Authorization"])
+	require.NoError(t, removeLegacyHelixOrgMCPs(ctx, orgID, orgStore, svc))
+	require.Equal(t, []types.AssistantMCP{{Name: "other", URL: "stdio://other"}}, svc.updated.Helix.Assistants[0].MCPs)
 }
 
-func TestRepairHelixOrgMCPServiceKeys_ContinuesPastMissingApp(t *testing.T) {
+func TestRemoveLegacyHelixOrgMCPs_ContinuesPastMissingApp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	const orgID = "org-test"
@@ -202,20 +123,17 @@ func TestRepairHelixOrgMCPServiceKeys_ContinuesPastMissingApp(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, orgStore.Nodes.Create(ctx, node.WithAgentID(worker.appID)))
 	}
-	reg := helixorgconfig.New(orgStore.Configs)
-	helixorg.RegisterConfigSpecs(reg)
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`))
 	svc := &mcpRepairProjectService{
 		badApp:      "app-bad",
 		badAppError: helixstore.ErrNotFound,
-		config:      types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{}}}},
+		config:      types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{MCPs: []types.AssistantMCP{{Name: "helix"}}}}}},
 	}
 
-	require.NoError(t, repairHelixOrgMCPServiceKeys(ctx, orgID, "hlx-fresh", reg, orgStore, svc))
+	require.NoError(t, removeLegacyHelixOrgMCPs(ctx, orgID, orgStore, svc))
 	require.Equal(t, []string{"app-good"}, svc.updatedIDs)
 }
 
-func TestRepairHelixOrgMCPServiceKeys_RetriesAfterTransientAppFailure(t *testing.T) {
+func TestRemoveLegacyHelixOrgMCPs_ReturnsTransientAppFailure(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	const orgID = "org-test"
@@ -226,16 +144,13 @@ func TestRepairHelixOrgMCPServiceKeys_RetriesAfterTransientAppFailure(t *testing
 		require.NoError(t, err)
 		require.NoError(t, orgStore.Nodes.Create(ctx, node.WithAgentID(worker.appID)))
 	}
-	reg := helixorgconfig.New(orgStore.Configs)
-	helixorg.RegisterConfigSpecs(reg)
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`))
 	svc := &mcpRepairProjectService{
 		badApp:      "app-bad",
 		badAppError: errors.New("database unavailable"),
-		config:      types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{}}}},
+		config:      types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{MCPs: []types.AssistantMCP{{Name: "helix"}}}}}},
 	}
 
-	err := repairHelixOrgMCPServiceKeys(ctx, orgID, "hlx-fresh", reg, orgStore, svc)
+	err := removeLegacyHelixOrgMCPs(ctx, orgID, orgStore, svc)
 	require.ErrorContains(t, err, "database unavailable")
 	require.Equal(t, []string{"app-good"}, svc.updatedIDs)
 }
@@ -254,8 +169,6 @@ func TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService(t *testing.T) {
 	helixorg.RegisterConfigSpecs(reg)
 
 	const orgID = "org-test"
-	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`))
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`))
 
 	_, err := buildHelixOrgSpawnerConfig(ctx, orgID, spawnerDeps{
 		Cfg: reg,

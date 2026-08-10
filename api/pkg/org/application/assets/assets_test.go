@@ -27,7 +27,7 @@ func newTestService(t *testing.T) (*Service, *time.Time, string) {
 	require.NoError(t, err)
 	bot, err := orgchart.NewNode("b-agent", "agent", nil, now, "org-test")
 	require.NoError(t, err)
-	require.NoError(t, st.Nodes.Create(context.Background(), bot))
+	require.NoError(t, st.Nodes.Create(context.Background(), bot.WithAgentID("app-agent")))
 	return svc, &now, "org-test"
 }
 
@@ -46,6 +46,8 @@ func TestCreateServerEncryptsPrivateKey(t *testing.T) {
 
 func TestLinkDerivesAndRevokesServerTools(t *testing.T) {
 	svc, _, orgID := newTestService(t)
+	var notified []string
+	svc.onToolsChanged = func(_ context.Context, appID string) { notified = append(notified, appID) }
 	a, err := svc.CreateServer(context.Background(), orgID, CreateServerParams{
 		Name: "production", Address: "10.0.0.8", User: "ubuntu",
 	})
@@ -57,6 +59,7 @@ func TestLinkDerivesAndRevokesServerTools(t *testing.T) {
 	for _, name := range ServerTools {
 		require.Contains(t, bot.Tools, name)
 	}
+	require.Equal(t, []string{"app-agent"}, notified)
 
 	require.NoError(t, svc.Unlink(context.Background(), orgID, a.ID, "b-agent"))
 	bot, err = svc.nodes.Get(context.Background(), orgID, "b-agent")
@@ -64,6 +67,7 @@ func TestLinkDerivesAndRevokesServerTools(t *testing.T) {
 	for _, name := range ServerTools {
 		require.NotContains(t, bot.Tools, name)
 	}
+	require.Equal(t, []string{"app-agent", "app-agent"}, notified)
 }
 
 func TestAuthorizeRequiresLinkAndEnabledAsset(t *testing.T) {

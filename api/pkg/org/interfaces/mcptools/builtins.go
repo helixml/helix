@@ -152,6 +152,7 @@ type Config struct {
 	Dispatcher          EventDispatcher
 	AgentContentUpdater AgentContentUpdater
 	AgentProfileReader  AgentProfileReader
+	ToolChangeNotifier  func(context.Context, string)
 	HireHook            runtime.HireHook
 	ProjectConfig       runtime.ProjectConfig
 	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
@@ -344,12 +345,13 @@ func (c Config) lifecycleService() *lifecycle.Service {
 // the REST bot handlers union the same set.
 func (c Config) botsService() *nodes.Nodes {
 	return nodes.New(nodes.Deps{
-		Nodes:      c.Store.Nodes,
-		Lines:      c.Store.ReportingLines,
-		Reconciler: c.Reconciler,
-		Now:        c.Now,
-		NewID:      c.NewID,
-		BaseTools:  BaseReadTools,
+		Nodes:          c.Store.Nodes,
+		Lines:          c.Store.ReportingLines,
+		Reconciler:     c.Reconciler,
+		Now:            c.Now,
+		NewID:          c.NewID,
+		BaseTools:      BaseReadTools,
+		OnToolsChanged: c.ToolChangeNotifier,
 	})
 }
 

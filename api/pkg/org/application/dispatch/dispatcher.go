@@ -118,12 +118,7 @@ func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgc
 
 // DispatchManual fires an operator-driven activation. Used by the
 // worker UI's "Start Desktop" button to put the per-Worker project
-// through the full activation pipeline (ensureProject → AttachHelixOrgMCP
-// → ensureSession), which re-attaches the helix-org MCP entry that
-// applyProject's wholesale Config.Helix replace wipes between
-// activations. Without this path, restarting a paused desktop via
-// /sessions/{id}/resume alone leaves the desktop without the helix-org
-// MCP until the next AI activation or owner-chat call.
+// through the full activation pipeline (ensureProject -> ensureSession).
 //
 // Returns immediately; the activation runs on the per-Worker queue
 // goroutine. activationID semantics match DispatchHire — callers that

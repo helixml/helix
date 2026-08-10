@@ -112,10 +112,6 @@ type ProjectService interface {
 	// trip the helix.assistants[0] MCP list for MCP attachment.
 	GetAppConfig(ctx context.Context, id string) (types.AppConfig, error)
 	GetApp(ctx context.Context, id string) (*types.App, error)
-
-	// UpdateAppConfig persists a mutated app config. WorkerProject
-	// uses this to attach helix-org's MCP server to the auto-provisioned
-	// Agent App.
 	UpdateAppConfig(ctx context.Context, id string, config types.AppConfig) error
 
 	// DeleteProject soft-deletes a Helix project and stops any active
@@ -149,10 +145,9 @@ type ProjectService interface {
 // api/pkg/server/helix_org.go satisfies ProjectService with the
 // in-process adapter that calls HelixAPIServer handlers directly.
 type WorkerProject struct {
-	Service     ProjectService
-	Store       *store.Store
-	HelixOrgURL string
-	OrgID       string
+	Service ProjectService
+	Store   *store.Store
+	OrgID   string
 	// OrgDisplayName is the org's human label, used to build the
 	// project's display name (`<Bot> @ <Org>`). The host resolves it
 	// from the main store and stamps it here; empty falls back to a
@@ -426,12 +421,6 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			return "", "", "", fmt.Errorf("apply project for %s: %w", workerID, rerr)
 		}
 	}
-	// NB: helix-org MCP attachment is NOT done here. applyProject
-	// (helix project handler) wholesale-replaces agentApp.Config.Helix
-	// on update, so anything we attach now is clobbered on the next
-	// re-apply. The Spawner and dynamicProjectApplier call
-	// AttachHelixOrgMCP themselves *after* this Ensure returns — that's
-	// the single place MCP mutation lives.
 	if err := SaveProject(ctx, a.Store, orgID, workerID, resp.ProjectID, resp.AgentAppID, repoID); err != nil {
 		return "", "", "", fmt.Errorf("persist helix project IDs: %w", err)
 	}
@@ -448,12 +437,8 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 }
 
 func (a *WorkerProject) syncProjectRuntimeSecrets(ctx context.Context, projectID string, workerID orgchart.NodeID) {
-	// The org URL is project capability shared by every session in the worker's
-	// project. Worker identity is not: remove the legacy project secret so
-	// SpecTask sessions cannot inherit it. The spawner now stores identity and
-	// instructions on the org worker's session only.
-	if err := a.Service.PutProjectSecret(ctx, projectID, "HELIX_ORG_URL", a.HelixOrgURL); err != nil && a.Logger != nil {
-		a.Logger.Warn("put project secret HELIX_ORG_URL", "worker", workerID, "project", projectID, "err", err)
+	if err := a.Service.DeleteProjectSecret(ctx, projectID, "HELIX_ORG_URL"); err != nil && a.Logger != nil {
+		a.Logger.Warn("delete legacy project secret HELIX_ORG_URL", "worker", workerID, "project", projectID, "err", err)
 	}
 	if err := a.Service.DeleteProjectSecret(ctx, projectID, "HELIX_WORKER_ID"); err != nil && a.Logger != nil {
 		a.Logger.Warn("delete legacy project secret HELIX_WORKER_ID", "worker", workerID, "project", projectID, "err", err)

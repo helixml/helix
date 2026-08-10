@@ -31,23 +31,25 @@ type KeyGenerator func() (privateKeyPEM, publicKeyOpenSSH string, err error)
 type Encrypt func(plaintext []byte) (string, error)
 
 type Service struct {
-	assets      store.Assets
-	links       store.AssetLinks
-	nodes       store.Nodes
-	generateKey KeyGenerator
-	encrypt     Encrypt
-	now         func() time.Time
-	newID       func() string
+	assets         store.Assets
+	links          store.AssetLinks
+	nodes          store.Nodes
+	generateKey    KeyGenerator
+	encrypt        Encrypt
+	now            func() time.Time
+	newID          func() string
+	onToolsChanged func(context.Context, string)
 }
 
 type Deps struct {
-	Assets      store.Assets
-	Links       store.AssetLinks
-	Nodes       store.Nodes
-	GenerateKey KeyGenerator
-	Encrypt     Encrypt
-	Now         func() time.Time
-	NewID       func() string
+	Assets         store.Assets
+	Links          store.AssetLinks
+	Nodes          store.Nodes
+	GenerateKey    KeyGenerator
+	Encrypt        Encrypt
+	Now            func() time.Time
+	NewID          func() string
+	OnToolsChanged func(context.Context, string)
 }
 
 func New(deps Deps) (*Service, error) {
@@ -68,6 +70,7 @@ func New(deps Deps) (*Service, error) {
 	return &Service{
 		assets: deps.Assets, links: deps.Links, nodes: deps.Nodes,
 		generateKey: deps.GenerateKey, encrypt: deps.Encrypt, now: now, newID: newID,
+		onToolsChanged: deps.OnToolsChanged,
 	}, nil
 }
 
@@ -308,6 +311,7 @@ func (s *Service) Link(ctx context.Context, orgID string, assetID asset.ID, agen
 		_ = s.links.Delete(ctx, orgID, assetID, agentID)
 		return asset.Link{}, fmt.Errorf("attach asset tools to agent: %w", err)
 	}
+	s.notifyToolsChanged(ctx, agent.AgentID)
 	return link, nil
 }
 
@@ -345,7 +349,14 @@ func (s *Service) Unlink(ctx context.Context, orgID string, assetID asset.ID, ag
 		_ = s.links.Create(ctx, link)
 		return fmt.Errorf("detach asset tools from agent: %w", err)
 	}
+	s.notifyToolsChanged(ctx, agent.AgentID)
 	return nil
+}
+
+func (s *Service) notifyToolsChanged(ctx context.Context, appID string) {
+	if s.onToolsChanged != nil && appID != "" {
+		s.onToolsChanged(ctx, appID)
+	}
 }
 
 func (s *Service) Delete(ctx context.Context, orgID string, id asset.ID) error {

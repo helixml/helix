@@ -537,7 +537,7 @@ func (a *apiHandler) ensureBotChat(w http.ResponseWriter, r *http.Request) {
 
 // activateBot manually triggers an activation for a Bot. The bot
 // page's "Start Desktop" button hits this so the full activation
-// pipeline runs: ensureProject → AttachHelixOrgMCP → ensureSession →
+// pipeline runs: ensureProject → ensureSession →
 // Helix spins up the desktop container as part of session start.
 //
 // Synchronous up to ensureProject so the response carries the project +

@@ -136,6 +136,29 @@ func TestAttachDetachTools(t *testing.T) {
 	}
 }
 
+func TestToolChangeNotifiesLinkedAgentOnce(t *testing.T) {
+	st := orggorm.GetOrgTestDB(t)
+	deps := DefaultDeps(st)
+	var notified []string
+	deps.ToolChangeNotifier = func(_ context.Context, appID string) {
+		notified = append(notified, appID)
+	}
+	bot, err := orgchart.NewNode("b-eng", "# Engineer", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Create(context.Background(), bot.WithAgentID("app-eng")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := deps.Build().Nodes.AttachTools(context.Background(), "org-test", "b-eng", []tool.Name{PublishName}); err != nil {
+		t.Fatal(err)
+	}
+	if len(notified) != 1 || notified[0] != "app-eng" {
+		t.Fatalf("notifications = %v, want [app-eng]", notified)
+	}
+}
+
 // TestCreateBotSubscribesToTopics pins the "fewest steps" behavior: topics
 // listed at creation become real subscription rows, and an unknown topic
 // fails the whole create with no partial bot.

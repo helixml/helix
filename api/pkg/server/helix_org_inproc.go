@@ -698,8 +698,7 @@ func (c *inProcHelixClient) CreateBranch(ctx context.Context, repoID, branch, ba
 	return nil
 }
 
-// GetAppConfig returns the typed config for an App. Used by
-// runtimehelix.AttachHelixOrgMCP to round-trip MCP entries.
+// GetAppConfig returns the typed config for an App.
 func (c *inProcHelixClient) GetAppConfig(ctx context.Context, id string) (types.AppConfig, error) {
 	r, err := c.newRequest(ctx, http.MethodGet, "/api/v1/agents/"+id, nil, map[string]string{"id": id})
 	if err != nil {
@@ -733,6 +732,28 @@ func (c *inProcHelixClient) UpdateAppConfig(ctx context.Context, id string, cfg 
 		return fmt.Errorf("update app %s: %w", id, err)
 	}
 	return nil
+}
+
+func (s *HelixAPIServer) publishAgentToolChange(ctx context.Context, appID string) {
+	app, err := s.Store.GetApp(ctx, appID)
+	if err != nil {
+		log.Warn().Err(err).Str("app_id", appID).Msg("tool change: failed to get linked agent")
+		return
+	}
+	sessions, _, err := s.Store.ListSessions(ctx, store.ListSessionsQuery{
+		Owner:                 app.Owner,
+		OwnerType:             app.OwnerType,
+		OrganizationID:        app.OrganizationID,
+		AppID:                 appID,
+		IncludeExternalAgents: true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("app_id", appID).Msg("tool change: failed to list linked sessions")
+		return
+	}
+	for _, session := range sessions {
+		s.publishAgentConfigChange(ctx, session, "tools")
+	}
 }
 
 // DeleteProject soft-deletes a Helix project and stops any sessions
