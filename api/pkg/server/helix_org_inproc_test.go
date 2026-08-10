@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -184,6 +185,39 @@ func TestInProcClient_MarkAgentAppAsOrgKind(t *testing.T) {
 	already := &types.App{ID: "app_bot2", AgentKind: types.AgentKindOrg}
 	st.EXPECT().GetApp(gomock.Any(), "app_bot2").Return(already, nil)
 	require.NoError(t, client.markAgentAppAsOrgKind(context.Background(), "app_bot2"))
+}
+
+func TestInProcClient_UpdateAppConfigPersistsDirectlyAndPreservesApp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	created := time.Date(2026, time.August, 10, 12, 0, 0, 0, time.UTC)
+	existing := &types.App{
+		ID:             "app_bot",
+		Created:        created,
+		Updated:        created.Add(time.Hour),
+		OrganizationID: "org_test",
+		Owner:          "usr_owner",
+		OwnerType:      types.OwnerTypeUser,
+		Global:         true,
+		AgentKind:      types.AgentKindOrg,
+		Config:         types.AppConfig{Helix: types.AppHelixConfig{Name: "old"}},
+		User:           types.User{ID: "usr_owner", Email: "owner@helix.local"},
+	}
+	wantConfig := types.AppConfig{Helix: types.AppHelixConfig{Name: "updated"}}
+	wantApp := *existing
+	wantApp.Config = wantConfig
+
+	st.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	st.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, app *types.App) (*types.App, error) {
+			require.Same(t, existing, app)
+			require.Equal(t, &wantApp, app)
+			return app, nil
+		},
+	)
+
+	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
+	require.NoError(t, client.UpdateAppConfig(context.Background(), existing.ID, wantConfig))
 }
 
 func TestInProcClient_ResolvesOrganizationOwnerWithoutAdmin(t *testing.T) {
