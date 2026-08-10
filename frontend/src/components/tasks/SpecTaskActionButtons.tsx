@@ -32,6 +32,7 @@ import { useListOAuthProviders, useListOAuthConnections } from "../../services/o
 import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes, vcsScopesForProvider } from "../../utils/oauthProviders";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import CIStatusIcon from "./CIStatusIcon";
+import type { ToolbarDensity } from "./SpecTaskViewToolbar";
 
 export interface RepoPR {
   repository_id?: string;
@@ -148,6 +149,8 @@ interface SpecTaskActionButtonsProps {
   task: SpecTaskForActions;
   /** Whether to use compact/inline layout (for header bars) vs stacked layout (for cards) */
   variant?: "inline" | "stacked";
+  /** How much room the host toolbar has. Only applies to the inline variant. */
+  density?: ToolbarDensity;
   /** Called when Start Planning is clicked */
   onStartPlanning?: () => Promise<void>;
   /** Ref for the Start Planning button (for focus management) */
@@ -176,8 +179,18 @@ interface SpecTaskActionButtonsProps {
   blockedReason?: string;
 }
 
+const COMPACT_BUTTON_METRICS: Record<
+  ToolbarDensity,
+  { minWidth: number; height: number; icon: number; showLabel: boolean }
+> = {
+  comfortable: { minWidth: 72, height: 40, icon: 18, showLabel: true },
+  compact: { minWidth: 56, height: 36, icon: 16, showLabel: true },
+  tight: { minWidth: 34, height: 32, icon: 17, showLabel: false },
+};
+
 interface CompactActionButtonProps {
   tooltip?: string;
+  density?: ToolbarDensity;
   color?:
     | "inherit"
     | "primary"
@@ -203,6 +216,7 @@ interface CompactActionButtonProps {
 
 function CompactActionButton({
   tooltip = "",
+  density = "comfortable",
   color = "primary",
   variant = "contained",
   disabled = false,
@@ -218,8 +232,9 @@ function CompactActionButton({
   const anchorProps = href
     ? { component: "a" as const, href, target, rel }
     : {};
+  const metrics = COMPACT_BUTTON_METRICS[density];
   return (
-    <Tooltip title={tooltip} placement="top">
+    <Tooltip title={metrics.showLabel ? tooltip : tooltip || label} placement="top">
       <span style={{ width: fullWidth ? "100%" : "auto", display: "inline-flex" }}>
         <Button
           size="small"
@@ -228,14 +243,16 @@ function CompactActionButton({
           disabled={disabled}
           fullWidth={fullWidth}
           onClick={onClick}
+          aria-label={label}
           {...anchorProps}
           sx={{
-            minWidth: 72,
-            height: 40,
-            px: 1,
+            minWidth: metrics.minWidth,
+            height: metrics.height,
+            px: metrics.showLabel ? 1 : 0.5,
             py: 0.4,
             lineHeight: 1,
             textTransform: "none",
+            flexShrink: 0,
             ...sx,
           }}
         >
@@ -247,22 +264,25 @@ function CompactActionButton({
               gap: 0.2,
               lineHeight: 0,
               "& > svg": {
-                width: 18,
-                height: 18,
+                width: metrics.icon,
+                height: metrics.icon,
               },
             }}
           >
             {icon}
-            <Typography
-              sx={{
-                fontSize: "0.65rem",
-                lineHeight: 1,
-                fontWeight: 400,
-                textTransform: "none",
-              }}
-            >
-              {label}
-            </Typography>
+            {metrics.showLabel && (
+              <Typography
+                sx={{
+                  fontSize: density === "comfortable" ? "0.65rem" : "0.6rem",
+                  lineHeight: 1,
+                  fontWeight: 400,
+                  textTransform: "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {label}
+              </Typography>
+            )}
           </Box>
         </Button>
       </span>
@@ -278,6 +298,7 @@ function CompactActionButton({
 export default function SpecTaskActionButtons({
   task,
   variant = "stacked",
+  density = "comfortable",
   onStartPlanning,
   startPlanningButtonRef,
   onReviewSpec,
@@ -346,6 +367,12 @@ export default function SpecTaskActionButtons({
 
   const isArchived = task.archived ?? false;
   const isInline = variant === "inline";
+  const inlineRowSx = {
+    display: "flex",
+    alignItems: "center",
+    gap: density === "comfortable" ? 1 : 0.5,
+    flexShrink: 0,
+  } as const;
 
   // Determine if this is a direct-push scenario (branch same as base) vs PR workflow
   const isDirectPush =
@@ -431,8 +458,9 @@ export default function SpecTaskActionButtons({
 
     if (isInline) {
       return (
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+        <Box sx={inlineRowSx}>
           <CompactActionButton
+            density={density}
             tooltip={startTooltip}
             color="warning"
             icon={
@@ -449,7 +477,7 @@ export default function SpecTaskActionButtons({
             }}
             disabled={isStartDisabled}
           />
-          {!task.just_do_it_mode && skipLink}
+          {!task.just_do_it_mode && density === "comfortable" && skipLink}
         </Box>
       );
     }
@@ -496,34 +524,30 @@ export default function SpecTaskActionButtons({
   if (task.status === "spec_generation" && isInline) {
     const isSkipping = skipSpecMutation.isPending;
     return (
-      <Box sx={{ display: "flex", gap: 1 }}>
-        <Tooltip
-          title={isArchived ? "Task is archived" : "Skip planning and start implementation"}
-          placement="top"
-        >
-          <span>
-            <Button
-              variant="outlined"
-              size="small"
-              color="warning"
-              startIcon={
-                isSkipping ? (
-                  <CircularProgress size={18} color="inherit" />
-                ) : (
-                  <SkipIcon size={18} />
-                )
-              }
-              onClick={(e) => {
-                e.stopPropagation();
-                skipSpecMutation.mutate();
-              }}
-              disabled={isArchived || isSkipping}
-              sx={buttonSx}
-            >
-              {isSkipping ? "Skipping..." : "Skip Planning"}
-            </Button>
-          </span>
-        </Tooltip>
+      <Box sx={inlineRowSx}>
+        <CompactActionButton
+          density={density}
+          tooltip={
+            isArchived
+              ? "Task is archived"
+              : "Skip planning and start implementation"
+          }
+          variant="outlined"
+          color="warning"
+          icon={
+            isSkipping ? (
+              <CircularProgress size={16} color="inherit" />
+            ) : (
+              <SkipIcon size={18} />
+            )
+          }
+          label={isSkipping ? "Skipping..." : "Skip Planning"}
+          onClick={(e) => {
+            e.stopPropagation();
+            skipSpecMutation.mutate();
+          }}
+          disabled={isArchived || isSkipping}
+        />
       </Box>
     );
   }
@@ -536,8 +560,9 @@ export default function SpecTaskActionButtons({
   ) {
     if (isInline) {
       return (
-        <Box sx={{ display: "flex", gap: 1 }}>
+        <Box sx={inlineRowSx}>
           <CompactActionButton
+            density={density}
             tooltip={isArchived ? "Task is archived" : ""}
             color="secondary"
             icon={
@@ -654,8 +679,9 @@ export default function SpecTaskActionButtons({
 
     if (isInline) {
       return (
-        <Box sx={{ display: "flex", gap: 1 }}>
+        <Box sx={inlineRowSx}>
           <CompactActionButton
+            density={density}
             tooltip={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""}
             variant="outlined"
             color="error"
@@ -674,6 +700,7 @@ export default function SpecTaskActionButtons({
             }}
           />
           <CompactActionButton
+            density={density}
             tooltip={
               isArchived
                 ? "Task is archived"
@@ -708,6 +735,7 @@ export default function SpecTaskActionButtons({
           />
           {hasDesignDocs && onReviewSpec && (
             <CompactActionButton
+              density={density}
               tooltip={isArchived ? "Task is archived" : ""}
               variant="outlined"
               color="primary"
@@ -856,8 +884,9 @@ export default function SpecTaskActionButtons({
 
       if (isInline) {
         return (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+          <Box sx={inlineRowSx}>
             <CompactActionButton
+              density={density}
               tooltip={isArchived ? "Task is archived" : ""}
               variant="contained"
               color="secondary"
@@ -905,8 +934,9 @@ export default function SpecTaskActionButtons({
     if (hasMultiplePRs) {
       if (isInline) {
         return (
-          <Box sx={{ display: "flex", gap: 1 }}>
+          <Box sx={inlineRowSx}>
             <CompactActionButton
+              density={density}
               tooltip={isArchived ? "Task is archived" : `${pullRequests.length} Pull Requests`}
               variant="contained"
               color="secondary"
