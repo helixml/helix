@@ -177,10 +177,11 @@ const SpecTaskModelPickerView: FC<{
                 minHeight: 0,
                 flexShrink: 0,
                 p: 0.5,
-                bgcolor: "action.hover",
+                bgcolor: "background.paper",
                 borderRight: "1px solid",
                 borderColor: "divider",
                 overflowY: "auto",
+                overflowX: "hidden",
                 overscrollBehavior: "contain",
               }}
             >
