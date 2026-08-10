@@ -1,10 +1,17 @@
 export async function copyTextToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
+  // Safari can expose `navigator.clipboard` inconsistently on plain HTTP
+  // origins. Do not touch the property unless the browser says this is a
+  // secure context, and retain the object so it cannot disappear between the
+  // capability check and the write.
+  if (window.isSecureContext) {
     try {
-      await navigator.clipboard.writeText(text)
-      return
+      const clipboard = navigator.clipboard
+      if (clipboard && typeof clipboard.writeText === 'function') {
+        await clipboard.writeText(text)
+        return
+      }
     } catch {
-      // HTTP origins may expose the API but reject writes; use the DOM fallback.
+      // Permission and WebKit failures use the DOM fallback below.
     }
   }
 
