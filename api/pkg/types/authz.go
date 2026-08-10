@@ -518,7 +518,6 @@ const (
 	ResourceGitRepository         Resource = "GitRepository"
 	ResourceSpecTask              Resource = "SpecTask"
 	ResourceSession               Resource = "Session"
-	ResourcePrompt                Resource = "Prompt"
 	ResourceDesktop               Resource = "Desktop"
 )
 

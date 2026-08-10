@@ -18,10 +18,6 @@ vi.mock('../../hooks/usePromptHistory', async () => {
     usePromptHistory: () => ({
       draft: '',
       setDraft: vi.fn(),
-      history: [],
-      historyIndex: -1,
-      navigateUp: () => false,
-      navigateDown: () => false,
       saveToHistory,
       markAsSent: vi.fn(),
       markAsFailed: vi.fn(),
@@ -32,7 +28,6 @@ vi.mock('../../hooks/usePromptHistory', async () => {
       pendingPrompts,
       failedPrompts: [],
       clearDraft,
-      pinPrompt: vi.fn(),
     }),
   }
 })

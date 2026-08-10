@@ -4267,20 +4267,6 @@ func (mr *MockStoreMockRecorder) IncrementProjectTaskNumber(ctx, projectID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementProjectTaskNumber", reflect.TypeOf((*MockStore)(nil).IncrementProjectTaskNumber), ctx, projectID)
 }
 
-// IncrementPromptUsage mocks base method.
-func (m *MockStore) IncrementPromptUsage(ctx context.Context, promptID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IncrementPromptUsage", ctx, promptID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// IncrementPromptUsage indicates an expected call of IncrementPromptUsage.
-func (mr *MockStoreMockRecorder) IncrementPromptUsage(ctx, promptID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementPromptUsage", reflect.TypeOf((*MockStore)(nil).IncrementPromptUsage), ctx, promptID)
-}
-
 // IncrementSandboxContainerCount mocks base method.
 func (m *MockStore) IncrementSandboxContainerCount(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -4836,21 +4822,6 @@ func (m *MockStore) ListPendingVHostRoutes(ctx context.Context, limit int) ([]*t
 func (mr *MockStoreMockRecorder) ListPendingVHostRoutes(ctx, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPendingVHostRoutes", reflect.TypeOf((*MockStore)(nil).ListPendingVHostRoutes), ctx, limit)
-}
-
-// ListPinnedPrompts mocks base method.
-func (m *MockStore) ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListPinnedPrompts", ctx, userID, specTaskID)
-	ret0, _ := ret[0].([]*types.PromptHistoryEntry)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListPinnedPrompts indicates an expected call of ListPinnedPrompts.
-func (mr *MockStoreMockRecorder) ListPinnedPrompts(ctx, userID, specTaskID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPinnedPrompts", reflect.TypeOf((*MockStore)(nil).ListPinnedPrompts), ctx, userID, specTaskID)
 }
 
 // ListProjectAuditLogs mocks base method.
@@ -5924,21 +5895,6 @@ func (mr *MockStoreMockRecorder) RotateVHostRouteHostname(ctx, id, newHostname a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateVHostRouteHostname", reflect.TypeOf((*MockStore)(nil).RotateVHostRouteHostname), ctx, id, newHostname)
 }
 
-// SearchPrompts mocks base method.
-func (m *MockStore) SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SearchPrompts", ctx, userID, query, limit)
-	ret0, _ := ret[0].([]*types.PromptHistoryEntry)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SearchPrompts indicates an expected call of SearchPrompts.
-func (mr *MockStoreMockRecorder) SearchPrompts(ctx, userID, query, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchPrompts", reflect.TypeOf((*MockStore)(nil).SearchPrompts), ctx, userID, query, limit)
-}
-
 // SearchUsers mocks base method.
 func (m *MockStore) SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error) {
 	m.ctrl.T.Helper()
@@ -6663,34 +6619,6 @@ func (m *MockStore) UpdateProjectRepository(ctx context.Context, pr *types.Proje
 func (mr *MockStoreMockRecorder) UpdateProjectRepository(ctx, pr any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProjectRepository", reflect.TypeOf((*MockStore)(nil).UpdateProjectRepository), ctx, pr)
-}
-
-// UpdatePromptPin mocks base method.
-func (m *MockStore) UpdatePromptPin(ctx context.Context, promptID string, pinned bool) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdatePromptPin", ctx, promptID, pinned)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdatePromptPin indicates an expected call of UpdatePromptPin.
-func (mr *MockStoreMockRecorder) UpdatePromptPin(ctx, promptID, pinned any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePromptPin", reflect.TypeOf((*MockStore)(nil).UpdatePromptPin), ctx, promptID, pinned)
-}
-
-// UpdatePromptTags mocks base method.
-func (m *MockStore) UpdatePromptTags(ctx context.Context, promptID, tags string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdatePromptTags", ctx, promptID, tags)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdatePromptTags indicates an expected call of UpdatePromptTags.
-func (mr *MockStoreMockRecorder) UpdatePromptTags(ctx, promptID, tags any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePromptTags", reflect.TypeOf((*MockStore)(nil).UpdatePromptTags), ctx, promptID, tags)
 }
 
 // UpdateProviderEndpoint mocks base method.

@@ -884,11 +884,6 @@ type Store interface {
 	// Returns true if this caller won the claim (rows affected > 0). If false, another
 	// goroutine already claimed it and the caller must not send the prompt.
 	ClaimPromptForSending(ctx context.Context, promptID string) (bool, error)
-	UpdatePromptPin(ctx context.Context, promptID string, pinned bool) error
-	UpdatePromptTags(ctx context.Context, promptID string, tags string) error
-	ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error)
-	IncrementPromptUsage(ctx context.Context, promptID string) error
-	SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error)
 	DeletePromptHistoryEntry(ctx context.Context, id string) error
 	UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error)
 

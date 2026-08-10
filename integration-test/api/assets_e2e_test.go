@@ -27,6 +27,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/assetssh"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pkg/sftp"
@@ -46,7 +47,7 @@ func TestServerAssetE2E(t *testing.T) {
 	authenticator, err := auth.NewHelixAuthenticator(&config.ServerConfig{}, db, "test-secret", nil)
 	require.NoError(t, err)
 
-	_, ownerKey := createAssetE2EUser(t, db, authenticator, "owner")
+	owner, ownerKey := createAssetE2EUser(t, db, authenticator, "owner")
 	member, memberKey := createAssetE2EUser(t, db, authenticator, "member")
 	_, outsiderKey := createAssetE2EUser(t, db, authenticator, "outsider")
 	ownerClient, err := getAPIClient(ownerKey)
@@ -109,7 +110,8 @@ func TestServerAssetE2E(t *testing.T) {
 		AgentID: "chief-of-staff",
 	}, http.StatusCreated, nil)
 
-	mcpSession := connectAssetE2EMCP(t, ownerKey, organization.ID, "chief-of-staff")
+	sessionKey := createAssetE2ESessionKey(t, db, owner, organization.ID, "chief-of-staff")
+	mcpSession := connectAssetE2EMCP(t, sessionKey)
 	tools, err := mcpSession.ListTools(ctx, nil)
 	require.NoError(t, err)
 	for _, name := range []string{
@@ -225,6 +227,38 @@ func createAssetE2EUser(t *testing.T, db *store.PostgresStore, authenticator aut
 	return user, apiKey
 }
 
+func createAssetE2ESessionKey(t *testing.T, db *store.PostgresStore, owner *types.User, orgID, workerID string) string {
+	t.Helper()
+	ctx := context.Background()
+	session, err := db.CreateSession(ctx, types.Session{
+		ID:             system.GenerateSessionID(),
+		Owner:          owner.ID,
+		OwnerType:      types.OwnerTypeUser,
+		OrganizationID: orgID,
+		Metadata:       types.SessionMetadata{OrgWorkerID: workerID},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := db.DeleteSession(context.Background(), session.ID)
+		require.NoError(t, err)
+	})
+
+	key, err := system.GenerateAPIKey()
+	require.NoError(t, err)
+	created, err := db.CreateAPIKey(ctx, &types.ApiKey{
+		Owner:          owner.ID,
+		OwnerType:      types.OwnerTypeUser,
+		Key:            key,
+		Name:           "Asset E2E session key",
+		Type:           types.APIkeytypeAPI,
+		OrganizationID: orgID,
+		SessionID:      session.ID,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.DeleteAPIKey(context.Background(), created.Key)) })
+	return created.Key
+}
+
 func assetCollectionPath(org string) string {
 	return "/api/v1/orgs/" + url.PathEscape(org) + "/assets"
 }
@@ -268,10 +302,10 @@ func (b bearerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	return b.base.RoundTrip(clone)
 }
 
-func connectAssetE2EMCP(t *testing.T, apiKey, orgID, agentID string) *mcp.ClientSession {
+func connectAssetE2EMCP(t *testing.T, apiKey string) *mcp.ClientSession {
 	t.Helper()
 	transport := &mcp.StreamableClientTransport{
-		Endpoint:             integrationServerURL() + "/api/v1/mcp/helix-org/" + url.PathEscape(orgID) + "/workers/" + url.PathEscape(agentID) + "/mcp",
+		Endpoint:             integrationServerURL() + "/api/v1/mcp/helix-org",
 		HTTPClient:           &http.Client{Transport: bearerRoundTripper{apiKey: apiKey, base: http.DefaultTransport}},
 		DisableStandaloneSSE: true,
 	}

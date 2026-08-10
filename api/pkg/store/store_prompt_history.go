@@ -52,12 +52,6 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 			interrupt = *entry.Interrupt
 		}
 
-		// Default pinned to false if not specified
-		pinned := false
-		if entry.Pinned != nil {
-			pinned = *entry.Pinned
-		}
-
 		// Check if entry already exists
 		var existingEntry types.PromptHistoryEntry
 		result := s.gdb.WithContext(ctx).Where("id = ?", entry.ID).First(&existingEntry)
@@ -78,8 +72,6 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 				Status:        entry.Status,
 				Interrupt:     interrupt,
 				QueuePosition: entry.QueuePosition,
-				Pinned:        pinned,
-				Tags:          entry.Tags,
 				CreatedAt:     createdAt,
 				UpdatedAt:     time.Now(),
 			}
@@ -567,58 +559,6 @@ func (s *PostgresStore) ListPromptHistory(ctx context.Context, userID string, re
 	}, nil
 }
 
-// UpdatePromptPin sets the pinned status of a prompt
-func (s *PostgresStore) UpdatePromptPin(ctx context.Context, promptID string, pinned bool) error {
-	return s.gdb.WithContext(ctx).
-		Model(&types.PromptHistoryEntry{}).
-		Where("id = ?", promptID).
-		Update("pinned", pinned).
-		Error
-}
-
-// UpdatePromptTags updates the tags of a prompt (JSON array string)
-func (s *PostgresStore) UpdatePromptTags(ctx context.Context, promptID string, tags string) error {
-	return s.gdb.WithContext(ctx).
-		Model(&types.PromptHistoryEntry{}).
-		Where("id = ?", promptID).
-		Update("tags", tags).
-		Error
-}
-
-// ListPinnedPrompts returns all pinned prompts for a user in a spec task
-func (s *PostgresStore) ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error) {
-	var entries []*types.PromptHistoryEntry
-	query := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND pinned = ?", userID, true)
-
-	if specTaskID != "" {
-		query = query.Where("spec_task_id = ?", specTaskID)
-	}
-
-	err := query.
-		Order("created_at DESC").
-		Find(&entries).Error
-
-	if err != nil {
-		return nil, err
-	}
-
-	return entries, nil
-}
-
-// IncrementPromptUsage increments usage count and updates last_used_at
-func (s *PostgresStore) IncrementPromptUsage(ctx context.Context, promptID string) error {
-	now := time.Now()
-	return s.gdb.WithContext(ctx).
-		Model(&types.PromptHistoryEntry{}).
-		Where("id = ?", promptID).
-		Updates(map[string]interface{}{
-			"usage_count":  s.gdb.Raw("usage_count + 1"),
-			"last_used_at": now,
-		}).
-		Error
-}
-
 // DeletePromptHistoryEntry soft-deletes a prompt history entry by setting deleted_at.
 // Deleted entries are excluded from queue processing and sync responses.
 func (s *PostgresStore) DeletePromptHistoryEntry(ctx context.Context, id string) error {
@@ -630,27 +570,7 @@ func (s *PostgresStore) DeletePromptHistoryEntry(ctx context.Context, id string)
 		Error
 }
 
-// SearchPrompts searches prompts by content using ILIKE (case-insensitive)
-func (s *PostgresStore) SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-
-	var entries []*types.PromptHistoryEntry
-	err := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND content ILIKE ?", userID, "%"+query+"%").
-		Order("pinned DESC, usage_count DESC, created_at DESC").
-		Limit(limit).
-		Find(&entries).Error
-
-	if err != nil {
-		return nil, err
-	}
-
-	return entries, nil
-}
-
-// UnifiedSearch searches across projects, tasks, sessions, and prompts
+// UnifiedSearch searches across Helix resources.
 func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error) {
 	if req.Limit <= 0 {
 		req.Limit = 10
@@ -662,7 +582,7 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 	// Determine which types to search
 	searchTypes := req.Types
 	if len(searchTypes) == 0 {
-		searchTypes = []string{"projects", "tasks", "sessions", "prompts", "knowledge", "repositories", "agents"}
+		searchTypes = []string{"projects", "tasks", "sessions", "knowledge", "repositories", "agents"}
 	}
 
 	for _, searchType := range searchTypes {
@@ -819,39 +739,6 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 						Metadata:    meta,
 						CreatedAt:   sess.Created.Format(time.RFC3339),
 						UpdatedAt:   sess.Updated.Format(time.RFC3339),
-					})
-				}
-			}
-
-		case "prompts":
-			// Search prompt history
-			var prompts []*types.PromptHistoryEntry
-			query := s.gdb.WithContext(ctx).
-				Where("user_id = ? AND content ILIKE ?", userID, searchQuery).
-				Limit(req.Limit).
-				Order("pinned DESC, created_at DESC")
-
-			if err := query.Find(&prompts).Error; err == nil {
-				for _, p := range prompts {
-					meta := map[string]string{
-						"status":    p.Status,
-						"projectId": p.ProjectID,
-						"taskId":    p.SpecTaskID,
-					}
-					if p.Pinned {
-						meta["pinned"] = "true"
-					}
-
-					results = append(results, types.UnifiedSearchResult{
-						Type:        "prompt",
-						ID:          p.ID,
-						Title:       truncateText(p.Content, 80),
-						Description: truncateText(p.Content, 200),
-						URL:         "/tasks/" + p.SpecTaskID,
-						Icon:        "prompt",
-						Metadata:    meta,
-						CreatedAt:   p.CreatedAt.Format(time.RFC3339),
-						UpdatedAt:   p.UpdatedAt.Format(time.RFC3339),
 					})
 				}
 			}

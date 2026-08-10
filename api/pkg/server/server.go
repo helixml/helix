@@ -1079,15 +1079,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/secrets/{id}", system.Wrapper(apiServer.updateSecret)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/secrets/{id}", system.Wrapper(apiServer.deleteSecret)).Methods(http.MethodDelete)
 
-	// Prompt history endpoints (cross-device sync)
+	// Durable prompt delivery queue endpoints (cross-device recovery)
 	authRouter.HandleFunc("/prompt-history", system.Wrapper(apiServer.listPromptHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/prompt-history/sync", system.Wrapper(apiServer.syncPromptHistory)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/prompt-history/pinned", system.Wrapper(apiServer.listPinnedPrompts)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/prompt-history/search", system.Wrapper(apiServer.searchPrompts)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/prompt-history/{id}", system.Wrapper(apiServer.deletePromptHistoryEntry)).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/prompt-history/{id}/pin", system.Wrapper(apiServer.updatePromptPin)).Methods(http.MethodPut)
-	authRouter.HandleFunc("/prompt-history/{id}/tags", system.Wrapper(apiServer.updatePromptTags)).Methods(http.MethodPut)
-	authRouter.HandleFunc("/prompt-history/{id}/use", system.Wrapper(apiServer.incrementPromptUsage)).Methods(http.MethodPost)
 
 	// Unified search endpoint (q= param)
 	authRouter.HandleFunc("/search", system.Wrapper(apiServer.unifiedSearch)).Methods(http.MethodGet).Queries("q", "{q}")

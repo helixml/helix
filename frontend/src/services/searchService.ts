@@ -1,7 +1,7 @@
 /**
  * Search Service - Unified search across Helix entities
  *
- * Provides React Query hooks for searching projects, tasks, sessions, and prompts
+ * Provides React Query hooks for searching Helix resources.
  */
 
 import { useQuery, UseQueryOptions } from '@tanstack/react-query'
@@ -17,7 +17,7 @@ export const searchQueryKey = (query: string, types?: string[], limit?: number) 
   ['unified-search', query, types?.join(',') || 'all', limit] as const
 
 // Search entity types
-export type SearchEntityType = 'projects' | 'tasks' | 'sessions' | 'prompts' | 'code' | 'knowledge' | 'repositories' | 'agents'
+export type SearchEntityType = 'projects' | 'tasks' | 'sessions' | 'code' | 'knowledge' | 'repositories' | 'agents'
 
 // Search request options
 export interface UnifiedSearchOptions {
@@ -47,12 +47,12 @@ export async function unifiedSearch(
 /**
  * React Query hook for unified search
  *
- * Searches across projects, tasks, sessions, and prompts with debouncing
+ * Searches across supported resource types with debouncing.
  *
  * @example
  * const { data, isLoading } = useUnifiedSearch({
  *   query: 'authentication',
- *   types: ['tasks', 'prompts'],
+ *   types: ['tasks', 'sessions'],
  *   limit: 10,
  *   enabled: searchQuery.length >= 2,
  * })
@@ -98,8 +98,6 @@ export function getSearchResultIcon(type: string): string {
       return 'task'
     case 'session':
       return 'chat'
-    case 'prompt':
-      return 'prompt'
     case 'code':
       return 'code'
     case 'knowledge':
@@ -124,8 +122,6 @@ export function getSearchResultTypeLabel(type: string): string {
       return 'Task'
     case 'session':
       return 'Session'
-    case 'prompt':
-      return 'Prompt'
     case 'code':
       return 'Code'
     case 'knowledge':

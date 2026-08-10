@@ -3,8 +3,6 @@
  *
  * Features:
  * - Auto-save drafts to localStorage on every keystroke (debounced)
- * - Persist sent prompts with timestamps
- * - Navigate history with arrow keys
  * - Recover drafts on page reload
  * - Track pending/failed sends for retry
  * - Backend sync for cross-device history (optional)
@@ -17,11 +15,6 @@ import {
   syncPromptHistory,
   listPromptHistory,
   backendToLocal,
-  updatePromptPin as apiUpdatePromptPin,
-  updatePromptTags as apiUpdatePromptTags,
-  incrementPromptUsage as apiIncrementPromptUsage,
-  listPinnedPrompts as apiListPinnedPrompts,
-  searchPrompts as apiSearchPrompts,
 } from '../services/promptHistoryService'
 
 const HISTORY_STORAGE_KEY = 'helix_prompt_history'
@@ -49,11 +42,6 @@ export interface PromptHistoryEntry {
   retryCount?: number       // Number of retry attempts
   nextRetryAt?: number      // Timestamp when retry will happen
   errorMessage?: string     // Last failure reason from server (shown under "Failed - retrying")
-  // Library features
-  pinned?: boolean          // User pinned this prompt for quick access
-  usageCount?: number       // How many times this prompt was reused
-  lastUsedAt?: number       // Timestamp when last reused
-  tags?: string[]           // User-defined tags
 }
 
 interface PromptDraft {
@@ -66,22 +54,12 @@ interface UsePromptHistoryOptions {
   specTaskId?: string  // Required for backend sync
   projectId?: string   // Required for backend sync
   apiClient?: Api<unknown>['api']  // Required for backend sync
-  onHistoryChange?: (history: PromptHistoryEntry[]) => void
 }
 
 interface UsePromptHistoryReturn {
   // Current draft
   draft: string
   setDraft: (value: string) => void
-
-  // History
-  history: PromptHistoryEntry[]
-  historyIndex: number
-
-  // Navigation
-  navigateUp: () => boolean  // Returns true if navigation occurred
-  navigateDown: () => boolean
-  resetNavigation: () => void
 
   // Actions
   saveToHistory: (content: string, interrupt?: boolean) => PromptHistoryEntry
@@ -93,20 +71,12 @@ interface UsePromptHistoryReturn {
   removeFromQueue: (id: string) => void  // Remove a message from queue
   reorderQueue: (activeId: string, overId: string) => void  // Reorder messages in queue
 
-  // Library features
-  pinPrompt: (id: string, pinned: boolean) => Promise<void>  // Pin/unpin a prompt
-  setTags: (id: string, tags: string[]) => Promise<void>  // Set tags on a prompt
-  reusePrompt: (id: string) => Promise<string | null>  // Reuse prompt and increment usage
-  getPinnedPrompts: () => Promise<PromptHistoryEntry[]>  // List pinned prompts
-  searchHistory: (query: string, limit?: number) => Promise<PromptHistoryEntry[]>  // Search prompts
-
   // Pending/failed prompts
   pendingPrompts: PromptHistoryEntry[]
   failedPrompts: PromptHistoryEntry[]
 
   // Clear
   clearDraft: () => void
-  clearHistory: () => void
 }
 
 function getStorageKey(specTaskId?: string): string {
@@ -207,7 +177,6 @@ export function usePromptHistory({
   specTaskId,
   projectId,
   apiClient,
-  onHistoryChange,
 }: UsePromptHistoryOptions): UsePromptHistoryReturn {
   // Load initial state from localStorage
   const [history, setHistory] = useState<PromptHistoryEntry[]>(() => loadHistory(specTaskId))
@@ -216,10 +185,6 @@ export function usePromptHistory({
   const historyRef = useRef<PromptHistoryEntry[]>(history)
   historyRef.current = history
   const [draft, setDraftState] = useState<string>(() => loadDraft(sessionId))
-  const [historyIndex, setHistoryIndex] = useState(-1)  // -1 = current draft, 0+ = history
-
-  // Keep track of the original draft when navigating
-  const originalDraftRef = useRef<string>('')
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null)
   const hasSyncedRef = useRef(false)
@@ -516,11 +481,6 @@ export function usePromptHistory({
   const setDraft = useCallback((value: string) => {
     setDraftState(value)
 
-    // Reset history navigation when typing
-    if (historyIndex !== -1) {
-      setHistoryIndex(-1)
-    }
-
     // Debounced save to localStorage
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current)
@@ -528,7 +488,7 @@ export function usePromptHistory({
     debounceTimerRef.current = setTimeout(() => {
       saveDraft(sessionId, value)
     }, 300)
-  }, [sessionId, historyIndex])
+  }, [sessionId])
 
   // Clean up debounce timer
   useEffect(() => {
@@ -543,8 +503,6 @@ export function usePromptHistory({
   useEffect(() => {
     const loaded = loadDraft(sessionId)
     setDraftState(loaded)
-    setHistoryIndex(-1)
-    originalDraftRef.current = ''
   }, [sessionId])
 
   // Reload history when specTaskId changes
@@ -553,56 +511,6 @@ export function usePromptHistory({
     setHistory(loaded)
     hasSyncedRef.current = false // Allow re-sync for new specTaskId
   }, [specTaskId])
-
-  // Notify on history change
-  useEffect(() => {
-    onHistoryChange?.(history)
-  }, [history, onHistoryChange])
-
-  // Navigate up in history (older prompts)
-  const navigateUp = useCallback((): boolean => {
-    const sentHistory = sessionHistory.filter(h => h.status === 'sent')
-    if (sentHistory.length === 0) return false
-
-    if (historyIndex === -1) {
-      // Save current draft before navigating
-      originalDraftRef.current = draft
-      setHistoryIndex(0)
-      setDraftState(sentHistory[sentHistory.length - 1].content)
-      return true
-    } else if (historyIndex < sentHistory.length - 1) {
-      const newIndex = historyIndex + 1
-      setHistoryIndex(newIndex)
-      setDraftState(sentHistory[sentHistory.length - 1 - newIndex].content)
-      return true
-    }
-    return false
-  }, [sessionHistory, historyIndex, draft])
-
-  // Navigate down in history (newer prompts)
-  const navigateDown = useCallback((): boolean => {
-    if (historyIndex <= 0) {
-      if (historyIndex === 0) {
-        // Return to original draft
-        setHistoryIndex(-1)
-        setDraftState(originalDraftRef.current)
-        return true
-      }
-      return false
-    }
-
-    const sentHistory = sessionHistory.filter(h => h.status === 'sent')
-    const newIndex = historyIndex - 1
-    setHistoryIndex(newIndex)
-    setDraftState(sentHistory[sentHistory.length - 1 - newIndex].content)
-    return true
-  }, [sessionHistory, historyIndex])
-
-  // Reset navigation
-  const resetNavigation = useCallback(() => {
-    setHistoryIndex(-1)
-    originalDraftRef.current = ''
-  }, [])
 
   // Save prompt to history (called before sending)
   const saveToHistory = useCallback((content: string, interrupt: boolean = true): PromptHistoryEntry => {
@@ -767,135 +675,11 @@ export function usePromptHistory({
     }
     setDraftState('')
     clearDraftStorage(sessionId)
-    setHistoryIndex(-1)
-    originalDraftRef.current = ''
   }, [sessionId])
-
-  // Clear all history
-  const clearHistoryStorage = useCallback(() => {
-    setHistory([])
-    try {
-      localStorage.removeItem(getStorageKey(specTaskId))
-    } catch (e) {
-      console.warn('Failed to clear history:', e)
-    }
-  }, [specTaskId])
-
-  // Pin/unpin a prompt (library feature)
-  const pinPrompt = useCallback(async (id: string, pinned: boolean): Promise<void> => {
-    if (!apiClient) {
-      console.warn('[PromptHistory] Cannot pin prompt without API client')
-      return
-    }
-    try {
-      await apiUpdatePromptPin(apiClient, id, pinned)
-      // Update local state
-      setHistory(prev => {
-        const updated = prev.map(h =>
-          h.id === id ? { ...h, pinned } : h
-        )
-        saveHistory(updated, specTaskId)
-        return updated
-      })
-    } catch (e) {
-      console.warn('[PromptHistory] Failed to pin prompt:', e)
-    }
-  }, [apiClient, specTaskId])
-
-  // Set tags on a prompt (library feature)
-  const setTags = useCallback(async (id: string, tags: string[]): Promise<void> => {
-    if (!apiClient) {
-      console.warn('[PromptHistory] Cannot set tags without API client')
-      return
-    }
-    try {
-      await apiUpdatePromptTags(apiClient, id, tags)
-      // Update local state
-      setHistory(prev => {
-        const updated = prev.map(h =>
-          h.id === id ? { ...h, tags } : h
-        )
-        saveHistory(updated, specTaskId)
-        return updated
-      })
-    } catch (e) {
-      console.warn('[PromptHistory] Failed to set tags:', e)
-    }
-  }, [apiClient, specTaskId])
-
-  // Reuse a prompt (increments usage count, returns content)
-  const reusePrompt = useCallback(async (id: string): Promise<string | null> => {
-    const entry = history.find(h => h.id === id)
-    if (!entry) return null
-
-    if (apiClient) {
-      try {
-        await apiIncrementPromptUsage(apiClient, id)
-        // Update local state
-        setHistory(prev => {
-          const updated = prev.map(h =>
-            h.id === id ? {
-              ...h,
-              usageCount: (h.usageCount || 0) + 1,
-              lastUsedAt: Date.now()
-            } : h
-          )
-          saveHistory(updated, specTaskId)
-          return updated
-        })
-      } catch (e) {
-        console.warn('[PromptHistory] Failed to increment usage:', e)
-      }
-    }
-
-    return entry.content
-  }, [apiClient, specTaskId, history])
-
-  // List pinned prompts (library feature)
-  const getPinnedPrompts = useCallback(async (): Promise<PromptHistoryEntry[]> => {
-    if (!apiClient) {
-      // Fall back to local filter
-      return history.filter(h => h.pinned)
-    }
-    try {
-      const entries = await apiListPinnedPrompts(apiClient, specTaskId)
-      return entries.map(backendToLocal)
-    } catch (e) {
-      console.warn('[PromptHistory] Failed to get pinned prompts:', e)
-      return history.filter(h => h.pinned)
-    }
-  }, [apiClient, specTaskId, history])
-
-  // Search prompts by content (library feature)
-  const searchHistory = useCallback(async (query: string, limit?: number): Promise<PromptHistoryEntry[]> => {
-    if (!apiClient) {
-      // Fall back to local search
-      const lowerQuery = query.toLowerCase()
-      return history
-        .filter(h => h.content.toLowerCase().includes(lowerQuery))
-        .slice(0, limit || 50)
-    }
-    try {
-      const entries = await apiSearchPrompts(apiClient, query, limit)
-      return entries.map(backendToLocal)
-    } catch (e) {
-      console.warn('[PromptHistory] Failed to search prompts:', e)
-      // Fall back to local search
-      const lowerQuery = query.toLowerCase()
-      return history
-        .filter(h => h.content.toLowerCase().includes(lowerQuery))
-        .slice(0, limit || 50)
-    }
-  }, [apiClient, history])
 
   return {
     draft,
     setDraft,
-    history: sessionHistory,
-    historyIndex,
-    navigateUp,
-    navigateDown,
-    resetNavigation,
     saveToHistory,
     markAsSent,
     markAsFailed,
@@ -904,16 +688,9 @@ export function usePromptHistory({
     updateInterrupt,
     removeFromQueue,
     reorderQueue,
-    // Library features
-    pinPrompt,
-    setTags,
-    reusePrompt,
-    getPinnedPrompts,
-    searchHistory,
     // Status
     pendingPrompts,
     failedPrompts,
     clearDraft,
-    clearHistory: clearHistoryStorage,
   }
 }

@@ -45,7 +45,10 @@ import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
 import { orgLandingRoute } from '../../utils/organizations'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
-import { isNavigationRouteActive } from './UserOrgSelector.logic'
+import {
+  isNavigationRouteActive,
+  isOrgProjectSettingsRoute,
+} from './UserOrgSelector.logic'
 
 // Shimmer animation for login button
 const shimmer = keyframes`
@@ -119,6 +122,7 @@ const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label
       <Box
         onClick={onClick}
         data-compact-nav-item={label}
+        aria-current={isActive ? 'page' : undefined}
         sx={{
           mt: 1,
           width: 52,
@@ -269,6 +273,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const isActive = (path: string | string[]) => {
     return isNavigationRouteActive(router.name, path)
   }
+  const isOrgProjectSettings = isOrgProjectSettingsRoute(router.name, router.params.tab)
 
 
   // Auto-select first org when no org is saved in localStorage
@@ -393,7 +398,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
         tooltip: "View projects",
-        isActive: isActive(['spec-tasks', 'projects', 'project']),
+        isActive: !isOrgProjectSettings && isActive(['spec-tasks', 'projects', 'project']),
         onClick: handleProjectsClick,
         label: "Projects",
       },
@@ -449,7 +454,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         {
           icon: <Settings size={NAV_BUTTON_SIZE} />,
           tooltip: "Organization settings",
-          isActive: isActive([
+          isActive: isOrgProjectSettings || isActive([
             'org_general',
             'org_settings',
             'org_people',
@@ -467,7 +472,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, currentOrgSlug, router.name])
+  }, [isActive, isOrgProjectSettings, currentOrgSlug, router.name])
 
   const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
 
