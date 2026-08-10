@@ -156,7 +156,7 @@ describe("Interaction", () => {
           id: "int_handoff",
           trigger: "fork_handoff",
           prompt_message: systemPrompt,
-          response_entries: [{ type: "text", content: agentReply }],
+          response_entries: [{ type: "text", content: agentReply }] as any,
           state: TypesInteractionState.InteractionStateComplete,
         }}
       />,
