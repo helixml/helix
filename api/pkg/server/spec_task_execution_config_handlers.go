@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -11,9 +12,141 @@ import (
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// getSpecTaskExecutionConfig godoc
+// @Summary Get task execution configuration
+// @Description Returns the task's current coding identity without exposing Agent secrets. Legacy tasks whose Agent was deleted fall back to their session and interaction snapshots.
+// @Tags spec-driven-tasks
+// @Produce json
+// @Param taskId path string true "SpecTask ID"
+// @Success 200 {object} types.SpecTaskExecutionConfig
+// @Failure 404 {object} types.APIError
+// @Router /api/v1/spec-tasks/{taskId}/execution-config [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getSpecTaskExecutionConfig(w http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	ctx := r.Context()
+	taskID := mux.Vars(r)["taskId"]
+	task, err := s.Store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		http.Error(w, "SpecTask not found", http.StatusNotFound)
+		return
+	}
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	config, err := s.resolveSpecTaskExecutionConfig(ctx, task)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeResponse(w, config, http.StatusOK)
+}
+
+func (s *HelixAPIServer) resolveSpecTaskExecutionConfig(ctx context.Context, task *types.SpecTask) (*types.SpecTaskExecutionConfig, error) {
+	config := &types.SpecTaskExecutionConfig{AgentID: task.HelixAppID}
+
+	if task.HelixAppID != "" {
+		app, err := s.Store.GetApp(ctx, task.HelixAppID)
+		switch {
+		case err == nil:
+			config.AgentAvailable = true
+			config.AgentName = app.Config.Helix.Name
+			effectiveApp := external_agent.ApplyCodeAgentOverrides(app, task.CodeAgentOverrides)
+			if assistant := external_agent.FindZedExternalAssistant(effectiveApp); assistant != nil {
+				config.Runtime = assistant.CodeAgentRuntime
+				if config.Runtime == "" {
+					config.Runtime = types.CodeAgentRuntimeZedAgent
+				}
+				config.CredentialType = assistant.CodeAgentCredentialType
+				config.ProviderRef, config.Model = acpUsageProviderAndModel(assistant)
+				if assistant.CodeAgentRuntime != types.CodeAgentRuntimeClaudeCode &&
+					assistant.CodeAgentRuntime != types.CodeAgentRuntimeCodexCLI {
+					if assistant.GenerationModelProvider != "" {
+						config.ProviderRef = assistant.GenerationModelProvider
+					}
+					if assistant.GenerationModel != "" {
+						config.Model = assistant.GenerationModel
+					}
+				}
+				config.ReasoningEffort = assistant.ReasoningEffort
+			}
+		case errors.Is(err, store.ErrNotFound):
+			// Continue with interaction/session snapshots below.
+		default:
+			return nil, fmt.Errorf("failed to load task agent: %w", err)
+		}
+	}
+
+	if !config.AgentAvailable && task.PlanningSessionID != "" {
+		interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID: task.PlanningSessionID,
+			Page:      0,
+			PerPage:   20,
+			Order:     "created DESC",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to load task interactions: %w", err)
+		}
+		for _, interaction := range interactions {
+			if interaction.CodeAgentConfigSnapshot == nil {
+				continue
+			}
+			snapshot := interaction.CodeAgentConfigSnapshot
+			config.Runtime = snapshot.Runtime
+			config.CredentialType = snapshot.CredentialType
+			config.ProviderRef = snapshot.Provider
+			config.Model = snapshot.Model
+			break
+		}
+
+		session, err := s.Store.GetSession(ctx, task.PlanningSessionID)
+		switch {
+		case err == nil:
+			if config.Runtime == "" {
+				config.Runtime = session.Metadata.CodeAgentRuntime
+			}
+			if config.AgentName == "" {
+				config.AgentName = session.Metadata.ZedAgentName
+			}
+		case errors.Is(err, store.ErrNotFound):
+		default:
+			return nil, fmt.Errorf("failed to load task session: %w", err)
+		}
+	}
+
+	if config.Runtime == "" {
+		config.Runtime = types.CodeAgentRuntimeZedAgent
+	}
+	if config.AgentName == "" {
+		config.AgentName = string(config.Runtime)
+	}
+	if task.CodeAgentOverrides != nil {
+		if task.CodeAgentOverrides.ProviderRef != "" {
+			config.ProviderRef = task.CodeAgentOverrides.ProviderRef
+		}
+		if task.CodeAgentOverrides.Model != "" {
+			config.Model = task.CodeAgentOverrides.Model
+		}
+		if task.CodeAgentOverrides.ReasoningEffort != "" {
+			config.ReasoningEffort = task.CodeAgentOverrides.ReasoningEffort
+		}
+		config.ServiceTier = task.CodeAgentOverrides.ServiceTier
+	}
+
+	return config, nil
+}
 
 // updateSpecTaskExecutionConfig godoc
 // @Summary Update task execution configuration

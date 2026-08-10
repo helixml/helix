@@ -1569,6 +1569,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.getTask).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.updateSpecTask).Methods(http.MethodPut)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/execution-config", apiServer.getSpecTaskExecutionConfig).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/execution-config", apiServer.updateSpecTaskExecutionConfig).Methods(http.MethodPatch)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.deleteSpecTask).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/archive", apiServer.archiveSpecTask).Methods(http.MethodPatch)

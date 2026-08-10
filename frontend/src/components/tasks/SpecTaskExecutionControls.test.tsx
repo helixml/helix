@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { TypesCodeAgentRuntime } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
 import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
 
@@ -93,6 +94,36 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       "app_claude",
       { provider_ref: "", model: "claude-opus-5" },
+    ));
+  });
+
+  it("lets a legacy task with a deleted agent switch to an available coding agent", async () => {
+    const update = vi.fn();
+    render(
+      <SpecTaskExecutionControls
+        agents={[codexAgent, claudeAgent]}
+        selectedAgentId="deleted-agent"
+        currentExecutionConfig={{
+          agent_id: "deleted-agent",
+          agent_name: "codex",
+          agent_available: false,
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+        }}
+        sandboxResourceOverrides={{ vcpus: 4, memory_mb: 8192 }}
+        onAgentModelChange={update}
+        onSandboxResourceOverridesChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Change coding model" })).toHaveTextContent("codex model");
+    expect(screen.queryByRole("button", { name: "Change reasoning and service tier" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Change coding model" }));
+    fireEvent.click(screen.getByRole("button", { name: /GPT-5.6 Sol.*Codex/ }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledWith(
+      "app_codex",
+      { provider_ref: "", model: "gpt-5.6-sol" },
     ));
   });
 

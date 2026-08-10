@@ -41,6 +41,7 @@ const QUERY_KEYS = {
       { projectId, archivedOnly, withDependsOn, labels, limit, offset, sort, participantIds },
     ] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
+  executionConfig: (id: string) => ["spec-tasks", id, "execution-config"] as const,
   specTaskUsage: (id: string) => ["spec-tasks", id, "usage"] as const,
   taskProgress: (id: string) => ["spec-tasks", id, "progress"] as const,
   workSessions: (id: string) => ["spec-tasks", id, "work-sessions"] as const,
@@ -73,6 +74,7 @@ export async function invalidateSpecTaskStatusQueries(
 ): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.executionConfig(taskId) }),
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTaskLists }),
   ]);
 }
@@ -190,6 +192,21 @@ export function useUpdateSpecTaskExecutionConfig(taskId: string) {
     onSuccess: async () => {
       await invalidateSpecTaskStatusQueries(queryClient, taskId);
     },
+  });
+}
+
+export function useGetSpecTaskExecutionConfig(taskId: string, enabled = true) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.executionConfig(taskId),
+    queryFn: async () => {
+      const response = await api
+        .getApiClient()
+        .v1SpecTasksExecutionConfigDetail(taskId);
+      return response.data;
+    },
+    enabled: enabled && !!taskId,
   });
 }
 
@@ -688,6 +705,7 @@ const specTaskService = {
   // Mutation functions
   useUpdateSpecTask,
   useUpdateSpecTaskExecutionConfig,
+  useGetSpecTaskExecutionConfig,
   useApproveSpecTask,
   useArchiveSpecTask,
   useSendZedEvent,

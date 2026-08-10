@@ -20888,6 +20888,44 @@ const docTemplate = `{
             }
         },
         "/api/v1/spec-tasks/{taskId}/execution-config": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the task's current coding identity without exposing Agent secrets. Legacy tasks whose Agent was deleted fall back to their session and interaction snapshots.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get task execution configuration",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskExecutionConfig"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
             "patch": {
                 "security": [
                     {
@@ -38210,6 +38248,38 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "review_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskExecutionConfig": {
+            "type": "object",
+            "properties": {
+                "agent_available": {
+                    "type": "boolean"
+                },
+                "agent_id": {
+                    "type": "string"
+                },
+                "agent_name": {
+                    "type": "string"
+                },
+                "credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "provider_ref": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "service_tier": {
                     "type": "string"
                 }
             }

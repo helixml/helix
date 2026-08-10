@@ -465,6 +465,21 @@ type SpecTaskExecutionConfigUpdateRequest struct {
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 }
 
+// SpecTaskExecutionConfig describes the task's current coding identity without
+// exposing the reusable Agent or its secrets. AgentAvailable is false when a
+// legacy task points at an Agent that has since been deleted.
+type SpecTaskExecutionConfig struct {
+	AgentID         string                  `json:"agent_id,omitempty"`
+	AgentName       string                  `json:"agent_name,omitempty"`
+	AgentAvailable  bool                    `json:"agent_available"`
+	Runtime         CodeAgentRuntime        `json:"runtime,omitempty"`
+	CredentialType  CodeAgentCredentialType `json:"credential_type,omitempty"`
+	ProviderRef     string                  `json:"provider_ref,omitempty"`
+	Model           string                  `json:"model,omitempty"`
+	ReasoningEffort string                  `json:"reasoning_effort,omitempty"`
+	ServiceTier     string                  `json:"service_tier,omitempty"`
+}
+
 type SpecTaskExecutionConfigUpdateResponse struct {
 	Task                    *SpecTask `json:"task"`
 	AgentThreadRestarted    bool      `json:"agent_thread_restarted"`

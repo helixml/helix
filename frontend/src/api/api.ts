@@ -6867,6 +6867,18 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
   review_id: string;
 }
 
+export interface TypesSpecTaskExecutionConfig {
+  agent_available?: boolean;
+  agent_id?: string;
+  agent_name?: string;
+  credential_type?: TypesCodeAgentCredentialType;
+  model?: string;
+  provider_ref?: string;
+  reasoning_effort?: string;
+  runtime?: TypesCodeAgentRuntime;
+  service_tier?: string;
+}
+
 export interface TypesSpecTaskExecutionConfigUpdateRequest {
   agent_id?: string;
   code_agent_overrides?: TypesCodeAgentOverrides;
@@ -17816,6 +17828,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1SpecTasksCloneGroupsDetail: (taskId: string, params: RequestParams = {}) =>
       this.request<TypesCloneGroup[], any>({
         path: `/api/v1/spec-tasks/${taskId}/clone-groups`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the task's current coding identity without exposing Agent secrets. Legacy tasks whose Agent was deleted fall back to their session and interaction snapshots.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksExecutionConfigDetail
+     * @summary Get task execution configuration
+     * @request GET:/api/v1/spec-tasks/{taskId}/execution-config
+     * @secure
+     */
+    v1SpecTasksExecutionConfigDetail: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskExecutionConfig, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/execution-config`,
         method: "GET",
         secure: true,
         format: "json",

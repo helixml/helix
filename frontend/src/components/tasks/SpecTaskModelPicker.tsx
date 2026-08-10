@@ -10,7 +10,10 @@ import {
   Typography,
 } from "@mui/material";
 import { ChevronDown, Search } from "lucide-react";
-import type { TypesProviderEndpoint } from "../../api/api";
+import type {
+  TypesProviderEndpoint,
+  TypesSpecTaskExecutionConfig,
+} from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, IAssistantConfig } from "../../types";
 import { useGetOrgByName } from "../../services/orgService";
 import { useListProviders } from "../../services/providersService";
@@ -34,6 +37,7 @@ interface SpecTaskModelPickerProps {
   selectedAgentId: string;
   model: string;
   providerRefValue: string;
+  currentExecutionConfig?: TypesSpecTaskExecutionConfig;
   disabled?: boolean;
   onSelectAgentModel: (agentId: string, provider: string, model: string) => void;
 }
@@ -73,17 +77,18 @@ const SpecTaskModelPickerView: FC<{
   selectedAgentId: string;
   model: string;
   providerRefValue: string;
+  currentExecutionConfig?: TypesSpecTaskExecutionConfig;
   loading?: boolean;
   disabled?: boolean;
   onSelectAgentModel: (agentId: string, provider: string, model: string) => void;
-}> = ({ agents, selectedAgentId, model, providerRefValue, loading = false, disabled = false, onSelectAgentModel }) => {
+}> = ({ agents, selectedAgentId, model, providerRefValue, currentExecutionConfig, loading = false, disabled = false, onSelectAgentModel }) => {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [query, setQuery] = useState("");
   const [browsedAgentId, setBrowsedAgentId] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const activeAgent = agents.find(({ agent }) => agent.id === selectedAgentId) || agents[0];
-  const browsedAgent = agents.find(({ agent }) => agent.id === browsedAgentId) || activeAgent;
+  const activeAgent = agents.find(({ agent }) => agent.id === selectedAgentId);
+  const browsedAgent = agents.find(({ agent }) => agent.id === browsedAgentId) || activeAgent || agents[0];
   const searching = query.trim().length > 0;
   const visibleModels = useMemo(() => {
     const source = searching
@@ -111,13 +116,17 @@ const SpecTaskModelPickerView: FC<{
     requestAnimationFrame(() => searchRef.current?.focus());
   }, [activeAgent?.agent.id, agents, anchor]);
 
-  const activeRuntime = activeAgent?.assistant?.code_agent_runtime || "zed_agent";
+  const activeRuntime = activeAgent?.assistant?.code_agent_runtime
+    || currentExecutionConfig?.runtime
+    || "zed_agent";
   const activeModel = activeAgent?.models.find((option) => option.id === model
     && (!option.provider || matchesStoredRef(option.provider, providerRefValue)))
     || activeAgent?.models.find((option) => option.id === model);
   const activeModelLabel = activeModel?.label.replace(/ \(.+\)$/, "")
     || model.split("/").pop()
-    || "Select model";
+    || (currentExecutionConfig?.agent_name
+      ? `${currentExecutionConfig.agent_name} model`
+      : "Current model");
 
   return (
     <>

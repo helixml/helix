@@ -20,6 +20,7 @@ import { ChevronDown, Cpu } from "lucide-react";
 import {
   TypesCodeAgentOverrides,
   TypesSandboxResourceOverrides,
+  TypesSpecTaskExecutionConfig,
 } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, IAssistantConfig } from "../../types";
 import useSnackbar from "../../hooks/useSnackbar";
@@ -38,6 +39,7 @@ interface SpecTaskExecutionControlsProps {
   agents: IApp[];
   selectedAgentId: string;
   codeAgentOverrides?: TypesCodeAgentOverrides;
+  currentExecutionConfig?: TypesSpecTaskExecutionConfig;
   sandboxResourceOverrides?: TypesSandboxResourceOverrides;
   onAgentModelChange: (agentId: string, value: TypesCodeAgentOverrides) => MaybePromise;
   onSandboxResourceOverridesChange: (value: TypesSandboxResourceOverrides) => MaybePromise;
@@ -115,6 +117,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   agents,
   selectedAgentId,
   codeAgentOverrides = {},
+  currentExecutionConfig,
   sandboxResourceOverrides,
   onAgentModelChange,
   onSandboxResourceOverridesChange,
@@ -140,11 +143,14 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     [agents, selectedAgentId],
   );
   const assistant = useMemo(() => getAssistant(agent), [agent]);
-  const runtime = assistant?.code_agent_runtime || "zed_agent";
-  const effectiveModel = codeAgentOverrides.model || getBaseModel(assistant);
-  const effectiveProvider = codeAgentOverrides.provider_ref || getBaseProvider(assistant);
-  const effectiveEffort = codeAgentOverrides.reasoning_effort || assistant?.reasoning_effort || "default";
-  const effectiveTier = codeAgentOverrides.service_tier || "standard";
+  const runtime = assistant?.code_agent_runtime || currentExecutionConfig?.runtime || "zed_agent";
+  const effectiveModel = codeAgentOverrides.model || getBaseModel(assistant) || currentExecutionConfig?.model || "";
+  const effectiveProvider = codeAgentOverrides.provider_ref || getBaseProvider(assistant) || currentExecutionConfig?.provider_ref || "";
+  const effectiveEffort = codeAgentOverrides.reasoning_effort
+    || assistant?.reasoning_effort
+    || currentExecutionConfig?.reasoning_effort
+    || "default";
+  const effectiveTier = codeAgentOverrides.service_tier || currentExecutionConfig?.service_tier || "standard";
   const effortOptions = getCodeAgentEffortOptions(runtime);
   const effectiveSandboxResources = sandboxResourceOverrides?.vcpus
     ? sandboxResourceOverrides
@@ -231,12 +237,13 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
         spacing={0.25}
         sx={{ minWidth: 0, flexWrap: compact ? "nowrap" : "wrap" }}
       >
-        {agent && (
+        {(agent || currentExecutionConfig || agents.length > 0) && (
           <SpecTaskModelPicker
             agents={agents}
             selectedAgentId={selectedAgentId}
             model={effectiveModel}
             providerRefValue={effectiveProvider}
+            currentExecutionConfig={currentExecutionConfig}
             disabled={controlsDisabled}
             onSelectAgentModel={selectModel}
           />

@@ -86,6 +86,7 @@ import {
   useProjectLabels,
   useAddLabel,
   useRemoveLabel,
+  useGetSpecTaskExecutionConfig,
   useUpdateSpecTaskExecutionConfig,
 } from "../../services/specTaskService";
 import {
@@ -271,6 +272,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!taskId,
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   });
+  const { data: currentExecutionConfig } = useGetSpecTaskExecutionConfig(
+    taskId,
+    !!task?.helix_app_id || !!task?.planning_session_id,
+  );
   const { data: projectTasks = [] } = useSpecTasks({
     projectId: task?.project_id,
     withDependsOn: true,
@@ -1854,6 +1859,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           agents={eligibleApps}
           selectedAgentId={task?.helix_app_id || ""}
           codeAgentOverrides={task?.code_agent_overrides}
+          currentExecutionConfig={currentExecutionConfig}
           sandboxResourceOverrides={task?.sandbox_resource_overrides}
           onAgentModelChange={handleAgentModelChange}
           onSandboxResourceOverridesChange={handleSandboxResourcesChange}
@@ -2456,6 +2462,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       agents={eligibleApps}
                       selectedAgentId={task.helix_app_id || ""}
                       codeAgentOverrides={task.code_agent_overrides}
+                      currentExecutionConfig={currentExecutionConfig}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       onAgentModelChange={handleAgentModelChange}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
@@ -3215,6 +3222,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       agents={eligibleApps}
                       selectedAgentId={task.helix_app_id || ""}
                       codeAgentOverrides={task.code_agent_overrides}
+                      currentExecutionConfig={currentExecutionConfig}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       onAgentModelChange={handleAgentModelChange}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
