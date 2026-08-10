@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -1078,7 +1079,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Int("json_api_routes", len(extras)).
 		Msg("helix-org mounted at /api/v1/orgs/{org}/helix-org/")
 	scope := newHelixOrgScope(configReg, st, helixStore, mirror, slackRouteReconciler, helixEventsReconciler)
-	scope.botRepair = func(ctx context.Context, orgID string) error {
+	scope.botRepair = func(ctx context.Context, orgID, serviceKey string) error {
+		if err := repairHelixOrgMCPServiceKeys(ctx, orgID, serviceKey, configReg, st, inProcClient); err != nil {
+			return err
+		}
 		return repairNeverActivatedBots(ctx, orgID, st, dispatcher, configReg, inProcClient)
 	}
 
@@ -1241,8 +1245,8 @@ type dynamicProjectApplier struct {
 	cfg        *configregistry.Registry
 	projectSvc runtimehelix.ProjectService
 	Store      *helixorgstore.Store
-	// helixStore is the main Helix store, used only to resolve the org's
-	// display name for the `<Bot> @ <Org>` project label.
+	// helixStore is the main Helix store, used to validate the service API
+	// key and resolve the org's display name for the `<Bot> @ <Org>` label.
 	helixStore helixstore.Store
 	logger     *slog.Logger
 }
@@ -1259,7 +1263,7 @@ type dynamicProjectApplier struct {
 // The Spawner does the same on its own activations; owner-chat goes
 // through this path only.
 func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID orgchart.NodeID) (projectID, agentAppID, repoID string, err error) {
-	applier, mcpBearer, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.logger)
+	applier, mcpBearer, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.helixStore, d.projectSvc, d.Store, d.logger)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1317,13 +1321,14 @@ func buildHelixOrgProjectApplier(
 	ctx context.Context,
 	orgID string,
 	cfg *configregistry.Registry,
+	helixStore helixstore.Store,
 	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
 	logger *slog.Logger,
 ) (*runtimehelix.WorkerProject, string, error) {
-	apiKey, _ := cfg.GetString(ctx, orgID, "helix.api_key")
-	if apiKey == "" {
-		return nil, "", fmt.Errorf("helix.api_key not set")
+	apiKey, err := helixorg.NewHelixAPIKeys(helixStore, cfg).Service(ctx, orgID)
+	if err != nil {
+		return nil, "", fmt.Errorf("provision helix-org service api key: %w", err)
 	}
 	baseURL, err := cfg.GetString(ctx, orgID, "helix.url")
 	if err != nil {
@@ -1388,6 +1393,33 @@ func workerRuntimeSupportsSubscription(runtime string) bool {
 	return runtime == "claude_code" || runtime == "codex_cli"
 }
 
+func repairHelixOrgMCPServiceKeys(ctx context.Context, orgID, serviceKey string, cfg *configregistry.Registry, st *helixorgstore.Store, projectSvc runtimehelix.ProjectService) error {
+	baseURL, err := cfg.GetString(ctx, orgID, "helix.url")
+	if err != nil {
+		return fmt.Errorf("read helix.url: %w", err)
+	}
+	workers, err := st.Nodes.List(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("list bots for MCP service-key repair: %w", err)
+	}
+	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org/" + orgID
+	var repairErrors []error
+	for _, worker := range workers {
+		if worker.AgentID == "" {
+			continue
+		}
+		if err := runtimehelix.AttachHelixOrgMCP(ctx, projectSvc, worker.AgentID, helixOrgURL, worker.ID, serviceKey); err != nil {
+			if errors.Is(err, helixstore.ErrNotFound) {
+				log.Warn().Str("org_id", orgID).Str("bot_id", worker.ID).Str("app_id", worker.AgentID).Msg("repair helix-org MCP service key skipped missing app")
+				continue
+			}
+			log.Warn().Err(err).Str("org_id", orgID).Str("bot_id", worker.ID).Str("app_id", worker.AgentID).Msg("repair helix-org MCP service key failed")
+			repairErrors = append(repairErrors, fmt.Errorf("repair helix-org MCP for bot %s: %w", worker.ID, err))
+		}
+	}
+	return errors.Join(repairErrors...)
+}
+
 // buildHelixOrgSpawnerConfig assembles the SpawnerConfig for
 // helix-org's production zed_external Spawner. The embedded SaaS
 // runs Workers on the `claude_code` runtime with subscription
@@ -1440,9 +1472,9 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 	if d.ProjectSvc == nil {
 		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix-org spawner: ProjectService is required")
 	}
-	apiKey, _ := d.Cfg.GetString(ctx, orgID, "helix.api_key")
-	if apiKey == "" {
-		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix.api_key not set")
+	apiKey, err := helixorg.NewHelixAPIKeys(d.HelixStore, d.Cfg).Service(ctx, orgID)
+	if err != nil {
+		return runtimehelix.SpawnerConfig{}, fmt.Errorf("provision helix-org service api key: %w", err)
 	}
 	baseURL, err := d.Cfg.GetString(ctx, orgID, "helix.url")
 	if err != nil {
