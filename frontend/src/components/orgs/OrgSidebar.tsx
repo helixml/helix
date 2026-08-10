@@ -8,7 +8,6 @@ import {
   BarChart as ChartIcon,
   KeyRound,
   Plug,
-  ClipboardList,
   GitBranch,
   FileText,
   MessageSquare,
@@ -89,13 +88,6 @@ const OrgSidebar: FC = () => {
           icon: <ChartIcon size={20} />,
           isActive: currentRouteName === 'org_usage',
           onClick: () => handleNavigationClick('org_usage'),
-        },
-        {
-          id: 'qa',
-          label: 'Question Sets',
-          icon: <ClipboardList size={20} />,
-          isActive: currentRouteName === 'org_qa' || currentRouteName === 'org_qa-results',
-          onClick: () => handleNavigationClick('org_qa'),
         },
         {
           id: 'api_keys',

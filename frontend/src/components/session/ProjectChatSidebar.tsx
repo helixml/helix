@@ -357,11 +357,6 @@ const ProjectChatSidebar: FC<{
   const openItem = (item: SidebarItem) => {
     if (item.kind === 'spec-task' && item.projectId) {
       account.orgNavigate('chat-task', { id: item.projectId, taskId: item.id })
-    } else if (item.session?.question_set_execution_id) {
-      account.orgNavigate('qa-results', {
-        question_set_id: item.session.question_set_id,
-        execution_id: item.session.question_set_execution_id,
-      })
     } else {
       account.orgNavigate('session', { session_id: item.id })
     }

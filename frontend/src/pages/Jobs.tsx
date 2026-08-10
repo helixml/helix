@@ -379,7 +379,7 @@ const Jobs: FC = () => {
 
   // List job sessions for this project
   const { data: sessionsData } = useListSessions(
-    orgId, undefined, undefined, selectedProjectId, 0, 50,
+    orgId, undefined, selectedProjectId, 0, 50,
     { enabled: !!selectedProjectId }
   )
 

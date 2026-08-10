@@ -847,9 +847,6 @@ type Session struct {
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
 
-	QuestionSetID          string `json:"question_set_id"`           // The question set this session belongs to, if any
-	QuestionSetExecutionID string `json:"question_set_execution_id"` // The question set execution this session belongs to, if any
-
 	Trigger string `json:"trigger"`
 
 	// SandboxID tracks which sandbox instance is running this session's dev container (if any)
@@ -1217,9 +1214,6 @@ type SessionSummary struct {
 	Archived       bool   `json:"archived"`
 	AppID          string `json:"app_id,omitempty"`
 	OrganizationID string `json:"organization_id,omitempty"`
-
-	QuestionSetID          string `json:"question_set_id"`
-	QuestionSetExecutionID string `json:"question_set_execution_id"`
 
 	// Metadata includes container information for external agent sessions
 	Metadata SessionMetadata `json:"metadata,omitempty"`
@@ -3227,72 +3221,6 @@ type TriggerExecution struct {
 	Error                  string                 `json:"error"`
 	Output                 string                 `json:"output"`
 	SessionID              string                 `json:"session_id"`
-}
-
-// QuestionSet represents a set of questions to be asked to a model/agent
-type QuestionSet struct {
-	ID             string     `json:"id"`
-	Created        time.Time  `json:"created"`
-	Updated        time.Time  `json:"updated"`
-	UserID         string     `json:"user_id"`         // Creator of the question set
-	OrganizationID string     `json:"organization_id"` // The organization this session belongs to, if any
-	Name           string     `json:"name"`
-	Description    string     `json:"description"`
-	Questions      []Question `json:"questions" gorm:"type:jsonb;serializer:json"`
-}
-
-// Question - question that will be asked to the agent/model
-type Question struct {
-	ID       string    `json:"id"`
-	Created  time.Time `json:"created"`
-	Updated  time.Time `json:"updated"`
-	Question string    `json:"question"`
-}
-
-type ListQuestionSetsRequest struct {
-	UserID         string
-	OrganizationID string
-}
-
-type ExecuteQuestionSetRequest struct {
-	QuestionSetID string `json:"question_set_id"`
-	AppID         string `json:"app_id"`
-}
-
-// ExecuteQuestionSetResponse contains the response to each question in the question set
-// Each response is a unique session where users can drill down into the response and ask follow-up questions
-type ExecuteQuestionSetResponse struct {
-	Results []QuestionResponse `json:"results"`
-}
-
-type QuestionResponse struct {
-	QuestionID    string `json:"question_id"`    // ID of the question
-	Question      string `json:"question"`       // Original question
-	SessionID     string `json:"session_id"`     // Session ID
-	InteractionID string `json:"interaction_id"` // Interaction ID
-	Response      string `json:"response"`       // Response
-	Error         string `json:"error"`          // Error
-}
-
-type QuestionSetExecutionStatus string
-
-const (
-	QuestionSetExecutionStatusPending QuestionSetExecutionStatus = "pending"
-	QuestionSetExecutionStatusRunning QuestionSetExecutionStatus = "running"
-	QuestionSetExecutionStatusSuccess QuestionSetExecutionStatus = "success"
-	QuestionSetExecutionStatusError   QuestionSetExecutionStatus = "error"
-)
-
-type QuestionSetExecution struct {
-	ID            string                     `json:"id"`
-	Created       time.Time                  `json:"created"`
-	Updated       time.Time                  `json:"updated"`
-	QuestionSetID string                     `json:"question_set_id"`
-	AppID         string                     `json:"app_id"`
-	DurationMs    int64                      `json:"duration_ms"`
-	Status        QuestionSetExecutionStatus `json:"status"`
-	Error         string                     `json:"error"`
-	Results       []QuestionResponse         `json:"results" gorm:"type:jsonb;serializer:json"`
 }
 
 type Event int

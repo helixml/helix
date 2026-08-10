@@ -38,8 +38,6 @@ const (
 	TransactionPrefix          = "txn_"
 	TopUpPrefix                = "top_"
 	MemoryPrefix               = "mem_"
-	QuestionSetPrefix          = "qs_"
-	QuestionSetExecutionPrefix = "qsex_"
 	SpecTaskPrefix             = "spt_"
 	ProjectPrefix              = "prj_"
 	CloneGroupPrefix           = "clg_"
@@ -188,14 +186,6 @@ func GenerateTopUpID() string {
 
 func GenerateMemoryID() string {
 	return fmt.Sprintf("%s%s", MemoryPrefix, newID())
-}
-
-func GenerateQuestionSetID() string {
-	return fmt.Sprintf("%s%s", QuestionSetPrefix, newID())
-}
-
-func GenerateQuestionSetExecutionID() string {
-	return fmt.Sprintf("%s%s", QuestionSetExecutionPrefix, newID())
 }
 
 func GenerateSpecTaskID() string {

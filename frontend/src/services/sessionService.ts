@@ -39,13 +39,12 @@ export interface ListSessionsFilters {
 // The "sessions" prefix is what every invalidation matches on, so it must stay
 // first; the rest is a single object so new filters can be added without another
 // positional argument.
-export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId?: string, appId?: string, filters: ListSessionsFilters = {}) => [
+export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, projectId?: string, appId?: string, filters: ListSessionsFilters = {}) => [
   "sessions",
   orgId,
   page,
   pageSize,
   search,
-  questionSetExecutionId,
   projectId,
   appId,
   {
@@ -106,16 +105,15 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
   })
 }
 
-export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: ListSessionsFilters & { enabled?: boolean }, appId?: string) {
+export function useListSessions(orgId?: string, search?: string, projectId?: string, page?: number, pageSize?: number, options?: ListSessionsFilters & { enabled?: boolean }, appId?: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
   return useQuery({
-    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? '', appId ?? '', options),
+    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', projectId ?? '', appId ?? '', options),
     queryFn: () => apiClient.v1SessionsList({
       org_id: orgId,
       search: search,
-      question_set_execution_id: questionSetExecutionId,
       page: page,
       page_size: pageSize,
       project_id: projectId,
