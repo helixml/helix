@@ -58,9 +58,21 @@ type ServerConfig struct {
 	OrphanReaperInterval time.Duration `envconfig:"HELIX_ORPHAN_REAPER_INTERVAL" default:"30m"`
 
 	// OrphanReaperGracePeriod is the minimum age a resource must reach before
-	// the reaper will destroy it. Guards against racing newly-created resources
-	// the DB live-set hasn't caught up with yet.
-	OrphanReaperGracePeriod time.Duration `envconfig:"HELIX_ORPHAN_REAPER_GRACE_PERIOD" default:"6h"`
+	// the reaper will destroy it.
+	//
+	// This is NOT merely a race guard against newly-created resources. Reaping a
+	// spec-task workspace destroys the agent's working directory — including
+	// .claude-state, which holds the Claude Code transcript — so the window is
+	// really "how long after a task finishes might someone still want to pick it
+	// back up". At the previous 6h, a PR merged at 14:04 had its workspace
+	// deleted the same evening, breaking the shell of a container that was still
+	// running and losing the thread history irrecoverably.
+	//
+	// 30 days: bringing a finished task back to life days or weeks later is
+	// normal, and losing its conversation history is not an acceptable cost for
+	// reclaiming disk early. Disk pressure should be handled by surfacing usage
+	// (and by Keep Alive being visible in the UI), not by a short fuse.
+	OrphanReaperGracePeriod time.Duration `envconfig:"HELIX_ORPHAN_REAPER_GRACE_PERIOD" default:"720h"`
 
 	// OrphanReaperDryRun, when true, makes the reaper report what it WOULD reap
 	// without destroying anything. Defaults to FALSE so garbage collection
