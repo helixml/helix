@@ -52,6 +52,8 @@ const SANDBOX_PRESETS = [
   { vcpus: 8, memory_mb: 16384, label: "8 CPU", description: "16 GB RAM" },
 ] as const;
 
+const DEFAULT_SANDBOX_PRESET = SANDBOX_PRESETS[1];
+
 const compactButtonSx = {
   height: 28,
   minWidth: 0,
@@ -144,9 +146,10 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   const effectiveEffort = codeAgentOverrides.reasoning_effort || assistant?.reasoning_effort || "default";
   const effectiveTier = codeAgentOverrides.service_tier || "standard";
   const effortOptions = getCodeAgentEffortOptions(runtime);
-  const sandboxLabel = sandboxResourceOverrides?.vcpus
-    ? `${sandboxResourceOverrides.vcpus} vCPU`
-    : "Uncapped";
+  const effectiveSandboxResources = sandboxResourceOverrides?.vcpus
+    ? sandboxResourceOverrides
+    : DEFAULT_SANDBOX_PRESET;
+  const sandboxLabel = `${effectiveSandboxResources.vcpus} vCPU`;
   const effortLabel = effortOptions.find((option) => option.value === effectiveEffort)?.label || effectiveEffort;
   const agentSettingsLabel = runtime === "codex_cli" && effectiveTier === "fast"
     ? `${effortLabel} · Fast`
@@ -334,13 +337,13 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
         {SANDBOX_PRESETS.map((preset) => (
           <MenuItem
             key={preset.vcpus}
-            selected={preset.vcpus === sandboxResourceOverrides?.vcpus}
+            selected={preset.vcpus === effectiveSandboxResources.vcpus}
             onClick={() => void selectSandbox(preset)}
           >
             <Box>
               <Typography variant="body2">{preset.vcpus} vCPU</Typography>
               <Typography variant="caption" color="text.secondary">
-                {preset.description}{preset.vcpus === 4 ? " · New task default" : ""}
+                {preset.description}{preset.vcpus === DEFAULT_SANDBOX_PRESET.vcpus ? " · Default" : ""}
               </Typography>
             </Box>
           </MenuItem>

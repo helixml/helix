@@ -114,6 +114,20 @@ describe("SpecTaskExecutionControls", () => {
     await waitFor(() => expect(resize).toHaveBeenCalledWith({ vcpus: 8, memory_mb: 16384 }));
   });
 
+  it("shows the effective 4 vCPU default for legacy tasks without an override", () => {
+    render(
+      <SpecTaskExecutionControls
+        agents={[codexAgent]}
+        selectedAgentId={codexAgent.id}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Change sandbox size" })).toHaveTextContent("4 vCPU");
+    expect(screen.queryByText("Uncapped")).not.toBeInTheDocument();
+  });
+
   it("warns about thread and cache loss before a live effort change", async () => {
     const update = vi.fn().mockResolvedValue(undefined);
     render(

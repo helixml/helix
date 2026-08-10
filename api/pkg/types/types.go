@@ -2076,8 +2076,8 @@ type DesktopAgent struct {
 	// Golden build mode: session builds a golden Docker cache snapshot
 	GoldenBuild bool `json:"golden_build,omitempty"`
 
-	// Optional task-level resource limits. Zero preserves the existing uncapped
-	// behaviour used by legacy SpecTasks and non-task desktop sessions.
+	// Optional task-level resource limits. SpecTask launchers resolve zero values
+	// to the task default; non-task desktop sessions remain unchanged.
 	VCPUs    int `json:"vcpus,omitempty"`
 	MemoryMB int `json:"memory_mb,omitempty"`
 

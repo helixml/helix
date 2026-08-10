@@ -129,6 +129,7 @@ func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
 		func(_ context.Context, task *types.SpecTask) error {
 			require.Equal(t, "starter", task.AssigneeID)
 			require.Equal(t, "starter", task.PlanningStartedBy)
+			require.Equal(t, types.DefaultSpecTaskSandboxResources(), task.SandboxResourceOverrides)
 			return nil
 		},
 	)

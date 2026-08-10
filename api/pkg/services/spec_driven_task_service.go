@@ -136,6 +136,10 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
 		return nil, fmt.Errorf("invalid sandbox resource preset")
 	}
+	sandboxResources := req.SandboxResourceOverrides
+	if sandboxResources == nil {
+		sandboxResources = types.DefaultSpecTaskSandboxResources()
+	}
 	// Fetch project to get organization ID and default agent
 	var project *types.Project
 	if req.ProjectID != "" {
@@ -210,7 +214,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		PlanningStartedBy:        planningStartedBy,
 		HelixAppID:               helixAppID, // Helix agent used for entire workflow
 		CodeAgentOverrides:       req.CodeAgentOverrides,
-		SandboxResourceOverrides: req.SandboxResourceOverrides,
+		SandboxResourceOverrides: sandboxResources,
 		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
 		// Credential-only override: whose Claude subscription authenticates this
 		// task's agent. Enforced at resolution time against the named user's
@@ -1119,17 +1123,17 @@ Follow these guidelines when making changes:
 }
 
 func sandboxVCPUs(task *types.SpecTask) int {
-	if task == nil || task.SandboxResourceOverrides == nil {
+	if task == nil {
 		return 0
 	}
-	return task.SandboxResourceOverrides.VCPUs
+	return types.EffectiveSpecTaskSandboxResources(task.SandboxResourceOverrides).VCPUs
 }
 
 func sandboxMemoryMB(task *types.SpecTask) int {
-	if task == nil || task.SandboxResourceOverrides == nil {
+	if task == nil {
 		return 0
 	}
-	return task.SandboxResourceOverrides.MemoryMB
+	return types.EffectiveSpecTaskSandboxResources(task.SandboxResourceOverrides).MemoryMB
 }
 
 // buildEnvWithLocale constructs the environment variable array for desktop containers

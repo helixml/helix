@@ -81,7 +81,7 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 			if response.SandboxResourcesApplied {
 				rollback := oldResources
 				if rollback == nil {
-					rollback = &types.SandboxResourceOverrides{}
+					rollback = types.DefaultSpecTaskSandboxResources()
 				}
 				if rollbackErr := s.externalAgentExecutor.UpdateDesktopResources(context.Background(), task.PlanningSessionID, rollback); rollbackErr != nil {
 					log.Error().Err(rollbackErr).Str("task_id", task.ID).Msg("Failed to roll back sandbox resources after task update failure")

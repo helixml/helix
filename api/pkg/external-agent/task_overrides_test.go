@@ -78,3 +78,9 @@ func TestSandboxResourceOverridesValidPreset(t *testing.T) {
 	require.False(t, (types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 4096}).ValidPreset())
 	require.False(t, (types.SandboxResourceOverrides{}).ValidPreset())
 }
+
+func TestEffectiveSpecTaskSandboxResourcesUsesDefault(t *testing.T) {
+	resources := types.EffectiveSpecTaskSandboxResources(nil)
+	require.Equal(t, types.DefaultSpecTaskSandboxVCPUs, resources.VCPUs)
+	require.Equal(t, types.DefaultSpecTaskSandboxMemoryMB, resources.MemoryMB)
+}

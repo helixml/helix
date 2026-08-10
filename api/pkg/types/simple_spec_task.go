@@ -91,12 +91,31 @@ type CodeAgentOverrides struct {
 	ServiceTier     string `json:"service_tier,omitempty"`
 }
 
+const (
+	DefaultSpecTaskSandboxVCPUs    = 4
+	DefaultSpecTaskSandboxMemoryMB = 8192
+)
+
 // SandboxResourceOverrides is the desired CPU and memory limit for the single
-// desktop container owned by a SpecTask. A nil value preserves the legacy
-// uncapped behaviour for existing tasks.
+// desktop container owned by a SpecTask. A nil value resolves to the SpecTask
+// default so legacy tasks and newly-created tasks run with the same limits.
 type SandboxResourceOverrides struct {
 	VCPUs    int `json:"vcpus,omitempty"`
 	MemoryMB int `json:"memory_mb,omitempty"`
+}
+
+func DefaultSpecTaskSandboxResources() *SandboxResourceOverrides {
+	return &SandboxResourceOverrides{
+		VCPUs:    DefaultSpecTaskSandboxVCPUs,
+		MemoryMB: DefaultSpecTaskSandboxMemoryMB,
+	}
+}
+
+func EffectiveSpecTaskSandboxResources(resources *SandboxResourceOverrides) SandboxResourceOverrides {
+	if resources == nil {
+		return *DefaultSpecTaskSandboxResources()
+	}
+	return *resources
 }
 
 func (r SandboxResourceOverrides) ValidPreset() bool {
