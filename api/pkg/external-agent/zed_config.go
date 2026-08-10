@@ -107,7 +107,6 @@ func GenerateZedMCPConfig(
 	projectSkills *types.AssistantSkills,
 	oauthTokenGetter OAuthTokenGetter,
 	providerSnapshot []ProviderRef,
-	organizationID string,
 	orgWorkerID string,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
@@ -355,9 +354,9 @@ func GenerateZedMCPConfig(
 		}
 	}
 
-	if organizationID != "" && orgWorkerID != "" {
+	if orgWorkerID != "" {
 		config.ContextServers["helix"] = ContextServerConfig{
-			URL: fmt.Sprintf("%s/api/v1/mcp/helix-org/%s/workers/%s/mcp", strings.TrimRight(helixAPIURL, "/"), organizationID, orgWorkerID),
+			URL: strings.TrimRight(helixAPIURL, "/") + "/api/v1/mcp/helix-org",
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -876,7 +875,7 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	// Runner-side path has no provider-manager handle, so we skip provider
 	// validation here. The handler-side callers (getZedConfig,
 	// getMergedZedSettings) do pass the live provider list.
-	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil, session.OrganizationID, session.Metadata.OrgWorkerID)
+	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil, session.Metadata.OrgWorkerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}

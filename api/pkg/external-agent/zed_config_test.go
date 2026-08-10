@@ -21,7 +21,6 @@ func TestGenerateZedMCPConfigAllowsUnsandboxedCommands(t *testing.T) {
 		nil,
 		nil,
 		"",
-		"",
 	)
 	assert.NoError(t, err)
 	if assert.NotNil(t, config.Agent) {
@@ -223,7 +222,6 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				nil,
 				tc.snapshot,
 				"",
-				"",
 			)
 			assert.NoError(t, err)
 			if !assert.NotNil(t, cfg) || !assert.NotNil(t, cfg.Agent) {
@@ -265,12 +263,11 @@ func TestGenerateZedMCPConfigAddsDirectHelixOrgMCP(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		"org_test",
 		"b-worker",
 	)
 	assert.NoError(t, err)
 	assert.Equal(t, ContextServerConfig{
-		URL: "http://sandbox-api:8080/api/v1/mcp/helix-org/org_test/workers/b-worker/mcp",
+		URL: "http://sandbox-api:8080/api/v1/mcp/helix-org",
 		Headers: map[string]string{
 			"Authorization": "Bearer session-token",
 		},
