@@ -37,8 +37,6 @@ import Sandboxes from './pages/Sandboxes'
 import SandboxDetail from './pages/SandboxDetail'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
-import QuestionSets from './pages/QuestionSets'
-import QuestionSetResults from './pages/QuestionSetResults'
 import GitRepoDetail from './pages/GitRepoDetail'
 import PasswordReset from './pages/PasswordReset'
 import PasswordResetComplete from './pages/PasswordResetComplete'
@@ -225,16 +223,6 @@ const routes: IApplicationRoute[] = [
     <GitRepoDetail />
   ),
 }, {
-  name: 'org_qa',
-  path: '/orgs/:org_id/qa',
-  meta: {
-    drawer: true,
-    title: 'Q&A',
-  },
-  render: () => (
-    <QuestionSets />
-  ),
-}, {
   name: 'org_provider_detail',
   path: '/orgs/:org_id/providers/:provider_id',
   meta: {
@@ -388,16 +376,6 @@ const routes: IApplicationRoute[] = [
     topbar: false,
   },
   render: () => <RouteRedirect route="org_session" />,
-}, {
-  name: 'org_qa-results',
-  path: '/orgs/:org_id/qa-results/:question_set_id/:execution_id',
-  meta: {
-    drawer: true,
-    topbar: false,
-  },
-  render: () => (
-    <QuestionSetResults />
-  ),
 }, {
   name: 'import-agent',
   path: '/import-agent',

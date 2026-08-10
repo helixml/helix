@@ -1,0 +1,3 @@
+-- No-op rollback. The question sets feature has been removed from the
+-- code; recreating empty tables and columns without the handlers, store
+-- methods and UI that used them would serve no purpose.

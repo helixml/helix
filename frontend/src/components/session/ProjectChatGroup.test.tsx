@@ -23,8 +23,8 @@ vi.mock('../../hooks/useLightTheme', () => ({
 
 vi.mock('../../services/sessionService', () => ({
   useListSessions: (...args: unknown[]) => {
-    const pageSize = args[5] as number
-    mocks.sessionOptions.push(args[6])
+    const pageSize = args[4] as number
+    mocks.sessionOptions.push(args[5])
     const sessions = mocks.emptySessions
       ? []
       : Array.from({ length: pageSize }, (_, index) => ({

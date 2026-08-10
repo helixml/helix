@@ -46,24 +46,22 @@ type OwnerQuery struct {
 }
 
 type ListSessionsQuery struct {
-	Owner                  string          `json:"owner"`
-	OwnerType              types.OwnerType `json:"owner_type"`
-	ParentSession          string          `json:"parent_session"`
-	OrganizationID         string          `json:"organization_id"` // The organization this session belongs to, if any
-	Page                   int             `json:"page"`
-	PerPage                int             `json:"per_page"`
-	Search                 string          `json:"search"`
-	QuestionSetID          string          `json:"question_set_id"`
-	QuestionSetExecutionID string          `json:"question_set_execution_id"`
-	AppID                  string          `json:"app_id"`
-	ProjectID              string          `json:"project_id"`
-	ProjectScope           string          `json:"project_scope"` // "project" returns direct project chats; "none" returns ungrouped chats
-	SortBy                 string          `json:"sort_by"`
-	SessionRole            string          `json:"session_role"`  // Filter by session role (e.g. "job")
-	ExcludeRoles           []string        `json:"exclude_roles"` // Exclude sessions with these roles
-	IncludeExternalAgents  bool            `json:"include_external_agents"`
-	ExcludeArchived        bool            `json:"exclude_archived"` // Hide archived sessions
-	ArchivedOnly           bool            `json:"archived_only"`    // Return ONLY archived sessions; takes precedence over ExcludeArchived
+	Owner                 string          `json:"owner"`
+	OwnerType             types.OwnerType `json:"owner_type"`
+	ParentSession         string          `json:"parent_session"`
+	OrganizationID        string          `json:"organization_id"` // The organization this session belongs to, if any
+	Page                  int             `json:"page"`
+	PerPage               int             `json:"per_page"`
+	Search                string          `json:"search"`
+	AppID                 string          `json:"app_id"`
+	ProjectID             string          `json:"project_id"`
+	ProjectScope          string          `json:"project_scope"` // "project" returns direct project chats; "none" returns ungrouped chats
+	SortBy                string          `json:"sort_by"`
+	SessionRole           string          `json:"session_role"`  // Filter by session role (e.g. "job")
+	ExcludeRoles          []string        `json:"exclude_roles"` // Exclude sessions with these roles
+	IncludeExternalAgents bool            `json:"include_external_agents"`
+	ExcludeArchived       bool            `json:"exclude_archived"` // Hide archived sessions
+	ArchivedOnly          bool            `json:"archived_only"`    // Return ONLY archived sessions; takes precedence over ExcludeArchived
 }
 
 type ListAPIKeysQuery struct {
@@ -135,13 +133,6 @@ type ListTriggerExecutionsQuery struct {
 	TriggerID string
 	Offset    int
 	Limit     int
-}
-
-type ListQuestionSetExecutionsQuery struct {
-	QuestionSetID string
-	AppID         string
-	Offset        int
-	Limit         int
 }
 
 type ListUsersQuery struct {
@@ -791,18 +782,6 @@ type Store interface {
 	UpdateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error)
 	DeleteMemory(ctx context.Context, memory *types.Memory) error
 	ListMemories(ctx context.Context, q *types.ListMemoryRequest) ([]*types.Memory, error)
-
-	// Question set methods
-	CreateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error)
-	GetQuestionSet(ctx context.Context, id string) (*types.QuestionSet, error)
-	UpdateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error)
-	ListQuestionSets(ctx context.Context, req *types.ListQuestionSetsRequest) ([]*types.QuestionSet, error)
-	DeleteQuestionSet(ctx context.Context, id string) error
-
-	CreateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
-	GetQuestionSetExecution(ctx context.Context, id string) (*types.QuestionSetExecution, error)
-	UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
-	ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error)
 
 	// Evaluation suite methods
 	CreateEvaluationSuite(ctx context.Context, suite *types.EvaluationSuite) (*types.EvaluationSuite, error)

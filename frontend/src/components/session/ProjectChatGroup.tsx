@@ -123,7 +123,6 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   const sessionsQuery = useListSessions(
     orgId,
     undefined,
-    undefined,
     projectId,
     0,
     requestCount,

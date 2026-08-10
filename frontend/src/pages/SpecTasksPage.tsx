@@ -522,7 +522,6 @@ const SpecTasksPage: FC = () => {
   const { data: projectSessionsData } = useListSessions(
     project?.organization_id,
     undefined,
-    undefined,
     projectId,
     0,
     5,

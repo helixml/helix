@@ -267,7 +267,7 @@ const SidebarContentInner: React.FC<{
             showTopLinks &&
             (router.name !== 'org_agent' || (!!appTools.app && !isOrgAgent(appTools.app))) &&
             !isConversationRoute &&
-            (router.name === 'org_qa-results' || router.name === 'org_agent') && (
+            router.name === 'org_agent' && (
               <List disablePadding>
 
                 {/* New resource creation button */}

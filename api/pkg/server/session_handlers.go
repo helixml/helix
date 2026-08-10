@@ -150,8 +150,6 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   page            query    int     false  "Page number"
 // @Param   page_size       query    int     false  "Page size"
 // @Param   org_id				  query    string  false  "Organization slug or ID"
-// @Param   question_set_id query    string  false  "Question set ID"
-// @Param   question_set_execution_id query    string  false  "Question set execution ID"
 // @Param   app_id          query    string  false  "App ID"
 // @Param   search          query    string  false  "Search sessions by name"
 // @Param   project_id      query    string  false  "Project ID"
@@ -183,17 +181,15 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	archivedOnly := req.URL.Query().Get("archived") == "true"
 
 	query := store.ListSessionsQuery{
-		Search:                 req.URL.Query().Get("search"),
-		QuestionSetID:          req.URL.Query().Get("question_set_id"),
-		QuestionSetExecutionID: req.URL.Query().Get("question_set_execution_id"),
-		AppID:                  req.URL.Query().Get("app_id"),
-		ProjectID:              projectID,
-		ProjectScope:           projectScope,
-		SortBy:                 sortBy,
-		SessionRole:            req.URL.Query().Get("session_role"),
-		IncludeExternalAgents:  req.URL.Query().Get("include_external_agents") == "true",
-		ExcludeArchived:        !archivedOnly,
-		ArchivedOnly:           archivedOnly,
+		Search:                req.URL.Query().Get("search"),
+		AppID:                 req.URL.Query().Get("app_id"),
+		ProjectID:             projectID,
+		ProjectScope:          projectScope,
+		SortBy:                sortBy,
+		SessionRole:           req.URL.Query().Get("session_role"),
+		IncludeExternalAgents: req.URL.Query().Get("include_external_agents") == "true",
+		ExcludeArchived:       !archivedOnly,
+		ArchivedOnly:          archivedOnly,
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type

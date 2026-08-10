@@ -3606,15 +3606,6 @@ export interface TypesEvaluationSuite {
   user_id?: string;
 }
 
-export interface TypesExecuteQuestionSetRequest {
-  app_id?: string;
-  question_set_id?: string;
-}
-
-export interface TypesExecuteQuestionSetResponse {
-  results?: TypesQuestionResponse[];
-}
-
 export interface TypesExternalAgentConfig {
   /** Desktop environment */
   desktop_type?: string;
@@ -5411,60 +5402,6 @@ export interface TypesPushResponse {
   success?: boolean;
 }
 
-export interface TypesQuestion {
-  created?: string;
-  id?: string;
-  question?: string;
-  updated?: string;
-}
-
-export interface TypesQuestionResponse {
-  /** Error */
-  error?: string;
-  /** Interaction ID */
-  interaction_id?: string;
-  /** Original question */
-  question?: string;
-  /** ID of the question */
-  question_id?: string;
-  /** Response */
-  response?: string;
-  /** Session ID */
-  session_id?: string;
-}
-
-export interface TypesQuestionSet {
-  created?: string;
-  description?: string;
-  id?: string;
-  name?: string;
-  /** The organization this session belongs to, if any */
-  organization_id?: string;
-  questions?: TypesQuestion[];
-  updated?: string;
-  /** Creator of the question set */
-  user_id?: string;
-}
-
-export interface TypesQuestionSetExecution {
-  app_id?: string;
-  created?: string;
-  duration_ms?: number;
-  error?: string;
-  id?: string;
-  question_set_id?: string;
-  results?: TypesQuestionResponse[];
-  status?: TypesQuestionSetExecutionStatus;
-  updated?: string;
-}
-
-export enum TypesQuestionSetExecutionStatus {
-  QuestionSetExecutionStatusPending = "pending",
-  QuestionSetExecutionStatusRunning = "running",
-  QuestionSetExecutionStatusSuccess = "success",
-  QuestionSetExecutionStatusError = "error",
-}
-
 export interface TypesQuotaResponse {
   active_concurrent_desktops?: number;
   /**
@@ -6226,10 +6163,6 @@ export interface TypesSession {
    * stabilityai/stable-diffusion-xl-base-1.0
    */
   provider?: string;
-  /** The question set execution this session belongs to, if any */
-  question_set_execution_id?: string;
-  /** The question set this session belongs to, if any */
-  question_set_id?: string;
   /** SandboxID tracks which sandbox instance is running this session's dev container (if any) */
   sandbox_id?: string;
   trigger?: string;
@@ -6498,8 +6431,6 @@ export interface TypesSessionSummary {
   organization_id?: string;
   owner?: string;
   priority?: boolean;
-  question_set_execution_id?: string;
-  question_set_id?: string;
   session_id?: string;
   /** this is either the prompt or the summary of the training data */
   summary?: string;
@@ -15660,185 +15591,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List question sets for the current user or organization
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsList
-     * @summary List question sets
-     * @request GET:/api/v1/question-sets
-     * @secure
-     */
-    v1QuestionSetsList: (
-      query?: {
-        /** Organization ID or slug */
-        org_id?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesQuestionSet[], SystemHTTPError>({
-        path: `/api/v1/question-sets`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new question set
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsCreate
-     * @summary Create a new question set
-     * @request POST:/api/v1/question-sets
-     * @secure
-     */
-    v1QuestionSetsCreate: (questionSet: TypesQuestionSet, params: RequestParams = {}) =>
-      this.request<TypesQuestionSet, SystemHTTPError>({
-        path: `/api/v1/question-sets`,
-        method: "POST",
-        body: questionSet,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete a question set
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsDelete
-     * @summary Delete a question set
-     * @request DELETE:/api/v1/question-sets/{id}
-     * @secure
-     */
-    v1QuestionSetsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
-        path: `/api/v1/question-sets/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get a question set by ID
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsDetail
-     * @summary Get a question set by ID
-     * @request GET:/api/v1/question-sets/{id}
-     * @secure
-     */
-    v1QuestionSetsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesQuestionSet, SystemHTTPError>({
-        path: `/api/v1/question-sets/${id}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update a question set
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsUpdate
-     * @summary Update a question set
-     * @request PUT:/api/v1/question-sets/{id}
-     * @secure
-     */
-    v1QuestionSetsUpdate: (id: string, questionSet: TypesQuestionSet, params: RequestParams = {}) =>
-      this.request<TypesQuestionSet, SystemHTTPError>({
-        path: `/api/v1/question-sets/${id}`,
-        method: "PUT",
-        body: questionSet,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description List executions for the question set
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsExecutionsDetail
-     * @summary List question set executions
-     * @request GET:/api/v1/question-sets/{id}/executions
-     * @secure
-     */
-    v1QuestionSetsExecutionsDetail: (
-      id: string,
-      query?: {
-        /** Offset */
-        offset?: number;
-        /** Limit */
-        limit?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesQuestionSetExecution[], any>({
-        path: `/api/v1/question-sets/${id}/executions`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Execute a question set, this is a blocking operation and will return a response for each question in the question set
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsExecutionsCreate
-     * @summary Execute a question set
-     * @request POST:/api/v1/question-sets/{id}/executions
-     * @secure
-     */
-    v1QuestionSetsExecutionsCreate: (
-      id: string,
-      executeQuestionSetRequest: TypesExecuteQuestionSetRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesExecuteQuestionSetResponse, SystemHTTPError>({
-        path: `/api/v1/question-sets/${id}/executions`,
-        method: "POST",
-        body: executeQuestionSetRequest,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get results for a question set execution
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsExecutionsDetail2
-     * @summary Get question set execution results
-     * @request GET:/api/v1/question-sets/{question_set_id}/executions/{id}
-     * @originalName v1QuestionSetsExecutionsDetail
-     * @duplicate
-     * @secure
-     */
-    v1QuestionSetsExecutionsDetail2: (
-      id: string,
-      questionSetId: string,
-      query?: {
-        /** Format, one of: json (default), markdown */
-        format?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesQuestionSetExecution, any>({
-        path: `/api/v1/question-sets/${questionSetId}/executions/${id}`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Get quotas for the user. Returns current usage and limits for desktops, projects, repositories, and spec tasks. Optionally pass org_id query parameter to get organization quotas.
      *
      * @tags quotas
@@ -16561,10 +16313,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         page_size?: number;
         /** Organization slug or ID */
         org_id?: string;
-        /** Question set ID */
-        question_set_id?: string;
-        /** Question set execution ID */
-        question_set_execution_id?: string;
         /** App ID */
         app_id?: string;
         /** Search sessions by name */
