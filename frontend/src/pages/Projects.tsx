@@ -582,8 +582,6 @@ const Projects: FC = () => {
         return "Repositories";
       case "guidelines":
         return "Guidelines";
-      case "prompts":
-        return "Prompts";
       default:
         return "Projects";
     }
