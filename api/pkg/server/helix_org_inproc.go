@@ -724,18 +724,13 @@ func (c *inProcHelixClient) GetApp(ctx context.Context, id string) (*types.App, 
 
 // UpdateAppConfig persists a mutated app config.
 func (c *inProcHelixClient) UpdateAppConfig(ctx context.Context, id string, cfg types.AppConfig) error {
-	// updateAgent reads the existing app to preserve immutable fields, so
-	// we only need to send {id, config}.
-	body := types.App{
-		ID:     id,
-		Config: cfg,
-	}
-	r, err := c.newRequest(ctx, http.MethodPut, "/api/v1/agents/"+id, body, map[string]string{"id": id})
+	app, err := c.server.Store.GetApp(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("get app %s: %w", id, err)
 	}
-	if _, herr := c.server.updateAgent(nil, r); herr != nil {
-		return fmt.Errorf("update app %s: %s", id, herr.Error())
+	app.Config = cfg
+	if _, err := c.server.Store.UpdateApp(ctx, app); err != nil {
+		return fmt.Errorf("update app %s: %w", id, err)
 	}
 	return nil
 }
