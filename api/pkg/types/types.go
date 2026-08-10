@@ -2998,6 +2998,13 @@ type UsageCostBreakdownRow struct {
 	CacheReadCost    float64           `json:"-"`
 	CacheWriteCost   float64           `json:"-"`
 	TotalCost        float64           `json:"-"`
+	// DurationMs and TotalRequests carry timing at the same (date, provider,
+	// model, source) grain as the token columns, so the per-provider latency
+	// series can be derived from the same pass that resolves a row's display
+	// provider. Deriving it separately would key on the raw provider string
+	// and diverge from the provider breakdown whenever model info remaps it.
+	DurationMs    float64 `json:"-"`
+	TotalRequests int     `json:"-"`
 }
 
 type UsageFilterOption struct {

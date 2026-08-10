@@ -44,6 +44,12 @@ export interface ShadcnAreaChartProps {
   variant?: 'area' | 'line';
   /** Fixed Y-axis bounds for values with a known range. */
   yDomain?: [number, number];
+  /**
+   * Bridge gaps in a line series instead of breaking it. Use when a missing
+   * point means "no sample that day" rather than "measured zero" — bridging
+   * keeps a sparsely-sampled series readable as a trend.
+   */
+  connectNulls?: boolean;
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -121,6 +127,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   zeroIsData = false,
   variant = 'area',
   yDomain,
+  connectNulls = false,
 }) => {
   const lightTheme = useLightTheme();
   const Chart = variant === 'line' ? LineChart : AreaChart;
@@ -224,14 +231,14 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
               {series.map(s => variant === 'line' ? (
                 <Line
                   key={s.key}
-                  type="linear"
+                  type="monotone"
                   dataKey={s.key}
                   name={s.label}
                   stroke={s.color}
                   strokeWidth={2}
                   dot={{ r: 2.5, fill: s.color, strokeWidth: 0 }}
                   activeDot={{ r: 4, fill: s.color, strokeWidth: 0 }}
-                  connectNulls={false}
+                  connectNulls={connectNulls}
                   isAnimationActive={false}
                 />
               ) : (

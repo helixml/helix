@@ -40,6 +40,7 @@ import {
 type RangeKey = '7d' | '30d' | '90d'
 type UsageLoadingScope = 'filters' | 'projects' | 'tasks' | 'sessions' | 'users'
 type OverviewMetric = 'cost' | 'tokens'
+type LatencyMetric = 'per-request' | 'per-1k-output'
 type UsageChartRow = { date: string; [key: string]: number | string }
 
 const TOKEN_SERIES: ShadcnSeries[] = [
@@ -440,51 +441,6 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameCli
   lastActivity: <Typography variant="body2" color="text.secondary">{formatDateTime(row.last_activity_at)}</Typography>,
 })
 
-const LatencyTooltip: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null
-  return (
-    <Box sx={{ bgcolor: 'rgba(10,10,15,0.95)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, px: 1.5, py: 1 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-        {label ? new Date(label as string).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}
-      </Typography>
-      <Typography variant="body2">{formatMs(payload[0]?.value as number)}</Typography>
-    </Box>
-  )
-}
-
-const LatencyChart: FC<{ data: Array<{ date: string; latency: number }> }> = ({ data }) => {
-  const hasData = data.some(row => row.latency > 0)
-  return (
-    <Box sx={{ height: 300, bgcolor: 'rgba(0,0,0,0.2)', borderRadius: 2, p: 2 }}>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontWeight: 500, letterSpacing: '0.04em' }}>
-        LATENCY
-      </Typography>
-      {hasData ? (
-        <ResponsiveContainer width="100%" height={230}>
-          <LineChart data={data} margin={{ top: 10, right: 12, left: 16, bottom: 0 }}>
-            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-            <XAxis
-              dataKey="date"
-              tickLine={false}
-              axisLine={false}
-              tickMargin={8}
-              tick={{ fill: '#94A3B8', fontSize: 12 }}
-              tickFormatter={(v: string) => new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-            />
-            <YAxis tickLine={false} axisLine={false} tickMargin={10} width={80} tick={{ fill: '#94A3B8', fontSize: 12 }} tickFormatter={(v: number) => `${Math.round(v)}ms`} />
-            <Tooltip content={React.createElement(LatencyTooltip)} cursor={{ stroke: 'rgba(255,255,255,0.2)' }} />
-            <Line type="monotone" dataKey="latency" stroke="#14b8a6" strokeWidth={2} dot={false} isAnimationActive={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      ) : (
-        <Box sx={{ height: 230, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Typography variant="body2" color="text.secondary">No latency data</Typography>
-        </Box>
-      )}
-    </Box>
-  )
-}
-
 const buildModelChart = (series: TypesUsageModelTimeSeries[] = []): UsageChartRow[] => {
   const dates = new Map<string, UsageChartRow>()
   series.slice(0, CHART_COLORS.length).forEach(model => {
@@ -655,6 +611,7 @@ const OrgUsage: FC = () => {
   const [sessionPage, setSessionPage] = useState(0)
   const [sessionRowsPerPage, setSessionRowsPerPage] = useState(10)
   const [overviewMetric, setOverviewMetric] = useState<OverviewMetric>('cost')
+  const [latencyMetric, setLatencyMetric] = useState<LatencyMetric>('per-request')
   const [loadingScope, setLoadingScope] = useState<UsageLoadingScope | null>(null)
   const sessionId = useDebounce(sessionIdInput.trim(), 400)
   const userSearch = useDebounce(userSearchInput.trim(), 300)
@@ -851,10 +808,55 @@ const OrgUsage: FC = () => {
     color: CHART_COLORS[index],
   }))
 
-  const latencyData = useMemo(() => metrics.map(metric => ({
-    date: metric.date || '',
-    latency: metric.latency_ms ?? 0,
-  })), [metrics])
+  // Latency per provider. Mean request duration answers "how long does a call
+  // take", but it tracks response length as much as provider speed — a
+  // provider used for long agentic turns looks slow even when it streams
+  // faster. Normalising by output tokens is the comparison that actually
+  // ranks providers, so both are offered.
+  const latencyChartData = useMemo<UsageChartRow[]>(() => {
+    const byDate = new Map<string, UsageChartRow>()
+    for (const series of providerTimeSeries) {
+      const key = series.provider || 'unknown'
+      for (const metric of series.metrics || []) {
+        const date = metric.date || ''
+        let row = byDate.get(date)
+        if (!row) {
+          row = { date }
+          byDate.set(date, row)
+        }
+        // The API emits a zero-filled point for every provider on every date.
+        // Plotting those zeros drags each line to the floor and back on days a
+        // provider simply wasn't used, which reads as wild latency swings.
+        // Leave the key unset instead so the point is absent, and let the
+        // chart bridge the gap.
+        const requests = metric.total_requests ?? 0
+        if (requests === 0) continue
+        const meanMs = metric.latency_ms ?? 0
+        if (latencyMetric === 'per-request') {
+          row[key] = meanMs
+          continue
+        }
+        // Reconstruct total time from the mean the API publishes, then divide
+        // by output volume.
+        const completion = metric.completion_tokens ?? 0
+        if (completion <= 0) continue
+        row[key] = (meanMs * requests) / (completion / 1000)
+      }
+    }
+    return Array.from(byDate.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)))
+  }, [providerTimeSeries, latencyMetric])
+  const latencyChartSeries: ShadcnSeries[] = providerTimeSeries.map((item, index) => ({
+    key: item.provider || 'unknown',
+    label: item.name || item.provider || 'Unknown',
+    color: providerColor(item.provider || 'unknown', index, lightTheme.isLight),
+  }))
+  const latencyHeadline = useMemo(() => {
+    const values = latencyChartData.flatMap(row => latencyChartSeries
+      .map(s => Number(row[s.key]) || 0)
+      .filter(v => v > 0))
+    if (!values.length) return '—'
+    return formatMs(values.reduce((a, b) => a + b, 0) / values.length)
+  }, [latencyChartData, latencyChartSeries])
   const userOptions = usage.data?.filter_users || []
   const projectOptions = usage.data?.filter_projects || []
   const appOptions = usage.data?.filter_apps || []
@@ -1230,7 +1232,27 @@ const OrgUsage: FC = () => {
                     />
                   </UsagePanel>
                   <UsagePanel>
-                    <LatencyChart data={latencyData} />
+                    <Stack direction="row" alignItems="center" justifyContent="flex-end" sx={{ mb: 1 }}>
+                      <ToggleButtonGroup
+                        value={latencyMetric}
+                        exclusive
+                        size="small"
+                        onChange={(_, next: LatencyMetric | null) => next && setLatencyMetric(next)}
+                      >
+                        <ToggleButton value="per-request">Per request</ToggleButton>
+                        <ToggleButton value="per-1k-output">Per 1k output</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Stack>
+                    <ShadcnAreaChart
+                      title={latencyMetric === 'per-request' ? 'LATENCY BY PROVIDER' : 'LATENCY PER 1K OUTPUT TOKENS'}
+                      headline={latencyHeadline}
+                      data={latencyChartData}
+                      series={latencyChartSeries}
+                      valueFormatter={formatMs}
+                      stacked={false}
+                      variant="line"
+                      connectNulls
+                    />
                   </UsagePanel>
                 </Box>
 

@@ -392,6 +392,11 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 		metric.CacheReadTokens += row.CacheReadTokens
 		metric.CacheWriteTokens += row.CacheWriteTokens
 		metric.TotalCost += estimatedCost
+		// Accumulate total duration here and average it once all rows for the
+		// provider-day are in — averaging per row would weight a day with one
+		// slow call the same as a day with a thousand fast ones.
+		metric.LatencyMs += row.DurationMs
+		metric.TotalRequests += row.TotalRequests
 	}
 
 	for index := range summary.Models {
@@ -426,7 +431,15 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 			if metric == nil {
 				metric = &types.AggregatedUsageMetric{Date: totalMetric.Date}
 			}
-			series.Metrics = append(series.Metrics, *metric)
+			point := *metric
+			// LatencyMs accumulated total duration above; publish the mean per
+			// request, which is what the latency chart plots.
+			if point.TotalRequests > 0 {
+				point.LatencyMs = point.LatencyMs / float64(point.TotalRequests)
+			} else {
+				point.LatencyMs = 0
+			}
+			series.Metrics = append(series.Metrics, point)
 		}
 		summary.ProviderTimeSeries = append(summary.ProviderTimeSeries, series)
 	}
