@@ -339,7 +339,10 @@ func (s *HelixAPIServer) resolveModelProviderLive(ctx context.Context, modelName
 	}
 
 	if orgID != "" && orgID != ownerID {
-		if orgProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{Owner: orgID}); err == nil {
+		if orgProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+			Owner:     orgID,
+			OwnerType: types.OwnerTypeOrg,
+		}); err == nil {
 			endpoints = append(endpoints, orgProviders...)
 		}
 	}
