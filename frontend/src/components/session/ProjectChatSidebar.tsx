@@ -19,11 +19,12 @@ import {
   TypesExternalRepositoryType,
   TypesGitRepositoryType,
 } from '../../api/api'
-import type { TypesAzureDevOps, TypesGitRepository } from '../../api/api'
+import type { TypesAzureDevOps, TypesGitRepository, TypesProject } from '../../api/api'
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { useCreateGitRepository, useGitRepositories } from '../../services/gitRepositoryService'
 import { useListHelixOrgBots } from '../../services/helixOrgService'
 import { useListProjects } from '../../services/projectService'
@@ -49,6 +50,7 @@ import type { SidebarItem } from './ProjectChatSidebar.logic'
 import ProjectChatGroup from './ProjectChatGroup'
 import ProjectChatItemContextMenu from './ProjectChatItemContextMenu'
 import type { ProjectChatContextMenuPosition } from './ProjectChatItemContextMenu'
+import ProjectChatProjectContextMenu from './ProjectChatProjectContextMenu'
 import ProjectChatSidebarPeopleFilter from './ProjectChatSidebarPeopleFilter'
 import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
 import SortableProject from './SortableProject'
@@ -83,6 +85,7 @@ const ProjectChatSidebar: FC<{
   const router = useRouter()
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
+  const { openDialog } = useSettingsDialog()
   const orgSlug = router.params.org_id || ''
   const orgId = account.organizationTools.organization?.id || ''
   const currentUserId = account.user?.id || ''
@@ -97,6 +100,8 @@ const ProjectChatSidebar: FC<{
   const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
   const [contextMenuItem, setContextMenuItem] = useState<SidebarItem | null>(null)
   const [contextMenuPosition, setContextMenuPosition] = useState<ProjectChatContextMenuPosition | null>(null)
+  const [projectContextMenuProject, setProjectContextMenuProject] = useState<TypesProject | null>(null)
+  const [projectContextMenuPosition, setProjectContextMenuPosition] = useState<ProjectChatContextMenuPosition | null>(null)
   const [archivingItemId, setArchivingItemId] = useState<string | null>(null)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
@@ -339,6 +344,18 @@ const ProjectChatSidebar: FC<{
   const closeItemContextMenu = () => {
     setContextMenuItem(null)
     setContextMenuPosition(null)
+  }
+
+  const openProjectContextMenu = (event: MouseEvent<HTMLElement>, project: TypesProject) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setProjectContextMenuProject(project)
+    setProjectContextMenuPosition({ mouseX: event.clientX, mouseY: event.clientY })
+  }
+
+  const closeProjectContextMenu = () => {
+    setProjectContextMenuProject(null)
+    setProjectContextMenuPosition(null)
   }
 
   const toggleGroup = (groupId: string) => {
@@ -628,6 +645,7 @@ const ProjectChatSidebar: FC<{
                           : () => account.orgNavigate('chat', {}, { project_id: project.id })}
                         onOpenItem={openItem}
                         onOpenItemContextMenu={openItemContextMenu}
+                        onOpenProjectContextMenu={openProjectContextMenu}
                         onArchiveItem={requestArchive}
                         manualSorting={preferences.projectSortOrder === 'manual' && !query}
                         dragHandleProps={dragHandleProps}
@@ -647,6 +665,21 @@ const ProjectChatSidebar: FC<{
         item={contextMenuItem}
         position={contextMenuPosition}
         onClose={closeItemContextMenu}
+      />
+
+      <ProjectChatProjectContextMenu
+        project={projectContextMenuProject}
+        position={projectContextMenuPosition}
+        onClose={closeProjectContextMenu}
+        onOpenBoard={(project) => {
+          if (!project.id) return
+          account.orgNavigate('project-specs', { id: project.id })
+          onOpenSession()
+        }}
+        onOpenSettings={(project) => {
+          if (!project.id) return
+          openDialog('project-settings', { projectId: project.id })
+        }}
       />
 
       {archiveConfirmation && (
