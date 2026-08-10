@@ -22,6 +22,7 @@ import {
   parseSidebarPreferences,
   parseSidebarParticipantIds,
   parseSidebarProjectFilter,
+  resolveSidebarProjectFilter,
   reorderProjectIds,
   serializeCollapsedGroupIds,
   serializeSidebarPreferences,
@@ -220,12 +221,14 @@ describe('ProjectChatSidebar logic', () => {
     expect(clampVisibleThreadCount(-2)).toBe(1)
   })
 
-  it('persists the project focus per user and organization', () => {
-    expect(sidebarProjectFilterStorageKey('user-one', 'org-one'))
-      .toBe('helix:project-chat-sidebar:project-filter:user-one:org-one')
+  it('persists the project focus per organization', () => {
+    expect(sidebarProjectFilterStorageKey('org-one'))
+      .toBe('helix:project-chat-sidebar:project-filter:org-one')
     expect(parseSidebarProjectFilter(null)).toBe(ALL_PROJECTS_FILTER)
     expect(parseSidebarProjectFilter('')).toBe(ALL_PROJECTS_FILTER)
     expect(parseSidebarProjectFilter(' project-one ')).toBe('project-one')
+    expect(resolveSidebarProjectFilter('project-one', projects)).toBe('project-one')
+    expect(resolveSidebarProjectFilter('deleted-project', projects)).toBe(ALL_PROJECTS_FILTER)
   })
 
   it('persists selected people per user, organization, and project and searches every token', () => {

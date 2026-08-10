@@ -41,6 +41,7 @@ import {
   isNewThreadShortcut,
   parseSidebarParticipantIds,
   parseSidebarProjectFilter,
+  resolveSidebarProjectFilter,
   shouldConfirmArchive,
   parseCollapsedGroupIds,
   serializeSidebarParticipantIds,
@@ -103,7 +104,7 @@ const ProjectChatSidebar: FC<{
   const currentUserId = account.user?.id || ''
   const storageKey = collapsedGroupsStorageKey(orgSlug)
   const preferencesStorageKey = sidebarPreferencesStorageKey(orgSlug)
-  const projectFilterStorageKey = sidebarProjectFilterStorageKey(currentUserId, orgSlug)
+  const projectFilterStorageKey = sidebarProjectFilterStorageKey(orgId)
 
   const [query, setQuery] = useState('')
   const [projectFilter, setProjectFilter] = useState(() => readProjectFilter(projectFilterStorageKey))
@@ -157,19 +158,19 @@ const ProjectChatSidebar: FC<{
   const focusedProject = projectFilter === ALL_PROJECTS_FILTER
     ? undefined
     : projects.find((project) => project.id === projectFilter)
-  const focusedProjectExists = projectFilter === ALL_PROJECTS_FILTER || !!focusedProject
+  const resolvedProjectFilter = resolveSidebarProjectFilter(projectFilter, projects)
   const focusMode = projectFilter !== ALL_PROJECTS_FILTER && !!focusedProject
   const displayedProjects = focusMode && focusedProject ? [focusedProject] : sortedProjects
 
   useEffect(() => {
-    if (projectsLoading || focusedProjectExists) return
-    setProjectFilter(ALL_PROJECTS_FILTER)
+    if (projectsLoading || resolvedProjectFilter === projectFilter) return
+    setProjectFilter(resolvedProjectFilter)
     try {
-      window.localStorage.setItem(projectFilterStorageKey, ALL_PROJECTS_FILTER)
+      window.localStorage.setItem(projectFilterStorageKey, resolvedProjectFilter)
     } catch {
       // Persistence is optional when browser storage is unavailable.
     }
-  }, [focusedProjectExists, projectFilter, projectFilterStorageKey, projectsLoading])
+  }, [projectFilter, projectFilterStorageKey, projectsLoading, resolvedProjectFilter])
   const { data: orgAgents = [] } = useListHelixOrgBots({
     enabled: !!account.user?.id && !!orgId,
   })

@@ -61,15 +61,21 @@ export const sidebarPeopleFilterStorageKey = (
 
 export const ALL_PROJECTS_FILTER = 'all-projects'
 
-export const sidebarProjectFilterStorageKey = (
-  userId: string,
-  orgId: string,
-): string => (
-  `helix:project-chat-sidebar:project-filter:${userId}:${orgId}`
+export const sidebarProjectFilterStorageKey = (orgId: string): string => (
+  `helix:project-chat-sidebar:project-filter:${orgId}`
 )
 
 export const parseSidebarProjectFilter = (storedValue: string | null): string => (
   storedValue?.trim() || ALL_PROJECTS_FILTER
+)
+
+export const resolveSidebarProjectFilter = (
+  projectId: string,
+  projects: TypesProject[],
+): string => (
+  projectId === ALL_PROJECTS_FILTER || projects.some((project) => project.id === projectId)
+    ? projectId
+    : ALL_PROJECTS_FILTER
 )
 
 export const parseSidebarParticipantIds = (storedValue: string | null): string[] | null => {
