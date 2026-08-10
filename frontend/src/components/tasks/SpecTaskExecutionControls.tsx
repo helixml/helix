@@ -235,6 +235,8 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
         anchorEl={agentSettingsAnchor}
         open={!!agentSettingsAnchor}
         onClose={() => setAgentSettingsAnchor(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "left" }}
+        transformOrigin={{ vertical: "bottom", horizontal: "left" }}
         slotProps={{ paper: { sx: { minWidth: 190 } } }}
       >
         <ListSubheader disableSticky>Reasoning</ListSubheader>
