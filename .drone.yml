@@ -1529,17 +1529,15 @@ steps:
     depends_on:
       - clone-dependencies
 
-  # Step 3b: Run Zed WebSocket E2E test
-  # Builds a Go test server (imports real Helix server code) + runtime image,
-  # then runs the multi-phase E2E test (thread creation, follow-ups, thread
-  # transitions, UI state queries, open_thread). Uses multi-stage Docker build
-  # to compile the Go test server with the current helix source.
-  - name: zed-e2e-test
+  # Step 3b: Build the Zed WebSocket E2E runtime image.
+  # Multi-stage build: a Go test server compiled against the current helix
+  # source, plus the pre-built Zed binary. Split out from the test runs below
+  # so the headless smoke (every push) and the full suite (main + tags) share
+  # one image build instead of repeating it.
+  - name: zed-e2e-image
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
-      ANTHROPIC_API_KEY:
-        from_secret: anthropic_api_key
     commands:
       - |
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
@@ -1603,11 +1601,80 @@ steps:
         rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" || true
         rm -rf "$${E2E_DIR}/helix-api" "$${E2E_DIR}/helix-org" || true
 
-        # Run both agents in a single invocation (all 10 phases each).
-        # Both zed-agent and claude rounds must pass to gate the build.
-        # The cancel drop fix in acp_thread.rs ensures Phase 8 (mid-stream
-        # interrupt) works with Claude Code despite agent-side cancel bugs.
-        echo "Running E2E test: zed-agent + claude (all 10 phases each)..."
+        echo "Built zed-ws-e2e:$${ZED_COMMIT}"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+    depends_on:
+      - build-zed
+
+  # Step 3c: Headless Zed smoke test — runs on EVERY push, including PRs.
+  #
+  # `zed --headless` is the display-less agent backend. Nothing in Helix
+  # launches it yet, so without a CI gate it can rot silently between manual
+  # runs; a grep-level drift check catches deletion, not breakage.
+  #
+  # E2E_SMOKE=1 runs one phase: the agent reads magic-number.txt and echoes the
+  # value. That single turn covers WebSocket sync, worktree setup, an agent tool
+  # call, streaming and interaction completion — with no display server. The
+  # value is not in the prompt, so only a real tool call produces it.
+  #
+  # Cost control: gpt-5.6-luna with reasoning_effort=none (Zed's OpenAI provider
+  # uses /v1/chat/completions, which rejects any other effort alongside function
+  # tools). One short turn per build.
+  - name: zed-e2e-headless-smoke
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      # NB: the secret NAMES here are misleading. `openai_api_key` is a
+      # Together.ai key (the api-integration-test step feeds it to
+      # TOGETHER_API_KEY, paired with `openai_base_url`), and it fails auth
+      # against api.openai.com. The real OpenAI key is `openai_tools` — same
+      # mapping the two steps above use. gpt-5.6-luna is an OpenAI model, so it
+      # needs this one.
+      OPENAI_API_KEY:
+        from_secret: openai_tools
+    commands:
+      - |
+        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
+
+        echo "Running headless Zed smoke test (zed-agent, gpt-5.6-luna)..."
+        docker run --rm \
+          -e OPENAI_API_KEY="$${OPENAI_API_KEY}" \
+          -e E2E_AGENTS="zed-agent" \
+          -e E2E_HEADLESS=1 \
+          -e E2E_SMOKE=1 \
+          -e E2E_MODEL_PROVIDER=openai \
+          -e E2E_MODEL=gpt-5.6-luna \
+          -e TEST_TIMEOUT=300 \
+          zed-ws-e2e:$${ZED_COMMIT}
+
+        echo "Headless Zed smoke test passed"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+    depends_on:
+      - zed-e2e-image
+
+  # Step 3d: Full multi-phase E2E suite (17 phases per agent).
+  # Both zed-agent and claude rounds must pass to gate the build.
+  # The cancel drop fix in acp_thread.rs ensures Phase 8 (mid-stream
+  # interrupt) works with Claude Code despite agent-side cancel bugs.
+  - name: zed-e2e-test
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      ANTHROPIC_API_KEY:
+        from_secret: anthropic_api_key
+    commands:
+      - |
+        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
+
+        echo "Running E2E test: zed-agent + claude (all phases each)..."
         docker run --rm \
           -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
           -e E2E_AGENTS="zed-agent,claude" \
@@ -1621,8 +1688,9 @@ steps:
       - name: sandbox-build-cache
         path: /drone/src/cache
     depends_on:
-      - build-zed
-    # E2E test (real LLM calls) runs on main + tags only, not on PR branches.
+      - zed-e2e-image
+    # Full suite (many real LLM calls) runs on main + tags only, not on PRs.
+    # The headless smoke above covers PRs.
     when:
       ref:
         include:
