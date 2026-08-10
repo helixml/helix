@@ -8977,7 +8977,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get prompt history entries for the current user",
+                "description": "Get durable prompt delivery state for the current user",
                 "consumes": [
                     "application/json"
                 ],
@@ -8985,9 +8985,9 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PromptHistory"
+                    "PromptQueue"
                 ],
-                "summary": "List prompt history",
+                "summary": "List the prompt delivery queue",
                 "parameters": [
                     {
                         "type": "string",
@@ -9049,121 +9049,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/prompt-history/pinned": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get all pinned prompts for the current user",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "List pinned prompts",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Filter by spec task ID",
-                        "name": "spec_task_id",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.PromptHistoryEntry"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/search": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Search prompts by content",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Search prompts",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Search query",
-                        "name": "q",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Max results (default 50)",
-                        "name": "limit",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.PromptHistoryEntry"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/prompt-history/sync": {
             "post": {
                 "security": [
@@ -9171,7 +9056,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Sync prompt history entries from the frontend (union merge - no deletes)",
+                "description": "Sync durable prompt delivery state from the frontend (union merge - no deletes)",
                 "consumes": [
                     "application/json"
                 ],
@@ -9179,12 +9064,12 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PromptHistory"
+                    "PromptQueue"
                 ],
-                "summary": "Sync prompt history",
+                "summary": "Sync the prompt delivery queue",
                 "parameters": [
                     {
-                        "description": "Prompt history entries to sync",
+                        "description": "Prompt queue entries to sync",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -9198,198 +9083,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.PromptHistorySyncResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/{id}/pin": {
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Pin or unpin a prompt for quick access",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Update prompt pin status",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Prompt ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Pin status",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.PromptPinRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "boolean"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/{id}/tags": {
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Update tags for a prompt",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Update prompt tags",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Prompt ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Tags (JSON array)",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.PromptTagsRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/{id}/use": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Increment usage count when a prompt is reused",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Increment prompt usage",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Prompt ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "boolean"
-                            }
                         }
                     },
                     "400": {
@@ -10154,7 +9847,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Search across projects, tasks, sessions, prompts, knowledge, repositories, and apps concurrently",
+                "description": "Search across projects, tasks, sessions, knowledge, repositories, and apps concurrently",
                 "consumes": [
                     "application/json"
                 ],
@@ -10874,7 +10567,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Search across projects, tasks, sessions, prompts, and code",
+                "description": "Search across projects, tasks, sessions, and code",
                 "consumes": [
                     "application/json"
                 ],
@@ -10899,7 +10592,7 @@ const docTemplate = `{
                             "type": "string"
                         },
                         "collectionFormat": "csv",
-                        "description": "Entity types to search: projects, tasks, sessions, prompts, code",
+                        "description": "Entity types to search: projects, tasks, sessions, code",
                         "name": "types",
                         "in": "query"
                     },
@@ -18329,23 +18022,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.PromptPinRequest": {
-            "type": "object",
-            "properties": {
-                "pinned": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "server.PromptTagsRequest": {
-            "type": "object",
-            "properties": {
-                "tags": {
-                    "description": "JSON array of tags",
-                    "type": "string"
-                }
-            }
-        },
         "server.PushPullResponse": {
             "type": "object",
             "properties": {
@@ -24457,25 +24133,9 @@ const docTemplate = `{
                     "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes\nDefault is false: queue mode is the default, interrupt is explicit",
                     "type": "boolean"
                 },
-                "is_template": {
-                    "description": "Saved as a reusable template",
-                    "type": "boolean"
-                },
-                "last_used_at": {
-                    "description": "Last time reused",
-                    "type": "string"
-                },
                 "next_retry_at": {
                     "description": "When to retry (for exponential backoff)",
                     "type": "string"
-                },
-                "organization_id": {
-                    "description": "Organization scope for search",
-                    "type": "string"
-                },
-                "pinned": {
-                    "description": "Library features for prompt reuse",
-                    "type": "boolean"
                 },
                 "project_id": {
                     "description": "For reference, but primary grouping is by spec_task",
@@ -24500,16 +24160,8 @@ const docTemplate = `{
                     "description": "Status tracks whether this was successfully sent\nValues: \"pending\", \"sent\", \"failed\"",
                     "type": "string"
                 },
-                "tags": {
-                    "description": "JSON array of user-defined tags",
-                    "type": "string"
-                },
                 "updated_at": {
                     "type": "string"
-                },
-                "usage_count": {
-                    "description": "How many times reused",
-                    "type": "integer"
                 },
                 "user_id": {
                     "type": "string"
@@ -24529,14 +24181,6 @@ const docTemplate = `{
                     "description": "If true, interrupts current conversation",
                     "type": "boolean"
                 },
-                "is_template": {
-                    "description": "If true, saved as a reusable template",
-                    "type": "boolean"
-                },
-                "pinned": {
-                    "description": "If true, pinned by user",
-                    "type": "boolean"
-                },
                 "queue_position": {
                     "description": "Position in queue for drag-and-drop ordering",
                     "type": "integer"
@@ -24545,10 +24189,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "type": "string"
-                },
-                "tags": {
-                    "description": "JSON array of tags",
                     "type": "string"
                 },
                 "timestamp": {
@@ -25197,7 +24837,6 @@ const docTemplate = `{
                 "ResourceGitRepository",
                 "ResourceSpecTask",
                 "ResourceSession",
-                "ResourcePrompt",
                 "ResourceDesktop"
             ]
         },

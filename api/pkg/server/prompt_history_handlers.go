@@ -51,12 +51,12 @@ func isOrphanedWaitingInteraction(session *types.Session, latest *types.Interact
 	return now.Sub(latest.Updated) > desktopResumeReapStaleThreshold
 }
 
-// @Summary Sync prompt history
-// @Description Sync prompt history entries from the frontend (union merge - no deletes)
-// @Tags PromptHistory
+// @Summary Sync the prompt delivery queue
+// @Description Sync durable prompt delivery state from the frontend (union merge - no deletes)
+// @Tags PromptQueue
 // @Accept json
 // @Produce json
-// @Param request body types.PromptHistorySyncRequest true "Prompt history entries to sync"
+// @Param request body types.PromptHistorySyncRequest true "Prompt queue entries to sync"
 // @Success 200 {object} types.PromptHistorySyncResponse
 // @Failure 400 {object} system.HTTPError
 // @Failure 401 {object} system.HTTPError
@@ -655,9 +655,9 @@ func (apiServer *HelixAPIServer) cancelActiveTurn(ctx context.Context, sessionID
 	return status, nil
 }
 
-// @Summary List prompt history
-// @Description Get prompt history entries for the current user
-// @Tags PromptHistory
+// @Summary List the prompt delivery queue
+// @Description Get durable prompt delivery state for the current user
+// @Tags PromptQueue
 // @Accept json
 // @Produce json
 // @Param spec_task_id query string false "Spec Task ID (required unless session_id is given)"
@@ -731,237 +731,9 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 	return response, nil
 }
 
-// PromptPinRequest is the request body for pinning/unpinning a prompt
-type PromptPinRequest struct {
-	Pinned bool `json:"pinned"`
-}
-
-// PromptTagsRequest is the request body for updating prompt tags
-type PromptTagsRequest struct {
-	Tags string `json:"tags"` // JSON array of tags
-}
-
-// @Summary Update prompt pin status
-// @Description Pin or unpin a prompt for quick access
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param id path string true "Prompt ID"
-// @Param request body PromptPinRequest true "Pin status"
-// @Success 200 {object} map[string]bool
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/{id}/pin [put]
-func (apiServer *HelixAPIServer) updatePromptPin(_ http.ResponseWriter, req *http.Request) (map[string]bool, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	promptID := mux.Vars(req)["id"]
-	if promptID == "" {
-		return nil, system.NewHTTPError400("prompt id is required")
-	}
-
-	var pinReq PromptPinRequest
-	if err := json.NewDecoder(req.Body).Decode(&pinReq); err != nil {
-		return nil, system.NewHTTPError400("invalid request body")
-	}
-
-	// Verify user owns this prompt
-	prompt, err := apiServer.Store.GetPromptHistoryEntry(ctx, promptID)
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get prompt: %v", err))
-	}
-	if prompt == nil {
-		return nil, system.NewHTTPError404("prompt not found")
-	}
-	if prompt.UserID != user.ID {
-		return nil, system.NewHTTPError403("you don't have permission to modify this prompt")
-	}
-
-	if err := apiServer.Store.UpdatePromptPin(ctx, promptID, pinReq.Pinned); err != nil {
-		log.Error().Err(err).Str("prompt_id", promptID).Msg("Failed to update prompt pin status")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update pin status: %v", err))
-	}
-
-	return map[string]bool{"pinned": pinReq.Pinned}, nil
-}
-
-// @Summary Update prompt tags
-// @Description Update tags for a prompt
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param id path string true "Prompt ID"
-// @Param request body PromptTagsRequest true "Tags (JSON array)"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/{id}/tags [put]
-func (apiServer *HelixAPIServer) updatePromptTags(_ http.ResponseWriter, req *http.Request) (map[string]string, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	promptID := mux.Vars(req)["id"]
-	if promptID == "" {
-		return nil, system.NewHTTPError400("prompt id is required")
-	}
-
-	var tagsReq PromptTagsRequest
-	if err := json.NewDecoder(req.Body).Decode(&tagsReq); err != nil {
-		return nil, system.NewHTTPError400("invalid request body")
-	}
-
-	// Verify user owns this prompt
-	prompt, err := apiServer.Store.GetPromptHistoryEntry(ctx, promptID)
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get prompt: %v", err))
-	}
-	if prompt == nil {
-		return nil, system.NewHTTPError404("prompt not found")
-	}
-	if prompt.UserID != user.ID {
-		return nil, system.NewHTTPError403("you don't have permission to modify this prompt")
-	}
-
-	if err := apiServer.Store.UpdatePromptTags(ctx, promptID, tagsReq.Tags); err != nil {
-		log.Error().Err(err).Str("prompt_id", promptID).Msg("Failed to update prompt tags")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update tags: %v", err))
-	}
-
-	return map[string]string{"tags": tagsReq.Tags}, nil
-}
-
-// @Summary List pinned prompts
-// @Description Get all pinned prompts for the current user
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param spec_task_id query string false "Filter by spec task ID"
-// @Success 200 {array} types.PromptHistoryEntry
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/pinned [get]
-func (apiServer *HelixAPIServer) listPinnedPrompts(_ http.ResponseWriter, req *http.Request) ([]*types.PromptHistoryEntry, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	specTaskID := req.URL.Query().Get("spec_task_id")
-
-	entries, err := apiServer.Store.ListPinnedPrompts(ctx, user.ID, specTaskID)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to list pinned prompts")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list pinned prompts: %v", err))
-	}
-
-	return entries, nil
-}
-
-// @Summary Search prompts
-// @Description Search prompts by content
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param q query string true "Search query"
-// @Param limit query int false "Max results (default 50)"
-// @Success 200 {array} types.PromptHistoryEntry
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/search [get]
-func (apiServer *HelixAPIServer) searchPrompts(_ http.ResponseWriter, req *http.Request) ([]*types.PromptHistoryEntry, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	query := req.URL.Query()
-	searchQuery := query.Get("q")
-	if searchQuery == "" {
-		return nil, system.NewHTTPError400("search query 'q' is required")
-	}
-
-	limit := 50
-	if limitStr := query.Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-			limit = l
-		}
-	}
-
-	entries, err := apiServer.Store.SearchPrompts(ctx, user.ID, searchQuery, limit)
-	if err != nil {
-		log.Error().Err(err).
-			Str("user_id", user.ID).
-			Str("query", searchQuery).
-			Msg("Failed to search prompts")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to search prompts: %v", err))
-	}
-
-	return entries, nil
-}
-
-// @Summary Increment prompt usage
-// @Description Increment usage count when a prompt is reused
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param id path string true "Prompt ID"
-// @Success 200 {object} map[string]bool
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/{id}/use [post]
-func (apiServer *HelixAPIServer) incrementPromptUsage(_ http.ResponseWriter, req *http.Request) (map[string]bool, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	promptID := mux.Vars(req)["id"]
-	if promptID == "" {
-		return nil, system.NewHTTPError400("prompt id is required")
-	}
-
-	// Verify user owns this prompt
-	prompt, err := apiServer.Store.GetPromptHistoryEntry(ctx, promptID)
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get prompt: %v", err))
-	}
-	if prompt == nil {
-		return nil, system.NewHTTPError404("prompt not found")
-	}
-	if prompt.UserID != user.ID {
-		return nil, system.NewHTTPError403("you don't have permission to modify this prompt")
-	}
-
-	if err := apiServer.Store.IncrementPromptUsage(ctx, promptID); err != nil {
-		log.Error().Err(err).Str("prompt_id", promptID).Msg("Failed to increment prompt usage")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to increment usage: %v", err))
-	}
-
-	return map[string]bool{"success": true}, nil
-}
-
-// @Summary Delete a prompt history entry
-// @Description Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients
-// @Tags PromptHistory
+// @Summary Remove a prompt from the delivery queue
+// @Description Soft-deletes a prompt delivery entry so it is removed from the queue and no longer synced to clients
+// @Tags PromptQueue
 // @Produce json
 // @Param id path string true "Prompt ID"
 // @Success 200 {object} map[string]bool
@@ -1005,12 +777,12 @@ func (apiServer *HelixAPIServer) deletePromptHistoryEntry(_ http.ResponseWriter,
 }
 
 // @Summary Unified search across Helix entities
-// @Description Search across projects, tasks, sessions, prompts, and code
+// @Description Search across projects, tasks, sessions, and code
 // @Tags Search
 // @Accept json
 // @Produce json
 // @Param q query string true "Search query"
-// @Param types query []string false "Entity types to search: projects, tasks, sessions, prompts, code"
+// @Param types query []string false "Entity types to search: projects, tasks, sessions, code"
 // @Param limit query int false "Max results per type (default 10)"
 // @Param org_id query string false "Filter by organization ID"
 // @Success 200 {object} types.UnifiedSearchResponse

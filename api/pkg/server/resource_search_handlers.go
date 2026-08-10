@@ -10,7 +10,7 @@ import (
 
 // resourceSearch godoc
 // @Summary Search across resources
-// @Description Search across projects, tasks, sessions, prompts, knowledge, repositories, and apps concurrently
+// @Description Search across projects, tasks, sessions, knowledge, repositories, and apps concurrently
 // @Tags search
 // @Accept json
 // @Produce json

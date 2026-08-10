@@ -6,8 +6,6 @@
  * - Queue multiple messages while offline, send when connection returns
  * - Auto-expanding textarea that grows with content
  * - Draft auto-save to localStorage (never lose a prompt)
- * - History navigation with up/down arrow keys
- * - Dropdown menu for browsing and resending history
  * - Visual queue showing pending/sending/failed messages
  * - Retry mechanism for failed sends
  * - Recovery on page reload
@@ -19,19 +17,12 @@ import {
   IconButton,
   CircularProgress,
   Tooltip,
-  Menu,
-  MenuItem,
-  ListItemText,
-  ListItemIcon,
   Typography,
   alpha,
   Collapse,
   LinearProgress,
-  TextField,
-  InputAdornment,
 } from '@mui/material'
 import {
-  History,
   SendHorizontal,
   ListStart,
   CircleAlert,
@@ -43,9 +34,6 @@ import {
   X,
   GripVertical,
   Zap,
-  Pin,
-  PinOff,
-  Search,
   Paperclip,
   Camera,
   Square,
@@ -552,9 +540,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Check if we're on a mobile device for camera support
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
   const interruptShortcut = /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ? '⌘Enter' : 'Ctrl+Enter'
-  const [historyMenuAnchor, setHistoryMenuAnchor] = useState<null | HTMLElement>(null)
-  const [showHistoryHint, setShowHistoryHint] = useState(false)
-  const [historySearchQuery, setHistorySearchQuery] = useState('')
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showQueue, setShowQueue] = useState(true)
   const [interruptMode, setInterruptMode] = useState(false) // false = queue after (default), true = interrupt
@@ -568,10 +553,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const {
     draft,
     setDraft,
-    history,
-    historyIndex,
-    navigateUp,
-    navigateDown,
     saveToHistory,
     markAsSent,
     markAsFailed,
@@ -582,7 +563,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     pendingPrompts,
     failedPrompts,
     clearDraft,
-    pinPrompt,
   } = usePromptHistory({ sessionId, specTaskId, projectId, apiClient })
 
   // Canonical "still actionable in the queue" list, failed-first. Computed in ONE
@@ -1004,24 +984,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       return
     }
 
-    const textarea = textareaRef.current
-    if (!textarea) return
-
-    const isAtStart = textarea.selectionStart === 0 && textarea.selectionEnd === 0
-    const isAtEnd = textarea.selectionStart === draft.length && textarea.selectionEnd === draft.length
-
-    if (e.key === 'ArrowUp' && isAtStart) {
-      if (navigateUp()) {
-        e.preventDefault()
-        setShowHistoryHint(true)
-        setTimeout(() => setShowHistoryHint(false), 2000)
-      }
-    } else if (e.key === 'ArrowDown' && isAtEnd) {
-      if (navigateDown()) {
-        e.preventDefault()
-      }
-    }
-  }, [draft, attachments.length, inputDisabled, sendMode, submitDraft, navigateUp, navigateDown, queuedPrompts, updateInterrupt, sendingId, editingId])
+  }, [draft, attachments.length, inputDisabled, sendMode, submitDraft, queuedPrompts, updateInterrupt, sendingId, editingId])
 
   const addFilesAsAttachments = useCallback((files: File[]) => {
     if (!attachmentsEnabled || files.length === 0) return
@@ -1212,17 +1175,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   }, [addFilesAsAttachments, attachmentsEnabled])
 
   // Format timestamp
-  const formatTime = (timestamp: number): string => {
-    const diffMs = Date.now() - timestamp
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMins / 60)
-
-    if (diffMins < 1) return 'just now'
-    if (diffMins < 60) return `${diffMins}m ago`
-    if (diffHours < 24) return `${diffHours}h ago`
-    return new Date(timestamp).toLocaleDateString()
-  }
-
   const truncateContent = (content: string, maxLen: number = 60): string => {
     const firstLine = content.split('\n')[0]
     if (firstLine.length <= maxLen) return firstLine
@@ -1239,8 +1191,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     // Within same mode, maintain original order by timestamp
     return a.timestamp - b.timestamp
   })
-  const sentHistory = history.filter(h => h.status === 'sent')
-  const hasHistory = sentHistory.length > 0
   const hasVisibleQueue = backendQueueEnabled && showQueue && queuedMessages.length > 0
 
   const input = (
@@ -1345,28 +1295,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         style={{ display: 'none' }}
       />
 
-      {/* History navigation hint */}
-      {showHistoryHint && historyIndex >= 0 && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: -28,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            px: 1.5,
-            py: 0.5,
-            borderRadius: 1,
-            bgcolor: 'primary.main',
-            color: 'primary.contrastText',
-            fontSize: '0.75rem',
-            zIndex: 1,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Browsing history ({historyIndex + 1}/{sentHistory.length}) - ↓ to return
-        </Box>
-      )}
-
       {/* Input container */}
       <Box
         onDragEnter={handleDragEnter}
@@ -1383,17 +1311,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             ? 'primary.main'
             : !isOnline
             ? 'warning.main'
-            : historyIndex >= 0
-              ? 'info.main'
-              : (theme) => getChatColors(theme).borderStrong,
+            : (theme) => getChatColors(theme).borderStrong,
           transition: 'border-color 0.15s, box-shadow 0.15s, background-color 0.15s',
           boxShadow: isDraggingOver
             ? (theme) => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.22)}`
             : !isOnline
             ? (theme) => `0 0 0 2px ${alpha(theme.palette.warning.main, 0.2)}`
-            : historyIndex >= 0
-              ? (theme) => `0 0 0 2px ${alpha(theme.palette.info.main, 0.2)}`
-              : (theme) => theme.palette.mode === 'light'
+            : (theme) => theme.palette.mode === 'light'
                 ? '0 12px 28px -18px rgba(0,0,0,0.4)'
                 : 'none',
           '&:focus-within': {
@@ -1496,26 +1420,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                 opacity: 0.65,
               }}
             />
-          )}
-
-          {/* History button */}
-          {hasHistory && (
-            <Tooltip title="Browse prompt history (↑/↓ to navigate)">
-              <IconButton
-                size="small"
-                onClick={(e) => setHistoryMenuAnchor(e.currentTarget)}
-                sx={{
-                  color: historyIndex >= 0
-                    ? 'info.main'
-                    : (theme) => getChatColors(theme).subtle,
-                  flexShrink: 0,
-                  width: 28,
-                  height: 28,
-                }}
-              >
-                <History size={17} />
-              </IconButton>
-            </Tooltip>
           )}
 
           {/* Attach file button */}
@@ -1728,175 +1632,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         </Box>
       </Box>
 
-      {/* History menu */}
-      <Menu
-        anchorEl={historyMenuAnchor}
-        open={Boolean(historyMenuAnchor)}
-        onClose={() => {
-          setHistoryMenuAnchor(null)
-          setHistorySearchQuery('')
-        }}
-        anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        slotProps={{
-          paper: {
-            sx: {
-              maxHeight: 450,
-              minWidth: 400,
-              maxWidth: 550,
-            },
-          },
-        }}
-      >
-        {/* Search field */}
-        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <TextField
-            size="small"
-            fullWidth
-            placeholder="Search history..."
-            value={historySearchQuery}
-            onChange={(e) => setHistorySearchQuery(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search size={18} />
-                </InputAdornment>
-              ),
-            }}
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                fontSize: '0.875rem',
-              },
-            }}
-          />
-        </Box>
-
-        {(() => {
-          // Filter and sort history: pinned first, then by timestamp, filtered by search
-          const filteredHistory = sentHistory
-            .filter(entry => {
-              if (!historySearchQuery.trim()) return true
-              return entry.content.toLowerCase().includes(historySearchQuery.toLowerCase())
-            })
-            .sort((a, b) => {
-              // Pinned items first
-              if (a.pinned && !b.pinned) return -1
-              if (!a.pinned && b.pinned) return 1
-              // Then by timestamp (newest first)
-              return b.timestamp - a.timestamp
-            })
-            .slice(0, 30)
-
-          const pinnedCount = filteredHistory.filter(e => e.pinned).length
-
-          if (filteredHistory.length === 0) {
-            return (
-              <MenuItem disabled>
-                <ListItemText
-                  primary={historySearchQuery ? 'No matching prompts' : 'No history yet'}
-                  secondary={historySearchQuery ? 'Try a different search term' : 'Your sent messages will appear here'}
-                />
-              </MenuItem>
-            )
-          }
-
-          return (
-            <>
-              {/* Pinned section header */}
-              {pinnedCount > 0 && (
-                <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default' }}>
-                  <Typography variant="caption" sx={{ fontWeight: 600, color: 'warning.main', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Pin size={14} />
-                    Pinned ({pinnedCount})
-                  </Typography>
-                </Box>
-              )}
-
-              {filteredHistory.map((entry, index) => {
-                const isPinned = entry.pinned
-                const isFirstUnpinned = index > 0 && !isPinned && filteredHistory[index - 1]?.pinned
-
-                return (
-                  <Box key={entry.id}>
-                    {/* Show "Recent" header before first unpinned item */}
-                    {isFirstUnpinned && (
-                      <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default', borderTop: '1px solid', borderColor: 'divider' }}>
-                        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                          Recent
-                        </Typography>
-                      </Box>
-                    )}
-                    {/* Show "Recent" header at top if no pinned items */}
-                    {index === 0 && pinnedCount === 0 && (
-                      <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default' }}>
-                        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                          Recent Prompts
-                        </Typography>
-                      </Box>
-                    )}
-                    <MenuItem
-                      onClick={() => {
-                        setDraft(entry.content)
-                        setHistoryMenuAnchor(null)
-                        setHistorySearchQuery('')
-                        textareaRef.current?.focus()
-                      }}
-                      sx={{
-                        borderLeft: isPinned ? '3px solid' : '3px solid transparent',
-                        borderColor: isPinned ? 'warning.main' : 'transparent',
-                        bgcolor: isPinned ? (theme) => alpha(theme.palette.warning.main, 0.04) : 'transparent',
-                        '&:hover .pin-button': { opacity: 1 },
-                      }}
-                    >
-                      <ListItemIcon>
-                        {isPinned ? (
-                          <Pin size={20} />
-                        ) : (
-                          <CheckCircle size={20} style={{ opacity: 0.6 }} />
-                        )}
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={truncateContent(entry.content)}
-                        secondary={formatTime(entry.timestamp)}
-                        primaryTypographyProps={{ noWrap: true, fontSize: '0.875rem' }}
-                        secondaryTypographyProps={{ fontSize: '0.75rem' }}
-                      />
-                      {/* Pin/unpin button */}
-                      <Tooltip title={isPinned ? 'Unpin' : 'Pin for quick access'}>
-                        <IconButton
-                          className="pin-button"
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            pinPrompt(entry.id, !isPinned)
-                          }}
-                          sx={{
-                            ml: 1,
-                            opacity: isPinned ? 0.8 : 0.3,
-                            transition: 'opacity 0.15s',
-                            color: isPinned ? 'warning.main' : 'text.secondary',
-                            '&:hover': {
-                              color: isPinned ? 'warning.dark' : 'warning.main',
-                            },
-                          }}
-                        >
-                          {isPinned ? (
-                            <Pin size={16} />
-                          ) : (
-                            <PinOff size={16} />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    </MenuItem>
-                  </Box>
-                )
-              })}
-            </>
-          )
-        })()}
-      </Menu>
     </Box>
   )
 

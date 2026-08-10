@@ -17653,11 +17653,11 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get prompt history entries for the current user",
+                "description": "Get durable prompt delivery state for the current user",
                 "tags": [
-                    "PromptHistory"
+                    "PromptQueue"
                 ],
-                "summary": "List prompt history",
+                "summary": "List the prompt delivery queue",
                 "parameters": [
                     {
                         "description": "Spec Task ID (required unless session_id is given)",
@@ -17752,143 +17752,6 @@
                 }
             }
         },
-        "/api/v1/prompt-history/pinned": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get all pinned prompts for the current user",
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "List pinned prompts",
-                "parameters": [
-                    {
-                        "description": "Filter by spec task ID",
-                        "name": "spec_task_id",
-                        "in": "query",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/types.PromptHistoryEntry"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/search": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Search prompts by content",
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Search prompts",
-                "parameters": [
-                    {
-                        "description": "Search query",
-                        "name": "q",
-                        "in": "query",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "description": "Max results (default 50)",
-                        "name": "limit",
-                        "in": "query",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/types.PromptHistoryEntry"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/prompt-history/sync": {
             "post": {
                 "security": [
@@ -17896,11 +17759,11 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Sync prompt history entries from the frontend (union merge - no deletes)",
+                "description": "Sync durable prompt delivery state from the frontend (union merge - no deletes)",
                 "tags": [
-                    "PromptHistory"
+                    "PromptQueue"
                 ],
-                "summary": "Sync prompt history",
+                "summary": "Sync the prompt delivery queue",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -17909,7 +17772,7 @@
                             }
                         }
                     },
-                    "description": "Prompt history entries to sync",
+                    "description": "Prompt queue entries to sync",
                     "required": true
                 },
                 "responses": {
@@ -17963,11 +17826,11 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients",
+                "description": "Soft-deletes a prompt delivery entry so it is removed from the queue and no longer synced to clients",
                 "tags": [
-                    "PromptHistory"
+                    "PromptQueue"
                 ],
-                "summary": "Delete a prompt history entry",
+                "summary": "Remove a prompt from the delivery queue",
                 "parameters": [
                     {
                         "description": "Prompt ID",
@@ -18025,238 +17888,6 @@
                     },
                     "404": {
                         "description": "Not Found",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/{id}/pin": {
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Pin or unpin a prompt for quick access",
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Update prompt pin status",
-                "parameters": [
-                    {
-                        "description": "Prompt ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/server.PromptPinRequest"
-                            }
-                        }
-                    },
-                    "description": "Pin status",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                        "type": "boolean"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/{id}/tags": {
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Update tags for a prompt",
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Update prompt tags",
-                "parameters": [
-                    {
-                        "description": "Prompt ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/server.PromptTagsRequest"
-                            }
-                        }
-                    },
-                    "description": "Tags (JSON array)",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                        "type": "string"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/{id}/use": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Increment usage count when a prompt is reused",
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Increment prompt usage",
-                "parameters": [
-                    {
-                        "description": "Prompt ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                        "type": "boolean"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -18658,7 +18289,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Search across projects, tasks, sessions, prompts, knowledge, repositories, and apps concurrently",
+                "description": "Search across projects, tasks, sessions, knowledge, repositories, and apps concurrently",
                 "tags": [
                     "search"
                 ],
@@ -19655,7 +19286,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Search across projects, tasks, sessions, prompts, and code",
+                "description": "Search across projects, tasks, sessions, and code",
                 "tags": [
                     "Search"
                 ],
@@ -19671,7 +19302,7 @@
                         }
                     },
                     {
-                        "description": "Entity types to search: projects, tasks, sessions, prompts, code",
+                        "description": "Entity types to search: projects, tasks, sessions, code",
                         "name": "types",
                         "in": "query",
                         "style": "form",
@@ -31522,23 +31153,6 @@
                     }
                 }
             },
-            "server.PromptPinRequest": {
-                "type": "object",
-                "properties": {
-                    "pinned": {
-                        "type": "boolean"
-                    }
-                }
-            },
-            "server.PromptTagsRequest": {
-                "type": "object",
-                "properties": {
-                    "tags": {
-                        "description": "JSON array of tags",
-                        "type": "string"
-                    }
-                }
-            },
             "server.PushPullResponse": {
                 "type": "object",
                 "properties": {
@@ -38967,14 +38581,6 @@
                         "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes\nDefault is false: queue mode is the default, interrupt is explicit",
                         "type": "boolean"
                     },
-                    "is_template": {
-                        "description": "Saved as a reusable template",
-                        "type": "boolean"
-                    },
-                    "last_used_at": {
-                        "description": "Last time reused",
-                        "type": "string"
-                    },
                     "next_retry_at": {
                         "description": "When to retry (for exponential backoff)",
                         "type": "string"
@@ -38982,14 +38588,6 @@
                     "notify_user_id": {
                         "description": "NotifyUserID, when set, is the user who should be streamed the agent's\nresponse (e.g. a design-review commenter). At dispatch the queue registers\nrequestToCommenterMapping/sessionToCommenterMapping from this field — the\nsame routing the old direct send set up synchronously.",
                         "type": "string"
-                    },
-                    "organization_id": {
-                        "description": "Organization scope for search",
-                        "type": "string"
-                    },
-                    "pinned": {
-                        "description": "Library features for prompt reuse",
-                        "type": "boolean"
                     },
                     "project_id": {
                         "description": "For reference, but primary grouping is by spec_task",
@@ -39015,16 +38613,8 @@
                         "description": "Status tracks whether this was successfully sent\nValues: \"pending\", \"sent\", \"failed\"",
                         "type": "string"
                     },
-                    "tags": {
-                        "description": "JSON array of user-defined tags",
-                        "type": "string"
-                    },
                     "updated_at": {
                         "type": "string"
-                    },
-                    "usage_count": {
-                        "description": "How many times reused",
-                        "type": "integer"
                     },
                     "user_id": {
                         "type": "string"
@@ -39044,14 +38634,6 @@
                         "description": "If true, interrupts current conversation",
                         "type": "boolean"
                     },
-                    "is_template": {
-                        "description": "If true, saved as a reusable template",
-                        "type": "boolean"
-                    },
-                    "pinned": {
-                        "description": "If true, pinned by user",
-                        "type": "boolean"
-                    },
                     "queue_position": {
                         "description": "Position in queue for drag-and-drop ordering",
                         "type": "integer"
@@ -39060,10 +38642,6 @@
                         "type": "string"
                     },
                     "status": {
-                        "type": "string"
-                    },
-                    "tags": {
-                        "description": "JSON array of tags",
                         "type": "string"
                     },
                     "timestamp": {
@@ -39665,7 +39243,6 @@
                     "GitRepository",
                     "SpecTask",
                     "Session",
-                    "Prompt",
                     "Desktop"
                 ],
                 "x-enum-varnames": [
@@ -39684,7 +39261,6 @@
                     "ResourceGitRepository",
                     "ResourceSpecTask",
                     "ResourceSession",
-                    "ResourcePrompt",
                     "ResourceDesktop"
                 ]
             },
@@ -43958,7 +43534,7 @@
                         "type": "string"
                     },
                     "type": {
-                        "description": "\"project\", \"task\", \"session\", \"prompt\"",
+                        "description": "Resource type",
                         "type": "string"
                     },
                     "updated_at": {

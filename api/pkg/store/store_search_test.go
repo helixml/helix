@@ -481,42 +481,6 @@ func (suite *PostgresStoreTestSuite) TestResourceSearch_Knowledge() {
 	suite.Equal("LambdaKnowledge", results.Results[0].ResourceName)
 }
 
-// TestResourceSearch_Prompt tests searching prompts by content
-func (suite *PostgresStoreTestSuite) TestResourceSearch_Prompt() {
-	userID := "search-prompt-user-" + system.GenerateUUID()
-	projectID := "prj-prompt-search-" + system.GenerateUUID()
-	specTaskID := "task-prompt-search-" + system.GenerateUUID()
-
-	// Create a prompt history entry
-	prompt := &types.PromptHistoryEntry{
-		ID:         "prompt-search-" + system.GenerateUUID(),
-		UserID:     userID,
-		ProjectID:  projectID,
-		SpecTaskID: specTaskID,
-		Content:    "Please analyze the nu configuration files and optimize performance",
-		Status:     "sent",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-	err := suite.db.gdb.Create(prompt).Error
-	suite.Require().NoError(err)
-	suite.T().Cleanup(func() {
-		_ = suite.db.gdb.Delete(prompt).Error
-	})
-
-	// Search by content contains
-	results, err := suite.db.ResourceSearch(suite.ctx, &types.ResourceSearchRequest{
-		Query:  "nu configuration",
-		UserID: userID,
-		Types:  []types.Resource{types.ResourcePrompt},
-		Limit:  10,
-	})
-	suite.Require().NoError(err)
-	suite.Equal(1, len(results.Results))
-	suite.Equal(types.ResourcePrompt, results.Results[0].ResourceType)
-	suite.Contains(results.Results[0].ResourceName, "nu configuration")
-}
-
 // TestResourceSearch_SpecTaskByOriginalPrompt tests searching tasks by original prompt content
 func (suite *PostgresStoreTestSuite) TestResourceSearch_SpecTaskByOriginalPrompt() {
 	userID := "search-taskprompt-user-" + system.GenerateUUID()

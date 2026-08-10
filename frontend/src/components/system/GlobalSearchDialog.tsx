@@ -24,14 +24,12 @@ const SEARCHABLE_RESOURCE_TYPES: { type: TypesResource; label: string; icon: Rea
   { type: TypesResource.ResourceProject, label: 'Projects', icon: <FolderKanban size={14} /> },
   { type: TypesResource.ResourceApplication, label: 'Agents', icon: <Bot size={14} /> },
   { type: TypesResource.ResourceSession, label: 'Sessions', icon: <MessageSquare size={14} /> },
-  { type: TypesResource.ResourcePrompt, label: 'Prompts', icon: <FileText size={14} /> },
   { type: TypesResource.ResourceKnowledge, label: 'Knowledge', icon: <BookOpen size={14} /> },
   { type: TypesResource.ResourceGitRepository, label: 'Repositories', icon: <GitBranch size={14} /> },
   { type: TypesResource.ResourceSpecTask, label: 'Tasks', icon: <ListTodo size={14} /> },
 ]
 
 const PREVIEW_TYPES = [
-  TypesResource.ResourcePrompt,
   TypesResource.ResourceSession,
   TypesResource.ResourceSpecTask,
 ]
@@ -164,9 +162,6 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
         if (result.parent_id) {
           account.orgNavigate('project-task-detail', { id: result.parent_id, taskId: result.id })
         }
-        break
-      case TypesResource.ResourcePrompt:
-        account.orgNavigate('chat')
         break
     }
     onClose()

@@ -19,7 +19,6 @@ import SampleProjectWizard from "../components/project/SampleProjectWizard";
 import ProjectsListView from "../components/project/ProjectsListView";
 import RepositoriesListView from "../components/project/RepositoriesListView";
 import GuidelinesView from "../components/project/GuidelinesView";
-import PromptsListView from "../components/project/PromptsListView";
 import useAccount from "../hooks/useAccount";
 import useRouter from "../hooks/useRouter";
 import useSnackbar from "../hooks/useSnackbar";
@@ -131,7 +130,7 @@ const Projects: FC = () => {
 
   // Get tab from URL query parameter
   const { tab } = router.params;
-  const currentView = tab || "projects";
+  const currentView = tab === "repositories" || tab === "guidelines" ? tab : "projects";
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedProject, setSelectedProject] = useState<TypesProject | null>(
     null,
@@ -661,8 +660,6 @@ const Projects: FC = () => {
             />
           )}
 
-          {/* Prompts View */}
-          {currentView === "prompts" && <PromptsListView />}
         </Paywall>
       </Container>
 

@@ -10,7 +10,6 @@ import {
   Plug,
   GitBranch,
   FileText,
-  MessageSquare,
 } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
@@ -67,13 +66,6 @@ const OrgSidebar: FC = () => {
           icon: <FileText size={20} />,
           isActive: currentRouteName === 'org_projects' && router.params.tab === 'guidelines',
           onClick: () => handleNavigationClick('org_projects', { tab: 'guidelines' }),
-        },
-        {
-          id: 'prompts',
-          label: 'Prompts',
-          icon: <MessageSquare size={20} />,
-          isActive: currentRouteName === 'org_projects' && router.params.tab === 'prompts',
-          onClick: () => handleNavigationClick('org_projects', { tab: 'prompts' }),
         },
         {
           id: 'billing',

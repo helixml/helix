@@ -2,7 +2,7 @@
  * UnifiedSearchBar - A prominent search bar for searching across all Helix entities
  *
  * Features:
- * - Search across projects, tasks, sessions, prompts, code, and knowledge
+ * - Search across projects, tasks, sessions, code, and knowledge
  * - Tabbed results interface like Google search
  * - Real-time search results dropdown
  * - Keyboard shortcuts (Cmd/Ctrl+K)
@@ -33,7 +33,6 @@ import SearchIcon from '@mui/icons-material/Search'
 import FolderIcon from '@mui/icons-material/Folder'
 import TaskIcon from '@mui/icons-material/Task'
 import ChatIcon from '@mui/icons-material/Chat'
-import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
 import CodeIcon from '@mui/icons-material/Code'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import SourceIcon from '@mui/icons-material/Source'
@@ -52,7 +51,7 @@ interface UnifiedSearchBarProps {
 }
 
 // Tab order for the search results
-const TAB_ORDER = ['all', 'session', 'agent', 'prompt', 'code', 'knowledge', 'repository', 'project', 'task'] as const
+const TAB_ORDER = ['all', 'session', 'agent', 'code', 'knowledge', 'repository', 'project', 'task'] as const
 type TabType = typeof TAB_ORDER[number]
 
 const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
@@ -150,13 +149,6 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         account.orgNavigate('git-repo-detail', { repoId: result.id })
       } else if (result.type === 'agent') {
         account.orgNavigate('agent', { app_id: result.id })
-      } else if (result.type === 'prompt') {
-        // For prompts, navigate to the task in the project kanban
-        const taskId = result.metadata?.taskId
-        const projectId = result.metadata?.projectId
-        if (taskId && projectId) {
-          account.orgNavigate('project-specs', { id: projectId, highlight: taskId })
-        }
       }
     }
     setOpen(false)
@@ -171,8 +163,6 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         return <TaskIcon sx={{ color: 'primary.main' }} />
       case 'session':
         return <ChatIcon sx={{ color: 'info.main' }} />
-      case 'prompt':
-        return <FormatQuoteIcon sx={{ color: 'warning.main' }} />
       case 'code':
         return <CodeIcon sx={{ color: 'success.main' }} />
       case 'knowledge':
