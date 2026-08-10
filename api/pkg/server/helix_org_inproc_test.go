@@ -487,6 +487,12 @@ func TestInProcProjectService_GetAppConfig_RoundTrips(t *testing.T) {
 	require.Equal(t, want.Helix.Name, got.Helix.Name)
 }
 
+func TestInProcProjectService_GetAppConfig_PreservesNotFound(t *testing.T) {
+	_, _, client, _, ctx := newInProcTestSetup(t)
+	_, err := client.GetAppConfig(ctx, "app-missing")
+	require.ErrorIs(t, err, helixstore.ErrNotFound)
+}
+
 // TestInProcSpawnerClient_StopExternalAgent_NoSession_ReturnsError
 // confirms a missing session ID surfaces as an error (the underlying
 // handler returns 404; the adapter wraps it as a generic error — no

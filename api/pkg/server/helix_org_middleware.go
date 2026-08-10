@@ -53,7 +53,7 @@ type helixOrgScope struct {
 	// hooks — see org_graph_seed.go). nil when helix-org / the seeder isn't
 	// wired.
 	humanReconcile func(ctx context.Context, orgID string) error
-	botRepair      func(ctx context.Context, orgID string) error
+	botRepair      func(ctx context.Context, orgID, serviceKey string) error
 
 	mu           sync.Mutex
 	bootstrapped map[string]bool
@@ -108,13 +108,14 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		}
 
 		// Provision a per-org Helix service api_key for the organization owner.
-		if _, err := helixorg.NewHelixAPIKeys(s.helixStore, s.configs).Service(ctx, orgID); err != nil {
+		serviceKey, err := helixorg.NewHelixAPIKeys(s.helixStore, s.configs).Service(ctx, orgID)
+		if err != nil {
 			return nil, fmt.Errorf("provision helix-org service api key: %w", err)
 		}
 
 		if s.botRepair != nil {
-			if err := s.botRepair(ctx, orgID); err != nil {
-				return nil, fmt.Errorf("repair never-activated bots: %w", err)
+			if err := s.botRepair(ctx, orgID, serviceKey); err != nil {
+				return nil, fmt.Errorf("repair helix-org bots: %w", err)
 			}
 		}
 
