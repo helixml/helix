@@ -51,6 +51,13 @@ const TOKEN_SERIES: ShadcnSeries[] = [
 
 const CHART_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#e11d48']
 
+// Two hues from the page palette so compute reads as part of the same system
+// as the token charts above it. Desktops first: they are the expensive half.
+const COMPUTE_SERIES: ShadcnSeries[] = [
+  { key: 'desktop', label: 'Desktops', color: CHART_COLORS[0] },
+  { key: 'headless', label: 'Headless', color: CHART_COLORS[4] },
+]
+
 const PROVIDER_COLORS: Record<string, string> = {
   anthropic: '#d97757',
   openai: '#e6e6e6',
@@ -349,6 +356,14 @@ const modelOverviewFields: ITableField[] = [
   { name: 'cost', title: 'API-rate cost', numeric: true },
   { name: 'share', title: 'Share', numeric: true },
   { name: 'tokens', title: 'Tokens', numeric: true },
+]
+
+const computeSandboxFields: ITableField[] = [
+  { name: 'name', title: 'Sandbox' },
+  { name: 'kind', title: 'Kind' },
+  { name: 'size', title: 'Size', numeric: true },
+  { name: 'credits', title: 'Credits', numeric: true },
+  { name: 'share', title: 'Share', numeric: true },
 ]
 
 const sessionFields: ITableField[] = [
@@ -698,6 +713,49 @@ const OrgUsage: FC = () => {
   const subscriptionSavings = usage.data?.subscription_savings ?? 0
   const cacheSavings = usage.data?.cache_savings ?? 0
   const helixCredits = usage.data?.helix_credits ?? 0
+  const compute = usage.data?.compute
+  const computeTotals = useMemo(() => {
+    const daily = compute?.daily || []
+    const computeActiveDays = daily.filter(point => (point.total ?? 0) > 0).length
+    const total = compute?.total_credits ?? 0
+    return {
+      total,
+      desktop: compute?.desktop_credits ?? 0,
+      headless: compute?.headless_credits ?? 0,
+      activeDays: computeActiveDays,
+      perActiveDay: computeActiveDays > 0 ? total / computeActiveDays : 0,
+    }
+  }, [compute])
+  const computeChartData = useMemo<UsageChartRow[]>(() => (compute?.daily || []).map(point => ({
+    date: point.date || '',
+    desktop: point.desktop ?? 0,
+    headless: point.headless ?? 0,
+  })), [compute])
+  const computeSandboxRows = useMemo(() => (compute?.sandboxes || []).map(row => {
+    const share = computeTotals.total > 0 ? (row.credits ?? 0) / computeTotals.total : 0
+    return {
+      id: row.sandbox_id || '',
+      _data: row,
+      name: (
+        <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+          {row.name || row.sandbox_id || 'Unknown'}
+        </Typography>
+      ),
+      kind: (
+        <Typography variant="body2" color="text.secondary">
+          {row.spec_task_id ? 'Spec task' : row.pricing_type === 'desktop' ? 'Desktop' : 'Headless'}
+        </Typography>
+      ),
+      size: (
+        <Typography variant="body2" color="text.secondary">
+          {row.vcpus ? `${row.vcpus} vCPU` : '—'}
+        </Typography>
+      ),
+      credits: <Typography variant="body2">{formatCost(row.credits)}</Typography>,
+      share: <Typography variant="body2" color="text.secondary">{formatPercent(share)}</Typography>,
+    }
+  }), [compute, computeTotals.total])
+
   const activeDays = metrics.filter(metric => (metric.total_tokens ?? 0) > 0).length
   const averageTokens = activeDays > 0 ? totals.total / activeDays : 0
   const cachedShare = totals.input > 0 ? totals.cacheRead / totals.input : 0
@@ -865,7 +923,7 @@ const OrgUsage: FC = () => {
               <Box>
                 <Typography variant="h5" component="h2" sx={{ mb: 1 }}>Usage</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  LLM calls, tokens, cost, and latency for this organization.
+                  LLM calls, tokens, cost, latency, and sandbox compute for this organization.
                 </Typography>
               </Box>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
@@ -1035,6 +1093,80 @@ const OrgUsage: FC = () => {
             <Typography variant="caption" color="text.secondary">
               Savings use current model API rates. Helix credits include only metered token charges debited by Helix; provider subscriptions and external API keys are excluded.
             </Typography>
+
+            {!usage.isLoading && compute && (
+              <Paper variant="outlined" sx={{ p: 0, overflow: 'hidden' }}>
+                <Box sx={{ px: 2, pt: 2, pb: 1.5 }}>
+                  <Typography variant="overline" color="text.secondary">Sandbox compute</Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
+                    {formatCost(computeTotals.total)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {compute.billing_enabled
+                      ? 'Credits debited for running desktops and containers'
+                      : 'Compute billing is disabled — this is historical spend and nothing new is accruing'}
+                  </Typography>
+                </Box>
+
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' },
+                    gap: '1px',
+                    bgcolor: 'divider',
+                    borderTop: '1px solid',
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                  }}
+                >
+                  <OverviewStat
+                    label="Desktops"
+                    value={formatCost(computeTotals.desktop)}
+                    detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.desktop / computeTotals.total)} of compute spend` : 'No desktop spend'}
+                  />
+                  <OverviewStat
+                    label="Headless"
+                    value={formatCost(computeTotals.headless)}
+                    detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.headless / computeTotals.total)} of compute spend` : 'No headless spend'}
+                  />
+                  <OverviewStat
+                    label="Per active day"
+                    value={formatCost(computeTotals.perActiveDay)}
+                    detail={`${computeTotals.activeDays} ${computeTotals.activeDays === 1 ? 'day' : 'days'} with compute spend`}
+                  />
+                  <OverviewStat
+                    label="Running now"
+                    value={`${compute.running_sandboxes ?? 0}`}
+                    detail="Sandboxes currently billing"
+                  />
+                </Box>
+
+                <Box sx={{ p: 2 }}>
+                  <ShadcnAreaChart
+                    title="DAILY COMPUTE SPEND"
+                    headline={formatCost(computeTotals.total)}
+                    data={computeChartData}
+                    series={COMPUTE_SERIES}
+                    valueFormatter={formatCost}
+                    zeroIsData
+                  />
+                </Box>
+
+                {computeSandboxRows.length > 0 && (
+                  <Box sx={{ px: 2, pb: 2 }}>
+                    <Section title="Sandbox breakdown">
+                      <SimpleTable authenticated fields={computeSandboxFields} data={computeSandboxRows} compact />
+                    </Section>
+                  </Box>
+                )}
+
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Compute spend answers the date range and the project filter only — model, provider, session and user filters describe tokens, not containers.
+                  </Typography>
+                </Box>
+              </Paper>
+            )}
 
             {!usage.isLoading && (
               <>

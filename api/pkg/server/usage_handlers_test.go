@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -132,6 +133,17 @@ func TestGetOrgUsageSummaryParsesFiltersAndPagination(t *testing.T) {
 			require.Equal(t, 75, q.SessionOffset)
 			return &types.OrgUsageSummaryResponse{}, nil
 		})
+	// Compute answers the date range and the project, and deliberately ignores
+	// the token-shaped filters — a container has no model or provider.
+	mockStore.EXPECT().
+		GetOrgComputeUsage(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, q *store.GetOrgComputeUsageQuery) (*types.OrgComputeUsage, error) {
+			require.Equal(t, org.ID, q.OrganizationID)
+			require.Equal(t, fromTime, q.From)
+			require.Equal(t, toTime, q.To)
+			require.Equal(t, "prj_456", q.ProjectID)
+			return &types.OrgComputeUsage{TotalCredits: 12.5, DesktopCredits: 12.5}, nil
+		})
 
 	req := httptest.NewRequest("GET", "/api/v1/usage/org-summary?org_id=koala-bunny-corp&from="+from+"&to="+to+"&user_id=user_456&project_id=prj_456&app_id=app_456&session_id=ses_456&provider=anthropic&model=claude-sonnet-4&user_search=alice@example.com&user_limit=25&user_offset=50&project_limit=10&project_offset=20&task_limit=10&task_offset=30&session_limit=25&session_offset=75", nil)
 	req = req.WithContext(setRequestUser(req.Context(), user))
@@ -139,4 +151,39 @@ func TestGetOrgUsageSummaryParsesFiltersAndPagination(t *testing.T) {
 	resp, httpErr := server.getOrgUsageSummary(httptest.NewRecorder(), req)
 	require.Nil(t, httpErr)
 	require.NotNil(t, resp)
+	require.NotNil(t, resp.Compute)
+	require.Equal(t, 12.5, resp.Compute.TotalCredits)
+}
+
+// Compute is a second query over a different table; if it fails the page must
+// still render the token numbers it is mainly about.
+func TestGetOrgUsageSummarySurvivesComputeFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	org := &types.Organization{ID: "org_123", Name: "koala-bunny-corp"}
+	user := types.User{ID: "user_admin", Admin: true}
+
+	mockStore.EXPECT().
+		GetOrganization(gomock.Any(), &store.GetOrganizationQuery{Name: org.Name}).
+		Return(org, nil)
+	mockStore.EXPECT().
+		GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().
+		GetOrgUsageSummary(gomock.Any(), gomock.Any()).
+		Return(&types.OrgUsageSummaryResponse{RawTokenCost: 42}, nil)
+	mockStore.EXPECT().
+		GetOrgComputeUsage(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("compute query exploded"))
+
+	req := httptest.NewRequest("GET", "/api/v1/usage/org-summary?org_id=koala-bunny-corp", nil)
+	req = req.WithContext(setRequestUser(req.Context(), user))
+
+	resp, httpErr := server.getOrgUsageSummary(httptest.NewRecorder(), req)
+	require.Nil(t, httpErr)
+	require.NotNil(t, resp)
+	require.Equal(t, float64(42), resp.RawTokenCost)
+	require.Nil(t, resp.Compute)
 }

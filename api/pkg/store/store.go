@@ -536,6 +536,7 @@ type Store interface {
 	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 	GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error)
 	GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
+	GetOrgComputeUsage(ctx context.Context, q *GetOrgComputeUsageQuery) (*types.OrgComputeUsage, error)
 
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)

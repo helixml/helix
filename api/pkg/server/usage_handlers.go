@@ -268,6 +268,22 @@ func (s *HelixAPIServer) getOrgUsageSummary(_ http.ResponseWriter, r *http.Reque
 	}
 	s.enrichOrgUsageCosts(r.Context(), summary)
 
+	// Sandbox runtime is the other half of the bill. It comes from the wallet
+	// ledger rather than usage_metrics, so it is a separate query rather than
+	// part of GetOrgUsageSummary. A failure here must not blank the token
+	// numbers the page is mainly about.
+	compute, err := s.Store.GetOrgComputeUsage(r.Context(), &store.GetOrgComputeUsageQuery{
+		OrganizationID: orgID,
+		ProjectID:      r.URL.Query().Get("project_id"),
+		From:           from,
+		To:             to,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Msg("failed to load organization compute usage")
+	} else {
+		summary.Compute = compute
+	}
+
 	return summary, nil
 }
 

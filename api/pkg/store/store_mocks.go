@@ -3126,6 +3126,21 @@ func (mr *MockStoreMockRecorder) GetOrCreateAgentRunner(ctx, runnerID any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateAgentRunner", reflect.TypeOf((*MockStore)(nil).GetOrCreateAgentRunner), ctx, runnerID)
 }
 
+// GetOrgComputeUsage mocks base method.
+func (m *MockStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgComputeUsageQuery) (*types.OrgComputeUsage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrgComputeUsage", ctx, q)
+	ret0, _ := ret[0].(*types.OrgComputeUsage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrgComputeUsage indicates an expected call of GetOrgComputeUsage.
+func (mr *MockStoreMockRecorder) GetOrgComputeUsage(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrgComputeUsage", reflect.TypeOf((*MockStore)(nil).GetOrgComputeUsage), ctx, q)
+}
+
 // GetOrgUsageSummary mocks base method.
 func (m *MockStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error) {
 	m.ctrl.T.Helper()

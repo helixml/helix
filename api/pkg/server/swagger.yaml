@@ -7362,6 +7362,31 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.OrgComputeUsage:
+    properties:
+      billing_enabled:
+        description: |-
+          BillingEnabled reports whether compute is actually charged. When false
+          the credits above are historical and nothing new is accruing.
+        type: boolean
+      daily:
+        items:
+          $ref: '#/definitions/types.UsageComputeDailyPoint'
+        type: array
+      desktop_credits:
+        type: number
+      headless_credits:
+        type: number
+      running_sandboxes:
+        description: RunningSandboxes is a point-in-time count, not a range aggregate.
+        type: integer
+      sandboxes:
+        items:
+          $ref: '#/definitions/types.UsageComputeBreakdownRow'
+        type: array
+      total_credits:
+        type: number
+    type: object
   types.OrgDetails:
     properties:
       members:
@@ -7397,6 +7422,13 @@ definitions:
         type: array
       cache_savings:
         type: number
+      compute:
+        allOf:
+        - $ref: '#/definitions/types.OrgComputeUsage'
+        description: |-
+          Compute is sandbox runtime spend. It answers the date range and the
+          project filter; the token-shaped filters (model, provider, session)
+          don't apply to a container and leave it untouched.
       export_apps:
         items:
           $ref: '#/definitions/types.UsageBreakdownRow'
@@ -12344,6 +12376,36 @@ definitions:
         type: integer
       username:
         type: string
+    type: object
+  types.UsageComputeBreakdownRow:
+    properties:
+      credits:
+        type: number
+      name:
+        type: string
+      pricing_type:
+        type: string
+      project_id:
+        type: string
+      runtime:
+        type: string
+      sandbox_id:
+        type: string
+      spec_task_id:
+        type: string
+      vcpus:
+        type: integer
+    type: object
+  types.UsageComputeDailyPoint:
+    properties:
+      date:
+        type: string
+      desktop:
+        type: number
+      headless:
+        type: number
+      total:
+        type: number
     type: object
   types.UsageFilterOption:
     properties:

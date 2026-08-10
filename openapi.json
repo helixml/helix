@@ -38213,6 +38213,40 @@
                     }
                 }
             },
+            "types.OrgComputeUsage": {
+                "type": "object",
+                "properties": {
+                    "billing_enabled": {
+                        "description": "BillingEnabled reports whether compute is actually charged. When false\nthe credits above are historical and nothing new is accruing.",
+                        "type": "boolean"
+                    },
+                    "daily": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageComputeDailyPoint"
+                        }
+                    },
+                    "desktop_credits": {
+                        "type": "number"
+                    },
+                    "headless_credits": {
+                        "type": "number"
+                    },
+                    "running_sandboxes": {
+                        "description": "RunningSandboxes is a point-in-time count, not a range aggregate.",
+                        "type": "integer"
+                    },
+                    "sandboxes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageComputeBreakdownRow"
+                        }
+                    },
+                    "total_credits": {
+                        "type": "number"
+                    }
+                }
+            },
             "types.OrgDetails": {
                 "type": "object",
                 "properties": {
@@ -38265,6 +38299,14 @@
                     },
                     "cache_savings": {
                         "type": "number"
+                    },
+                    "compute": {
+                        "description": "Compute is sandbox runtime spend. It answers the date range and the\nproject filter; the token-shaped filters (model, provider, session)\ndon't apply to a container and leave it untouched.",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.OrgComputeUsage"
+                            }
+                        ]
                     },
                     "export_apps": {
                         "type": "array",
@@ -44904,6 +44946,52 @@
                     },
                     "username": {
                         "type": "string"
+                    }
+                }
+            },
+            "types.UsageComputeBreakdownRow": {
+                "type": "object",
+                "properties": {
+                    "credits": {
+                        "type": "number"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "pricing_type": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "runtime": {
+                        "type": "string"
+                    },
+                    "sandbox_id": {
+                        "type": "string"
+                    },
+                    "spec_task_id": {
+                        "type": "string"
+                    },
+                    "vcpus": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.UsageComputeDailyPoint": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string"
+                    },
+                    "desktop": {
+                        "type": "number"
+                    },
+                    "headless": {
+                        "type": "number"
+                    },
+                    "total": {
+                        "type": "number"
                     }
                 }
             },
