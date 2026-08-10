@@ -4,6 +4,7 @@ import type { TypesOrganizationMembership, TypesProject, TypesSessionSummary } f
 import type { SpecTask } from '../../services/specTaskService'
 import {
   buildProjectChatGroups,
+  ALL_PROJECTS_FILTER,
   clampVisibleThreadCount,
   collapsedGroupsStorageKey,
   compactRelativeTime,
@@ -20,6 +21,7 @@ import {
   parseCollapsedGroupIds,
   parseSidebarPreferences,
   parseSidebarParticipantIds,
+  parseSidebarProjectFilter,
   reorderProjectIds,
   serializeCollapsedGroupIds,
   serializeSidebarPreferences,
@@ -27,6 +29,7 @@ import {
   shouldConfirmArchive,
   sidebarPreferencesStorageKey,
   sidebarPeopleFilterStorageKey,
+  sidebarProjectFilterStorageKey,
   sortSidebarProjects,
   specTaskSortKey,
 } from './ProjectChatSidebar.logic'
@@ -215,6 +218,14 @@ describe('ProjectChatSidebar logic', () => {
     expect(parseSidebarPreferences('{bad json')).toEqual(DEFAULT_PROJECT_CHAT_SIDEBAR_PREFERENCES)
     expect(parseSidebarPreferences(serializeSidebarPreferences(parsed))).toEqual(parsed)
     expect(clampVisibleThreadCount(-2)).toBe(1)
+  })
+
+  it('persists the project focus per user and organization', () => {
+    expect(sidebarProjectFilterStorageKey('user-one', 'org-one'))
+      .toBe('helix:project-chat-sidebar:project-filter:user-one:org-one')
+    expect(parseSidebarProjectFilter(null)).toBe(ALL_PROJECTS_FILTER)
+    expect(parseSidebarProjectFilter('')).toBe(ALL_PROJECTS_FILTER)
+    expect(parseSidebarProjectFilter(' project-one ')).toBe('project-one')
   })
 
   it('persists selected people per user, organization, and project and searches every token', () => {

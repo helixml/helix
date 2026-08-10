@@ -34,16 +34,19 @@ import { usePinnedChats } from '../../services/chatPinService'
 import CreateProjectDialog from '../project/CreateProjectDialog'
 import SimpleConfirmWindow from '../widgets/SimpleConfirmWindow'
 import {
+  ALL_PROJECTS_FILTER,
   collapsedGroupsStorageKey,
   getChatShortcutNumber,
   isChatShortcutModifier,
   isNewThreadShortcut,
   parseSidebarParticipantIds,
+  parseSidebarProjectFilter,
   shouldConfirmArchive,
   parseCollapsedGroupIds,
   serializeSidebarParticipantIds,
   sidebarPreferencesStorageKey,
   sidebarPeopleFilterStorageKey,
+  sidebarProjectFilterStorageKey,
   serializeCollapsedGroupIds,
 } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
@@ -53,6 +56,7 @@ import type { ProjectChatContextMenuPosition } from './ProjectChatItemContextMen
 import ProjectChatProjectContextMenu from './ProjectChatProjectContextMenu'
 import ProjectChatSidebarPeopleFilter from './ProjectChatSidebarPeopleFilter'
 import ProjectChatSidebarOptions from './ProjectChatSidebarOptions'
+import ProjectChatSidebarProjectFilter from './ProjectChatSidebarProjectFilter'
 import SortableProject from './SortableProject'
 import useProjectChatSidebarDrag from './useProjectChatSidebarDrag'
 import useProjectChatSidebarPreferences from './useProjectChatSidebarPreferences'
@@ -77,6 +81,14 @@ const readParticipantIds = (storageKey: string): string[] | null => {
   }
 }
 
+const readProjectFilter = (storageKey: string): string => {
+  try {
+    return parseSidebarProjectFilter(window.localStorage.getItem(storageKey))
+  } catch {
+    return ALL_PROJECTS_FILTER
+  }
+}
+
 const ProjectChatSidebar: FC<{
   onCollapse: () => void
   onOpenSession: () => void
@@ -89,12 +101,13 @@ const ProjectChatSidebar: FC<{
   const orgSlug = router.params.org_id || ''
   const orgId = account.organizationTools.organization?.id || ''
   const currentUserId = account.user?.id || ''
-  const activeProjectId = router.params.id || 'all-projects'
   const storageKey = collapsedGroupsStorageKey(orgSlug)
   const preferencesStorageKey = sidebarPreferencesStorageKey(orgSlug)
-  const peopleFilterStorageKey = sidebarPeopleFilterStorageKey(currentUserId, orgSlug, activeProjectId)
+  const projectFilterStorageKey = sidebarProjectFilterStorageKey(currentUserId, orgSlug)
 
   const [query, setQuery] = useState('')
+  const [projectFilter, setProjectFilter] = useState(() => readProjectFilter(projectFilterStorageKey))
+  const peopleFilterStorageKey = sidebarPeopleFilterStorageKey(currentUserId, orgSlug, projectFilter)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(storageKey))
   const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
   const [archiveConfirmation, setArchiveConfirmation] = useState<SidebarItem | null>(null)
@@ -117,6 +130,10 @@ const ProjectChatSidebar: FC<{
   }, [storageKey])
 
   useEffect(() => {
+    setProjectFilter(readProjectFilter(projectFilterStorageKey))
+  }, [projectFilterStorageKey])
+
+  useEffect(() => {
     setParticipantIdsOverride(readParticipantIds(peopleFilterStorageKey))
   }, [peopleFilterStorageKey])
 
@@ -137,6 +154,22 @@ const ProjectChatSidebar: FC<{
     setVisibleThreadCount,
     setManualProjectOrder,
   } = useProjectChatSidebarPreferences(preferencesStorageKey, projects)
+  const focusedProject = projectFilter === ALL_PROJECTS_FILTER
+    ? undefined
+    : projects.find((project) => project.id === projectFilter)
+  const focusedProjectExists = projectFilter === ALL_PROJECTS_FILTER || !!focusedProject
+  const focusMode = projectFilter !== ALL_PROJECTS_FILTER && !!focusedProject
+  const displayedProjects = focusMode && focusedProject ? [focusedProject] : sortedProjects
+
+  useEffect(() => {
+    if (projectsLoading || focusedProjectExists) return
+    setProjectFilter(ALL_PROJECTS_FILTER)
+    try {
+      window.localStorage.setItem(projectFilterStorageKey, ALL_PROJECTS_FILTER)
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  }, [focusedProjectExists, projectFilter, projectFilterStorageKey, projectsLoading])
   const { data: orgAgents = [] } = useListHelixOrgBots({
     enabled: !!account.user?.id && !!orgId,
   })
@@ -419,6 +452,28 @@ const ProjectChatSidebar: FC<{
     }
   }
 
+  const selectProjectFilter = (projectId: string) => {
+    setProjectFilter(projectId)
+    if (projectId !== ALL_PROJECTS_FILTER) {
+      setCollapsedGroups((current) => {
+        if (!current.has(projectId)) return current
+        const next = new Set(current)
+        next.delete(projectId)
+        try {
+          window.localStorage.setItem(storageKey, serializeCollapsedGroupIds(next))
+        } catch {
+          // Persistence is optional when browser storage is unavailable.
+        }
+        return next
+      })
+    }
+    try {
+      window.localStorage.setItem(projectFilterStorageKey, projectId)
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  }
+
   const effectiveCollapsedGroups = query ? new Set<string>() : collapsedGroups
   const groupsEnabled = !!account.user?.id && !!orgId
 
@@ -503,26 +558,23 @@ const ProjectChatSidebar: FC<{
         </Tooltip>
       </Box>
 
-      <Box sx={{ pl: 1.5, pr: 0.75, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
-        <Typography
-          sx={{
-            flex: 1,
-            color: lightTheme.isLight ? 'rgba(113,113,122,0.80)' : 'rgba(163,163,163,0.80)',
-            fontFamily: 'inherit',
-            fontSize: '12px',
-            fontWeight: 500,
-          }}
-        >
-          {showArchived ? 'Archived' : 'Projects'}
-        </Typography>
-        <ProjectChatSidebarOptions
-          projectSortOrder={preferences.projectSortOrder}
-          threadSortOrder={preferences.threadSortOrder}
-          visibleThreadCount={preferences.visibleThreadCount}
-          onProjectSortOrderChange={setProjectSortOrder}
-          onThreadSortOrderChange={setThreadSortOrder}
-          onVisibleThreadCountChange={setVisibleThreadCount}
+      <Box sx={{ pl: 0.75, pr: 0.75, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center' }}>
+        <ProjectChatSidebarProjectFilter
+          projects={projects}
+          selectedProjectId={projectFilter}
+          archived={showArchived}
+          onChange={selectProjectFilter}
         />
+        {!focusMode && (
+          <ProjectChatSidebarOptions
+            projectSortOrder={preferences.projectSortOrder}
+            threadSortOrder={preferences.threadSortOrder}
+            visibleThreadCount={preferences.visibleThreadCount}
+            onProjectSortOrderChange={setProjectSortOrder}
+            onThreadSortOrderChange={setThreadSortOrder}
+            onVisibleThreadCountChange={setVisibleThreadCount}
+          />
+        )}
         <ProjectChatSidebarPeopleFilter
           members={selectableMembers}
           currentUser={account.user}
@@ -583,7 +635,7 @@ const ProjectChatSidebar: FC<{
           </Box>
         ) : (
           <>
-            <ProjectChatGroup
+            {!focusMode && <ProjectChatGroup
               orgId={orgId}
               collapsed={effectiveCollapsedGroups.has('default')}
               query={query}
@@ -604,7 +656,7 @@ const ProjectChatSidebar: FC<{
               onOpenItem={openItem}
               onOpenItemContextMenu={openItemContextMenu}
               onArchiveItem={requestArchive}
-            />
+            />}
             <DndContext
               sensors={projectDragSensors}
               collisionDetection={closestCenter}
@@ -613,14 +665,14 @@ const ProjectChatSidebar: FC<{
               onDragEnd={handleProjectDragEnd}
             >
               <SortableContext
-                items={sortedProjects.flatMap((project) => project.id ? [project.id] : [])}
+                items={displayedProjects.flatMap((project) => project.id ? [project.id] : [])}
                 strategy={verticalListSortingStrategy}
               >
-                {sortedProjects.flatMap((project) => project.id ? [(
+                {displayedProjects.flatMap((project) => project.id ? [(
                   <SortableProject
                     key={project.id}
                     projectId={project.id}
-                    disabled={preferences.projectSortOrder !== 'manual' || !!query}
+                    disabled={focusMode || preferences.projectSortOrder !== 'manual' || !!query}
                     render={(dragHandleProps) => (
                       <ProjectChatGroup
                         orgId={orgId}
@@ -647,7 +699,7 @@ const ProjectChatSidebar: FC<{
                         onOpenItemContextMenu={openItemContextMenu}
                         onOpenProjectContextMenu={openProjectContextMenu}
                         onArchiveItem={requestArchive}
-                        manualSorting={preferences.projectSortOrder === 'manual' && !query}
+                        manualSorting={!focusMode && preferences.projectSortOrder === 'manual' && !query}
                         dragHandleProps={dragHandleProps}
                         dragInProgressRef={dragInProgressRef}
                         suppressClickAfterDragRef={suppressClickAfterDragRef}
