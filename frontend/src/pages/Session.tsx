@@ -74,6 +74,7 @@ const SCROLL_LOCK_DELAY = 500 // ms
 // Define interface for MemoizedInteraction props
 interface MemoizedInteractionProps {
   interaction: any; // Use proper type from your app
+  nextInteraction?: any;
   session: any;
   serverConfig: any;
   highlightAllFiles: boolean;
@@ -102,6 +103,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       key={props.interaction.id}
       serverConfig={props.serverConfig}
       interaction={props.interaction}
+      nextInteraction={props.nextInteraction}
       session={props.session}
       highlightAllFiles={props.highlightAllFiles}
       onReloadSession={props.onReloadSession}
@@ -143,6 +145,12 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
 
     // Check for differences in error state
     prevProps.interaction.error !== nextProps.interaction.error;
+  const nextInteractionChanged =
+    prevProps.nextInteraction?.id !== nextProps.nextInteraction?.id ||
+    prevProps.nextInteraction?.state !== nextProps.nextInteraction?.state ||
+    prevProps.nextInteraction?.prompt_message !== nextProps.nextInteraction?.prompt_message ||
+    prevProps.nextInteraction?.response_message !== nextProps.nextInteraction?.response_message ||
+    prevProps.nextInteraction?.response_entries?.length !== nextProps.nextInteraction?.response_entries?.length;
 
   // Use more efficient checks for document IDs (length and spot-check first/last)
   const documentIdsChanged =
@@ -178,6 +186,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
 
   // Return true if nothing changed (skip re-render), false if something changed (trigger re-render)
   return !interactionChanged &&
+         !nextInteractionChanged &&
          !documentIdsChanged &&
          !ragResultsChanged &&
          !lastInteractionNotComplete &&
@@ -964,7 +973,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
   const navigatorItems = useMemo<ChatTurnNavigatorItem[]>(() => {
     return navigatorInteractions.flatMap((interaction) => {
-      if (!interaction.id || interaction.trigger === 'fork_seed') return []
+      if (!interaction.id || interaction.trigger === 'fork_seed' || interaction.trigger === 'fork_handoff') return []
       const contentText = interaction.prompt_message_content?.parts?.find(
         (part): part is { text: string } =>
           typeof part === 'object' &&
@@ -1123,6 +1132,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
                       key={interaction.id}
                       serverConfig={account.serverConfig}
                       interaction={interaction}
+                      nextInteraction={memoizedInteractions[absoluteIndex + 1]}
                       session={sessionData}
                       highlightAllFiles={highlightAllFiles}
                       onReloadSession={safeReloadSession}

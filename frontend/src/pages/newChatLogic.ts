@@ -1,6 +1,8 @@
 import {
+  TypesCodeAgentOverrides,
   TypesCreateTaskRequest,
   TypesProviderEndpoint,
+  TypesSandboxResourceOverrides,
   TypesSpecTaskPriority,
 } from '../api/api'
 
@@ -67,11 +69,15 @@ export function buildNewChatTaskRequest({
   mode,
   projectId,
   prompt,
+  codeAgentOverrides,
+  sandboxResourceOverrides,
 }: {
   appId?: string
+  codeAgentOverrides?: TypesCodeAgentOverrides
   mode: NewChatTaskMode
   projectId: string
   prompt: string
+  sandboxResourceOverrides?: TypesSandboxResourceOverrides
 }): TypesCreateTaskRequest {
   return {
     app_id: appId || undefined,
@@ -80,5 +86,11 @@ export function buildNewChatTaskRequest({
     priority: TypesSpecTaskPriority.SpecTaskPriorityMedium,
     project_id: projectId,
     prompt,
+    ...(codeAgentOverrides && Object.values(codeAgentOverrides).some(Boolean)
+      ? { code_agent_overrides: codeAgentOverrides }
+      : {}),
+    ...(sandboxResourceOverrides
+      ? { sandbox_resource_overrides: sandboxResourceOverrides }
+      : {}),
   }
 }

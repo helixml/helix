@@ -13,6 +13,7 @@ import {
 import CloseIcon from "@mui/icons-material/Close";
 import LaunchIcon from "@mui/icons-material/Launch";
 import { Check, Copy, Globe, Lock } from "lucide-react";
+import { copyTextToClipboard } from "../../utils/clipboard";
 
 interface SpecTaskShareDialogProps {
   open: boolean;
@@ -37,7 +38,7 @@ const SpecTaskShareDialog: React.FC<SpecTaskShareDialogProps> = ({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await copyTextToClipboard(shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {

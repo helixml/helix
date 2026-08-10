@@ -20887,6 +20887,102 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{taskId}/execution-config": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the task's current coding identity without exposing Agent secrets. Legacy tasks whose Agent was deleted fall back to their session and interaction snapshots.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get task execution configuration",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskExecutionConfig"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place; code-agent changes start a new ACP thread with normalized prior context.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Update task execution configuration",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Execution configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskExecutionConfigUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskExecutionConfigUpdateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{taskId}/labels": {
             "post": {
                 "description": "Adds a label to a spec task (idempotent - no error if label already exists)",
@@ -26039,6 +26135,9 @@ const docTemplate = `{
                     "description": "Network info for RevDial/screenshot-server connections",
                     "type": "string"
                 },
+                "memory_mb": {
+                    "type": "integer"
+                },
                 "organization_id": {
                     "type": "string"
                 },
@@ -26085,6 +26184,9 @@ const docTemplate = `{
                 "task_prompt": {
                     "description": "First ~80 chars of original prompt",
                     "type": "string"
+                },
+                "vcpus": {
+                    "type": "integer"
                 },
                 "video_stats": {
                     "$ref": "#/definitions/server.VideoStreamingStats"
@@ -30034,6 +30136,10 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "service_tier": {
+                    "description": "ServiceTier controls provider scheduling for runtimes that support it.\nCodex uses \"fast\" for priority processing; empty uses the normal tier.",
+                    "type": "string"
+                },
                 "uses_subscription": {
                     "description": "UsesSubscription is true when the agent authenticates against the upstream\nprovider with the user's own subscription (Claude Pro/Max, ChatGPT) instead\nof an API key routed through the Helix proxy. It mirrors the assistant's\nCodeAgentCredentialType and is what gates credential injection into the\ncontainer — an api_key agent must never receive subscription credentials,\nbecause the CLI prefers them over the proxy and would silently bypass it.",
                     "type": "boolean"
@@ -30058,6 +30164,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CodeAgentOverrides": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string"
+                },
+                "provider_ref": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
+                "service_tier": {
                     "type": "string"
                 }
             }
@@ -30564,6 +30687,9 @@ const docTemplate = `{
                     "description": "For new mode: user-specified prefix (task# appended)",
                     "type": "string"
                 },
+                "code_agent_overrides": {
+                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                },
                 "credential_owner_id": {
                     "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate this task's agent, for orchestrators dispatching work on a\nhuman's behalf under one service API key. Credential resolution only — the\ntask is still created by, owned by, and attributed to the caller. Ignored\nunless that user has delegated their subscription to this organization.",
                     "type": "string"
@@ -30597,6 +30723,9 @@ const docTemplate = `{
                 },
                 "prompt": {
                     "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
                 "type": {
                     "type": "string"
@@ -36138,6 +36267,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SandboxResourceOverrides": {
+            "type": "object",
+            "properties": {
+                "memory_mb": {
+                    "type": "integer"
+                },
+                "vcpus": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.SandboxRuntime": {
             "type": "string",
             "enum": [
@@ -37502,6 +37642,9 @@ const docTemplate = `{
                     "description": "Original project",
                     "type": "string"
                 },
+                "code_agent_overrides": {
+                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                },
                 "completed_at": {
                     "type": "string"
                 },
@@ -37684,6 +37827,9 @@ const docTemplate = `{
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
                 "sandbox_state": {
                     "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
@@ -38130,6 +38276,66 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SpecTaskExecutionConfig": {
+            "type": "object",
+            "properties": {
+                "agent_available": {
+                    "type": "boolean"
+                },
+                "agent_id": {
+                    "type": "string"
+                },
+                "agent_name": {
+                    "type": "string"
+                },
+                "credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "provider_ref": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "service_tier": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskExecutionConfigUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string"
+                },
+                "code_agent_overrides": {
+                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                }
+            }
+        },
+        "types.SpecTaskExecutionConfigUpdateResponse": {
+            "type": "object",
+            "properties": {
+                "agent_thread_restarted": {
+                    "type": "boolean"
+                },
+                "sandbox_resources_applied": {
+                    "type": "boolean"
+                },
+                "task": {
+                    "$ref": "#/definitions/types.SpecTask"
+                }
+            }
+        },
         "types.SpecTaskPhase": {
             "type": "string",
             "enum": [
@@ -38307,6 +38513,9 @@ const docTemplate = `{
                 "cloned_from_project_id": {
                     "description": "Original project",
                     "type": "string"
+                },
+                "code_agent_overrides": {
+                    "$ref": "#/definitions/types.CodeAgentOverrides"
                 },
                 "completed_at": {
                     "type": "string"
@@ -38493,6 +38702,9 @@ const docTemplate = `{
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
                 "sandbox_state": {
                     "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",

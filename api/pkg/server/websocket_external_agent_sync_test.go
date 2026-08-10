@@ -274,6 +274,8 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
 	// We need to allow them to return errors since we don't care about them here
 	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread-spectask").
 		Return(nil, store.ErrNotFound).AnyTimes()
+	s.store.EXPECT().ListWorkSessionsBySpecTask(gomock.Any(), "spec-task-123", gomock.Nil()).
+		Return(nil, nil).AnyTimes()
 	s.store.EXPECT().CreateSpecTaskWorkSession(gomock.Any(), gomock.Any()).
 		Return(fmt.Errorf("not important")).AnyTimes()
 
@@ -1185,6 +1187,9 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive()
 		State:           types.InteractionStateWaiting,
 		ResponseMessage: "AI response",
 		Created:         baseTime,
+		CodeAgentConfigSnapshot: &types.InteractionCodeAgentConfigSnapshot{
+			CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		},
 	}
 	newerWaiting := &types.Interaction{
 		ID:        "int-newer-skip",
@@ -1261,6 +1266,9 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup()
 		State:           types.InteractionStateWaiting,
 		ResponseMessage: "AI response",
 		Created:         baseTime,
+		CodeAgentConfigSnapshot: &types.InteractionCodeAgentConfigSnapshot{
+			CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		},
 	}
 
 	// Completion may reload once more to recover before-checkpoint metadata that
@@ -3894,6 +3902,42 @@ func (s *WebSocketSyncSuite) TestUserCreatedThread_NonSpectaskSkipsWorkSession()
 
 	err := s.server.handleUserCreatedThread("ses_exploratory", syncMsg)
 	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestTrackSpecTaskZedThread_RepointsExistingWorkSessionThread() {
+	now := time.Now().Add(-time.Minute)
+	existingThread := &types.SpecTaskZedThread{
+		ID:             "stzt_existing",
+		WorkSessionID:  "stws_existing",
+		SpecTaskID:     "spt_test",
+		ZedThreadID:    "thread_luna",
+		Status:         types.SpecTaskZedStatusActive,
+		LastActivityAt: &now,
+	}
+	workSession := &types.SpecTaskWorkSession{
+		ID:             "stws_existing",
+		SpecTaskID:     "spt_test",
+		HelixSessionID: "ses_existing",
+		ZedThread:      existingThread,
+	}
+
+	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread_terra").
+		Return(nil, fmt.Errorf("not found"))
+	s.store.EXPECT().ListWorkSessionsBySpecTask(gomock.Any(), "spt_test", gomock.Nil()).
+		Return([]*types.SpecTaskWorkSession{workSession}, nil)
+	s.store.EXPECT().UpdateSpecTaskZedThread(gomock.Any(), existingThread).DoAndReturn(
+		func(_ context.Context, thread *types.SpecTaskZedThread) error {
+			s.Equal("thread_terra", thread.ZedThreadID)
+			s.Equal(types.SpecTaskZedStatusActive, thread.Status)
+			s.NotNil(thread.LastActivityAt)
+			return nil
+		},
+	)
+
+	s.server.trackSpecTaskZedThread(context.Background(), &types.Session{
+		ID:       "ses_existing",
+		Metadata: types.SessionMetadata{SpecTaskID: "spt_test"},
+	}, "thread_terra", "New Conversation")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

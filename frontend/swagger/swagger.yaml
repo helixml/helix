@@ -2023,6 +2023,8 @@ definitions:
       ip_address:
         description: Network info for RevDial/screenshot-server connections
         type: string
+      memory_mb:
+        type: integer
       organization_id:
         type: string
       organization_name:
@@ -2055,6 +2057,8 @@ definitions:
       task_prompt:
         description: First ~80 chars of original prompt
         type: string
+      vcpus:
+        type: integer
       video_stats:
         $ref: '#/definitions/server.VideoStreamingStats'
     type: object
@@ -4890,6 +4894,11 @@ definitions:
         - $ref: '#/definitions/types.CodeAgentRuntime'
         description: 'Runtime specifies which code agent runtime to use: "zed_agent"
           or "qwen_code"'
+      service_tier:
+        description: |-
+          ServiceTier controls provider scheduling for runtimes that support it.
+          Codex uses "fast" for priority processing; empty uses the normal tier.
+        type: string
       uses_subscription:
         description: |-
           UsesSubscription is true when the agent authenticates against the upstream
@@ -4913,6 +4922,17 @@ definitions:
       name:
         type: string
       path:
+        type: string
+    type: object
+  types.CodeAgentOverrides:
+    properties:
+      model:
+        type: string
+      provider_ref:
+        type: string
+      reasoning_effort:
+        type: string
+      service_tier:
         type: string
     type: object
   types.CodeAgentRuntime:
@@ -5266,6 +5286,8 @@ definitions:
       branch_prefix:
         description: 'For new mode: user-specified prefix (task# appended)'
         type: string
+      code_agent_overrides:
+        $ref: '#/definitions/types.CodeAgentOverrides'
       credential_owner_id:
         description: |-
           CredentialOwnerID optionally names the user whose Claude subscription should
@@ -5300,6 +5322,8 @@ definitions:
         type: string
       prompt:
         type: string
+      sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
       type:
         type: string
       user_email:
@@ -9356,6 +9380,13 @@ definitions:
       total:
         type: integer
     type: object
+  types.SandboxResourceOverrides:
+    properties:
+      memory_mb:
+        type: integer
+      vcpus:
+        type: integer
+    type: object
   types.SandboxRuntime:
     enum:
     - ubuntu-desktop
@@ -10389,6 +10420,8 @@ definitions:
       cloned_from_project_id:
         description: Original project
         type: string
+      code_agent_overrides:
+        $ref: '#/definitions/types.CodeAgentOverrides'
       completed_at:
         type: string
       created_at:
@@ -10550,6 +10583,8 @@ definitions:
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
         type: string
+      sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
       sandbox_state:
         description: '"absent", "running", "starting" — derived from session config
           in listTasks'
@@ -10875,6 +10910,45 @@ definitions:
     - decision
     - review_id
     type: object
+  types.SpecTaskExecutionConfig:
+    properties:
+      agent_available:
+        type: boolean
+      agent_id:
+        type: string
+      agent_name:
+        type: string
+      credential_type:
+        $ref: '#/definitions/types.CodeAgentCredentialType'
+      model:
+        type: string
+      provider_ref:
+        type: string
+      reasoning_effort:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      service_tier:
+        type: string
+    type: object
+  types.SpecTaskExecutionConfigUpdateRequest:
+    properties:
+      agent_id:
+        type: string
+      code_agent_overrides:
+        $ref: '#/definitions/types.CodeAgentOverrides'
+      sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
+    type: object
+  types.SpecTaskExecutionConfigUpdateResponse:
+    properties:
+      agent_thread_restarted:
+        type: boolean
+      sandbox_resources_applied:
+        type: boolean
+      task:
+        $ref: '#/definitions/types.SpecTask'
+    type: object
   types.SpecTaskPhase:
     enum:
     - planning
@@ -11015,6 +11089,8 @@ definitions:
       cloned_from_project_id:
         description: Original project
         type: string
+      code_agent_overrides:
+        $ref: '#/definitions/types.CodeAgentOverrides'
       completed_at:
         type: string
       created_at:
@@ -11178,6 +11254,8 @@ definitions:
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
         type: string
+      sandbox_resource_overrides:
+        $ref: '#/definitions/types.SandboxResourceOverrides'
       sandbox_state:
         description: '"absent", "running", "starting" — derived from session config
           in listTasks'
@@ -26349,6 +26427,71 @@ paths:
       summary: List clone groups for a task
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{taskId}/execution-config:
+    get:
+      description: Returns the task's current coding identity without exposing Agent
+        secrets. Legacy tasks whose Agent was deleted fall back to their session and
+        interaction snapshots.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskExecutionConfig'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get task execution configuration
+      tags:
+      - spec-driven-tasks
+    patch:
+      consumes:
+      - application/json
+      description: Replaces a task's code-agent overrides or sandbox resource preset.
+        Running sandboxes are resized in place; code-agent changes start a new ACP
+        thread with normalized prior context.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Execution configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SpecTaskExecutionConfigUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskExecutionConfigUpdateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update task execution configuration
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/labels:
     post:
       consumes:

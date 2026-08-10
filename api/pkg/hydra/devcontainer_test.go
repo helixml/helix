@@ -32,6 +32,20 @@ func TestImageTag(t *testing.T) {
 	}
 }
 
+func TestSandboxResourceLimits(t *testing.T) {
+	nanoCPUs, memory, memorySwap := sandboxResourceLimits(4, 8192)
+	if nanoCPUs != 4_000_000_000 {
+		t.Fatalf("NanoCPUs = %d, want 4000000000", nanoCPUs)
+	}
+	wantMemory := int64(8192 * 1024 * 1024)
+	if memory != wantMemory {
+		t.Fatalf("Memory = %d, want %d", memory, wantMemory)
+	}
+	if memorySwap != wantMemory*2 {
+		t.Fatalf("MemorySwap = %d, want %d", memorySwap, wantMemory*2)
+	}
+}
+
 func TestResolveRegistryImage(t *testing.T) {
 	// Create a temp dir to act as /opt/images for tests
 	tmpDir := t.TempDir()

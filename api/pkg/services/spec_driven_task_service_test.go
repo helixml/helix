@@ -40,11 +40,13 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 
 	ctx := context.Background()
 	req := &types.CreateTaskRequest{
-		ProjectID: "test-project",
-		Prompt:    "Create a user authentication system",
-		Type:      "feature",
-		Priority:  types.SpecTaskPriorityHigh,
-		UserID:    "test-user",
+		ProjectID:                "test-project",
+		Prompt:                   "Create a user authentication system",
+		Type:                     "feature",
+		Priority:                 types.SpecTaskPriorityHigh,
+		UserID:                   "test-user",
+		CodeAgentOverrides:       &types.CodeAgentOverrides{Model: "gpt-5.6-sol", ReasoningEffort: "high"},
+		SandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
 	}
 
 	// Mock expectations
@@ -64,6 +66,8 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 			assert.Equal(t, "test-user", task.CreatedBy)
 			assert.Equal(t, "feature", task.Type)
 			assert.Equal(t, types.SpecTaskPriorityHigh, task.Priority)
+			assert.Equal(t, req.CodeAgentOverrides, task.CodeAgentOverrides)
+			assert.Equal(t, req.SandboxResourceOverrides, task.SandboxResourceOverrides)
 			// Task number and design doc path should be assigned at creation
 			assert.Equal(t, 1, task.TaskNumber)
 			assert.NotEmpty(t, task.DesignDocPath)
@@ -91,6 +95,17 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
 }
 
+func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsInvalidSandboxPreset(t *testing.T) {
+	service := NewSpecDrivenTaskService(
+		nil, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	task, err := service.CreateTaskFromPrompt(context.Background(), &types.CreateTaskRequest{
+		SandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 3, MemoryMB: 4096},
+	})
+	require.EqualError(t, err, "invalid sandbox resource preset")
+	require.Nil(t, task)
+}
+
 func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
@@ -114,6 +129,7 @@ func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
 		func(_ context.Context, task *types.SpecTask) error {
 			require.Equal(t, "starter", task.AssigneeID)
 			require.Equal(t, "starter", task.PlanningStartedBy)
+			require.Equal(t, types.DefaultSpecTaskSandboxResources(), task.SandboxResourceOverrides)
 			return nil
 		},
 	)
@@ -347,14 +363,14 @@ func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testin
 	// Task has SpecApprovedBy/SpecApprovedAt set but SpecApproval is nil —
 	// this is the broken state from the approveImplementation fallback bug.
 	taskInDB := &types.SpecTask{
-		ID:            "task-stuck",
-		ProjectID:     "project-1",
-		Status:        types.TaskStatusSpecApproved,
+		ID:             "task-stuck",
+		ProjectID:      "project-1",
+		Status:         types.TaskStatusSpecApproved,
 		SpecApprovedBy: "user-1",
 		SpecApprovedAt: &approvedAt,
-		SpecApproval:  nil, // <-- the bug: this was never set
-		TaskNumber:    42,
-		Name:          "stuck-task",
+		SpecApproval:   nil, // <-- the bug: this was never set
+		TaskNumber:     42,
+		Name:           "stuck-task",
 	}
 
 	mockStore.EXPECT().GetSpecTask(ctx, "task-stuck").Return(taskInDB, nil)
@@ -411,14 +427,14 @@ func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *t
 
 	// Both SpecApproval and SpecApprovedAt are nil — worst case scenario.
 	taskInDB := &types.SpecTask{
-		ID:            "task-worst-case",
-		ProjectID:     "project-1",
-		Status:        types.TaskStatusSpecApproved,
+		ID:             "task-worst-case",
+		ProjectID:      "project-1",
+		Status:         types.TaskStatusSpecApproved,
 		SpecApprovedBy: "user-1",
 		SpecApprovedAt: nil,
-		SpecApproval:  nil,
-		TaskNumber:    43,
-		Name:          "worst-case-task",
+		SpecApproval:   nil,
+		TaskNumber:     43,
+		Name:           "worst-case-task",
 	}
 
 	mockStore.EXPECT().GetSpecTask(ctx, "task-worst-case").Return(taskInDB, nil)

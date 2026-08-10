@@ -99,21 +99,6 @@ func (mr *MockExecutorMockRecorder) GetGoldenBuildResult(ctx, sandboxID, project
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGoldenBuildResult", reflect.TypeOf((*MockExecutor)(nil).GetGoldenBuildResult), ctx, sandboxID, projectID)
 }
 
-// ReconcileSandboxResources mocks base method.
-func (m *MockExecutor) ReconcileSandboxResources(ctx context.Context, sandboxID string, req *hydra.GCReconcileRequest) (*hydra.GCReconcileResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReconcileSandboxResources", ctx, sandboxID, req)
-	ret0, _ := ret[0].(*hydra.GCReconcileResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ReconcileSandboxResources indicates an expected call of ReconcileSandboxResources.
-func (mr *MockExecutorMockRecorder) ReconcileSandboxResources(ctx, sandboxID, req any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileSandboxResources", reflect.TypeOf((*MockExecutor)(nil).ReconcileSandboxResources), ctx, sandboxID, req)
-}
-
 // GetSession mocks base method.
 func (m *MockExecutor) GetSession(sessionID string) (*ZedSession, error) {
 	m.ctrl.T.Helper()
@@ -157,6 +142,21 @@ func (mr *MockExecutorMockRecorder) ListSessions() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessions", reflect.TypeOf((*MockExecutor)(nil).ListSessions))
 }
 
+// ReconcileSandboxResources mocks base method.
+func (m *MockExecutor) ReconcileSandboxResources(ctx context.Context, sandboxID string, req *hydra.GCReconcileRequest) (*hydra.GCReconcileResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReconcileSandboxResources", ctx, sandboxID, req)
+	ret0, _ := ret[0].(*hydra.GCReconcileResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReconcileSandboxResources indicates an expected call of ReconcileSandboxResources.
+func (mr *MockExecutorMockRecorder) ReconcileSandboxResources(ctx, sandboxID, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileSandboxResources", reflect.TypeOf((*MockExecutor)(nil).ReconcileSandboxResources), ctx, sandboxID, req)
+}
+
 // StartDesktop mocks base method.
 func (m *MockExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
 	m.ctrl.T.Helper()
@@ -184,4 +184,18 @@ func (m *MockExecutor) StopDesktop(ctx context.Context, sessionID string) error 
 func (mr *MockExecutorMockRecorder) StopDesktop(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopDesktop", reflect.TypeOf((*MockExecutor)(nil).StopDesktop), ctx, sessionID)
+}
+
+// UpdateDesktopResources mocks base method.
+func (m *MockExecutor) UpdateDesktopResources(ctx context.Context, sessionID string, resources *types.SandboxResourceOverrides) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDesktopResources", ctx, sessionID, resources)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDesktopResources indicates an expected call of UpdateDesktopResources.
+func (mr *MockExecutorMockRecorder) UpdateDesktopResources(ctx, sessionID, resources any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDesktopResources", reflect.TypeOf((*MockExecutor)(nil).UpdateDesktopResources), ctx, sessionID, resources)
 }
