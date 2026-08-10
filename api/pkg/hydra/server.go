@@ -182,6 +182,7 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/dev-containers", s.handleCreateDevContainer).Methods("POST")
 	api.HandleFunc("/dev-containers", s.handleListDevContainers).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleGetDevContainer).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}/resources", s.handleUpdateDevContainerResources).Methods("PATCH")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
 	api.HandleFunc("/dev-containers/{session_id}/clients", s.handleGetDevContainerClients).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/video/stats", s.handleGetDevContainerVideoStats).Methods("GET")
@@ -327,6 +328,30 @@ func (s *Server) handleGetDevContainer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleUpdateDevContainerResources(w http.ResponseWriter, r *http.Request) {
+	sessionID := mux.Vars(r)["session_id"]
+	var req UpdateDevContainerResourcesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+		return
+	}
+	if req.VCPUs < 0 || req.MemoryMB < 0 || (req.VCPUs == 0) != (req.MemoryMB == 0) {
+		http.Error(w, "vcpus and memory_mb must both be positive or both be zero", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	resp, err := s.devContainerManager.UpdateDevContainerResources(ctx, sessionID, &req)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to update dev container resources")
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

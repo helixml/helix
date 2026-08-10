@@ -849,6 +849,10 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		http.Error(rw, "failed to process session messages: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := s.snapshotLatestCodeAgentInteraction(req.Context(), session); err != nil {
+		http.Error(rw, "failed to snapshot coding configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	// Set the organization ID in the context for OAuth token retrieval
 	ctx = oai.SetContextOrganizationID(ctx, session.OrganizationID)
@@ -1332,15 +1336,13 @@ func getInteractionIndex(interactions []*types.Interaction, req *types.SessionCh
 	return 0
 }
 
-// limitInteractions returns the interactions except the last one, limited by the limit.
-// If limit is 3 but there are 10 interactions, last one will be excluded and only the next 3 before it
-// will be returned.
+// limitInteractions keeps the newest interactions within the context limit.
+// The final interaction is the pending user turn and must always be included;
+// excluding it makes external-agent requests fail with "no user message found".
 func limitInteractions(interactions []*types.Interaction, limit int) []*types.Interaction {
 	if limit > 0 && len(interactions) > limit {
-		// Add all interactions except the last one, limited by messageContextLimit
-		// +1 because we're not counting the last interaction which is the pending response
 		startIdx := len(interactions) - limit
-		return interactions[startIdx : len(interactions)-1]
+		return interactions[startIdx:]
 	}
 	return interactions
 }
@@ -3136,6 +3138,9 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 	session, err = appendOrOverwrite(session, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process session messages: %w", err)
+	}
+	if err := s.snapshotLatestCodeAgentInteraction(ctx, session); err != nil {
+		return nil, fmt.Errorf("failed to snapshot coding configuration: %w", err)
 	}
 
 	if err := s.Controller.WriteSession(ctx, session); err != nil {

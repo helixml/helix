@@ -70,6 +70,7 @@ type ProjectChatGroupProps = {
   onNewTask?: () => void
   onOpenItem: (item: SidebarItem) => void
   onOpenItemContextMenu: (event: MouseEvent<HTMLElement>, item: SidebarItem) => void
+  onOpenProjectContextMenu?: (event: MouseEvent<HTMLElement>, project: TypesProject) => void
   onArchiveItem: (item: SidebarItem) => void
   manualSorting?: boolean
   dragHandleProps?: SortableProjectHandleProps
@@ -98,6 +99,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
   onNewTask,
   onOpenItem,
   onOpenItemContextMenu,
+  onOpenProjectContextMenu,
   onArchiveItem,
   manualSorting = false,
   dragHandleProps,
@@ -247,6 +249,12 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             return
           }
           onToggle()
+        }}
+        onContextMenu={(event) => {
+          if (!project || !onOpenProjectContextMenu) return
+          event.preventDefault()
+          event.stopPropagation()
+          onOpenProjectContextMenu(event, project)
         }}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return

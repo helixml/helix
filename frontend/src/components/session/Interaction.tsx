@@ -2,6 +2,7 @@ import React, { FC, useMemo } from "react";
 import InteractionContainer from "./InteractionContainer";
 import InteractionInference from "./InteractionInference";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 import Alert from "@mui/material/Alert";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
@@ -13,6 +14,7 @@ import CollapsibleSystemPrefix, {
 } from "./CollapsibleSystemPrefix";
 import ChangedFilesCard from "./ChangedFilesCard";
 import { parseMessageWithAttachments } from "../common/chatAttachments";
+import { resolveChatTurnAssistantPreview } from "./ChatTurnNavigator.logic";
 
 import useAccount from "../../hooks/useAccount";
 
@@ -40,16 +42,27 @@ const getInteractionUserMessage = (interaction?: TypesInteraction) => {
 
 /**
  * Inline divider rendered in place of a normal user/assistant turn for
- * synthetic fork_seed interactions. The seed's prompt_message is a
- * human-readable summary ("Session forked from ses_X at turn N");
- * response_message holds the parent's serialized transcript, hidden
- * behind a disclosure for users who want to verify what was sent.
+ * synthetic fork_seed interactions. The disclosure keeps both the seeded
+ * transcript and its associated synthetic handoff out of the normal chat.
  */
-const ForkSeedDivider: FC<{ interaction: TypesInteraction }> = ({
+const ForkSeedDivider: FC<{
+  interaction: TypesInteraction;
+  handoffInteraction?: TypesInteraction;
+}> = ({
   interaction,
+  handoffInteraction,
 }) => {
   const [expanded, setExpanded] = React.useState(false);
   const transcript = interaction.response_message || "";
+  const isAgentSwitch = interaction.prompt_message?.startsWith("Agent switched to ")
+    && handoffInteraction?.trigger === "fork_handoff";
+  const dividerLabel = interaction.prompt_message || "Forked from prior session";
+  const handoffResponse = handoffInteraction
+    ? resolveChatTurnAssistantPreview(
+        handoffInteraction.response_message,
+        (handoffInteraction as any).response_entries,
+      )
+    : null;
   return (
     <Box sx={{ my: 3 }}>
       <Box
@@ -71,16 +84,26 @@ const ForkSeedDivider: FC<{ interaction: TypesInteraction }> = ({
           }}
         >
           <Box
+            component={isAgentSwitch ? "button" : "div"}
+            type={isAgentSwitch ? "button" : undefined}
+            aria-expanded={isAgentSwitch ? expanded : undefined}
+            onClick={isAgentSwitch ? () => setExpanded((value) => !value) : undefined}
             sx={{
+              background: "transparent",
+              border: "none",
+              color: "inherit",
               fontSize: "0.75rem",
               fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: 0.5,
+              p: 0,
+              cursor: isAgentSwitch ? "pointer" : "default",
+              "&:hover": isAgentSwitch ? { color: "text.primary" } : undefined,
             }}
           >
-            {interaction.prompt_message || "Forked from prior session"}
+            {dividerLabel}
           </Box>
-          {transcript && (
+          {!isAgentSwitch && transcript && (
             <Box
               component="button"
               type="button"
@@ -101,7 +124,36 @@ const ForkSeedDivider: FC<{ interaction: TypesInteraction }> = ({
         </Box>
         <Box sx={{ flex: 1, borderTop: "1px dashed", borderColor: "divider" }} />
       </Box>
-      {expanded && transcript && (
+      {expanded && handoffInteraction && (
+        <Stack spacing={1} sx={{ mt: 1 }}>
+          <Box
+            sx={{
+              p: 1.5,
+              borderRadius: 1,
+              backgroundColor: "action.hover",
+              fontSize: "0.8rem",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {handoffInteraction.prompt_message}
+          </Box>
+          <Box
+            sx={{
+              p: 1.5,
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1,
+              fontSize: "0.8rem",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {handoffResponse || "Waiting for the agent response…"}
+          </Box>
+        </Stack>
+      )}
+      {!isAgentSwitch && expanded && transcript && (
         <Box
           sx={{
             mt: 1,
@@ -348,7 +400,15 @@ export const Interaction: FC<InteractionProps> = ({
   // prompt_message — it's a placeholder; the actual seed payload lives
   // in response_message and is injected via maybePrependTranscript).
   if (interaction.trigger === "fork_seed") {
-    return <ForkSeedDivider interaction={interaction} />;
+    return (
+      <ForkSeedDivider
+        interaction={interaction}
+        handoffInteraction={nextInteraction}
+      />
+    );
+  }
+  if (interaction.trigger === "fork_handoff") {
+    return null;
   }
 
   return (

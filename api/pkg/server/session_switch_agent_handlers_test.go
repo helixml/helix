@@ -33,9 +33,19 @@ func callSwitchAgentHTTP(t *testing.T, srv *HelixAPIServer, user *types.User, se
 func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
+	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeQwenCode, Model: "qwen-test",
+		}},
+	}}})
 	session := newTestParentSession("user_a")
 	session.Metadata.ZedThreadID = "ctx_old_thread" // pretend a thread is open
 	seedParentWithInteractions(t, mem, session, 2)
+	mem.SeedSpecTask(&types.SpecTask{ID: session.Metadata.SpecTaskID, HelixAppID: session.ParentApp, PlanningSessionID: session.ID})
+	srv.contextMappings[session.Metadata.ZedThreadID] = session.ID
+	srv.requestToSessionMapping["req_old"] = session.ID
+	srv.requestToInteractionMapping["req_old"] = "int_old"
+	srv.interactionDispatchClaims["int_old"] = dispatchClaim{requestID: "req_old", sessionID: session.ID}
 
 	httpErr := srv.switchAgentInPlace(ctx, session, types.CodeAgentRuntimeQwenCode, "app_target")
 	require.Nil(t, httpErr)
@@ -51,6 +61,14 @@ func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	assert.Equal(t, types.CodeAgentRuntimeQwenCode.ZedAgentName(), updated.Metadata.ZedAgentName)
 	// Thread binding cleared so the next message opens a new thread.
 	assert.Equal(t, "", updated.Metadata.ZedThreadID, "ZedThreadID must be cleared")
+	_, oldThreadStillRoutable := srv.contextMappings["ctx_old_thread"]
+	assert.False(t, oldThreadStillRoutable, "the superseded ACP thread must no longer route events to this session")
+	_, oldRequestStillRoutable := srv.requestToSessionMapping["req_old"]
+	assert.False(t, oldRequestStillRoutable, "the superseded request must not be reused by the handoff")
+	_, oldInteractionStillMapped := srv.requestToInteractionMapping["req_old"]
+	assert.False(t, oldInteractionStillMapped, "the superseded request-to-interaction mapping must be removed")
+	_, oldDispatchStillClaimed := srv.interactionDispatchClaims["int_old"]
+	assert.False(t, oldDispatchStillClaimed, "the superseded dispatch claim must be removed")
 	// Switch marker set so maybePrependTranscript fires.
 	assert.False(t, updated.Metadata.AgentSwitchedAt.IsZero(), "AgentSwitchedAt must be set")
 	// Not paused — the session stays live.
@@ -118,6 +136,7 @@ func TestSwitchAgent_RepairsStaleAgentNameForCurrentApp(t *testing.T) {
 	session.Metadata.ZedAgentName = types.CodeAgentRuntimeClaudeCode.ZedAgentName()
 	session.Metadata.ZedThreadID = "thread_from_claude"
 	seedParentWithInteractions(t, mem, session, 1)
+	mem.SeedSpecTask(&types.SpecTask{ID: session.Metadata.SpecTaskID, HelixAppID: session.ParentApp, PlanningSessionID: session.ID})
 
 	rr := callSwitchAgentHTTP(t, srv, user, session.ID, SwitchAgentRequest{HelixAppID: "app_target"})
 	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
@@ -193,9 +212,15 @@ func TestReconcileSessionAgentWithApp_RepairsBeforeUserTurn(t *testing.T) {
 func TestMaybePrependTranscript_PrependsAfterInPlaceSwitch(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
+	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeQwenCode,
+		}},
+	}}})
 	session := newTestParentSession("user_a")
 	session.Metadata.ZedThreadID = "ctx_old_thread"
 	seedParentWithInteractions(t, mem, session, 2)
+	mem.SeedSpecTask(&types.SpecTask{ID: session.Metadata.SpecTaskID, HelixAppID: session.ParentApp, PlanningSessionID: session.ID})
 
 	httpErr := srv.switchAgentInPlace(ctx, session, types.CodeAgentRuntimeQwenCode, "app_target")
 	require.Nil(t, httpErr)

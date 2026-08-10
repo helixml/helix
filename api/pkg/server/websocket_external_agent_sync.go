@@ -2249,15 +2249,20 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 	// Create a waiting interaction so handleMessageCompleted can find it.
 	// Each message gets its own interaction to properly track the conversation.
 	if session != nil {
+		configSnapshot, snapshotErr := apiServer.codeAgentConfigSnapshot(ctx, session)
+		if snapshotErr != nil {
+			return "", fmt.Errorf("resolve code-agent configuration for chat message: %w", snapshotErr)
+		}
 		interaction := &types.Interaction{
-			Created:       time.Now(),
-			Updated:       time.Now(),
-			SessionID:     sessionID,
-			UserID:        session.Owner,
-			GenerationID:  session.GenerationID,
-			Mode:          types.SessionModeInference,
-			PromptMessage: message,
-			State:         types.InteractionStateWaiting,
+			Created:                 time.Now(),
+			Updated:                 time.Now(),
+			SessionID:               sessionID,
+			UserID:                  session.Owner,
+			GenerationID:            session.GenerationID,
+			Mode:                    types.SessionModeInference,
+			PromptMessage:           message,
+			State:                   types.InteractionStateWaiting,
+			CodeAgentConfigSnapshot: configSnapshot,
 		}
 
 		createdInteraction, createErr := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
@@ -3114,6 +3119,17 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// turn from the current working tree.
 	apiServer.finalizeInteractionCodeChanges(context.Background(), helixSessionID, targetInteraction)
 
+	// Snapshot the effective model before this interaction becomes idle. A
+	// model switch keeps the same Helix session, so reading the task later would
+	// otherwise attribute this completed turn to the newly selected model.
+	if targetInteraction.CodeAgentConfigSnapshot == nil {
+		snapshot, snapshotErr := apiServer.codeAgentConfigSnapshot(context.Background(), helixSession)
+		if snapshotErr != nil {
+			return snapshotErr
+		}
+		targetInteraction.CodeAgentConfigSnapshot = snapshot
+	}
+
 	// A completed turn proves any latched launch failure on the owning spec task
 	// is no longer true. Work can resume through session inference (the chat's
 	// Retry, or just a message), which never touches the task, leaving it at
@@ -3619,18 +3635,23 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// handleMessageCompleted can mark the prompt 'sent' from the DB row, not from an in-memory
 	// map that doesn't survive API restart. Replaces interactionToPromptMapping.
 	// See design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+	configSnapshot, err := apiServer.codeAgentConfigSnapshot(ctx, session)
+	if err != nil {
+		return fmt.Errorf("resolve code-agent configuration for queue prompt: %w", err)
+	}
 	interaction := &types.Interaction{
-		ID:            "", // Will be generated
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		Scheduled:     time.Now(),
-		SessionID:     sessionID,
-		UserID:        session.Owner,
-		GenerationID:  session.GenerationID, // Must match session's generation for query to find it
-		Mode:          types.SessionModeInference,
-		PromptMessage: prompt.Content,
-		State:         types.InteractionStateWaiting,
-		PromptID:      prompt.ID,
+		ID:                      "", // Will be generated
+		Created:                 time.Now(),
+		Updated:                 time.Now(),
+		Scheduled:               time.Now(),
+		SessionID:               sessionID,
+		UserID:                  session.Owner,
+		GenerationID:            session.GenerationID, // Must match session's generation for query to find it
+		Mode:                    types.SessionModeInference,
+		PromptMessage:           prompt.Content,
+		State:                   types.InteractionStateWaiting,
+		PromptID:                prompt.ID,
+		CodeAgentConfigSnapshot: configSnapshot,
 	}
 
 	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
@@ -4990,26 +5011,58 @@ func (apiServer *HelixAPIServer) trackSpecTaskZedThread(ctx context.Context, hel
 		return
 	}
 
-	// Create a SpecTaskWorkSession for this thread
-	workSession := &types.SpecTaskWorkSession{
-		SpecTaskID:     specTaskID,
-		HelixSessionID: helixSession.ID,
-		Name:           title,
-		Phase:          types.SpecTaskPhaseImplementation,
-		Status:         types.SpecTaskWorkSessionStatusActive,
-	}
-
-	err = st.CreateSpecTaskWorkSession(ctx, workSession)
+	// A SpecTask work session maps 1:1 to its Helix session. Model switches
+	// replace the ACP thread inside that session; they must not create another
+	// work session (the unique helix_session_id constraint correctly rejects
+	// that). Reuse the existing row and repoint its current Zed thread record.
+	workSessions, err := st.ListWorkSessionsBySpecTask(ctx, specTaskID, nil)
 	if err != nil {
 		log.Error().Err(err).
 			Str("spec_task_id", specTaskID).
 			Str("helix_session_id", helixSession.ID).
-			Msg("Failed to create SpecTaskWorkSession for thread tracking")
+			Msg("Failed to list SpecTaskWorkSessions for thread tracking")
+		return
+	}
+	var workSession *types.SpecTaskWorkSession
+	for _, candidate := range workSessions {
+		if candidate.HelixSessionID == helixSession.ID {
+			workSession = candidate
+			break
+		}
+	}
+	if workSession == nil {
+		workSession = &types.SpecTaskWorkSession{
+			SpecTaskID:     specTaskID,
+			HelixSessionID: helixSession.ID,
+			Name:           title,
+			Phase:          types.SpecTaskPhaseImplementation,
+			Status:         types.SpecTaskWorkSessionStatusActive,
+		}
+		if createErr := st.CreateSpecTaskWorkSession(ctx, workSession); createErr != nil {
+			log.Error().Err(createErr).
+				Str("spec_task_id", specTaskID).
+				Str("helix_session_id", helixSession.ID).
+				Msg("Failed to create SpecTaskWorkSession for thread tracking")
+			return
+		}
+	}
+
+	now := time.Now()
+	if workSession.ZedThread != nil {
+		workSession.ZedThread.ZedThreadID = acpThreadID
+		workSession.ZedThread.Status = types.SpecTaskZedStatusActive
+		workSession.ZedThread.LastActivityAt = &now
+		if updateErr := st.UpdateSpecTaskZedThread(ctx, workSession.ZedThread); updateErr != nil {
+			log.Error().Err(updateErr).
+				Str("spec_task_id", specTaskID).
+				Str("work_session_id", workSession.ID).
+				Str("acp_thread_id", acpThreadID).
+				Msg("Failed to repoint SpecTaskZedThread after coding configuration switch")
+		}
 		return
 	}
 
 	// Create the SpecTaskZedThread record
-	now := time.Now()
 	zedThread := &types.SpecTaskZedThread{
 		WorkSessionID:  workSession.ID,
 		SpecTaskID:     specTaskID,

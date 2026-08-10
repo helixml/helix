@@ -41,6 +41,29 @@ describe('new chat project mode', () => {
     }).just_do_it_mode).toBe(true)
   })
 
+  it('passes task execution choices through chat-first creation', () => {
+    expect(buildNewChatTaskRequest({
+      appId: 'app_codex',
+      codeAgentOverrides: {
+        model: 'gpt-5.6-sol',
+        reasoning_effort: 'high',
+        service_tier: 'fast',
+      },
+      mode: 'build',
+      projectId: 'prj_1',
+      prompt: 'Fix the tests',
+      sandboxResourceOverrides: { vcpus: 8, memory_mb: 16384 },
+    })).toMatchObject({
+      app_id: 'app_codex',
+      code_agent_overrides: {
+        model: 'gpt-5.6-sol',
+        reasoning_effort: 'high',
+        service_tier: 'fast',
+      },
+      sandbox_resource_overrides: { vcpus: 8, memory_mb: 16384 },
+    })
+  })
+
   it('only exposes effort for a selected model that supports it', () => {
     const providers = [{
       id: 'provider-1',

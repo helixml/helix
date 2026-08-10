@@ -25,6 +25,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useDesignReview } from '../services/designReviewService'
 import useAccount from '../hooks/useAccount'
+import { copyTextToClipboard } from '../utils/clipboard'
 
 type DocumentType = 'requirements' | 'technical_design' | 'implementation_plan'
 
@@ -45,10 +46,14 @@ export default function DesignDocPage() {
 
   const { data, isLoading, error } = useDesignReview(specTaskId, reviewId)
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  const handleCopyLink = async () => {
+    try {
+      await copyTextToClipboard(window.location.href)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
   }
 
   const handleGoBack = () => {

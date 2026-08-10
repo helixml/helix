@@ -1316,6 +1316,7 @@ export interface ServerDevContainerWithClients {
   gpu_vendor?: string;
   /** Network info for RevDial/screenshot-server connections */
   ip_address?: string;
+  memory_mb?: number;
   organization_id?: string;
   organization_name?: string;
   owner_name?: string;
@@ -1333,6 +1334,7 @@ export interface ServerDevContainerWithClients {
   task_number?: number;
   /** First ~80 chars of original prompt */
   task_prompt?: string;
+  vcpus?: number;
   video_stats?: ServerVideoStreamingStats;
 }
 
@@ -3108,6 +3110,11 @@ export interface TypesCodeAgentConfig {
   /** Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code" */
   runtime?: TypesCodeAgentRuntime;
   /**
+   * ServiceTier controls provider scheduling for runtimes that support it.
+   * Codex uses "fast" for priority processing; empty uses the normal tier.
+   */
+  service_tier?: string;
+  /**
    * UsesSubscription is true when the agent authenticates against the upstream
    * provider with the user's own subscription (Claude Pro/Max, ChatGPT) instead
    * of an API key routed through the Helix proxy. It mirrors the assistant's
@@ -3126,6 +3133,13 @@ export enum TypesCodeAgentCredentialType {
 export interface TypesCodeAgentGooseRecipe {
   name?: string;
   path?: string;
+}
+
+export interface TypesCodeAgentOverrides {
+  model?: string;
+  provider_ref?: string;
+  reasoning_effort?: string;
+  service_tier?: string;
 }
 
 export enum TypesCodeAgentRuntime {
@@ -3353,6 +3367,7 @@ export interface TypesCreateTaskRequest {
   branch_mode?: TypesBranchMode;
   /** For new mode: user-specified prefix (task# appended) */
   branch_prefix?: string;
+  code_agent_overrides?: TypesCodeAgentOverrides;
   /**
    * CredentialOwnerID optionally names the user whose Claude subscription should
    * authenticate this task's agent, for orchestrators dispatching work on a
@@ -3377,6 +3392,7 @@ export interface TypesCreateTaskRequest {
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   prompt?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   type?: string;
   /** Optional: User email for audit trail */
   user_email?: string;
@@ -5887,6 +5903,11 @@ export interface TypesSandboxListResponse {
   total?: number;
 }
 
+export interface TypesSandboxResourceOverrides {
+  memory_mb?: number;
+  vcpus?: number;
+}
+
 export enum TypesSandboxRuntime {
   SandboxRuntimeUbuntuDesktop = "ubuntu-desktop",
   SandboxRuntimeHeadlessUbuntu = "headless-ubuntu",
@@ -6550,6 +6571,7 @@ export interface TypesSpecTask {
   cloned_from_id?: string;
   /** Original project */
   cloned_from_project_id?: string;
+  code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
   created_at?: string;
   /** Metadata */
@@ -6655,6 +6677,7 @@ export interface TypesSpecTask {
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   /** "absent", "running", "starting" — derived from session config in listTasks */
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */
@@ -6844,6 +6867,30 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
   review_id: string;
 }
 
+export interface TypesSpecTaskExecutionConfig {
+  agent_available?: boolean;
+  agent_id?: string;
+  agent_name?: string;
+  credential_type?: TypesCodeAgentCredentialType;
+  model?: string;
+  provider_ref?: string;
+  reasoning_effort?: string;
+  runtime?: TypesCodeAgentRuntime;
+  service_tier?: string;
+}
+
+export interface TypesSpecTaskExecutionConfigUpdateRequest {
+  agent_id?: string;
+  code_agent_overrides?: TypesCodeAgentOverrides;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+}
+
+export interface TypesSpecTaskExecutionConfigUpdateResponse {
+  agent_thread_restarted?: boolean;
+  sandbox_resources_applied?: boolean;
+  task?: TypesSpecTask;
+}
+
 export enum TypesSpecTaskPhase {
   SpecTaskPhasePlanning = "planning",
   SpecTaskPhaseImplementation = "implementation",
@@ -6916,6 +6963,7 @@ export interface TypesSpecTaskWithProject {
   cloned_from_id?: string;
   /** Original project */
   cloned_from_project_id?: string;
+  code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
   created_at?: string;
   /** Metadata */
@@ -7022,6 +7070,7 @@ export interface TypesSpecTaskWithProject {
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   /** "absent", "running", "starting" — derived from session config in listTasks */
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */
@@ -17781,6 +17830,48 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/clone-groups`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the task's current coding identity without exposing Agent secrets. Legacy tasks whose Agent was deleted fall back to their session and interaction snapshots.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksExecutionConfigDetail
+     * @summary Get task execution configuration
+     * @request GET:/api/v1/spec-tasks/{taskId}/execution-config
+     * @secure
+     */
+    v1SpecTasksExecutionConfigDetail: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskExecutionConfig, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/execution-config`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place; code-agent changes start a new ACP thread with normalized prior context.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksExecutionConfigPartialUpdate
+     * @summary Update task execution configuration
+     * @request PATCH:/api/v1/spec-tasks/{taskId}/execution-config
+     * @secure
+     */
+    v1SpecTasksExecutionConfigPartialUpdate: (
+      taskId: string,
+      request: TypesSpecTaskExecutionConfigUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskExecutionConfigUpdateResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/execution-config`,
+        method: "PATCH",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

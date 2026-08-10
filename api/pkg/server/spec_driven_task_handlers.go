@@ -186,6 +186,17 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
+		http.Error(w, "sandbox size must be 1 CPU/2 GB, 4 CPU/8 GB, or 8 CPU/16 GB", http.StatusBadRequest)
+		return
+	}
+	if req.CodeAgentOverrides != nil {
+		candidate := &types.SpecTask{HelixAppID: req.AppID}
+		if err := s.validateTaskCodeAgentOverrides(ctx, candidate, req.CodeAgentOverrides, user.ID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 
 	// Create task via spec-driven service
 	task, err := s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req)

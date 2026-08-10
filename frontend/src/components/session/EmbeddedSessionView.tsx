@@ -474,7 +474,7 @@ const EmbeddedSessionView = forwardRef<
 
   const navigatorItems = useMemo<ChatTurnNavigatorItem[]>(() => {
     return visibleInteractions.flatMap((interaction) => {
-      if (!interaction.id || interaction.trigger === "fork_seed") return [];
+      if (!interaction.id || interaction.trigger === "fork_seed" || interaction.trigger === "fork_handoff") return [];
       const contentText = interaction.prompt_message_content?.parts?.find(
         (part): part is { text: string } =>
           typeof part === "object" &&

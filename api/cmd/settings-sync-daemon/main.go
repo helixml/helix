@@ -77,8 +77,9 @@ type CodeAgentConfig struct {
 	APIType         string `json:"api_type"`
 	Runtime         string `json:"runtime"`                    // "zed_agent" or "qwen_code" or "goose_code"
 	ReasoningEffort string `json:"reasoning_effort,omitempty"` // Runtime/model reasoning effort; empty uses the upstream default
-	MaxTokens       int    `json:"max_tokens"`                 // Model's context window size (0 if unknown)
-	MaxOutputTokens int    `json:"max_output_tokens"`          // Model's max completion tokens (0 if unknown)
+	ServiceTier     string `json:"service_tier,omitempty"`
+	MaxTokens       int    `json:"max_tokens"`        // Model's context window size (0 if unknown)
+	MaxOutputTokens int    `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
 
 	// Goose-specific fields (only populated when Runtime == "goose_code").
 	GooseRecipes       []GooseRecipe     `json:"goose_recipes,omitempty"`
@@ -299,11 +300,13 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		if d.codeAgentConfig.Model != "" {
 			config["default_model"] = d.codeAgentConfig.Model
 		}
-		if d.codeAgentConfig.ReasoningEffort != "" {
+		if d.codeAgentConfig.ReasoningEffort != "" || d.codeAgentConfig.ServiceTier != "" {
 			codexConfig, err := json.Marshal(struct {
-				ModelReasoningEffort string `json:"model_reasoning_effort"`
+				ModelReasoningEffort string `json:"model_reasoning_effort,omitempty"`
+				ServiceTier          string `json:"service_tier,omitempty"`
 			}{
 				ModelReasoningEffort: d.codeAgentConfig.ReasoningEffort,
+				ServiceTier:          d.codeAgentConfig.ServiceTier,
 			})
 			if err != nil {
 				log.Printf("Failed to encode Codex reasoning effort: %v", err)

@@ -156,6 +156,38 @@ describe('ProjectChatGroup', () => {
     expect(onOpenItem).not.toHaveBeenCalled()
   })
 
+  it('opens the project context menu without collapsing the group', () => {
+    const onToggle = vi.fn()
+    const onOpenProjectContextMenu = vi.fn()
+    render(
+      <ProjectChatGroup
+        orgId="org-test"
+        project={{ id: 'project-test', name: 'Project Test' }}
+        collapsed={false}
+        query=""
+        activeItemId=""
+        relativeTimeNow={Date.UTC(2026, 7, 6, 12, 0)}
+        enabled
+        participantIds={[]}
+        organizationMembers={[]}
+        archivingItemId={null}
+        onToggle={onToggle}
+        onOpenItem={vi.fn()}
+        onOpenItemContextMenu={vi.fn()}
+        onOpenProjectContextMenu={onOpenProjectContextMenu}
+        onArchiveItem={vi.fn()}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Project Test/ }))
+
+    expect(onOpenProjectContextMenu).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'project-test' }),
+    )
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
   it('shows a pin indicator next to a pinned chat', () => {
     render(
       <ProjectChatGroup

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -138,5 +138,59 @@ describe("Interaction", () => {
 
     expect(screen.queryByTestId("interaction-error")).not.toBeInTheDocument();
     expect(screen.queryByTestId("agent-reply")).not.toBeInTheDocument();
+  });
+
+  it("collapses an agent-switch handoff under its divider", () => {
+    const systemPrompt = "[System: The coding agent or model configuration changed for this task.]";
+    const agentReply = "Ready to continue with Claude Code.";
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_seed",
+          trigger: "fork_seed",
+          prompt_message: "Agent switched to claude_code at turn 2",
+          response_message: "prior transcript",
+        }}
+        nextInteraction={{
+          id: "int_handoff",
+          trigger: "fork_handoff",
+          prompt_message: systemPrompt,
+          response_entries: [{ type: "text", content: agentReply }] as any,
+          state: TypesInteractionState.InteractionStateComplete,
+        }}
+      />,
+    );
+
+    const divider = screen.getByRole("button", {
+      name: "Agent switched to claude_code at turn 2",
+    });
+    expect(divider).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(systemPrompt)).not.toBeInTheDocument();
+    expect(screen.queryByText(agentReply)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Show transcript/)).not.toBeInTheDocument();
+
+    fireEvent.click(divider);
+
+    expect(divider).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(systemPrompt)).toBeInTheDocument();
+    expect(screen.getByText(agentReply)).toBeInTheDocument();
+  });
+
+  it("does not render a handoff as a normal conversation turn", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_handoff",
+          trigger: "fork_handoff",
+          prompt_message: "[System: hidden handoff]",
+          response_message: "Hidden agent reply",
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("[System: hidden handoff]")).not.toBeInTheDocument();
+    expect(screen.queryByText("Hidden agent reply")).not.toBeInTheDocument();
   });
 });

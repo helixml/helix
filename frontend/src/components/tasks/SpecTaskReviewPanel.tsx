@@ -25,6 +25,7 @@ import {
 import useAccount from '../../hooks/useAccount';
 import useSnackbar from '../../hooks/useSnackbar';
 import useApi from '../../hooks/useApi';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface SpecTaskReviewPanelProps {
   taskId: string;
@@ -75,8 +76,12 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
   };
 
   const copyToClipboard = async () => {
-    await navigator.clipboard.writeText(publicLink);
-    snackbar.success('Link copied to clipboard!');
+    try {
+      await copyTextToClipboard(publicLink);
+      snackbar.success('Link copied to clipboard!');
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : 'Failed to copy link');
+    }
   };
 
   const openPlanningSession = () => {

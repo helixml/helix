@@ -1,6 +1,6 @@
 import { FC, ReactElement } from 'react'
 import Box from '@mui/material/Box'
-import Tooltip from '@mui/material/Tooltip'
+import Tooltip, { TooltipProps } from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import useTheme from '@mui/material/styles/useTheme'
 import { Bot, Sparkles } from 'lucide-react'
@@ -108,7 +108,15 @@ export const AgentHarness: FC<{
   runtime?: string
   variant?: AgentHarnessVariant
   size?: number
-}> = ({ runtime = 'zed_agent', variant = 'long', size = 16 }) => {
+  showTooltip?: boolean
+  tooltipPlacement?: TooltipProps['placement']
+}> = ({
+  runtime = 'zed_agent',
+  variant = 'long',
+  size = 16,
+  showTooltip = true,
+  tooltipPlacement = 'bottom',
+}) => {
   const theme = useTheme()
   const meta = harnessMeta[runtime] ?? { label: getAgentHarnessLabel(runtime), color: '#94a3b8' }
   const markColor = meta.color || theme.palette.text.primary
@@ -130,7 +138,9 @@ export const AgentHarness: FC<{
     </Box>
   )
 
-  return variant === 'short' ? <Tooltip title={meta.label}>{content}</Tooltip> : content
+  return variant === 'short' && showTooltip
+    ? <Tooltip title={meta.label} placement={tooltipPlacement} disableInteractive>{content}</Tooltip>
+    : content
 }
 
 export default AgentHarness

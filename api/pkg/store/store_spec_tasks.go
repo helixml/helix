@@ -376,20 +376,36 @@ func (s *PostgresStore) DeleteSpecTask(ctx context.Context, id string) error {
 		return err
 	}
 
-	// Clean up junction table entries where this task is either the owner or a dependency
-	if err := s.gdb.WithContext(ctx).Exec(
-		"DELETE FROM spec_task_dependencies WHERE spec_task_id = ? OR depends_on_id = ?", id, id,
-	).Error; err != nil {
-		return fmt.Errorf("failed to delete spec task dependencies: %w", err)
-	}
+	err = s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Some installations still have legacy NO ACTION constraints alongside
+		// the newer cascade constraints. Delete thread/session tracking explicitly
+		// so tasks remain deletable after an ACP thread handoff.
+		for _, child := range []any{
+			&types.SpecTaskZedThread{},
+			&types.SpecTaskImplementationTask{},
+			&types.SpecTaskWorkSession{},
+		} {
+			if deleteErr := tx.Where("spec_task_id = ?", id).Delete(child).Error; deleteErr != nil {
+				return deleteErr
+			}
+		}
+		if deleteErr := tx.Exec(
+			"DELETE FROM spec_task_dependencies WHERE spec_task_id = ? OR depends_on_id = ?", id, id,
+		).Error; deleteErr != nil {
+			return deleteErr
+		}
 
-	result := s.gdb.WithContext(ctx).Delete(&types.SpecTask{}, "id = ?", id)
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete spec task: %w", result.Error)
-	}
-
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("spec task not found: %s", id)
+		result := tx.Delete(&types.SpecTask{}, "id = ?", id)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("spec task not found: %s", id)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete spec task: %w", err)
 	}
 
 	log.Info().

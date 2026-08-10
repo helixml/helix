@@ -597,6 +597,7 @@ fi
 if command -v tmux >/dev/null 2>&1; then
   tmux has-session -t helix-` + session + ` 2>/dev/null || tmux new-session -d -s helix-` + session + newSessionWorkingDirectory + newSessionShell + `
   tmux set-option -t helix-` + session + ` status off
+  tmux set-option -t helix-` + session + ` mouse on
   exec tmux attach-session -d -t helix-` + session + `
 fi
 echo "tmux not available — falling back to bash (session will not persist across reconnects)" >&2

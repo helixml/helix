@@ -27,6 +27,7 @@ import {
   useSessionPreviewTokens,
 } from '../../services/sessionPreviewService'
 import { sandboxPreviewUrl } from './sandboxBrowserUrl'
+import { copyTextToClipboard } from '../../utils/clipboard'
 
 interface SharePreviewSectionProps {
   sessionId: string
@@ -54,6 +55,15 @@ const SharePreviewSection: FC<SharePreviewSectionProps> = ({ sessionId }) => {
   const mintMutation = useCreateSessionPreviewToken(sessionId)
   const rotateMutation = useRotateSessionPreviewToken(sessionId)
   const deleteMutation = useDeleteSessionPreviewToken(sessionId)
+
+  const copyWithFeedback = async (text: string, successMessage: string) => {
+    try {
+      await copyTextToClipboard(text)
+      snackbar.success(successMessage)
+    } catch (error) {
+      snackbar.error(`Copy failed: ${error instanceof Error ? error.message : error}`)
+    }
+  }
 
   if (!sessionId) {
     return null
@@ -101,8 +111,7 @@ const SharePreviewSection: FC<SharePreviewSectionProps> = ({ sessionId }) => {
                 previewURLHTTPS={previewURLHTTPS}
                 onOpen={() => window.open(sandboxPreviewUrl(t.url!, '/', previewURLHTTPS), '_blank', 'noopener')}
                 onCopy={() => {
-                  navigator.clipboard.writeText(sandboxPreviewUrl(t.url!, '/', previewURLHTTPS))
-                  snackbar.success('URL copied')
+                  void copyWithFeedback(sandboxPreviewUrl(t.url!, '/', previewURLHTTPS), 'URL copied')
                 }}
                 onEmbed={() => setEmbedOpenFor(t)}
                 onRotate={() => rotateMutation.mutate(t.id!, {
@@ -146,8 +155,7 @@ const SharePreviewSection: FC<SharePreviewSectionProps> = ({ sessionId }) => {
         previewURLHTTPS={previewURLHTTPS}
         onClose={() => setEmbedOpenFor(null)}
         onCopy={(snippet) => {
-          navigator.clipboard.writeText(snippet)
-          snackbar.success('Embed snippet copied')
+          void copyWithFeedback(snippet, 'Embed snippet copied')
         }}
       />
     </Box>
