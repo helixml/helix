@@ -10,3 +10,13 @@ export function isNavigationRouteActive(
     routeName.startsWith(`org_${candidate}-`)
   )
 }
+
+export function isOrgProjectSettingsRoute(
+  routeName: string,
+  tab?: string,
+): boolean {
+  return (
+    routeName === 'org_projects' &&
+    (tab === 'repositories' || tab === 'guidelines')
+  )
+}
