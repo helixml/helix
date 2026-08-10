@@ -22,6 +22,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/store"
@@ -715,21 +716,23 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 			return fmt.Errorf("helix_agent assistant '%s' must not set top-level provider/model; use reasoning_model_provider, generation_model_provider, small_reasoning_model_provider, and small_generation_model_provider", assistant.Name)
 		}
 
+		provider, model := assistant.Provider, assistant.Model
 		if assistant.CodeAgentRuntime != "" && assistant.CodeAgentCredentialType == types.CodeAgentCredentialTypeAPIKey {
 			// Provider and model are only required in explicit API key mode,
 			// where the agent routes through the Helix proxy.
 			// Subscription mode and empty credential type (legacy apps or
 			// Claude Code with a direct subscription) don't need them.
-			if assistant.Provider == "" {
+			provider, model = external_agent.AssistantModelSelection(&assistant)
+			if provider == "" {
 				return fmt.Errorf("code agent runtime '%s' in api_key mode requires a provider", assistant.CodeAgentRuntime)
 			}
-			if assistant.Model == "" {
+			if model == "" {
 				return fmt.Errorf("code agent runtime '%s' in api_key mode requires a model", assistant.CodeAgentRuntime)
 			}
 		}
 
-		// Validate main provider/model
-		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, true)
+		// Validate active provider/model
+		err := validateProviderModel("provider/model", provider, model, assistant.Name, true)
 		if err != nil {
 			return err
 		}

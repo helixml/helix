@@ -113,35 +113,49 @@ const (
 // used by runtimes with a fixed provider. Other runtimes deliberately remain
 // permissive because they support arbitrary OpenAI-compatible providers.
 func ValidateCodeAgentModelCompatibility(assistant AssistantConfig) error {
-	models := []string{assistant.Model}
-	if assistant.GenerationModel != "" {
-		models = append(models, assistant.GenerationModel)
-	}
-	if assistant.ClaudeSubscriptionModel != "" {
-		models = append(models, assistant.ClaudeSubscriptionModel)
+	var model string
+	switch assistant.CodeAgentRuntime {
+	case CodeAgentRuntimeCodexCLI:
+		model = assistant.Model
+	case CodeAgentRuntimeClaudeCode:
+		switch assistant.CodeAgentCredentialType {
+		case CodeAgentCredentialTypeSubscription:
+			model = assistant.ClaudeSubscriptionModel
+		case CodeAgentCredentialTypeAPIKey:
+			if assistant.GenerationModelProvider != "" || assistant.GenerationModel != "" {
+				model = assistant.GenerationModel
+			} else {
+				model = assistant.Model
+			}
+		default:
+			model = assistant.Model
+			if model == "" {
+				model = assistant.GenerationModel
+			}
+		}
+	default:
+		return nil
 	}
 
-	for _, model := range models {
-		model = strings.TrimSpace(strings.ToLower(model))
-		if model == "" {
-			continue
-		}
-		if slash := strings.LastIndex(model, "/"); slash >= 0 {
-			model = model[slash+1:]
-		}
+	model = strings.TrimSpace(strings.ToLower(model))
+	if model == "" {
+		return nil
+	}
+	if slash := strings.LastIndex(model, "/"); slash >= 0 {
+		model = model[slash+1:]
+	}
 
-		switch assistant.CodeAgentRuntime {
-		case CodeAgentRuntimeCodexCLI:
-			if !strings.HasPrefix(model, "gpt-5") && !strings.HasPrefix(model, "codex-") {
-				return fmt.Errorf("codex_cli requires a Codex model (gpt-5* or codex-*), got %q", model)
-			}
-		case CodeAgentRuntimeClaudeCode:
-			isClaudeAlias := model == "opus" || strings.HasPrefix(model, "opus[") || strings.HasPrefix(model, "opus-") ||
-				model == "sonnet" || strings.HasPrefix(model, "sonnet[") || strings.HasPrefix(model, "sonnet-") ||
-				model == "haiku" || strings.HasPrefix(model, "haiku[") || strings.HasPrefix(model, "haiku-")
-			if !strings.Contains(model, "claude-") && !isClaudeAlias {
-				return fmt.Errorf("claude_code requires an Anthropic Claude model, got %q", model)
-			}
+	switch assistant.CodeAgentRuntime {
+	case CodeAgentRuntimeCodexCLI:
+		if !strings.HasPrefix(model, "gpt-5") && !strings.HasPrefix(model, "codex-") {
+			return fmt.Errorf("codex_cli requires a Codex model (gpt-5* or codex-*), got %q", model)
+		}
+	case CodeAgentRuntimeClaudeCode:
+		isClaudeAlias := model == "opus" || strings.HasPrefix(model, "opus[") || strings.HasPrefix(model, "opus-") ||
+			model == "sonnet" || strings.HasPrefix(model, "sonnet[") || strings.HasPrefix(model, "sonnet-") ||
+			model == "haiku" || strings.HasPrefix(model, "haiku[") || strings.HasPrefix(model, "haiku-")
+		if !strings.Contains(model, "claude-") && !isClaudeAlias {
+			return fmt.Errorf("claude_code requires an Anthropic Claude model, got %q", model)
 		}
 	}
 	return nil

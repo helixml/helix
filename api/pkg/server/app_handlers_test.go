@@ -1249,6 +1249,35 @@ func TestValidateProvidersAndModelsRejectsIncompatibleCodeHarnessModel(t *testin
 	require.ErrorContains(t, err, "codex_cli requires a Codex model")
 }
 
+func TestValidateProvidersAndModels_ClaudeCodeValidatesGenerationModelSelection(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockProviderManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{providerManager: mockProviderManager}
+	ctx := context.Background()
+	user := &types.User{ID: "user1"}
+
+	mockProviderManager.EXPECT().
+		ListProviderEndpoints(ctx, user.ID).
+		Return([]*types.ProviderEndpoint{{Name: "openai"}}, nil)
+
+	app := &types.App{
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{{
+					Name:                    "claude-agent",
+					AgentType:               types.AgentTypeZedExternal,
+					CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+					CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+					GenerationModelProvider: "anthropic",
+					GenerationModel:         "claude-opus-4-6",
+				}},
+			},
+		},
+	}
+
+	require.ErrorContains(t, server.validateProvidersAndModels(ctx, user, app), "provider 'anthropic' is not available")
+}
+
 func TestValidateProvidersAndModels_HelixAgentRequiresModelProviders(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

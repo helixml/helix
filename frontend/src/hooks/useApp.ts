@@ -25,6 +25,7 @@ import useApps from './useApps'
 import useSession from './useSession'
 import useWebsocket from './useWebsocket'
 import useUserAppAccess from './useUserAppAccess'
+import { extractErrorMessage } from './useErrorCallback'
 import { useStreaming } from '../contexts/streaming'
 import {
   validateApp,
@@ -551,7 +552,7 @@ export const useApp = (appId: string) => {
       return 
     } catch (error) {
       console.error('Failed to save app:', error)
-      snackbar.error('Failed to save app')
+      snackbar.error(extractErrorMessage(error) || 'Failed to save app')
       // Throw the error anyways
       throw error
     } finally {
@@ -1057,4 +1058,4 @@ export const useApp = (appId: string) => {
   }
 }
 
-export default useApp 
+export default useApp

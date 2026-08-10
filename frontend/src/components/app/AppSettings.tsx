@@ -705,12 +705,41 @@ const AppSettings: FC<AppSettingsProps> = ({
                   onChange={(e) => {
                     const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code';
                     setCodeAgentRuntime(newRuntime);
-                    if (newRuntime === 'codex_cli' && !model) {
-                      setModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
-                      onUpdate({ code_agent_runtime: newRuntime, model: DEFAULT_CODEX_SUBSCRIPTION_MODEL })
-                    } else {
-                      onUpdate({ code_agent_runtime: newRuntime })
+                    if (newRuntime === 'claude_code') {
+                      if (claudeCodeMode === 'subscription') {
+                        if (!hasClaudeSubscription) return
+                        onUpdate({
+                          code_agent_runtime: newRuntime,
+                          code_agent_credential_type: 'subscription',
+                          claude_subscription_model: claudeSubscriptionModel,
+                        })
+                      } else if (generation_model_provider && generation_model) {
+                        onUpdate({
+                          code_agent_runtime: newRuntime,
+                          code_agent_credential_type: 'api_key',
+                          generation_model_provider,
+                          generation_model,
+                        })
+                      }
+                      return
                     }
+                    if (newRuntime === 'codex_cli') {
+                      if (claudeCodeMode === 'subscription') {
+                        if (!hasCodexSubscription) return
+                        const codexModel = model || DEFAULT_CODEX_SUBSCRIPTION_MODEL
+                        setModel(codexModel)
+                        onUpdate({
+                          code_agent_runtime: newRuntime,
+                          code_agent_credential_type: 'subscription',
+                          provider: '',
+                          model: codexModel,
+                        })
+                      } else if (provider && model) {
+                        onUpdate({ code_agent_runtime: newRuntime, code_agent_credential_type: 'api_key', provider, model })
+                      }
+                      return
+                    }
+                    onUpdate({ code_agent_runtime: newRuntime })
                   }}
                   disabled={readOnly}
                   renderValue={(runtime) => (
@@ -793,7 +822,9 @@ const AppSettings: FC<AppSettingsProps> = ({
                             setGenerationModel('')
                             setGenerationModelProvider('')
                             onUpdate({
+                              code_agent_runtime,
                               code_agent_credential_type: 'subscription',
+                              claude_subscription_model: claudeSubscriptionModel,
                               generation_model: '',
                               generation_model_provider: '',
                             })
@@ -801,10 +832,19 @@ const AppSettings: FC<AppSettingsProps> = ({
                             setProvider('')
                             const codexModel = model || DEFAULT_CODEX_SUBSCRIPTION_MODEL
                             setModel(codexModel)
-                            onUpdate({ code_agent_credential_type: 'subscription', model: codexModel, provider: '' })
+                            onUpdate({ code_agent_runtime, code_agent_credential_type: 'subscription', model: codexModel, provider: '' })
                           }
                         } else {
-                          onUpdate({ code_agent_credential_type: 'api_key' })
+                          if (code_agent_runtime === 'claude_code' && generation_model_provider && generation_model) {
+                            onUpdate({
+                              code_agent_runtime,
+                              code_agent_credential_type: 'api_key',
+                              generation_model_provider,
+                              generation_model,
+                            })
+                          } else if (code_agent_runtime === 'codex_cli' && provider && model) {
+                            onUpdate({ code_agent_runtime, code_agent_credential_type: 'api_key', provider, model })
+                          }
                         }
                       }}
                     >
@@ -895,7 +935,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                             onChange={(e) => {
                               const nextModel = e.target.value
                               setClaudeSubscriptionModel(nextModel)
-                              onUpdate({ claude_subscription_model: nextModel })
+                              onUpdate({ code_agent_runtime, code_agent_credential_type: 'subscription', claude_subscription_model: nextModel })
                             }}
                           >
                             {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
@@ -932,7 +972,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                             onChange={(e) => {
                               const nextModel = e.target.value
                               setModel(nextModel)
-                              onUpdate({ model: nextModel })
+                              onUpdate({ code_agent_runtime, code_agent_credential_type: 'subscription', model: nextModel })
                             }}
                           >
                             {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
@@ -972,11 +1012,16 @@ const AppSettings: FC<AppSettingsProps> = ({
                           if (code_agent_runtime === 'claude_code') {
                             setGenerationModel(modelId)
                             setGenerationModelProvider(provider)
-                            onUpdate({ generation_model: modelId, generation_model_provider: provider })
+                            onUpdate({
+                              code_agent_runtime,
+                              code_agent_credential_type: 'api_key',
+                              generation_model: modelId,
+                              generation_model_provider: provider,
+                            })
                           } else {
                             setModel(modelId)
                             setProvider(provider)
-                            onUpdate({ model: modelId, provider })
+                            onUpdate({ code_agent_runtime, code_agent_credential_type: 'api_key', model: modelId, provider })
                           }
                         }}
                         currentType="text"
