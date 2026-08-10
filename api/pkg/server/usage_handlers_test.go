@@ -1,15 +1,63 @@
 package server
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestEnrichOrgUsageCostsSeparatesSavingsAndHelixCredits(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	modelInfo := model.NewMockModelInfoProvider(ctrl)
+	server := &HelixAPIServer{modelInfoProvider: modelInfo}
+	date := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	summary := &types.OrgUsageSummaryResponse{
+		Metrics:      []*types.AggregatedUsageMetric{{Date: date}},
+		HelixCredits: 1.25,
+		Models: []types.UsageBreakdownRow{{
+			ID: "openai:gpt-test", Provider: "openai", Model: "gpt-test",
+		}},
+		CostBreakdown: []types.UsageCostBreakdownRow{{
+			Date:             date,
+			Source:           types.UsageMetricSourceACP,
+			Provider:         "openai",
+			Model:            "gpt-test",
+			PromptTokens:     200,
+			CompletionTokens: 100,
+			TotalTokens:      1100,
+			CacheReadTokens:  800,
+		}},
+	}
+	modelInfo.EXPECT().GetModelInfo(gomock.Any(), &model.ModelInfoRequest{
+		Provider: "openai",
+		Model:    "gpt-test",
+	}).Return(&types.ModelInfo{ProviderSlug: "openai", Pricing: types.Pricing{
+		Prompt:         "0.01",
+		Completion:     "0.02",
+		InputCacheRead: "0.001",
+	}}, nil)
+
+	server.enrichOrgUsageCosts(context.Background(), summary)
+
+	require.InDelta(t, 4.8, summary.RawTokenCost, 1e-9)
+	require.InDelta(t, 4.8, summary.SubscriptionSavings, 1e-9)
+	require.InDelta(t, 7.2, summary.CacheSavings, 1e-9)
+	require.InDelta(t, 1.25, summary.HelixCredits, 1e-9)
+	require.Len(t, summary.Providers, 1)
+	require.Equal(t, "OpenAI", summary.Providers[0].Name)
+	require.InDelta(t, 4.8, summary.Providers[0].TotalCost, 1e-9)
+	require.Len(t, summary.ProviderTimeSeries, 1)
+	require.InDelta(t, 4.8, summary.ProviderTimeSeries[0].Metrics[0].TotalCost, 1e-9)
+	require.InDelta(t, 4.8, summary.Models[0].TotalCost, 1e-9)
+	require.Equal(t, "openai", summary.Models[0].Provider)
+}
 
 func TestMergeSandboxUsageCostsAddsSandboxSpend(t *testing.T) {
 	date := time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC)

@@ -1,13 +1,18 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
+	modelpkg "github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -261,8 +266,180 @@ func (s *HelixAPIServer) getOrgUsageSummary(_ http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+	s.enrichOrgUsageCosts(r.Context(), summary)
 
 	return summary, nil
+}
+
+func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types.OrgUsageSummaryResponse) {
+	if summary == nil {
+		return
+	}
+
+	type providerAggregate struct {
+		row    types.UsageBreakdownRow
+		byDate map[time.Time]*types.AggregatedUsageMetric
+	}
+	providers := make(map[string]*providerAggregate)
+	modelCosts := make(map[string]float64)
+	modelProviders := make(map[string]string)
+	modelInfo := make(map[string]*types.ModelInfo)
+	missingModelInfo := make(map[string]bool)
+
+	for _, row := range summary.CostBreakdown {
+		key := row.Provider + ":" + row.Model
+		info, known := modelInfo[key]
+		if !known && !missingModelInfo[key] && s.modelInfoProvider != nil {
+			resolved, err := s.modelInfoProvider.GetModelInfo(ctx, &modelpkg.ModelInfoRequest{
+				Provider: row.Provider,
+				Model:    row.Model,
+			})
+			if err != nil {
+				missingModelInfo[key] = true
+				log.Debug().Err(err).Str("provider", row.Provider).Str("model", row.Model).
+					Msg("model cannot be priced for organization usage")
+			} else {
+				info = resolved
+				modelInfo[key] = resolved
+			}
+		}
+
+		estimatedCost := row.TotalCost
+		if info != nil {
+			pricingPromptTokens := row.PromptTokens
+			if row.Source == types.UsageMetricSourceACP {
+				pricingPromptTokens += row.CacheReadTokens + row.CacheWriteTokens
+			}
+			usage := pricing.TokenUsage{
+				PromptTokens:     int64(pricingPromptTokens),
+				CompletionTokens: int64(row.CompletionTokens),
+				CacheReadTokens:  int64(row.CacheReadTokens),
+				CacheWriteTokens: int64(row.CacheWriteTokens),
+			}
+			priced, err := pricing.CalculateTokenPrice(info, usage)
+			if err == nil {
+				if estimatedCost == 0 {
+					estimatedCost = priced.Total()
+				}
+				fullRate, fullRateErr := pricing.CalculateTokenPrice(info, pricing.TokenUsage{
+					PromptTokens:     int64(pricingPromptTokens),
+					CompletionTokens: int64(row.CompletionTokens),
+				})
+				if fullRateErr == nil {
+					summary.CacheSavings += max(fullRate.Total()-priced.Total(), 0)
+				}
+			}
+		}
+
+		summary.RawTokenCost += estimatedCost
+		if row.Source == types.UsageMetricSourceACP {
+			summary.SubscriptionSavings += estimatedCost
+		}
+		modelCosts[key] += estimatedCost
+		displayProvider := row.Provider
+		if info != nil && info.ProviderSlug != "" {
+			displayProvider = info.ProviderSlug
+		}
+		modelProviders[key] = displayProvider
+
+		providerKey := displayProvider
+		if providerKey == "" {
+			providerKey = "unknown"
+		}
+		aggregate := providers[providerKey]
+		if aggregate == nil {
+			aggregate = &providerAggregate{
+				row: types.UsageBreakdownRow{
+					ID:       providerKey,
+					Name:     usageProviderName(providerKey),
+					Provider: providerKey,
+				},
+				byDate: make(map[time.Time]*types.AggregatedUsageMetric),
+			}
+			providers[providerKey] = aggregate
+		}
+		aggregate.row.PromptTokens += row.PromptTokens
+		aggregate.row.CompletionTokens += row.CompletionTokens
+		aggregate.row.TotalTokens += row.TotalTokens
+		aggregate.row.CacheReadTokens += row.CacheReadTokens
+		aggregate.row.CacheWriteTokens += row.CacheWriteTokens
+		aggregate.row.TotalCost += estimatedCost
+
+		metric := aggregate.byDate[row.Date]
+		if metric == nil {
+			metric = &types.AggregatedUsageMetric{Date: row.Date}
+			aggregate.byDate[row.Date] = metric
+		}
+		metric.PromptTokens += row.PromptTokens
+		metric.CompletionTokens += row.CompletionTokens
+		metric.TotalTokens += row.TotalTokens
+		metric.CacheReadTokens += row.CacheReadTokens
+		metric.CacheWriteTokens += row.CacheWriteTokens
+		metric.TotalCost += estimatedCost
+	}
+
+	for index := range summary.Models {
+		row := &summary.Models[index]
+		key := row.Provider + ":" + row.Model
+		row.TotalCost = modelCosts[key]
+		row.Provider = modelProviders[key]
+	}
+	for index := range summary.ExportModels {
+		row := &summary.ExportModels[index]
+		key := row.Provider + ":" + row.Model
+		row.TotalCost = modelCosts[key]
+		row.Provider = modelProviders[key]
+	}
+
+	providerKeys := make([]string, 0, len(providers))
+	for key := range providers {
+		providerKeys = append(providerKeys, key)
+	}
+	sort.Slice(providerKeys, func(i, j int) bool {
+		return providers[providerKeys[i]].row.TotalCost > providers[providerKeys[j]].row.TotalCost
+	})
+	for _, key := range providerKeys {
+		aggregate := providers[key]
+		summary.Providers = append(summary.Providers, aggregate.row)
+		series := types.UsageProviderTimeSeries{
+			Provider: key,
+			Name:     aggregate.row.Name,
+		}
+		for _, totalMetric := range summary.Metrics {
+			metric := aggregate.byDate[totalMetric.Date]
+			if metric == nil {
+				metric = &types.AggregatedUsageMetric{Date: totalMetric.Date}
+			}
+			series.Metrics = append(series.Metrics, *metric)
+		}
+		summary.ProviderTimeSeries = append(summary.ProviderTimeSeries, series)
+	}
+	if summary.HelixCredits < 0 {
+		summary.HelixCredits = 0
+	}
+}
+
+func usageProviderName(provider string) string {
+	switch strings.ToLower(provider) {
+	case "openai":
+		return "OpenAI"
+	case "anthropic":
+		return "Anthropic"
+	case "google", "google-ai", "gemini":
+		return "Google"
+	case "xai":
+		return "xAI"
+	case "azure":
+		return "Azure OpenAI"
+	case "amazon-bedrock", "aws":
+		return "Amazon Bedrock"
+	case "deepseek":
+		return "DeepSeek"
+	case "unknown":
+		return "Unknown"
+	default:
+		return provider
+	}
 }
 
 func mergeSandboxUsageCosts(metrics []*types.AggregatedUsageMetric, sandboxMetrics []*types.AggregatedUsageMetric) {
