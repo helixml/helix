@@ -1,4 +1,4 @@
-import { FC, MouseEvent, useState } from 'react'
+import React, { FC, MouseEvent, useState } from 'react'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
@@ -11,6 +11,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
+import SandboxProject from './SandboxProject'
 import SandboxSource from './SandboxSource'
 import SandboxStatusBadge from './SandboxStatusBadge'
 import SandboxTerminal from './SandboxTerminal'
@@ -28,7 +29,7 @@ interface SandboxCardProps {
   orgId: string
 }
 
-const StatRow: FC<{ label: string; value: string | number }> = ({ label, value }) => (
+const StatRow: FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, minWidth: 0 }}>
     <Typography variant="caption" sx={{
       color: 'text.secondary',
@@ -270,7 +271,10 @@ const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete, orgId })
           gap: 1,
         }}>
           <StatRow label="Resources" value={formatResources(sandbox)} />
-          <StatRow label="Runtime" value={runtimeMeta(sandbox.runtime || 'ubuntu-desktop').label} />
+          {/* Project, not Runtime: the runtime label already sits in the card
+              header, and the project is what tells two identically-named
+              spec-task runners apart. */}
+          <StatRow label="Project" value={<SandboxProject sandbox={sandbox} variant="body2" />} />
           <StatRow label="Created" value={formatTimestamp(sandbox.created_at)} />
           <StatRow label="Expires" value={formatExpiry(sandbox.expires_at)} />
         </Box>

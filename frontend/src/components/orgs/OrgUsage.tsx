@@ -304,6 +304,15 @@ const ProviderSummaryRow: FC<{
   )
 }
 
+// UsagePanel is the outlined card the Sandbox compute block uses. Everything
+// on the page sits in one, so the charts and tables read as parts of a single
+// system instead of floating panes on the page background.
+const UsagePanel: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <Paper variant="outlined" sx={{ p: 2, overflow: 'hidden' }}>
+    {children}
+  </Paper>
+)
+
 const Section: FC<{ title: string; action?: React.ReactNode; children: React.ReactNode }> = ({ title, action, children }) => (
   <Box sx={{ width: '100%' }}>
     <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2} sx={{ mb: 1.5 }}>
@@ -360,6 +369,10 @@ const modelOverviewFields: ITableField[] = [
 
 const computeSandboxFields: ITableField[] = [
   { name: 'name', title: 'Sandbox' },
+  // Spec-task runners inherit their task's name, so two projects in the same
+  // org routinely produce identically-named rows. Project is what makes the
+  // cost attributable.
+  { name: 'project', title: 'Project' },
   { name: 'kind', title: 'Kind' },
   { name: 'size', title: 'Size', numeric: true },
   { name: 'credits', title: 'Credits', numeric: true },
@@ -731,14 +744,50 @@ const OrgUsage: FC = () => {
     desktop: point.desktop ?? 0,
     headless: point.headless ?? 0,
   })), [compute])
+  // Project names come from the filter options the same response already
+  // carries, so no extra request is needed to attribute a sandbox.
+  const projectNames = useMemo(() => {
+    const names: Record<string, string> = {}
+    for (const option of usage.data?.filter_projects || []) {
+      if (option.id) names[option.id] = option.name || option.id
+    }
+    return names
+  }, [usage.data?.filter_projects])
   const computeSandboxRows = useMemo(() => (compute?.sandboxes || []).map(row => {
     const share = computeTotals.total > 0 ? (row.credits ?? 0) / computeTotals.total : 0
     return {
       id: row.sandbox_id || '',
       _data: row,
-      name: (
+      // Project separates same-named tasks across projects, but two tasks in
+      // ONE project can also share a name. The task link is what makes every
+      // row individually resolvable.
+      name: row.spec_task_id && row.project_id ? (
+        <Typography
+          variant="body2"
+          component="a"
+          href="#"
+          onClick={(e: React.MouseEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+            router.navigate('org_project-task-detail', {
+              org_id: router.params.org_id,
+              id: row.project_id,
+              taskId: row.spec_task_id,
+            })
+          }}
+          sx={{ fontWeight: 600, color: 'text.primary', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+          noWrap
+        >
+          {row.name || row.sandbox_id || 'Unknown'}
+        </Typography>
+      ) : (
         <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
           {row.name || row.sandbox_id || 'Unknown'}
+        </Typography>
+      ),
+      project: (
+        <Typography variant="body2" color="text.secondary" noWrap>
+          {row.project_id ? (projectNames[row.project_id] || row.project_id) : 'Org-scoped'}
         </Typography>
       ),
       kind: (
@@ -754,7 +803,7 @@ const OrgUsage: FC = () => {
       credits: <Typography variant="body2">{formatCost(row.credits)}</Typography>,
       share: <Typography variant="body2" color="text.secondary">{formatPercent(share)}</Typography>,
     }
-  }), [compute, computeTotals.total])
+  }), [compute, computeTotals.total, projectNames, router])
 
   const activeDays = metrics.filter(metric => (metric.total_tokens ?? 0) > 0).length
   const averageTokens = activeDays > 0 ? totals.total / activeDays : 0
@@ -1171,144 +1220,164 @@ const OrgUsage: FC = () => {
             {!usage.isLoading && (
               <>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.35fr) minmax(0, 1fr)' }, gap: 2 }}>
-                  <ShadcnAreaChart
-                    title="TOKENS OVER TIME"
-                    headline={formatCompact(totals.total)}
-                    data={tokenChartData}
-                    series={TOKEN_SERIES}
-                    valueFormatter={formatCompact}
-                  />
-                  <LatencyChart data={latencyData} />
+                  <UsagePanel>
+                    <ShadcnAreaChart
+                      title="TOKENS OVER TIME"
+                      headline={formatCompact(totals.total)}
+                      data={tokenChartData}
+                      series={TOKEN_SERIES}
+                      valueFormatter={formatCompact}
+                    />
+                  </UsagePanel>
+                  <UsagePanel>
+                    <LatencyChart data={latencyData} />
+                  </UsagePanel>
                 </Box>
 
-                <ShadcnAreaChart
-                  title="CACHE HIT RATIO BY AGENT HARNESS"
-                  headline={formatPercent(cacheHitRatio)}
-                  data={agentCacheChartData}
-                  series={agentCacheChartSeries}
-                  valueFormatter={value => formatPercent(value)}
-                  stacked={false}
-                  zeroIsData
-                  variant="line"
-                  yDomain={[0, 1]}
-                />
+                <UsagePanel>
+                  <ShadcnAreaChart
+                    title="CACHE HIT RATIO BY AGENT HARNESS"
+                    headline={formatPercent(cacheHitRatio)}
+                    data={agentCacheChartData}
+                    series={agentCacheChartSeries}
+                    valueFormatter={value => formatPercent(value)}
+                    stacked={false}
+                    zeroIsData
+                    variant="line"
+                    yDomain={[0, 1]}
+                  />
+                </UsagePanel>
 
-                <ShadcnAreaChart
-                  title="MODEL USAGE OVER TIME"
-                  headline={`${modelSeries.length} models`}
-                  data={modelChartData}
-                  series={modelChartSeries}
-                  valueFormatter={formatCompact}
-                  stacked={false}
-                />
+                <UsagePanel>
+                  <ShadcnAreaChart
+                    title="MODEL USAGE OVER TIME"
+                    headline={`${modelSeries.length} models`}
+                    data={modelChartData}
+                    series={modelChartSeries}
+                    valueFormatter={formatCompact}
+                    stacked={false}
+                  />
+                </UsagePanel>
 
-                <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
+                <UsagePanel>
+                  <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
+                </UsagePanel>
 
                 <Stack spacing={3} sx={{ width: '100%' }}>
-                  <Section title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} />
-                    <TablePagination
-                      component="div"
-                      count={usage.data?.projects_total || 0}
-                      page={projectPage}
-                      rowsPerPage={projectRowsPerPage}
-                      onPageChange={(_, nextPage) => {
-                        setLoadingScope('projects')
-                        setProjectPage(nextPage)
-                      }}
-                      onRowsPerPageChange={event => {
-                        setLoadingScope('projects')
-                        setProjectRowsPerPage(parseInt(event.target.value, 10))
-                        setProjectPage(0)
-                      }}
-                      rowsPerPageOptions={[10, 25, 50, 100]}
-                    />
-                  </Section>
+                  <UsagePanel>
+                    <Section title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
+                      <SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} />
+                      <TablePagination
+                        component="div"
+                        count={usage.data?.projects_total || 0}
+                        page={projectPage}
+                        rowsPerPage={projectRowsPerPage}
+                        onPageChange={(_, nextPage) => {
+                          setLoadingScope('projects')
+                          setProjectPage(nextPage)
+                        }}
+                        onRowsPerPageChange={event => {
+                          setLoadingScope('projects')
+                          setProjectRowsPerPage(parseInt(event.target.value, 10))
+                          setProjectPage(0)
+                        }}
+                        rowsPerPageOptions={[10, 25, 50, 100]}
+                      />
+                    </Section>
+                  </UsagePanel>
 
-                  <Section title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact />
-                  </Section>
+                  <UsagePanel>
+                    <Section title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
+                      <SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact />
+                    </Section>
+                  </UsagePanel>
 
-                  <Section title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} />
-                    <TablePagination
-                      component="div"
-                      count={usage.data?.tasks_total || 0}
-                      page={taskPage}
-                      rowsPerPage={taskRowsPerPage}
-                      onPageChange={(_, nextPage) => {
-                        setLoadingScope('tasks')
-                        setTaskPage(nextPage)
-                      }}
-                      onRowsPerPageChange={event => {
-                        setLoadingScope('tasks')
-                        setTaskRowsPerPage(parseInt(event.target.value, 10))
-                        setTaskPage(0)
-                      }}
-                      rowsPerPageOptions={[10, 25, 50, 100]}
-                    />
-                  </Section>
+                  <UsagePanel>
+                    <Section title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
+                      <SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} />
+                      <TablePagination
+                        component="div"
+                        count={usage.data?.tasks_total || 0}
+                        page={taskPage}
+                        rowsPerPage={taskRowsPerPage}
+                        onPageChange={(_, nextPage) => {
+                          setLoadingScope('tasks')
+                          setTaskPage(nextPage)
+                        }}
+                        onRowsPerPageChange={event => {
+                          setLoadingScope('tasks')
+                          setTaskRowsPerPage(parseInt(event.target.value, 10))
+                          setTaskPage(0)
+                        }}
+                        rowsPerPageOptions={[10, 25, 50, 100]}
+                      />
+                    </Section>
+                  </UsagePanel>
 
-                  <Section title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
-                    <SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} />
-                    <TablePagination
-                      component="div"
-                      count={usage.data?.sessions_total || 0}
-                      page={sessionPage}
-                      rowsPerPage={sessionRowsPerPage}
-                      onPageChange={(_, nextPage) => {
-                        setLoadingScope('sessions')
-                        setSessionPage(nextPage)
-                      }}
-                      onRowsPerPageChange={event => {
-                        setLoadingScope('sessions')
-                        setSessionRowsPerPage(parseInt(event.target.value, 10))
-                        setSessionPage(0)
-                      }}
-                      rowsPerPageOptions={[10, 25, 50, 100]}
-                    />
-                  </Section>
+                  <UsagePanel>
+                    <Section title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
+                      <SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} />
+                      <TablePagination
+                        component="div"
+                        count={usage.data?.sessions_total || 0}
+                        page={sessionPage}
+                        rowsPerPage={sessionRowsPerPage}
+                        onPageChange={(_, nextPage) => {
+                          setLoadingScope('sessions')
+                          setSessionPage(nextPage)
+                        }}
+                        onRowsPerPageChange={event => {
+                          setLoadingScope('sessions')
+                          setSessionRowsPerPage(parseInt(event.target.value, 10))
+                          setSessionPage(0)
+                        }}
+                        rowsPerPageOptions={[10, 25, 50, 100]}
+                      />
+                    </Section>
+                  </UsagePanel>
 
-                  <Section
-                    title="Users"
-                    action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.export_users || usage.data?.users || []} />}
-                  >
-                    <TextField
-                      size="small"
-                      placeholder="Search username or email"
-                      value={userSearchInput}
-                      onChange={e => {
-                        setLoadingScope('users')
-                        setUserSearchInput(e.target.value)
-                        setUserPage(0)
-                      }}
-                      sx={{ mb: 1.5, width: '100%', maxWidth: 360 }}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <Search size={16} />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                    <SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} />
-                    <TablePagination
-                      component="div"
-                      count={usage.data?.users_total || 0}
-                      page={userPage}
-                      rowsPerPage={userRowsPerPage}
-                      onPageChange={(_, nextPage) => {
-                        setLoadingScope('users')
-                        setUserPage(nextPage)
-                      }}
-                      onRowsPerPageChange={event => {
-                        setLoadingScope('users')
-                        setUserRowsPerPage(parseInt(event.target.value, 10))
-                        setUserPage(0)
-                      }}
-                      rowsPerPageOptions={[10, 25, 50, 100]}
-                    />
-                  </Section>
+                  <UsagePanel>
+                    <Section
+                      title="Users"
+                      action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.export_users || usage.data?.users || []} />}
+                    >
+                      <TextField
+                        size="small"
+                        placeholder="Search username or email"
+                        value={userSearchInput}
+                        onChange={e => {
+                          setLoadingScope('users')
+                          setUserSearchInput(e.target.value)
+                          setUserPage(0)
+                        }}
+                        sx={{ mb: 1.5, width: '100%', maxWidth: 360 }}
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <Search size={16} />
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                      <SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} />
+                      <TablePagination
+                        component="div"
+                        count={usage.data?.users_total || 0}
+                        page={userPage}
+                        rowsPerPage={userRowsPerPage}
+                        onPageChange={(_, nextPage) => {
+                          setLoadingScope('users')
+                          setUserPage(nextPage)
+                        }}
+                        onRowsPerPageChange={event => {
+                          setLoadingScope('users')
+                          setUserRowsPerPage(parseInt(event.target.value, 10))
+                          setUserPage(0)
+                        }}
+                        rowsPerPageOptions={[10, 25, 50, 100]}
+                      />
+                    </Section>
+                  </UsagePanel>
                 </Stack>
               </>
             )}

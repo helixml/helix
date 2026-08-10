@@ -10,6 +10,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import SimpleTable from '../widgets/SimpleTable'
 import SandboxStatusBadge from './SandboxStatusBadge'
+import SandboxProject from './SandboxProject'
 import SandboxSource from './SandboxSource'
 import { TypesSandbox } from '../../api/api'
 
@@ -37,25 +38,31 @@ const SandboxesTable: FC<SandboxesTableProps> = ({ sandboxes, onOpen, onDelete }
   const tableData = useMemo(() => sandboxes.map((sb) => ({
     id: sb.id,
     _data: sb,
+    // Names are not unique — spec-task runners inherit their task's name, and
+    // two projects in the same org can both have a task called "test". The
+    // project line underneath is what tells those rows apart.
     name: (
-      <Typography variant="body1">
-        <a
-          style={{
-            textDecoration: 'none',
-            fontWeight: 'bold',
-            color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-            fontFamily: 'monospace',
-          }}
-          href="#"
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onOpen(sb)
-          }}
-        >
-          {sb.name || sb.id}
-        </a>
-      </Typography>
+      <>
+        <Typography variant="body1">
+          <a
+            style={{
+              textDecoration: 'none',
+              fontWeight: 'bold',
+              color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+              fontFamily: 'monospace',
+            }}
+            href="#"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onOpen(sb)
+            }}
+          >
+            {sb.name || sb.id}
+          </a>
+        </Typography>
+        <SandboxProject sandbox={sb} />
+      </>
     ),
     runtime: (
       <Typography variant="body2" color="text.secondary">
