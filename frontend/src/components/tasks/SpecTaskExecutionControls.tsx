@@ -284,7 +284,13 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
         ]}
       </Menu>
 
-      <Menu anchorEl={cpuAnchor} open={!!cpuAnchor} onClose={() => setCpuAnchor(null)}>
+      <Menu
+        anchorEl={cpuAnchor}
+        open={!!cpuAnchor}
+        onClose={() => setCpuAnchor(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "left" }}
+        transformOrigin={{ vertical: "bottom", horizontal: "left" }}
+      >
         {SANDBOX_PRESETS.map((preset) => (
           <MenuItem
             key={preset.vcpus}
