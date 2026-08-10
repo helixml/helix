@@ -98,15 +98,21 @@ func (s *PostgresStore) ListProviderEndpoints(ctx context.Context, q *ListProvid
 		return providerEndpoints, nil
 	}
 
+	// Resolve which endpoint_type corresponds to the requested owner type. This
+	// must match q.OwnerType so that org-scoped (endpoint_type='org') and, in
+	// the future, team-scoped endpoints are returned rather than always
+	// filtering on user-owned ('user') rows.
+	ownershipType := ownershipEndpointType(q.OwnerType)
+
 	if q.WithGlobal {
-		// User's own endpoints OR global endpoints
+		// Owner's endpoints (of the requested ownership type) OR global endpoints
 		query = query.Where(
 			"(owner = ? AND endpoint_type = ?) OR endpoint_type = ?",
-			q.Owner, types.ProviderEndpointTypeUser, types.ProviderEndpointTypeGlobal,
+			q.Owner, ownershipType, types.ProviderEndpointTypeGlobal,
 		)
 	} else {
-		// User's own endpoints only
-		query = query.Where("owner = ? AND endpoint_type = ?", q.Owner, types.ProviderEndpointTypeUser)
+		// Owner's endpoints only (of the requested ownership type)
+		query = query.Where("owner = ? AND endpoint_type = ?", q.Owner, ownershipType)
 	}
 
 	err := query.Find(&providerEndpoints).Error
@@ -114,6 +120,18 @@ func (s *PostgresStore) ListProviderEndpoints(ctx context.Context, q *ListProvid
 		return nil, err
 	}
 	return providerEndpoints, nil
+}
+
+// ownershipEndpointType maps an owner type to the provider endpoint_type used
+// for endpoints it directly owns. It defaults to user endpoints so callers that
+// don't set OwnerType keep their previous behavior.
+func ownershipEndpointType(ownerType types.OwnerType) types.ProviderEndpointType {
+	switch ownerType {
+	case types.OwnerTypeOrg:
+		return types.ProviderEndpointTypeOrg
+	default:
+		return types.ProviderEndpointTypeUser
+	}
 }
 
 func (s *PostgresStore) DeleteProviderEndpoint(ctx context.Context, id string) error {
