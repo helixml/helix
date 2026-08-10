@@ -117,9 +117,10 @@ func reapOrphanResources(ctx context.Context, executor Executor, st store.Store,
 }
 
 // liveSpecTaskIDsForReaper returns the IDs of spec-tasks that should be treated
-// as live: those in a non-terminal status OR updated at/after cutoff. Archived
-// tasks are included in the scan but are live only if recently updated, so a
-// long-archived task's workspace eventually reaps.
+// as live: those the user has pinned with Keep Alive, those in a non-terminal
+// status, OR those updated at/after cutoff. Archived tasks are included in the
+// scan but are live only if recently updated, so a long-archived task's
+// workspace eventually reaps.
 func liveSpecTaskIDsForReaper(ctx context.Context, st store.Store, cutoff time.Time) ([]string, error) {
 	tasks, err := st.ListSpecTasks(ctx, &types.SpecTaskFilters{IncludeArchived: true})
 	if err != nil {
@@ -129,6 +130,29 @@ func liveSpecTaskIDsForReaper(ctx context.Context, st store.Store, cutoff time.T
 	var ids []string
 	for _, t := range tasks {
 		live := !specTaskTerminalStatuses[t.Status] && !t.Archived
+
+		// Keep Alive is an explicit instruction from the user to leave this task
+		// alone, and it outranks the status heuristic entirely.
+		//
+		// Without this the reaper was blind to the flag: a task whose PR merged
+		// went terminal, dropped out of the live set, and had its workspace
+		// os.RemoveAll'd once HELIX_ORPHAN_REAPER_GRACE_PERIOD (6h) elapsed —
+		// while the container was still running and the user was still working
+		// in it. The observed failure was the agent's shell breaking (its cwd had
+		// been deleted underneath it), and, because .claude-state lives in that
+		// same workspace, the Claude transcript going with it. A later restart
+		// then found zed_thread_id pointing at a session claude-agent-acp no
+		// longer had, failed load_session with "Resource not found", and silently
+		// presented an empty "New Zed Agent Thread".
+		//
+		// Deliberately NOT time-bounded. Expiring an explicit "keep this" after N
+		// days would reintroduce exactly the same surprise on a longer timer; a
+		// forgotten toggle is a disk-usage problem to surface in the UI, not a
+		// reason to delete someone's working directory behind their back.
+		if t.KeepAlive {
+			live = true
+		}
+
 		if !live && !t.UpdatedAt.Before(cutoff) {
 			live = true // recently touched — keep its workspace a bit longer
 		}

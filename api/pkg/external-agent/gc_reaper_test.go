@@ -103,3 +103,48 @@ func TestReapOrphanResources_SandboxReconcileErrorContinues(t *testing.T) {
 		reapOrphanResources(context.Background(), mockExec, mockStore, 6*time.Hour, false)
 	})
 }
+
+// A task the user pinned with Keep Alive must never be reaped, even once it has
+// reached a terminal status and aged well past the grace period.
+//
+// Regression test for the workspace of spt_01kz6r8evrdtpepqd59sjm0eev being
+// os.RemoveAll'd 6h after its PR merged, while the container was still running
+// and in use: the agent's shell broke (cwd deleted) and .claude-state went with
+// it, so a later restart hit "Resource not found" on load_session and silently
+// showed an empty "New Zed Agent Thread".
+func TestLiveSpecTaskIDsForReaper_KeepAliveOutranksTerminalStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	now := time.Now()
+	cutoff := now.Add(-6 * time.Hour)
+	stale := now.Add(-30 * 24 * time.Hour) // long past any grace window
+
+	mockStore.EXPECT().
+		ListSpecTasks(gomock.Any(), gomock.Any()).
+		Return([]*types.SpecTask{
+			// The reported case: done, stale, but explicitly pinned.
+			{ID: "spt_keepalive_done", Status: types.TaskStatusDone, KeepAlive: true, UpdatedAt: stale},
+			// Pinned AND archived is still pinned — the flag is explicit intent.
+			{ID: "spt_keepalive_archived", Status: types.TaskStatusDone, KeepAlive: true, Archived: true, UpdatedAt: stale},
+			// Not pinned, terminal, stale -> reapable. This is what keeps the GC useful.
+			{ID: "spt_done_stale", Status: types.TaskStatusDone, UpdatedAt: stale},
+			// Not pinned but still working -> live on status alone.
+			{ID: "spt_running", Status: types.TaskStatusImplementation, UpdatedAt: stale},
+			// Not pinned, terminal, but touched inside the grace window -> live.
+			{ID: "spt_done_recent", Status: types.TaskStatusDone, UpdatedAt: now},
+		}, nil)
+
+	ids, err := liveSpecTaskIDsForReaper(context.Background(), mockStore, cutoff)
+	assert.NoError(t, err)
+
+	assert.Contains(t, ids, "spt_keepalive_done",
+		"Keep Alive must protect a done task's workspace — deleting it breaks the running agent's shell")
+	assert.Contains(t, ids, "spt_keepalive_archived",
+		"Keep Alive is explicit user intent and must outrank archived+terminal too")
+	assert.Contains(t, ids, "spt_running", "a non-terminal task is live")
+	assert.Contains(t, ids, "spt_done_recent", "a recently-touched task is live")
+	assert.NotContains(t, ids, "spt_done_stale",
+		"an unpinned, terminal, stale task must still be reapable, or the GC stops reclaiming anything")
+}
