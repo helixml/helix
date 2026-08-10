@@ -123,27 +123,16 @@ import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
 import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
 import {
-  CloudUpload as CloudUploadLucide,
   FileText,
-  Files,
-  SlidersHorizontal,
-  GitCompare,
-  Globe2,
-  Lock as LockLucide,
-  LockOpen as LockOpenLucide,
-  MonitorPlay,
-  MessageSquare,
-  PanelBottom,
   PanelLeft,
   PanelRight,
-  Play as PlayLucide,
-  RotateCw,
-  Square,
-  EllipsisVertical,
   Wand2,
   Share,
-  X,
 } from "lucide-react";
+import SpecTaskViewToolbar, {
+  TaskView,
+  ToolbarDensity,
+} from "./SpecTaskViewToolbar";
 
 import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
 import { loadPanelLayout, savePanelLayout } from "../../lib/panelLayoutStorage";
@@ -202,7 +191,6 @@ const taskDetailsTextFieldSx = {
 
 type TaskTextField = "name" | "description";
 type TaskTextSaveStatus = "idle" | "saving" | "saved" | "error";
-type TaskView = "chat" | "desktop" | "browser" | "changes" | "files" | "details";
 
 interface SpecTaskDetailContentProps {
   taskId: string;
@@ -573,8 +561,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [selectedCloneGroupId, setSelectedCloneGroupId] = useState<
     string | null
   >(null);
-  const [actionMenuAnchorEl, setActionMenuAnchorEl] =
-    useState<HTMLElement | null>(null);
 
   // Archive state
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
@@ -1302,11 +1288,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     onTaskArchived,
   ]);
 
-  const renderTaskActions = (variant: "inline" | "stacked") => {
+  const renderTaskActions = (
+    variant: "inline" | "stacked",
+    density: ToolbarDensity = "comfortable",
+  ) => {
     if (!task) return null;
 
     return (
       <SpecTaskActionButtons
+        density={density}
         task={{
           id: task.id || "",
           status: task.status || "",
@@ -2209,19 +2199,56 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     />
   ) : undefined;
 
-  const terminalToggleButton = activeSessionId ? (
-    <Tooltip title="Toggle terminal drawer (Ctrl/Cmd+J)">
-      <IconButton
-        size="small"
-        onClick={toggleTerminalDrawer}
-        sx={taskToolbarIconButtonSx}
-        aria-label="Toggle terminal drawer"
-        aria-pressed={terminalDrawerState.open}
-      >
-        <PanelBottom size={18} />
-      </IconButton>
-    </Tooltip>
-  ) : null;
+  // Task-level actions that live in the toolbar's overflow menu alongside the
+  // desktop controls that fold into it on narrow layouts.
+  const renderTaskMenuItems = (closeMenu: () => void) => {
+    const items: React.ReactNode[] = [];
+    if (task?.design_docs_pushed_at) {
+      items.push(
+        <MenuItem
+          key="share-design-docs"
+          onClick={() => {
+            closeMenu();
+            setShareDialogOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <Share size={18} />
+          </ListItemIcon>
+          <ListItemText>Share Design Docs</ListItemText>
+        </MenuItem>,
+        <MenuItem
+          key="clone-task"
+          onClick={() => {
+            closeMenu();
+            setShowCloneDialog(true);
+          }}
+        >
+          <ListItemIcon>
+            <Wand2 size={18} />
+          </ListItemIcon>
+          <ListItemText>Clone Task</ListItemText>
+        </MenuItem>,
+      );
+    }
+    if (task?.clone_group_id) {
+      items.push(
+        <MenuItem
+          key="clone-group"
+          onClick={() => {
+            closeMenu();
+            setSelectedCloneGroupId(task.clone_group_id || null);
+          }}
+        >
+          <ListItemIcon>
+            <AccountTree sx={{ fontSize: 18 }} />
+          </ListItemIcon>
+          <ListItemText>View Batch Clone Progress</ListItemText>
+        </MenuItem>,
+      );
+    }
+    return items.length > 0 ? items : null;
+  };
 
   if (!task) {
     return (
@@ -2521,259 +2548,37 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 }}
               >
                 {/* View toggle header - above content area only */}
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    px: 1,
-                    pt: 1,
-                    pb: 0.5,
-                    minHeight: 53,
-                    flexShrink: 0,
-                    boxSizing: "border-box",
-                    borderBottom: "1px solid",
-                    borderColor: "divider",
-                    backgroundColor: "background.paper",
-                    gap: 1,
-                  }}
-                >
-                  {/* Left: View toggle icons */}
-                  <ToggleButtonGroup
-                    value={currentView}
-                    exclusive
-                    onChange={(_, newView) => handleViewChange(newView)}
-                    size="small"
-                    sx={{
-                      "& .MuiToggleButton-root": {
-                        width: 56,
-                        height: 40,
-                        minWidth: 56,
-                        p: 0,
-                        border: "none",
-                        borderRadius: "4px !important",
-                        textTransform: "none",
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        gap: 0.2,
-                        "&.Mui-selected": {
-                          backgroundColor: "action.selected",
-                        },
-                      },
-                    }}
-                  >
-                    <ToggleButton value="desktop" aria-label="Desktop view">
-                      <MonitorPlay size={18} />
-                      <Typography
-                        sx={{
-                          fontSize: "0.65rem",
-                          lineHeight: 1,
-                          fontWeight: 400,
-                          textTransform: "none",
-                        }}
-                      >
-                        Desktop
-                      </Typography>
-                    </ToggleButton>
-                    <ToggleButton value="browser" aria-label="Browser view">
-                      <Globe2 size={18} />
-                      <Typography
-                        sx={{
-                          fontSize: "0.65rem",
-                          lineHeight: 1,
-                          fontWeight: 400,
-                          textTransform: "none",
-                        }}
-                      >
-                        Browser
-                      </Typography>
-                    </ToggleButton>
-                    <ToggleButton value="changes" aria-label="Diff view">
-                      <GitCompare size={18} />
-                      <Typography
-                        sx={{
-                          fontSize: "0.65rem",
-                          lineHeight: 1,
-                          fontWeight: 400,
-                          textTransform: "none",
-                        }}
-                      >
-                        Diff
-                      </Typography>
-                    </ToggleButton>
-                    <ToggleButton value="files" aria-label="Files view">
-                      <Files size={18} />
-                      <Typography
-                        sx={{
-                          fontSize: "0.65rem",
-                          lineHeight: 1,
-                          fontWeight: 400,
-                          textTransform: "none",
-                        }}
-                      >
-                        Files
-                      </Typography>
-                    </ToggleButton>
-                    <ToggleButton value="details" aria-label="Details view">
-                      <SlidersHorizontal size={18} />
-                      <Typography
-                        sx={{
-                          fontSize: "0.65rem",
-                          lineHeight: 1,
-                          fontWeight: 400,
-                          textTransform: "none",
-                        }}
-                      >
-                        Details
-                      </Typography>
-                    </ToggleButton>
-                  </ToggleButtonGroup>
-
-                  {/* Status-specific action buttons */}
-                  {renderTaskActions("inline")}
-
-                  {/* Spacer */}
-                  <Box sx={{ flex: 1 }} />
-
-                  {/* Right: Action buttons */}
-                  <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                    <>
-                        {terminalToggleButton}
-                        {/* Show Start button when desktop is paused */}
-                        {effectiveIsDesktopPaused && (
-                          <Tooltip title="Start desktop">
-                            <IconButton
-                              size="small"
-                              aria-label="Start desktop"
-                              onClick={handleStartSession}
-                              disabled={isStarting || isDesktopStarting}
-                              sx={taskToolbarIconButtonSx}
-                            >
-                              {isStarting || isDesktopStarting ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                <PlayLucide size={18} />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {/* Show Stop button when desktop is running */}
-                        {isDesktopRunning && (
-                          <Tooltip title="Stop desktop">
-                            <IconButton
-                              size="small"
-                              aria-label="Stop desktop"
-                              onClick={() => setStopConfirmOpen(true)}
-                              disabled={isStopping}
-                              sx={taskToolbarIconButtonSx}
-                            >
-                              {isStopping ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                <Square size={18} fill="currentColor" />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {/* Show Restart button only when desktop is running */}
-                        {isDesktopRunning && (
-                          <Tooltip title="Restart agent session">
-                            <IconButton
-                              size="small"
-                              aria-label="Restart agent session"
-                              onClick={() => setRestartConfirmOpen(true)}
-                              disabled={isRestarting}
-                              sx={taskToolbarIconButtonSx}
-                            >
-                              {isRestarting ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                <RotateCw size={18} />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {/* Show Keep Alive toggle when desktop is running */}
-                        {isDesktopRunning && (
-                          <Tooltip
-                            title={
-                              task.keep_alive
-                                ? "Keep Alive ON — won't auto-sleep"
-                                : "Keep Alive OFF — will auto-sleep when idle"
-                            }
-                          >
-                            <IconButton
-                              size="small"
-                              aria-label={task.keep_alive ? "Disable keep alive" : "Enable keep alive"}
-                              onClick={handleToggleKeepAlive}
-                              disabled={updateSpecTask.isPending}
-                              sx={taskToolbarIconButtonSx}
-                              aria-pressed={task.keep_alive}
-                            >
-                              {task.keep_alive ? (
-                                <LockLucide size={18} />
-                              ) : (
-                                <LockOpenLucide size={18} />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {/* Show Upload button only when desktop is running */}
-                        {isDesktopRunning && (
-                          <Tooltip title="Upload files to sandbox">
-                            <IconButton
-                              size="small"
-                              aria-label="Upload files to sandbox"
-                              onClick={handleUploadClick}
-                              disabled={isUploading}
-                              sx={taskToolbarIconButtonSx}
-                            >
-                              {isUploading ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                <CloudUploadLucide size={18} />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {(task.design_docs_pushed_at || task.clone_group_id) && (
-                          <Tooltip title="More actions">
-                            <IconButton
-                              size="small"
-                              aria-label="More actions"
-                              onClick={(event) =>
-                                setActionMenuAnchorEl(event.currentTarget)
-                              }
-                              sx={taskToolbarIconButtonSx}
-                            >
-                              <EllipsisVertical size={18} />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                    </>
-                    {allowContentCollapse ? (
-                      <Tooltip title="Collapse task panel">
-                        <IconButton
-                          size="small"
-                          aria-label="Collapse task panel"
-                          onClick={collapseContentPanel}
-                          sx={taskToolbarIconButtonSx}
-                        >
-                          <PanelRight size={18} />
-                        </IconButton>
-                      </Tooltip>
-                    ) : onClose ? (
-                      <IconButton
-                        size="small"
-                        onClick={onClose}
-                        sx={taskToolbarIconButtonSx}
-                      >
-                        <X size={18} />
-                      </IconButton>
-                    ) : null}
-                  </Box>
-                </Box>
+                <SpecTaskViewToolbar
+                  currentView={currentView}
+                  onViewChange={handleViewChange}
+                  hasSession
+                  renderActions={(density) =>
+                    renderTaskActions("inline", density)
+                  }
+                  onToggleTerminal={toggleTerminalDrawer}
+                  terminalOpen={terminalDrawerState.open}
+                  showStart={effectiveIsDesktopPaused}
+                  onStart={handleStartSession}
+                  startBusy={isStarting || isDesktopStarting}
+                  showStop={isDesktopRunning}
+                  onStop={() => setStopConfirmOpen(true)}
+                  stopBusy={isStopping}
+                  showRestart={isDesktopRunning}
+                  onRestart={() => setRestartConfirmOpen(true)}
+                  restartBusy={isRestarting}
+                  showKeepAlive={isDesktopRunning}
+                  keepAlive={task.keep_alive}
+                  onToggleKeepAlive={handleToggleKeepAlive}
+                  keepAliveBusy={updateSpecTask.isPending}
+                  showUpload={isDesktopRunning}
+                  onUpload={handleUploadClick}
+                  uploadBusy={isUploading}
+                  renderMenuItems={renderTaskMenuItems}
+                  onCollapsePanel={
+                    allowContentCollapse ? collapseContentPanel : undefined
+                  }
+                  onClosePanel={allowContentCollapse ? undefined : onClose}
+                />
 
                 {/* In split-view layout, "chat" falls through to desktop since chat
                     is already visible in the left panel */}
@@ -2870,278 +2675,47 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             {/* Mobile layout OR no active session: single view at a time */}
             {/* A toolbar is useful only when there are multiple session views. */}
             {activeSessionId && (
-              <Box
-                sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                flexWrap: "wrap",
-                px: 1,
-                pt: 1,
-                pb: 0.5,
-                minHeight: 53,
-                flexShrink: 0,
-                boxSizing: "border-box",
-                borderBottom: "1px solid",
-                borderColor: "divider",
-                backgroundColor: "background.paper",
-                gap: 0.5,
-                }}
-              >
-              {/* Left: View toggle icons */}
-              <ToggleButtonGroup
-                value={currentView}
-                exclusive
-                onChange={(_, newView) => handleViewChange(newView)}
-                size="small"
-                sx={{
-                  flexShrink: 0,
-                  "& .MuiToggleButton-root": {
-                    py: 0.35,
-                    px: 0.7,
-                    minWidth: 56,
-                    border: "none",
-                    borderRadius: "4px !important",
-                    textTransform: "none",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: 0.15,
-                    "&.Mui-selected": {
-                      backgroundColor: "action.selected",
-                    },
-                  },
-                }}
-              >
-                {/* Chat tab - only on mobile when there's an active session */}
-                {activeSessionId && (
-                  <ToggleButton value="chat" aria-label="Chat view">
-                    <MessageSquare size={18} />
-                    <Typography
-                      sx={{
-                        fontSize: "0.65rem",
-                        lineHeight: 1,
-                        fontWeight: 400,
-                        textTransform: "none",
-                      }}
-                    >
-                      Chat
-                    </Typography>
-                  </ToggleButton>
-                )}
-                {activeSessionId && (
-                  <ToggleButton value="desktop" aria-label="Desktop view">
-                    <MonitorPlay size={18} />
-                    <Typography
-                      sx={{
-                        fontSize: "0.65rem",
-                        lineHeight: 1,
-                        fontWeight: 400,
-                        textTransform: "none",
-                      }}
-                    >
-                      Desktop
-                    </Typography>
-                  </ToggleButton>
-                )}
-                {activeSessionId && (
-                  <ToggleButton value="browser" aria-label="Browser view">
-                    <Globe2 size={18} />
-                    <Typography
-                      sx={{
-                        fontSize: "0.65rem",
-                        lineHeight: 1,
-                        fontWeight: 400,
-                        textTransform: "none",
-                      }}
-                    >
-                      Browser
-                    </Typography>
-                  </ToggleButton>
-                )}
-                {activeSessionId && (
-                  <ToggleButton value="changes" aria-label="Diff view">
-                    <GitCompare size={18} />
-                    <Typography
-                      sx={{
-                        fontSize: "0.65rem",
-                        lineHeight: 1,
-                        fontWeight: 400,
-                        textTransform: "none",
-                      }}
-                    >
-                      Diff
-                    </Typography>
-                  </ToggleButton>
-                )}
-                {activeSessionId && (
-                  <ToggleButton value="files" aria-label="Files view">
-                    <Files size={18} />
-                    <Typography
-                      sx={{
-                        fontSize: "0.65rem",
-                        lineHeight: 1,
-                        fontWeight: 400,
-                        textTransform: "none",
-                      }}
-                    >
-                      Files
-                    </Typography>
-                  </ToggleButton>
-                )}
-                <ToggleButton value="details" aria-label="Details view">
-                  <SlidersHorizontal size={18} />
-                  <Typography
-                    sx={{
-                      fontSize: "0.65rem",
-                      lineHeight: 1,
-                      fontWeight: 400,
-                      textTransform: "none",
-                    }}
-                  >
-                    Details
-                  </Typography>
-                </ToggleButton>
-              </ToggleButtonGroup>
-
-              {/* Status-specific action buttons */}
-              {renderTaskActions("inline")}
-
-              {/* Spacer - hidden on very small screens to allow wrapping */}
-              <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 8 } }} />
-
-              {/* Right: Action buttons */}
-              <Box
-                sx={{
-                  display: "flex",
-                  gap: 0.25,
-                  alignItems: "center",
-                  flexShrink: 0,
-                }}
-              >
-                <>
-                    {isBigScreen && chatCollapsed && (
-                      <Tooltip title="Restore split view">
-                        <IconButton
-                          size="small"
-                          aria-label="Restore split view"
-                          onClick={() => setChatCollapsed(false)}
-                          sx={taskToolbarIconButtonSx}
-                        >
-                          <PanelLeft size={18} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {terminalToggleButton}
-                    {/* Show Start button when desktop is paused */}
-                    {activeSessionId && effectiveIsDesktopPaused && (
-                      <Tooltip title="Start desktop">
-                        <IconButton
-                          size="small"
-                          aria-label="Start desktop"
-                          onClick={handleStartSession}
-                          disabled={isStarting || isDesktopStarting}
-                          sx={taskToolbarIconButtonSx}
-                        >
-                          {isStarting || isDesktopStarting ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <PlayLucide size={18} />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {/* Show Stop button when desktop is running */}
-                    {activeSessionId && isDesktopRunning && (
-                      <Tooltip title="Stop desktop">
-                        <IconButton
-                          size="small"
-                          aria-label="Stop desktop"
-                          onClick={() => setStopConfirmOpen(true)}
-                          disabled={isStopping}
-                          sx={taskToolbarIconButtonSx}
-                        >
-                          {isStopping ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <Square size={18} fill="currentColor" />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {/* Show Restart button only when desktop is running */}
-                    {activeSessionId && isDesktopRunning && (
-                      <Tooltip title="Restart agent session">
-                        <IconButton
-                          size="small"
-                          aria-label="Restart agent session"
-                          onClick={() => setRestartConfirmOpen(true)}
-                          disabled={isRestarting}
-                          sx={taskToolbarIconButtonSx}
-                        >
-                          {isRestarting ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <RotateCw size={18} />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {/* Show Upload button only when desktop is running */}
-                    {activeSessionId && isDesktopRunning && (
-                      <Tooltip title="Upload files to sandbox">
-                        <IconButton
-                          size="small"
-                          aria-label="Upload files to sandbox"
-                          onClick={handleUploadClick}
-                          disabled={isUploading}
-                          sx={taskToolbarIconButtonSx}
-                        >
-                          {isUploading ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <CloudUploadLucide size={18} />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {(task.design_docs_pushed_at || task.clone_group_id) && (
-                      <Tooltip title="More actions">
-                        <IconButton
-                          size="small"
-                          aria-label="More actions"
-                          onClick={(event) =>
-                            setActionMenuAnchorEl(event.currentTarget)
-                          }
-                          sx={taskToolbarIconButtonSx}
-                        >
-                          <EllipsisVertical size={18} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                </>
-                {allowContentCollapse && isBigScreen && activeSessionId ? (
-                  <Tooltip title="Collapse task panel">
-                    <IconButton
-                      size="small"
-                      aria-label="Collapse task panel"
-                      onClick={collapseContentPanel}
-                      sx={taskToolbarIconButtonSx}
-                    >
-                      <PanelRight size={18} />
-                    </IconButton>
-                  </Tooltip>
-                ) : onClose ? (
-                  <IconButton
-                    size="small"
-                    onClick={onClose}
-                    sx={taskToolbarIconButtonSx}
-                  >
-                    <X size={18} />
-                  </IconButton>
-                ) : null}
-              </Box>
-              </Box>
+              <SpecTaskViewToolbar
+                currentView={currentView}
+                onViewChange={handleViewChange}
+                hasSession
+                showChatTab
+                renderActions={(density) =>
+                  renderTaskActions("inline", density)
+                }
+                onToggleTerminal={toggleTerminalDrawer}
+                terminalOpen={terminalDrawerState.open}
+                showStart={effectiveIsDesktopPaused}
+                onStart={handleStartSession}
+                startBusy={isStarting || isDesktopStarting}
+                showStop={isDesktopRunning}
+                onStop={() => setStopConfirmOpen(true)}
+                stopBusy={isStopping}
+                showRestart={isDesktopRunning}
+                onRestart={() => setRestartConfirmOpen(true)}
+                restartBusy={isRestarting}
+                showKeepAlive={isDesktopRunning}
+                keepAlive={task.keep_alive}
+                onToggleKeepAlive={handleToggleKeepAlive}
+                keepAliveBusy={updateSpecTask.isPending}
+                showUpload={isDesktopRunning}
+                onUpload={handleUploadClick}
+                uploadBusy={isUploading}
+                renderMenuItems={renderTaskMenuItems}
+                onRestoreSplit={
+                  isBigScreen && chatCollapsed
+                    ? () => setChatCollapsed(false)
+                    : undefined
+                }
+                onCollapsePanel={
+                  allowContentCollapse && isBigScreen
+                    ? collapseContentPanel
+                    : undefined
+                }
+                onClosePanel={
+                  allowContentCollapse && isBigScreen ? undefined : onClose
+                }
+              />
             )}
 
             {/* Chat View - mobile only */}
@@ -3420,52 +2994,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Menu
-        anchorEl={actionMenuAnchorEl}
-        open={Boolean(actionMenuAnchorEl)}
-        onClose={() => setActionMenuAnchorEl(null)}
-      >
-        {task?.design_docs_pushed_at && (
-          <MenuItem
-            onClick={() => {
-              setActionMenuAnchorEl(null);
-              setShareDialogOpen(true);
-            }}
-          >
-            <ListItemIcon>
-              <Share size={18} />
-            </ListItemIcon>
-            <ListItemText>Share Design Docs</ListItemText>
-          </MenuItem>
-        )}
-        {task?.design_docs_pushed_at && (
-          <MenuItem
-            onClick={() => {
-              setActionMenuAnchorEl(null);
-              setShowCloneDialog(true);
-            }}
-          >
-            <ListItemIcon>
-              <Wand2 size={18} />
-            </ListItemIcon>
-            <ListItemText>Clone Task</ListItemText>
-          </MenuItem>
-        )}
-        {task?.clone_group_id && (
-          <MenuItem
-            onClick={() => {
-              setActionMenuAnchorEl(null);
-              setSelectedCloneGroupId(task.clone_group_id || null);
-            }}
-          >
-            <ListItemIcon>
-              <AccountTree sx={{ fontSize: 18 }} />
-            </ListItemIcon>
-            <ListItemText>View Batch Clone Progress</ListItemText>
-          </MenuItem>
-        )}
-      </Menu>
 
       {/* Clone Task Dialog */}
       <CloneTaskDialog
