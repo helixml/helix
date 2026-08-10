@@ -289,10 +289,9 @@ func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgcha
 func newApplier(svc ProjectService, ws *Workspace, st *store.Store) *WorkerProject {
 	_ = ws
 	return &WorkerProject{
-		Service:     svc,
-		Store:       st,
-		HelixOrgURL: "http://helix-org:8081",
-		Logger:      discardLogger(),
+		Service: svc,
+		Store:   st,
+		Logger:  discardLogger(),
 	}
 }
 
@@ -333,14 +332,14 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if svc.lastApplyReq.Spec.Agent == nil || svc.lastApplyReq.Spec.Agent.Runtime != Runtime {
 		t.Errorf("Agent runtime = %+v, want %q", svc.lastApplyReq.Spec.Agent, Runtime)
 	}
-	if svc.putSecretLast["HELIX_ORG_URL"] != "http://helix-org:8081" {
-		t.Errorf("HELIX_ORG_URL = %q", svc.putSecretLast["HELIX_ORG_URL"])
+	if _, ok := svc.putSecretLast["HELIX_ORG_URL"]; ok {
+		t.Errorf("HELIX_ORG_URL must not be stored as a project secret")
 	}
 	if _, ok := svc.putSecretLast["HELIX_WORKER_ID"]; ok {
 		t.Errorf("HELIX_WORKER_ID must not be stored as a project secret")
 	}
-	if len(svc.deletedSecrets) != 1 || svc.deletedSecrets[0] != "HELIX_WORKER_ID" {
-		t.Errorf("deleted secrets = %v, want [HELIX_WORKER_ID]", svc.deletedSecrets)
+	if len(svc.deletedSecrets) != 2 || svc.deletedSecrets[0] != "HELIX_ORG_URL" || svc.deletedSecrets[1] != "HELIX_WORKER_ID" {
+		t.Errorf("deleted secrets = %v, want [HELIX_ORG_URL HELIX_WORKER_ID]", svc.deletedSecrets)
 	}
 	if svc.createGitRepoCalls != 1 {
 		t.Errorf("CreateGitRepo calls = %d, want 1", svc.createGitRepoCalls)
@@ -866,18 +865,8 @@ func TestEnsureGetProjectErrorIsFatal(t *testing.T) {
 	}
 }
 
-// TestEnsureDoesNotTouchAgentAppMCPs pins the new contract: MCP
-// attachment is NOT WorkerProject.Ensure's responsibility. It moved
-// out into runtimehelix.AttachHelixOrgMCP, called explicitly by the
-// Spawner (per-activation) and dynamicProjectApplier (per owner-chat
-// ensureWorker). Ensure mutates the project + repo + helix-specs
-// files only.
-//
-// Why this matters: the helix project-apply path wholesale-replaces
-// agentApp.Config.Helix on update, so any MCP attached during Ensure
-// is clobbered on the next re-apply. Keeping MCP attachment outside
-// Ensure means there's exactly one place that writes the MCP entry,
-// and it's the last write before the desktop boots.
+// TestEnsureDoesNotTouchAgentAppMCPs pins that MCP configuration is
+// generated from session metadata instead of persisted by project setup.
 func TestEnsureDoesNotTouchAgentAppMCPs(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role")

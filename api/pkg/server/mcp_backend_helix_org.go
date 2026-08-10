@@ -42,7 +42,8 @@ func NewHelixOrgMCPBackend(apiServer *HelixAPIServer, orgHandlers *helixOrgHandl
 }
 
 // ServeHTTP implements MCPBackend. The MCP gateway has already
-// authenticated the request; this backend additionally enforces org membership.
+// authenticated the request; this backend additionally binds the URL's org and
+// worker to the session-scoped key used by that worker's desktop.
 func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user *types.User) {
 	// Parse the org segment + worker ID from the suffix path the gateway
 	// captured. Accept forms:
@@ -64,8 +65,17 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	if user == nil || user.TokenType != types.TokenTypeAPIKey || user.SessionID == "" {
+		http.Error(w, "session-scoped API key required for helix-org MCP access", http.StatusForbidden)
+		return
+	}
 	if _, err := b.apiServer.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	session, err := b.apiServer.Store.GetSession(r.Context(), user.SessionID)
+	if err != nil || session == nil || user.OrganizationID != org.ID || session.Owner != user.ID || session.OrganizationID != org.ID || session.Metadata.OrgWorkerID != workerID {
+		http.Error(w, "session does not match helix-org MCP route", http.StatusForbidden)
 		return
 	}
 	if err := b.scope.ensureBootstrap(r.Context(), org.ID); err != nil {

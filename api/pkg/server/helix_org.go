@@ -278,7 +278,7 @@ type orgServices struct {
 // constructors. deps carries the clock / id-gen / topology / hire-hook
 // seams (a mcptools.Deps is already assembled by the caller).
 func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher, provisioners map[transport.Kind]streaming.Inbound) orgServices {
-	botsSvc := nodes.New(nodes.Deps{Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: deps.Reconciler, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
+	botsSvc := nodes.New(nodes.Deps{Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: deps.Reconciler, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools, OnToolsChanged: deps.ToolChangeNotifier})
 	topicsSvc := topics.New(topics.Deps{Topics: st.Topics, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners})
 	svc := orgServices{
 		Nodes:    botsSvc,
@@ -483,7 +483,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// survive restarts. Surfaced via Organization Settings at
 	// /orgs/:org_id/general (backed by
 	// /api/v1/orgs/{org}/settings). Constructed before the spawner
-	// so the spawner can read chat.app_id / helix.url at activation
+	// so the spawner can read chat.app_id at activation
 	// time.
 	configReg := configregistry.New(st.Configs)
 	helixorg.RegisterConfigSpecs(configReg)
@@ -504,6 +504,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	inProcClient := NewInProcHelixClient(cfg.APIServer, configReg)
 	deps.AgentContentUpdater = inProcClient
 	deps.AgentProfileReader = inProcClient
+	deps.ToolChangeNotifier = cfg.APIServer.publishAgentToolChange
 
 	// Wire the helix-runtime HireHook so hire_worker persists the
 	// hiring user's identifier onto the new Worker's runtime state.
@@ -922,8 +923,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Encrypt: func(plaintext []byte) (string, error) {
 			return crypto.EncryptAES256GCM(plaintext, encryptionKey)
 		},
-		Now:   deps.Now,
-		NewID: deps.NewID,
+		Now:            deps.Now,
+		NewID:          deps.NewID,
+		OnToolsChanged: deps.ToolChangeNotifier,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init assets service: %w", err)
@@ -1079,8 +1081,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Int("json_api_routes", len(extras)).
 		Msg("helix-org mounted at /api/v1/orgs/{org}/helix-org/")
 	scope := newHelixOrgScope(configReg, st, helixStore, mirror, slackRouteReconciler, helixEventsReconciler)
-	scope.botRepair = func(ctx context.Context, orgID, serviceKey string) error {
-		if err := repairHelixOrgMCPServiceKeys(ctx, orgID, serviceKey, configReg, st, inProcClient); err != nil {
+	scope.botTools = svc.Nodes
+	scope.botRepair = func(ctx context.Context, orgID, _ string) error {
+		if err := removeLegacyHelixOrgMCPs(ctx, orgID, st, inProcClient); err != nil {
 			return err
 		}
 		return repairNeverActivatedBots(ctx, orgID, st, dispatcher, configReg, inProcClient)
@@ -1259,11 +1262,8 @@ type dynamicProjectApplier struct {
 // After Ensure succeeds, re-attaches the helix-org MCP entry on the
 // per-Worker agent app. ApplyProject (called inside WorkerProject.Ensure)
 // wholesale-replaces Config.Helix on update, so any MCPs we attached
-// previously are wiped — we re-attach here to keep the MCP present.
-// The Spawner does the same on its own activations; owner-chat goes
-// through this path only.
 func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID orgchart.NodeID) (projectID, agentAppID, repoID string, err error) {
-	applier, mcpBearer, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.helixStore, d.projectSvc, d.Store, d.logger)
+	applier, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.logger)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1272,11 +1272,6 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, worker
 	if err != nil {
 		return "", "", "", err
 	}
-	if agentAppID != "" && applier.HelixOrgURL != "" {
-		if attachErr := runtimehelix.AttachHelixOrgMCP(ctx, d.projectSvc, agentAppID, applier.HelixOrgURL, workerID, mcpBearer); attachErr != nil && d.logger != nil {
-			d.logger.Warn("dynamic project applier: attach helix-org MCP", "worker", workerID, "app", agentAppID, "err", attachErr)
-		}
-	}
 	return projectID, agentAppID, repoID, nil
 }
 
@@ -1284,21 +1279,13 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, worker
 // both the chat bridge (owner-chat) and the spawner (AI Worker
 // activations) drive. Single source of truth for the embedded
 // SaaS's default agent configuration from the config registry,
-// subscription credentials, and
-// our MCP-gateway URL so each Worker's agent app phones home for
-// helix-org tools via Helix's auth-gated proxy rather than a
-// separate tunnel.
+// subscription credentials.
 //
 // Called per Ensure by dynamicProjectApplier so registry edits
-// (agent.default and legacy worker.* keys, helix.url/api_key)
+// (agent.default and legacy worker.* keys)
 // take effect immediately. The struct it returns is cheap to build
 // and short-lived — one apply call, then discarded.
 //
-// Also returns the service api_key as a separate value (mcpBearer)
-// for the caller to feed into runtimehelix.AttachHelixOrgMCP as the
-// fallback bearer when no per-request bearer is on ctx. The bearer
-// is no longer carried on WorkerProject because Ensure doesn't touch
-// MCPs — MCP attachment is a separate, explicit step.
 // orgDisplayName resolves an org's human label for the `<Bot> @ <Org>`
 // project name. Prefers DisplayName, falls back to the slug Name, then
 // to "" (which makes WorkerProject use a bare bot label). Best-effort:
@@ -1321,38 +1308,21 @@ func buildHelixOrgProjectApplier(
 	ctx context.Context,
 	orgID string,
 	cfg *configregistry.Registry,
-	helixStore helixstore.Store,
 	projectSvc runtimehelix.ProjectService,
 	orgStore *helixorgstore.Store,
 	logger *slog.Logger,
-) (*runtimehelix.WorkerProject, string, error) {
-	apiKey, err := helixorg.NewHelixAPIKeys(helixStore, cfg).Service(ctx, orgID)
-	if err != nil {
-		return nil, "", fmt.Errorf("provision helix-org service api key: %w", err)
-	}
-	baseURL, err := cfg.GetString(ctx, orgID, "helix.url")
-	if err != nil {
-		return nil, "", fmt.Errorf("read helix.url: %w", err)
-	}
+) (*runtimehelix.WorkerProject, error) {
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, cfg)
-	// HelixOrgMCPBackend.ServeHTTP parses `<org>/workers/<id>/mcp`
-	// from the suffix path, so the org segment is required in the
-	// URL Zed will dial. The previous form
-	// `/api/v1/mcp/helix-org/workers/<id>/mcp` made the backend read
-	// "workers" as the org slug and 404 every request — the helix-org
-	// MCP was effectively unreachable from inside the sandbox.
-	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org/" + orgID
 	return &runtimehelix.WorkerProject{
 		Service:     projectSvc,
 		Store:       orgStore,
-		HelixOrgURL: helixOrgURL,
 		OrgID:       orgID,
 		Runtime:     runtime,
 		Credentials: credentials,
 		Provider:    provider,
 		Model:       model,
 		Logger:      logger,
-	}, apiKey, nil
+	}, nil
 }
 
 // resolveWorkerAgentConfig reads the atomic default agent config (or legacy
@@ -1393,31 +1363,24 @@ func workerRuntimeSupportsSubscription(runtime string) bool {
 	return runtime == "claude_code" || runtime == "codex_cli"
 }
 
-func repairHelixOrgMCPServiceKeys(ctx context.Context, orgID, serviceKey string, cfg *configregistry.Registry, st *helixorgstore.Store, projectSvc runtimehelix.ProjectService) error {
-	baseURL, err := cfg.GetString(ctx, orgID, "helix.url")
-	if err != nil {
-		return fmt.Errorf("read helix.url: %w", err)
-	}
+func removeLegacyHelixOrgMCPs(ctx context.Context, orgID string, st *helixorgstore.Store, projectSvc runtimehelix.ProjectService) error {
 	workers, err := st.Nodes.List(ctx, orgID)
 	if err != nil {
-		return fmt.Errorf("list bots for MCP service-key repair: %w", err)
+		return fmt.Errorf("list bots for legacy MCP cleanup: %w", err)
 	}
-	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org/" + orgID
-	var repairErrors []error
+	var cleanupErrors []error
 	for _, worker := range workers {
 		if worker.AgentID == "" {
 			continue
 		}
-		if err := runtimehelix.AttachHelixOrgMCP(ctx, projectSvc, worker.AgentID, helixOrgURL, worker.ID, serviceKey); err != nil {
+		if err := runtimehelix.RemoveHelixOrgMCP(ctx, projectSvc, worker.AgentID); err != nil {
 			if errors.Is(err, helixstore.ErrNotFound) {
-				log.Warn().Str("org_id", orgID).Str("bot_id", worker.ID).Str("app_id", worker.AgentID).Msg("repair helix-org MCP service key skipped missing app")
 				continue
 			}
-			log.Warn().Err(err).Str("org_id", orgID).Str("bot_id", worker.ID).Str("app_id", worker.AgentID).Msg("repair helix-org MCP service key failed")
-			repairErrors = append(repairErrors, fmt.Errorf("repair helix-org MCP for bot %s: %w", worker.ID, err))
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove legacy helix-org MCP from bot %s: %w", worker.ID, err))
 		}
 	}
-	return errors.Join(repairErrors...)
+	return errors.Join(cleanupErrors...)
 }
 
 // buildHelixOrgSpawnerConfig assembles the SpawnerConfig for
@@ -1426,11 +1389,6 @@ func repairHelixOrgMCPServiceKeys(ctx context.Context, orgID, serviceKey string,
 // credentials — the in-sandbox Claude Code CLI authenticates
 // Anthropic via the operator's own OAuth, so we don't pass
 // Provider/Model and the Helix-side anthropic proxy doesn't need an
-// API key configured. HelixOrgURL points at our embedded MCP gateway
-// so the Zed sandbox can reach helix-org without external tunneling;
-// the service api_key is forwarded as the MCP Authorization header
-// so the gateway can authenticate the request.
-//
 // BearerForUser resolves the hiring user's id (persisted on the
 // Worker's runtime state by hire_worker) to a current api_key at
 // activation time. This is how every per-Worker Helix project +
@@ -1472,32 +1430,17 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 	if d.ProjectSvc == nil {
 		return runtimehelix.SpawnerConfig{}, fmt.Errorf("helix-org spawner: ProjectService is required")
 	}
-	apiKey, err := helixorg.NewHelixAPIKeys(d.HelixStore, d.Cfg).Service(ctx, orgID)
-	if err != nil {
-		return runtimehelix.SpawnerConfig{}, fmt.Errorf("provision helix-org service api key: %w", err)
-	}
-	baseURL, err := d.Cfg.GetString(ctx, orgID, "helix.url")
-	if err != nil {
-		return runtimehelix.SpawnerConfig{}, fmt.Errorf("read helix.url: %w", err)
-	}
-
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, d.Cfg)
-	// HelixOrgMCPBackend.ServeHTTP parses `<org>/workers/<id>/mcp`
-	// from the suffix path, so the org segment is required in the
-	// URL Zed will dial.
-	helixOrgURL := strings.TrimRight(baseURL, "/") + "/api/v1/mcp/helix-org/" + orgID
 	specsMandate, _ := d.Cfg.GetString(ctx, orgID, "worker.specs_mandate")
 	return runtimehelix.SpawnerConfig{
 		Client:         d.SpawnerClient,
 		ProjectService: d.ProjectSvc,
-		HelixOrgURL:    helixOrgURL,
 		OrgID:          orgID,
 		OrgDisplayName: orgDisplayName(ctx, d.HelixStore, orgID),
 		Runtime:        runtime,
 		Credentials:    credentials,
 		Provider:       provider,
 		Model:          model,
-		MCPAuthBearer:  apiKey,
 		SpecsMandate:   specsMandate,
 		Store:          d.OrgStore,
 		Hub:            d.Hub,
@@ -1516,16 +1459,8 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 // SpawnerConfig, scoped to the activating org, on every activation.
 //
 // It MUST NOT cache a single inner Spawner across orgs. SpawnerConfig
-// carries tenant-specific identity — OrgID and HelixOrgURL
-// (`/api/v1/mcp/helix-org/<orgID>`) — which the inner spawner stamps
-// onto every Worker's project (applyReq.OrganizationID, the
-// HELIX_ORG_URL project secret) and, critically, onto the helix-org
-// MCP entry it re-attaches to the Worker's agent app on every
-// activation. A cached spawner freezes the *first* activating org's
-// identity and replays it for every other org, so org B's owner ends
-// up with an MCP pointing at org A's gateway — and create_role /
-// hire_worker land in org A. (Root cause of the cross-tenant leak; see
-// design/2026-06-09-org-multitenancy-spawner-leak.md.)
+// carries tenant-specific identity in OrgID. A cached spawner freezes the
+// first activating org's identity and replays it for every other org.
 //
 // Building per activation is cheap (a handful of config-registry
 // reads) and ensures newly provisioned apps use current org defaults.
@@ -1534,11 +1469,8 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 // preserved by minting one shared semaphore here and injecting it into
 // each per-activation config via SpawnerConfig.Sem.
 //
-// The dynamic applier still runs first: it provisions (or fast-paths)
-// the per-Worker project and attaches the MCP for owner-chat's benefit.
-// The inner spawner re-attaches the MCP after its own ensureProject
-// (ApplyProject wipes Config.Helix), so both must use the correct
-// per-org URL — which they now do.
+// The dynamic applier still runs first to provision or fast-path the
+// per-Worker project.
 func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 	// One inflight cap shared across every per-org spawner config.
 	sem := make(chan struct{}, runtimehelix.DefaultMaxInflight)
@@ -1563,7 +1495,6 @@ func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 		log.Trace().
 			Str("org_id", orgID).
 			Str("worker_id", string(workerID)).
-			Str("helix_org_url", cfgVal.HelixOrgURL).
 			Str("runtime", cfgVal.Runtime).
 			Str("credentials", cfgVal.Credentials).
 			Msg("helix-org spawner: per-org activation")

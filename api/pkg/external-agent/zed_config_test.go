@@ -20,6 +20,8 @@ func TestGenerateZedMCPConfigAllowsUnsandboxedCommands(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		"",
+		"",
 	)
 	assert.NoError(t, err)
 	if assert.NotNil(t, config.Agent) {
@@ -220,6 +222,8 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				nil,
 				nil,
 				tc.snapshot,
+				"",
+				"",
 			)
 			assert.NoError(t, err)
 			if !assert.NotNil(t, cfg) || !assert.NotNil(t, cfg.Agent) {
@@ -244,6 +248,33 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGenerateZedMCPConfigAddsDirectHelixOrgMCP(t *testing.T) {
+	config, err := GenerateZedMCPConfig(
+		context.Background(),
+		&types.App{ID: "test-app", Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal,
+			MCPs:      []types.AssistantMCP{{Name: "helix", URL: "http://old.example/mcp"}},
+		}}}}},
+		"user-1",
+		"session-1",
+		"http://sandbox-api:8080/",
+		"session-token",
+		false,
+		nil,
+		nil,
+		nil,
+		"org_test",
+		"b-worker",
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, ContextServerConfig{
+		URL: "http://sandbox-api:8080/api/v1/mcp/helix-org/org_test/workers/b-worker/mcp",
+		Headers: map[string]string{
+			"Authorization": "Bearer session-token",
+		},
+	}, config.ContextServers["helix"])
 }
 
 // TestMapHelixToZedProvider guards the model id Helix writes into
@@ -415,7 +446,9 @@ func TestMergeContextServers(t *testing.T) {
 
 	t.Run("no user overrides preserves helix servers", func(t *testing.T) {
 		got := MergeContextServers(helix, map[string]interface{}{})
-		assert.Contains(t, got, "helix-desktop")
+		assert.Equal(t, "http://api:8080/api/v1/mcp/desktop", got["helix-desktop"].(map[string]interface{})["url"])
+		assert.Equal(t, map[string]string{"Authorization": "Bearer x"}, got["helix-desktop"].(map[string]interface{})["headers"])
+		assert.NotContains(t, got["helix-desktop"].(map[string]interface{}), "command")
 		assert.Contains(t, got, "chrome")
 	})
 

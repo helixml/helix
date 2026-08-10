@@ -41,12 +41,13 @@ var ErrReportingLinesUnavailable = errors.New("reporting lines not wired")
 
 // Nodes owns the node-mutation use cases.
 type Nodes struct {
-	nodes      store.Nodes
-	lines      store.ReportingLines
-	reconciler *reconcile.Reconciler
-	now        func() time.Time
-	newID      func() string
-	baseTools  []tool.Name
+	nodes          store.Nodes
+	lines          store.ReportingLines
+	reconciler     *reconcile.Reconciler
+	now            func() time.Time
+	newID          func() string
+	baseTools      []tool.Name
+	onToolsChanged func(context.Context, string)
 }
 
 // Deps are the constructor-injected collaborators for New.
@@ -64,7 +65,8 @@ type Deps struct {
 	// created Node so no Node can miss the read primitives every Node
 	// needs. Injected by the wiring (tools.BaseReadTools) to avoid an
 	// import cycle.
-	BaseTools []tool.Name
+	BaseTools      []tool.Name
+	OnToolsChanged func(context.Context, string)
 }
 
 // New constructs the Nodes service.
@@ -74,12 +76,13 @@ func New(deps Deps) *Nodes {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Nodes{
-		nodes:      deps.Nodes,
-		lines:      deps.Lines,
-		reconciler: deps.Reconciler,
-		now:        now,
-		newID:      deps.NewID,
-		baseTools:  deps.BaseTools,
+		nodes:          deps.Nodes,
+		lines:          deps.Lines,
+		reconciler:     deps.Reconciler,
+		now:            now,
+		newID:          deps.NewID,
+		baseTools:      deps.BaseTools,
+		onToolsChanged: deps.OnToolsChanged,
 	}
 }
 
@@ -202,6 +205,9 @@ func (s *Nodes) Update(ctx context.Context, orgID string, id orgchart.NodeID, p 
 	if err := s.nodes.Update(ctx, updated); err != nil {
 		return orgchart.Node{}, err
 	}
+	if p.Tools != nil {
+		s.notifyToolsChanged(ctx, updated.AgentID)
+	}
 	return updated, nil
 }
 
@@ -240,6 +246,7 @@ func (s *Nodes) AttachTools(ctx context.Context, orgID string, id orgchart.NodeI
 	if err := s.nodes.Update(ctx, updated); err != nil {
 		return orgchart.Node{}, err
 	}
+	s.notifyToolsChanged(ctx, updated.AgentID)
 	return updated, nil
 }
 
@@ -278,7 +285,14 @@ func (s *Nodes) DetachTools(ctx context.Context, orgID string, id orgchart.NodeI
 	if err := s.nodes.Update(ctx, updated); err != nil {
 		return orgchart.Node{}, err
 	}
+	s.notifyToolsChanged(ctx, updated.AgentID)
 	return updated, nil
+}
+
+func (s *Nodes) notifyToolsChanged(ctx context.Context, appID string) {
+	if s.onToolsChanged != nil && appID != "" {
+		s.onToolsChanged(ctx, appID)
+	}
 }
 
 // AddParent wires a reporting line (reportID reports to managerID),
@@ -383,6 +397,7 @@ func (s *Nodes) Reconcile(ctx context.Context, orgID string) error {
 		if err := s.nodes.Update(ctx, updated); err != nil {
 			return fmt.Errorf("update node %q: %w", node.ID, err)
 		}
+		s.notifyToolsChanged(ctx, updated.AgentID)
 	}
 	return nil
 }

@@ -42,8 +42,7 @@ type SpawnerConfig struct {
 	Snapshotter SessionPreamble
 	// Mirror is the transcript writer; the spawner Ensure()s it per
 	// activation. nil disables mirroring (tests / app-only wirings).
-	Mirror      *Mirror
-	HelixOrgURL string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
+	Mirror *Mirror
 	// Runtime overrides the default `zed_agent` runtime. Empty falls
 	// back to helix.Runtime. See WorkerProject.Runtime for the
 	// embedded SaaS use case (`claude_code` + subscription credentials).
@@ -56,13 +55,6 @@ type SpawnerConfig struct {
 	Model    string
 	// Credentials forwards to WorkerProject.Credentials. See there.
 	Credentials string
-	// MCPAuthBearer is the fallback bearer the spawner passes to
-	// AttachHelixOrgMCP when no per-activation user bearer is on ctx.
-	// It ends up as the `Authorization: Bearer <value>` header on the
-	// helix-org MCP entry attached to each Worker's agent app. Used
-	// when HelixOrgURL routes through an auth-gated proxy (embedded
-	// SaaS alpha). Empty in standalone mode.
-	MCPAuthBearer string
 	// SpecsMandate is an optional full activation mandate override.
 	// Empty uses the Bot's current Content.
 	SpecsMandate string
@@ -110,7 +102,7 @@ type SpawnerConfig struct {
 	// Sem, when non-nil, is the inflight semaphore the Spawner acquires
 	// a slot from instead of minting its own from MaxInflight. The host
 	// builds one fresh SpawnerConfig per activation (so OrgID /
-	// HelixOrgURL stay scoped to the activating org — never frozen to
+	// OrgID stays scoped to the activating org — never frozen to
 	// whichever org activated first), and shares a single Sem across all
 	// of them to keep one process-wide inflight cap. Nil falls back to a
 	// per-config semaphore of size MaxInflight.
@@ -270,13 +262,6 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			return err
 		}
 
-		// Re-attach the helix-org MCP entry. ensureProject (and the
-		// dynamic applier that may have run before us) calls helix
-		// project-apply, which wholesale-replaces Config.Helix on
-		// update and wipes the MCP list. This is the last write to the
-		// agent app's MCPs before the desktop boots its Zed runtime.
-		cfg.ensureHelixOrgMCP(startupCtx, orgID, workerID)
-
 		// Register the worker with the transcript mirror (idempotent;
 		// the tracker persists across activations and follows the
 		// session as it churns). The spawner no longer owns a bridge.
@@ -390,7 +375,6 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID
 	a := &WorkerProject{
 		Service:        c.ProjectService,
 		Store:          c.Store,
-		HelixOrgURL:    c.HelixOrgURL,
 		OrgID:          c.OrgID,
 		OrgDisplayName: c.OrgDisplayName,
 		Runtime:        c.Runtime,
@@ -401,37 +385,6 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID
 	}
 	_, _, _, err := a.Ensure(ctx, orgID, workerID)
 	return err
-}
-
-// ensureHelixOrgMCP re-attaches the helix-org MCP entry to the
-// Worker's agent app on every activation. Best-effort: a failure here
-// surfaces in the desktop as "no helix-org tools", which is a
-// degraded but bootable state — failing the activation would be
-// worse. The attach is idempotent (upsert by name), so re-running on
-// every activation is safe.
-//
-// Why it runs here and not inside WorkerProject.Ensure: the project-
-// apply path on the helix side wholesale-replaces Config.Helix when
-// the agent app already exists, blowing away whatever MCPs were
-// attached on the previous activation. Re-attaching after Ensure
-// returns keeps the MCP present.
-func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, workerID orgchart.NodeID) {
-	if c.ProjectService == nil || c.HelixOrgURL == "" {
-		return
-	}
-	state, err := LoadState(ctx, c.Store, orgID, workerID)
-	if err != nil {
-		if c.Logger != nil {
-			c.Logger.Warn("helix spawner: load state for MCP attach", "worker", workerID, "err", err)
-		}
-		return
-	}
-	if state.AgentID == "" {
-		return
-	}
-	if err := AttachHelixOrgMCP(ctx, c.ProjectService, state.AgentID, c.HelixOrgURL, workerID, c.MCPAuthBearer); err != nil && c.Logger != nil {
-		c.Logger.Warn("helix spawner: attach helix-org MCP", "worker", workerID, "agent", state.AgentID, "err", sanitizeLogValue(err.Error()))
-	}
 }
 
 func sanitizeLogValue(value string) string {

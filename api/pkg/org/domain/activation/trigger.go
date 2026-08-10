@@ -35,7 +35,7 @@ const (
 	// TriggerManual fires when an operator manually wakes a Worker
 	// from the UI (the worker page's "Start Desktop" button).
 	// Functionally identical to TriggerHire in terms of the activation
-	// pipeline — ensureProject + AttachHelixOrgMCP + ensureSession —
+	// pipeline - ensureProject + ensureSession -
 	// just with a different label so the audit row + activation marker
 	// distinguish "operator clicked the button" from "Worker was just
 	// hired" or "Topic event arrived".

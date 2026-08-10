@@ -42,12 +42,6 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 		Description: "Optional full activation mandate override. When empty, every activation embeds the Worker's current role content.",
 	})
 	r.Register(configregistry.Spec{
-		Key:         "helix.url",
-		Type:        configregistry.TypeString,
-		Default:     `"http://localhost:8080"`,
-		Description: "Base URL of the Helix server this org talks to. Defaults to localhost because we're embedded in the api container.",
-	})
-	r.Register(configregistry.Spec{
 		Key:         "helix.api_key",
 		Type:        configregistry.TypeString,
 		Description: "Fallback bearer token for the embedded helix-org client when no logged-in user is on the request. Auto-provisioned for the organization owner.",

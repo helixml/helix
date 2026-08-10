@@ -9,6 +9,14 @@ import (
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
+func TestRegisterConfigSpecsDoesNotExposeHelixURL(t *testing.T) {
+	reg := helixorgconfig.New(orggorm.GetOrgTestDB(t).Configs)
+	RegisterConfigSpecs(reg)
+	if _, ok := reg.Spec("helix.url"); ok {
+		t.Fatal("helix.url must not be registered")
+	}
+}
+
 // TestRegisterHelixOrgConfigSpecs_RedactsTransportGitHubSecrets pins
 // down the spec registration for `transport.github`: both `token` and
 // `webhook_secret` MUST be redacted on `config get`. Without this, a

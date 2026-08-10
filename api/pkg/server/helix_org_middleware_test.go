@@ -54,6 +54,14 @@ type helixOrgRouteTestStore struct {
 	helixstore.Store
 	role          types.OrganizationRole
 	membershipErr error
+	session       *types.Session
+}
+
+func (s *helixOrgRouteTestStore) GetSession(_ context.Context, id string) (*types.Session, error) {
+	if s.session == nil || s.session.ID != id {
+		return nil, helixstore.ErrNotFound
+	}
+	return s.session, nil
 }
 
 type bootstrapActivationDispatcher struct {
@@ -202,18 +210,59 @@ func TestHelixOrgMCPBackendDoesNotRequireFeature(t *testing.T) {
 		if orgID := helixorgserver.OrgIDFromContext(r.Context()); orgID != "org_acme" {
 			t.Errorf("org ID context = %q, want org_acme", orgID)
 		}
+		if r.URL.Path != "/orgs/org_acme/workers/b-worker/mcp" {
+			t.Errorf("path = %q, want worker-bound MCP path", r.URL.Path)
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{}}
+	server := &HelixAPIServer{Store: &helixOrgRouteTestStore{session: &types.Session{
+		ID: "ses-worker", Owner: "user-1", OrganizationID: "org_acme",
+		Metadata: types.SessionMetadata{OrgWorkerID: "b-worker"},
+	}}}
 	backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{api: downstream, scope: scope})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/helix-org/acme", nil)
-	req = mux.SetURLVars(req, map[string]string{"path": "acme"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/helix-org/acme/workers/b-worker/mcp", nil)
+	req = mux.SetURLVars(req, map[string]string{"path": "acme/workers/b-worker/mcp"})
 	rec := httptest.NewRecorder()
 
-	backend.ServeHTTP(rec, req, &types.User{ID: "user-1"})
+	backend.ServeHTTP(rec, req, &types.User{ID: "user-1", TokenType: types.TokenTypeAPIKey, SessionID: "ses-worker", OrganizationID: "org_acme"})
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+}
+
+func TestHelixOrgMCPBackendRejectsSessionRouteMismatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		user    *types.User
+		session *types.Session
+	}{
+		{name: "requires session key", path: "acme/workers/b-worker/mcp", user: &types.User{ID: "user-1"}},
+		{name: "key org mismatch", path: "acme/workers/b-worker/mcp", user: &types.User{ID: "user-1", TokenType: types.TokenTypeAPIKey, SessionID: "ses-worker", OrganizationID: "org_other"}, session: &types.Session{ID: "ses-worker", Owner: "user-1", OrganizationID: "org_acme", Metadata: types.SessionMetadata{OrgWorkerID: "b-worker"}}},
+		{name: "session owner mismatch", path: "acme/workers/b-worker/mcp", user: &types.User{ID: "user-1", TokenType: types.TokenTypeAPIKey, SessionID: "ses-worker", OrganizationID: "org_acme"}, session: &types.Session{ID: "ses-worker", Owner: "user-other", OrganizationID: "org_acme", Metadata: types.SessionMetadata{OrgWorkerID: "b-worker"}}},
+		{name: "session org mismatch", path: "acme/workers/b-worker/mcp", user: &types.User{ID: "user-1", TokenType: types.TokenTypeAPIKey, SessionID: "ses-worker", OrganizationID: "org_acme"}, session: &types.Session{ID: "ses-worker", Owner: "user-1", OrganizationID: "org_other", Metadata: types.SessionMetadata{OrgWorkerID: "b-worker"}}},
+		{name: "session worker mismatch", path: "acme/workers/b-other/mcp", user: &types.User{ID: "user-1", TokenType: types.TokenTypeAPIKey, SessionID: "ses-worker", OrganizationID: "org_acme"}, session: &types.Session{ID: "ses-worker", Owner: "user-1", OrganizationID: "org_acme", Metadata: types.SessionMetadata{OrgWorkerID: "b-worker"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			scope := &helixOrgScope{bootstrapped: map[string]bool{"org_acme": true}}
+			server := &HelixAPIServer{Store: &helixOrgRouteTestStore{session: tt.session}}
+			backend := NewHelixOrgMCPBackend(server, &helixOrgHandlers{api: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }), scope: scope})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/helix-org/"+tt.path, nil)
+			req = mux.SetURLVars(req, map[string]string{"path": tt.path})
+			rec := httptest.NewRecorder()
+
+			backend.ServeHTTP(rec, req, tt.user)
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+			}
+			if called {
+				t.Fatal("mismatched session reached helix-org handler")
+			}
+		})
 	}
 }
 

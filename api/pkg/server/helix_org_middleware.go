@@ -54,6 +54,7 @@ type helixOrgScope struct {
 	// wired.
 	humanReconcile func(ctx context.Context, orgID string) error
 	botRepair      func(ctx context.Context, orgID, serviceKey string) error
+	botTools       *nodes.Nodes
 
 	mu           sync.Mutex
 	bootstrapped map[string]bool
@@ -161,7 +162,10 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// `reports` (issue #2546). Best-effort like the topology
 		// reconcile above: a failure logs and continues so a transient
 		// DB error doesn't lock users out of the org.
-		botsSvc := nodes.New(nodes.Deps{Nodes: s.orgStore.Nodes, BaseTools: mcptools.BaseReadTools})
+		botsSvc := s.botTools
+		if botsSvc == nil {
+			botsSvc = nodes.New(nodes.Deps{Nodes: s.orgStore.Nodes, BaseTools: mcptools.BaseReadTools})
+		}
 		if err := botsSvc.Reconcile(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}

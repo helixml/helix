@@ -107,6 +107,8 @@ func GenerateZedMCPConfig(
 	projectSkills *types.AssistantSkills,
 	oauthTokenGetter OAuthTokenGetter,
 	providerSnapshot []ProviderRef,
+	organizationID string,
+	orgWorkerID string,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -350,6 +352,15 @@ func GenerateZedMCPConfig(
 		for _, mcp := range projectSkills.MCPs {
 			serverName := sanitizeName(mcp.Name)
 			config.ContextServers[serverName] = mcpToContextServerWithProxy(ctx, mcp, userID, helixAPIURL, helixToken, oauthTokenGetter)
+		}
+	}
+
+	if organizationID != "" && orgWorkerID != "" {
+		config.ContextServers["helix"] = ContextServerConfig{
+			URL: fmt.Sprintf("%s/api/v1/mcp/helix-org/%s/workers/%s/mcp", strings.TrimRight(helixAPIURL, "/"), organizationID, orgWorkerID),
+			Headers: map[string]string{
+				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+			},
 		}
 	}
 
@@ -865,7 +876,7 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	// Runner-side path has no provider-manager handle, so we skip provider
 	// validation here. The handler-side callers (getZedConfig,
 	// getMergedZedSettings) do pass the live provider list.
-	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil)
+	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil, session.OrganizationID, session.Metadata.OrgWorkerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}
@@ -885,12 +896,18 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 func MergeContextServers(helixServers map[string]ContextServerConfig, userOverrides map[string]interface{}) map[string]interface{} {
 	merged := make(map[string]interface{}, len(helixServers))
 	for name, server := range helixServers {
-		entry := map[string]interface{}{
-			"command": server.Command,
-			"args":    server.Args,
-		}
-		if len(server.Env) > 0 {
-			entry["env"] = server.Env
+		entry := make(map[string]interface{})
+		if server.URL != "" {
+			entry["url"] = server.URL
+			if len(server.Headers) > 0 {
+				entry["headers"] = server.Headers
+			}
+		} else {
+			entry["command"] = server.Command
+			entry["args"] = server.Args
+			if len(server.Env) > 0 {
+				entry["env"] = server.Env
+			}
 		}
 		merged[name] = entry
 	}
