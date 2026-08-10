@@ -32,8 +32,9 @@ FROM api-base AS api-dev-env
 # - Air provides hot reload for Go
 RUN go install github.com/air-verse/air@v1.52.3
 # - Install curl for Wolf API debugging, bash for git operations, and git-daemon for git-http-backend
+# - tini is PID 1 so orphaned subprocesses get reaped (see production stage comment)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl bash git-daemon-sysvinit \
+    curl bash git-daemon-sysvinit tini \
     && rm -rf /var/lib/apt/lists/*
 # - Copy tokenizers library for CGo
 COPY --from=tokenizers-lib /app/lib/libtokenizers.a /usr/lib/
@@ -51,8 +52,8 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go build -tags ORT -ldflags "-s -w" -o /helix
-# - Entrypoint is the air command
-ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=1 go build -tags ORT -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
+# - Entrypoint is the air command, under tini so orphans are reaped
+ENTRYPOINT ["/usr/bin/tini", "--", "air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=1 go build -tags ORT -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
 CMD ["serve"]
 
 
@@ -110,7 +111,7 @@ RUN yarn build
 # Update digest when intentionally upgrading Debian version.
 FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git git-daemon-sysvinit \
+    ca-certificates git git-daemon-sysvinit tini \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=api-build-env /helix /helix
@@ -128,4 +129,9 @@ ENV FRONTEND_URL=/www
 
 EXPOSE 80
 
-ENTRYPOINT ["/helix", "serve"]
+# tini runs as PID 1 and reaps orphaned processes. Helix shells out to git, and
+# git subcommands (pack-objects, index-pack, gc --auto) outlive their parent when
+# a clone/fetch is cancelled or when git detaches maintenance on purpose. Those
+# orphans reparent to PID 1; a Go binary (or air, in the dev image) never calls
+# wait() on them, so they pile up as zombies until the PID ceiling is hit.
+ENTRYPOINT ["/usr/bin/tini", "--", "/helix", "serve"]
