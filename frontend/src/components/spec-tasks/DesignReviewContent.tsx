@@ -63,6 +63,7 @@ import useAccount from "../../hooks/useAccount";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
+import { copyTextToClipboard } from "../../utils/clipboard";
 import InlineCommentBubble from "./InlineCommentBubble";
 import InlineCommentForm from "./InlineCommentForm";
 import CommentLogSidebar from "./CommentLogSidebar";
@@ -469,14 +470,18 @@ export default function DesignReviewContent({
   };
 
   // Handle share link
-  const handleShareLink = () => {
+  const handleShareLink = async () => {
     // Unauthenticated public viewer — the /api/v1 prefix is required, otherwise
     // the link hits the SPA and forces an OIDC login.
     const shareUrl = `${window.location.origin}/api/v1/spec-tasks/${specTaskId}/view`;
-    navigator.clipboard.writeText(shareUrl);
-    setShareLinkCopied(true);
-    setTimeout(() => setShareLinkCopied(false), 2000);
-    snackbar.success("Share link copied to clipboard");
+    try {
+      await copyTextToClipboard(shareUrl);
+      setShareLinkCopied(true);
+      setTimeout(() => setShareLinkCopied(false), 2000);
+      snackbar.success("Share link copied to clipboard");
+    } catch (error) {
+      snackbar.error(error instanceof Error ? error.message : "Failed to copy share link");
+    }
   };
 
   // Separate comments with quoted_text (inline) vs without (general)

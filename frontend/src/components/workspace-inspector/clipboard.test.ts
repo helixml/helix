@@ -44,4 +44,21 @@ describe("copyTextToClipboard", () => {
     expect(execCommand).toHaveBeenCalledWith("copy");
     expect(document.querySelector("textarea")).toBeNull();
   });
+
+  it("falls back when the clipboard API is unavailable on an HTTP origin", async () => {
+    const execCommand = vi.fn().mockReturnValue(true);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+
+    await copyTextToClipboard("https://share.example.test");
+
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(document.querySelector("textarea")).toBeNull();
+  });
 });
