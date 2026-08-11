@@ -1660,7 +1660,35 @@ steps:
     depends_on:
       - zed-e2e-image
 
-  # Step 3d: Full multi-phase E2E suite (17 phases per agent).
+  # Step 3d: Plan lifecycle integration — deterministic, credential-free,
+  # and headless. Turn one publishes a plan; turn two publishes no plan and
+  # must emit/persist an empty snapshot instead of retaining stale steps.
+  - name: zed-e2e-headless-plan
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - |
+        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
+
+        echo "Running headless Zed plan lifecycle test..."
+        docker run --rm \
+          -e E2E_AGENTS="plan-test-agent" \
+          -e E2E_HEADLESS=1 \
+          -e E2E_PLAN=1 \
+          -e TEST_TIMEOUT=180 \
+          zed-ws-e2e:$${ZED_COMMIT}
+
+        echo "Headless Zed plan lifecycle test passed"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+    depends_on:
+      - zed-e2e-image
+
+  # Step 3e: Full multi-phase E2E suite (17 phases per agent).
   # Both zed-agent and claude rounds must pass to gate the build.
   # The cancel drop fix in acp_thread.rs ensures Phase 8 (mid-stream
   # interrupt) works with Claude Code despite agent-side cancel bugs.

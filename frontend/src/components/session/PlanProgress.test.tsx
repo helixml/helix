@@ -3,7 +3,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ResponseEntry } from "./InteractionInference";
-import { PlanProgress, planStepsFromChecklist, planStepsFromResponseEntries } from "./PlanProgress";
+import {
+  hasPlanSource,
+  PlanProgress,
+  planStepsFromChecklist,
+  planStepsForResponse,
+  planStepsFromResponseEntries,
+} from "./PlanProgress";
 
 const entry = (overrides: Partial<ResponseEntry>): ResponseEntry => ({
   type: "tool_call",
@@ -44,6 +50,20 @@ describe("plan progress normalization", () => {
       entry({ tool_name: "TodoWrite", content: '{"todos":[{"content":"Old","status":"pending"}]}' }),
       entry({ type: "plan", message_id: "plan", content: '{"steps":[{"step":"Current","status":"completed"}]}' }),
     ])).toEqual([{ step: "Current", status: "completed" }]);
+  });
+
+  it("treats an empty native snapshot as an explicit plan reset", () => {
+    const entries = [entry({
+      type: "plan",
+      message_id: "plan",
+      content: '{"steps":[]}',
+    })];
+
+    expect(hasPlanSource(entries)).toBe(true);
+    expect(planStepsFromResponseEntries(entries)).toEqual([]);
+    expect(planStepsForResponse(entries, {
+      tasks: [{ description: "Stale tasks.md item", status: "in_progress" }],
+    })).toEqual([]);
   });
 
   it("normalizes tasks.md checklist progress", () => {
