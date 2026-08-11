@@ -117,7 +117,7 @@ export const PlanProgress: FC<{ steps: PlanStep[] }> = ({ steps }) => {
   if (steps.length === 0) return null;
 
   return (
-    <Box sx={{ minWidth: 0, px: 0.5, py: 0.25 }}>
+    <Box sx={{ minWidth: 0, mt: 0.5, mb: 1, px: 0.5, py: 0.25 }}>
       <Box
         component="button"
         type="button"
