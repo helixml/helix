@@ -116,6 +116,12 @@
 - E2E phase 17: **not written, not run**.
 - Live inner-Helix verification (the whole Definition of Done): **not done**.
 
+**Merge state:** both branches merged with `origin/main` and pushed.
+`origin/main` is an ancestor of both HEADs. Merge conflicts resolved keeping both sides:
+main added a `plan` response-entry type while this branch added `elicitation`, so the type
+unions list both and the render keeps both `{questions}` and `{planProgress}`.
+`ZED_COMMIT` pins the merged zed SHA `341d099da7`.
+
 **Environment blocker:** this machine ran at load average 95-500 throughout. A Go build
 that should take ~2 min took ~25 min; `yarn install` never finished. The remaining work is
 not conceptually blocked — it is blocked on machine capacity.
