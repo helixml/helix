@@ -135,7 +135,7 @@ const aggregateMetrics = (metrics: TypesAggregatedUsageMetric[] = []) => {
 }
 
 const OverviewStat: FC<{ label: string; value: string; detail: string; icon: React.ReactNode; flat?: boolean }> = ({ label, value, detail, icon, flat = false }) => (
-  <Box sx={{ bgcolor: flat ? 'background.paper' : 'background.default', px: 2, py: 1.75, minWidth: 0 }}>
+  <Box sx={{ bgcolor: flat ? 'transparent' : 'background.default', px: 2, py: 1.75, minWidth: 0 }}>
     <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'text.secondary', mb: 0.5 }}>
       {icon}
       <Typography variant="caption">{label}</Typography>
@@ -375,8 +375,24 @@ export default function ProviderDetail({
         </Stack>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
           {embedded && account.admin && provider.id && provider.id !== '-' && (
-            <Button variant="outlined" startIcon={<Pencil size={17} />} onClick={() => setEditOpen(true)}>
-              Edit provider
+            <Button
+              aria-label="Edit provider"
+              variant="outlined"
+              startIcon={<Pencil size={16} />}
+              onClick={() => setEditOpen(true)}
+              sx={{
+                height: 40,
+                minWidth: 84,
+                flexShrink: 0,
+                whiteSpace: 'nowrap',
+                textTransform: 'none',
+                fontWeight: 600,
+                color: 'text.primary',
+                borderColor: 'divider',
+                '&:hover': { borderColor: 'text.secondary', bgcolor: 'action.hover' },
+              }}
+            >
+              Edit
             </Button>
           )}
           <ToggleButtonGroup value={range} exclusive size="small" onChange={handleRangeChange}>
@@ -392,7 +408,7 @@ export default function ProviderDetail({
       {hasError && provider.error && <Alert severity="error">{provider.error}</Alert>}
       {usage.error && <Alert severity="error">Failed to load provider telemetry: {(usage.error as Error).message}</Alert>}
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }, gap: '1px', bgcolor: 'divider', borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }, gap: '1px', bgcolor: embedded ? 'transparent' : 'divider', borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider' }}>
         <OverviewStat flat={embedded} label="Processed tokens" value={formatCompact(totals.tokens)} detail={`${formatCompact(activeDays ? totals.tokens / activeDays : 0)} per active day`} icon={<Database size={14} />} />
         <OverviewStat flat={embedded} label="LLM calls" value={totals.requests.toLocaleString()} detail={`${activeDays || 0} active day${activeDays === 1 ? '' : 's'}`} icon={<Activity size={14} />} />
         <OverviewStat flat={embedded} label="Amount charged" value={provider.billing_enabled ? formatCost(totals.cost) : '$0.00'} detail={provider.billing_enabled ? 'Billing enabled' : `${formatCost(totals.cost)} API-rate equivalent`} icon={<Database size={14} />} />
@@ -416,7 +432,7 @@ export default function ProviderDetail({
         </>
       )}
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(5, minmax(0, 1fr))' }, gap: '1px', bgcolor: 'divider', borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(5, minmax(0, 1fr))' }, gap: '1px', bgcolor: embedded ? 'transparent' : 'divider', borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider' }}>
         <OverviewStat flat={embedded} label="Uncached input" value={formatCompact(Math.max(totals.input - totals.cacheRead - totals.cacheWrite, 0))} detail={`${formatCompact(totals.input)} total input`} icon={<Database size={14} />} />
         <OverviewStat flat={embedded} label="Output tokens" value={formatCompact(totals.output)} detail={`${formatPercent(totals.tokens > 0 ? totals.output / totals.tokens : null)} of processed tokens`} icon={<Activity size={14} />} />
         <OverviewStat flat={embedded} label="Cache writes" value={formatCompact(totals.cacheWrite)} detail="Input added to provider cache" icon={<Database size={14} />} />
@@ -436,12 +452,12 @@ export default function ProviderDetail({
 
       <Box>
         <Typography variant="h6" sx={{ fontSize: '1rem', mb: 1.25 }}>Endpoint details</Typography>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(5, minmax(0, 1fr))' }, gap: '1px', bgcolor: 'divider', borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider' }}>
-          <OverviewStat label="Endpoint type" value={provider.endpoint_type || '—'} detail="Visibility scope" icon={<Server size={14} />} />
-          <OverviewStat label="Owner" value={provider.owner === 'system' ? 'System' : provider.owner || '—'} detail={provider.owner_type || 'Unknown owner type'} icon={<Server size={14} />} />
-          <OverviewStat label="Models discovered" value={modelCount.toLocaleString()} detail={modelCount ? 'Available from this endpoint' : 'No model list reported'} icon={<Database size={14} />} />
-          <OverviewStat label="Billing" value={provider.billing_enabled ? 'Enabled' : 'Disabled'} detail={provider.billing_enabled ? 'Usage is chargeable' : 'No Helix charge'} icon={<Activity size={14} />} />
-          <OverviewStat label="Status" value={hasError ? 'Error' : 'Connected'} detail={provider.status || 'Provider is configured'} icon={hasError ? <CircleAlert size={14} /> : <CheckCircle2 size={14} />} />
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(5, minmax(0, 1fr))' }, gap: '1px', bgcolor: embedded ? 'transparent' : 'divider', borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider' }}>
+          <OverviewStat flat={embedded} label="Endpoint type" value={provider.endpoint_type || '—'} detail="Visibility scope" icon={<Server size={14} />} />
+          <OverviewStat flat={embedded} label="Owner" value={provider.owner === 'system' ? 'System' : provider.owner || '—'} detail={provider.owner_type || 'Unknown owner type'} icon={<Server size={14} />} />
+          <OverviewStat flat={embedded} label="Models discovered" value={modelCount.toLocaleString()} detail={modelCount ? 'Available from this endpoint' : 'No model list reported'} icon={<Database size={14} />} />
+          <OverviewStat flat={embedded} label="Billing" value={provider.billing_enabled ? 'Enabled' : 'Disabled'} detail={provider.billing_enabled ? 'Usage is chargeable' : 'No Helix charge'} icon={<Activity size={14} />} />
+          <OverviewStat flat={embedded} label="Status" value={hasError ? 'Error' : 'Connected'} detail={provider.status || 'Provider is configured'} icon={hasError ? <CircleAlert size={14} /> : <CheckCircle2 size={14} />} />
         </Box>
       </Box>
 
