@@ -55,7 +55,11 @@ const OwnerInfo: FC<{ ownerId: string; ownerType?: string }> = ({ ownerId, owner
   );
 };
 
-const ProviderEndpointsTable: FC = () => {
+interface ProviderEndpointsTableProps {
+  onOpenProvider?: (providerId: string) => void
+}
+
+const ProviderEndpointsTable: FC<ProviderEndpointsTableProps> = ({ onOpenProvider }) => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -139,6 +143,10 @@ const ProviderEndpointsTable: FC = () => {
 
   const openProvider = (endpoint: IProviderEndpoint) => {
     const providerId = endpoint.id && endpoint.id !== '-' ? endpoint.id : endpoint.name
+    if (onOpenProvider) {
+      onOpenProvider(providerId)
+      return
+    }
     router.navigate('org_provider_detail', {
       org_id: router.params.org_id,
       provider_id: providerId,

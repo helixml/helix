@@ -166,16 +166,32 @@ const userFields: ITableField[] = [
   { name: 'cost', title: 'API-rate cost', numeric: true },
 ]
 
-export default function ProviderDetail() {
+interface ProviderDetailProps {
+  providerId?: string
+  orgId?: string
+  embedded?: boolean
+  dateParamPrefix?: string
+  onBack?: () => void
+}
+
+export default function ProviderDetail({
+  providerId: providerIdProp,
+  orgId: orgIdProp,
+  embedded = false,
+  dateParamPrefix = '',
+  onBack,
+}: ProviderDetailProps = {}) {
   const router = useRouter()
   const account = useAccount()
-  const orgId = router.params.org_id
-  const providerId = router.params.provider_id
+  const orgId = orgIdProp || router.params.org_id
+  const providerId = providerIdProp || router.params.provider_id
   const today = toDateInput(new Date())
-  const initialParams = useMemo(() => new URLSearchParams(window.location.search), [])
-  const [range, setRange] = useState<RangeKey | null>(() => (initialParams.has('from') || initialParams.has('to') ? null : '7d'))
-  const [from, setFrom] = useState(() => fromURLDate(initialParams.get('from'), rangeFrom(7)))
-  const [to, setTo] = useState(() => fromURLDate(initialParams.get('to'), today))
+  const fromParam = `${dateParamPrefix}from`
+  const toParam = `${dateParamPrefix}to`
+  const initialParams = useMemo(() => new URLSearchParams(window.location.search), [dateParamPrefix])
+  const [range, setRange] = useState<RangeKey | null>(() => (initialParams.has(fromParam) || initialParams.has(toParam) ? null : '7d'))
+  const [from, setFrom] = useState(() => fromURLDate(initialParams.get(fromParam), rangeFrom(7)))
+  const [to, setTo] = useState(() => fromURLDate(initialParams.get(toParam), today))
 
   const providers = useListProviders({
     loadModels: true,
@@ -194,10 +210,10 @@ export default function ProviderDetail() {
 
   useEffect(() => {
     const url = new URL(window.location.href)
-    url.searchParams.set('from', from)
-    url.searchParams.set('to', to)
+    url.searchParams.set(fromParam, from)
+    url.searchParams.set(toParam, to)
     window.history.replaceState({}, '', url.toString())
-  }, [from, to])
+  }, [from, fromParam, to, toParam])
 
   const metrics = usage.data || []
   const totals = useMemo(() => aggregateMetrics(metrics), [metrics])
@@ -294,6 +310,10 @@ export default function ProviderDetail() {
   }, [usersUsage.data, totals])
 
   const handleBack = () => {
+    if (onBack) {
+      onBack()
+      return
+    }
     if (window.history.length > 1) {
       window.history.back()
       return
@@ -310,9 +330,13 @@ export default function ProviderDetail() {
   }
 
   const page = (children: React.ReactNode, title = 'Provider') => (
-    <Page breadcrumbTitle={title} breadcrumbShowHome orgBreadcrumbs>
-      <Container maxWidth="xl"><Box sx={{ mt: 3, pb: 4 }}>{children}</Box></Container>
-    </Page>
+    embedded ? (
+      <Box sx={{ pb: 4 }}>{children}</Box>
+    ) : (
+      <Page breadcrumbTitle={title} breadcrumbShowHome orgBreadcrumbs>
+        <Container maxWidth="xl"><Box sx={{ mt: 3, pb: 4 }}>{children}</Box></Container>
+      </Page>
+    )
   )
 
   if (providers.isLoading) {
