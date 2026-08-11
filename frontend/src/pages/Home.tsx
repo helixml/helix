@@ -10,7 +10,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { ChevronDown, Folder, Hammer, ListTodo, MessageCircle } from 'lucide-react'
+import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo, MessageCircle } from 'lucide-react'
 
 import {
   TypesCodeAgentOverrides,
@@ -19,6 +19,7 @@ import {
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import RobustPromptInput from '../components/common/RobustPromptInput'
 import SpecTaskExecutionControls from '../components/tasks/SpecTaskExecutionControls'
+import ManagedCreateProjectDialog from '../components/project/ManagedCreateProjectDialog'
 import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
 import { useStreaming } from '../contexts/streaming'
@@ -141,6 +142,7 @@ const Home: FC = () => {
   const [effortMenuAnchor, setEffortMenuAnchor] = useState<HTMLElement | null>(null)
   const [projectMenuAnchor, setProjectMenuAnchor] = useState<HTMLElement | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [createProjectOpen, setCreateProjectOpen] = useState(false)
 
   const createTask = useCreateSpecTaskFromPrompt()
   const uploadTaskAttachments = useUploadSpecTaskAttachments()
@@ -414,6 +416,88 @@ const Home: FC = () => {
       )}
     </Box>
   )
+
+  if (projectsLoading) {
+    return (
+      <Page
+        breadcrumbs={[{ title: 'None' }]}
+        breadcrumbTitle="New thread"
+        breadcrumbShowHome={false}
+        disableContentScroll
+        px={2}
+      >
+        <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <CircularProgress size={24} />
+        </Box>
+      </Page>
+    )
+  }
+
+  if (projects.length === 0) {
+    return (
+      <>
+        <Page
+          breadcrumbs={[{ title: 'Projects' }]}
+          breadcrumbTitle="Get started"
+          breadcrumbShowHome={false}
+          disableContentScroll
+          px={2}
+        >
+          <Box
+            sx={{
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: lightTheme.isLight ? '#f7f7f8' : '#080808',
+              px: 3,
+            }}
+          >
+            <Box sx={{ textAlign: 'center', maxWidth: 440 }}>
+              <Box
+                sx={{
+                  width: 56,
+                  height: 56,
+                  mx: 'auto',
+                  mb: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 2,
+                  bgcolor: 'action.selected',
+                  color: 'text.secondary',
+                }}
+              >
+                <FolderPlus size={28} />
+              </Box>
+              <Typography component="h1" variant="h5" sx={{ fontWeight: 600, mb: 1 }}>
+                Get started by creating a new project
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Create a new or connect an existing repository
+              </Typography>
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={<FolderPlus size={18} />}
+                onClick={() => setCreateProjectOpen(true)}
+              >
+                Create new project
+              </Button>
+            </Box>
+          </Box>
+        </Page>
+        <ManagedCreateProjectDialog
+          open={createProjectOpen}
+          onClose={() => setCreateProjectOpen(false)}
+          onSuccess={(projectId) => {
+            setCreateProjectOpen(false)
+            account.orgNavigate('chat', {}, { project_id: projectId })
+          }}
+        />
+      </>
+    )
+  }
 
   return (
     <Page

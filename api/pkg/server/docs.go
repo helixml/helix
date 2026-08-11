@@ -38143,6 +38143,15 @@ const docTemplate = `{
         "types.SystemSettingsRequest": {
             "type": "object",
             "properties": {
+                "default_new_project_agent_model": {
+                    "type": "string"
+                },
+                "default_new_project_agent_provider": {
+                    "type": "string"
+                },
+                "default_new_project_agent_reasoning_effort": {
+                    "type": "string"
+                },
                 "enforce_quotas": {
                     "type": "boolean"
                 },
@@ -38224,6 +38233,15 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created": {
+                    "type": "string"
+                },
+                "default_new_project_agent_model": {
+                    "type": "string"
+                },
+                "default_new_project_agent_provider": {
+                    "type": "string"
+                },
+                "default_new_project_agent_reasoning_effort": {
                     "type": "string"
                 },
                 "enforce_quotas": {

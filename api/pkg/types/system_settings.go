@@ -42,6 +42,12 @@ type SystemSettings struct {
 	MaxConcurrentHeadlessSandboxes       int     `json:"max_concurrent_headless_sandboxes,omitempty" gorm:"column:max_concurrent_headless_sandboxes"`
 	MaxConcurrentDesktopSandboxes        int     `json:"max_concurrent_desktop_sandboxes,omitempty" gorm:"column:max_concurrent_desktop_sandboxes"`
 
+	// Defaults applied to newly created project coding agents when the UI
+	// intentionally defers provider/model selection.
+	DefaultNewProjectAgentProvider        string `json:"default_new_project_agent_provider,omitempty" gorm:"column:default_new_project_agent_provider"`
+	DefaultNewProjectAgentModel           string `json:"default_new_project_agent_model,omitempty" gorm:"column:default_new_project_agent_model"`
+	DefaultNewProjectAgentReasoningEffort string `json:"default_new_project_agent_reasoning_effort,omitempty" gorm:"column:default_new_project_agent_reasoning_effort"`
+
 	// Optimus configuration
 	OptimusReasoningModelProvider string `json:"optimus_reasoning_model_provider" yaml:"optimus_reasoning_model_provider"`
 	OptimusReasoningModel         string `json:"optimus_reasoning_model" yaml:"optimus_reasoning_model"`
@@ -83,6 +89,10 @@ type SystemSettingsRequest struct {
 	SandboxDesktopPriceCreditsPerSecond  *float64 `json:"sandbox_desktop_price_credits_per_second"`
 	MaxConcurrentHeadlessSandboxes       *int     `json:"max_concurrent_headless_sandboxes"`
 	MaxConcurrentDesktopSandboxes        *int     `json:"max_concurrent_desktop_sandboxes"`
+
+	DefaultNewProjectAgentProvider        *string `json:"default_new_project_agent_provider"`
+	DefaultNewProjectAgentModel           *string `json:"default_new_project_agent_model"`
+	DefaultNewProjectAgentReasoningEffort *string `json:"default_new_project_agent_reasoning_effort"`
 
 	OptimusReasoningModelProvider *string `json:"optimus_reasoning_model_provider"`
 	OptimusReasoningModel         *string `json:"optimus_reasoning_model"`
@@ -134,6 +144,10 @@ type SystemSettingsResponse struct {
 	MaxConcurrentHeadlessSandboxes       int     `json:"max_concurrent_headless_sandboxes"`
 	MaxConcurrentDesktopSandboxes        int     `json:"max_concurrent_desktop_sandboxes"`
 
+	DefaultNewProjectAgentProvider        string `json:"default_new_project_agent_provider"`
+	DefaultNewProjectAgentModel           string `json:"default_new_project_agent_model"`
+	DefaultNewProjectAgentReasoningEffort string `json:"default_new_project_agent_reasoning_effort"`
+
 	// Optimus configuration
 	OptimusReasoningModelProvider string `json:"optimus_reasoning_model_provider"`
 	OptimusReasoningModel         string `json:"optimus_reasoning_model"`
@@ -167,37 +181,40 @@ func (s *SystemSettings) ToResponseWithSource(dbToken, envToken string) *SystemS
 	}
 
 	return &SystemSettingsResponse{
-		ID:                                   s.ID,
-		Created:                              s.Created,
-		Updated:                              s.Updated,
-		HuggingFaceTokenSet:                  hasToken,
-		HuggingFaceTokenSource:               source,
-		KoditEnrichmentProvider:              s.KoditEnrichmentProvider,
-		KoditEnrichmentModel:                 s.KoditEnrichmentModel,
-		KoditEnrichmentModelSet:              s.KoditEnrichmentProvider != "" && s.KoditEnrichmentModel != "",
-		KoditTextEmbeddingProvider:           s.KoditTextEmbeddingProvider,
-		KoditTextEmbeddingModel:              s.KoditTextEmbeddingModel,
-		KoditTextEmbeddingModelSet:           s.KoditTextEmbeddingProvider != "" && s.KoditTextEmbeddingModel != "",
-		KoditVisionEmbeddingProvider:         s.KoditVisionEmbeddingProvider,
-		KoditVisionEmbeddingModel:            s.KoditVisionEmbeddingModel,
-		KoditVisionEmbeddingModelSet:         s.KoditVisionEmbeddingProvider != "" && s.KoditVisionEmbeddingModel != "",
-		ProvidersManagementEnabled:           s.ProvidersManagementEnabled,
-		EnforceQuotas:                        s.EnforceQuotas,
-		SandboxBillingEnabled:                s.SandboxBillingEnabled,
-		SandboxHeadlessPriceCreditsPerSecond: s.SandboxHeadlessPriceCreditsPerSecond,
-		SandboxDesktopPriceCreditsPerSecond:  s.SandboxDesktopPriceCreditsPerSecond,
-		MaxConcurrentHeadlessSandboxes:       s.EffectiveMaxConcurrentHeadlessSandboxes(),
-		MaxConcurrentDesktopSandboxes:        s.EffectiveMaxConcurrentDesktopSandboxes(),
-		OptimusReasoningModelProvider:        s.OptimusReasoningModelProvider,
-		OptimusReasoningModel:                s.OptimusReasoningModel,
-		OptimusReasoningModelEffort:          s.OptimusReasoningModelEffort,
-		OptimusGenerationModelProvider:       s.OptimusGenerationModelProvider,
-		OptimusGenerationModel:               s.OptimusGenerationModel,
-		OptimusSmallReasoningModelProvider:   s.OptimusSmallReasoningModelProvider,
-		OptimusSmallReasoningModel:           s.OptimusSmallReasoningModel,
-		OptimusSmallReasoningModelEffort:     s.OptimusSmallReasoningModelEffort,
-		OptimusSmallGenerationModelProvider:  s.OptimusSmallGenerationModelProvider,
-		OptimusSmallGenerationModel:          s.OptimusSmallGenerationModel,
+		ID:                                    s.ID,
+		Created:                               s.Created,
+		Updated:                               s.Updated,
+		HuggingFaceTokenSet:                   hasToken,
+		HuggingFaceTokenSource:                source,
+		KoditEnrichmentProvider:               s.KoditEnrichmentProvider,
+		KoditEnrichmentModel:                  s.KoditEnrichmentModel,
+		KoditEnrichmentModelSet:               s.KoditEnrichmentProvider != "" && s.KoditEnrichmentModel != "",
+		KoditTextEmbeddingProvider:            s.KoditTextEmbeddingProvider,
+		KoditTextEmbeddingModel:               s.KoditTextEmbeddingModel,
+		KoditTextEmbeddingModelSet:            s.KoditTextEmbeddingProvider != "" && s.KoditTextEmbeddingModel != "",
+		KoditVisionEmbeddingProvider:          s.KoditVisionEmbeddingProvider,
+		KoditVisionEmbeddingModel:             s.KoditVisionEmbeddingModel,
+		KoditVisionEmbeddingModelSet:          s.KoditVisionEmbeddingProvider != "" && s.KoditVisionEmbeddingModel != "",
+		ProvidersManagementEnabled:            s.ProvidersManagementEnabled,
+		EnforceQuotas:                         s.EnforceQuotas,
+		SandboxBillingEnabled:                 s.SandboxBillingEnabled,
+		SandboxHeadlessPriceCreditsPerSecond:  s.SandboxHeadlessPriceCreditsPerSecond,
+		SandboxDesktopPriceCreditsPerSecond:   s.SandboxDesktopPriceCreditsPerSecond,
+		MaxConcurrentHeadlessSandboxes:        s.EffectiveMaxConcurrentHeadlessSandboxes(),
+		MaxConcurrentDesktopSandboxes:         s.EffectiveMaxConcurrentDesktopSandboxes(),
+		DefaultNewProjectAgentProvider:        s.DefaultNewProjectAgentProvider,
+		DefaultNewProjectAgentModel:           s.DefaultNewProjectAgentModel,
+		DefaultNewProjectAgentReasoningEffort: s.DefaultNewProjectAgentReasoningEffort,
+		OptimusReasoningModelProvider:         s.OptimusReasoningModelProvider,
+		OptimusReasoningModel:                 s.OptimusReasoningModel,
+		OptimusReasoningModelEffort:           s.OptimusReasoningModelEffort,
+		OptimusGenerationModelProvider:        s.OptimusGenerationModelProvider,
+		OptimusGenerationModel:                s.OptimusGenerationModel,
+		OptimusSmallReasoningModelProvider:    s.OptimusSmallReasoningModelProvider,
+		OptimusSmallReasoningModel:            s.OptimusSmallReasoningModel,
+		OptimusSmallReasoningModelEffort:      s.OptimusSmallReasoningModelEffort,
+		OptimusSmallGenerationModelProvider:   s.OptimusSmallGenerationModelProvider,
+		OptimusSmallGenerationModel:           s.OptimusSmallGenerationModel,
 	}
 }
 

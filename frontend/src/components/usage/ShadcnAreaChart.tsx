@@ -44,6 +44,8 @@ export interface ShadcnAreaChartProps {
   variant?: 'area' | 'line';
   /** Fixed Y-axis bounds for values with a known range. */
   yDomain?: [number, number];
+  /** Width reserved for Y-axis tick labels. Default 72. */
+  yAxisWidth?: number;
   /**
    * Bridge gaps in a line series instead of breaking it. Use when a missing
    * point means "no sample that day" rather than "measured zero" — bridging
@@ -127,6 +129,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   zeroIsData = false,
   variant = 'area',
   yDomain,
+  yAxisWidth = 72,
   connectNulls = false,
 }) => {
   const lightTheme = useLightTheme();
@@ -215,7 +218,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 tickLine={false}
                 axisLine={false}
                 tickMargin={10}
-                width={72}
+                width={yAxisWidth}
                 tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={valueFormatter}
                 domain={yDomain}

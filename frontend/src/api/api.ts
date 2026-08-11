@@ -7176,6 +7176,9 @@ export interface TypesSyncAllResponse {
 }
 
 export interface TypesSystemSettingsRequest {
+  default_new_project_agent_model?: string;
+  default_new_project_agent_provider?: string;
+  default_new_project_agent_reasoning_effort?: string;
   enforce_quotas?: boolean;
   huggingface_token?: string;
   kodit_enrichment_model?: string;
@@ -7207,6 +7210,9 @@ export interface TypesSystemSettingsRequest {
 
 export interface TypesSystemSettingsResponse {
   created?: string;
+  default_new_project_agent_model?: string;
+  default_new_project_agent_provider?: string;
+  default_new_project_agent_reasoning_effort?: string;
   enforce_quotas?: boolean;
   /** Sensitive fields are masked */
   huggingface_token_set?: boolean;

@@ -250,6 +250,7 @@ const Projects: FC = () => {
     password?: string,
     azureDevOps?: TypesAzureDevOps,
     oauthConnectionId?: string,
+    gitProviderConnectionId?: string,
   ): Promise<TypesGitRepository | null> => {
     if (!url.trim() || !account.user?.id) return null;
 
@@ -268,6 +269,7 @@ const Projects: FC = () => {
         password,
         azure_devops: azureDevOps,
         oauth_connection_id: oauthConnectionId, // OAuth connection for push access
+        git_provider_connection_id: gitProviderConnectionId,
       });
 
       // Invalidate repo queries (use base key to match all variants)

@@ -38,7 +38,6 @@ import AddIcon from "@mui/icons-material/Add";
 import WarningIcon from "@mui/icons-material/Warning";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import DeleteIcon from "@mui/icons-material/Delete";
-import LinkIcon from "@mui/icons-material/Link";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import HistoryIcon from "@mui/icons-material/History";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -66,6 +65,7 @@ import { selectCodingAgents } from "../utils/apps";
 import { RECOMMENDED_CODING_MODELS } from "../constants/models";
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
+import AttachProjectRepositoryDialog from "../components/project/AttachProjectRepositoryDialog";
 import AgentDropdown from "../components/agent/AgentDropdown";
 import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
 import { SparkLineChart } from "@mui/x-charts";
@@ -82,7 +82,6 @@ import {
   useUpdateProject,
   useGetProjectRepositories,
   useSetProjectPrimaryRepository,
-  useAttachRepositoryToProject,
   useDetachRepositoryFromProject,
   useDeleteProject,
   useGetProjectExploratorySession,
@@ -91,7 +90,6 @@ import {
   projectExploratorySessionQueryKey,
   useGetProjectGuidelinesHistory,
 } from "../services";
-import { useGitRepositories } from "../services/gitRepositoryService";
 import { isProjectAccessDeniedError } from "../services/projectService";
 
 interface ProjectSettingsProps {
@@ -132,17 +130,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const updateProjectMutation = useUpdateProject(projectId);
   const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId);
-  const attachRepoMutation = useAttachRepositoryToProject(projectId);
   const detachRepoMutation = useDetachRepositoryFromProject(projectId);
   const deleteProjectMutation = useDeleteProject();
-
-  // Get current org context for fetching repositories
-  const currentOrg = account.organizationTools.organization;
-  const { data: allUserRepositories = [] } = useGitRepositories(
-    currentOrg?.id
-      ? { organizationId: currentOrg.id }
-      : { ownerId: account.user?.id },
-  );
 
   // Exploratory session
   const { data: exploratorySessionData } =
@@ -199,7 +188,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [attachRepoDialogOpen, setAttachRepoDialogOpen] = useState(false);
-  const [selectedRepoToAttach, setSelectedRepoToAttach] = useState("");
   const [savingProject, setSavingProject] = useState(false);
   const [testingStartupScript, setTestingStartupScript] = useState(false);
   const [isSessionRestart, setIsSessionRestart] = useState(false);
@@ -692,21 +680,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       snackbar.success("Primary repository updated");
     } catch (err) {
       snackbar.error("Failed to update primary repository");
-    }
-  };
-
-  const handleAttachRepository = async () => {
-    if (!selectedRepoToAttach) {
-      snackbar.error("Please select a repository");
-      return;
-    }
-    try {
-      await attachRepoMutation.mutateAsync(selectedRepoToAttach);
-      snackbar.success("Repository attached successfully");
-      setAttachRepoDialogOpen(false);
-      setSelectedRepoToAttach("");
-    } catch (err) {
-      snackbar.error("Failed to attach repository");
     }
   };
 
@@ -2011,83 +1984,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
       {/* ─── Dialogs ──────────────────────────────────────────────────── */}
 
-      {/* Attach Repository Dialog */}
-      <Dialog
+      <AttachProjectRepositoryDialog
         open={attachRepoDialogOpen}
-        onClose={() => {
-          setAttachRepoDialogOpen(false);
-          setSelectedRepoToAttach("");
-        }}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <LinkIcon />
-            Attach Repository to Project
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Select a repository from your account to attach to this project.
-            Attached repositories will be cloned into the agent workspace when
-            working on this project.
-          </Typography>
-          <FormControl fullWidth>
-            <InputLabel>Select Repository</InputLabel>
-            <Select
-              value={selectedRepoToAttach}
-              onChange={(e) => setSelectedRepoToAttach(e.target.value)}
-              label="Select Repository"
-            >
-              {allUserRepositories
-                .filter((repo) => !repositories.some((pr) => pr.id === repo.id))
-                .map((repo) => (
-                  <MenuItem key={repo.id} value={repo.id}>
-                    {repo.name}
-                  </MenuItem>
-                ))}
-            </Select>
-            {allUserRepositories.filter(
-              (repo) => !repositories.some((pr) => pr.id === repo.id),
-            ).length === 0 && (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ mt: 1 }}
-              >
-                All your repositories are already attached to this project.
-              </Typography>
-            )}
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => {
-              setAttachRepoDialogOpen(false);
-              setSelectedRepoToAttach("");
-            }}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleAttachRepository}
-            variant="contained"
-            disabled={!selectedRepoToAttach || attachRepoMutation.isPending}
-            startIcon={
-              attachRepoMutation.isPending ? (
-                <CircularProgress size={16} />
-              ) : (
-                <LinkIcon />
-              )
-            }
-          >
-            {attachRepoMutation.isPending
-              ? "Attaching..."
-              : "Attach Repository"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onClose={() => setAttachRepoDialogOpen(false)}
+        projectId={projectId}
+        attachedRepositories={repositories}
+      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog

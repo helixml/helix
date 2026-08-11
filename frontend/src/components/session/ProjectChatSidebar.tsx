@@ -325,6 +325,7 @@ const ProjectChatSidebar: FC<{
     password?: string,
     azureDevOps?: TypesAzureDevOps,
     oauthConnectionId?: string,
+    gitProviderConnectionId?: string,
   ): Promise<TypesGitRepository | null> => {
     if (!account.user?.id || !orgId) return null
 
@@ -343,6 +344,7 @@ const ProjectChatSidebar: FC<{
         password,
         azure_devops: azureDevOps,
         oauth_connection_id: oauthConnectionId,
+        git_provider_connection_id: gitProviderConnectionId,
       })
       return repository || null
     } catch (error: any) {
