@@ -32,9 +32,9 @@
 
 ## End-to-end verification in the inner Helix
 
-- [~] Register `test@helix.ml` / `helixtest` at `http://localhost:8080` and complete onboarding
-- [ ] Create a spec task and open its detail page with the desktop stream running
-- [ ] Copy text inside the streamed desktop (Cmd+C/Ctrl+C), paste into the chat input, confirm the text lands and no attachment appears
+- [x] Register `test@helix.ml` / `helixtest` at `http://localhost:8080` and complete onboarding
+- [x] Create a spec task and open its detail page with the desktop stream running
+- [~] Copy text inside the streamed desktop (Cmd+C/Ctrl+C), paste into the chat input, confirm the text lands and no attachment appears
 - [ ] Copy an image inside the streamed desktop, paste into the chat input, confirm it still attaches as an image
 - [ ] Verify the copy-side re-write against the live `DesktopStreamViewer` (clipboard holds text only after a text copy)
 - [ ] If any step above is genuinely impossible in the sandbox, synthesise the paste event with a real 70-byte sentinel `File` + `text/plain` at the live chat input, and record explicitly which method was used
