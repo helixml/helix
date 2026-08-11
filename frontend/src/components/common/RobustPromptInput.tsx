@@ -1106,6 +1106,14 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Clipboard files include screenshots as well as files copied from Finder /
   // Explorer. Read the DataTransfer file list first so PDFs and other binary
   // assets follow the same upload path as images.
+  //
+  // Rule: a real file on the clipboard always wins over text. filesFromClipboard
+  // strips the desktop-stream sentinel PNG (clipboardPlaceholder.ts), so a text
+  // copy from the streamed desktop returns no files and falls through to the
+  // text branch below. We deliberately do NOT prefer text over a *real* image
+  // when both are present: Finder/Explorer file copies carry the filename in
+  // text/plain and Chrome's "Copy image" carries text/html, so a blanket
+  // text-wins rule would turn legitimate file pastes into filename strings.
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (!attachmentsEnabled) return
 

@@ -41,6 +41,7 @@ import {
   getWebCodecsSupportedVideoFormats,
   getStandardVideoFormats,
 } from "../../lib/helix-stream/stream/video";
+import { PLACEHOLDER_PNG_BASE64 } from "../common/clipboardPlaceholder";
 import useApi from "../../hooks/useApi";
 import useLightTheme from "../../hooks/useLightTheme";
 import { useAccount } from "../../contexts/account";
@@ -251,18 +252,6 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   }
   return bytes;
 }
-
-// Minimal valid 1x1 transparent PNG. The gesture-anchored ClipboardItem in
-// the copy handler must declare both text/plain and image/png up front (we
-// don't know which the remote produced until the async fetch resolves). Chrome
-// runs every image written to the clipboard through a decode/sanitize step and
-// REJECTS the entire navigator.clipboard.write() if any image/png
-// representation fails to decode — so the "no image this time" fallback must be
-// a fully decodable PNG, not a zero-byte Blob (which silently broke all text
-// copy on Chrome). Generated with Pillow (RGBA 1x1, alpha 0) and verified:
-// 70 bytes, valid signature, IHDR/IDAT/IEND with correct CRC-32s.
-const PLACEHOLDER_PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYGBgAAAABQABeqhXUAAAAABJRU5ErkJggg==";
 
 function hashClipboardData(d: TypesClipboardData | null | undefined): string {
   if (!d || !d.type || !d.data) return "";
@@ -4324,8 +4313,23 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           navigator.clipboard
             .write([clipboardItem])
             .then(() =>
-              fetchPromise.then((d) => {
+              fetchPromise.then(async (d) => {
                 const kind = d?.type === "image" ? "image" : "text";
+                // The write above had to declare image/png up front, so a text
+                // copy leaves the sentinel placeholder on the clipboard. Now
+                // that we know it was text, re-write text-only so no other app
+                // ever sees the transparent pixel. Strictly best-effort and
+                // chained AFTER write() resolves (running it in parallel would
+                // let the slower gesture-anchored write land last and restore
+                // the sentinel). Chrome's ~5s transient activation outlasts the
+                // 500ms poll deadline so this usually succeeds; Safari will
+                // reject it, which is fine — paste destinations strip the
+                // sentinel anyway (see clipboardPlaceholder.ts).
+                if (kind === "text" && d?.data && navigator.clipboard?.writeText) {
+                  await navigator.clipboard.writeText(d.data).catch((err) => {
+                    console.warn("[Clipboard] text-only re-write skipped:", err);
+                  });
+                }
                 showClipboardToast(`Copied ${kind}`, "success");
               }),
             )

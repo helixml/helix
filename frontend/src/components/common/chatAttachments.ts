@@ -1,4 +1,5 @@
 import { createRandomId } from '../../utils/randomId'
+import { isPlaceholderPng } from './clipboardPlaceholder'
 
 export const CHAT_ATTACHMENT_MAX_COUNT = 10
 export const CHAT_ATTACHMENT_MAX_BYTES = 500 * 1024 * 1024
@@ -81,16 +82,23 @@ export function validateChatAttachmentFiles(
   return { accepted, rejected }
 }
 
+// Every copy from the streamed desktop leaves a sentinel 1x1 transparent PNG on
+// the clipboard alongside the text (see clipboardPlaceholder.ts for why it has
+// to be there). Strip it here so it can never reach an attachment tray — doing
+// it in this helper rather than at each call site means every consumer of the
+// clipboard is protected by construction.
 export function filesFromClipboard(data: DataTransfer): File[] {
   const directFiles = Array.from(data.files)
-  if (directFiles.length > 0) return directFiles
+  const files = directFiles.length > 0
+    ? directFiles
+    : Array.from(data.items)
+        .filter((item) => item.kind === 'file')
+        .flatMap((item) => {
+          const file = item.getAsFile()
+          return file ? [file] : []
+        })
 
-  return Array.from(data.items)
-    .filter((item) => item.kind === 'file')
-    .flatMap((item) => {
-      const file = item.getAsFile()
-      return file ? [file] : []
-    })
+  return files.filter((file) => !isPlaceholderPng(file))
 }
 
 export function buildMessageWithAttachments(

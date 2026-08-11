@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, fireEvent, waitFor, screen } from '@testing-library/react'
+import { render, fireEvent, createEvent, waitFor, screen } from '@testing-library/react'
 import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
+import { PLACEHOLDER_PNG_BASE64 } from './clipboardPlaceholder'
 
 const updateInterrupt = vi.fn()
 const saveToHistory = vi.fn()
@@ -258,6 +259,95 @@ describe('RobustPromptInput rich attachments', () => {
       ].join('\n'),
       false,
     )
+  })
+
+  // Copying text inside the streamed desktop leaves the real text on the
+  // clipboard alongside a 70-byte 1x1 transparent PNG (the gesture-anchored
+  // ClipboardItem has to declare image/png up front — see
+  // clipboardPlaceholder.ts). The paste handler must ignore that sentinel and
+  // let the text through instead of attaching a transparent pixel.
+  const placeholderPngFile = (): File => {
+    const binary = atob(PLACEHOLDER_PNG_BASE64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return new File([bytes], 'image.png', { type: 'image/png' })
+  }
+
+  const pasteInto = (target: Element, clipboardData: Record<string, unknown>) => {
+    const event = createEvent.paste(target, { clipboardData })
+    fireEvent(target, event)
+    return event
+  }
+
+  it('inserts text and attaches nothing when a desktop text copy carries the placeholder PNG', async () => {
+    const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        onFileUpload={onFileUpload}
+      />,
+    )
+
+    const textarea = screen.getByPlaceholderText('Send message to agent...')
+    const event = pasteInto(textarea, {
+      files: [placeholderPngFile()],
+      items: [],
+      getData: () => 'const answer = 42',
+    })
+
+    // Not prevented => the browser performs its native text insertion.
+    expect(event.defaultPrevented).toBe(false)
+    expect(onFileUpload).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument())
+    expect(screen.queryByText('image.png')).not.toBeInTheDocument()
+  })
+
+  it('still converts a large text paste to a .txt attachment when the placeholder PNG rides along', async () => {
+    const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        onFileUpload={onFileUpload}
+      />,
+    )
+
+    const textarea = screen.getByPlaceholderText('Send message to agent...')
+    const event = pasteInto(textarea, {
+      files: [placeholderPngFile()],
+      items: [],
+      getData: () => 'x'.repeat(10 * 1024 + 1),
+    })
+
+    expect(event.defaultPrevented).toBe(true)
+    await waitFor(() => expect(onFileUpload).toHaveBeenCalledTimes(1))
+    expect(onFileUpload.mock.calls[0][0].name).toMatch(/^pasted-text-.*\.txt$/)
+    expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+  })
+
+  it('still attaches a real pasted image when the placeholder PNG rides along', async () => {
+    const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
+    const realImage = new File([new Uint8Array(2048)], 'screenshot.png', { type: 'image/png' })
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        onFileUpload={onFileUpload}
+      />,
+    )
+
+    const textarea = screen.getByPlaceholderText('Send message to agent...')
+    const event = pasteInto(textarea, {
+      files: [placeholderPngFile(), realImage],
+      items: [],
+      getData: () => '',
+    })
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(await screen.findByRole('button', { name: 'Preview screenshot.png' })).toBeInTheDocument()
+    await waitFor(() => expect(onFileUpload).toHaveBeenCalledTimes(1))
+    expect(onFileUpload.mock.calls[0][0].name).toBe('screenshot.png')
   })
 
   it('delivers inline images directly without uploading them to an agent workspace', async () => {

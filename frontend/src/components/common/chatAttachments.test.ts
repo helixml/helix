@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest'
 import {
   buildMessageWithAttachments,
   createPendingChatAttachment,
+  filesFromClipboard,
   parseMessageWithAttachments,
   PendingChatAttachment,
   validateChatAttachmentFiles,
   workspaceAttachmentURL,
 } from './chatAttachments'
+import { PLACEHOLDER_PNG_BASE64 } from './clipboardPlaceholder'
 
 const uploaded = (overrides: Partial<PendingChatAttachment>): PendingChatAttachment => ({
   id: 'attachment-1',
@@ -98,5 +100,39 @@ describe('chat attachments', () => {
     expect(workspaceAttachmentURL('ses_1', '/home/retro/work/incoming/my image.png')).toBe(
       '/api/v1/external-agents/ses_1/file?name=my+image.png',
     )
+  })
+})
+
+const clipboard = (files: File[], items: File[] = []): DataTransfer => ({
+  files,
+  items: items.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+} as unknown as DataTransfer)
+
+const placeholderFile = (name = 'image.png'): File => {
+  const binary = atob(PLACEHOLDER_PNG_BASE64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new File([bytes], name, { type: 'image/png' })
+}
+
+describe('filesFromClipboard', () => {
+  const realImage = new File([new Uint8Array(2048)], 'screenshot.png', { type: 'image/png' })
+  const pdf = new File(['pdf'], 'spec.pdf', { type: 'application/pdf' })
+
+  it('drops the desktop-stream sentinel PNG from the file list', () => {
+    expect(filesFromClipboard(clipboard([placeholderFile()]))).toEqual([])
+  })
+
+  it('drops the sentinel when it arrives via clipboard items', () => {
+    expect(filesFromClipboard(clipboard([], [placeholderFile()]))).toEqual([])
+  })
+
+  it('keeps real images and non-image files', () => {
+    expect(filesFromClipboard(clipboard([realImage, pdf]))).toEqual([realImage, pdf])
+    expect(filesFromClipboard(clipboard([], [realImage]))).toEqual([realImage])
+  })
+
+  it('keeps a real image pasted alongside the sentinel', () => {
+    expect(filesFromClipboard(clipboard([placeholderFile(), realImage]))).toEqual([realImage])
   })
 })

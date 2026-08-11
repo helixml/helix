@@ -7,6 +7,7 @@ import React, { FC, ReactNode, useEffect, useRef, useState } from 'react'
 import useEnterPress from '../../hooks/useEnterPress'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
+import { filesFromClipboard } from '../common/chatAttachments'
 import ContextMenuModal from '../widgets/ContextMenuModal'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import { useTheme } from '@mui/material/styles'
@@ -143,19 +144,13 @@ const InferenceTextField: FC<{
     // copies on macOS, "Copy image" from another browser tab) and attach them
     // the same way the file picker does. We only swallow the paste when the
     // clipboard actually contains an image — text pastes still fall through.
+    // filesFromClipboard strips the desktop-stream sentinel PNG, so a text copy
+    // from the streamed desktop is not mistaken for an image paste.
     const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      if (!onAttachedImagesChange) return
-      const items = event.clipboardData?.items
-      if (!items || items.length === 0) return
+      if (!onAttachedImagesChange || !event.clipboardData) return
 
-      const imageFiles: File[] = []
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i]
-        if (item.kind !== 'file') continue
-        if (!item.type.startsWith('image/')) continue
-        const file = item.getAsFile()
-        if (file) imageFiles.push(file)
-      }
+      const imageFiles = filesFromClipboard(event.clipboardData)
+        .filter((file) => file.type.startsWith('image/'))
 
       if (imageFiles.length === 0) return
 
