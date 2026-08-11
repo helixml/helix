@@ -820,6 +820,10 @@ func appendProjectSecrets(env, secrets []string) []string {
 
 // StopDesktop stops a dev container using Hydra
 func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("session ID is required to stop desktop")
+	}
+
 	// Detach from the caller's context immediately. Stopping a container is a
 	// state-machine transition that must run to completion regardless of whether
 	// the triggering HTTP request is still alive (browser navigation, etc.).
@@ -957,6 +961,10 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 // revokeSessionAPIKeys revokes all ephemeral API keys associated with a session.
 // This is called when a desktop shuts down to clean up session-scoped keys.
 func (h *HydraExecutor) revokeSessionAPIKeys(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("session ID is required to revoke session keys")
+	}
+
 	// List all API keys and filter by session ID
 	// Note: This could be optimized with a store method that filters directly
 	keys, err := h.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{})

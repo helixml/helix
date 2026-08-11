@@ -1579,6 +1579,9 @@ func (o *SpecTaskOrchestrator) handleDone(ctx context.Context, task *types.SpecT
 			Msg("Task in done status but keep_alive is set - leaving desktop running")
 		return nil
 	}
+	if task.PlanningSessionID == "" {
+		return nil
+	}
 
 	err := o.containerExecutor.StopDesktop(ctx, task.PlanningSessionID)
 	if err != nil {
