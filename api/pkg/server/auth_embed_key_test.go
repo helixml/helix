@@ -151,3 +151,58 @@ func TestEmbedKeyRejectsPathTraversalShapes(t *testing.T) {
 		}
 	}
 }
+
+// Neutered endpoints must return EMPTY data, never real data. The point is to
+// keep the SPA rendering without showing a visitor the tenant's inventory.
+func TestNeuteredEndpointsReturnEmptyNotData(t *testing.T) {
+	cases := []struct{ path, want string }{
+		{"/api/v1/spec-tasks", "[]"},
+		{"/api/v1/spec-tasks?project_id=prj_x", "[]"},
+		{"/api/v1/organizations", "[]"},
+		{"/api/v1/agents?organization_id=", "[]"},
+		{"/api/v1/claude-subscriptions", "[]"},
+		{"/api/v1/oauth/providers", "[]"},
+		{"/api/v1/prompt-history?spec_task_id=spt_A", "[]"},
+		{"/api/v1/projects/prj_x", "{}"},
+		{"/api/v1/projects/prj_x/labels", "[]"},
+		{"/api/v1/users/user_other", "{}"},
+	}
+	for _, c := range cases {
+		body, ok := embedNeuteredResponse(req("GET", c.path))
+		if !ok {
+			t.Errorf("%s should be neutered so the embed page renders", c.path)
+			continue
+		}
+		if body != c.want {
+			t.Errorf("%s returned %q, want %q", c.path, body, c.want)
+		}
+	}
+}
+
+// Neutering must never widen the surface: a neutered path is still not "allowed",
+// so it can never fall through to a real handler.
+func TestNeuteringDoesNotAllowTheRealHandler(t *testing.T) {
+	u := embedUser()
+	for _, p := range []string{
+		"/api/v1/spec-tasks", "/api/v1/organizations", "/api/v1/agents",
+		"/api/v1/projects/prj_x", "/api/v1/users/user_other",
+	} {
+		if embedKeyAllows(u, req("GET", p)) {
+			t.Errorf("SECURITY: %s is allowed through to the real handler", p)
+		}
+	}
+}
+
+// The one task and session the key owns must NOT be neutered — that is the real
+// data the page exists to show.
+func TestOwnTaskAndSessionAreNotNeutered(t *testing.T) {
+	for _, p := range []string{
+		"/api/v1/spec-tasks/spt_A",
+		"/api/v1/sessions/ses_A",
+		"/api/v1/sessions/ses_A/interactions",
+	} {
+		if _, ok := embedNeuteredResponse(req("GET", p)); ok {
+			t.Errorf("%s must return real data, not an empty stub", p)
+		}
+	}
+}
