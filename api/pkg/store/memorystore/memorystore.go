@@ -33,6 +33,10 @@ type MemoryStore struct {
 	projects     map[string]*types.Project
 	specTasks    map[string]*types.SpecTask
 	prompts      map[string]*types.PromptHistoryEntry // prompt_history_entries by id
+	// agentElicitations holds questions the agent asked. The e2e drives
+	// processPromptQueue and the auto-wake gate, both of which query this, so a nil
+	// map here is a runtime panic through the embedded nil store.Store.
+	agentElicitations map[string]*types.AgentElicitation
 	// planningSessionClaims tracks the atomic claim set by
 	// SetPlanningSessionIDIfEmpty; keyed by taskID, value is the winning
 	// sessionID. Allocated lazily.
@@ -53,6 +57,8 @@ func New() *MemoryStore {
 		projects:     make(map[string]*types.Project),
 		specTasks:    make(map[string]*types.SpecTask),
 		prompts:      make(map[string]*types.PromptHistoryEntry),
+
+		agentElicitations: make(map[string]*types.AgentElicitation),
 	}
 }
 
@@ -760,4 +766,213 @@ func (m *MemoryStore) GetZedSettingsOverride(_ context.Context, _ string) (*type
 // connection mid-turn and turning any error-path test into a timeout.
 func (m *MemoryStore) FinishTriggerExecution(_ context.Context, _ string, _ types.TriggerExecutionStatus, _ string) (*types.TriggerExecution, error) {
 	return nil, store.ErrNotFound
+}
+
+// --- Agent elicitations (questions the agent asked the user) ---
+//
+// These mirror the Postgres semantics in store_agent_elicitations.go closely enough that
+// the conditional-transition behaviour is real, because that is what the races depend on.
+// Without them the embedded nil store.Store panics: processPromptQueue calls
+// HasLiveAgentElicitation on every queued prompt, and the e2e drives that path.
+
+// UpsertAgentElicitation records a question, or refreshes one already known.
+// Returns true only when this call created a NEW pending question — that is what gates
+// the user notification, so a heartbeat re-announcement cannot re-notify.
+func (m *MemoryStore) UpsertAgentElicitation(_ context.Context, elicitation *types.AgentElicitation) (bool, error) {
+	if elicitation.ID == "" {
+		return false, fmt.Errorf("elicitation ID is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	if elicitation.Status == "" {
+		elicitation.Status = types.ElicitationStatusPending
+	}
+
+	existing, ok := m.agentElicitations[elicitation.ID]
+	if !ok {
+		cp := *elicitation
+		if cp.Created.IsZero() {
+			cp.Created = now
+		}
+		cp.Updated = now
+		cp.LastSeenAt = now
+		m.agentElicitations[cp.ID] = &cp
+		return cp.Status == types.ElicitationStatusPending, nil
+	}
+
+	// Known question: refresh liveness only. Never move a resolved question back to
+	// pending — terminal is final.
+	existing.LastSeenAt = now
+	existing.Updated = now
+	if existing.InteractionID == "" && elicitation.InteractionID != "" {
+		existing.InteractionID = elicitation.InteractionID
+	}
+	return false, nil
+}
+
+// GetAgentElicitation loads one question by id.
+func (m *MemoryStore) GetAgentElicitation(_ context.Context, id string) (*types.AgentElicitation, error) {
+	if id == "" {
+		return nil, fmt.Errorf("elicitation ID is required")
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	elicitation, ok := m.agentElicitations[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *elicitation
+	return &cp, nil
+}
+
+// TransitionAgentElicitation moves a question to a new status only if it is currently in
+// one of fromStatuses, returning false when the transition did not apply.
+//
+// This conditional write is the whole concurrency story — two clients answering at once,
+// an answer racing a cancel, and duplicate resolved events all resolve here rather than by
+// whoever writes last. An unconditional assignment here would make those tests pass while
+// production still raced.
+func (m *MemoryStore) TransitionAgentElicitation(
+	_ context.Context,
+	id string,
+	fromStatuses []string,
+	toStatus string,
+	reason string,
+	content []byte,
+) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("elicitation ID is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	elicitation, ok := m.agentElicitations[id]
+	if !ok {
+		return false, nil
+	}
+	if len(fromStatuses) > 0 {
+		matched := false
+		for _, from := range fromStatuses {
+			if elicitation.Status == from {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false, nil
+		}
+	}
+
+	elicitation.Status = toStatus
+	elicitation.Updated = time.Now()
+	if reason != "" {
+		elicitation.ResolutionReason = reason
+	}
+	if content != nil {
+		elicitation.Content = datatypes.JSON(content)
+	}
+	return true, nil
+}
+
+// TouchAgentElicitations refreshes the liveness stamp for questions the agent still holds.
+func (m *MemoryStore) TouchAgentElicitations(_ context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	for _, id := range ids {
+		if elicitation, ok := m.agentElicitations[id]; ok {
+			elicitation.LastSeenAt = now
+		}
+	}
+	return nil
+}
+
+// ListLiveAgentElicitationsForSession returns still-answerable questions, oldest first.
+func (m *MemoryStore) ListLiveAgentElicitationsForSession(_ context.Context, sessionID string) ([]*types.AgentElicitation, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session ID is required")
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var live []*types.AgentElicitation
+	for _, elicitation := range m.agentElicitations {
+		if elicitation.SessionID == sessionID && elicitation.IsLive() {
+			cp := *elicitation
+			live = append(live, &cp)
+		}
+	}
+	sort.Slice(live, func(i, j int) bool { return live[i].Created.Before(live[j].Created) })
+	return live, nil
+}
+
+// ListLiveAgentElicitationsForSessions is the batch form, for deciding which tasks in a
+// list are blocked on a human.
+func (m *MemoryStore) ListLiveAgentElicitationsForSessions(_ context.Context, sessionIDs []string) ([]*types.AgentElicitation, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	wanted := make(map[string]struct{}, len(sessionIDs))
+	for _, id := range sessionIDs {
+		wanted[id] = struct{}{}
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var live []*types.AgentElicitation
+	for _, elicitation := range m.agentElicitations {
+		if _, ok := wanted[elicitation.SessionID]; ok && elicitation.IsLive() {
+			cp := *elicitation
+			live = append(live, &cp)
+		}
+	}
+	return live, nil
+}
+
+// HasLiveAgentElicitation reports whether an interaction is blocked on a human answer.
+func (m *MemoryStore) HasLiveAgentElicitation(_ context.Context, interactionID string) (bool, error) {
+	if interactionID == "" {
+		return false, nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, elicitation := range m.agentElicitations {
+		if elicitation.InteractionID == interactionID && elicitation.IsLive() {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ReapStaleAgentElicitations cancels questions no agent has re-affirmed for longer than
+// the grace window, returning the rows it cancelled.
+//
+// A stale LastSeenAt is the ONLY evidence Helix accepts that the agent holding a question
+// is gone. A WebSocket reconnect is explicitly not evidence — see the design doc.
+func (m *MemoryStore) ReapStaleAgentElicitations(_ context.Context, olderThan time.Time) ([]*types.AgentElicitation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	var reaped []*types.AgentElicitation
+	for _, elicitation := range m.agentElicitations {
+		if !elicitation.IsLive() || !elicitation.LastSeenAt.Before(olderThan) {
+			continue
+		}
+		elicitation.Status = types.ElicitationStatusCancelled
+		elicitation.ResolutionReason = types.ElicitationReasonAgentNoLongerHolds
+		elicitation.Updated = now
+		cp := *elicitation
+		reaped = append(reaped, &cp)
+	}
+	return reaped, nil
 }

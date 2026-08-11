@@ -63,6 +63,12 @@ func (s *WebSocketSyncSuite) SetupTest() {
 	s.store.EXPECT().FinishTriggerExecution(gomock.Any(), gomock.Any(), types.TriggerExecutionStatusError, gomock.Any()).
 		Return(nil, store.ErrNotFound).AnyTimes()
 
+	// processPromptQueue asks whether the newest interaction is blocked on an agent
+	// question before deciding the session is busy. These tests predate that gate and
+	// are about other behaviour, so the default is "not blocked" — the dispatch-instead-
+	// of-defer exception is covered in websocket_external_agent_elicitation_test.go.
+	s.store.EXPECT().HasLiveAgentElicitation(gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
+
 	s.server = &HelixAPIServer{
 		Cfg: &config.ServerConfig{
 			WebServer: config.WebServer{
