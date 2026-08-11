@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -14,6 +16,18 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
 )
+
+// isTimeoutErr reports whether an HTTP request failed because our own client
+// deadline expired, as opposed to never reaching the server. The two demand
+// opposite responses: a timeout means the request is in flight and must not be
+// re-sent, while an unreachable server can be retried safely.
+func isTimeoutErr(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
 
 // TestResult represents the outcome of a test
 type TestResult struct {
@@ -527,9 +541,22 @@ Examples:
 				req.Header.Set("Authorization", "Bearer "+token)
 				req.Header.Set("Content-Type", "application/json")
 
-				client := &http.Client{Timeout: 30 * time.Second}
+				// /sessions/chat is blocking for zed_external sessions: it holds
+				// the connection for the whole agent turn, which is routinely
+				// minutes. Give the request the rest of our budget rather than a
+				// fixed 30s, or the client gives up mid-turn.
+				client := &http.Client{Timeout: time.Until(deadline)}
 				resp, err := client.Do(req)
 				if err != nil {
+					// A timeout means the POST was already delivered and the agent
+					// is working on it — retrying would send the user's message a
+					// second time. Only a failure to reach the server at all is
+					// safe to retry.
+					if isTimeoutErr(err) {
+						return fmt.Errorf("timed out after %ds waiting for the agent's reply; "+
+							"the message was delivered and the turn is still running "+
+							"(raise --max-wait, or poll the session instead): %w", maxWait, err)
+					}
 					fmt.Fprintf(os.Stderr, "Waiting for session to be ready...\n")
 					time.Sleep(5 * time.Second)
 					continue
