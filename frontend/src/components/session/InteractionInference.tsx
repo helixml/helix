@@ -12,17 +12,21 @@ import WorkLog from "./WorkLog";
 import ActivitySummary from "./ActivitySummary";
 import { getInteractionDurationMs } from "./interactionDuration";
 import ImageLightbox, { LightboxImage } from "./ImageLightbox";
+import ElicitationCardContainer from "./ElicitationCardContainer";
+import type { ElicitationPayload } from "./ElicitationCard";
 
 /**
  * A structured response entry from the Go API.
  * Preserves the type and ordering of each entry as Zed originally had them.
  */
 export interface ResponseEntry {
-  type: "text" | "tool_call";
+  type: "text" | "tool_call" | "elicitation";
   content: string;
   message_id: string;
   tool_name?: string;
   tool_status?: string;
+  /** Present for type === "elicitation": a question the agent asked the user. */
+  elicitation?: ElicitationPayload;
 }
 
 interface TextActivitySegment {
@@ -44,7 +48,16 @@ interface ToolActivitySegment {
   }>;
 }
 
-type ActivitySegment = TextActivitySegment | ToolActivitySegment;
+interface ElicitationActivitySegment {
+  type: "elicitation";
+  entry: ResponseEntry;
+  index: number;
+}
+
+type ActivitySegment =
+  | TextActivitySegment
+  | ToolActivitySegment
+  | ElicitationActivitySegment;
 
 const hasThinking = (content: string) => /<(?:think|thinking)>/i.test(content);
 
@@ -90,6 +103,14 @@ export function buildActivityTimeline(
   let currentToolSegment: ToolActivitySegment | undefined;
 
   responseEntries.forEach((entry, index) => {
+    // A question the agent asked is never folded into a collapsed tool run — the
+    // whole point is that the user sees it and can answer it.
+    if (entry.type === "elicitation") {
+      currentToolSegment = undefined;
+      activitySegments.push({ type: "elicitation", entry, index });
+      return;
+    }
+
     if (entry.type === "tool_call") {
       const toolEntry = toolActivityEntry(
         entry,
@@ -227,10 +248,30 @@ export const MessageWithToolCalls: FC<{
       responseEntries,
       isStreaming,
     );
-    const hasActivity = activitySegments.length > 0;
-    const activity = activitySegments.map((segment, segmentIndex) => {
+    // Questions render outside the collapsible activity summary. Burying a blocked
+    // turn's question inside a collapsed "activity" section would defeat the feature.
+    const questionSegments = activitySegments.filter(
+      (segment): segment is ElicitationActivitySegment => segment.type === "elicitation",
+    );
+    const timelineSegments = activitySegments.filter(
+      (segment) => segment.type !== "elicitation",
+    );
+    const hasActivity = timelineSegments.length > 0;
+    const questions = questionSegments.map((segment) =>
+      segment.entry.elicitation ? (
+        <ElicitationCardContainer
+          key={`elicitation-${segment.entry.elicitation.id}`}
+          sessionId={session.id || ""}
+          elicitation={segment.entry.elicitation}
+        />
+      ) : null,
+    );
+    const activity = timelineSegments.map((segment, segmentIndex) => {
       if (segment.type === "tools") {
         return <WorkLog key={`tool-run-${segmentIndex}`} entries={segment.entries} />;
+      }
+      if (segment.type === "elicitation") {
+        return null;
       }
 
       return (
@@ -271,6 +312,7 @@ export const MessageWithToolCalls: FC<{
           isStreaming
           startedAt={activityStartedAt}
         />
+        {questions}
       </>
     ) : (
       <>
@@ -282,6 +324,7 @@ export const MessageWithToolCalls: FC<{
         >
           {activity}
         </ActivitySummary>
+        {questions}
         {finalContent}
       </>
     );

@@ -245,6 +245,28 @@ func (s *PostgresStore) DismissAttentionEventsForTask(ctx context.Context, specT
 	return result.RowsAffected, nil
 }
 
+// DismissAttentionEventByIdempotencyKey dismisses the single event with this key.
+//
+// Scoped to one event on purpose. DismissAttentionEventsForTask clears everything on the
+// task, which is right when a task finishes but wrong when one of several outstanding
+// items is dealt with — e.g. answering one agent question must not clear notifications
+// the user has not looked at yet.
+func (s *PostgresStore) DismissAttentionEventByIdempotencyKey(ctx context.Context, idempotencyKey string) error {
+	if idempotencyKey == "" {
+		return fmt.Errorf("idempotency key is required")
+	}
+
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.AttentionEvent{}).
+		Where("idempotency_key = ? AND dismissed_at IS NULL", idempotencyKey).
+		Update("dismissed_at", &now)
+	if result.Error != nil {
+		return fmt.Errorf("failed to dismiss attention event: %w", result.Error)
+	}
+	return nil
+}
+
 // CleanupExpiredAttentionEvents deletes dismissed events older than the given duration.
 func (s *PostgresStore) CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-olderThan)

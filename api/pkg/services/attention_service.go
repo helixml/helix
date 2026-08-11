@@ -294,6 +294,8 @@ func buildTitle(eventType types.AttentionEventType, task *types.SpecTask) string
 		return "CI passed"
 	case types.AttentionEventCIFailed:
 		return "CI failed"
+	case types.AttentionEventAgentQuestion:
+		return "Agent is waiting on your answer"
 	default:
 		return "Attention needed"
 	}
@@ -323,6 +325,9 @@ func buildDescription(eventType types.AttentionEventType, task *types.SpecTask) 
 		return fmt.Sprintf("CI passed for \"%s\"", name)
 	case types.AttentionEventCIFailed:
 		return fmt.Sprintf("CI failed for \"%s\" — needs investigation", name)
+	case types.AttentionEventAgentQuestion:
+		// The agent's turn is blocked until this is answered, so say so plainly.
+		return fmt.Sprintf("The agent asked a question on \"%s\" and cannot continue until you answer", name)
 	default:
 		return fmt.Sprintf("Task \"%s\" needs your attention", name)
 	}
@@ -340,6 +345,8 @@ func eventEmoji(eventType types.AttentionEventType) string {
 		return "🔀"
 	case types.AttentionEventCIPassed:
 		return "✅"
+	case types.AttentionEventAgentQuestion:
+		return "❓"
 	default:
 		return "🔔"
 	}

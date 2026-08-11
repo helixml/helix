@@ -241,6 +241,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.ClaudeSubscription{},
 		&types.CodexSubscription{},
 		&types.AttentionEvent{},
+		&types.AgentElicitation{},
 		&types.EvaluationSuite{},
 		&types.EvaluationRun{},
 		&types.VHostRoute{},

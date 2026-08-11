@@ -886,6 +886,14 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		err = apiServer.handleAgentReady(sessionID, syncMsg)
 	case "turn_cancelled":
 		err = apiServer.handleTurnCancelled(sessionID, syncMsg)
+	case "elicitation_requested":
+		err = apiServer.handleElicitationRequested(sessionID, syncMsg)
+	case "elicitation_resolved":
+		err = apiServer.handleElicitationResolved(sessionID, syncMsg)
+	case "elicitation_resync":
+		err = apiServer.handleElicitationResync(sessionID, syncMsg)
+	case "elicitation_response_ack":
+		err = apiServer.handleElicitationResponseAck(sessionID, syncMsg)
 	case "ping":
 		// no-op
 	default:
@@ -3421,11 +3429,35 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 			return
 		}
 		if len(interactions) > 0 && interactions[0].State == types.InteractionStateWaiting {
+			// Exception: an interaction waiting on a human answer is not busy in any
+			// sense that should defer the user's own message. The agent asked a
+			// question, the user typed something else, and the composer is right there
+			// under the question card — deferring here would strand that message
+			// forever, since nothing will move the interaction out of `waiting` until
+			// the question is dealt with, and auto-wake deliberately leaves it alone.
+			//
+			// Dispatching is also what Zed does: starting a turn cancels outstanding
+			// elicitations (run_turn → cancel_inner(InterruptedByFollowUp)), so the
+			// question resolves as cancelled and the new turn proceeds. Helix does not
+			// write that status itself — the agent reports it back.
+			blockedOnUser, err := apiServer.Store.HasLiveAgentElicitation(context.Background(), interactions[0].ID)
+			if err != nil {
+				log.Warn().Err(err).
+					Str("interaction_id", interactions[0].ID).
+					Msg("Failed to check for a pending agent question; treating session as busy")
+				return
+			}
+			if !blockedOnUser {
+				log.Info().
+					Str("session_id", sessionID).
+					Str("interaction_id", interactions[0].ID).
+					Msg("Session is busy (last interaction waiting), deferring queue-mode prompt")
+				return
+			}
 			log.Info().
 				Str("session_id", sessionID).
 				Str("interaction_id", interactions[0].ID).
-				Msg("Session is busy (last interaction waiting), deferring queue-mode prompt")
-			return
+				Msg("📨 [QUEUE] Interaction is waiting on a human answer — dispatching the follow-up instead of deferring it")
 		}
 	}
 
@@ -4611,13 +4643,29 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 		if i < len(previousEntries) {
 			prevContent = previousEntries[i].Content
 		}
+		// An elicitation's payload changes without its content changing — answering a
+		// question leaves the question text alone. Serialize it up front so the
+		// change check below can see those transitions.
+		var elicitationJSON json.RawMessage
+		if entry.Elicitation != nil {
+			encoded, err := json.Marshal(entry.Elicitation)
+			if err != nil {
+				log.Warn().Err(err).
+					Str("interaction_id", interactionID).
+					Msg("Failed to marshal elicitation payload for patch")
+			} else {
+				elicitationJSON = encoded
+			}
+		}
+
 		// Skip entries that haven't changed at all
 		if i < len(previousEntries) &&
 			prevContent == entry.Content &&
 			previousEntries[i].Type == entry.Type &&
 			previousEntries[i].MessageID == entry.MessageID &&
 			previousEntries[i].ToolName == entry.ToolName &&
-			previousEntries[i].ToolStatus == entry.ToolStatus {
+			previousEntries[i].ToolStatus == entry.ToolStatus &&
+			sameElicitation(previousEntries[i].Elicitation, entry.Elicitation) {
 			continue
 		}
 		epOffset, epPatch, epTotalLen := computePatch(prevContent, entry.Content)
@@ -4630,6 +4678,7 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 			TotalLength: epTotalLen,
 			ToolName:    entry.ToolName,
 			ToolStatus:  entry.ToolStatus,
+			Elicitation: elicitationJSON,
 		})
 	}
 

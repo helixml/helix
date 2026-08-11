@@ -225,6 +225,28 @@ func (apiServer *HelixAPIServer) scanAndAutoWakeStuckInteractions(ctx context.Co
 func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types.Interaction) {
 	threshold := autoWakeStuckThreshold()
 
+	// Gate 0 — the turn is waiting on a human, not hung.
+	//
+	// An ACP agent can ask the user a question mid-turn, which legitimately holds the
+	// interaction in state=waiting for as long as the user takes to answer. Waking it
+	// would cancel the outstanding question (a new turn cancels outstanding elicitations)
+	// and replace the user's pending answer with a "continue" prompt — turning a working
+	// feature into a lost question.
+	blocked, err := apiServer.Store.HasLiveAgentElicitation(ctx, stuck.ID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("interaction_id", stuck.ID).
+			Msg("[AUTO_WAKE] Failed to check for a pending agent question; skipping to be safe")
+		return
+	}
+	if blocked {
+		log.Debug().
+			Str("interaction_id", stuck.ID).
+			Str("session_id", stuck.SessionID).
+			Msg("[AUTO_WAKE] Interaction is waiting on a human answer, not a hung agent — leaving it alone")
+		return
+	}
+
 	// Gate 1 — WebSocket connection AND grace period since connect.
 	//
 	// If the agent isn't connected yet (desktop still booting after a

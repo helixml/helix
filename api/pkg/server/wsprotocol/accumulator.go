@@ -27,6 +27,7 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 				messageType:    make(map[string]string, len(entries)),
 				messageToolName:   make(map[string]string),
 				messageToolStatus: make(map[string]string),
+				messageElicitation: make(map[string]*ElicitationEntry),
 			}
 			for _, entry := range entries {
 				id := entry.MessageID
@@ -41,6 +42,11 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 				}
 				if entry.ToolStatus != "" {
 					acc.messageToolStatus[id] = entry.ToolStatus
+				}
+				// Restoring this is what lets a question survive an API restart still
+				// answerable, rather than degrading to inert text.
+				if entry.Elicitation != nil {
+					acc.messageElicitation[id] = entry.Elicitation
 				}
 			}
 			if lastMessageID == "" && len(acc.messageOrder) > 0 {
@@ -57,11 +63,39 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 // ResponseEntry represents a single typed entry in the response.
 // Used to preserve the structural boundary between assistant text and tool calls.
 type ResponseEntry struct {
-	Type       string `json:"type"` // "text" or "tool_call"
+	Type       string `json:"type"` // "text", "tool_call" or "elicitation"
 	Content    string `json:"content"`
 	MessageID  string `json:"message_id"`
 	ToolName   string `json:"tool_name,omitempty"`   // For tool_call: the tool label
 	ToolStatus string `json:"tool_status,omitempty"` // For tool_call: "Completed", "In Progress", etc.
+	// Elicitation is set for Type == "elicitation": a question the agent asked the user.
+	// The frontend renders the answerable card from this payload.
+	Elicitation *ElicitationEntry `json:"elicitation,omitempty"`
+}
+
+// Entry types. "elicitation" entries are questions the agent asked mid-turn; they render
+// as an answerable card and remain in the transcript showing what was chosen.
+const (
+	ResponseEntryTypeText        = "text"
+	ResponseEntryTypeToolCall    = "tool_call"
+	ResponseEntryTypeElicitation = "elicitation"
+)
+
+// ElicitationEntry is the render payload for a question the agent asked. Schema is the
+// ACP `requestedSchema` verbatim — the frontend builds the form from it generically, so
+// anything dropped here is a control the user never gets to use.
+type ElicitationEntry struct {
+	ID         string          `json:"id"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Message    string          `json:"message"`
+	Mode       string          `json:"mode,omitempty"`
+	Schema     json.RawMessage `json:"schema,omitempty"`
+	Status     string          `json:"status"`
+	// Content is what the user submitted, once answered.
+	Content json.RawMessage `json:"content,omitempty"`
+	// ResolutionReason explains a non-answered ending so the card can say "you replied
+	// instead" or "expired — the agent restarted" rather than a bare "cancelled".
+	ResolutionReason string `json:"resolution_reason,omitempty"`
 }
 
 // MessageAccumulator handles the multi-message append/overwrite logic for
@@ -102,6 +136,8 @@ type MessageAccumulator struct {
 	// Map from message_id to tool metadata (name, status) for tool_call entries
 	messageToolName   map[string]string
 	messageToolStatus map[string]string
+	// Map from message_id to the question payload, for elicitation entries
+	messageElicitation map[string]*ElicitationEntry
 
 	// priorMessageContent holds (message_id → content) snapshots of entries
 	// from earlier completed interactions in the same session. Zed's
@@ -242,6 +278,58 @@ func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryTyp
 	a.contentDirty = true
 }
 
+// UpsertElicitation records (or updates) a question the agent asked at messageID.
+//
+// Unlike AddMessage*, this is safe to call repeatedly with the same id: the agent
+// re-affirms outstanding questions on a heartbeat, and status changes arrive as further
+// updates to the same entry. The message text doubles as the entry's Content so
+// TextFromEntries and search keep working without knowing about elicitations.
+func (a *MessageAccumulator) UpsertElicitation(messageID string, elicitation *ElicitationEntry) {
+	if messageID == "" || elicitation == nil {
+		return
+	}
+	if a.messageContent == nil {
+		a.messageContent = make(map[string]string)
+	}
+	if a.messageType == nil {
+		a.messageType = make(map[string]string)
+	}
+	if a.messageElicitation == nil {
+		a.messageElicitation = make(map[string]*ElicitationEntry)
+	}
+
+	if _, exists := a.messageContent[messageID]; !exists {
+		a.messageOrder = append(a.messageOrder, messageID)
+	}
+	// Never empty: Entries() drops entries with no content, which would make an
+	// unanswerable question vanish from the transcript.
+	content := sanitize.ForPostgres(elicitation.Message)
+	if content == "" {
+		content = "The agent asked a question."
+	}
+	a.messageContent[messageID] = content
+	a.messageType[messageID] = ResponseEntryTypeElicitation
+	a.messageElicitation[messageID] = elicitation
+	a.LastMessageID = messageID
+	a.contentDirty = true
+}
+
+// ElicitationEntryFor returns the question recorded at messageID, if any.
+func (a *MessageAccumulator) ElicitationEntryFor(messageID string) *ElicitationEntry {
+	return a.messageElicitation[messageID]
+}
+
+// MessageIDForElicitation finds the entry carrying a given elicitation id. Status updates
+// arrive keyed by elicitation id, not by message_id.
+func (a *MessageAccumulator) MessageIDForElicitation(elicitationID string) (string, bool) {
+	for messageID, entry := range a.messageElicitation {
+		if entry != nil && entry.ID == elicitationID {
+			return messageID, true
+		}
+	}
+	return "", false
+}
+
 // Entries returns the structured response entries in insertion order,
 // preserving the type information for each message_id.
 // Entries with empty content are omitted.
@@ -262,11 +350,12 @@ func (a *MessageAccumulator) Entries() []ResponseEntry {
 			}
 		}
 		entries = append(entries, ResponseEntry{
-			Type:       t,
-			Content:    c,
-			MessageID:  id,
-			ToolName:   a.messageToolName[id],
-			ToolStatus: a.messageToolStatus[id],
+			Type:        t,
+			Content:     c,
+			MessageID:   id,
+			ToolName:    a.messageToolName[id],
+			ToolStatus:  a.messageToolStatus[id],
+			Elicitation: a.messageElicitation[id],
 		})
 	}
 	return entries

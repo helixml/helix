@@ -50,6 +50,10 @@ const (
 	AttentionEventOrgMessage AttentionEventType = "org_message"
 	AttentionEventCIPassed                  AttentionEventType = "ci_passed"
 	AttentionEventCIFailed                  AttentionEventType = "ci_failed"
+	// AttentionEventAgentQuestion is an ACP agent asking the user a question mid-turn.
+	// The agent's turn is blocked until it is answered, so unlike most events this one
+	// is not merely informational — it is a request the user has to act on.
+	AttentionEventAgentQuestion AttentionEventType = "agent_question"
 )
 
 // AttentionEventFilters controls optional filtering when listing attention events.
