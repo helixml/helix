@@ -1,33 +1,35 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Onboarding from './Onboarding'
 
 const mockNavigateReplace = vi.fn()
-const mockNavigate = vi.fn()
 const mockSnackbarError = vi.fn()
-const mockSnackbarSuccess = vi.fn()
-const mockCreateAgent = vi.fn()
 const mockLoadOrganizations = vi.fn()
-
-const mockV1UsersMeOnboardingCreate = vi.fn().mockResolvedValue({})
-const mockV1GitRepositoriesCreate = vi.fn()
-const mockV1ProjectsCreate = vi.fn()
-const mockV1SpecTasksFromPromptCreate = vi.fn()
-const mockV1ProviderEndpointsList = vi.fn()
-const mockApiGet = vi.fn()
+const mockV1UsersMeOnboardingCreate = vi.fn()
 const mockCreateOrgMutateAsync = vi.fn()
 
-let mockAccountValue: any = {
-  user: { id: 'user-1', name: 'Test User', email: 'test@example.com' },
-  organizationTools: {
-    organizations: [],
-    loading: false,
-    orgID: '',
-    loadOrganizations: mockLoadOrganizations,
-  },
-  dismissOnboarding: vi.fn(),
-  orgNavigate: vi.fn(),
+const mockState = vi.hoisted(() => ({
+  walletStatus: 'active',
+  claudeSubscriptions: [{ id: 'claude-sub-1' }] as Array<{ id: string }>,
+  codexSubscriptions: [] as Array<{ id: string }>,
+}))
+
+let mockAccountValue: any
+
+function setAccountWithOrgs(orgs: Array<{ id: string; name: string; display_name: string }>) {
+  mockAccountValue = {
+    user: { id: 'user-1', name: 'Test User', email: 'test@example.com' },
+    organizationTools: {
+      organizations: orgs,
+      organization: orgs[0],
+      loading: false,
+      orgID: '',
+      loadOrganizations: mockLoadOrganizations,
+    },
+    dismissOnboarding: vi.fn(),
+    orgNavigate: vi.fn(),
+  }
 }
 
 vi.mock('../hooks/useAccount', () => ({
@@ -36,29 +38,18 @@ vi.mock('../hooks/useAccount', () => ({
 
 vi.mock('../hooks/useApi', () => ({
   default: () => ({
-    get: mockApiGet,
+    get: vi.fn(),
     getApiClient: () => ({
       v1UsersMeOnboardingCreate: mockV1UsersMeOnboardingCreate,
-      v1GitRepositoriesCreate: mockV1GitRepositoriesCreate,
-      v1ProjectsCreate: mockV1ProjectsCreate,
-      v1SpecTasksFromPromptCreate: mockV1SpecTasksFromPromptCreate,
-      v1ProviderEndpointsList: mockV1ProviderEndpointsList,
-      v1AgentsUpdate: vi.fn().mockResolvedValue({}),
+      v1SubscriptionNewCreate: vi.fn(),
     }),
-  }),
-}))
-
-vi.mock('../hooks/useApps', () => ({
-  default: () => ({
-    apps: [],
-    createAgent: mockCreateAgent,
   }),
 }))
 
 vi.mock('../hooks/useSnackbar', () => ({
   default: () => ({
     error: mockSnackbarError,
-    success: mockSnackbarSuccess,
+    success: vi.fn(),
     info: vi.fn(),
   }),
 }))
@@ -68,7 +59,7 @@ vi.mock('../hooks/useRouter', () => ({
     name: 'onboarding',
     params: {},
     meta: {},
-    navigate: mockNavigate,
+    navigate: vi.fn(),
     navigateReplace: mockNavigateReplace,
     setParams: vi.fn(),
     mergeParams: vi.fn(),
@@ -84,21 +75,38 @@ vi.mock('../services/orgService', () => ({
   }),
 }))
 
-vi.mock('../components/create/AdvancedModelPicker', () => ({
-  AdvancedModelPicker: ({ onSelectModel }: any) => (
-    <button data-testid="model-picker" onClick={() => onSelectModel('test-provider', 'claude-sonnet-4-5-20250929')}>
-      Pick Model
-    </button>
-  ),
+vi.mock('../services/userService', () => ({
+  useGetConfig: () => ({
+    data: { billing_enabled: true, edition: 'cloud' },
+    isLoading: false,
+  }),
 }))
 
-vi.mock('../components/project/BrowseProvidersDialog', () => ({
-  default: () => null,
+vi.mock('../services/useBilling', () => ({
+  useGetWallet: () => ({
+    data: {
+      subscription_status: mockState.walletStatus,
+      subscription_created: 0,
+      subscription_current_period_start: 0,
+      subscription_current_period_end: 0,
+      balance: 0,
+    },
+    refetch: vi.fn(),
+    isFetching: false,
+  }),
 }))
 
-vi.mock('../contexts/apps', () => ({
-  CodeAgentRuntime: 'zed_agent',
-  generateAgentName: (model: string, runtime: string) => `${model} in ${runtime}`,
+vi.mock('../components/account/ClaudeSubscriptionConnect', () => ({
+  default: () => <button>Connect Claude</button>,
+  useClaudeSubscriptions: () => ({ data: mockState.claudeSubscriptions }),
+}))
+
+vi.mock('../services/codexSubscriptionsService', () => ({
+  useCodexSubscriptions: () => ({ data: mockState.codexSubscriptions }),
+}))
+
+vi.mock('../components/account/CodexSubscriptionConnect', () => ({
+  default: () => <button>Connect ChatGPT</button>,
 }))
 
 vi.mock('lucide-react', () => ({
@@ -106,434 +114,152 @@ vi.mock('lucide-react', () => ({
   Server: () => <span data-testid="server-icon" />,
 }))
 
-vi.mock('../services/systemSettingsService', () => ({
-  useGetSystemSettings: () => ({ data: null, isLoading: false }),
-  useUpdateSystemSettings: () => ({ mutate: vi.fn(), isPending: false }),
-}))
-
-vi.mock('../services/userService', () => ({
-  useGetConfig: () => ({
-    data: { billing_enabled: true },
-    isLoading: false
-  }),
-}))
-
-vi.mock('../services/useBilling', () => ({
-  useGetWallet: () => ({
-    data: {
-      subscription_status: 'active',
-      subscription_created: 0,
-      subscription_current_period_start: 0,
-      subscription_current_period_end: 0,
-      balance: 0
-    },
-    refetch: vi.fn(),
-    isFetching: false
-  }),
-}))
-
-vi.mock('../components/account/ClaudeSubscriptionConnect', () => ({
-  default: () => null,
-  useClaudeSubscriptions: () => ({ data: [] }),
-}))
-
-vi.mock('../components/providers/AddProviderDialog', () => ({
-  default: () => null,
-}))
-
-vi.mock('../services/providersService', () => ({
-  useListProviders: () => ({
-    data: [],
-    isLoading: false
-  }),
-  useDetectLocalProviders: () => ({
-    data: [],
-    isLoading: false
-  }),
-  useCreateProviderEndpoint: () => ({
-    mutateAsync: vi.fn(),
-    isPending: false
-  }),
-}))
-
-function setAccountWithOrgs(orgs: any[]) {
-  mockAccountValue = {
-    user: { id: 'user-1', name: 'Test User', email: 'test@example.com' },
-    organizationTools: {
-      organizations: orgs,
-      loading: false,
-      orgID: '',
-      loadOrganizations: mockLoadOrganizations,
-    },
-    dismissOnboarding: vi.fn(),
-    orgNavigate: vi.fn(),
-  }
-}
-
-async function selectExistingOrgAndContinue() {
-  // Step 1 is org setup - click continue with existing org
-  fireEvent.click(screen.getByRole('button', { name: /continue with this organization/i }))
-}
-
-async function skipSubscriptionStep() {
-  // Step 2 is subscription - click continue to skip it
-  await waitFor(() => {
-    expect(screen.getByRole('button', { name: /continue/i })).toBeInTheDocument()
-  })
-  fireEvent.click(screen.getByRole('button', { name: /continue/i }))
-}
-
-async function skipProviderStep() {
-  // Step 3 is providers - click "I'll do this later"
-  await waitFor(() => {
-    expect(screen.getByRole('button', { name: /I'll do this later/i })).toBeInTheDocument()
-  })
-  const skipBtn = screen.getByRole('button', { name: /I'll do this later/i })
-  fireEvent.click(skipBtn)
-}
-
-async function selectExistingOrgAndGoToProjectStep() {
-  // Step 1: select org, Step 2: skip subscription, Step 3: skip provider, then we're at Step 4: project
-  await selectExistingOrgAndContinue()
-  await skipSubscriptionStep()
-  await skipProviderStep()
-  await waitFor(() => {
-    expect(screen.getByLabelText(/project name/i)).toBeInTheDocument()
-  })
-}
-
-async function fillProjectAndCreateWithModel(projectName: string) {
-  fireEvent.change(screen.getByLabelText(/project name/i), { target: { value: projectName } })
-  fireEvent.click(screen.getByTestId('model-picker'))
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /create project/i }))
-  })
-}
-
 function renderOnboarding() {
   const queryClient = new QueryClient({
     defaultOptions: {
-      queries: {
-        retry: false,
-      },
+      queries: { retry: false },
+      mutations: { retry: false },
     },
   })
 
   return render(
     <QueryClientProvider client={queryClient}>
       <Onboarding />
-    </QueryClientProvider>
+    </QueryClientProvider>,
   )
+}
+
+async function goToCodingAccessStep() {
+  fireEvent.click(
+    screen.getByRole('button', { name: /continue with this organization/i }),
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: /^continue$/i }))
+
+  await waitFor(() => {
+    expect(screen.getByText('Choose how to run coding agents')).toBeInTheDocument()
+  })
 }
 
 describe('Onboarding', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
-    mockApiGet.mockResolvedValue([])
-    mockV1ProviderEndpointsList.mockResolvedValue({
-      data: [],
-    })
-    setAccountWithOrgs([])
+    mockState.walletStatus = 'active'
+    mockState.claudeSubscriptions = [{ id: 'claude-sub-1' }]
+    mockState.codexSubscriptions = []
+    mockV1UsersMeOnboardingCreate.mockResolvedValue({})
+    setAccountWithOrgs([
+      { id: 'org-1', name: 'my-org', display_name: 'My Org' },
+    ])
   })
 
-  describe('selecting an existing organization', () => {
-    it('should set org ID when selecting an existing org and pass it to subsequent API calls', async () => {
-      setAccountWithOrgs([
-        { id: 'org-123', name: 'my-org', display_name: 'My Org' },
-        { id: 'org-456', name: 'other-org', display_name: 'Other Org' },
-      ])
+  it('greets the user by their full name', () => {
+    renderOnboarding()
 
-      renderOnboarding()
+    expect(screen.getByText('Hello, Test User')).toBeInTheDocument()
+    expect(screen.getByText("Let's set you up for success 😉")).toBeInTheDocument()
+  })
 
-      await selectExistingOrgAndGoToProjectStep()
+  it('ends after coding access and defaults to Helix credits', async () => {
+    renderOnboarding()
+    await goToCodingAccessStep()
 
-      mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-1' } })
-      mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'project-1' } })
-      mockCreateAgent.mockResolvedValue({ id: 'agent-1' })
+    expect(
+      screen.getByRole('button', { name: /continue with helix credits/i }),
+    ).toBeEnabled()
+    expect(screen.getByRole('button', { name: /helix providers/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /claude subscription/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /chatgpt subscription/i })).toBeInTheDocument()
+    expect(screen.queryByText(/create your first project/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/create your first task/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/where is your code/i)).not.toBeInTheDocument()
+  })
 
-      await fillProjectAndCreateWithModel('test-project')
+  it('completes onboarding with Helix credits and opens org chat', async () => {
+    renderOnboarding()
+    await goToCodingAccessStep()
 
-      await waitFor(() => {
-        expect(mockCreateAgent).toHaveBeenCalledWith(
-          expect.objectContaining({
-            organizationId: 'org-123',
-          })
-        )
-      })
-
-      expect(mockV1GitRepositoriesCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          organization_id: 'org-123',
-        })
-      )
-
-      expect(mockV1ProjectsCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          organization_id: 'org-123',
-        })
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: /continue with helix credits/i }),
       )
     })
-  })
 
-  describe('creating a new organization', () => {
-    it('should set org ID from newly created org and pass it to subsequent API calls', async () => {
-      setAccountWithOrgs([])
-
-      mockCreateOrgMutateAsync.mockResolvedValue({
-        id: 'new-org-id',
-        name: 'new-org-slug',
-        display_name: 'New Org',
-      })
-
-      renderOnboarding()
-
-      // Step 1 is org setup - with no existing orgs, the create form is shown directly
-      const orgNameInput = screen.getByLabelText(/organization name/i)
-      fireEvent.change(orgNameInput, { target: { value: 'New Org' } })
-
-      const createOrgBtn = screen.getByRole('button', { name: /create organization/i })
-      await act(async () => {
-        fireEvent.click(createOrgBtn)
-      })
-
-      await waitFor(() => {
-        expect(mockCreateOrgMutateAsync).toHaveBeenCalledWith({
-          display_name: 'New Org',
-        })
-      })
-
-      // After org creation, we're on step 2 (subscription) - skip it, then step 3 (providers) - skip it
-      await skipSubscriptionStep()
-      await skipProviderStep()
-
-      await waitFor(() => {
-        expect(screen.getByLabelText(/project name/i)).toBeInTheDocument()
-      })
-
-      mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-2' } })
-      mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'project-2' } })
-      mockCreateAgent.mockResolvedValue({ id: 'agent-2' })
-
-      await fillProjectAndCreateWithModel('my-project')
-
-      await waitFor(() => {
-        expect(mockCreateAgent).toHaveBeenCalledWith(
-          expect.objectContaining({
-            organizationId: 'new-org-id',
-          })
-        )
-      })
-
-      expect(mockV1GitRepositoriesCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          organization_id: 'new-org-id',
-        })
-      )
-
-      expect(mockV1ProjectsCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          organization_id: 'new-org-id',
-        })
-      )
+    await waitFor(() => {
+      expect(mockV1UsersMeOnboardingCreate).toHaveBeenCalledTimes(1)
+    })
+    expect(mockAccountValue.dismissOnboarding).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem('selected_org')).toBe('my-org')
+    expect(mockNavigateReplace).toHaveBeenCalledWith('org_chat', {
+      org_id: 'my-org',
     })
   })
 
-  describe('org ID propagation to all API calls', () => {
-    it('should pass org ID to repository creation', async () => {
-      setAccountWithOrgs([{ id: 'org-abc', name: 'test-org', display_name: 'Test Org' }])
+  it('requires a Claude connection only when Claude is selected', async () => {
+    mockState.claudeSubscriptions = []
+    renderOnboarding()
+    await goToCodingAccessStep()
 
-      mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-id' } })
-      mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-id' } })
-      mockCreateAgent.mockResolvedValue({ id: 'agent-id' })
+    fireEvent.click(screen.getByRole('button', { name: /claude subscription/i }))
 
-      renderOnboarding()
+    expect(screen.getByRole('button', { name: 'Connect Claude' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /continue with claude subscription/i }),
+    ).toBeDisabled()
+  })
 
-      await selectExistingOrgAndGoToProjectStep()
-      await fillProjectAndCreateWithModel('repo-test')
+  it('requires a ChatGPT connection only when ChatGPT is selected', async () => {
+    renderOnboarding()
+    await goToCodingAccessStep()
 
-      await waitFor(() => {
-        expect(mockV1GitRepositoriesCreate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            name: 'repo-test',
-            organization_id: 'org-abc',
-            owner_id: 'user-1',
-          })
-        )
-      })
+    fireEvent.click(screen.getByRole('button', { name: /chatgpt subscription/i }))
+
+    expect(screen.getByRole('button', { name: 'Connect ChatGPT' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /continue with chatgpt subscription/i }),
+    ).toBeDisabled()
+  })
+
+  it('can finish with a connected external coding subscription', async () => {
+    mockState.codexSubscriptions = [{ id: 'codex-sub-1' }]
+    renderOnboarding()
+    await goToCodingAccessStep()
+
+    fireEvent.click(screen.getByRole('button', { name: /chatgpt subscription/i }))
+    const continueButton = screen.getByRole('button', {
+      name: /continue with chatgpt subscription/i,
+    })
+    expect(continueButton).toBeEnabled()
+
+    await act(async () => {
+      fireEvent.click(continueButton)
     })
 
-    it('should pass org ID to project creation', async () => {
-      setAccountWithOrgs([{ id: 'org-xyz', name: 'proj-org', display_name: 'Proj Org' }])
-
-      mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-99' } })
-      mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-99' } })
-      mockCreateAgent.mockResolvedValue({ id: 'agent-99' })
-
-      renderOnboarding()
-
-      await selectExistingOrgAndGoToProjectStep()
-      await fillProjectAndCreateWithModel('proj-test')
-
-      await waitFor(() => {
-        expect(mockV1ProjectsCreate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            name: 'proj-test',
-            organization_id: 'org-xyz',
-          })
-        )
-      })
-    })
-
-    it('should pass org ID to agent creation', async () => {
-      setAccountWithOrgs([{ id: 'org-agent', name: 'agent-org', display_name: 'Agent Org' }])
-
-      mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'r-1' } })
-      mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'p-1' } })
-      mockCreateAgent.mockResolvedValue({ id: 'a-1' })
-
-      renderOnboarding()
-
-      await selectExistingOrgAndGoToProjectStep()
-      await fillProjectAndCreateWithModel('agent-test')
-
-      await waitFor(() => {
-        expect(mockCreateAgent).toHaveBeenCalledWith(
-          expect.objectContaining({
-            organizationId: 'org-agent',
-            model: 'claude-sonnet-4-5-20250929',
-          })
-        )
+    await waitFor(() => {
+      expect(mockNavigateReplace).toHaveBeenCalledWith('org_chat', {
+        org_id: 'my-org',
       })
     })
   })
 
-  describe('completion and localStorage', () => {
-    it('should store org name in localStorage on completion', async () => {
-      vi.useFakeTimers({ shouldAdvanceTime: true })
+  it('shows benefits rather than empty billing fields before subscription', async () => {
+    mockState.walletStatus = 'not_subscribed'
+    renderOnboarding()
 
-      setAccountWithOrgs([{ id: 'org_abc123', name: 'helixml', display_name: 'HelixML Inc' }])
+    fireEvent.click(
+      screen.getByRole('button', { name: /continue with this organization/i }),
+    )
 
-      mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-ls' } })
-      mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-ls' } })
-      mockCreateAgent.mockResolvedValue({ id: 'agent-ls' })
-      mockV1SpecTasksFromPromptCreate.mockResolvedValue({ data: { id: 'task-1' } })
-
-      renderOnboarding()
-
-      await selectExistingOrgAndGoToProjectStep()
-      await fillProjectAndCreateWithModel('ls-project')
-
-      await waitFor(() => {
-        expect(screen.getByLabelText(/what would you like to build/i)).toBeInTheDocument()
-      })
-
-      fireEvent.change(screen.getByLabelText(/what would you like to build/i), {
-        target: { value: 'Build a REST API' },
-      })
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /create task/i }))
-      })
-
-      await waitFor(() => {
-        expect(mockV1SpecTasksFromPromptCreate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            prompt: 'Build a REST API',
-            project_id: 'proj-ls',
-          })
-        )
-      })
-
-      await act(async () => {
-        vi.advanceTimersByTime(2000)
-      })
-
-      await waitFor(() => {
-        expect(localStorage.getItem('selected_org')).toBe('helixml')
-      })
-
-      vi.useRealTimers()
+    await waitFor(() => {
+      expect(
+        screen.getByText(/full linux desktop sandboxes/i),
+      ).toBeInTheDocument()
     })
-
-    it('should navigate to org projects on completion with created project', async () => {
-      vi.useFakeTimers({ shouldAdvanceTime: true })
-
-      setAccountWithOrgs([{ id: 'org_def456', name: 'acme', display_name: 'Acme Corp' }])
-
-      mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-nav' } })
-      mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-nav' } })
-      mockCreateAgent.mockResolvedValue({ id: 'agent-nav' })
-      mockV1SpecTasksFromPromptCreate.mockResolvedValue({ data: { id: 'task-nav' } })
-
-      renderOnboarding()
-
-      await selectExistingOrgAndGoToProjectStep()
-      await fillProjectAndCreateWithModel('nav-project')
-
-      await waitFor(() => {
-        expect(screen.getByLabelText(/what would you like to build/i)).toBeInTheDocument()
-      })
-
-      fireEvent.change(screen.getByLabelText(/what would you like to build/i), {
-        target: { value: 'Build something' },
-      })
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /create task/i }))
-      })
-
-      await waitFor(() => {
-        expect(mockV1SpecTasksFromPromptCreate).toHaveBeenCalled()
-      })
-
-      await act(async () => {
-        vi.advanceTimersByTime(2000)
-      })
-
-      await waitFor(() => {
-        expect(mockV1UsersMeOnboardingCreate).toHaveBeenCalled()
-      })
-
-      expect(mockAccountValue.orgNavigate).toHaveBeenCalledWith('project-specs', {
-        org_id: 'acme',
-        id: 'proj-nav',
-        highlight: 'task-nav',
-      })
-
-      vi.useRealTimers()
-    })
-  })
-
-  describe('error handling without org ID', () => {
-    it('should not show create project button when not on step 3', async () => {
-      setAccountWithOrgs([])
-
-      renderOnboarding()
-
-      expect(screen.queryByRole('button', { name: /create project/i })).not.toBeInTheDocument()
-    })
-  })
-
-  describe('fetching org apps after org selection', () => {
-    it('should fetch apps for the selected org when moving to step 3', async () => {
-      setAccountWithOrgs([{ id: 'org-apps', name: 'apps-org', display_name: 'Apps Org' }])
-
-      mockApiGet.mockResolvedValue([])
-
-      renderOnboarding()
-
-      await selectExistingOrgAndGoToProjectStep()
-
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith(
-          '/api/v1/agents',
-          expect.objectContaining({
-            params: { organization_id: 'org-apps' },
-          }),
-          expect.anything()
-        )
-      })
-    })
+    expect(screen.queryByText(/status: not_subscribed/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/current balance:/i)).not.toBeInTheDocument()
   })
 })

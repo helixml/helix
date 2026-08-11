@@ -136,6 +136,12 @@ func TestGetUniqueRepoName(t *testing.T) {
 			existingNames: map[string]bool{"api": true, "api-2": true, "api-3": true},
 			expected:      "api-4",
 		},
+		{
+			name:          "case insensitive conflict",
+			baseName:      "API",
+			existingNames: map[string]bool{"api": true, "Api-2": true},
+			expected:      "API-3",
+		},
 	}
 
 	for _, tt := range tests {

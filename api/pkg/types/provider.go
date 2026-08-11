@@ -59,6 +59,7 @@ type ProviderEndpoint struct {
 	Updated        time.Time            `json:"updated"`
 	Name           string               `json:"name"`
 	Description    string               `json:"description"`
+	Icon           string               `json:"icon"`
 	Models         pq.StringArray       `json:"models" gorm:"type:text[]"` // Optional
 	EndpointType   ProviderEndpointType `json:"endpoint_type"`             // global, user (TODO: orgs, teams)
 	Owner          string               `json:"owner"`
@@ -122,10 +123,12 @@ type OpenAIModel struct {
 
 // UpdateProviderEndpoint used for updating a provider endpoint through the API
 type UpdateProviderEndpoint struct {
-	Name         string               `json:"name"`
-	Description  string               `json:"description"`
-	Models       []string             `json:"models"`
-	EndpointType ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
+	Name           string               `json:"name"`
+	Description    string               `json:"description"`
+	Icon           *string              `json:"icon,omitempty"`
+	Models         []string             `json:"models"`
+	EndpointType   ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
+	BillingEnabled *bool                `json:"billing_enabled,omitempty"`
 
 	BaseURL        string            `json:"base_url"`
 	APIKey         *string           `json:"api_key,omitempty"`

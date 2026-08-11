@@ -151,7 +151,7 @@ func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, provid
 			AVG(duration_ms) as latency_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes,
-			COUNT(DISTINCT interaction_id) as total_requests
+			COUNT(DISTINCT id) as total_requests
 		`).
 		Where("provider = ? AND date >= ? AND date <= ?", providerID, from, to).
 		Group("date, provider").

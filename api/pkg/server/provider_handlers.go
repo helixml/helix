@@ -768,6 +768,11 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
+	if updatedEndpoint.BillingEnabled != nil && !user.Admin {
+		http.Error(rw, "Only admins can change provider billing", http.StatusForbidden)
+		return
+	}
+
 	// Only admins can add endpoints with API key path auth
 	if existingEndpoint.APIKeyFromFile != "" && !user.Admin {
 		http.Error(rw, "Only admins can add endpoints with API key path auth", http.StatusForbidden)
@@ -816,6 +821,12 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		existingEndpoint.Name = newName
 	}
 	existingEndpoint.Description = updatedEndpoint.Description
+	if updatedEndpoint.Icon != nil {
+		existingEndpoint.Icon = strings.TrimSpace(*updatedEndpoint.Icon)
+	}
+	if updatedEndpoint.BillingEnabled != nil {
+		existingEndpoint.BillingEnabled = *updatedEndpoint.BillingEnabled
+	}
 	existingEndpoint.Models = updatedEndpoint.Models
 	existingEndpoint.BaseURL = strings.TrimSpace(updatedEndpoint.BaseURL)
 	if updatedEndpoint.APIKey != nil {

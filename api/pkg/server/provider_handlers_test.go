@@ -759,6 +759,97 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotEditGlo
 	s.Contains(rr.Body.String(), "Only admins can update global endpoints")
 }
 
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_AdminUpdatesPresentationAndBilling() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_admin_metadata"
+	billingEnabled := true
+	icon := "deepseek"
+
+	existing := &types.ProviderEndpoint{
+		ID:             endpointID,
+		Name:           "deepseek-node",
+		Description:    "Old description",
+		BaseURL:        "http://deepseek.local/v1",
+		Owner:          "admin_id",
+		OwnerType:      types.OwnerTypeUser,
+		EndpointType:   types.ProviderEndpointTypeGlobal,
+		BillingEnabled: false,
+	}
+
+	adminCtx := setRequestUser(context.Background(), types.User{ID: "admin_id", Admin: true})
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+			s.Equal("DeepSeek Production", ep.Name)
+			s.Equal("Primary DeepSeek inference cluster", ep.Description)
+			s.Equal("deepseek", ep.Icon)
+			s.True(ep.BillingEnabled)
+			return ep, nil
+		})
+	s.manager.EXPECT().ListProviders(gomock.Any(), "admin_id").Return([]types.Provider{}, nil)
+
+	update := types.UpdateProviderEndpoint{
+		Name:           "DeepSeek Production",
+		Description:    "Primary DeepSeek inference cluster",
+		Icon:           &icon,
+		EndpointType:   types.ProviderEndpointTypeGlobal,
+		BaseURL:        "http://deepseek.local/v1",
+		BillingEnabled: &billingEnabled,
+	}
+	body, _ := json.Marshal(update)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(adminCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotEnableBilling() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_user_billing"
+	billingEnabled := true
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "user-provider",
+		BaseURL:      "http://provider.local/v1",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	update := types.UpdateProviderEndpoint{
+		Name:           existing.Name,
+		BaseURL:        existing.BaseURL,
+		BillingEnabled: &billingEnabled,
+	}
+	body, _ := json.Marshal(update)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code)
+	s.Contains(rr.Body.String(), "Only admins can change provider billing")
+}
+
 func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchToOrgRejected() {
 	s.server.Cfg.Providers.EnableCustomUserProviders = true
 	endpointID := "ep_123"

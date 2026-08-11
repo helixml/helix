@@ -499,6 +499,9 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 	}
 
 	normalizeHelixAgentAssistantSpecs(app)
+	if err := s.applyDefaultNewProjectAgentConfig(ctx, app); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 
 	err = s.validateProvidersAndModels(ctx, user, app)
 	if err != nil {
@@ -614,6 +617,65 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 		Agent:              created,
 		ModelSubstitutions: modelSubstitutions,
 	}, nil
+}
+
+func needsDefaultNewProjectAgentConfig(app *types.Agent) bool {
+	if app == nil {
+		return false
+	}
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.GetAgentType() == types.AgentTypeZedExternal &&
+			!assistant.CodeAgentCredentialType.IsSubscription() &&
+			assistant.Provider == "" && assistant.Model == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *HelixAPIServer) applyDefaultNewProjectAgentConfig(ctx context.Context, app *types.Agent) error {
+	if !needsDefaultNewProjectAgentConfig(app) {
+		return nil
+	}
+
+	settings, err := s.Store.GetSystemSettings(ctx)
+	if err != nil {
+		return fmt.Errorf("get default new project agent configuration: %w", err)
+	}
+	return applyDefaultNewProjectAgentConfig(settings, app)
+}
+
+func applyDefaultNewProjectAgentConfig(settings *types.SystemSettings, app *types.Agent) error {
+	if !needsDefaultNewProjectAgentConfig(app) {
+		return nil
+	}
+	if settings == nil || settings.DefaultNewProjectAgentProvider == "" || settings.DefaultNewProjectAgentModel == "" {
+		return errors.New("default new project agent provider and model are not configured in Admin > System Settings")
+	}
+
+	effort := settings.DefaultNewProjectAgentReasoningEffort
+	if effort == "" {
+		effort = types.ReasoningEffortNone
+	}
+	if !types.ValidReasoningEffort(effort) {
+		return fmt.Errorf("invalid default new project agent reasoning effort %q", effort)
+	}
+
+	for idx := range app.Config.Helix.Assistants {
+		assistant := &app.Config.Helix.Assistants[idx]
+		if assistant.GetAgentType() != types.AgentTypeZedExternal ||
+			assistant.CodeAgentCredentialType.IsSubscription() ||
+			assistant.Provider != "" || assistant.Model != "" {
+			continue
+		}
+		assistant.CodeAgentCredentialType = types.CodeAgentCredentialTypeAPIKey
+		assistant.Provider = settings.DefaultNewProjectAgentProvider
+		assistant.Model = settings.DefaultNewProjectAgentModel
+		if assistant.ReasoningEffort == "" {
+			assistant.ReasoningEffort = effort
+		}
+	}
+	return nil
 }
 
 // validateProvidersAndModels checks if the provider and model are valid. Provider

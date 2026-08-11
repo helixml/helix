@@ -154,6 +154,47 @@ func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 	suite.Equal(0, dailyMetrics[4].PromptTokens)   // March 8th
 }
 
+func (suite *UsageMetricsTestSuite) TestProviderDailyUsageCountsLLMCalls() {
+	providerID := "provider-" + system.GenerateID()
+	interactionID := "interaction-" + system.GenerateID()
+	day := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	suite.T().Cleanup(func() {
+		err := suite.db.gdb.WithContext(suite.ctx).
+			Where("provider = ?", providerID).
+			Delete(&types.UsageMetric{}).Error
+		suite.NoError(err)
+	})
+
+	for i := 0; i < 2; i++ {
+		_, err := suite.db.CreateUsageMetric(suite.ctx, &types.UsageMetric{
+			Created:          day.Add(time.Duration(i) * time.Minute),
+			Provider:         providerID,
+			InteractionID:    interactionID,
+			CompletionTokens: 10,
+			TotalTokens:      20,
+		})
+		suite.Require().NoError(err)
+	}
+
+	metrics, err := suite.db.GetProviderDailyUsageMetrics(
+		suite.ctx,
+		providerID,
+		day.Add(-time.Hour),
+		day.Add(24*time.Hour),
+	)
+	suite.Require().NoError(err)
+
+	var got *types.AggregatedUsageMetric
+	for _, metric := range metrics {
+		if metric.Date.Equal(day) {
+			got = metric
+			break
+		}
+	}
+	suite.Require().NotNil(got)
+	suite.Equal(2, got.TotalRequests, "each usage metric is one LLM call, even within one interaction")
+}
+
 func (suite *UsageMetricsTestSuite) TestGetAggregatedUsageMetrics_IncludesCacheFields() {
 	// Regression test: the aggregate SELECT used to omit cache_read_*,
 	// cache_write_*, prompt_cost, completion_cost; rows came back with

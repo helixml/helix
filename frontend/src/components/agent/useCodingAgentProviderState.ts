@@ -14,6 +14,7 @@ import { CodingAgentFormValue } from './CodingAgentForm'
 export function useCodingAgentProviderState(
   value: CodingAgentFormValue,
   onChange: (value: CodingAgentFormValue) => void,
+  autoSelectRuntime = true,
 ) {
   const { data: providerEndpoints } = useListProviders({ loadModels: false })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
@@ -37,12 +38,13 @@ export function useCodingAgentProviderState(
     if (hasAutoSelected.current) return
     if (!providerEndpointsLoaded) return
     hasAutoSelected.current = true
+    if (!autoSelectRuntime) return
     if (hasAnthropicProvider) {
       onChange({ ...value, codeAgentRuntime: 'claude_code', claudeCodeMode: 'api_key' })
     } else if (hasClaudeSubscription) {
       onChange({ ...value, codeAgentRuntime: 'claude_code', claudeCodeMode: 'subscription' })
     }
-  }, [hasAnthropicProvider, hasClaudeSubscription, providerEndpointsLoaded])
+  }, [autoSelectRuntime, hasAnthropicProvider, hasClaudeSubscription, providerEndpointsLoaded])
 
   return { hasAnthropicProvider, hasClaudeSubscription, hasCodexSubscription }
 }

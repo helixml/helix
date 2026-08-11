@@ -14,13 +14,11 @@ import PeopleIcon from '@mui/icons-material/People';
 import { X, User } from 'lucide-react';
 import {
   TypesAccessGrant,
-  TypesAction,
   TypesCreateAccessGrantRequest,
   TypesCreateAccessGrantResponse,
-  TypesEffect,
-  TypesResource,
 } from '../../api/api';
 import AccessManagement from '../app/AccessManagement';
+import { canManageProjectAccess } from '../../utils/projectAccess';
 
 const MAX_VISIBLE_AVATARS = 3;
 
@@ -151,6 +149,7 @@ const InviteDialog: FC<InviteDialogProps> = ({
         {organizationId ? (
           <AccessManagement
             appId={projectId}
+            resourceLabel="project"
             accessGrants={accessGrants}
             isLoading={false}
             isReadOnly={!isOwnerOrAdmin}
@@ -180,6 +179,7 @@ export interface ProjectMembersBarProps {
   projectOwner?: ProjectOwnerSummary;
   projectId: string;
   organizationId?: string;
+  organizationOwnerId?: string;
   accessGrants: TypesAccessGrant[];
   inviteOpen: boolean;
   onOpenInvite: () => void;
@@ -188,37 +188,13 @@ export interface ProjectMembersBarProps {
   onDeleteGrant: (grantId: string) => Promise<boolean>;
 }
 
-function grantAllowsAccessGrantManagement(grant: TypesAccessGrant): boolean {
-  return (grant.roles || []).some((role) => {
-    if (role.name?.toLowerCase() === 'admin') {
-      return true;
-    }
-
-    return (role.config?.rules || []).some((rule) => {
-      if (rule.effect !== TypesEffect.EffectAllow) {
-        return false;
-      }
-
-      const resources = rule.resource || [];
-      const actions = rule.actions || [];
-      const canManageAccessGrants = (
-        resources.includes(TypesResource.ResourceAccessGrants) ||
-        resources.includes(TypesResource.ResourceAny)
-      );
-      const canCreate = actions.includes(TypesAction.ActionCreate);
-      const canDelete = actions.includes(TypesAction.ActionDelete);
-
-      return canManageAccessGrants && canCreate && canDelete;
-    });
-  });
-}
-
 const ProjectMembersBar: FC<ProjectMembersBarProps> = ({
   currentUser,
   projectOwnerId,
   projectOwner,
   projectId,
   organizationId,
+  organizationOwnerId,
   accessGrants,
   inviteOpen,
   onOpenInvite,
@@ -260,10 +236,12 @@ const ProjectMembersBar: FC<ProjectMembersBarProps> = ({
     members.push({ key: `placeholder-${i}`, isPlaceholder: true, label: '' });
   }
 
-  const currentUserCanManageAccess = !!currentUser?.id && accessGrants.some((grant) => {
-    return grant.user_id === currentUser.id && grantAllowsAccessGrantManagement(grant);
-  });
-  const isOwnerOrAdmin = currentUser?.id === projectOwnerId || !!currentUser?.admin || currentUserCanManageAccess;
+  const isOwnerOrAdmin = canManageProjectAccess(
+    currentUser,
+    projectOwnerId,
+    organizationOwnerId,
+    accessGrants,
+  );
 
   return (
     <>

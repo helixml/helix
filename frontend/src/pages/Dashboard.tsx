@@ -30,6 +30,7 @@ import {
 } from "../api/api";
 
 import ProviderEndpointsTable from "../components/dashboard/ProviderEndpointsTable";
+import ProviderDetail from "./ProviderDetail";
 import LMStudioModels from "../components/providers/LMStudioModels";
 import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from "../services/providersService";
 import { PROVIDERS, Provider } from "../components/providers/types";
@@ -61,9 +62,11 @@ const START_ACTIVE = true;
 interface DashboardProps {
     tab?: string
     initialSessionFilter?: string
+    providerId?: string
+    onProviderChange?: (providerId?: string) => void
 }
 
-const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter }) => {
+const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter, providerId, onProviderChange }) => {
     const account = useAccount();
     const api = useApi();
 
@@ -217,8 +220,19 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                             width: "100%",
                         }}
                     >
-                        <DashboardProviders />
-                        <ProviderEndpointsTable />
+                        {providerId ? (
+                            <ProviderDetail
+                                providerId={providerId}
+                                embedded
+                                dateParamPrefix="dialog_provider_"
+                                onBack={() => onProviderChange?.()}
+                            />
+                        ) : (
+                            <>
+                                <DashboardProviders />
+                                <ProviderEndpointsTable onOpenProvider={onProviderChange} />
+                            </>
+                        )}
                     </Box>
                 )}
 

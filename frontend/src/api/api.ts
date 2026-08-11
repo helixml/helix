@@ -5278,6 +5278,7 @@ export interface TypesProviderEndpoint {
   error?: string;
   /** If for example anthropic expects x-api-key and anthropic-version */
   headers?: Record<string, string>;
+  icon?: string;
   id?: string;
   /** Optional */
   models?: string[];
@@ -7176,6 +7177,9 @@ export interface TypesSyncAllResponse {
 }
 
 export interface TypesSystemSettingsRequest {
+  default_new_project_agent_model?: string;
+  default_new_project_agent_provider?: string;
+  default_new_project_agent_reasoning_effort?: string;
   enforce_quotas?: boolean;
   huggingface_token?: string;
   kodit_enrichment_model?: string;
@@ -7207,6 +7211,9 @@ export interface TypesSystemSettingsRequest {
 
 export interface TypesSystemSettingsResponse {
   created?: string;
+  default_new_project_agent_model?: string;
+  default_new_project_agent_provider?: string;
+  default_new_project_agent_reasoning_effort?: string;
   enforce_quotas?: boolean;
   /** Sensitive fields are masked */
   huggingface_token_set?: boolean;
@@ -7583,11 +7590,13 @@ export interface TypesUpdateProviderEndpoint {
   /** Must be mounted to the container */
   api_key_file?: string;
   base_url?: string;
+  billing_enabled?: boolean;
   description?: string;
   /** global, user (TODO: orgs, teams) */
   endpoint_type?: TypesProviderEndpointType;
   /** Custom headers for the endpoint */
   headers?: Record<string, string>;
+  icon?: string;
   models?: string[];
   name?: string;
   vertex_credentials_file?: string;
