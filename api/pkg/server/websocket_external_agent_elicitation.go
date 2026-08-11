@@ -229,8 +229,20 @@ func (apiServer *HelixAPIServer) writeElicitationEntry(
 	sctx.mu.Lock()
 	defer sctx.mu.Unlock()
 
-	if sctx.accumulator == nil {
-		sctx.accumulator = &wsprotocol.MessageAccumulator{}
+	// The streaming context is keyed by session, but the target interaction was resolved
+	// independently — and when the request_id is missing they can disagree, because the
+	// interaction-transition reset in getOrCreateStreamingContext only fires for a
+	// request_id it can map. Writing this session's accumulated entries onto a different
+	// interaction leaks one turn's transcript into another's, so rebuild from the target
+	// interaction's own entries instead of trusting a stale accumulator.
+	if sctx.accumulator == nil || (sctx.interactionID != "" && sctx.interactionID != interaction.ID) {
+		sctx.accumulator = wsprotocol.RestoreAccumulator(
+			interaction.ResponseMessage,
+			interaction.LastZedMessageID,
+			interaction.LastZedMessageOffset,
+			interaction.ResponseEntries,
+		)
+		sctx.previousEntries = nil
 	}
 
 	entry := &wsprotocol.ElicitationEntry{
@@ -279,6 +291,9 @@ func (apiServer *HelixAPIServer) writeElicitationEntry(
 			Msg("[ELICITATION] Failed to persist question to interaction")
 	}
 	sctx.interaction = interaction
+	// Keep the context's identity in step with what it now holds, so a later event that
+	// does carry a request_id sees an honest "which interaction is this" answer.
+	sctx.interactionID = interaction.ID
 }
 
 // handleElicitationResolved records that a question stopped being answerable, whatever

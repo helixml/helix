@@ -14,11 +14,13 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/server/wsprotocol"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
+	"gorm.io/datatypes"
 )
 
 // ElicitationSuite covers the agent-questions feature: the four sync handlers that
@@ -867,4 +869,60 @@ func (s *ElicitationSuite) TestPromptQueue_DefersWhenTheBlockedCheckFails() {
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), gomock.Any()).Times(0)
 
 	s.server.processPromptQueue(context.Background(), testSessionID)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Transcript isolation
+// ──────────────────────────────────────────────────────────────────────────────
+
+// A question must never drag another turn's transcript into the interaction it lands on.
+//
+// The streaming context is keyed by session, but the target interaction is resolved
+// independently — and with no request_id to map, getOrCreateStreamingContext's
+// interaction-transition reset never fires, so the context can still hold the PREVIOUS
+// turn's accumulator. Writing that onto the newly-resolved interaction leaks one turn's
+// entries into another. Caught by the e2e's response-entries isolation check.
+func (s *ElicitationSuite) TestRequested_DoesNotLeakAnotherInteractionsEntries() {
+	s.server.contextMappings[testThreadID] = testSessionID
+
+	// A streaming context whose interaction has moved on to a newer turn while its
+	// accumulator still holds the PREVIOUS turn's entries — the state the queue path
+	// leaves behind when no request_id-mapped event has triggered the reset yet.
+	stale := &wsprotocol.MessageAccumulator{}
+	stale.AddMessageWithType("11", "content from the PREVIOUS turn", "text")
+	target := &types.Interaction{ID: "int_newer_turn", SessionID: testSessionID}
+	s.server.streamingContexts[testSessionID] = &streamingContext{
+		interactionID: "int_previous_turn",
+		interaction:   target,
+		accumulator:   stale,
+		session:       s.session(),
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), testSessionID).Return(s.session(), nil).AnyTimes()
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{target}, int64(1), nil).AnyTimes()
+	s.store.EXPECT().UpsertAgentElicitation(gomock.Any(), gomock.Any()).Return(true, nil)
+
+	stored := s.pendingElicitation()
+	stored.InteractionID = target.ID
+	s.store.EXPECT().GetAgentElicitation(gomock.Any(), testElicitationID).Return(stored, nil)
+
+	var written datatypes.JSON
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, i *types.Interaction) (*types.Interaction, error) {
+			if i.ID == target.ID {
+				written = i.ResponseEntries
+			}
+			return i, nil
+		}).AnyTimes()
+
+	msg := requestedSyncMsg()
+	msg.Data["request_id"] = "" // the fallback path: nothing to map to an interaction
+
+	s.NoError(s.server.handleElicitationRequested("agent-1", msg))
+
+	s.Require().NotEmpty(written, "the question must be persisted onto the target interaction")
+	s.NotContains(string(written), "content from the PREVIOUS turn",
+		"the previous turn's entries must not leak into this interaction")
+	s.Contains(string(written), testElicitationID, "the question itself must be present")
 }
