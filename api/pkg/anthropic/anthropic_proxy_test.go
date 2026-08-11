@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
@@ -18,9 +20,19 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
+
+type captureAnthropicLogStore struct {
+	calls chan *types.LLMCall
+}
+
+func (s *captureAnthropicLogStore) CreateLLMCall(_ context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+	s.calls <- call
+	return call, nil
+}
 
 func TestProxySuite(t *testing.T) {
 	suite.Run(t, new(ProxySuite))
@@ -139,6 +151,74 @@ func (suite *ProxySuite) TestProxyBilling_OK() {
 	suite.Contains(string(respBody), "hello to you too")
 
 	suite.proxy.wg.Wait()
+}
+
+func TestStreamingProxyLogsCumulativeUsageSnapshot(t *testing.T) {
+	cfg := &config.ServerConfig{}
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	logStore := &captureAnthropicLogStore{calls: make(chan *types.LLMCall, 1)}
+	proxy := New(cfg, nil, modelInfoProvider, logStore)
+
+	ctx := oai.SetContextValues(context.Background(), &oai.ContextValues{
+		InteractionID:   "interaction_123",
+		OriginalRequest: []byte(`{"model":"claude-sonnet-4-20250514","stream":true}`),
+		OwnerID:         "user-123",
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://localhost/v1/messages", nil)
+	require.NoError(t, err)
+	req = SetRequestProviderEndpoint(req, &types.ProviderEndpoint{
+		ID:      "anthropic-endpoint",
+		Name:    "anthropic",
+		BaseURL: "https://api.anthropic.com",
+	})
+	req = setStartTime(req, time.Now())
+
+	stream := strings.Join([]string{
+		`event: message_start`,
+		`data: {"type":"message_start","message":{"id":"msg_123","type":"message","role":"assistant","model":"claude-sonnet-4-20250514","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":100,"cache_creation_input_tokens":20,"cache_read_input_tokens":80,"output_tokens":1}}}`,
+		``,
+		`event: content_block_start`,
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		``,
+		`event: content_block_delta`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}`,
+		``,
+		`event: content_block_stop`,
+		`data: {"type":"content_block_stop","index":0}`,
+		``,
+		`event: message_delta`,
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":20}}`,
+		``,
+		`event: message_stop`,
+		`data: {"type":"message_stop"}`,
+		``,
+	}, "\n")
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(stream)),
+		Request:    req,
+	}
+
+	require.NoError(t, proxy.anthropicAPIProxyModifyResponse(resp))
+	forwarded, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, stream, string(forwarded))
+
+	var call *types.LLMCall
+	select {
+	case call = <-logStore.calls:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Anthropic usage log")
+	}
+	assert.EqualValues(t, 200, call.PromptTokens)
+	assert.EqualValues(t, 20, call.CompletionTokens)
+	assert.EqualValues(t, 220, call.TotalTokens)
+	assert.EqualValues(t, 80, call.CacheReadTokens)
+	assert.EqualValues(t, 20, call.CacheWriteTokens)
 }
 
 func Test_stripDateFromModelName(t *testing.T) {
