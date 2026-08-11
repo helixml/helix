@@ -188,6 +188,56 @@ Key constraints encoded here:
   the poll resolves, `writeText` rejects and we fall back to the sentinel-on-clipboard
   state — which the paste-side fix handles. No user-visible failure either way.
 
+## Implementation notes (written during implementation)
+
+- **`filesFromClipboard` had exactly one caller before this change.** Filtering inside it
+  (not at call sites) was the right seam: `InferenceTextField` was then migrated onto it,
+  so both chat inputs inherit the sentinel drop from one place.
+- **`InferenceTextField` previously ignored `clipboardData.files`** entirely — it only
+  walked `.items`. Routing it through `filesFromClipboard` also picks up `.files`. That is
+  a small behaviour improvement beyond the bug fix; called out in the PR description.
+- **The three new `RobustPromptInput` tests were confirmed to be genuine regression
+  tests**: with the one-line filter in `filesFromClipboard` reverted, all three fail; with
+  it restored, all three pass. A test that passes both ways would have been worthless here.
+- **Asserting "the text was inserted" in jsdom is not possible** — jsdom does not implement
+  the browser's native paste insertion. The tests instead assert `event.defaultPrevented
+  === false` (via `createEvent.paste` + `fireEvent`), which is the precise contract: the
+  handler must not swallow the event, leaving native insertion to the browser. The live
+  browser check below confirms the user-visible half.
+- **`PLACEHOLDER_PNG_BYTE_LENGTH` is computed with `atob()` at module load**, not
+  hardcoded as `70`. `clipboardPlaceholder.test.ts` asserts it equals 70 and that the bytes
+  carry a valid PNG signature and trailing `IEND`, so the constant and the size-based match
+  cannot silently drift.
+
+### Environment gotchas hit in this sandbox (worth knowing next time)
+
+- `frontend/node_modules` was absent; `yarn install` takes ~3 min.
+- **`yarn tsc` emits compiled output into `frontend/lib/`** (gitignored). `yarn test`
+  (`vitest run`) then collects those compiled `.js` duplicates and reports ~111 bogus
+  failures ("Vitest cannot be imported in a CommonJS module using require()"). Remove/move
+  `frontend/lib` before running the suite, or run `vitest` on `src/` paths directly.
+- **`frontend/dist` is a root-owned bind mount** that the `retro` user cannot write to, so
+  plain `yarn build` cannot write its output here. Build with
+  `npx vite build --outDir /tmp/dist-check` to validate bundling without touching the mount
+  (and never `rm -rf frontend/dist` — CLAUDE.md).
+- This host was extremely contended during the run (load average 130–316 on 4 CPUs). Vite
+  builds were OOM-killed (`Killed`), the frontend container's esbuild worker died and
+  needed `docker compose -f docker-compose.dev.yaml restart frontend`, and `docker exec`
+  calls intermittently timed out at 240s.
+- The inner Helix had **no default agent provider/model configured**, so project creation
+  failed with "Failed to create agent" (API: `default new project agent provider and model
+  are not configured in Admin > System Settings`). There is no `/dashboard` or
+  `/admin/settings` route in this build, so it was set directly:
+  `UPDATE system_settings SET default_new_project_agent_provider='anthropic',
+  default_new_project_agent_model='claude-opus-5' WHERE id='system';`
+  (`claude-opus-5` is what the configured `ANTHROPIC_BASE_URL` proxy serves.)
+- **`POST /external-agents/{id}/clipboard` cannot be used to fake a remote text copy.** On
+  GNOME the bridge writes the selection over D-Bus RemoteDesktop `SetSelection`; the
+  desktop then owns the selection, and the matching `GET` (which is what the copy handler
+  polls) reads back empty. The POST returns 200 and still leaves the poll seeing `{"type":
+  "text","data":""}`. A real copy performed by an app inside the desktop is the only way to
+  drive that path.
+
 ## Verification plan
 
 1. `cd frontend && yarn tsc && yarn build`.
