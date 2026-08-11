@@ -241,6 +241,37 @@ func TestTLSSkipVerify_SelfSignedCert(t *testing.T) {
 	})
 }
 
+func TestListModelsNormalizesCompatibleContextLengthFields(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/models", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, err := io.WriteString(w, `{
+			"data": [
+				{"id":"vllm-model","max_model_len":262144},
+				{"id":"compatible-model","max_context_length":131072},
+				{"id":"canonical-wins","context_length":65536,"max_model_len":393216},
+				{"id":"nested-model","model_info":{"context_length":32768}}
+			]
+		}`)
+		require.NoError(t, err)
+	}))
+	defer ts.Close()
+
+	client := New("test-api-key", ts.URL, false)
+	models, err := client.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 4)
+
+	modelsByID := make(map[string]types.OpenAIModel, len(models))
+	for _, listedModel := range models {
+		modelsByID[listedModel.ID] = listedModel
+	}
+	assert.Equal(t, 262144, modelsByID["vllm-model"].ContextLength, "vLLM max_model_len should be normalized")
+	assert.Equal(t, 131072, modelsByID["compatible-model"].ContextLength, "max_context_length should be normalized")
+	assert.Equal(t, 65536, modelsByID["canonical-wins"].ContextLength, "canonical context_length should take precedence")
+	assert.Equal(t, 32768, modelsByID["nested-model"].ContextLength, "nested model_info context should be used as a final fallback")
+}
+
 // TestOld2525Behavior_WithActualOpenAIClient tests the ACTUAL OpenAI client
 // code path to see if there's a bug in how TLSSkipVerify is applied.
 // This simulates the exact 2.5.25 code to find the real issue.

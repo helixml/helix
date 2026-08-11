@@ -2,10 +2,19 @@ package server
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
+	"github.com/dgraph-io/ristretto/v2"
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
@@ -388,6 +397,141 @@ func TestBuildCodeAgentConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := apiServer.buildCodeAgentConfig(ctx, tt.app, helixURL, "")
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
+	const (
+		providerName          = "ds4-flash-node06"
+		modelName             = "deepseek-v4-flash"
+		providerBaseURL       = "http://ds4-loadbalancer/v1"
+		catalogueContext      = 1048576
+		catalogueOutputTokens = 131072
+	)
+
+	tests := []struct {
+		name                 string
+		advertisedContext    int
+		catalogueUnavailable bool
+		providerListErr      error
+		providerModelsErr    error
+		wantContext          int
+		wantOutputTokens     int
+	}{
+		{
+			name:              "advertised context overrides larger catalogue value",
+			advertisedContext: 262144,
+			wantContext:       262144,
+			wantOutputTokens:  catalogueOutputTokens,
+		},
+		{
+			name:                 "advertised context works without catalogue metadata",
+			advertisedContext:    262144,
+			catalogueUnavailable: true,
+			wantContext:          262144,
+		},
+		{
+			name:              "zero advertised context falls back to catalogue",
+			advertisedContext: 0,
+			wantContext:       catalogueContext,
+			wantOutputTokens:  catalogueOutputTokens,
+		},
+		{
+			name:             "provider endpoint lookup failure falls back to catalogue",
+			providerListErr:  errors.New("provider registry unavailable"),
+			wantContext:      catalogueContext,
+			wantOutputTokens: catalogueOutputTokens,
+		},
+		{
+			name:              "provider models failure falls back to catalogue",
+			providerModelsErr: errors.New("models endpoint unavailable"),
+			wantContext:       catalogueContext,
+			wantOutputTokens:  catalogueOutputTokens,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			providerManager := manager.NewMockProviderManager(ctrl)
+			providerClient := openai.NewMockClient(ctrl)
+			modelInfoProvider := model.NewMockModelInfoProvider(ctrl)
+
+			cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
+				NumCounters: 1e3,
+				MaxCost:     1 << 20,
+				BufferItems: 64,
+			})
+			require.NoError(t, err)
+			defer cache.Close()
+
+			cfg := &config.ServerConfig{}
+			cfg.WebServer.ModelsCacheTTL = time.Minute
+			apiServer := &HelixAPIServer{
+				Cfg:               cfg,
+				providerManager:   providerManager,
+				modelInfoProvider: modelInfoProvider,
+				cache:             cache,
+			}
+
+			endpoint := &types.ProviderEndpoint{
+				ID:      "pe_ds4",
+				Name:    providerName,
+				Owner:   "user-1",
+				BaseURL: providerBaseURL,
+			}
+
+			providerManager.EXPECT().
+				ListProviderEndpoints(gomock.Any(), "user-1").
+				Return(func() []*types.ProviderEndpoint {
+					if tt.providerListErr != nil {
+						return nil
+					}
+					return []*types.ProviderEndpoint{endpoint}
+				}(), tt.providerListErr)
+
+			if tt.providerListErr == nil {
+				providerManager.EXPECT().
+					GetClient(gomock.Any(), &manager.GetClientRequest{Provider: providerName, Owner: "user-1"}).
+					Return(providerClient, nil)
+				providerClient.EXPECT().
+					ListModels(gomock.Any()).
+					Return(func() []types.OpenAIModel {
+						if tt.providerModelsErr != nil {
+							return nil
+						}
+						return []types.OpenAIModel{{ID: modelName, ContextLength: tt.advertisedContext}}
+					}(), tt.providerModelsErr)
+			}
+
+			modelInfoProvider.EXPECT().
+				GetModelInfo(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ *model.ModelInfoRequest) (*types.ModelInfo, error) {
+					if tt.catalogueUnavailable {
+						return nil, errors.New("model not in catalogue")
+					}
+					return &types.ModelInfo{
+						ContextLength:       catalogueContext,
+						MaxCompletionTokens: catalogueOutputTokens,
+					}, nil
+				}).AnyTimes()
+
+			app := &types.App{
+				Owner: "user-1",
+				Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+					AgentType:               types.AgentTypeZedExternal,
+					GenerationModelProvider: providerName,
+					GenerationModel:         modelName,
+					CodeAgentRuntime:        types.CodeAgentRuntimeZedAgent,
+				}}}},
+			}
+
+			got := apiServer.buildCodeAgentConfig(context.Background(), app, "http://helix-api:8080", "")
+			require.NotNil(t, got)
+			assert.Equal(t, tt.wantContext, got.MaxTokens)
+			assert.Equal(t, tt.wantOutputTokens, got.MaxOutputTokens)
+			assert.Equal(t, providerName+"/"+modelName, got.Model)
 		})
 	}
 }
