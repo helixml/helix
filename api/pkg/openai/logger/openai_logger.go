@@ -230,19 +230,9 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 		}
 	}
 
-	// Append the usage
+	// Streaming usage is a cumulative snapshot for the request, not a per-chunk delta.
 	if chunk.Usage != nil {
-		resp.Usage.PromptTokens += chunk.Usage.PromptTokens
-		resp.Usage.CompletionTokens += chunk.Usage.CompletionTokens
-		resp.Usage.TotalTokens += chunk.Usage.TotalTokens
-
-		if chunk.Usage.PromptTokensDetails != nil {
-			if resp.Usage.PromptTokensDetails == nil {
-				resp.Usage.PromptTokensDetails = &openai.PromptTokensDetails{}
-			}
-			resp.Usage.PromptTokensDetails.CachedTokens += chunk.Usage.PromptTokensDetails.CachedTokens
-			resp.Usage.PromptTokensDetails.AudioTokens += chunk.Usage.PromptTokensDetails.AudioTokens
-		}
+		resp.Usage = *chunk.Usage
 	}
 }
 
