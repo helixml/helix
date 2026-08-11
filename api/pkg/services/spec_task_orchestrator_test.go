@@ -71,6 +71,14 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_KeepAliveSkipsStop() {
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_EmptyPlanningSessionSkipsStop() {
+	err := s.orchestrator.handleDone(context.Background(), &types.SpecTask{
+		ID:     "task-without-session",
+		Status: types.TaskStatusDone,
+	})
+	s.Require().NoError(err)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_SkipsWhenStaleEvent() {
 	ctx := context.Background()
 	eventTask := &types.SpecTask{
