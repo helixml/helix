@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import ElicitationCard, { ElicitationPayload } from "./ElicitationCard";
 import { respondToElicitation } from "../../services/elicitationService";
+import useApi from "../../hooks/useApi";
 
 /**
  * Owns the answer mutation for one question card.
@@ -15,6 +16,7 @@ const ElicitationCardContainer: FC<{
   elicitation: ElicitationPayload;
 }> = ({ sessionId, elicitation }) => {
   const queryClient = useQueryClient();
+  const api = useApi();
 
   const mutation = useMutation({
     mutationFn: (variables: {
@@ -23,6 +25,7 @@ const ElicitationCardContainer: FC<{
       content: Record<string, unknown>;
     }) =>
       respondToElicitation(
+        api.getApiClient(),
         sessionId,
         variables.elicitationId,
         variables.action,
