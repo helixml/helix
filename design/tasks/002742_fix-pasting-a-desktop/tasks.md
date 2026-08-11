@@ -27,8 +27,8 @@
 - [x] `RobustPromptInput.test.tsx`: text + sentinel PNG → text inserted, no attachment appears
 - [x] `RobustPromptInput.test.tsx`: real pasted image → still attaches (no regression)
 - [x] `RobustPromptInput.test.tsx`: large-text paste → still converts to a `.txt` attachment
-- [~] `cd frontend && yarn tsc && yarn build` passes
-- [x] `cd frontend && yarn test` passes
+- [ ] **`yarn build` NOT completed on this host.** `yarn tsc` passed clean pre-merge; `frontend/dist` is a root-owned bind mount the sandbox user cannot write to, and two builds redirected to a temp `--outDir` were OOM-killed under load averages reaching 515 on 4 CPUs. A third attempt plus a post-merge `yarn tsc` were still running after ~50 min. CI must confirm the production build.
+- [x] `cd frontend && yarn test` passes (112 files / 596 tests, plus a 32-test targeted re-run after merging `origin/main`)
 
 ## End-to-end verification in the inner Helix
 

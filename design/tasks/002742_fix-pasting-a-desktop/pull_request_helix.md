@@ -61,8 +61,12 @@ clipboard producer — not just ours.
 ## Testing
 
 **Ran and passing:**
-- `yarn tsc` (full TypeScript project build) — clean.
+- `yarn tsc` (full TypeScript project build) — clean. Note this was run *before* merging
+  `origin/main`; the post-merge re-run had not finished on this host (see below).
 - Full `vitest` suite: **112 files, 596 tests passed, 1 skipped**.
+- Targeted re-run **after** merging `origin/main` (which touched `RobustPromptInput`):
+  **32 tests passed** across `RobustPromptInput.test.tsx`, `chatAttachments.test.ts` and
+  `clipboardPlaceholder.test.ts`.
 - New coverage: text + sentinel PNG → text preserved, nothing attached; a real pasted
   image → still attaches; large text paste → still becomes a `.txt` attachment; plus
   `filesFromClipboard` unit tests and an assertion that the sentinel decodes to exactly 70
@@ -97,11 +101,17 @@ not "any small PNG".
 - **The image-copy-from-desktop path was likewise not exercised end-to-end**, for the same
   reason. The paste half of it *is* covered by the real-image browser check above and by
   unit tests.
-- `yarn build` could not be completed here: `frontend/dist` is a root-owned bind mount the
-  sandbox user cannot write to, and builds redirected to a temp `--outDir` were OOM-killed
-  under the host load. `yarn tsc` and the full test suite both pass, and the changed
-  modules ran through Vite in the live browser, but I have not seen a green `vite build`
-  and am not claiming one — CI will confirm.
+- **`yarn build` never completed on this host, and I am not claiming it passes.**
+  `frontend/dist` is a root-owned bind mount the sandbox user cannot write to, and two
+  builds redirected to a temp `--outDir` were OOM-killed (`Killed`) under host load
+  averages that reached 515 on 4 CPUs. A third attempt, together with a post-merge
+  `yarn tsc`, was still running after ~50 minutes when I stopped waiting. What I do have:
+  a clean pre-merge `yarn tsc`, the full test suite green, the post-merge targeted tests
+  green, and the changed modules running through Vite in the live browser. CI must confirm
+  the production build.
+- The merge of `origin/main` had one conflict — main widened `handlePaste`'s parameter from
+  `React.ClipboardEvent<HTMLTextAreaElement>` to `<HTMLElement>`. I kept main's newer
+  signature and folded my comment in; the post-merge tests pass against it.
 
 The copy-side change is guarded (`kind === "text" && d?.data && navigator.clipboard?.writeText`),
 swallows its own errors, and runs only after the existing write resolves, so the worst case
