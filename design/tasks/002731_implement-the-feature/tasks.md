@@ -8,22 +8,22 @@
 
 ## Verify first (blocking assumptions)
 
-- [~] Confirm empirically on a live thread that Zed's `entry_index` == the accumulator's `message_id` (log `(entry_index, message_id, entry_type)` on both sides for a turn with text + tool call + elicitation); if not, carry an explicit `after_message_id` instead
+- [~] Confirm `entry_index` == accumulator `message_id`. STATIC PROOF DONE: `message_id` is literally `latest_idx.to_string()` / `entry_idx` (the index into `AcpThread::entries()`), and elicitations are pushed into that same vector, so the equality holds by construction. Live log confirmation still pending during live testing. Original wording (log `(entry_index, message_id, entry_type)` on both sides for a turn with text + tool call + elicitation); if not, carry an explicit `after_message_id` instead
 - [ ] Re-read `applyAskElicitationResponse` (`claude-agent-acp/dist/elicitation.js:180-210`) in the version actually deployed at implementation time and mirror its precedence exactly
 
 ## Zed — `crates/external_websocket_sync/`
 
-- [ ] Add `SyncEvent::ElicitationRequested`, `ElicitationResolved`, `ElicitationResync`, `ElicitationResponseAck` to `src/types.rs` plus their `to_outgoing_message()` arms
-- [ ] Add a single `status_str()` helper mapping `ElicitationStatus` → wire strings (`Canceled` → `"cancelled"`), used everywhere
-- [ ] Emit `ElicitationRequested` from the `AcpThreadEvent::ElicitationRequested` arm in `thread_service.rs`, serializing `requested_schema` verbatim with `serde_json::to_value`
-- [ ] Emit `ElicitationResolved` from both `AcpThreadEvent::ElicitationResponded` and the `EntryUpdated(ix)` arm when the entry is `AgentThreadEntry::Elicitation`
-- [ ] Add `Elicitation` arms to the three entry-mapping matches (`NewEntry` ~:914, `EntryUpdated` ~:1051, `Stopped/Error` flush ~:1112) so elicitation entries are no longer dropped
-- [ ] Use the turn-scoped `turn_request_id` for all elicitation events (copy the neighbouring arms; do not call `get_thread_request_id` directly)
-- [ ] Add the reconnect/`open_thread` **resync**: re-emit `ElicitationRequested` for every still-`Pending` elicitation per registered thread, then one `ElicitationResync` per thread listing exactly those ids (empty list is meaningful) — reuse the entry-walk machinery from the `Stopped`/`Error` flush
-- [ ] Add `ElicitationResponseRequest` + `GLOBAL_ELICITATION_RESPONSE_CALLBACK` (+ pending queue) in `external_websocket_sync.rs`, mirroring the cancel-thread callback
-- [ ] Add `respond_elicitation` to the command dispatch in `websocket_sync.rs` and its `handle_respond_elicitation` parser
-- [ ] Add the dedicated GPUI drain task in `thread_service.rs` (next to the cancel task) calling `AcpThread::respond_to_elicitation`
-- [ ] Snapshot status before/after the update and emit `ElicitationResponseAck` with `accepted` / `noop` / `not_found`; no `unwrap()`, no bare `let _ =`
+- [x] Add `SyncEvent::ElicitationRequested`, `ElicitationResolved`, `ElicitationResync`, `ElicitationResponseAck` to `src/types.rs` plus their `to_outgoing_message()` arms
+- [x] Add a single `status_str()` helper mapping `ElicitationStatus` → wire strings (`Canceled` → `"cancelled"`), used everywhere
+- [x] Emit `ElicitationRequested` from the `AcpThreadEvent::ElicitationRequested` arm in `thread_service.rs`, serializing `requested_schema` verbatim with `serde_json::to_value`
+- [x] Emit `ElicitationResolved` from both `AcpThreadEvent::ElicitationResponded` and the `EntryUpdated(ix)` arm when the entry is `AgentThreadEntry::Elicitation`
+- [x] Add an `Elicitation` arm to the `EntryUpdated` match (status changes arrive only there). CHANGED FROM PLAN: `NewEntry` and the `Stopped`/`Error` flush need no arm — elicitations are carried by the dedicated `AcpThreadEvent::ElicitationRequested`/`ElicitationResponded` events instead, which avoids emitting a duplicate `message_added` for the same entry
+- [x] Use the turn-scoped `turn_request_id` for all elicitation events (copy the neighbouring arms; do not call `get_thread_request_id` directly)
+- [x] Add the reconnect/`open_thread` **resync**: re-emit `ElicitationRequested` for every still-`Pending` elicitation per registered thread, then one `ElicitationResync` per thread listing exactly those ids (empty list is meaningful) — reuse the entry-walk machinery from the `Stopped`/`Error` flush
+- [x] Add `ElicitationResponseRequest` + `GLOBAL_ELICITATION_RESPONSE_CALLBACK` (+ pending queue) in `external_websocket_sync.rs`, mirroring the cancel-thread callback
+- [x] Add `respond_elicitation` to the command dispatch in `websocket_sync.rs` and its `handle_respond_elicitation` parser
+- [x] Add the dedicated GPUI drain task in `thread_service.rs` (next to the cancel task) calling `AcpThread::respond_to_elicitation`
+- [x] Snapshot status before/after the update and emit `ElicitationResponseAck` with `accepted` / `noop` / `not_found`; no `unwrap()`, no bare `let _ =`
 - [ ] Rust unit tests: entry→event mapping, resync emission, no-op on already-answered, not-found on missing thread
 - [ ] `cargo build --features external_websocket_sync -p zed` and `./script/clippy` clean
 

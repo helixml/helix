@@ -462,3 +462,72 @@ blocked-on-human either. Recorded so it is not lost.
   schemas by value shape, never by meta-key string.
 - The Zed agent panel's elicitation card is known-broken by decision, not by accident. Do
   not "fix" it as a debugging aid.
+
+---
+
+# Implementation Notes (written as the work happened)
+
+## Environment constraints discovered
+
+- **There is no Rust toolchain in this workspace** — no `cargo`, no `rustc`, no
+  `~/.cargo`, no `target/`, no vendored deps. The Zed side is compiled through
+  `./stack build-zed` (Docker + BuildKit cache mounts) from the helix repo. Budget for a
+  slow first build; a prebuilt binary already exists at `helix/zed-build/zed`.
+- Because the `agent-client-protocol` source is not on disk, ACP type shapes were verified
+  against **docs.rs** rather than guessed. Doing this before the first build was worth it —
+  two of the shapes were not what the design assumed (below).
+
+## ACP type facts (verified on docs.rs, crate 2.0.0, module `schema::v1`)
+
+- `CreateElicitationRequest` has **only** `mode`, `message`, `meta`. There is **no
+  `tool_call_id` field on the request** — it lives on the scope:
+  `request.scope()` → `ElicitationScope::Session(ElicitationSessionScope { session_id,
+  tool_call_id: Option<ToolCallId> })`. The design's wire format is unchanged; only the
+  extraction path moved.
+- Accept content is `BTreeMap<String, acp::ElicitationContentValue>`, **not** raw JSON.
+  `ElicitationContentValue` = `String | Integer(i64) | Number(f64) | Boolean | StringArray
+  (Vec<String>)`, with `From` impls for each. So Helix's JSON answer is converted
+  field-by-field in `elicitation_content_value()`; shapes with no ACP equivalent are
+  skipped rather than failing the whole answer.
+
+## Design changes made during implementation
+
+1. **`content` in `elicitation_resolved` is always `null`.** `ElicitationStatus::Accepted`
+   is a **unit variant** — Zed does not retain what the user submitted. Helix therefore
+   persists the answer *it sent*, and the Zed event carries status only. (Consequence: an
+   answer submitted from the Zed panel would reach Helix as `accepted` with no content.
+   That panel is broken and out of scope, so this costs nothing today, but it is why the
+   field exists in the wire format rather than being removed.)
+
+2. **The resync is a heartbeat, not a reconnect-only event.** The reviewed design said
+   "reap a pending row that is absent from the resync". That only works if the holder keeps
+   affirming: with a reconnect-only resync, a question the user takes ten minutes to answer
+   would have no fresh statement and would look identical to a dead one, while a container
+   restart that registers *no* threads would emit no resync at all and so produce no
+   evidence to reap on. Fixed by having any thread holding a pending elicitation re-affirm
+   every `ELICITATION_HEARTBEAT_INTERVAL` (15 s, comfortably inside the 60 s grace window).
+   Helix's reap rule becomes the simple, restart-safe `status IN (pending, submitting) AND
+   last_seen_at < now - grace`, with no in-memory deadline bookkeeping.
+   A reconnect additionally requests a **full** re-announce (payloads, not just ids) so a
+   Helix that lost its state can rebuild; the periodic tick sends only the id list to avoid
+   republishing transcript entries every few seconds.
+
+3. **Elicitations are carried by dedicated events, so two of the three "dropped match arms"
+   did not need arms after all.** `AcpThreadEvent::ElicitationRequested` fires alongside
+   `NewEntry` for the same entry, so handling both would emit the question twice. The
+   `EntryUpdated` arm *is* required — `respond_to_elicitation` and `cancel_elicitation`
+   emit only that, and it is what stops the Helix card being answerable after the question
+   is resolved elsewhere.
+
+4. **GPUI timers, not tokio timers.** The heartbeat runs inside `cx.spawn`, which is on
+   GPUI's executor — a `tokio::time::sleep` there has no reactor to register with. Uses
+   `cx.background_executor().timer(..)` per the Zed CLAUDE.md rule, and drains the resync
+   channel with `try_recv` rather than `select!`.
+
+## Gotchas for future agents
+
+- `util::ResultExt` (for `.log_err()`) is in scope in `thread_service.rs` but **not** in
+  `external_websocket_sync.rs`. Use explicit `if let Err(e)` there.
+- `get_thread()` returns a `WeakEntity<AcpThread>`, so `cx.update(|cx| thread.update(..))`
+  is `Result<Result<T>>` — both layers must be matched or an entity-dropped error is
+  silently swallowed.
