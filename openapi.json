@@ -5192,6 +5192,51 @@
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/workspace-skills": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns agent skills installed for the connected external-agent workspace and sandbox user.",
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "List workspace skills",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.WorkspaceSkillsResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/workspaces": {
             "get": {
                 "security": [
@@ -15071,6 +15116,16 @@
                             }
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "content": {
@@ -18076,6 +18131,105 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/provider-endpoints/{id}/throughput-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get provider throughput aggregated into 30-minute or hourly buckets",
+                "tags": [
+                    "providers"
+                ],
+                "summary": "Get provider throughput usage",
+                "parameters": [
+                    {
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Aggregation level",
+                        "name": "aggregation_level",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "30min",
+                                "hourly"
+                            ],
+                            "default": "30min"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.AggregatedUsageMetric"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -31958,12 +32112,14 @@
                 "enum": [
                     "",
                     "api",
-                    "app"
+                    "app",
+                    "embed"
                 ],
                 "x-enum-varnames": [
                     "APIkeytypeNone",
                     "APIkeytypeAPI",
-                    "APIkeytypeApp"
+                    "APIkeytypeApp",
+                    "APIkeytypeEmbed"
                 ]
             },
             "types.AccessGrant": {
@@ -34445,6 +34601,10 @@
                         "description": "Optional: Skip spec planning, go straight to implementation",
                         "type": "boolean"
                     },
+                    "name": {
+                        "description": "Name is the task title. Empty means derive it from the prompt.",
+                        "type": "string"
+                    },
                     "priority": {
                         "$ref": "#/components/schemas/types.SpecTaskPriority"
                     },
@@ -35884,7 +36044,7 @@
                         }
                     },
                     "response_entries": {
-                        "description": "ResponseEntries holds the structured response as an ordered list of typed entries.\nEach entry is either \"text\" (assistant prose) or \"tool_call\" (tool invocation),\npreserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.\nThis is populated on completion alongside ResponseMessage (flat string, backward compat).\nThe frontend uses this to render entries with the correct component in the correct order.",
+                        "description": "ResponseEntries holds the structured response as an ordered list of typed entries.\nEach entry is \"text\" (assistant prose), \"tool_call\" (tool invocation), or\n\"plan\" (the latest structured plan snapshot),\npreserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.\nThis is populated on completion alongside ResponseMessage (flat string, backward compat).\nThe frontend uses this to render entries with the correct component in the correct order.",
                         "type": "array",
                         "items": {
                             "type": "integer"
@@ -43961,6 +44121,14 @@
                             "type": "string"
                         }
                     },
+                    "api_key_type": {
+                        "description": "APIKeyType is the type of the API key this request authenticated with, when\nit authenticated with one. Carried so the auth middleware can apply the\nper-type restrictions (app keys: chat paths only; embed keys: one spec task).",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.APIKeyType"
+                            }
+                        ]
+                    },
                     "app_id": {
                         "description": "if the token is associated with an app",
                         "type": "string"
@@ -44758,6 +44926,34 @@
                     },
                     "truncated": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "types.WorkspaceSkillEntry": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "scope": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.WorkspaceSkillsResponse": {
+                "type": "object",
+                "properties": {
+                    "skills": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.WorkspaceSkillEntry"
+                        }
                     }
                 }
             },

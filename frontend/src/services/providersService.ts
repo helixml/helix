@@ -65,6 +65,32 @@ export function useProviderDailyUsage(id: string, from?: string, to?: string, en
   })
 }
 
+export type ProviderThroughputAggregation = '30min' | 'hourly'
+
+export function useProviderThroughputUsage(
+  id: string,
+  from: string | undefined,
+  to: string | undefined,
+  aggregationLevel: ProviderThroughputAggregation,
+  enabled = true,
+) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: [...providerUsageQueryKey(id, from, to), 'throughput', aggregationLevel],
+    queryFn: async (): Promise<TypesAggregatedUsageMetric[]> => {
+      const result = await apiClient.v1ProviderEndpointsThroughputUsageDetail(id, {
+        from,
+        to,
+        aggregation_level: aggregationLevel,
+      })
+      return result.data
+    },
+    enabled: enabled && Boolean(id),
+  })
+}
+
 export function useProviderUsersDailyUsage(id: string, from?: string, to?: string, enabled = true) {
   const api = useApi()
   const apiClient = api.getApiClient()

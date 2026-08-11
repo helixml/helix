@@ -164,6 +164,7 @@ type AggregationLevel string
 const (
 	AggregationLevelDaily  AggregationLevel = "daily"
 	AggregationLevelHourly AggregationLevel = "hourly"
+	AggregationLevel30Min  AggregationLevel = "30min"
 	AggregationLevel5Min   AggregationLevel = "5min"
 )
 

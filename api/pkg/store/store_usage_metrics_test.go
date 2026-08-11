@@ -195,6 +195,44 @@ func (suite *UsageMetricsTestSuite) TestProviderDailyUsageCountsLLMCalls() {
 	suite.Equal(2, got.TotalRequests, "each usage metric is one LLM call, even within one interaction")
 }
 
+func (suite *UsageMetricsTestSuite) TestProviderUsageThirtyMinuteBuckets() {
+	providerID := "provider-" + system.GenerateID()
+	start := time.Date(2026, 8, 11, 10, 0, 0, 0, time.UTC)
+	suite.T().Cleanup(func() {
+		err := suite.db.gdb.WithContext(suite.ctx).
+			Where("provider = ?", providerID).
+			Delete(&types.UsageMetric{}).Error
+		suite.NoError(err)
+	})
+
+	for _, metric := range []*types.UsageMetric{
+		{Created: start.Add(5 * time.Minute), Provider: providerID, CompletionTokens: 10, TotalTokens: 10, DurationMs: 100},
+		{Created: start.Add(20 * time.Minute), Provider: providerID, CompletionTokens: 20, TotalTokens: 20, DurationMs: 300},
+		{Created: start.Add(40 * time.Minute), Provider: providerID, CompletionTokens: 40, TotalTokens: 40, DurationMs: 200},
+	} {
+		_, err := suite.db.CreateUsageMetric(suite.ctx, metric)
+		suite.Require().NoError(err)
+	}
+
+	metrics, err := suite.db.GetAggregatedUsageMetrics(suite.ctx, &GetAggregatedUsageMetricsQuery{
+		AggregationLevel: AggregationLevel30Min,
+		Provider:         providerID,
+		From:             start,
+		To:               start.Add(time.Hour),
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(metrics, 3)
+
+	suite.True(metrics[0].Date.Equal(start))
+	suite.Equal(2, metrics[0].TotalRequests)
+	suite.Equal(30, metrics[0].CompletionTokens)
+	suite.InDelta(200, metrics[0].LatencyMs, 0.001)
+	suite.True(metrics[1].Date.Equal(start.Add(30 * time.Minute)))
+	suite.Equal(1, metrics[1].TotalRequests)
+	suite.True(metrics[2].Date.Equal(start.Add(time.Hour)))
+	suite.Zero(metrics[2].TotalRequests)
+}
+
 func (suite *UsageMetricsTestSuite) TestGetAggregatedUsageMetrics_IncludesCacheFields() {
 	// Regression test: the aggregate SELECT used to omit cache_read_*,
 	// cache_write_*, prompt_cost, completion_cost; rows came back with

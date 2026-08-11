@@ -69,6 +69,15 @@ interface IInteractionBlock {
 // Add constants
 const VIRTUAL_SPACE_HEIGHT = 500 // pixels
 const INTERACTIONS_PER_BLOCK = 20
+
+const latestPlanSnapshot = (interaction: any): string => {
+  const entries = interaction?.response_entries
+  if (!Array.isArray(entries)) return ''
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.type === 'plan') return entries[index]?.content || ''
+  }
+  return ''
+}
 const SCROLL_LOCK_DELAY = 500 // ms
 
 // Define interface for MemoizedInteraction props
@@ -144,7 +153,12 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
     prevProps.interaction.last_stream_pointer !== nextProps.interaction.last_stream_pointer ||
 
     // Check for differences in error state
-    prevProps.interaction.error !== nextProps.interaction.error;
+    prevProps.interaction.error !== nextProps.interaction.error ||
+
+    // Structured entries can change without output/state changing. Plans in
+    // particular overwrite one stable entry as progress advances.
+    prevProps.interaction.response_entries?.length !== nextProps.interaction.response_entries?.length ||
+    latestPlanSnapshot(prevProps.interaction) !== latestPlanSnapshot(nextProps.interaction);
   const nextInteractionChanged =
     prevProps.nextInteraction?.id !== nextProps.nextInteraction?.id ||
     prevProps.nextInteraction?.state !== nextProps.nextInteraction?.state ||

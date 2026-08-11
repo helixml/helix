@@ -57,6 +57,17 @@ type WorkspaceFileEntry struct {
 	Size int64  `json:"size,omitempty"`
 }
 
+type WorkspaceSkillsResponse struct {
+	Skills []WorkspaceSkillEntry `json:"skills"`
+}
+
+type WorkspaceSkillEntry struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Scope       string `json:"scope"`
+	Path        string `json:"path"`
+}
+
 type WorkspaceFileResponse struct {
 	Workspace   string `json:"workspace"`
 	Path        string `json:"path"`

@@ -1,20 +1,18 @@
 import React, { FC, useState } from "react";
 import Box from "@mui/material/Box";
-import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
 import {
-  CheckCircle2,
   ChevronDown,
-  ChevronUp,
-  CircleAlert,
-  LoaderCircle,
+  Check,
+  Minus,
   Terminal,
   Wrench,
+  X,
 } from "lucide-react";
 import { preserveDisclosureExpansion } from "./disclosureScroll";
 import { getChatColors } from "./chatStyles";
-import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY } from "../../styles/typography";
 
 /**
  * Represents a parsed segment of a response message.
@@ -112,16 +110,15 @@ export function parseToolCallBlocks(text: string): MessageSegment[] {
   return segments;
 }
 
-const statusIcon = (status: string) => {
+const statusIcon = (status: string, mutedColor: string) => {
   const lower = status.toLowerCase();
   if (lower === "completed") {
-    return <CheckCircle2 size={15} strokeWidth={1.8} color="#66bb6a" aria-hidden="true" />;
+    return <Check size={12} strokeWidth={1.8} color={mutedColor} aria-hidden="true" />;
   }
   if (lower === "failed" || lower === "rejected" || lower === "canceled") {
-    return <CircleAlert size={15} strokeWidth={1.8} color="#ef5350" aria-hidden="true" />;
+    return <X size={12} strokeWidth={1.8} color="#ef5350" aria-hidden="true" />;
   }
-  // Pending, InProgress, etc.
-  return <LoaderCircle size={15} strokeWidth={1.8} color="#ffb74d" aria-hidden="true" />;
+  return <Minus size={12} strokeWidth={1.8} color={mutedColor} aria-hidden="true" />;
 };
 
 const commandToolPattern = /^(bash|sh|zsh|shell|terminal|command)(?::\s*(.*))?$/i;
@@ -184,9 +181,9 @@ export const getToolCallPresentation = (toolName: string, body: string) => {
     const preview = isTerminalResult
       ? toolName.trim()
       : namedCommand
-        ? toolName.trim()
+        ? namedCommand
         : bodyCommand
-          ? `${toolName.trim()}: ${bodyCommand}`
+          ? bodyCommand
           : toolName.trim();
 
     return { kind: "command" as const, label: "Ran command", preview };
@@ -202,6 +199,30 @@ export const getToolCallPresentation = (toolName: string, body: string) => {
   }
 
   return { kind: "tool" as const, label: toolName, preview: "" };
+};
+
+const stripToolCallEnvelope = (body: string) => body
+  .replace(/^\*\*Tool Call:[\s\S]*?\*\*\s*\nStatus:\s*\S+\s*/, "")
+  .trim();
+
+const unwrapCodeFence = (value: string) => {
+  const match = value.trim().match(/^```[^\n]*\n([\s\S]*?)\n```$/);
+  return match?.[1]?.trim() || value.trim();
+};
+
+export const getToolCallExpandedBody = (toolName: string, body: string) => {
+  const presentation = getToolCallPresentation(toolName, body);
+  const content = stripToolCallEnvelope(body);
+
+  if (presentation.kind !== "command") return content;
+
+  const terminal = content.match(/^Terminal:\s*\n([\s\S]*)$/i);
+  if (terminal?.[1]) {
+    const output = unwrapCodeFence(terminal[1]);
+    return [presentation.preview, output].filter(Boolean).join("\n\n");
+  }
+
+  return content;
 };
 
 interface CollapsibleToolCallProps {
@@ -226,11 +247,15 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
   const isDark = theme.palette.mode === "dark";
   const chatColors = getChatColors(theme);
   const presentation = getToolCallPresentation(toolName, body);
+  const expandedBody = getToolCallExpandedBody(toolName, body);
+  const detailBorder = isDark
+    ? "rgba(255,255,255,0.03)"
+    : "rgba(0,0,0,0.045)";
 
   return (
     <Box
       sx={{
-        my: dense ? 0.25 : 0.75,
+        my: dense ? 0.125 : 0.5,
       }}
     >
       {/* Collapsed header — always visible */}
@@ -239,35 +264,57 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
           if (!expanded) preserveDisclosureExpansion(event.currentTarget)
           setExpanded(!expanded)
         }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          if (!expanded) preserveDisclosureExpansion(event.currentTarget);
+          setExpanded(!expanded);
+        }}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-label={`${presentation.label}${presentation.preview ? ` ${presentation.preview}` : ""}`}
         sx={{
           display: "flex",
           alignItems: "center",
           gap: 0.75,
-          px: 0,
-          py: dense ? 0.25 : 0.5,
+          px: 0.25,
+          py: 0.25,
+          minHeight: 24,
+          borderRadius: "6px",
           cursor: "pointer",
           backgroundColor: "transparent",
+          transition: "background-color 150ms ease",
           "&:hover": {
-            backgroundColor: "transparent",
+            backgroundColor: isDark
+              ? "rgba(255,255,255,0.012)"
+              : "rgba(0,0,0,0.025)",
+          },
+          "&:focus-visible": {
+            outline: `2px solid ${isDark ? chatColors.borderStrong : "rgba(0,0,0,0.2)"}`,
+            outlineOffset: -2,
           },
           userSelect: "none",
         }}
       >
-        {presentation.kind === "command" ? (
-          <Terminal
-            size={15}
-            strokeWidth={1.8}
-            color={isDark ? chatColors.subtle : "rgba(0,0,0,0.45)"}
-            aria-hidden="true"
-          />
-        ) : (
-          <Wrench
-            size={15}
-            strokeWidth={1.8}
-            color={isDark ? chatColors.subtle : "rgba(0,0,0,0.45)"}
-            aria-hidden="true"
-          />
-        )}
+        <Box
+          component="span"
+          sx={{
+            display: "flex",
+            width: 20,
+            height: 20,
+            flexShrink: 0,
+            alignItems: "center",
+            justifyContent: "center",
+            color: isDark ? chatColors.subtle : "rgba(0,0,0,0.45)",
+          }}
+        >
+          {presentation.kind === "command" ? (
+            <Terminal size={14} strokeWidth={1.8} aria-hidden="true" />
+          ) : (
+            <Wrench size={14} strokeWidth={1.8} aria-hidden="true" />
+          )}
+        </Box>
         <Box
           sx={{
             display: "flex",
@@ -283,16 +330,11 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
             variant="body2"
             sx={{
               flexShrink: 0,
-              fontSize: dense ? "0.76rem" : "0.82rem",
-              color: presentation.preview
-                ? isDark
-                  ? "#f5f5f5"
-                  : "text.primary"
-                : isDark
-                  ? chatColors.muted
-                  : "text.secondary",
-              fontWeight: presentation.preview ? 600 : 400,
-              fontFamily: APP_MONO_FONT_FAMILY,
+              fontSize: "0.75rem",
+              lineHeight: "20px",
+              color: isDark ? chatColors.foreground : "text.primary",
+              fontWeight: 500,
+              fontFamily: APP_FONT_FAMILY,
             }}
           >
             {presentation.label}
@@ -304,42 +346,71 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
                 minWidth: 0,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
-                fontSize: dense ? "0.72rem" : "0.78rem",
+                fontSize: "0.75rem",
+                lineHeight: "20px",
                 color: isDark ? chatColors.subtle : "text.secondary",
-                fontFamily: APP_MONO_FONT_FAMILY,
+                fontFamily: APP_FONT_FAMILY,
               }}
             >
               {presentation.preview}
             </Typography>
           )}
         </Box>
-        {statusIcon(status)}
-        <IconButton
-          size="small"
-          sx={{ p: 0, ml: 0.5, "&:hover": { backgroundColor: "transparent" } }}
+        <Box
+          component="span"
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: "1px",
+            color: isDark ? chatColors.subtle : "rgba(0,0,0,0.45)",
+          }}
         >
-          {expanded ? <ChevronUp size={15} strokeWidth={1.8} /> : <ChevronDown size={15} strokeWidth={1.8} />}
-        </IconButton>
+          <Box
+            component="span"
+            sx={{ display: "flex", width: 16, height: 16, alignItems: "center", justifyContent: "center" }}
+          >
+            <ChevronDown
+              size={12}
+              strokeWidth={1.8}
+              style={{
+                opacity: 0.7,
+                transform: `rotate(${expanded ? 180 : 0}deg)`,
+                transition: "transform 200ms ease",
+              }}
+            />
+          </Box>
+          <Box
+            component="span"
+            sx={{ display: "flex", width: 16, height: 16, alignItems: "center", justifyContent: "center" }}
+          >
+            {statusIcon(status, isDark ? chatColors.subtle : "rgba(0,0,0,0.45)")}
+          </Box>
+        </Box>
       </Box>
 
       {/* Expanded body */}
-      {expanded && body && (
+      {expanded && expandedBody && (
         <Box
           sx={{
-            pl: dense ? 2.5 : 2.75,
+            mt: 0.5,
+            ml: 3.5,
+            pl: 1.5,
             pr: 0,
-            py: 1,
-            fontSize: "0.8rem",
+            pt: 0.5,
+            pb: 0.25,
+            borderLeft: `1px solid ${detailBorder}`,
+            fontSize: "0.6875rem",
+            lineHeight: 1.625,
             fontFamily: APP_MONO_FONT_FAMILY,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
             color: isDark ? chatColors.subtle : "text.secondary",
             backgroundColor: "transparent",
-            maxHeight: "300px",
+            maxHeight: "256px",
             overflow: "auto",
           }}
         >
-          {body}
+          {expandedBody}
         </Box>
       )}
     </Box>

@@ -11,7 +11,7 @@
  * - Recovery on page reload
  */
 
-import React, { FC, useRef, useEffect, useState, useCallback } from 'react'
+import React, { FC, useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react'
 import {
   Box,
   IconButton,
@@ -60,6 +60,17 @@ import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
 import { getChatColors } from '../session/chatStyles'
 import ChatAttachmentTray from './ChatAttachmentTray'
 import ContextMenuModal from '../widgets/ContextMenuModal'
+import SandboxComposerSuggestions from './SandboxComposerSuggestions'
+import { useSandboxComposerSuggestions } from './useSandboxComposerSuggestions'
+import SandboxPromptEditor, {
+  getSandboxPromptEditorCursor,
+  setSandboxPromptEditorCursor,
+} from './SandboxPromptEditor'
+import {
+  applySandboxComposerSuggestion,
+  detectSandboxComposerTrigger,
+  SandboxComposerSuggestion,
+} from './sandboxComposerSuggestions.logic'
 import {
   buildMessageWithAttachments,
   createPendingChatAttachment,
@@ -89,6 +100,8 @@ interface RobustPromptInputProps {
   contextMenuAppId?: string
   formatContextMenuInsert?: (text: string) => string
   autoFocus?: boolean
+  // Enables @workspace-path and $skill completion for connected sandboxes.
+  enableSandboxCompletions?: boolean
   // Optional backend sync props
   specTaskId?: string
   projectId?: string
@@ -519,13 +532,19 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   contextMenuAppId,
   formatContextMenuInsert,
   autoFocus = false,
+  enableSandboxCompletions = false,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const sandboxEditorRef = useRef<HTMLDivElement>(null)
+  const pendingComposerCursorRef = useRef<number | null>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [isDirectSending, setIsDirectSending] = useState(false)
   const [isRestartingAgent, setIsRestartingAgent] = useState(false)
+  const [composerCursor, setComposerCursor] = useState(0)
+  const [composerFocused, setComposerFocused] = useState(false)
+  const [composerSelectedIndex, setComposerSelectedIndex] = useState(0)
   // Pending attachments that will be sent with the message
   const [attachments, setAttachments] = useState<PendingChatAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
@@ -564,6 +583,53 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     failedPrompts,
     clearDraft,
   } = usePromptHistory({ sessionId, specTaskId, projectId, apiClient })
+
+  const focusPromptEditor = useCallback(() => {
+    if (enableSandboxCompletions) sandboxEditorRef.current?.focus()
+    else textareaRef.current?.focus()
+  }, [enableSandboxCompletions])
+
+  const composerTrigger = useMemo(
+    () => enableSandboxCompletions && composerFocused
+      ? detectSandboxComposerTrigger(draft, composerCursor)
+      : null,
+    [composerCursor, composerFocused, draft, enableSandboxCompletions],
+  )
+  const composerSuggestions = useSandboxComposerSuggestions(
+    sessionId,
+    composerTrigger,
+    enableSandboxCompletions,
+  )
+
+  useEffect(() => {
+    setComposerSelectedIndex(0)
+  }, [composerTrigger?.kind, composerTrigger?.query])
+
+  const selectComposerSuggestion = useCallback((suggestion: SandboxComposerSuggestion) => {
+    if (!composerTrigger) return
+    const next = applySandboxComposerSuggestion(draft, composerTrigger, suggestion)
+    pendingComposerCursorRef.current = next.cursor
+    setDraft(next.text)
+    setComposerCursor(next.cursor)
+  }, [composerTrigger, draft, setDraft])
+
+  useLayoutEffect(() => {
+    const cursor = pendingComposerCursorRef.current
+    if (cursor === null) return
+    pendingComposerCursorRef.current = null
+    setComposerCursor(cursor)
+    if (enableSandboxCompletions && sandboxEditorRef.current) {
+      const frame = requestAnimationFrame(() => {
+        if (!sandboxEditorRef.current) return
+        sandboxEditorRef.current.focus()
+        setSandboxPromptEditorCursor(sandboxEditorRef.current, cursor)
+      })
+      return () => cancelAnimationFrame(frame)
+    } else {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(cursor, cursor)
+    }
+  }, [draft, enableSandboxCompletions])
 
   // Canonical "still actionable in the queue" list, failed-first. Computed in ONE
   // place so every consumer — queue display, the interrupt toggle, the empty-Enter
@@ -683,13 +749,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       setDraft(draft + (needsSpace ? ' ' : '') + textToAppend)
       prevAppendTextRef.current = appendText
       // Focus the textarea
-      textareaRef.current?.focus()
+      focusPromptEditor()
     }
-  }, [appendText, setDraft, draft])
+  }, [appendText, setDraft, draft, focusPromptEditor])
 
   useEffect(() => {
-    if (autoFocus && !inputDisabled) textareaRef.current?.focus()
-  }, [autoFocus, inputDisabled, sessionId])
+    if (autoFocus && !inputDisabled) focusPromptEditor()
+  }, [autoFocus, inputDisabled, sessionId, focusPromptEditor])
 
   const handleContextMenuInsert = useCallback((text: string) => {
     const insertedText = formatContextMenuInsert ? formatContextMenuInsert(text) : text
@@ -699,8 +765,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         ? draft.substring(0, lastAtIndex) + insertedText
         : draft + insertedText,
     )
-    textareaRef.current?.focus()
-  }, [draft, formatContextMenuInsert, setDraft])
+    focusPromptEditor()
+  }, [draft, formatContextMenuInsert, setDraft, focusPromptEditor])
 
   // DnD sensors
   const sensors = useSensors(
@@ -742,19 +808,19 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
+    const editor = enableSandboxCompletions ? sandboxEditorRef.current : textareaRef.current
+    if (!editor) return
 
-    const oldHeight = textarea.offsetHeight
-    textarea.style.height = 'auto'
-    const newHeight = Math.min(Math.max(textarea.scrollHeight, 40), maxHeight)
-    textarea.style.height = `${newHeight}px`
+    const oldHeight = editor.offsetHeight
+    editor.style.height = 'auto'
+    const newHeight = Math.min(Math.max(editor.scrollHeight, 40), maxHeight)
+    editor.style.height = `${newHeight}px`
 
     // Notify parent if height changed
     if (oldHeight !== newHeight && onHeightChange) {
       onHeightChange()
     }
-  }, [maxHeight, onHeightChange])
+  }, [enableSandboxCompletions, maxHeight, onHeightChange])
 
   useEffect(() => {
     adjustHeight()
@@ -955,7 +1021,30 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // FIFO order — promoting the newest would dispatch it ahead of older queued
   // messages, reordering the conversation.
   // See design/2026-06-23-queue-drain-out-of-order-dispatch.md.
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLElement>) => {
+    if (composerTrigger) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setComposerFocused(false)
+        return
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (composerSuggestions.items.length === 0) return
+        e.preventDefault()
+        const direction = e.key === 'ArrowDown' ? 1 : -1
+        setComposerSelectedIndex((current) =>
+          (current + direction + composerSuggestions.items.length) % composerSuggestions.items.length,
+        )
+        return
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && composerSuggestions.items.length > 0) {
+        e.preventDefault()
+        selectComposerSuggestion(
+          composerSuggestions.items[Math.min(composerSelectedIndex, composerSuggestions.items.length - 1)],
+        )
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       // Ctrl+Enter = interrupt mode, Enter = queue mode
@@ -984,7 +1073,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       return
     }
 
-  }, [draft, attachments.length, inputDisabled, sendMode, submitDraft, queuedPrompts, updateInterrupt, sendingId, editingId])
+  }, [composerSelectedIndex, composerSuggestions.items, composerTrigger, draft, attachments.length, inputDisabled, sendMode, submitDraft, queuedPrompts, updateInterrupt, sendingId, editingId, selectComposerSuggestion])
 
   const addFilesAsAttachments = useCallback((files: File[]) => {
     if (!attachmentsEnabled || files.length === 0) return
@@ -1106,7 +1195,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Clipboard files include screenshots as well as files copied from Finder /
   // Explorer. Read the DataTransfer file list first so PDFs and other binary
   // assets follow the same upload path as images.
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     if (!attachmentsEnabled) return
 
     const clipboardFiles = filesFromClipboard(e.clipboardData)
@@ -1192,6 +1281,15 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     return a.timestamp - b.timestamp
   })
   const hasVisibleQueue = backendQueueEnabled && showQueue && queuedMessages.length > 0
+  const promptPlaceholder = isDraggingOver
+    ? inlineImageAttachments
+      ? 'Drop image to attach...'
+      : 'Drop file to upload...'
+    : isOnline
+      ? placeholder
+      : sendMode === 'direct'
+        ? 'Offline'
+        : 'Offline - messages will queue'
 
   const input = (
     <Box
@@ -1203,6 +1301,17 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         minWidth: 0,
       }}
     >
+      {composerTrigger && (
+        <SandboxComposerSuggestions
+          trigger={composerTrigger}
+          items={composerSuggestions.items}
+          loading={composerSuggestions.loading}
+          error={composerSuggestions.error}
+          selectedIndex={composerSelectedIndex}
+          onSelectedIndexChange={setComposerSelectedIndex}
+          onSelect={selectComposerSuggestion}
+        />
+      )}
       {/* Queued messages display. Only rendered when this is an authoritative
           backend-backed queue (spec-task). For plain sessions (org-chat,
           team desktop) the local queue is a non-authoritative ghost — the
@@ -1345,55 +1454,82 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           </Box>
         )}
 
-        {/* Textarea - full width at top */}
-        <Box
-          component="textarea"
-          ref={textareaRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={isDraggingOver
-            ? inlineImageAttachments
-              ? 'Drop image to attach...'
-              : 'Drop file to upload...'
-            : isOnline
-              ? placeholder
-              : sendMode === 'direct'
-                ? 'Offline'
-                : 'Offline - messages will queue'}
-          disabled={inputDisabled}
-          sx={{
-            width: '100%',
-            resize: 'none',
-            border: 'none',
-            borderRadius: 0,
-            outline: 'none',
-            bgcolor: 'transparent',
-            color: (theme) => getChatColors(theme).foreground,
-            fontFamily: 'inherit',
-            fontSize: { xs: '0.9375rem', sm: '0.875rem' },
-            fontWeight: 450,
-            lineHeight: 1.55,
-            letterSpacing: '-0.005em',
-            p: 0,
-            minHeight: 70,
-            maxHeight: maxHeight,
-            overflowY: 'auto',
-            '&::placeholder': {
-              color: isDraggingOver
-                ? 'primary.main'
-                : !isOnline
-                  ? 'warning.main'
-                  : (theme) => getChatColors(theme).subtle,
-              opacity: isDraggingOver ? 1 : 0.72,
-            },
-            '&:disabled': {
-              opacity: 0.6,
-              cursor: 'not-allowed',
-            },
-          }}
-        />
+        {enableSandboxCompletions ? (
+          <SandboxPromptEditor
+            ref={sandboxEditorRef}
+            value={draft}
+            placeholder={promptPlaceholder || ''}
+            disabled={inputDisabled}
+            maxHeight={maxHeight}
+            isDraggingOver={isDraggingOver}
+            isOnline={isOnline}
+            onValueChange={(value, cursor) => {
+              setDraft(value)
+              setComposerCursor(cursor)
+              setComposerFocused(true)
+            }}
+            onCursorChange={setComposerCursor}
+            onKeyDown={handleKeyDown}
+            onFocus={(event) => {
+              setComposerFocused(true)
+              setComposerCursor(getSandboxPromptEditorCursor(event.currentTarget))
+            }}
+            onBlur={() => setComposerFocused(false)}
+            onPaste={handlePaste}
+          />
+        ) : (
+          <Box
+            component="textarea"
+            ref={textareaRef}
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              setComposerCursor(e.target.selectionStart)
+              setComposerFocused(true)
+            }}
+            onKeyDown={handleKeyDown}
+            onKeyUp={(e) => setComposerCursor(e.currentTarget.selectionStart)}
+            onClick={(e) => setComposerCursor(e.currentTarget.selectionStart)}
+            onFocus={(e) => {
+              setComposerFocused(true)
+              setComposerCursor(e.currentTarget.selectionStart)
+            }}
+            onBlur={() => setComposerFocused(false)}
+            onPaste={handlePaste}
+            placeholder={promptPlaceholder}
+            disabled={inputDisabled}
+            sx={{
+              width: '100%',
+              resize: 'none',
+              border: 'none',
+              borderRadius: 0,
+              outline: 'none',
+              bgcolor: 'transparent',
+              color: (theme) => getChatColors(theme).foreground,
+              fontFamily: 'inherit',
+              fontSize: { xs: '0.9375rem', sm: '0.875rem' },
+              fontWeight: 450,
+              lineHeight: 1.55,
+              letterSpacing: '-0.005em',
+              p: 0,
+              minHeight: 70,
+              maxHeight: maxHeight,
+              overflowY: 'auto',
+              '&::placeholder': {
+                color: isDraggingOver
+                  ? 'primary.main'
+                  : !isOnline
+                    ? 'warning.main'
+                    : (theme) => getChatColors(theme).subtle,
+                opacity: isDraggingOver ? 1 : 0.72,
+              },
+              '&:disabled': {
+                opacity: 0.6,
+                cursor: 'not-allowed',
+              },
+            }}
+          />
+        )}
 
         {/* Buttons row at bottom */}
         <Box

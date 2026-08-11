@@ -12,7 +12,7 @@ export const getChatColors = (theme: Theme) => {
     border: dark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.09)',
     borderStrong: dark ? 'rgba(255, 255, 255, 0.13)' : 'rgba(0, 0, 0, 0.16)',
     foreground: dark ? '#f5f5f5' : '#18181b',
-    assistantForeground: dark ? 'rgba(245, 245, 245, 0.8)' : 'rgba(24, 24, 27, 0.8)',
+    assistantForeground: dark ? '#f1f1f1' : '#27272a',
     inlineCodeSurface: dark ? 'rgba(255, 255, 255, 0.04)' : '#fafafa',
     inlineCodeForeground: dark ? '#f5f5f5' : '#27272a',
     inlineCodeBorder: dark ? 'rgba(255, 255, 255, 0.06)' : '#e4e4e7',
@@ -25,6 +25,6 @@ export const getChatColors = (theme: Theme) => {
     codeActionActive: dark ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.08)',
     tableDivider: dark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(228, 228, 231, 0.6)',
     muted: dark ? '#b8b8b8' : '#52525b',
-    subtle: dark ? '#969696' : '#71717a',
+    subtle: dark ? '#a3a3a3' : '#71717a',
   }
 }

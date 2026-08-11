@@ -1471,6 +1471,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                     });
                   }}
                   placeholder="Send message to agent..."
+                  enableSandboxCompletions
                 />
               </Box>
             </Box>
