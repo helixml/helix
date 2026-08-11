@@ -9,7 +9,7 @@
 ## Verify first (blocking assumptions)
 
 - [~] Confirm `entry_index` == accumulator `message_id`. STATIC PROOF DONE: `message_id` is literally `latest_idx.to_string()` / `entry_idx` (the index into `AcpThread::entries()`), and elicitations are pushed into that same vector, so the equality holds by construction. Live log confirmation still pending during live testing. Original wording (log `(entry_index, message_id, entry_type)` on both sides for a turn with text + tool call + elicitation); if not, carry an explicit `after_message_id` instead
-- [ ] Re-read `applyAskElicitationResponse` (`claude-agent-acp/dist/elicitation.js:180-210`) in the version actually deployed at implementation time and mirror its precedence exactly
+- [x] Re-read `applyAskElicitationResponse` (`claude-agent-acp/dist/elicitation.js:180-210`) in the version actually deployed at implementation time and mirror its precedence exactly
 
 ## Zed — `crates/external_websocket_sync/`
 
@@ -25,43 +25,43 @@
 - [x] Add the dedicated GPUI drain task in `thread_service.rs` (next to the cancel task) calling `AcpThread::respond_to_elicitation`
 - [x] Snapshot status before/after the update and emit `ElicitationResponseAck` with `accepted` / `noop` / `not_found`; no `unwrap()`, no bare `let _ =`
 - [ ] Rust unit tests: entry→event mapping, resync emission, no-op on already-answered, not-found on missing thread
-- [ ] `cargo build --features external_websocket_sync -p zed` and `./script/clippy` clean
+- [ ] `cargo build ... -p zed` — **BLOCKED: no Rust toolchain in this environment** (no cargo/rustc/~.cargo/target). Build path is `./stack build-zed` (Docker); did not complete under load average 350-500
 
 ## Helix API — types, store, handlers
 
-- [ ] Add `types.AgentElicitation` model (incl. `LastSeenAt`) + GORM AutoMigrate registration (indexes on `session_id`, `interaction_id`, `status`)
-- [ ] Add store methods: `CreateOrUpdateElicitation`, `GetElicitation`, `TransitionElicitationStatus` (conditional `WHERE status=?`), `TouchElicitationsLastSeen`, `ListPendingElicitationsBySessions`, `ReapUnseenPendingElicitations`
-- [ ] Add `Elicitation *ElicitationEntry` to `wsprotocol.ResponseEntry` and `types.EntryPatch`; teach the accumulator to carry it (upsert + restore in `RestoreAccumulator`)
-- [ ] Handle `elicitation_requested`: resolve session/interaction from `request_id`, idempotent row upsert, entry upsert, publish patches + `interaction_update`, raise the `agent_question` attention event on the new-pending transition only
-- [ ] Empty/unmappable `request_id`: reuse `handleMessageAdded`'s existing resolution (streaming context → DB fallback to newest waiting interaction for the thread); drop with a loud `warn` only if that also misses
-- [ ] Handle `elicitation_resolved`: conditional status update, mirror into the entry, clear the attention event, publish; drop+log unknown ids
-- [ ] Handle `elicitation_resync`: refresh `LastSeenAt` for listed ids; reap pending/submitting rows of that session absent from the list and older than the grace window → `cancelled(agent_no_longer_holds)`
-- [ ] Handle `elicitation_response_ack`: reconcile row on `noop`/`not_found`
-- [ ] **Do not** change any elicitation status in `handleAgentReady` — a reconnect is not evidence (an API restart leaves the agent and its `respond_tx` alive)
-- [ ] Change `processPromptQueue` (`:3392`): when the newest interaction is `waiting` **and** has a pending/submitting elicitation, dispatch the follow-up with interrupt semantics instead of deferring it; do not write a terminal status locally
-- [ ] Add `POST /api/v1/sessions/{id}/elicitations/{elicitation_id}/respond` with swagger annotations, session-from-URL auth (`authorizeUserToSession` + `ActionUpdate`), session-ownership check, `pending→submitting` conditional transition (409 on loss), agent-connected check (409), `sendCommandToExternalAgent`
-- [ ] Register the route next to `/sessions/{id}/cancel` in `server.go`
-- [ ] Add `types.AttentionEventAgentQuestion` and emit it via `attentionService.EmitEvent` on the new-pending transition only, with the **elicitation id as the qualifier** so resync re-announcements dedupe instead of re-notifying
-- [ ] Add `buildTitle` / `buildDescription` / `eventEmoji` cases for the new event type (no generic fallthrough)
-- [ ] Add per-event dismissal keyed by the elicitation-scoped idempotency key (task-wide `DismissAttentionEventsForTask` is too blunt) and call it on every terminal status
-- [ ] Do **not** copy the "user already active in session" attention suppression from `agent_interaction_completed` — a question needs answering regardless
+- [x] Add `types.AgentElicitation` model (incl. `LastSeenAt`) + GORM AutoMigrate registration (indexes on `session_id`, `interaction_id`, `status`)
+- [x] Add store methods: `CreateOrUpdateElicitation`, `GetElicitation`, `TransitionElicitationStatus` (conditional `WHERE status=?`), `TouchElicitationsLastSeen`, `ListPendingElicitationsBySessions`, `ReapUnseenPendingElicitations`
+- [x] Add `Elicitation *ElicitationEntry` to `wsprotocol.ResponseEntry` and `types.EntryPatch`; teach the accumulator to carry it (upsert + restore in `RestoreAccumulator`)
+- [x] Handle `elicitation_requested`: resolve session/interaction from `request_id`, idempotent row upsert, entry upsert, publish patches + `interaction_update`, raise the `agent_question` attention event on the new-pending transition only
+- [x] Empty/unmappable `request_id`: reuse `handleMessageAdded`'s existing resolution (streaming context → DB fallback to newest waiting interaction for the thread); drop with a loud `warn` only if that also misses
+- [x] Handle `elicitation_resolved`: conditional status update, mirror into the entry, clear the attention event, publish; drop+log unknown ids
+- [x] Handle `elicitation_resync`: refresh `LastSeenAt` for listed ids; reap pending/submitting rows of that session absent from the list and older than the grace window → `cancelled(agent_no_longer_holds)`
+- [x] Handle `elicitation_response_ack`: reconcile row on `noop`/`not_found`
+- [x] **Do not** change any elicitation status in `handleAgentReady` — a reconnect is not evidence (an API restart leaves the agent and its `respond_tx` alive)
+- [x] Change `processPromptQueue` (`:3392`): when the newest interaction is `waiting` **and** has a pending/submitting elicitation, dispatch the follow-up with interrupt semantics instead of deferring it; do not write a terminal status locally
+- [x] Add `POST /api/v1/sessions/{id}/elicitations/{elicitation_id}/respond` with swagger annotations, session-from-URL auth (`authorizeUserToSession` + `ActionUpdate`), session-ownership check, `pending→submitting` conditional transition (409 on loss), agent-connected check (409), `sendCommandToExternalAgent`
+- [x] Register the route next to `/sessions/{id}/cancel` in `server.go`
+- [x] Add `types.AttentionEventAgentQuestion` and emit it via `attentionService.EmitEvent` on the new-pending transition only, with the **elicitation id as the qualifier** so resync re-announcements dedupe instead of re-notifying
+- [x] Add `buildTitle` / `buildDescription` / `eventEmoji` cases for the new event type (no generic fallthrough)
+- [x] Add per-event dismissal keyed by the elicitation-scoped idempotency key (task-wide `DismissAttentionEventsForTask` is too blunt) and call it on every terminal status
+- [x] Do **not** copy the "user already active in session" attention suppression from `agent_interaction_completed` — a question needs answering regardless
 - [ ] Go unit tests: notification emitted once for a question, not re-emitted on resync re-announcement, dismissed on each terminal status
-- [ ] Add Gate 0 to `maybeAutoWake`: skip interactions with a pending/submitting elicitation
+- [x] Add Gate 0 to `maybeAutoWake`: skip interactions with a pending/submitting elicitation
 - [ ] Run `./stack update_openapi`
 - [ ] Go unit tests: requested/resolved/resync/ack handlers, endpoint auth + 404/403/409 paths, two-clients race, answer-after-cancel, empty-`request_id` fallback, **reconnect-does-not-cancel**, resync-absence-cancels-after-grace, queue-does-not-defer-follow-up
 - [ ] Go unit test `TestAutoWake_SkipsInteractionBlockedOnUserQuestion`
-- [ ] `go build ./pkg/...` and `go test ./pkg/server/...` clean
+- [x] `go build ./pkg/...` clean (verified). `go test ./pkg/server/...` NOT run — needs CGo deps + Postgres
 
 ## Helix frontend
 
-- [ ] Extend `ResponseEntry` type (`"elicitation"` + payload) in `types.ts` / `InteractionInference.tsx`
-- [ ] Carry `elicitation` through the patch merge in `contexts/streaming.tsx`
-- [ ] Add `elicitationSchema.ts`: generic JSON-Schema → fields parser (oneOf, array/items.anyOf, custom-answer linking **by value shape** — `isCustomAnswer`/`questionId`, never by meta-key name — and fallbacks) with unit tests
-- [ ] Implement submission-content building that mirrors the adapter: trimmed non-empty custom wins over selection; omit questions with neither set; custom-only submission valid
-- [ ] Add `ElicitationCard.tsx`: message, header chips, options with label + description, "Other" input, Submit + Skip/Decline (copy must convey that declining continues the turn with empty answers), answered/terminal read-only states incl. "you replied instead" and "expired — the agent restarted", Lucide icons, error boundary
-- [ ] Add an `elicitation` segment to `buildActivityTimeline` so the card is never folded into a collapsed tool run
+- [x] Extend `ResponseEntry` type (`"elicitation"` + payload) in `types.ts` / `InteractionInference.tsx`
+- [x] Carry `elicitation` through the patch merge in `contexts/streaming.tsx`
+- [x] Add `elicitationSchema.ts`: generic JSON-Schema → fields parser (oneOf, array/items.anyOf, custom-answer linking **by value shape** — `isCustomAnswer`/`questionId`, never by meta-key name — and fallbacks) with unit tests
+- [x] Implement submission-content building that mirrors the adapter: trimmed non-empty custom wins over selection; omit questions with neither set; custom-only submission valid
+- [x] Add `ElicitationCard.tsx`: message, header chips, options with label + description, "Other" input, Submit + Skip/Decline (copy must convey that declining continues the turn with empty answers), answered/terminal read-only states incl. "you replied instead" and "expired — the agent restarted", Lucide icons, error boundary
+- [x] Add an `elicitation` segment to `buildActivityTimeline` so the card is never folded into a collapsed tool run
 - [ ] Optimistically lock the card when the user sends a normal message with a question pending; reconcile on the `cancelled` event
-- [ ] Wire submission to the generated API client with React Query + query invalidation (no raw fetch, no `setTimeout`, no `setQueryData`)
+- [x] Wire submission to the generated API client with React Query + query invalidation (no raw fetch, no `setTimeout`, no `setQueryData`)
 - [ ] Add transient `waiting_for_user_input` to `SpecTask` and populate it in the list/get handlers
 - [ ] Surface "waiting for your answer" in the task list/kanban and the task detail header
 - [ ] `cd frontend && yarn build` clean
@@ -95,3 +95,27 @@
 - [ ] Open the Helix PR first
 - [ ] Push the zed branch and open its PR with `gh pr create --repo helixml/zed`
 - [ ] CI green on both PRs; merge zed first, then helix (rebase the `ZED_COMMIT` bump if it moved)
+
+
+## Status at handoff (honest)
+
+**Verified:**
+- `go build ./pkg/...` passes clean.
+- ACP type shapes verified against docs.rs before writing Rust — caught two wrong
+  assumptions (`tool_call_id` lives on `ElicitationScope::Session`, not on
+  `CreateElicitationRequest`; accept content is `BTreeMap<String, ElicitationContentValue>`,
+  not raw JSON).
+- Adapter response semantics read from the deployed source (0.66.0), not inferred.
+
+**NOT verified — do not treat as working:**
+- Zed crate is **not compiled**. No Rust toolchain exists here; `./stack build-zed` (Docker)
+  did not complete under sustained load average 350-500.
+- Frontend: `node_modules` is not installed; `yarn install` did not complete, so
+  `yarn build` and the schema-parser unit tests were **not run**.
+- Go unit tests for the new handlers: **not written**.
+- E2E phase 17: **not written, not run**.
+- Live inner-Helix verification (the whole Definition of Done): **not done**.
+
+**Environment blocker:** this machine ran at load average 95-500 throughout. A Go build
+that should take ~2 min took ~25 min; `yarn install` never finished. The remaining work is
+not conceptually blocked — it is blocked on machine capacity.
