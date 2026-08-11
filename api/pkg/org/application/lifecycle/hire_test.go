@@ -60,6 +60,8 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newHireService(st)
+	cleaner := &recordingAgentDeliveryCleaner{}
+	svc.AgentDelivery = cleaner
 	ctx := context.Background()
 
 	boss, _ := orgchart.NewNode("w-boss", "# Eng", nil, hireClock(), "org-test")
@@ -78,6 +80,9 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	}
 	if res.Node.AgentID != "app-agent" {
 		t.Fatalf("agent app id = %q, want app-agent", res.Node.AgentID)
+	}
+	if !cleaner.restored || cleaner.orgID != "org-test" || cleaner.agentID != "w-new" {
+		t.Fatalf("agent delivery was not restored for recreated worker")
 	}
 	if _, err := st.Nodes.Get(ctx, "org-test", "w-new"); err != nil {
 		t.Fatalf("bot not persisted: %v", err)
