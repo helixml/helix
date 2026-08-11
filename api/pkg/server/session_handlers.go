@@ -2495,50 +2495,8 @@ func (s *HelixAPIServer) respondToElicitation(_ http.ResponseWriter, r *http.Req
 		return nil, system.NewHTTPError409("agent is not connected")
 	}
 
-	var contentJSON []byte
-	if body.Action == "accept" && len(body.Content) > 0 {
-		contentJSON, err = json.Marshal(body.Content)
-		if err != nil {
-			return nil, system.NewHTTPError400("invalid content")
-		}
-	}
-
-	// Claim the question before sending. Two clients answering at once both pass the
-	// checks above; only one wins this transition, and the loser gets a clean 409
-	// instead of a second answer racing into the agent.
-	claimed, err := s.Store.TransitionAgentElicitation(
-		ctx, elicitationID,
-		[]string{types.ElicitationStatusPending},
-		types.ElicitationStatusSubmitting, "", contentJSON,
-	)
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
-	}
-	if !claimed {
-		return nil, system.NewHTTPError409("question was already answered")
-	}
-
-	command := types.ExternalAgentCommand{
-		Type: "respond_elicitation",
-		Data: map[string]interface{}{
-			"acp_thread_id":  elicitation.AcpThreadID,
-			"elicitation_id": elicitationID,
-			"action":         body.Action,
-			"content":        body.Content,
-		},
-	}
-	if err := s.sendCommandToExternalAgent(sessionID, command); err != nil {
-		// Hand the question back so the user can retry, rather than stranding it in
-		// submitting until the reaper gets to it.
-		if _, rollbackErr := s.Store.TransitionAgentElicitation(
-			ctx, elicitationID,
-			[]string{types.ElicitationStatusSubmitting},
-			types.ElicitationStatusPending, "", nil,
-		); rollbackErr != nil {
-			log.Warn().Err(rollbackErr).Str("elicitation_id", elicitationID).
-				Msg("Failed to roll back elicitation claim after send failure")
-		}
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to deliver answer: %v", err))
+	if httpErr := s.claimAndDeliverElicitationAnswer(ctx, sessionID, elicitation, body.Action, body.Content); httpErr != nil {
+		return nil, httpErr
 	}
 
 	log.Info().
@@ -2553,6 +2511,69 @@ func (s *HelixAPIServer) respondToElicitation(_ http.ResponseWriter, r *http.Req
 		ElicitationID: elicitationID,
 		Status:        types.ElicitationStatusSubmitting,
 	}, nil
+}
+
+// claimAndDeliverElicitationAnswer claims a pending question and sends the answer to the
+// agent, rolling the claim back if the send fails.
+//
+// Split out from the HTTP handler so the WebSocket-sync e2e can drive the identical
+// production sequence without standing up an auth router — the alternative was a second
+// implementation of the claim/rollback logic, which is exactly where the two would drift.
+// Authorisation stays in the caller; this function assumes it has already happened.
+func (s *HelixAPIServer) claimAndDeliverElicitationAnswer(
+	ctx context.Context,
+	sessionID string,
+	elicitation *types.AgentElicitation,
+	action string,
+	content map[string]interface{},
+) *system.HTTPError {
+	var contentJSON []byte
+	if action == "accept" && len(content) > 0 {
+		encoded, err := json.Marshal(content)
+		if err != nil {
+			return system.NewHTTPError400("invalid content")
+		}
+		contentJSON = encoded
+	}
+
+	// Claim the question before sending. Two clients answering at once both pass the
+	// checks above; only one wins this transition, and the loser gets a clean 409
+	// instead of a second answer racing into the agent.
+	claimed, err := s.Store.TransitionAgentElicitation(
+		ctx, elicitation.ID,
+		[]string{types.ElicitationStatusPending},
+		types.ElicitationStatusSubmitting, "", contentJSON,
+	)
+	if err != nil {
+		return system.NewHTTPError500(err.Error())
+	}
+	if !claimed {
+		return system.NewHTTPError409("question was already answered")
+	}
+
+	command := types.ExternalAgentCommand{
+		Type: "respond_elicitation",
+		Data: map[string]interface{}{
+			"acp_thread_id":  elicitation.AcpThreadID,
+			"elicitation_id": elicitation.ID,
+			"action":         action,
+			"content":        content,
+		},
+	}
+	if err := s.sendCommandToExternalAgent(sessionID, command); err != nil {
+		// Hand the question back so the user can retry, rather than stranding it in
+		// submitting until the reaper gets to it.
+		if _, rollbackErr := s.Store.TransitionAgentElicitation(
+			ctx, elicitation.ID,
+			[]string{types.ElicitationStatusSubmitting},
+			types.ElicitationStatusPending, "", nil,
+		); rollbackErr != nil {
+			log.Warn().Err(rollbackErr).Str("elicitation_id", elicitation.ID).
+				Msg("Failed to roll back elicitation claim after send failure")
+		}
+		return system.NewHTTPError500(fmt.Sprintf("failed to deliver answer: %v", err))
+	}
+	return nil
 }
 
 // listSessionElicitations godoc
