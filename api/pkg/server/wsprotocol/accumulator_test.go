@@ -246,6 +246,20 @@ func TestEntriesPreserveLatestPlanSnapshot(t *testing.T) {
 	assert.Equal(t, "Working on it.", a.Content)
 }
 
+func TestEntriesAcceptEmptyPlanResetInFollowUp(t *testing.T) {
+	previous := &MessageAccumulator{}
+	previous.AddMessageWithType("plan", `{"steps":[{"step":"Old work","status":"inProgress"}]}`, "plan")
+
+	followUp := &MessageAccumulator{}
+	followUp.SetPriorEntries(previous.Entries())
+	followUp.AddMessageWithType("plan", `{"steps":[]}`, "plan")
+
+	entries := followUp.Entries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "plan", entries[0].Type)
+	assert.JSONEq(t, `{"steps":[]}`, entries[0].Content)
+}
+
 func TestEntriesTypeInference(t *testing.T) {
 	// When entry_type is empty (old Zed without entry_type support),
 	// Entries() should infer type from content.

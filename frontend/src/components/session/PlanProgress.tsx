@@ -75,6 +75,10 @@ const isPlanTool = (toolName: string) => {
   return normalized.includes("todowrite") || normalized.includes("updateplan");
 };
 
+export const hasPlanSource = (entries?: ResponseEntry[]): boolean =>
+  entries?.some((entry) => entry.type === "plan"
+    || (entry.type === "tool_call" && isPlanTool(entry.tool_name || ""))) || false;
+
 export const planStepsFromResponseEntries = (entries?: ResponseEntry[]): PlanStep[] => {
   if (!entries?.length) return [];
 
@@ -97,6 +101,13 @@ export const planStepsFromChecklist = (checklist?: TypesChecklistProgress): Plan
     if (!task.description?.trim()) return [];
     return [{ step: task.description.trim(), status: normalizeStatus(task.status) }];
   });
+
+export const planStepsForResponse = (
+  entries?: ResponseEntry[],
+  checklist?: TypesChecklistProgress,
+): PlanStep[] => hasPlanSource(entries)
+  ? planStepsFromResponseEntries(entries)
+  : planStepsFromChecklist(checklist);
 
 export const PlanProgress: FC<{ steps: PlanStep[] }> = ({ steps }) => {
   const theme = useTheme();
@@ -200,11 +211,12 @@ export const SessionPlanProgress: FC<{
   includeTaskChecklist?: boolean;
 }> = ({ responseEntries, session, includeTaskChecklist = false }) => {
   const taskID = session.config?.spec_task_id || "";
+  const hasTurnPlan = useMemo(() => hasPlanSource(responseEntries), [responseEntries]);
   const responseSteps = useMemo(() => planStepsFromResponseEntries(responseEntries), [responseEntries]);
   const { data: taskProgress } = useTaskProgress(taskID, {
-    enabled: includeTaskChecklist && responseSteps.length === 0 && !!taskID,
+    enabled: includeTaskChecklist && !hasTurnPlan && !!taskID,
   });
-  const steps = responseSteps.length > 0 ? responseSteps : planStepsFromChecklist(taskProgress?.checklist);
+  const steps = hasTurnPlan ? responseSteps : planStepsForResponse(responseEntries, taskProgress?.checklist);
 
   return <PlanProgress steps={steps} />;
 };
