@@ -154,19 +154,39 @@ Acceptance criteria:
       restart) therefore still stops being answerable, and the card reads "expired — the
       agent restarted".
 
-### US-4 — Blocked, not running
-**As a** user scanning the task list,
-**I want** a task blocked on a human answer to be visibly distinct from a running task,
-**so that** I know it is waiting for *me*.
+### US-4 — Blocked, not running — and I get told
+**As a** user who is not staring at the task list,
+**I want** a notification when an agent asks me something, plus a task-list badge that
+distinguishes "blocked on me" from "running",
+**so that** I find out without having to watch.
+
+A question nobody notices is the same as no question, so the notification is **required**,
+not a nice-to-have. It is also cheap: `AttentionService.EmitEvent`
+(`api/pkg/services/attention_service.go:59`) already fans one emit out to the in-app
+notification bell, a threaded Slack reply on the project's channel (`notifySlack`, `:180`),
+and the org spec-task event sink. The work is a new event type plus its title/description/
+emoji cases and a per-event dismissal — no new delivery surface.
 
 Acceptance criteria:
+- [ ] A pending question raises an `agent_question` attention event via
+      `attentionService.EmitEvent`, with the **elicitation id as the idempotency qualifier**
+      so resync re-announcements and retries cannot spam the user with duplicates.
+- [ ] The notification reaches the bell **and** the project's Slack thread where a Slack
+      trigger is configured, because both fall out of the same emit.
+- [ ] The notification text names the task and says the agent is waiting for an answer —
+      new cases in `buildTitle` (`:281`), `buildDescription` (`:302`) and `eventEmoji`
+      (`:331`); it must not fall through to a generic default.
+- [ ] The event is dismissed when the elicitation reaches **any** terminal status
+      (answered, declined, cancelled, expired), so a resolved question stops nagging.
+      Dismissal is per-event (keyed by the elicitation id), not the existing task-wide
+      `DismissTaskAttentionEvents`.
+- [ ] The "user is already active in this session" suppression that
+      `agent_interaction_completed` applies (`websocket_external_agent_sync.go:3200-3242`)
+      is **not** copied here. A question needs an answer whether or not the user is looking
+      at the session.
 - [ ] The task list and the task detail header show "waiting for your answer" (or
       equivalent), consistent with existing status surfaces (Lucide icons, existing badge
       components).
-- [ ] An `agent_question` attention event is raised when a question goes pending and
-      cleared on any terminal status, so the notification bell surfaces it. (If this turns
-      out to need substantial new surface area, ship the badge and state explicitly in the
-      PR description that the attention event was dropped and why — do not quietly skip it.)
 - [ ] The stuck-interaction auto-wake worker
       (`api/pkg/server/auto_wake_stuck_interactions.go`) does not treat a
       waiting-on-a-human interaction as a hung agent, and a unit test proves it.
@@ -226,7 +246,10 @@ session/thread lifecycle. Seeded rows and unit tests alone are **not** acceptanc
 9. [ ] **API-restart test**: with a question pending, restart the API (Air rebuild);
        after reconnect the question is still shown and still answerable, and answering it
        still resumes the turn.
-10. [ ] Task list/detail header shows "blocked on human answer" while pending.
+10. [ ] Task list/detail header shows "blocked on human answer" while pending, **and** the
+        notification arrives — bell entry present (and the Slack thread reply where a Slack
+        trigger is configured), then dismissed once the question is resolved. Screenshot the
+        notification.
 11. [ ] Go unit tests for the new handler paths, in the style of
         `api/pkg/server/websocket_external_agent_sync_test.go`.
 12. [ ] New E2E phase in the Zed WebSocket sync e2e suite (elicitation-request → answer →

@@ -50,6 +50,11 @@ Helix (`/home/retro/work/helix`):
 | Endpoint pattern to copy (auth + swagger + command) | `api/pkg/server/session_handlers.go:2396 cancelSessionTurn` |
 | Auto-wake gate to extend | `api/pkg/server/auto_wake_stuck_interactions.go:225 maybeAutoWake` |
 | Attention event machinery to reuse | `api/pkg/types/attention_event.go` (`org_message` is the existing "ask a human" precedent) |
+| One emit → bell + Slack thread reply + org event sink | `api/pkg/services/attention_service.go:59 EmitEvent`, `:180 notifySlack` |
+| Notification copy hooks that need new cases | `attention_service.go:281 buildTitle`, `:302 buildDescription`, `:331 eventEmoji` |
+| Idempotency key construction (qualifier-scoped) | `types.BuildAttentionEventIdempotencyKey(taskID, eventType, qualifier)` |
+| Existing dismissal is **task-wide**, not per-event | `attention_service.go:157 DismissTaskAttentionEvents` → `store.DismissAttentionEventsForTask` |
+| "User already active" suppression that must **not** be copied | `websocket_external_agent_sync.go:3200-3242` |
 | Frontend entry rendering / timeline builder | `frontend/src/components/session/InteractionInference.tsx:20-140` |
 | Frontend patch application | `frontend/src/contexts/streaming.tsx:482-540` |
 | E2E phases 1-16 (add 17) | `zed/crates/external_websocket_sync/e2e-test/helix-ws-test-server/main.go:9-23` |
@@ -237,6 +242,47 @@ search keep working.
 - `handleElicitationResponseAck`: log; on `noop`/`not_found` reconcile the row to a terminal
   status so the UI stops offering to answer.
 - `handleAgentReady` (`:4261`): **no status changes here.** Reconnect is not evidence.
+
+### Notifying the user (required, not optional)
+
+A badge only works for someone already looking at the task list. The notification is the
+part that reaches a user who is not. `AttentionService.EmitEvent`
+(`attention_service.go:59`) already fans a single emit out to three places — the in-app
+bell, a threaded Slack reply on the project's channel (`notifySlack`, `:180`), and the org
+spec-task event sink that triggers subscribed Workers — so this costs a new event type and
+its copy, not a new delivery path.
+
+```go
+attentionService.EmitEvent(ctx, types.AttentionEventAgentQuestion, task,
+    elicitation.ID,                         // qualifier → idempotency key
+    map[string]interface{}{"interaction_id": …, "session_id": …, "elicitation_id": …})
+```
+
+Rules:
+
+- **Qualifier is the elicitation id.** `BuildAttentionEventIdempotencyKey(task.ID,
+  eventType, qualifier)` then dedupes at the store layer, so the resync re-announcing a
+  still-pending question (which happens on every reconnect, i.e. on every API restart) does
+  **not** produce a second notification. `EmitEvent` already detects the dedupe and skips
+  Slack when the row it gets back is the pre-existing one.
+- **Emit only on the new-pending transition**, driven by the same conditional row write that
+  makes the elicitation pending — single-writer discipline, so a re-announcement that
+  changes nothing notifies nothing.
+- **Do not copy the "user already active in this session" suppression** that
+  `agent_interaction_completed` applies (`websocket_external_agent_sync.go:3200-3242`). That
+  heuristic is right for "your turn finished" and wrong here: a question needs an answer
+  whether or not the user is currently in the session.
+- **Add copy**: cases in `buildTitle` (`:281`), `buildDescription` (`:302`) and
+  `eventEmoji` (`:331`). Falling through to a generic default would ship a notification that
+  doesn't say what is being asked.
+- **Dismiss on any terminal status.** Existing dismissal is task-wide
+  (`DismissAttentionEventsForTask`), which is too blunt — resolving one question must not
+  clear unrelated events for the task. Add a per-event dismissal keyed by the
+  elicitation-scoped idempotency key, called from the same handler that writes the terminal
+  status (answered, declined, cancelled, expired).
+- Recipient is the project owner (`project.UserID`), matching every other attention event.
+  Routing to a task's assignee instead is a pre-existing question across all event types and
+  is not changed here.
 
 ### Follow-up while a question is pending (Correction 2)
 

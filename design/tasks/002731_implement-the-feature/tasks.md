@@ -35,7 +35,11 @@
 - [ ] Change `processPromptQueue` (`:3392`): when the newest interaction is `waiting` **and** has a pending/submitting elicitation, dispatch the follow-up with interrupt semantics instead of deferring it; do not write a terminal status locally
 - [ ] Add `POST /api/v1/sessions/{id}/elicitations/{elicitation_id}/respond` with swagger annotations, session-from-URL auth (`authorizeUserToSession` + `ActionUpdate`), session-ownership check, `pending→submitting` conditional transition (409 on loss), agent-connected check (409), `sendCommandToExternalAgent`
 - [ ] Register the route next to `/sessions/{id}/cancel` in `server.go`
-- [ ] Add `AttentionEventAgentQuestion` type and raise/clear it alongside the row transitions
+- [ ] Add `types.AttentionEventAgentQuestion` and emit it via `attentionService.EmitEvent` on the new-pending transition only, with the **elicitation id as the qualifier** so resync re-announcements dedupe instead of re-notifying
+- [ ] Add `buildTitle` / `buildDescription` / `eventEmoji` cases for the new event type (no generic fallthrough)
+- [ ] Add per-event dismissal keyed by the elicitation-scoped idempotency key (task-wide `DismissAttentionEventsForTask` is too blunt) and call it on every terminal status
+- [ ] Do **not** copy the "user already active in session" attention suppression from `agent_interaction_completed` — a question needs answering regardless
+- [ ] Go unit tests: notification emitted once for a question, not re-emitted on resync re-announcement, dismissed on each terminal status
 - [ ] Add Gate 0 to `maybeAutoWake`: skip interactions with a pending/submitting elicitation
 - [ ] Run `./stack update_openapi`
 - [ ] Go unit tests: requested/resolved/resync/ack handlers, endpoint auth + 404/403/409 paths, two-clients race, answer-after-cancel, empty-`request_id` fallback, **reconnect-does-not-cancel**, resync-absence-cancels-after-grace, queue-does-not-defer-follow-up
@@ -74,7 +78,9 @@
 - [ ] **API-restart test**: with a question pending, restart the API; confirm the question is still shown, still answerable, and answering it still resumes the turn
 - [ ] Decline path: confirm the turn continues with empty answers and settles cleanly
 - [ ] Leave a question unanswered, interrupt from Helix; confirm it settles and stops being answerable
-- [ ] Confirm the task list/header badge and the `agent_question` attention event appear while pending and clear on resolution
+- [ ] Confirm the task list/header badge appears while pending and clears on resolution
+- [ ] Confirm the notification lands: bell entry present (screenshot it) and, where a Slack trigger is configured, the threaded Slack reply; confirm it is dismissed once the question is resolved
+- [ ] Confirm an API restart while a question is pending does not produce a duplicate notification (resync dedupe)
 
 ## Docs and merge
 
