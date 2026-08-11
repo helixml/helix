@@ -133,8 +133,10 @@ func (r SandboxResourceOverrides) ValidPreset() bool {
 
 // Request types
 type CreateTaskRequest struct {
-	ProjectID    string           `json:"project_id"`
-	Prompt       string           `json:"prompt"`
+	ProjectID string `json:"project_id"`
+	Prompt    string `json:"prompt"`
+	// Name is the task title. Empty means derive it from the prompt.
+	Name         string           `json:"name,omitempty"`
 	Type         string           `json:"type"`
 	Priority     SpecTaskPriority `json:"priority"`
 	UserID       string           `json:"user_id"`

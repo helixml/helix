@@ -176,6 +176,12 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		return nil, fmt.Errorf("working branch is required for existing branch mode")
 	}
 
+	// An explicit name wins; otherwise derive one from the prompt.
+	taskName := strings.TrimSpace(req.Name)
+	if taskName == "" {
+		taskName = GenerateTaskNameFromPrompt(req.Prompt)
+	}
+
 	// Determine organization ID from project if it belongs to an org
 	organizationID := ""
 	if project != nil {
@@ -204,7 +210,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		UserID:                   req.UserID,
 		OrganizationID:           organizationID,
 		AssigneeID:               assigneeID, // Auto-started work is always assigned to the user who started it
-		Name:                     GenerateTaskNameFromPrompt(req.Prompt),
+		Name:                     taskName,
 		Description:              req.Prompt,
 		Type:                     req.Type,
 		Priority:                 req.Priority,

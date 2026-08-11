@@ -731,6 +731,9 @@ type AgentConfig struct {
 }
 
 type HelixConfig struct {
+	// Name is where an agent's display name actually lives — the top-level
+	// `name` field on the API response is always empty.
+	Name       string      `json:"name"`
 	Assistants []Assistant `json:"assistants"`
 }
 
@@ -837,7 +840,11 @@ agents.`,
 					marker = ""
 				}
 
-				fmt.Printf("Agent: %s%s\n", agent.Name, marker)
+				name := agent.Config.Helix.Name
+				if name == "" {
+					name = agent.Name
+				}
+				fmt.Printf("Agent: %s%s\n", name, marker)
 				fmt.Printf("  ID: %s\n", agent.ID)
 				fmt.Printf("  Assistant: %s\n", primary.Name)
 				if primary.AgentType != "" {
