@@ -613,11 +613,14 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 			// app.Owner drives the actor identity here — buildCodeAgentConfig
 			// has no session/request context. Org providers are still
 			// resolved via the org bucket inside getProviderSnapshot.
-			snapshot, err := apiServer.getProviderSnapshot(ctx, app.Owner, app)
+			endpoints, err := apiServer.listEndpointsForApp(ctx, app.Owner, app)
 			if err != nil {
 				log.Warn().Err(err).Str("app_id", app.ID).Msg("buildCodeAgentConfig: provider snapshot unavailable; model prefix may not match agent.default_model")
 			}
+			snapshot := providerSnapshotFromEndpoints(endpoints)
 			cfg := apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL, snapshot)
+			_, modelName := external_agent.AssistantModelSelection(&assistant)
+			apiServer.applyAdvertisedModelLimits(ctx, cfg, modelName, endpoints)
 			if cfg != nil && cfg.Runtime == types.CodeAgentRuntimeGooseCode && projectID != "" && len(assistant.GooseRecipes) > 0 {
 				if err := apiServer.resolveGooseRecipesIntoConfig(ctx, app, &assistant, projectID, cfg); err != nil {
 					log.Warn().Err(err).Str("app_id", app.ID).Str("project_id", projectID).Msg("buildCodeAgentConfig: failed to resolve goose recipes; slash commands will be unavailable in this session")
@@ -762,6 +765,52 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		ReasoningEffort:  normalizeCodeAgentReasoningEffort(runtime, assistant.ReasoningEffort),
 		MaxTokens:        maxTokens,
 		MaxOutputTokens:  maxOutputTokens,
+	}
+}
+
+// applyAdvertisedModelLimits makes the selected provider's /v1/models response
+// authoritative for its context window. The bundled model catalogue is still
+// used by buildCodeAgentConfigFromAssistant as a fallback for providers that do
+// not advertise a context length or are temporarily unavailable.
+func (apiServer *HelixAPIServer) applyAdvertisedModelLimits(ctx context.Context, cfg *types.CodeAgentConfig, modelName string, endpoints []*types.ProviderEndpoint) {
+	if cfg == nil || cfg.Provider == "" || modelName == "" {
+		return
+	}
+
+	bareModelName := strings.TrimPrefix(modelName, cfg.Provider+"/")
+	for _, endpoint := range endpoints {
+		if endpoint == nil || endpoint.Name != cfg.Provider {
+			continue
+		}
+
+		providerModels, err := apiServer.getProviderModels(ctx, endpoint)
+		if err != nil {
+			log.Warn().Err(err).
+				Str("provider", cfg.Provider).
+				Str("model", modelName).
+				Msg("buildCodeAgentConfig: provider model metadata unavailable; using catalogue token limits")
+			return
+		}
+
+		for _, advertisedModel := range providerModels.Models {
+			advertisedBareName := strings.TrimPrefix(advertisedModel.ID, cfg.Provider+"/")
+			if advertisedModel.ID != modelName && advertisedBareName != bareModelName {
+				continue
+			}
+			if advertisedModel.ContextLength <= 0 {
+				continue
+			}
+
+			catalogueContextLength := cfg.MaxTokens
+			cfg.MaxTokens = advertisedModel.ContextLength
+			log.Debug().
+				Str("provider", cfg.Provider).
+				Str("model", modelName).
+				Int("advertised_context_length", advertisedModel.ContextLength).
+				Int("catalogue_context_length", catalogueContextLength).
+				Msg("buildCodeAgentConfig: using provider-advertised context length")
+			return
+		}
 	}
 }
 
@@ -977,11 +1026,18 @@ func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorI
 	if err != nil {
 		return nil, err
 	}
+	return providerSnapshotFromEndpoints(endpoints), nil
+}
+
+func providerSnapshotFromEndpoints(endpoints []*types.ProviderEndpoint) []external_agent.ProviderRef {
 	refs := make([]external_agent.ProviderRef, 0, len(endpoints))
 	for _, ep := range endpoints {
+		if ep == nil {
+			continue
+		}
 		refs = append(refs, external_agent.ProviderRef{ID: ep.ID, Name: ep.Name})
 	}
-	return refs, nil
+	return refs
 }
 
 // listEndpointsForApp returns ProviderEndpoint records available to the app.
