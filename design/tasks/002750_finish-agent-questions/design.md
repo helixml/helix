@@ -249,6 +249,38 @@ Recorded because none of these were visible from the brief, and all six cost rea
    have** — the generated client is only reachable via the `useApi()` hook, so the service
    now takes an `Api` client parameter and `ElicitationCardContainer` supplies it.
 
+7. **Adding a phase broke the e2e's wall-clock budget.** `run_e2e.sh` computed
+   `DEFAULT_TIMEOUT=300 * AGENT_COUNT`; a zed-agent round measured ~190s once Phase 18 was
+   added, so a two-agent run timed out mid-round-2 with every phase passing. Raised to
+   450s/round — this matters for CI, which uses the default.
+
+### E2E result
+
+`./run_docker_e2e.sh` (the default single `zed-agent` round) is **green**, Phase 18
+included:
+
+```
+[zed-agent] Phase 18: ✅ question recorded pending with a 363-byte schema carrying both options
+[zed-agent] Phase 18a: ✅ respond_elicitation delivered to Zed
+[zed-agent] Phase 18a: ✅ Zed's ack round-tripped: question is now cancelled (agent_no_longer_holds)
+[zed-agent] Phase 18a: ack event from Zed: status=not_found
+[zed-agent] Phase 18b: ✅ question is terminal (accepted) and no longer answerable
+[zed-agent] Phase 18: ✅ a normal turn still completes after the question cycle
+  [zed-agent] PASSED
+  [store] PASSED
+[test-server] ALL TESTS PASSED (1 agent rounds, production handlers, in-memory store)
+  E2E TEST PASSED
+```
+
+**Not verified here: the two-agent (`E2E_AGENTS="zed-agent,claude"`) matrix.** The
+`zed-agent` round passes; the `claude` round then stalls at **Phase 1** — before any
+elicitation code runs — and never emits a turn. It is not a rejected model: the local
+Anthropic proxy on `:8081` was probed directly and returns 200 for
+`claude-sonnet-4-6`, `claude-opus-4-8`, `claude-opus-4-6` and `claude-sonnet-4-5`. The
+round installs `claude-agent-acp` from npm at runtime (unpinned, 0.66.0), and the stall is
+in that agent's startup. Unrelated to this change, but it means the CI matrix round for
+`claude` has not been exercised locally.
+
 Process notes that paid off: `./stack update_openapi` needs `$(go env GOPATH)/bin` on
 `PATH` for `swag`, and npm's cache needed `sudo chown -R 1000:1000 ~/.npm`. Both repos'
 feature branches moved under me mid-task (another agent pushed a `ZED_COMMIT` pin and
