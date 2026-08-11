@@ -149,6 +149,10 @@ not working:
 - [ ] The **decline / Skip** path settles cleanly (turn continues with empty answers).
 - [ ] A question left unanswered and then **interrupted from Helix** settles to a terminal
       status and stops being answerable (the card locks; a further POST returns 409).
+- [ ] **The answer survives a reload.** After answering, reload the page and confirm the
+      transcript still shows the question *and what the user chose*. The card is part of the
+      permanent conversation record; a reload is the cheapest proof the entry was persisted
+      rather than only streamed into the live DOM.
 
 ---
 
@@ -166,39 +170,34 @@ not working:
 
 ## Open Questions
 
-1. **Phase number collision.** The brief says "add Phase 17", but Phase 17 already exists on
-   the branch (`main.go:1644`, "Queue interrupt (interrupt=true)"), and Phase 16 is the
-   queue-defer test. The new elicitation phase is therefore specced as **Phase 18**.
-   Confirm this rather than renumbering the existing phases.
+All six were answered at spec review (2026-08-11). Recorded here as resolved decisions.
 
-2. **What the synthetic seam should assert about Zed.** Injecting `elicitation_requested`
-   via `srv.ProcessSyncEvent` means the elicitation does not exist in the live Zed process.
-   When Helix then sends `respond_elicitation`, real Zed will answer
-   `elicitation_response_ack{not_found}`. Two options:
-   (a) assert the command was queued/delivered, then inject `elicitation_resolved(accepted)`
-   synthetically — tests the full Helix handler chain and the command egress, but not Zed's
-   apply path; or
-   (b) additionally assert the real `not_found` ack, proving round-trip transport.
-   This spec assumes **(a) plus the ack observed and tolerated**. Confirm.
+1. **Phase number collision — RESOLVED: use Phase 18.** Phase 17 already exists on the
+   branch (`main.go:1644`, "Queue interrupt"), and 16 is queue-defer. **Never renumber
+   existing phases.**
 
-3. **Rust-side tests.** The 002731 task list has unchecked items for Rust unit tests
-   (entry→event mapping, resync emission, no-op/not-found) and `cargo build --features
-   external_websocket_sync -p zed` + `./script/clippy`. The brief for this task does not
-   mention them. Assumed **in scope only as a clippy/build check**, not new Rust unit tests,
-   because a full Rust build here is very heavy. Confirm if the Rust unit tests are wanted.
+2. **What the synthetic seam asserts about Zed — RESOLVED: option (a), observe-and-tolerate
+   the ack.** Assert the `respond_elicitation` command was delivered; **tolerate and log**
+   the real `elicitation_response_ack{not_found}` from live Zed; then inject
+   `elicitation_resolved(accepted)`. **Do not fail the phase on `not_found`** — that ack is
+   the *correct* behaviour for an elicitation the live Zed never held. Asserting it
+   positively is a bonus, not a gate. The phase comment must say all of this, so the next
+   person does not "fix" it.
 
-4. **Zed binary for the e2e.** `helix/zed-build/zed` does not exist in this sandbox, so
-   `run_docker_e2e.sh` will require `./stack build-zed dev` first (documented as ~3 min,
-   realistically much longer on this shared box). Assumed acceptable. If a prebuilt binary
-   exists elsewhere, point at it.
+3. **Rust-side tests — RESOLVED: build + clippy only.** No new Rust unit tests; a full Rust
+   build here is expensive, and the e2e run exercises the Rust path end to end anyway, which
+   is the coverage that matters most.
 
-5. **Live-verification items dropped from the 002731 list.** That list also required an
-   API-restart test, the custom-answer ("Other" only) path, a task-list/header badge check,
-   and bell/Slack notification checks. This task's brief lists a shorter set. Assumed the
-   brief's list is the required bar and the extras are **best-effort**; they will be
-   attempted and reported, not treated as blockers. Confirm.
+4. **Zed binary — RESOLVED: build it.** No prebuilt binary exists in this sandbox. Run
+   `./stack build-zed dev` and copy to `e2e-test/zed-binary`. Poll for it in a loop; expect
+   it to be slow.
 
-6. **Which agent/model to use for live verification.** `AskUserQuestion` is a Claude Code
-   built-in, so the session must run the `claude` harness (not `zed-agent`/qwen). Assumed
-   the inner Helix has a Claude-backed agent available; if not, this becomes the blocker for
-   requirement 5.
+5. **Live-verification extras — RESOLVED: the brief's list is the bar, extras are
+   best-effort.** Attempt the API-restart test, the "Other"-only custom answer, the
+   task-list badge and the notification, and report what was observed. Do not block the PR
+   on them — but do not silently drop them either.
+
+6. **Agent for live verification — RESOLVED: Claude Code harness.** `AskUserQuestion` is a
+   Claude Code built-in; a `zed-agent`/qwen session cannot produce an elicitation. If the
+   inner Helix has no Claude-backed agent available, **say so immediately** rather than
+   substituting a harness that cannot exercise the feature.

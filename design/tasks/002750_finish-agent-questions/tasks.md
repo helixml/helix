@@ -49,7 +49,7 @@
 - [ ] Add **Phase 18** (17 is already "Queue interrupt"), appended after `runQueuePhases`, replacing the `d.phase = 17` terminal state
 - [ ] Step 1: `ProcessSyncEvent("elicitation_requested")` with a realistic **non-empty** `requested_schema` (`oneOf` options + `_claude/askUserQuestionOption` / `_askUserQuestionCustomAnswer` metadata), the live `acp_thread_id`, an `entry_index`, `status: "pending"`
 - [ ] Step 2: assert the row is live and the schema round-tripped non-empty
-- [ ] Step 3: issue `respond_elicitation` through the production path; assert the command reaches Zed; tolerate + log the real `elicitation_response_ack{not_found}` (synthetic elicitation is unknown to live Zed)
+- [ ] Step 3: issue `respond_elicitation` through the production path; assert the command reaches Zed; **tolerate + log** the real `elicitation_response_ack{not_found}` — never fail the phase on it (the synthetic elicitation is unknown to live Zed, so `not_found` is correct)
 - [ ] Step 4: `ProcessSyncEvent("elicitation_resolved", accepted)`; assert terminal status and mirrored transcript entry
 - [ ] Step 5: send a normal `chat_message` on the same thread and assert `message_completed` — the turn must not be wedged
 - [ ] Phase comment states **why it is synthetic**: a CI phase must not depend on the model choosing to call `AskUserQuestion`
@@ -69,6 +69,7 @@
 - [ ] Trigger a **second** question in the same session; confirm it works independently → `screenshots/04-second-question.png`
 - [ ] Decline / Skip path: confirm the turn continues with empty answers and settles cleanly → `screenshots/05-skip.png`
 - [ ] Leave a question unanswered, interrupt from Helix; confirm it settles terminal and stops being answerable (card locks; a further POST returns 409) → `screenshots/06-interrupted.png`
+- [ ] **Reload the page** after answering; confirm the transcript still shows the question and **what the user chose** (proves the entry was persisted, not just streamed) → `screenshots/07-persisted-after-reload.png`
 - [ ] Best-effort extras: API-restart-while-pending, custom-answer-only ("Other") path, task-list/header badge, bell notification + dismissal
 - [ ] Record any failures plainly in the final report — do **not** report the feature done on the strength of unit tests
 - [ ] Commit the screenshots to helix-specs and push

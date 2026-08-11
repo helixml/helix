@@ -134,8 +134,11 @@ Shape of Phase 18, using the live thread/session established by earlier phases:
    schema being dropped or stringified by the accumulator).
 3. Drive `respond_elicitation` through the **production** path (the same call the REST
    handler makes), and assert the command reaches Zed. Real Zed does not hold this synthetic
-   elicitation, so it will reply `elicitation_response_ack{not_found}` — the phase must
-   tolerate and log that rather than fail on it (see Open Question 2).
+   elicitation, so it will reply `elicitation_response_ack{not_found}`. **The phase logs and
+   tolerates that ack; it must never fail on it** — `not_found` is the *correct* behaviour
+   for an elicitation the live Zed never held. Observing the ack positively is a bonus
+   assertion, not a gate. The phase comment must spell this out so a future reader does not
+   "fix" the tolerance into an assertion and make the phase flaky.
 4. `ProcessSyncEvent("elicitation_resolved")` with `status: "accepted"`; assert the row is
    terminal and the transcript entry mirrors it.
 5. Send a normal `chat_message` on the same thread and assert `message_completed` — proving
