@@ -373,6 +373,7 @@ func (s *HelixAPIServer) listProjectSpecTaskAgents(_ http.ResponseWriter, r *htt
 // @Success 200 {object} types.Project
 // @Failure 400 {object} system.HTTPError
 // @Failure 401 {object} system.HTTPError
+// @Failure 409 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
 // @Router /api/v1/projects [post]
@@ -388,6 +389,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	// Validate required fields
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		return nil, system.NewHTTPError400("project name is required")
 	}
@@ -445,8 +447,8 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// Deduplicate project name within the workspace (org or personal)
-	// Build a set of existing names and add (1), (2), etc. if needed
+	// Project names must be unique within the workspace. Return a conflict instead
+	// of silently renaming the project so callers can show a useful inline error.
 	var existingProjects []*types.Project
 	var listErr error
 	if req.OrganizationID != "" {
@@ -459,23 +461,12 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		})
 	}
 	if listErr != nil {
-		log.Warn().Err(listErr).Msg("failed to list projects for name deduplication (continuing)")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to check project name: %s", listErr))
 	}
 
-	existingNames := make(map[string]bool)
-	for _, p := range existingProjects {
-		existingNames[p.Name] = true
+	if projectNameExists(existingProjects, req.Name) {
+		return nil, system.NewHTTPError409(fmt.Sprintf("a project named %q already exists", req.Name))
 	}
-
-	// Auto-increment name if it already exists: MyProject -> MyProject (1) -> MyProject (2)
-	baseName := req.Name
-	uniqueName := baseName
-	suffix := 1
-	for existingNames[uniqueName] {
-		uniqueName = fmt.Sprintf("%s (%d)", baseName, suffix)
-		suffix++
-	}
-	req.Name = uniqueName
 
 	project := &types.Project{
 		OrganizationID:    req.OrganizationID,
@@ -602,6 +593,16 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	return created, nil
+}
+
+func projectNameExists(projects []*types.Project, name string) bool {
+	normalizedName := strings.TrimSpace(name)
+	for _, project := range projects {
+		if strings.EqualFold(strings.TrimSpace(project.Name), normalizedName) {
+			return true
+		}
+	}
+	return false
 }
 
 // updateProject godoc

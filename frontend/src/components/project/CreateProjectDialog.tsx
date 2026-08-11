@@ -21,7 +21,7 @@ import { Check, ChevronRight, FolderGit2, Link as LinkIcon, Plus } from 'lucide-
 import { SiBitbucket, SiGithub, SiGitlab } from 'react-icons/si'
 import { TypesExternalRepositoryType, TypesRepositoryInfo } from '../../api/api'
 import type { TypesGitRepository, TypesAzureDevOps } from '../../api/api'
-import { useCreateProject } from '../../services'
+import { useCreateProject, useListProjects } from '../../services'
 import useAccount from '../../hooks/useAccount'
 import useSnackbar from '../../hooks/useSnackbar'
 import { CodeAgentRuntime } from '../../contexts/apps'
@@ -34,6 +34,24 @@ import BrowseProvidersDialog from './BrowseProvidersDialog'
 
 
 type RepoMode = 'select' | 'create'
+
+const normalizeName = (value: string) => value.trim().toLowerCase()
+
+export const getUniqueRepositoryName = (
+  baseName: string,
+  repositories: TypesGitRepository[],
+) => {
+  const existingNames = new Set(
+    repositories.map(repository => normalizeName(repository.name || '')),
+  )
+  let candidate = baseName
+  let suffix = 2
+  while (existingNames.has(normalizeName(candidate))) {
+    candidate = `${baseName}-${suffix}`
+    suffix += 1
+  }
+  return candidate
+}
 
 interface CreateProjectDialogProps {
   open: boolean
@@ -63,6 +81,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const account = useAccount()
   const snackbar = useSnackbar()
   const createProjectMutation = useCreateProject()
+  const organizationId = account.organizationTools.organization?.id
+  const {
+    data: existingProjects = [],
+    isLoading: projectsLoading,
+  } = useListProjects(organizationId, {
+    enabled: open && !!account.user?.id,
+  })
   const [name, setName] = useState('')
   const [selectedRepoId, setSelectedRepoId] = useState('')
   const [repoMode, setRepoMode] = useState<RepoMode>('create')
@@ -92,6 +117,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const preselectedRepoName = codeRepos.find(
     repo => repo.id === preselectedRepoId,
   )?.name || ''
+  const trimmedName = name.trim()
+  const projectNameExists = !!trimmedName && existingProjects.some(
+    project => normalizeName(project.name || '') === normalizeName(trimmedName),
+  )
+  const uniqueRepositoryName = repoMode === 'create'
+    ? getUniqueRepositoryName(trimmedName, repositories)
+    : trimmedName
 
   // Reset form when dialog closes or initialize with preselected repo
   useEffect(() => {
@@ -206,9 +238,11 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }
 
   const handleSubmit = async () => {
-    const trimmedName = name.trim()
     if (!trimmedName) {
       snackbar.error('Name is required')
+      return
+    }
+    if (projectNameExists) {
       return
     }
 
@@ -229,7 +263,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
 
       setCreatingRepo(true)
       try {
-        const newRepo = await onCreateRepo(trimmedName, '')
+        const newRepo = await onCreateRepo(uniqueRepositoryName, '')
         if (!newRepo?.id) {
           setRepoError('Failed to create repository')
           return
@@ -279,7 +313,9 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const isSubmitDisabled = createProjectMutation.isPending
     || creatingRepo
     || creatingAgent
+    || projectsLoading
     || !name.trim()
+    || projectNameExists
     || (repoMode === 'select' && !selectedRepoId)
 
   // Handle Cmd/Ctrl+Enter to submit
@@ -483,11 +519,17 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
             value={name}
             onChange={(event) => setName(event.target.value)}
             required
+            error={projectNameExists}
             helperText={
-              repoMode === 'create'
+              projectNameExists
+                ? `A project named “${trimmedName}” already exists.`
+                : repoMode === 'create' && uniqueRepositoryName !== trimmedName
+                  ? `Creates project “${trimmedName}” and Helix-hosted repository “${uniqueRepositoryName}”.`
+                  : repoMode === 'create'
                 ? 'Creates a project and Helix-hosted repository with this name.'
                 : 'Project name, populated from the selected repository.'
             }
+            FormHelperTextProps={{ sx: { mx: 0, mt: 0.75 } }}
           />
 
           {repoError && (

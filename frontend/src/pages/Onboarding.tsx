@@ -433,7 +433,7 @@ export default function Onboarding() {
   }, [api, router]);
 
   const userName =
-    account.user?.name?.split(" ")[0] ||
+    account.user?.name?.trim() ||
     account.user?.email?.split("@")[0] ||
     "there";
 
@@ -1117,7 +1117,7 @@ export default function Onboarding() {
                 fontSize: "0.88rem",
               }}
             >
-              Let's set up for success 😉
+              Let&apos;s set you up for success 😉
             </Typography>
           </Box>
         </Fade>

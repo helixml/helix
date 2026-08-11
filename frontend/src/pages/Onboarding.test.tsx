@@ -157,6 +157,13 @@ describe('Onboarding', () => {
     ])
   })
 
+  it('greets the user by their full name', () => {
+    renderOnboarding()
+
+    expect(screen.getByText('Hello, Test User')).toBeInTheDocument()
+    expect(screen.getByText("Let's set you up for success 😉")).toBeInTheDocument()
+  })
+
   it('ends after coding access and defaults to Helix credits', async () => {
     renderOnboarding()
     await goToCodingAccessStep()

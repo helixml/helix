@@ -50,7 +50,7 @@ import HubIcon from "@mui/icons-material/Hub";
 import SettingsIcon from "@mui/icons-material/Settings";
 
 import Skills from "../components/app/Skills";
-import { TypesAssistantSkills, TypesProject, TypesSecretScope, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
+import { TypesAssistantSkills, TypesCreateAccessGrantRequest, TypesProject, TypesSecretScope, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
 import WebServiceTab from "../components/project/WebServiceTab";
@@ -68,6 +68,13 @@ import ProjectRepositoriesList from "../components/project/ProjectRepositoriesLi
 import AttachProjectRepositoryDialog from "../components/project/AttachProjectRepositoryDialog";
 import AgentDropdown from "../components/agent/AgentDropdown";
 import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
+import AccessManagement from "../components/app/AccessManagement";
+import { canManageProjectAccess } from "../utils/projectAccess";
+import {
+  useCreateProjectAccessGrant,
+  useDeleteProjectAccessGrant,
+  useListProjectAccessGrants,
+} from "../services/projectAccessGrantService";
 import { SparkLineChart } from "@mui/x-charts";
 import DesktopStreamViewer from "../components/external-agent/DesktopStreamViewer";
 import { useSandboxState } from "../components/external-agent/ExternalAgentDesktopViewer";
@@ -132,6 +139,16 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId);
   const detachRepoMutation = useDetachRepositoryFromProject(projectId);
   const deleteProjectMutation = useDeleteProject();
+  const {
+    data: accessGrants = [],
+    isLoading: accessGrantsLoading,
+    error: accessGrantsError,
+  } = useListProjectAccessGrants(
+    projectId,
+    projectDependentQueriesEnabled && !!project?.organization_id,
+  );
+  const createAccessGrantMutation = useCreateProjectAccessGrant(projectId);
+  const deleteAccessGrantMutation = useDeleteProjectAccessGrant(projectId);
 
   // Exploratory session
   const { data: exploratorySessionData } =
@@ -1873,6 +1890,78 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     </Box>
   );
 
+  const handleCreateAccessGrant = async (request: TypesCreateAccessGrantRequest) => {
+    try {
+      const result = await createAccessGrantMutation.mutateAsync(request);
+      snackbar.success("Access grant created");
+      return result || null;
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : "Failed to create access grant");
+      return null;
+    }
+  };
+
+  const handleDeleteAccessGrant = async (grantId: string) => {
+    try {
+      await deleteAccessGrantMutation.mutateAsync(grantId);
+      snackbar.success("Access grant removed");
+      return true;
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : "Failed to remove access grant");
+      return false;
+    }
+  };
+
+  const renderAccessTab = () => {
+    if (!project.organization_id) {
+      return (
+        <Alert severity="info">
+          Move this project to an organization to enable team sharing and access control.
+        </Alert>
+      );
+    }
+
+    if (accessGrantsError) {
+      return (
+        <Alert severity="error">
+          You do not have permission to view this project&apos;s access settings.
+        </Alert>
+      );
+    }
+
+    const canManageAccess = canManageProjectAccess(
+      account.user,
+      project.user_id,
+      account.organizationTools.organization?.owner,
+      accessGrants,
+    );
+
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <Box>
+          <Typography variant="h6">Manage Access</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Choose which users and teams can access this project.
+          </Typography>
+        </Box>
+        <Divider />
+        <AccessManagement
+          appId={projectId}
+          resourceLabel="project"
+          accessGrants={accessGrants}
+          isLoading={accessGrantsLoading}
+          isReadOnly={!canManageAccess}
+          organizationId={project.organization_id}
+          currentUser={account.user}
+          projectOwnerId={project.user_id}
+          projectOwner={project.user}
+          onCreateGrant={handleCreateAccessGrant}
+          onDeleteGrant={handleDeleteAccessGrant}
+        />
+      </Box>
+    );
+  };
+
   const renderDangerTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <Box
@@ -1979,6 +2068,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         {tab ==="board" && renderBoardTab()}
         {tab ==="secrets" && renderSecretsTab()}
         {tab ==="skills" && renderSkillsTab()}
+        {tab ==="access" && renderAccessTab()}
         {tab ==="danger" && renderDangerTab()}
       </Container>
 

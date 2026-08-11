@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   createAgent: vi.fn(),
   createProject: vi.fn(),
   createRepo: vi.fn(),
+  projects: [] as Array<{ id: string; name: string }>,
 }))
 
 vi.mock('../../hooks/useAccount', () => ({
@@ -18,6 +19,7 @@ vi.mock('../../hooks/useAccount', () => ({
       orgID: 'test-org',
       organization: { id: 'org-1', name: 'test-org' },
     },
+    user: { id: 'user-1' },
     orgNavigate: vi.fn(),
   }),
 }))
@@ -34,6 +36,10 @@ vi.mock('../../services', () => ({
   useCreateProject: () => ({
     isPending: false,
     mutateAsync: mocks.createProject,
+  }),
+  useListProjects: () => ({
+    data: mocks.projects,
+    isLoading: false,
   }),
 }))
 
@@ -79,6 +85,7 @@ describe('CreateProjectDialog', () => {
     mocks.createAgent.mockResolvedValue({ id: 'agent-1' })
     mocks.createProject.mockResolvedValue({ id: 'project-1' })
     mocks.createRepo.mockResolvedValue({ id: 'repo-1', name: 'demo' })
+    mocks.projects.length = 0
   })
 
   it('disables existing repository selection when none are available', async () => {
@@ -138,5 +145,34 @@ describe('CreateProjectDialog', () => {
 
     await waitFor(() => expect(mocks.createRepo).toHaveBeenCalledWith('Shortcut project', ''))
     await waitFor(() => expect(mocks.createProject).toHaveBeenCalledOnce())
+  })
+
+  it('shows an inline error and blocks an existing project name', async () => {
+    mocks.projects.push({ id: 'project-existing', name: 'Demo Project' })
+    renderDialog()
+
+    const nameField = screen.getByRole('textbox', { name: /^Name$/i })
+    fireEvent.change(nameField, { target: { value: ' demo project ' } })
+
+    expect(await screen.findByText('A project named “demo project” already exists.')).toBeInTheDocument()
+    expect(nameField).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('button', { name: /Create Project/i })).toBeDisabled()
+    expect(mocks.createRepo).not.toHaveBeenCalled()
+  })
+
+  it('suffixes a conflicting Helix repository name without changing the project name', async () => {
+    renderDialog([
+      { id: 'repo-existing', name: 'Demo', repo_type: 'code' } as TypesGitRepository,
+    ])
+
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name$/i }), {
+      target: { value: 'demo' },
+    })
+
+    expect(await screen.findByText('Creates project “demo” and Helix-hosted repository “demo-2”.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Create Project/i }))
+
+    await waitFor(() => expect(mocks.createRepo).toHaveBeenCalledWith('demo-2', ''))
+    expect(mocks.createProject).toHaveBeenCalledWith(expect.objectContaining({ name: 'demo' }))
   })
 })
