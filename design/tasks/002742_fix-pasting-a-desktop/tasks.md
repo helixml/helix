@@ -2,14 +2,14 @@
 
 ## Shared sentinel module
 
-- [~] Create `frontend/src/components/common/clipboardPlaceholder.ts` exporting `PLACEHOLDER_PNG_BASE64`, a derived `PLACEHOLDER_PNG_BYTE_LENGTH`, and `isPlaceholderPngCandidate(file)`
-- [ ] Move the full "why this placeholder exists" rationale comment (Chrome sanitise/reject, commit 2161143e2) into the new module
-- [ ] Delete the local `PLACEHOLDER_PNG_BASE64` from `DesktopStreamViewer.tsx` and import it from the shared module
-- [ ] Verify the base64 string appears exactly once: `grep -rn 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' frontend/src`
+- [x] Create `frontend/src/components/common/clipboardPlaceholder.ts` exporting `PLACEHOLDER_PNG_BASE64`, a derived `PLACEHOLDER_PNG_BYTE_LENGTH`, and `isPlaceholderPngCandidate(file)`
+- [x] Move the full "why this placeholder exists" rationale comment (Chrome sanitise/reject, commit 2161143e2) into the new module
+- [x] Delete the local `PLACEHOLDER_PNG_BASE64` from `DesktopStreamViewer.tsx` and import it from the shared module
+- [x] Verify the base64 string appears exactly once: `grep -rn 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' frontend/src`
 
 ## Paste side (primary fix)
 
-- [ ] Filter sentinel candidates out of `filesFromClipboard` in `frontend/src/components/common/chatAttachments.ts`
+- [~] Filter sentinel candidates out of `filesFromClipboard` in `frontend/src/components/common/chatAttachments.ts`
 - [ ] Add the comment in `RobustPromptInput.handlePaste` documenting the files-vs-text rule and why there is no blanket text-over-image preference
 - [ ] Replace the hand-rolled `items` loop in `InferenceTextField.handlePaste` with `filesFromClipboard(...)` + an `image/*` filter
 - [ ] Confirm the large-text-paste path in `RobustPromptInput` is still reached when the clipboard is text + sentinel
