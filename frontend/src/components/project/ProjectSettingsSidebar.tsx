@@ -2,7 +2,7 @@ import React, { FC } from 'react'
 
 import SettingsIcon from '@mui/icons-material/Settings'
 import CodeIcon from '@mui/icons-material/Code'
-import { Bot } from 'lucide-react'
+import { Bot, GitBranch } from 'lucide-react'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import HubIcon from '@mui/icons-material/Hub'
@@ -12,7 +12,7 @@ import PeopleIcon from '@mui/icons-material/People'
 
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
-export type ProjectSettingsTab = 'general' | 'sandbox' | 'web-service' | 'agents' | 'board' | 'secrets' | 'skills' | 'access' | 'danger'
+export type ProjectSettingsTab = 'general' | 'repositories' | 'sandbox' | 'web-service' | 'agents' | 'board' | 'secrets' | 'skills' | 'access' | 'danger'
 
 interface ProjectSettingsSidebarProps {
   activeTab?: ProjectSettingsTab
@@ -35,6 +35,13 @@ const ProjectSettingsSidebar: FC<ProjectSettingsSidebarProps> = ({ activeTab = '
           icon: <SettingsIcon />,
           isActive: activeTab === 'general',
           onClick: () => handleClick('general'),
+        },
+        {
+          id: 'repositories',
+          label: 'Repositories',
+          icon: <GitBranch size={22} />,
+          isActive: activeTab === 'repositories',
+          onClick: () => handleClick('repositories'),
         },
         {
           id: 'sandbox',
