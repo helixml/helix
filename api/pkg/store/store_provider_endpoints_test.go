@@ -179,12 +179,15 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointUpdate() {
 	require.NoError(suite.T(), err)
 
 	updatedEndpoint := &types.ProviderEndpoint{
-		ID:           createdEndpoint.ID,
-		Name:         "updated-endpoint",
-		Owner:        createdEndpoint.Owner,
-		EndpointType: types.ProviderEndpointTypeGlobal,
-		BaseURL:      "https://updated.example.com",
-		APIKey:       "updated-key",
+		ID:             createdEndpoint.ID,
+		Name:           "updated-endpoint",
+		Description:    "Updated description",
+		Icon:           "deepseek",
+		Owner:          createdEndpoint.Owner,
+		EndpointType:   types.ProviderEndpointTypeGlobal,
+		BaseURL:        "https://updated.example.com",
+		APIKey:         "updated-key",
+		BillingEnabled: true,
 	}
 
 	updatedEndpoint, err = suite.db.UpdateProviderEndpoint(suite.ctx, updatedEndpoint)
@@ -193,9 +196,12 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointUpdate() {
 	fetchedEndpoint, err := suite.db.GetProviderEndpoint(suite.ctx, &GetProviderEndpointsQuery{ID: createdEndpoint.ID})
 	require.NoError(suite.T(), err)
 	assert.Equal(suite.T(), updatedEndpoint.Name, fetchedEndpoint.Name)
+	assert.Equal(suite.T(), updatedEndpoint.Description, fetchedEndpoint.Description)
+	assert.Equal(suite.T(), updatedEndpoint.Icon, fetchedEndpoint.Icon)
 	assert.Equal(suite.T(), updatedEndpoint.EndpointType, fetchedEndpoint.EndpointType)
 	assert.Equal(suite.T(), updatedEndpoint.BaseURL, fetchedEndpoint.BaseURL)
 	assert.Equal(suite.T(), updatedEndpoint.APIKey, fetchedEndpoint.APIKey)
+	assert.True(suite.T(), fetchedEndpoint.BillingEnabled)
 	assert.NotZero(suite.T(), fetchedEndpoint.Updated)
 
 	// Clean up

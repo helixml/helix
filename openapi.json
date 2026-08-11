@@ -38772,6 +38772,9 @@
                             "type": "string"
                         }
                     },
+                    "icon": {
+                        "type": "string"
+                    },
                     "id": {
                         "type": "string"
                     },
@@ -43615,6 +43618,9 @@
                     "base_url": {
                         "type": "string"
                     },
+                    "billing_enabled": {
+                        "type": "boolean"
+                    },
                     "description": {
                         "type": "string"
                     },
@@ -43632,6 +43638,9 @@
                         "additionalProperties": {
                             "type": "string"
                         }
+                    },
+                    "icon": {
+                        "type": "string"
                     },
                     "models": {
                         "type": "array",

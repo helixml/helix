@@ -8415,6 +8415,8 @@ definitions:
           type: string
         description: If for example anthropic expects x-api-key and anthropic-version
         type: object
+      icon:
+        type: string
       id:
         type: string
       models:
@@ -12095,6 +12097,8 @@ definitions:
         type: string
       base_url:
         type: string
+      billing_enabled:
+        type: boolean
       description:
         type: string
       endpoint_type:
@@ -12106,6 +12110,8 @@ definitions:
           type: string
         description: Custom headers for the endpoint
         type: object
+      icon:
+        type: string
       models:
         items:
           type: string

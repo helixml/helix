@@ -7,6 +7,7 @@ import AWSLogo from './logos/aws';
 import XaiLogo from './logos/xai';
 import NvidiaLogo from './logos/nvidia';
 import CustomLogo from './logos/custom';
+import DeepSeekLogo from './logos/deepseek';
 
 // Direct image imports
 import togetheraiLogo from '../../../assets/img/together-logo.png'
@@ -160,6 +161,16 @@ export const PROVIDERS: Provider[] = [
     configurable_base_url: true,
     optional_api_key: true,
     setup_instructions: "Start LM Studio and load a model. The server runs automatically on port 1234."
+  },
+  {
+    id: 'user/deepseek',
+    alias: ['deepseek', 'deepseek-api'],
+    name: 'DeepSeek',
+    description: 'Connect to DeepSeek models through the OpenAI-compatible API.',
+    logo: DeepSeekLogo,
+    base_url: 'https://api.deepseek.com/v1',
+    setup_instructions: 'Get your API key from the DeepSeek platform.',
+    api_key_url: 'https://platform.deepseek.com/api_keys'
   },
   {
     id: 'user/custom',

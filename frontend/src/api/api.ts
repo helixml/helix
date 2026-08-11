@@ -5278,6 +5278,7 @@ export interface TypesProviderEndpoint {
   error?: string;
   /** If for example anthropic expects x-api-key and anthropic-version */
   headers?: Record<string, string>;
+  icon?: string;
   id?: string;
   /** Optional */
   models?: string[];
@@ -7589,11 +7590,13 @@ export interface TypesUpdateProviderEndpoint {
   /** Must be mounted to the container */
   api_key_file?: string;
   base_url?: string;
+  billing_enabled?: boolean;
   description?: string;
   /** global, user (TODO: orgs, teams) */
   endpoint_type?: TypesProviderEndpointType;
   /** Custom headers for the endpoint */
   headers?: Record<string, string>;
+  icon?: string;
   models?: string[];
   name?: string;
   vertex_credentials_file?: string;

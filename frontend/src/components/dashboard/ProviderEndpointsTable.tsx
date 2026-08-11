@@ -27,6 +27,7 @@ import { getUserById } from '../../services/userService';
 import { useGetOrgById } from '../../services/orgService';
 import useRouter from '../../hooks/useRouter';
 import SimpleTable, { ITableField } from '../widgets/SimpleTable';
+import ProviderEndpointIcon from '../providers/ProviderEndpointIcon';
 
 // Component to display owner information
 const OwnerInfo: FC<{ ownerId: string; ownerType?: string }> = ({ ownerId, ownerType }) => {
@@ -184,25 +185,30 @@ const ProviderEndpointsTable: FC<ProviderEndpointsTableProps> = ({ onOpenProvide
     id: endpoint.id && endpoint.id !== '-' ? endpoint.id : endpoint.name,
     _data: endpoint,
     name: (
-      <Box sx={{ minWidth: 220, maxWidth: 430 }}>
-        <Typography
-          variant="body2"
-          component="a"
-          href="#"
-          onClick={(event: React.MouseEvent) => {
-            event.preventDefault()
-            event.stopPropagation()
-            openProvider(endpoint)
-          }}
-          sx={{ color: 'text.primary', fontWeight: 600, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
-        >
-          {endpoint.name}
-        </Typography>
-        {endpoint.description && (
-          <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.25 }}>
-            {endpoint.description}
+      <Box sx={{ minWidth: 220, maxWidth: 430, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+        <Box sx={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: 0.125 }}>
+          <ProviderEndpointIcon endpoint={endpoint} size={22} />
+        </Box>
+        <Box>
+          <Typography
+            variant="body2"
+            component="a"
+            href="#"
+            onClick={(event: React.MouseEvent) => {
+              event.preventDefault()
+              event.stopPropagation()
+              openProvider(endpoint)
+            }}
+            sx={{ color: 'text.primary', fontWeight: 600, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+          >
+            {endpoint.name}
           </Typography>
-        )}
+          {endpoint.description && (
+            <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.25 }}>
+              {endpoint.description}
+            </Typography>
+          )}
+        </Box>
       </Box>
     ),
     type: <Typography variant="body2" color="text.secondary">{endpoint.endpoint_type}</Typography>,

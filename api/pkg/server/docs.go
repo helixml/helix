@@ -34282,6 +34282,9 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "icon": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -39125,6 +39128,9 @@ const docTemplate = `{
                 "base_url": {
                     "type": "string"
                 },
+                "billing_enabled": {
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -39142,6 +39148,9 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "icon": {
+                    "type": "string"
                 },
                 "models": {
                     "type": "array",
