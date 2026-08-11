@@ -392,6 +392,14 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		// Embed keys live in an untrusted browser, so they are restricted to one
 		// spec task's read surface. Fail closed.
 		if user.APIKeyType == types.APIkeytypeEmbed && !embedKeyAllows(user, r) {
+			// Some inventory endpoints are required by the embed page but must not
+			// show a visitor real data. Serve an empty success rather than a 403,
+			// which breaks the page without making anything safer.
+			if body, ok := embedNeuteredResponse(r); ok {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+				return
+			}
 			http.Error(w, ErrEmbedKeyNotAllowed.Error(), http.StatusForbidden)
 			return
 		}
@@ -439,6 +447,14 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		// Embed keys live in an untrusted browser, so they are restricted to one
 		// spec task's read surface. Fail closed.
 		if user.APIKeyType == types.APIkeytypeEmbed && !embedKeyAllows(user, r) {
+			// Some inventory endpoints are required by the embed page but must not
+			// show a visitor real data. Serve an empty success rather than a 403,
+			// which breaks the page without making anything safer.
+			if body, ok := embedNeuteredResponse(r); ok {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+				return
+			}
 			http.Error(w, ErrEmbedKeyNotAllowed.Error(), http.StatusForbidden)
 			return
 		}

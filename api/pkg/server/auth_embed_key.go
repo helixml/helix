@@ -95,6 +95,59 @@ var embedRules = []embedRule{
 	{methods: []string{"GET"}, prefix: "/api/v1/ws/user", scope: scopeGlobal},
 }
 
+// embedNeutered maps paths the embed SPA *requires* to the empty response it
+// should get instead of the real data.
+//
+// NEUTER, DON'T DENY. The spec-task page is an internal UI: it eagerly loads
+// tenant inventory (organizations, agents, the project's task list) before it
+// will render anything. Returning 403 breaks the page — the account context
+// gives up and routes away, which is what a first attempt at this actually did.
+// Returning an empty success satisfies the page and leaks nothing.
+//
+// `/spec-tasks` matters most: it is the enumeration path that would otherwise
+// hand one visitor every other visitor's conversation. An empty list is strictly
+// better than a denial here, because it is both safe AND lets the page work.
+//
+// Keys are exact paths (query strings are ignored); prefixes ending in "/"
+// match any single trailing segment.
+var embedNeutered = map[string]string{
+	"/api/v1/spec-tasks":             "[]",
+	"/api/v1/organizations":          "[]",
+	"/api/v1/agents":                 "[]",
+	"/api/v1/claude-subscriptions":   "[]",
+	"/api/v1/oauth/providers":        "[]",
+	"/api/v1/oauth/connections":      "[]",
+	"/api/v1/provider-endpoints":     "[]",
+	"/api/v1/providers/detect-local": "[]",
+	"/api/v1/prompt-history":         "[]",
+}
+
+// embedNeuteredPrefixes covers id-bearing paths, which cannot be exact-matched.
+// The response is an empty object because the SPA reads fields off these.
+var embedNeuteredPrefixes = []string{
+	"/api/v1/projects/",
+	"/api/v1/users/",
+}
+
+// embedNeuteredResponse returns the body to serve instead of real data, if any.
+func embedNeuteredResponse(r *http.Request) (string, bool) {
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	if body, ok := embedNeutered[path]; ok {
+		return body, true
+	}
+	for _, p := range embedNeuteredPrefixes {
+		if strings.HasPrefix(path, p) {
+			// Nested reads under these (labels, repositories, …) are equally
+			// inventory; an empty list keeps list-shaped consumers happy.
+			if strings.Count(strings.TrimPrefix(path, p), "/") > 0 {
+				return "[]", true
+			}
+			return "{}", true
+		}
+	}
+	return "", false
+}
+
 // embedKeyAllows reports whether an embed-key request may proceed.
 func embedKeyAllows(user *types.User, r *http.Request) bool {
 	path := strings.TrimSuffix(r.URL.Path, "/")
