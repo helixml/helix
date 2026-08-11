@@ -21,11 +21,21 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// AppAuthorizer authorizes a user against an app for a given action. It is the
+// same RBAC check the REST handlers use (owner, org role, access grants,
+// project-referenced access), injected so the MCP backend enforces access
+// server-side instead of relying on a bare ownership comparison.
+type AppAuthorizer func(ctx context.Context, user *types.User, app *types.App, action types.Action) error
+
 // HelixMCPBackend implements MCPBackend for Helix native tools (APIs, Knowledge, Zapier)
 // This serves the same tools as the CLI MCP server, but over HTTP for external agents
 type HelixMCPBackend struct {
 	store      store.Store
 	controller *controller.Controller
+	// authorizeApp gates access to an app's tool surface. This is the security
+	// boundary for delegated (non-owner) sessions: a scoped app can be shared
+	// to a specific end-user via access grants, and everyone else is denied.
+	authorizeApp AppAuthorizer
 
 	// Cache of SSE servers per app ID (each app has different tools)
 	servers   map[string]*helixAppMCPServer
@@ -39,12 +49,15 @@ type helixAppMCPServer struct {
 	createdAt time.Time
 }
 
-// NewHelixMCPBackend creates a new Helix MCP backend
-func NewHelixMCPBackend(store store.Store, ctrl *controller.Controller) *HelixMCPBackend {
+// NewHelixMCPBackend creates a new Helix MCP backend. authorizeApp is the RBAC
+// check used to gate app access; it must not be nil (the backend fails closed if
+// it is).
+func NewHelixMCPBackend(store store.Store, ctrl *controller.Controller, authorizeApp AppAuthorizer) *HelixMCPBackend {
 	return &HelixMCPBackend{
-		store:      store,
-		controller: ctrl,
-		servers:    make(map[string]*helixAppMCPServer),
+		store:        store,
+		controller:   ctrl,
+		authorizeApp: authorizeApp,
+		servers:      make(map[string]*helixAppMCPServer),
 	}
 }
 
@@ -119,10 +132,15 @@ func (b *HelixMCPBackend) getOrCreateServer(ctx context.Context, user *types.Use
 		return nil, fmt.Errorf("failed to get app: %w", err)
 	}
 
-	// Verify user has access to the app
-	if app.Owner != user.ID {
-		// TODO: Check access grants for shared apps
-		return nil, fmt.Errorf("access denied: user does not own this app")
+	// Verify the user is authorized for this app. This uses the same RBAC path as
+	// the REST handlers (owner, org owner, access grants, project-referenced
+	// access) so a scoped app can be delegated to a specific end-user session
+	// without transferring ownership. Fail closed if no authorizer is wired.
+	if b.authorizeApp == nil {
+		return nil, fmt.Errorf("access denied: no app authorizer configured")
+	}
+	if err := b.authorizeApp(ctx, user, app, types.ActionGet); err != nil {
+		return nil, fmt.Errorf("access denied: %w", err)
 	}
 
 	// Create MCP server

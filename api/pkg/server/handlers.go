@@ -1046,9 +1046,29 @@ func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req 
 	// Via the controller, not the store: it generates the key material and stamps
 	// the owner from the user passed in. Going straight to the store leaves Key
 	// empty, which it rejects with "key not specified".
+	// Optional: mint a restricted EMBED key instead of a full user key. An embed
+	// key is browser-safe — it is confined, fail-closed, to the read surface of
+	// the one spec task and session named here (see embedKeyAllows). This is what
+	// lets an orchestrator put a live agent conversation in an iframe on an
+	// untrusted public page without shipping a real credential to the visitor.
+	//
+	// Callers make the key name scope-unique (it encodes the ids), so the
+	// idempotency check above already prevents a stale-scope key being reused.
+	keyType := types.APIkeytypeAPI
+	specTaskID := req.URL.Query().Get("spec_task_id")
+	sessionID := req.URL.Query().Get("session_id")
+	if req.URL.Query().Get("type") == string(types.APIkeytypeEmbed) {
+		if specTaskID == "" {
+			return nil, system.NewHTTPError400("spec_task_id is required for an embed key — an unbound embed key can address nothing")
+		}
+		keyType = types.APIkeytypeEmbed
+	}
+
 	created, err := apiServer.Controller.CreateAPIKey(ctx, targetUser, &types.ApiKey{
-		Name: name,
-		Type: types.APIkeytypeAPI,
+		Name:       name,
+		Type:       keyType,
+		SpecTaskID: specTaskID,
+		SessionID:  sessionID,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to create API key: " + err.Error())

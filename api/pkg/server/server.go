@@ -554,8 +554,10 @@ func NewServer(
 	// Register Kodit MCP backend (code intelligence)
 	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
 
-	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
-	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController))
+	// Register Helix native MCP backend (APIs, Knowledge, Zapier).
+	// authorizeUserToApp enforces the same RBAC as the REST handlers so a scoped
+	// app can be delegated to a specific end-user session via access grants.
+	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController, apiServer.authorizeUserToApp))
 
 	// Register Session MCP backend (session navigation and context tools)
 	apiServer.mcpGateway.RegisterBackend("session", NewSessionMCPBackend(store, appController.Options.Notifier))

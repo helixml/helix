@@ -220,6 +220,10 @@ type User struct {
 	TokenType TokenType `json:"token_type"`
 	// if the ID of the user is contained in the env setting
 	Admin bool `json:"admin"`
+	// APIKeyType is the type of the API key this request authenticated with, when
+	// it authenticated with one. Carried so the auth middleware can apply the
+	// per-type restrictions (app keys: chat paths only; embed keys: one spec task).
+	APIKeyType APIKeyType `json:"api_key_type" gorm:"-"`
 	// if the token is associated with an app
 	AppID          string `json:"app_id"`
 	ProjectID      string `json:"project_id" gorm:"-"`      // When running in Helix Code sandbox
