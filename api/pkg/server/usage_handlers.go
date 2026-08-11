@@ -301,6 +301,8 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 	modelProviders := make(map[string]string)
 	modelInfo := make(map[string]*types.ModelInfo)
 	missingModelInfo := make(map[string]bool)
+	endpointProviders := make(map[string]string)
+	checkedEndpoints := make(map[string]bool)
 
 	for _, row := range summary.CostBreakdown {
 		key := row.Provider + ":" + row.Model
@@ -352,9 +354,27 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 			summary.SubscriptionSavings += estimatedCost
 		}
 		modelCosts[key] += estimatedCost
-		displayProvider := row.Provider
-		if info != nil && info.ProviderSlug != "" {
+		displayProvider := ""
+		if strings.HasPrefix(row.Provider, system.ProviderEndpointPrefix) && s.Store != nil {
+			if !checkedEndpoints[row.Provider] {
+				checkedEndpoints[row.Provider] = true
+				endpoint, endpointErr := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: row.Provider})
+				if endpointErr != nil {
+					log.Debug().Err(endpointErr).Str("provider", row.Provider).
+						Msg("failed to resolve provider endpoint for organization usage")
+				} else if endpoint != nil && endpoint.EndpointType == types.ProviderEndpointTypeGlobal && endpoint.OwnerType == types.OwnerTypeSystem {
+					// Database-backed system globals are Helix-managed inference routes
+					// (for example vLLM or SGLang), not the catalog provider for the model ID.
+					endpointProviders[row.Provider] = "helix/" + endpoint.Name
+				}
+			}
+			displayProvider = endpointProviders[row.Provider]
+		}
+		if displayProvider == "" && info != nil && info.ProviderSlug != "" {
 			displayProvider = info.ProviderSlug
+		}
+		if displayProvider == "" {
+			displayProvider = row.Provider
 		}
 		modelProviders[key] = displayProvider
 
