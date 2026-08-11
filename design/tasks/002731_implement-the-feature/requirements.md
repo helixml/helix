@@ -43,8 +43,47 @@ Verified as reachable from `external_websocket_sync` without touching `agent_ui`
 (`acp_thread.rs:3607`), carrying the full `acp::CreateElicitationRequest` (message,
 `ElicitationMode::Form(mode).requested_schema`, `tool_call_id`);
 `AcpThread::respond_to_elicitation(&id, response, cx)` (`acp_thread.rs:3548`);
-`AcpThreadEvent::ElicitationRequested/ElicitationResponded` (`acp_thread.rs:2197-2198`);
+`AcpThreadEvent::ElicitationRequested/ElicitationResponded` (`acp_thread.rs:2197`);
 status changes additionally emit `EntryUpdated(ix)`. Nothing needed is missing.
+
+### Schema facts re-verified against the deployed adapter (0.66.0)
+
+Read directly from
+`.zed-state/local-share/external_agents/registry/npx/claude-acp/node_modules/@agentclientprotocol/claude-agent-acp/dist/elicitation.js`
+(three checked copies on this machine, all `"version": "0.66.0"`). Two details in the task
+brief are **wrong** and the implementation must follow the source, not the brief:
+
+| Brief says | Adapter 0.66.0 actually uses |
+|---|---|
+| `_meta: {"claudeCode/optionPreview": {...}}` | `_meta: {"_claude/askUserQuestionOption": {preview}}` (`elicitation.js:91`) |
+| `_meta: {"claudeCode/customAnswer": {...}}` | `_meta: {"_askUserQuestionCustomAnswer": {questionId, isCustomAnswer}}` (`elicitation.js:98`) |
+
+Everything else in the brief checks out (`elicitation.js:115-166`): field keys
+`question_<i>` / `question_<i>_custom`; `title` = the question's `header`; `description` =
+the question text **only** when there are 2+ questions (with one question the prompt is in
+`message`, and with several `message` is the literal string `"Please answer the following
+questions."`); options are `{const: label, title: label, description?}`; multi-select is
+`{type:"array", items:{anyOf:[…]}}`; **nothing is ever `required`**, so skipping is legal;
+`toolCallId` is set when present.
+
+Because the meta key names have already changed once, the frontend parser must key off the
+**value shape** (`isCustomAnswer === true`, or a `questionId` naming a sibling property),
+not off any literal meta-key string.
+
+### Response semantics, read from the adapter (`applyAskElicitationResponse`, `elicitation.js:180-210`)
+
+- **Custom beats selection, per question**: if `question_<i>_custom` is a string that is
+  non-empty after `.trim()`, it is the answer and `question_<i>` is never read. So the
+  "none of the above" case — custom filled, `oneOf` field left unset — is valid and must
+  work in the Helix UI.
+- Answers are keyed by the **question text**, not by `question_<i>`; multi-select values are
+  joined with `", "`.
+- A question with neither field set is simply omitted from `answers` — partial submission
+  is legal, not an error.
+- **`decline` is not an abort**: it yields `{action:"answered", answers:{}}`. The tool call
+  succeeds, the model is told the user skipped, and the turn continues.
+- `cancel` (and any action the adapter doesn't understand) aborts the tool call. That is the
+  interrupt/teardown outcome, not a user button.
 
 ## User Stories
 
@@ -60,15 +99,16 @@ Acceptance criteria:
 - [ ] The card shows: the elicitation `message`, per question the short `header` chip
       (`title`), the question text, and every option as a clickable control showing its
       **label and its description**.
-- [ ] The `question_<i>_custom` "Other" free-text input is rendered and submittable.
+- [ ] The `question_<i>_custom` "Other" free-text input is rendered and submittable, and is
+      submittable **alone** (the "none of the above" case).
 - [ ] 1–4 questions in one elicitation are all rendered; multi-select questions
       (`{"type":"array","items":{"anyOf":[…]}}`) render as multi-select.
 - [ ] The card is rendered generically from the JSON Schema — no matching on the literal
-      key `question_0`. Shapes the adapter also emits (MCP elicitation forwarding, the
-      refusal-fallback consent dialog) and unknown shapes degrade to a generic form and
-      never crash the conversation view.
-- [ ] The question survives a page reload and an API/container restart (it is persisted,
-      not held in memory).
+      key `question_0` and no matching on a literal `_meta` key name. Shapes the adapter
+      also emits (MCP elicitation forwarding, the refusal-fallback consent dialog) and
+      unknown shapes degrade to a generic form and never crash the conversation view.
+- [ ] The question survives a page reload, an **API restart**, and a container restart (it
+      is persisted, not held in memory).
 
 ### US-2 — Answer the question
 **As a** Helix user,
@@ -78,10 +118,17 @@ Acceptance criteria:
 Acceptance criteria:
 - [ ] Submitting sends the answer through the generated TS API client (no hand-rolled
       `fetch`/`api.post`) and immediately reflects the answered state.
+- [ ] One Submit covers all questions in the elicitation (one elicitation = one ACP request
+      = one response).
+- [ ] Submitted content mirrors the adapter's precedence exactly: a non-empty trimmed
+      custom answer wins over that question's selection; unanswered questions are omitted.
 - [ ] After answering, the card shows what the user chose — it is part of the permanent
       conversation record.
 - [ ] The agent's turn resumes and its next message reflects the chosen answer.
-- [ ] A decline path is available; the turn settles cleanly and the UI reflects it.
+- [ ] A **Decline** control is available. Per the adapter this means "skipped, empty
+      answers" and the turn continues normally — the UI copy must not imply the turn was
+      aborted. There is no user-facing "Cancel" button; `cancel` is a teardown/interrupt
+      outcome only.
 - [ ] Only a user authorised on that session/task may answer. The session is taken from
       the URL only; nothing in the request body identifying a session is trusted.
 - [ ] Answering an elicitation that is already answered/declined/cancelled, or whose thread
@@ -98,8 +145,14 @@ Acceptance criteria:
       live session — no manual refresh.
 - [ ] A question nobody answers settles cleanly when the turn is interrupted from Helix,
       and the Helix UI stops offering to answer it.
-- [ ] A pending question that dies with the agent process (container restart) is not left
-      answerable — it is reconciled to a terminal state on reconnect.
+- [ ] **A reconnect alone never resolves a question.** An API restart (the commonest cause
+      of a reconnect — the desktop container, the Zed process and the `respond_tx` all
+      survive it) leaves a pending question pending and still answerable.
+- [ ] A question is reconciled to a terminal state only on positive evidence from Zed:
+      it is absent from Zed's post-reconnect resync (after a grace window), or a
+      `respond_elicitation` is acked `not_found`. A genuinely dead question (real container
+      restart) therefore still stops being answerable, and the card reads "expired — the
+      agent restarted".
 
 ### US-4 — Blocked, not running
 **As a** user scanning the task list,
@@ -110,11 +163,35 @@ Acceptance criteria:
 - [ ] The task list and the task detail header show "waiting for your answer" (or
       equivalent), consistent with existing status surfaces (Lucide icons, existing badge
       components).
+- [ ] An `agent_question` attention event is raised when a question goes pending and
+      cleared on any terminal status, so the notification bell surfaces it. (If this turns
+      out to need substantial new surface area, ship the badge and state explicitly in the
+      PR description that the attention event was dropped and why — do not quietly skip it.)
 - [ ] The stuck-interaction auto-wake worker
       (`api/pkg/server/auto_wake_stuck_interactions.go`) does not treat a
       waiting-on-a-human interaction as a hung agent, and a unit test proves it.
 
-### US-5 — Nothing else breaks
+### US-5 — Follow-up while a question is pending
+**As a** user looking at a question card with the composer right below it,
+**I want** typing a normal message instead of answering to do something sensible and
+visible,
+**so that** my message is never silently swallowed.
+
+Acceptance criteria:
+- [ ] Sending a normal chat message while a question is pending **delivers the message**.
+      It must not sit in the prompt queue undispatched. (Today it would: `processPromptQueue`
+      defers any non-interrupt prompt while the newest interaction is `state=waiting`
+      — `websocket_external_agent_sync.go:3392` — and a pending question keeps it `waiting`
+      indefinitely, with auto-wake now deliberately gated off.)
+- [ ] The behaviour mirrors Zed rather than inventing a third rule: `AcpThread::run_turn`
+      unconditionally calls `cancel_inner(RequestPermissionOutcome::InterruptedByFollowUp)`
+      (`acp_thread.rs:3785`), which calls `cancel_outstanding_elicitations`
+      (`acp_thread.rs:3987`, `:4065`). So a follow-up cancels the outstanding elicitation
+      and the new turn proceeds.
+- [ ] The card locks and reads "you replied instead" (or equivalent) once the resulting
+      `cancelled` status arrives.
+
+### US-6 — Nothing else breaks
 **As a** developer,
 **I want** the loop to be provably non-poisoning,
 **so that** a session that asked a question behaves normally afterwards.
@@ -138,18 +215,27 @@ session/thread lifecycle. Seeded rows and unit tests alone are **not** acceptanc
        **screenshot / pasted transcript**.
 4. [ ] Next-operation test: follow-up message delivered and answered; a second question in
        the same session works.
-5. [ ] Decline/cancel path settles cleanly.
-6. [ ] Unanswered question + interrupt from Helix settles cleanly and stops being
+5. [ ] Follow-up-instead-of-answering test: with a question pending, send a normal message;
+       it is delivered, the turn proceeds, and the card locks as cancelled.
+6. [ ] Custom-answer test: submit only the "Other" free-text field with no option selected;
+       the agent receives the typed text.
+7. [ ] Decline path: the turn continues with empty answers and settles cleanly.
+8. [ ] Unanswered question + interrupt from Helix settles cleanly and stops being
        answerable. (Answering from the Zed desktop is **not** a test path — that panel is
        broken. Status transitions are still implemented properly.)
-7. [ ] Go unit tests for the new handler paths, in the style of
-       `api/pkg/server/websocket_external_agent_sync_test.go`.
-8. [ ] New E2E phase in the Zed WebSocket sync e2e suite (elicitation-request → answer →
-       turn-resumes) and the **full dockerized e2e run green**
-       (`crates/external_websocket_sync/e2e-test/run_docker_e2e.sh`). "Compiles" and
-       "follows the pattern" are not evidence.
-9. [ ] `design/2026-08-11-agent-questions-elicitation.md` written in the helix repo.
-10. [ ] Cross-repo merge order followed exactly (see design doc).
+9. [ ] **API-restart test**: with a question pending, restart the API (Air rebuild);
+       after reconnect the question is still shown and still answerable, and answering it
+       still resumes the turn.
+10. [ ] Task list/detail header shows "blocked on human answer" while pending.
+11. [ ] Go unit tests for the new handler paths, in the style of
+        `api/pkg/server/websocket_external_agent_sync_test.go`.
+12. [ ] New E2E phase in the Zed WebSocket sync e2e suite (elicitation-request → answer →
+        turn-resumes), driven by a **synthetic** injection at the Zed test seam rather than
+        by the model choosing to call a tool, and the **full dockerized e2e run green**
+        (`crates/external_websocket_sync/e2e-test/run_docker_e2e.sh`). "Compiles" and
+        "follows the pattern" are not evidence.
+13. [ ] `design/2026-08-11-agent-questions-elicitation.md` written in the helix repo.
+14. [ ] Cross-repo merge order followed exactly (see design doc).
 
 ## Out of Scope
 
@@ -158,35 +244,38 @@ session/thread lifecycle. Seeded rows and unit tests alone are **not** acceptanc
 - A Helix MCP `ask_user` tool as a substitute — the ACP elicitation channel already exists.
 - Fixing the Zed agent-panel rendering of elicitation forms. It stays broken.
 - Rebasing Zed onto upstream. The pinned `ZED_COMMIT` already has full elicitation support.
+- Teaching the org-layer activation spawner (`api/pkg/org/infrastructure/runtime/helix/
+  spawner.go`) about blocked-on-human. Auto-wake is the only gate in this task; the spawner
+  timeout is recorded as a known follow-up in the design doc.
+
+## Resolved decisions (from spec review)
+
+1. Storage: **hybrid** — authoritative `agent_elicitations` row plus an inline
+   `ResponseEntry` of type `elicitation`, with single-writer discipline so the two cannot
+   drift.
+2. Attention surface: **in scope** — `agent_question` attention event, raised on pending,
+   cleared on any terminal status.
+3. Submit granularity: **one Submit per elicitation**, covering all its questions.
+4. Controls: **Submit + Decline only**; `cancel` stays a teardown/interrupt outcome.
+5. Restart handling: outcome unchanged (a dead question must not stay answerable), but the
+   **trigger is positive evidence from Zed**, never the reconnect itself.
+6. E2E: the required CI phase is **synthetic**; the model-driven path is covered by the live
+   inner-Helix test, where a flake costs nothing.
+7. Org spawner: **out of scope**, recorded as a follow-up.
 
 ## Open Questions
 
-1. **Storage shape.** The design proposes a hybrid: an authoritative `agent_elicitations`
-   row (for status races, auth, and cheap "which tasks are blocked" queries) plus an
-   inline `ResponseEntry` of a new type `elicitation` on the interaction (for in-order
-   conversation rendering and the permanent record). Entry-only is simpler but makes the
-   task-list badge and the two-clients-answering race awkward. Confirm the hybrid, or say
-   "entry only".
-2. **Attention/notification surface.** Should a pending question also raise an
-   `AttentionEvent` (proposed new type `agent_question`, mirroring the existing
-   `org_message` "ask_human" inbox) so the notification bell rings, or is the task-list
-   badge enough for v1?
-3. **Submit granularity.** Assumption: one Submit button per elicitation covering all 1–4
-   questions (one elicitation = one ACP request = one response). Confirm, rather than
-   per-question submit.
-4. **Decline vs cancel in the Helix UI.** Assumption: expose **Submit** and **Decline**
-   only; `cancel` is produced by interrupt/teardown, not by a user button (the Zed panel
-   offers all three, but a user-facing "Cancel" is confusing next to "Decline").
-5. **Pending question at container restart.** Assumption: the `respond_tx` dies with the
-   agent process, so the question can never be answered; on reconnect (`agent_ready`) any
-   still-pending elicitation for that session is reconciled to `cancelled` and the card
-   renders as "expired — the agent restarted". Confirm this over attempting any replay.
-6. **E2E determinism.** The new phase drives a real Claude Code agent with a prompt that
-   instructs it to call `AskUserQuestion`. This is model-dependent. If it proves flaky, is
-   a synthetic elicitation injected at the Zed test seam an acceptable fallback for the
-   phase, with the model-driven path covered only by the live inner-Helix test?
-7. **Org-layer activation timeout.** `auto_wake_stuck_interactions.go` is named in the task,
-   but the activation spawner
-   (`api/pkg/org/infrastructure/runtime/helix/spawner.go`) has its own timeout that can
-   spawn a decoy `waiting` interaction. Should that path also learn about
-   blocked-on-human, or is auto-wake the only gate in scope?
+1. **"Decline" wording.** Per the adapter, decline means "skipped, empty answers, turn
+   continues". Assumption: label the control **"Skip"** with helper text "the agent
+   continues without your answer", since "Decline" reads like refusing the whole turn. Say
+   if you want the literal word "Decline" kept for consistency with the Zed panel.
+2. **Resync grace window.** Reconciling a pending row that is absent from Zed's resync needs
+   a grace window to absorb ordering races (resync arriving before a thread finishes
+   loading). Assumption: 60 s, and only for rows already older than that. Confirm the
+   number, or say it should be configurable via env like
+   `HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS` is.
+3. **Optimistic card lock on follow-up.** When the user sends a normal message with a
+   question pending, should the card lock immediately (optimistic, reconciled by the
+   `cancelled` event), or wait for the event so the UI never shows a state the backend
+   hasn't confirmed? Assumption: lock immediately with a "replying instead…" state, since
+   the Zed behaviour is deterministic.

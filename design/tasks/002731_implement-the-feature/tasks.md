@@ -1,34 +1,44 @@
 # Implementation Tasks: End-to-End Agent Questions via ACP Elicitations
 
+## Verify first (blocking assumptions)
+
+- [ ] Confirm empirically on a live thread that Zed's `entry_index` == the accumulator's `message_id` (log `(entry_index, message_id, entry_type)` on both sides for a turn with text + tool call + elicitation); if not, carry an explicit `after_message_id` instead
+- [ ] Re-read `applyAskElicitationResponse` (`claude-agent-acp/dist/elicitation.js:180-210`) in the version actually deployed at implementation time and mirror its precedence exactly
+
 ## Zed — `crates/external_websocket_sync/`
 
-- [ ] Add `SyncEvent::ElicitationRequested`, `ElicitationResolved`, `ElicitationResponseAck` to `src/types.rs` plus their `to_outgoing_message()` arms
+- [ ] Add `SyncEvent::ElicitationRequested`, `ElicitationResolved`, `ElicitationResync`, `ElicitationResponseAck` to `src/types.rs` plus their `to_outgoing_message()` arms
 - [ ] Add a single `status_str()` helper mapping `ElicitationStatus` → wire strings (`Canceled` → `"cancelled"`), used everywhere
 - [ ] Emit `ElicitationRequested` from the `AcpThreadEvent::ElicitationRequested` arm in `thread_service.rs`, serializing `requested_schema` verbatim with `serde_json::to_value`
 - [ ] Emit `ElicitationResolved` from both `AcpThreadEvent::ElicitationResponded` and the `EntryUpdated(ix)` arm when the entry is `AgentThreadEntry::Elicitation`
 - [ ] Add `Elicitation` arms to the three entry-mapping matches (`NewEntry` ~:914, `EntryUpdated` ~:1051, `Stopped/Error` flush ~:1112) so elicitation entries are no longer dropped
 - [ ] Use the turn-scoped `turn_request_id` for all elicitation events (copy the neighbouring arms; do not call `get_thread_request_id` directly)
+- [ ] Add the reconnect/`open_thread` **resync**: re-emit `ElicitationRequested` for every still-`Pending` elicitation per registered thread, then one `ElicitationResync` per thread listing exactly those ids (empty list is meaningful) — reuse the entry-walk machinery from the `Stopped`/`Error` flush
 - [ ] Add `ElicitationResponseRequest` + `GLOBAL_ELICITATION_RESPONSE_CALLBACK` (+ pending queue) in `external_websocket_sync.rs`, mirroring the cancel-thread callback
 - [ ] Add `respond_elicitation` to the command dispatch in `websocket_sync.rs` and its `handle_respond_elicitation` parser
 - [ ] Add the dedicated GPUI drain task in `thread_service.rs` (next to the cancel task) calling `AcpThread::respond_to_elicitation`
 - [ ] Snapshot status before/after the update and emit `ElicitationResponseAck` with `accepted` / `noop` / `not_found`; no `unwrap()`, no bare `let _ =`
-- [ ] Rust unit tests: entry→event mapping, no-op on already-answered, not-found on missing thread
+- [ ] Rust unit tests: entry→event mapping, resync emission, no-op on already-answered, not-found on missing thread
 - [ ] `cargo build --features external_websocket_sync -p zed` and `./script/clippy` clean
 
 ## Helix API — types, store, handlers
 
-- [ ] Add `types.AgentElicitation` model + GORM AutoMigrate registration (indexes on `session_id`, `interaction_id`, `status`)
-- [ ] Add store methods: `CreateOrUpdateElicitation`, `GetElicitation`, `TransitionElicitationStatus` (conditional `WHERE status=?`), `ListPendingElicitationsBySessions`, `CancelPendingElicitationsForSession`
+- [ ] Add `types.AgentElicitation` model (incl. `LastSeenAt`) + GORM AutoMigrate registration (indexes on `session_id`, `interaction_id`, `status`)
+- [ ] Add store methods: `CreateOrUpdateElicitation`, `GetElicitation`, `TransitionElicitationStatus` (conditional `WHERE status=?`), `TouchElicitationsLastSeen`, `ListPendingElicitationsBySessions`, `ReapUnseenPendingElicitations`
 - [ ] Add `Elicitation *ElicitationEntry` to `wsprotocol.ResponseEntry` and `types.EntryPatch`; teach the accumulator to carry it (upsert + restore in `RestoreAccumulator`)
-- [ ] Handle `elicitation_requested` in `processExternalAgentSyncMessage`: resolve session/interaction from `request_id`, persist row, upsert entry, publish patches + `interaction_update`
-- [ ] Handle `elicitation_resolved`: conditional status update, mirror into the entry, publish; drop+log unknown ids
+- [ ] Handle `elicitation_requested`: resolve session/interaction from `request_id`, idempotent row upsert, entry upsert, publish patches + `interaction_update`, raise the `agent_question` attention event on the new-pending transition only
+- [ ] Empty/unmappable `request_id`: reuse `handleMessageAdded`'s existing resolution (streaming context → DB fallback to newest waiting interaction for the thread); drop with a loud `warn` only if that also misses
+- [ ] Handle `elicitation_resolved`: conditional status update, mirror into the entry, clear the attention event, publish; drop+log unknown ids
+- [ ] Handle `elicitation_resync`: refresh `LastSeenAt` for listed ids; reap pending/submitting rows of that session absent from the list and older than the grace window → `cancelled(agent_no_longer_holds)`
 - [ ] Handle `elicitation_response_ack`: reconcile row on `noop`/`not_found`
-- [ ] Reconcile on reconnect in `handleAgentReady`: pending/submitting elicitations for the session → `cancelled`
-- [ ] Add `POST /api/v1/sessions/{id}/elicitations/{elicitation_id}/respond` handler with swagger annotations, session-from-URL auth (`authorizeUserToSession` + `ActionUpdate`), session-ownership check, `pending→submitting` conditional transition (409 on loss), agent-connected check (409), `sendCommandToExternalAgent`
+- [ ] **Do not** change any elicitation status in `handleAgentReady` — a reconnect is not evidence (an API restart leaves the agent and its `respond_tx` alive)
+- [ ] Change `processPromptQueue` (`:3392`): when the newest interaction is `waiting` **and** has a pending/submitting elicitation, dispatch the follow-up with interrupt semantics instead of deferring it; do not write a terminal status locally
+- [ ] Add `POST /api/v1/sessions/{id}/elicitations/{elicitation_id}/respond` with swagger annotations, session-from-URL auth (`authorizeUserToSession` + `ActionUpdate`), session-ownership check, `pending→submitting` conditional transition (409 on loss), agent-connected check (409), `sendCommandToExternalAgent`
 - [ ] Register the route next to `/sessions/{id}/cancel` in `server.go`
+- [ ] Add `AttentionEventAgentQuestion` type and raise/clear it alongside the row transitions
 - [ ] Add Gate 0 to `maybeAutoWake`: skip interactions with a pending/submitting elicitation
 - [ ] Run `./stack update_openapi`
-- [ ] Go unit tests in `websocket_external_agent_sync_test.go` style: requested/resolved/ack handlers, endpoint auth + 404/403/409 paths, two-clients race, answer-after-cancel
+- [ ] Go unit tests: requested/resolved/resync/ack handlers, endpoint auth + 404/403/409 paths, two-clients race, answer-after-cancel, empty-`request_id` fallback, **reconnect-does-not-cancel**, resync-absence-cancels-after-grace, queue-does-not-defer-follow-up
 - [ ] Go unit test `TestAutoWake_SkipsInteractionBlockedOnUserQuestion`
 - [ ] `go build ./pkg/...` and `go test ./pkg/server/...` clean
 
@@ -36,18 +46,19 @@
 
 - [ ] Extend `ResponseEntry` type (`"elicitation"` + payload) in `types.ts` / `InteractionInference.tsx`
 - [ ] Carry `elicitation` through the patch merge in `contexts/streaming.tsx`
-- [ ] Add `elicitationSchema.ts`: generic JSON-Schema → fields parser (oneOf, array/items.anyOf, `_meta` custom-answer linking, fallbacks) with unit tests
-- [ ] Add `ElicitationCard.tsx`: message, header chips, options with label + description, "Other" input, Submit + Decline, answered/terminal read-only states, Lucide icons, error boundary
+- [ ] Add `elicitationSchema.ts`: generic JSON-Schema → fields parser (oneOf, array/items.anyOf, custom-answer linking **by value shape** — `isCustomAnswer`/`questionId`, never by meta-key name — and fallbacks) with unit tests
+- [ ] Implement submission-content building that mirrors the adapter: trimmed non-empty custom wins over selection; omit questions with neither set; custom-only submission valid
+- [ ] Add `ElicitationCard.tsx`: message, header chips, options with label + description, "Other" input, Submit + Skip/Decline (copy must convey that declining continues the turn with empty answers), answered/terminal read-only states incl. "you replied instead" and "expired — the agent restarted", Lucide icons, error boundary
 - [ ] Add an `elicitation` segment to `buildActivityTimeline` so the card is never folded into a collapsed tool run
+- [ ] Optimistically lock the card when the user sends a normal message with a question pending; reconcile on the `cancelled` event
 - [ ] Wire submission to the generated API client with React Query + query invalidation (no raw fetch, no `setTimeout`, no `setQueryData`)
 - [ ] Add transient `waiting_for_user_input` to `SpecTask` and populate it in the list/get handlers
 - [ ] Surface "waiting for your answer" in the task list/kanban and the task detail header
-- [ ] (Pending Open Question 2) Raise/clear an `agent_question` attention event
 - [ ] `cd frontend && yarn build` clean
 
 ## E2E
 
-- [ ] Add Phase 17 to `e2e-test/helix-ws-test-server/main.go`: prompt → `elicitation_requested` (assert non-empty schema) → `respond_elicitation` → `elicitation_resolved(accepted)` → `message_completed`
+- [ ] Add Phase 17 to `e2e-test/helix-ws-test-server/main.go`, driven by a **synthetic** elicitation injected at the Zed test seam (comment must say why it is synthetic rather than model-driven): `elicitation_requested` with non-empty schema → `respond_elicitation` → `elicitation_resolved(accepted)` → `message_completed`
 - [ ] Update the phase list comment block and any phase-count constants
 - [ ] Run the full dockerized e2e (`./run_docker_e2e.sh`) until green — mandatory, no exceptions
 
@@ -56,15 +67,18 @@
 - [ ] Start a spec task and get the agent to call `AskUserQuestion`
 - [ ] Screenshot the question rendered in the Helix task UI with all options → `screenshots/`
 - [ ] Answer it in Helix; capture the resumed turn reflecting the answer → `screenshots/`
-- [ ] Send a normal follow-up message in the same thread; confirm delivery and reply
+- [ ] Custom-answer path: submit only the "Other" text with no option selected; confirm the agent receives the typed text
+- [ ] Send a normal follow-up message after answering; confirm delivery and reply
 - [ ] Trigger a second question in the same session; confirm it works independently
-- [ ] Exercise the decline path; confirm the turn settles cleanly
+- [ ] Follow-up-instead-of-answering: with a question pending, send a normal message; confirm it is delivered, the turn proceeds, and the card locks as cancelled
+- [ ] **API-restart test**: with a question pending, restart the API; confirm the question is still shown, still answerable, and answering it still resumes the turn
+- [ ] Decline path: confirm the turn continues with empty answers and settles cleanly
 - [ ] Leave a question unanswered, interrupt from Helix; confirm it settles and stops being answerable
-- [ ] Confirm the task list/header shows "blocked on human answer" while pending
+- [ ] Confirm the task list/header badge and the `agent_question` attention event appear while pending and clear on resolution
 
 ## Docs and merge
 
-- [ ] Write `design/2026-08-11-agent-questions-elicitation.md` in the helix repo (wire format, storage decision + rationale, status-reconciliation rules, failure modes)
+- [ ] Write `design/2026-08-11-agent-questions-elicitation.md` in the helix repo (wire format incl. resync, storage decision + rationale, status-reconciliation rules with the reconnect-is-not-evidence rule, follow-up-while-pending behaviour, failure modes, and the `spawner.go` follow-up note)
 - [ ] Commit in zed (do not push); `git rev-parse HEAD`; update `ZED_COMMIT` in `sandbox-versions.txt`
 - [ ] Open the Helix PR first
 - [ ] Push the zed branch and open its PR with `gh pr create --repo helixml/zed`
