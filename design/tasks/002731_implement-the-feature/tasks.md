@@ -1,8 +1,14 @@
 # Implementation Tasks: End-to-End Agent Questions via ACP Elicitations
 
+## User decisions (taken at implementation start)
+
+- Skip button label = **"Skip"** (not "Decline") — the adapter continues the turn with empty answers
+- Resync grace window = **60 s**, overridable via `HELIX_ELICITATION_RESYNC_GRACE_SECONDS`
+- Follow-up while pending **locks the card immediately** ("replying instead…"), reconciled by the cancelled event
+
 ## Verify first (blocking assumptions)
 
-- [ ] Confirm empirically on a live thread that Zed's `entry_index` == the accumulator's `message_id` (log `(entry_index, message_id, entry_type)` on both sides for a turn with text + tool call + elicitation); if not, carry an explicit `after_message_id` instead
+- [~] Confirm empirically on a live thread that Zed's `entry_index` == the accumulator's `message_id` (log `(entry_index, message_id, entry_type)` on both sides for a turn with text + tool call + elicitation); if not, carry an explicit `after_message_id` instead
 - [ ] Re-read `applyAskElicitationResponse` (`claude-agent-acp/dist/elicitation.js:180-210`) in the version actually deployed at implementation time and mirror its precedence exactly
 
 ## Zed — `crates/external_websocket_sync/`

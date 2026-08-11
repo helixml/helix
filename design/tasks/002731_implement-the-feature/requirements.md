@@ -288,17 +288,14 @@ session/thread lifecycle. Seeded rows and unit tests alone are **not** acceptanc
 
 ## Open Questions
 
-1. **"Decline" wording.** Per the adapter, decline means "skipped, empty answers, turn
-   continues". Assumption: label the control **"Skip"** with helper text "the agent
-   continues without your answer", since "Decline" reads like refusing the whole turn. Say
-   if you want the literal word "Decline" kept for consistency with the Zed panel.
-2. **Resync grace window.** Reconciling a pending row that is absent from Zed's resync needs
-   a grace window to absorb ordering races (resync arriving before a thread finishes
-   loading). Assumption: 60 s, and only for rows already older than that. Confirm the
-   number, or say it should be configurable via env like
-   `HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS` is.
-3. **Optimistic card lock on follow-up.** When the user sends a normal message with a
-   question pending, should the card lock immediately (optimistic, reconciled by the
-   `cancelled` event), or wait for the event so the UI never shows a state the backend
-   hasn't confirmed? Assumption: lock immediately with a "replying instead…" state, since
-   the Zed behaviour is deterministic.
+None — all resolved. User decisions taken at the start of implementation:
+
+8. **Button label: "Skip"**, with helper text "the agent continues without your answer".
+   Chosen over "Decline" because the adapter returns `{action:"answered", answers:{}}` and
+   the turn proceeds; "Decline" reads like refusing the whole turn.
+9. **Resync grace window: 60 s, env-overridable** via
+   `HELIX_ELICITATION_RESYNC_GRACE_SECONDS`, mirroring
+   `HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS`, so it is tunable without a rebuild.
+10. **Card locks immediately** when the user sends a normal message with a question pending
+    ("replying instead…"), reconciled by the `cancelled` event. Safe because Zed's
+    `run_turn` deterministically cancels outstanding elicitations.
