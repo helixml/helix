@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -92,6 +93,28 @@ func (n *Nats) ListDurableConsumers(ctx context.Context, streamName string) ([]D
 		return nil, fmt.Errorf("list durable consumers for %q: %w", streamName, err)
 	}
 	return consumers, nil
+}
+
+func (n *Nats) DeleteDurableConsumer(ctx context.Context, streamName, consumerName string) error {
+	stream, err := n.js.Stream(ctx, streamName)
+	if err != nil {
+		return fmt.Errorf("get persistent stream %q: %w", streamName, err)
+	}
+	if err := stream.DeleteConsumer(ctx, consumerName); err != nil && !errors.Is(err, jetstream.ErrConsumerNotFound) {
+		return fmt.Errorf("delete durable consumer %q: %w", consumerName, err)
+	}
+	return nil
+}
+
+func (n *Nats) PurgeDurableSubject(ctx context.Context, streamName, subject string) error {
+	stream, err := n.js.Stream(ctx, streamName)
+	if err != nil {
+		return fmt.Errorf("get persistent stream %q: %w", streamName, err)
+	}
+	if err := stream.Purge(ctx, jetstream.WithPurgeSubject(subject)); err != nil {
+		return fmt.Errorf("purge durable subject %q: %w", subject, err)
+	}
+	return nil
 }
 
 type durableSubscription struct {

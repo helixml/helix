@@ -684,6 +684,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Now:           deps.Now,
 	})
 	dispatcher := dispatch.New(st, spawnerFn, logger)
+	var agentDelivery lifecycle.AgentDeliveryLifecycle
 	if provider, ok := cfg.APIServer.pubsub.(pubsub.DurablePubSub); ok {
 		durableQueue, err := agentdelivery.New(ctx, provider, activation.Spawn(spawnerFn), logger)
 		if err != nil {
@@ -693,6 +694,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 			return nil, fmt.Errorf("start durable agent delivery: %w", err)
 		}
 		dispatcher.RegisterActivationQueue(durableQueue)
+		agentDelivery = durableQueue
 	}
 	// Outbound webhook delivery is a transport concern, not the
 	// dispatcher's: register the webhook emitter so KindWebhook topics
@@ -757,10 +759,11 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// runtime port is satisfied by the same in-process adapter every
 	// other Helix call goes through.
 	lifecycleSvc := &lifecycle.Service{
-		Store:  st,
-		Helix:  inProcClient,
-		Agents: inProcClient,
-		Logger: logger,
+		Store:         st,
+		Helix:         inProcClient,
+		Agents:        inProcClient,
+		Logger:        logger,
+		AgentDelivery: agentDelivery,
 		// Node-scoped reconcilers: the single topology reconciler (one owner
 		// of activation/team Topic lifecycle across create, reparent, and delete).
 		NodeReconcilers: []lifecycle.NodeReconciler{deps.Reconciler},

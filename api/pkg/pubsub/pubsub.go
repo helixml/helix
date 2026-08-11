@@ -32,6 +32,8 @@ type DurablePubSub interface {
 	PublishDurable(ctx context.Context, stream, subject string, payload []byte) error
 	ConsumeDurable(ctx context.Context, stream, consumer, subject string, ackWait time.Duration, handler func(msg *Message) error) (Subscription, error)
 	ListDurableConsumers(ctx context.Context, stream string) ([]DurableConsumer, error)
+	DeleteDurableConsumer(ctx context.Context, stream, consumer string) error
+	PurgeDurableSubject(ctx context.Context, stream, subject string) error
 }
 
 type DurableConsumer struct {

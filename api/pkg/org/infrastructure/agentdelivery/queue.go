@@ -37,6 +37,7 @@ type Queue struct {
 	logger  *slog.Logger
 	mu      sync.Mutex
 	active  map[string]struct{}
+	removed map[string]struct{}
 	publish map[string]*sync.Mutex
 }
 
@@ -48,7 +49,7 @@ func New(ctx context.Context, provider pubsub.DurablePubSub, spawn activation.Sp
 		return nil, err
 	}
 	queueCtx, cancel := context.WithCancel(ctx)
-	return &Queue{ctx: queueCtx, cancel: cancel, pubsub: provider, spawn: spawn, logger: logger, active: map[string]struct{}{}, publish: map[string]*sync.Mutex{}}, nil
+	return &Queue{ctx: queueCtx, cancel: cancel, pubsub: provider, spawn: spawn, logger: logger, active: map[string]struct{}{}, removed: map[string]struct{}{}, publish: map[string]*sync.Mutex{}}, nil
 }
 
 func (q *Queue) Close() { q.cancel() }
@@ -76,6 +77,12 @@ func (q *Queue) Enqueue(orgID string, agentID orgchart.NodeID, trigger activatio
 	lock := q.publishLock(name)
 	lock.Lock()
 	defer lock.Unlock()
+	q.mu.Lock()
+	_, removed := q.removed[name]
+	q.mu.Unlock()
+	if removed {
+		return
+	}
 	if err := q.consume(name, subject); err != nil {
 		q.logger.Error("agent delivery: consume", "agent", agentID, "err", err)
 		return
@@ -88,6 +95,43 @@ func (q *Queue) Enqueue(orgID string, agentID orgchart.NodeID, trigger activatio
 	if err := q.pubsub.PublishDurable(q.ctx, streamName, subject, payload); err != nil {
 		q.logger.Error("agent delivery: publish", "agent", agentID, "err", err)
 	}
+}
+
+func (q *Queue) CleanupAgent(ctx context.Context, orgID string, agentID orgchart.NodeID) error {
+	name := consumerName(orgID, agentID)
+	lock := q.publishLock(name)
+	lock.Lock()
+	defer lock.Unlock()
+
+	q.mu.Lock()
+	q.removed[name] = struct{}{}
+	q.mu.Unlock()
+	if err := q.pubsub.DeleteDurableConsumer(ctx, streamName, name); err != nil {
+		q.mu.Lock()
+		delete(q.removed, name)
+		q.mu.Unlock()
+		return err
+	}
+	q.mu.Lock()
+	delete(q.active, name)
+	q.mu.Unlock()
+	if err := q.pubsub.PurgeDurableSubject(ctx, streamName, subjectFor(orgID, agentID)); err != nil {
+		q.mu.Lock()
+		delete(q.removed, name)
+		q.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+func (q *Queue) RestoreAgent(orgID string, agentID orgchart.NodeID) {
+	name := consumerName(orgID, agentID)
+	lock := q.publishLock(name)
+	lock.Lock()
+	defer lock.Unlock()
+	q.mu.Lock()
+	delete(q.removed, name)
+	q.mu.Unlock()
 }
 
 func (q *Queue) publishLock(name string) *sync.Mutex {

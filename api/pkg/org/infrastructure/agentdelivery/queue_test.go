@@ -74,3 +74,46 @@ func TestQueueFansOutPerAgent(t *testing.T) {
 	}
 	require.Equal(t, map[string]bool{"agent-a": true, "agent-b": true}, got)
 }
+
+func TestQueueCleanupAgentRemovesConsumerAndPendingMessages(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	seen := make(chan string, 1)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		seen <- triggers[0].EventID
+		return errors.New("retry")
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "old"})
+	require.Equal(t, "old", <-seen)
+	require.NoError(t, q.CleanupAgent(context.Background(), "org-test", "agent-a"))
+
+	consumers, err := n.ListDurableConsumers(context.Background(), streamName)
+	require.NoError(t, err)
+	require.Empty(t, consumers)
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "ignored"})
+	consumers, err = n.ListDurableConsumers(context.Background(), streamName)
+	require.NoError(t, err)
+	require.Empty(t, consumers)
+
+	received := make(chan string, 1)
+	sub, err := n.ConsumeDurable(context.Background(), streamName, "probe", subjectFor("org-test", "agent-a"), time.Second, func(msg *pubsub.Message) error {
+		received <- string(msg.Data)
+		return msg.Ack()
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+	require.NoError(t, n.PublishDurable(context.Background(), streamName, subjectFor("org-test", "agent-a"), []byte("new")))
+	require.Equal(t, "new", <-received)
+	require.NoError(t, sub.Unsubscribe())
+	require.NoError(t, n.DeleteDurableConsumer(context.Background(), streamName, "probe"))
+	require.NoError(t, n.PurgeDurableSubject(context.Background(), streamName, subjectFor("org-test", "agent-a")))
+
+	q.RestoreAgent("org-test", "agent-a")
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerHire, EventID: "recreated"})
+	require.Equal(t, "recreated", <-seen)
+}
