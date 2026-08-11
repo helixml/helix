@@ -74,7 +74,7 @@ const iconResolver = createFileTreeIconResolver({
   byFileName: { "package.json": "helix-file-icon-package-json" },
 });
 
-function ensureIconSprite(): void {
+export function ensureChangedFileIconSprite(): void {
   if (typeof document === "undefined" || document.getElementById(ICON_SPRITE_ID)) return;
   const container = document.createElement("div");
   container.id = ICON_SPRITE_ID;
@@ -88,6 +88,17 @@ function ensureIconSprite(): void {
   document.body.prepend(container);
 }
 
+export function resolveChangedFileIcon(path: string, darkMode: boolean) {
+  const icon = iconResolver.resolveIcon("file-tree-icon-file", path);
+  const colors = ICON_COLORS[icon.token || "default"] || ICON_COLORS.default;
+  return {
+    name: icon.name,
+    token: icon.token,
+    viewBox: icon.viewBox || "0 0 16 16",
+    color: colors[darkMode ? 1 : 0],
+  };
+}
+
 interface ChangedFileIconProps {
   path: string;
   darkMode: boolean;
@@ -95,22 +106,21 @@ interface ChangedFileIconProps {
 }
 
 const ChangedFileIcon: FC<ChangedFileIconProps> = ({ path, darkMode, size = 14 }) => {
-  useInsertionEffect(ensureIconSprite, []);
+  useInsertionEffect(ensureChangedFileIconSprite, []);
   const icon = useMemo(
-    () => iconResolver.resolveIcon("file-tree-icon-file", path),
-    [path],
+    () => resolveChangedFileIcon(path, darkMode),
+    [darkMode, path],
   );
-  const colors = ICON_COLORS[icon.token || "default"] || ICON_COLORS.default;
 
   return (
     <svg
       aria-hidden="true"
       data-pierre-icon={icon.name}
       data-icon-token={icon.token}
-      viewBox={icon.viewBox || "0 0 16 16"}
+      viewBox={icon.viewBox}
       width={size}
       height={size}
-      style={{ color: colors[darkMode ? 1 : 0], flexShrink: 0 }}
+      style={{ color: icon.color, flexShrink: 0 }}
     >
       <use href={`#${icon.name}`} />
     </svg>

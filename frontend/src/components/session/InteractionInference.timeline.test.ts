@@ -163,4 +163,19 @@ describe("buildActivityTimeline", () => {
       { type: "text", renderThinking: true, renderContent: false },
     ]);
   });
+
+  it("keeps plan snapshots out of prose and tool activity", () => {
+    const entries = [
+      entry("1", "tool_call", "output", "read_file"),
+      entry("plan", "plan", '{"steps":[{"step":"Build","status":"inProgress"}]}'),
+      entry("2", "text", "Done"),
+    ];
+
+    const timeline = buildActivityTimeline(entries, false);
+
+    expect(timeline.finalTextIndex).toBe(2);
+    expect(timeline.activitySegments).toMatchObject([
+      { type: "tools", entries: [{ toolName: "read_file" }] },
+    ]);
+  });
 });

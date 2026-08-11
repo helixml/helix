@@ -2,6 +2,7 @@ package lifecycle_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -15,6 +16,24 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
+
+type recordingAgentDeliveryCleaner struct {
+	orgID    string
+	agentID  orgchart.NodeID
+	restored bool
+}
+
+func (c *recordingAgentDeliveryCleaner) CleanupAgent(_ context.Context, orgID string, agentID orgchart.NodeID) error {
+	c.orgID = orgID
+	c.agentID = agentID
+	return nil
+}
+
+func (c *recordingAgentDeliveryCleaner) RestoreAgent(orgID string, agentID orgchart.NodeID) {
+	c.orgID = orgID
+	c.agentID = agentID
+	c.restored = true
+}
 
 // TestDelete_RemovesBotsTranscript pins the regression behind "we still
 // see s-transcript-w-ai-1 and s-transcript-w-test-ai even though those
@@ -312,6 +331,49 @@ func TestDelete_Guards(t *testing.T) {
 	}
 	if err := (&lifecycle.Service{}).Delete(ctx, "org", "b-x"); err == nil {
 		t.Fatal("nil store should error")
+	}
+}
+
+func TestDelete_CleansUpAgentDelivery(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-delete-delivery"
+	seedBot(t, st, orgID, "w-delete")
+
+	cleaner := &recordingAgentDeliveryCleaner{}
+	if err := (&lifecycle.Service{Store: st, AgentDelivery: cleaner}).Delete(ctx, orgID, "w-delete"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if cleaner.orgID != orgID || cleaner.agentID != "w-delete" {
+		t.Fatalf("cleaned delivery for (%q, %q), want (%q, %q)", cleaner.orgID, cleaner.agentID, orgID, "w-delete")
+	}
+}
+
+func TestDelete_RestoresAgentDeliveryWhenRuntimeDeleteFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-delete-delivery-failure"
+	bot, err := orgchart.NewNode("w-delete", "# w-delete", nil, time.Now().UTC(), orgID)
+	if err != nil {
+		t.Fatalf("new bot: %v", err)
+	}
+	bot.AgentID = "app-delete"
+	if err := st.Nodes.Create(ctx, bot); err != nil {
+		t.Fatalf("create bot: %v", err)
+	}
+
+	cleaner := &recordingAgentDeliveryCleaner{}
+	svc := &lifecycle.Service{Store: st, Helix: &lifecycleRuntime{linkedErr: errors.New("delete failed")}, AgentDelivery: cleaner}
+	if err := svc.Delete(ctx, orgID, bot.ID); err == nil {
+		t.Fatal("Delete should fail")
+	}
+	if !cleaner.restored {
+		t.Fatal("agent delivery was not restored after failed deletion")
+	}
+	if _, err := st.Nodes.Get(ctx, orgID, bot.ID); err != nil {
+		t.Fatalf("bot should survive failed deletion: %v", err)
 	}
 }
 

@@ -23,6 +23,7 @@ import useRouter from '../hooks/useRouter'
 import {
   useListProviders,
   useProviderDailyUsage,
+  useProviderThroughputUsage,
   useProviderUsersDailyUsage,
 } from '../services/providersService'
 import {
@@ -196,7 +197,13 @@ export default function ProviderDetail({
     : ''
   const fromRFC = useMemo(() => toRFC3339(from), [from])
   const toRFC = useMemo(() => toRFC3339(to, true), [to])
+  const throughputAggregation = useMemo(() => {
+    if (!fromRFC || !toRFC) return '30min' as const
+    const rangeMs = new Date(toRFC).getTime() - new Date(fromRFC).getTime()
+    return rangeMs <= 7 * 24 * 60 * 60 * 1000 ? '30min' as const : 'hourly' as const
+  }, [fromRFC, toRFC])
   const usage = useProviderDailyUsage(usageProviderId, fromRFC, toRFC, Boolean(provider))
+  const throughputUsage = useProviderThroughputUsage(usageProviderId, fromRFC, toRFC, throughputAggregation, Boolean(provider))
   const usersUsage = useProviderUsersDailyUsage(usageProviderId, fromRFC, toRFC, Boolean(provider) && Boolean(account.admin))
 
   useEffect(() => {
@@ -218,14 +225,15 @@ export default function ProviderDetail({
     output: metric.completion_tokens ?? 0,
   })), [metrics])
   const latencyData = useMemo(() => metrics.map(metric => ({ date: metric.date || '', latency: metric.latency_ms ?? 0 })), [metrics])
-  const throughputData = useMemo(() => metrics.map(metric => {
+  const throughputData = useMemo(() => (throughputUsage.data || []).map(metric => {
     const requests = metric.total_requests ?? 0
+    if (requests === 0) return { date: metric.date || '' }
     const durationMs = (metric.latency_ms ?? 0) * requests
     return {
       date: metric.date || '',
       throughput: durationMs > 0 ? (metric.completion_tokens ?? 0) / (durationMs / 1000) : 0,
     }
-  }), [metrics])
+  }), [throughputUsage.data])
   const costData = useMemo(() => metrics.map(metric => ({ date: metric.date || '', cost: metric.total_cost ?? 0 })), [metrics])
   const userRows = useMemo(() => {
     const entries = usersUsage.data || []
@@ -407,6 +415,7 @@ export default function ProviderDetail({
 
       {hasError && provider.error && <Alert severity="error">{provider.error}</Alert>}
       {usage.error && <Alert severity="error">Failed to load provider telemetry: {(usage.error as Error).message}</Alert>}
+      {throughputUsage.error && <Alert severity="error">Failed to load provider throughput: {(throughputUsage.error as Error).message}</Alert>}
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }, gap: '1px', bgcolor: embedded ? 'transparent' : 'divider', borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider' }}>
         <OverviewStat flat={embedded} label="Processed tokens" value={formatCompact(totals.tokens)} detail={`${formatCompact(activeDays ? totals.tokens / activeDays : 0)} per active day`} icon={<Database size={14} />} />
@@ -417,7 +426,7 @@ export default function ProviderDetail({
         <OverviewStat flat={embedded} label="Cache hit ratio" value={formatPercent(cacheHitRatio)} detail={`${formatCompact(totals.cacheRead)} cached input tokens`} icon={<Database size={14} />} />
       </Box>
 
-      {usage.isLoading ? (
+      {usage.isLoading || throughputUsage.isLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress size={24} /></Box>
       ) : (
         <>
@@ -427,7 +436,7 @@ export default function ProviderDetail({
           </Box>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 2 }}>
             <ShadcnAreaChart title="END-TO-END LATENCY" headline={formatMs(totals.latencyMs)} data={latencyData} series={LATENCY_SERIES} valueFormatter={formatMs} variant="line" hideLegend zeroIsData yAxisWidth={92} />
-            <ShadcnAreaChart title="OUTPUT THROUGHPUT" headline={formatRate(totals.throughput)} data={throughputData} series={THROUGHPUT_SERIES} valueFormatter={formatRate} variant="line" hideLegend zeroIsData yAxisWidth={92} />
+            <ShadcnAreaChart title={`${throughputAggregation === '30min' ? '30-MINUTE' : 'HOURLY'} OUTPUT THROUGHPUT`} headline={formatRate(totals.throughput)} data={throughputData} series={THROUGHPUT_SERIES} valueFormatter={formatRate} variant="line" hideLegend zeroIsData yAxisWidth={92} showTime />
           </Box>
         </>
       )}

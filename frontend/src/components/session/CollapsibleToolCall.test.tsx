@@ -2,7 +2,11 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { describe, expect, it } from 'vitest'
 
-import { CollapsibleToolCall, getToolCallPresentation } from './CollapsibleToolCall'
+import {
+  CollapsibleToolCall,
+  getToolCallExpandedBody,
+  getToolCallPresentation,
+} from './CollapsibleToolCall'
 
 describe('CollapsibleToolCall', () => {
   it('presents shell calls as a compact command row', () => {
@@ -14,8 +18,24 @@ describe('CollapsibleToolCall', () => {
     expect(presentation).toEqual({
       kind: 'command',
       label: 'Ran command',
-      preview: 'Bash: git status --short',
+      preview: 'git status --short',
     })
+  })
+
+  it('removes transport metadata from expanded command output', () => {
+    const body = [
+      '**Tool Call: git status --short**',
+      'Status: Completed',
+      '',
+      'Terminal:',
+      '```',
+      ' M file.ts',
+      '```',
+    ].join('\n')
+
+    expect(getToolCallExpandedBody('git status --short', body)).toBe(
+      'git status --short\n\nM file.ts',
+    )
   })
 
   it('recognizes raw ACP shell titles from terminal output', () => {

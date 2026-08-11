@@ -2225,6 +2225,7 @@ export enum TypesAPIKeyType {
   APIkeytypeNone = "",
   APIkeytypeAPI = "api",
   APIkeytypeApp = "app",
+  APIkeytypeEmbed = "embed",
 }
 
 export interface TypesAccessGrant {
@@ -3380,6 +3381,8 @@ export interface TypesCreateTaskRequest {
   goose_recipe_params?: Record<string, string>;
   /** Optional: Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
+  /** Name is the task title. Empty means derive it from the prompt. */
+  name?: string;
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   prompt?: string;
@@ -4044,7 +4047,8 @@ export interface TypesInteraction {
   rag_results?: TypesSessionRAGResult[];
   /**
    * ResponseEntries holds the structured response as an ordered list of typed entries.
-   * Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+   * Each entry is "text" (assistant prose), "tool_call" (tool invocation), or
+   * "plan" (the latest structured plan snapshot),
    * preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
    * This is populated on completion alongside ResponseMessage (flat string, backward compat).
    * The frontend uses this to render entries with the correct component in the correct order.
@@ -7721,6 +7725,12 @@ export interface TypesUser {
    * Granted per-user via SQL (no deploy).
    */
   alpha_features?: string[];
+  /**
+   * APIKeyType is the type of the API key this request authenticated with, when
+   * it authenticated with one. Carried so the auth middleware can apply the
+   * per-type restrictions (app keys: chat paths only; embed keys: one spec task).
+   */
+  api_key_type?: TypesAPIKeyType;
   /** if the token is associated with an app */
   app_id?: string;
   auth_provider?: TypesAuthProvider;
@@ -8094,6 +8104,17 @@ export interface TypesWorkspaceReviewSource {
   total_additions?: number;
   total_deletions?: number;
   truncated?: boolean;
+}
+
+export interface TypesWorkspaceSkillEntry {
+  description?: string;
+  name?: string;
+  path?: string;
+  scope?: string;
+}
+
+export interface TypesWorkspaceSkillsResponse {
+  skills?: TypesWorkspaceSkillEntry[];
 }
 
 export interface TypesWorkspacesResponse {
@@ -10367,6 +10388,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesWorkspaceReviewSource, any>({
         path: `/api/v1/external-agents/${sessionId}/workspace-review/turn/${interactionId}`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns agent skills installed for the connected external-agent workspace and sandbox user.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceSkillsDetail
+     * @summary List workspace skills
+     * @request GET:/api/v1/external-agents/{sessionID}/workspace-skills
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceSkillsDetail: (
+      sessionId: string,
+      query?: {
+        /** Workspace name */
+        workspace?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceSkillsResponse, any>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-skills`,
         method: "GET",
         query: query,
         secure: true,
@@ -15406,6 +15453,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
         path: `/api/v1/provider-endpoints/${id}/daily-usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get provider throughput aggregated into 30-minute or hourly buckets
+     *
+     * @tags providers
+     * @name V1ProviderEndpointsThroughputUsageDetail
+     * @summary Get provider throughput usage
+     * @request GET:/api/v1/provider-endpoints/{id}/throughput-usage
+     * @secure
+     */
+    v1ProviderEndpointsThroughputUsageDetail: (
+      id: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+        /**
+         * Aggregation level
+         * @default "30min"
+         */
+        aggregation_level?: "30min" | "hourly";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/provider-endpoints/${id}/throughput-usage`,
         method: "GET",
         query: query,
         secure: true,

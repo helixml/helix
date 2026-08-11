@@ -491,6 +491,7 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/workspace/review", s.handleWorkspaceReview)
 	mux.HandleFunc("/workspace/files", s.handleWorkspaceFiles)
 	mux.HandleFunc("/workspace/file", s.handleWorkspaceFile)
+	mux.HandleFunc("/workspace/skills", s.handleWorkspaceSkills)
 	mux.HandleFunc("/workspace/checkpoints/capture", s.handleWorkspaceCheckpointCapture)
 	mux.HandleFunc("/workspace/checkpoints/diff", s.handleWorkspaceCheckpointDiff)
 	// Workspace git plumbing used by the fork-and-pause safety net.

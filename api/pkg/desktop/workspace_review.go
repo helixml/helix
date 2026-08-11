@@ -21,6 +21,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -28,6 +29,9 @@ const (
 	workspaceFileLimit      = 1024 * 1024
 	workspaceTreeEntryLimit = 20000
 	workspaceListLimit      = 8 * 1024 * 1024
+	workspaceSkillFileLimit = 128 * 1024
+	workspaceSkillScanLimit = 500
+	workspaceSkillDirLimit  = 5000
 	checkpointRefPrefix     = "refs/helix/checkpoints/"
 	// checkpointRefsPerSession caps how many checkpoint refs a single
 	// session may retain. Each turn publishes a before/after pair, so this
@@ -252,6 +256,182 @@ func (s *Server) handleWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 		Workspace: workspace, Path: rel, Contents: content, ByteLength: size,
 		ContentHash: hashString(content), Truncated: truncated, Binary: binary,
 	})
+}
+
+type workspaceSkillFrontmatter struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+}
+
+type workspaceSkillRoot struct {
+	path  string
+	scope string
+}
+
+func (s *Server) handleWorkspaceSkills(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	workDir, _, err := resolveReviewWorkspace(r.URL.Query().Get("workspace"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("resolve sandbox home: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	skills, err := listWorkspaceSkills(workDir, homeDir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("list workspace skills: %v", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, types.WorkspaceSkillsResponse{Skills: skills})
+}
+
+func listWorkspaceSkills(workDir, homeDir string) ([]types.WorkspaceSkillEntry, error) {
+	roots := []workspaceSkillRoot{
+		{path: filepath.Join(workDir, ".agents", "skills"), scope: "project"},
+		{path: filepath.Join(workDir, ".codex", "skills"), scope: "project"},
+		{path: filepath.Join(workDir, ".claude", "skills"), scope: "project"},
+		{path: filepath.Join(homeDir, ".agents", "skills"), scope: "personal"},
+		{path: filepath.Join(homeDir, ".codex", "skills"), scope: "personal"},
+		{path: filepath.Join(homeDir, ".claude", "skills"), scope: "personal"},
+		{path: filepath.Join(homeDir, ".codex", "plugins"), scope: "app"},
+		{path: filepath.Join(homeDir, ".agents", "plugins"), scope: "app"},
+	}
+
+	byName := make(map[string]types.WorkspaceSkillEntry)
+	for _, root := range roots {
+		if len(byName) >= workspaceSkillScanLimit {
+			break
+		}
+		if err := collectWorkspaceSkills(root, byName); err != nil {
+			return nil, err
+		}
+	}
+
+	skills := make([]types.WorkspaceSkillEntry, 0, len(byName))
+	for _, skill := range byName {
+		skills = append(skills, skill)
+	}
+	sort.Slice(skills, func(i, j int) bool {
+		return strings.ToLower(skills[i].Name) < strings.ToLower(skills[j].Name)
+	})
+	return skills, nil
+}
+
+func collectWorkspaceSkills(root workspaceSkillRoot, byName map[string]types.WorkspaceSkillEntry) error {
+	visited := make(map[string]struct{})
+	directoriesVisited := 0
+	var walk func(string) error
+	walk = func(directory string) error {
+		if len(byName) >= workspaceSkillScanLimit || directoriesVisited >= workspaceSkillDirLimit {
+			return nil
+		}
+		resolved, err := filepath.EvalSymlinks(directory)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("resolve skill directory %s: %w", directory, err)
+		}
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return fmt.Errorf("inspect skill directory %s: %w", directory, err)
+		}
+		if !info.IsDir() {
+			return nil
+		}
+		if _, exists := visited[resolved]; exists {
+			return nil
+		}
+		visited[resolved] = struct{}{}
+		directoriesVisited++
+
+		entries, err := os.ReadDir(resolved)
+		if err != nil {
+			return fmt.Errorf("read skill directory %s: %w", directory, err)
+		}
+		for _, entry := range entries {
+			if len(byName) >= workspaceSkillScanLimit {
+				return nil
+			}
+			if entry.Name() == ".git" || entry.Name() == "node_modules" {
+				continue
+			}
+			entryPath := filepath.Join(resolved, entry.Name())
+			if strings.EqualFold(entry.Name(), "SKILL.md") {
+				skill, ok, err := readWorkspaceSkill(root, entryPath)
+				if err != nil {
+					return err
+				}
+				if ok {
+					key := strings.ToLower(skill.Name)
+					if _, exists := byName[key]; !exists {
+						byName[key] = skill
+					}
+				}
+				continue
+			}
+			if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+				if err := walk(entryPath); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	return walk(root.path)
+}
+
+func readWorkspaceSkill(root workspaceSkillRoot, skillPath string) (types.WorkspaceSkillEntry, bool, error) {
+	file, err := os.Open(skillPath)
+	if err != nil {
+		return types.WorkspaceSkillEntry{}, false, fmt.Errorf("open skill %s: %w", skillPath, err)
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(io.LimitReader(file, workspaceSkillFileLimit+1))
+	if err != nil {
+		return types.WorkspaceSkillEntry{}, false, fmt.Errorf("read skill %s: %w", skillPath, err)
+	}
+	if len(content) > workspaceSkillFileLimit {
+		return types.WorkspaceSkillEntry{}, false, nil
+	}
+	text := string(content)
+	if !strings.HasPrefix(text, "---\n") && !strings.HasPrefix(text, "---\r\n") {
+		return types.WorkspaceSkillEntry{}, false, nil
+	}
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	frontmatterEnd := strings.Index(text[4:], "\n---")
+	if frontmatterEnd < 0 {
+		return types.WorkspaceSkillEntry{}, false, nil
+	}
+	var metadata workspaceSkillFrontmatter
+	if err := yaml.Unmarshal([]byte(text[4:4+frontmatterEnd]), &metadata); err != nil {
+		return types.WorkspaceSkillEntry{}, false, nil
+	}
+	metadata.Name = strings.TrimSpace(metadata.Name)
+	if metadata.Name == "" {
+		metadata.Name = filepath.Base(filepath.Dir(skillPath))
+	}
+	if metadata.Name == "" || strings.ContainsAny(metadata.Name, " \t\r\n$") {
+		return types.WorkspaceSkillEntry{}, false, nil
+	}
+	relativePath, err := filepath.Rel(root.path, skillPath)
+	if err != nil {
+		return types.WorkspaceSkillEntry{}, false, fmt.Errorf("relativize skill path %s: %w", skillPath, err)
+	}
+	return types.WorkspaceSkillEntry{
+		Name:        metadata.Name,
+		Description: strings.TrimSpace(metadata.Description),
+		Scope:       root.scope,
+		Path:        filepath.ToSlash(relativePath),
+	}, true, nil
 }
 
 func (s *Server) handleWorkspaceCheckpointCapture(w http.ResponseWriter, r *http.Request) {

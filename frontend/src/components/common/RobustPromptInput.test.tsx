@@ -33,6 +33,12 @@ vi.mock('../../hooks/usePromptHistory', async () => {
   }
 })
 
+vi.mock('./useSandboxComposerSuggestions', () => {
+  return {
+    useSandboxComposerSuggestions: () => ({ items: [], loading: false, error: false }),
+  }
+})
+
 const mkEntry = (id: string, ts: number, overrides: Partial<PromptHistoryEntry> = {}): PromptHistoryEntry => ({
   id,
   content: `msg ${id}`,

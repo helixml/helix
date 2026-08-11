@@ -1,13 +1,12 @@
 import React, { FC, ReactNode, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
-import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 import StreamingIndicator from "./StreamingIndicator";
 import { getChatColors } from "./chatStyles";
-import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import { APP_FONT_FAMILY } from "../../styles/typography";
 
 export const formatActivityDuration = (durationMs: number) => {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
@@ -43,6 +42,9 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
   const [expanded, setExpanded] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(durationMs);
   const lastElapsedMsRef = useRef(durationMs);
+  const dividerColor = theme.palette.mode === "dark"
+    ? "rgba(255,255,255,0.045)"
+    : "rgba(0,0,0,0.055)";
   const textColor = theme.palette.mode === "dark" ? chatColors.subtle : "text.secondary";
 
   useEffect(() => {
@@ -75,21 +77,41 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
   };
 
   return (
-    <Box sx={{ my: 0.75 }}>
+    <Box
+      sx={{
+        mt: 0.5,
+        mb: 1,
+        pt: 0.5,
+        pb: 1,
+        borderBottom: `1px solid ${dividerColor}`,
+      }}
+    >
       <Box
+        component={hasActivity ? "button" : "div"}
+        type={hasActivity ? "button" : undefined}
         onClick={hasActivity ? toggleExpanded : undefined}
         onKeyDown={handleHeaderKeyDown}
-        role={hasActivity ? "button" : undefined}
-        tabIndex={hasActivity ? 0 : undefined}
+        aria-expanded={hasActivity ? expanded : undefined}
+        aria-label={hasActivity ? (expanded ? "Hide work log" : "Show work log") : undefined}
         sx={{
           display: "flex",
           alignItems: "center",
-          gap: 1,
-          minHeight: 24,
+          gap: 0.5,
+          width: "fit-content",
+          minHeight: 20,
+          m: 0,
+          p: "0 4px",
+          border: 0,
+          borderRadius: "6px",
+          background: "transparent",
+          font: "inherit",
           cursor: hasActivity ? "pointer" : "default",
           color: textColor,
+          fontVariantNumeric: "tabular-nums",
+          transition: "color 150ms ease",
+          "&:hover": hasActivity ? { color: chatColors.foreground } : undefined,
           "&:focus-visible": hasActivity
-            ? { outline: "1px solid currentColor", outlineOffset: 2 }
+            ? { outline: "2px solid currentColor", outlineOffset: -2 }
             : undefined,
         }}
       >
@@ -97,10 +119,10 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
         <Typography
           variant="body2"
           sx={{
-            flex: 1,
-            fontSize: "0.76rem",
+            fontSize: "0.75rem",
+            lineHeight: "20px",
             color: "inherit",
-            fontFamily: APP_MONO_FONT_FAMILY,
+            fontFamily: APP_FONT_FAMILY,
           }}
         >
           {isStreaming
@@ -108,26 +130,22 @@ const ActivitySummary: FC<ActivitySummaryProps> = ({
             : `Worked for ${formatActivityDuration(elapsedMs)}`}
         </Typography>
         {hasActivity && (
-          <IconButton
-            size="small"
-            onClick={(event) => {
-              event.stopPropagation();
-              toggleExpanded();
-            }}
-            aria-expanded={expanded}
-            aria-label={expanded ? "Hide work log" : "Show work log"}
+          <Box
+            component="span"
             sx={{
-              p: 0,
-              color: "inherit",
-              "&:hover": { backgroundColor: "transparent" },
+              display: "inline-flex",
+              width: 14,
+              height: 14,
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
             {expanded ? (
-              <ChevronUp size={15} strokeWidth={1.8} />
+              <ChevronUp size={14} strokeWidth={1.8} />
             ) : (
-              <ChevronDown size={15} strokeWidth={1.8} />
+              <ChevronDown size={14} strokeWidth={1.8} />
             )}
-          </IconButton>
+          </Box>
         )}
       </Box>
       {expanded ? children : null}

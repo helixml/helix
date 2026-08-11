@@ -42,17 +42,8 @@ describe("WorkLog", () => {
       name: /\+2 previous tool calls/,
     });
     expect(disclosure).toBeInTheDocument();
-    expect(
-      disclosure.querySelector(".MuiButton-startIcon"),
-    ).toBeInTheDocument();
-    expect(
-      disclosure.querySelector(".MuiButton-endIcon"),
-    ).not.toBeInTheDocument();
     expect(disclosure).toHaveStyle({ color: "rgb(245, 245, 245)" });
-    expect(disclosure.querySelector("svg")).toHaveStyle({
-      color: "rgb(150, 150, 150)",
-      transform: "translateX(-1px) rotate(0deg)",
-    });
+    expect(disclosure.querySelector("svg")).toHaveStyle({ transform: "rotate(0deg)" });
   });
 
   it("reveals previous calls below a stationary disclosure", () => {
@@ -66,16 +57,14 @@ describe("WorkLog", () => {
     const firstCommand = screen.getByText("first command");
     expect(firstCommand).toBeInTheDocument();
     expect(screen.getByText("second command")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /\+2 previous tool calls/ }),
-    ).toBe(disclosure);
+    expect(screen.getByRole("button", { name: "Show fewer tool calls" })).toBe(disclosure);
     expect(disclosure).toHaveAttribute("aria-expanded", "true");
     expect(
       disclosure.compareDocumentPosition(firstCommand) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    fireEvent.click(disclosure);
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer tool calls" }));
 
     expect(screen.queryByText("first command")).not.toBeInTheDocument();
     expect(screen.getByText("latest command")).toBeInTheDocument();
