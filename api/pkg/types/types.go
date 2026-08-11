@@ -80,7 +80,8 @@ type Interaction struct {
 	LastZedMessageOffset int `json:"last_zed_message_offset,omitempty"`
 
 	// ResponseEntries holds the structured response as an ordered list of typed entries.
-	// Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+	// Each entry is "text" (assistant prose), "tool_call" (tool invocation), or
+	// "plan" (the latest structured plan snapshot),
 	// preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
 	// This is populated on completion alongside ResponseMessage (flat string, backward compat).
 	// The frontend uses this to render entries with the correct component in the correct order.
@@ -1011,7 +1012,7 @@ type WebsocketEvent struct {
 type EntryPatch struct {
 	Index       int    `json:"index"`                  // Position in the entries array
 	MessageID   string `json:"message_id"`             // Zed message_id for this entry
-	Type        string `json:"type"`                   // "text" or "tool_call"
+	Type        string `json:"type"`                   // "text", "tool_call", or "plan"
 	Patch       string `json:"patch,omitempty"`        // Content delta from PatchOffset onwards
 	PatchOffset int    `json:"patch_offset,omitempty"` // UTF-16 offset of first change in this entry
 	TotalLength int    `json:"total_length,omitempty"` // Final content length of this entry after patch

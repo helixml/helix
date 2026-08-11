@@ -21,16 +21,32 @@ import {
   Box,
   Divider,
   Typography,
+  Switch,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { IProviderEndpoint } from '../../types';
 import { TypesProviderEndpointType } from '../../api/api'
 import { useUpdateProviderEndpoint } from '../../services/providersService';
 import useAccount from '../../hooks/useAccount';
+import ProviderEndpointIcon, { PROVIDER_ICON_OPTIONS, ProviderMark } from '../providers/ProviderEndpointIcon';
+import { Server } from 'lucide-react';
 
 // Helper function to determine auth type from endpoint
-export const getEndpointAuthType = (endpoint: IProviderEndpoint | null): AuthType => {
+interface EditableProviderEndpoint {
+  id?: string
+  name?: string
+  description?: string
+  icon?: string
+  billing_enabled?: boolean
+  base_url?: string
+  api_key?: string
+  api_key_file?: string
+  endpoint_type?: string
+  models?: string[]
+  headers?: Record<string, string>
+}
+
+export const getEndpointAuthType = (endpoint: EditableProviderEndpoint | null): AuthType => {
   // If both are empty, return none
   if (!endpoint?.api_key && !endpoint?.api_key_file) {
     return 'none';
@@ -52,7 +68,7 @@ export const getEndpointAuthType = (endpoint: IProviderEndpoint | null): AuthTyp
 
 interface EditProviderEndpointDialogProps {
   open: boolean;
-  endpoint: IProviderEndpoint | null;
+  endpoint: EditableProviderEndpoint | null;
   onClose: () => void;
   refreshData: () => void;
 }
@@ -70,6 +86,9 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: endpoint?.name || '',
+    description: endpoint?.description || '',
+    icon: endpoint?.icon || '',
+    billing_enabled: endpoint?.billing_enabled || false,
     base_url: endpoint?.base_url || '',
     api_key: '',
     api_key_file: endpoint?.api_key_file || '',
@@ -89,11 +108,14 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
         : [];
 
       setFormData({
-        name: endpoint.name,
-        base_url: endpoint.base_url,
+        name: endpoint.name || '',
+        description: endpoint.description || '',
+        icon: endpoint.icon || '',
+        billing_enabled: endpoint.billing_enabled || false,
+        base_url: endpoint.base_url || '',
         api_key: '',
         api_key_file: endpoint.api_key_file || '',
-        endpoint_type: endpoint.endpoint_type,
+        endpoint_type: endpoint.endpoint_type || 'user',
         auth_type: getEndpointAuthType(endpoint),
         headers: headersArray,
       });
@@ -200,6 +222,10 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
       // If auth_type is 'api_key' but field is empty, send undefined to preserve existing key
       const body = {
         name: formData.name,
+        description: formData.description,
+        icon: account.admin ? formData.icon : undefined,
+        billing_enabled: account.admin ? formData.billing_enabled : undefined,
+        models: endpoint.models || [],
         base_url: formData.base_url,
         api_key: formData.auth_type === 'none'
           ? ''
@@ -227,6 +253,9 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   const handleClose = () => {
     setFormData({
       name: endpoint?.name || '',
+      description: endpoint?.description || '',
+      icon: endpoint?.icon || '',
+      billing_enabled: endpoint?.billing_enabled || false,
       base_url: endpoint?.base_url || '',
       api_key: '',
       api_key_file: endpoint?.api_key_file || '',
@@ -268,6 +297,71 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
             placeholder="my-provider"
             helperText="A unique name to identify this provider endpoint"
           />
+
+          <TextField
+            name="description"
+            label="Description"
+            value={formData.description}
+            onChange={handleTextFieldChange}
+            fullWidth
+            multiline
+            minRows={3}
+            helperText="Explain what this endpoint serves and where it runs"
+          />
+
+          {account.admin && (
+            <>
+              <FormControl fullWidth>
+                <InputLabel>Provider icon</InputLabel>
+                <Select
+                  name="icon"
+                  value={formData.icon}
+                  onChange={handleSelectChange}
+                  label="Provider icon"
+                  renderValue={(value) => {
+                    const option = PROVIDER_ICON_OPTIONS.find(item => item.key === value)
+                    return (
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        {option
+                          ? <ProviderMark provider={option.provider} size={22} />
+                          : <ProviderEndpointIcon endpoint={endpoint} size={22} />}
+                        <span>{option?.label || 'Automatic'}</span>
+                      </Stack>
+                    )
+                  }}
+                >
+                  <MenuItem value="">
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Server size={22} />
+                      <span>Automatic</span>
+                    </Stack>
+                  </MenuItem>
+                  {PROVIDER_ICON_OPTIONS.map(option => (
+                    <MenuItem key={option.key} value={option.key}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <ProviderMark provider={option.provider} size={22} />
+                        <span>{option.label}</span>
+                      </Stack>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControlLabel
+                control={(
+                  <Switch
+                    name="billing_enabled"
+                    checked={formData.billing_enabled}
+                    onChange={event => setFormData(previous => ({
+                      ...previous,
+                      billing_enabled: event.target.checked,
+                    }))}
+                  />
+                )}
+                label="Charge users for inference through this provider"
+              />
+            </>
+          )}
 
           <TextField
             name="base_url"
@@ -398,4 +492,4 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   );
 };
 
-export default EditProviderEndpointDialog; 
+export default EditProviderEndpointDialog;

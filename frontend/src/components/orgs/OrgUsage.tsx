@@ -28,6 +28,7 @@ import SimpleTable, { ITableField } from '../widgets/SimpleTable'
 import ShadcnAreaChart, { ShadcnSeries } from '../usage/ShadcnAreaChart'
 import { PROVIDERS } from '../providers/types'
 import { useGetOrgUsage } from '../../services/orgService'
+import helixLogo from '../../../assets/img/logo.png'
 import {
   buildCacheHitRatioChartData,
   getAggregateCacheHitRatio,
@@ -73,6 +74,7 @@ const PROVIDER_COLORS: Record<string, string> = {
   azure: '#0078d4',
   'amazon-bedrock': '#ff9900',
   deepseek: '#4d6bfe',
+  helix: '#2563eb',
 }
 
 const toDateInput = (date: Date) => date.toISOString().slice(0, 10)
@@ -133,6 +135,7 @@ const providerKey = (provider?: string) => (provider || 'unknown').toLowerCase()
 const providerColor = (provider: string, index: number, isLight: boolean) => {
   const key = providerKey(provider)
   if (key === 'openai' || key === 'xai') return isLight ? '#111827' : PROVIDER_COLORS[key]
+  if (key === 'helix' || key.startsWith('helix/')) return PROVIDER_COLORS.helix
   return PROVIDER_COLORS[key] || CHART_COLORS[index % CHART_COLORS.length]
 }
 
@@ -142,7 +145,11 @@ const providerDefinition = (provider?: string) => {
   return PROVIDERS.find(item => item.id === `user/${key}` || item.alias.includes(key))
 }
 
-const UsageProviderIcon: FC<{ provider?: string; size?: number }> = ({ provider, size = 16 }) => {
+export const UsageProviderIcon: FC<{ provider?: string; size?: number }> = ({ provider, size = 16 }) => {
+  const key = providerKey(provider)
+  if (key === 'helix' || key.startsWith('helix/')) {
+    return <Box component="img" src={helixLogo} alt="" sx={{ width: size, height: size, objectFit: 'contain' }} />
+  }
   const definition = providerDefinition(provider)
   if (!definition) return <Cloud size={size} aria-hidden="true" />
   if (typeof definition.logo === 'string') {

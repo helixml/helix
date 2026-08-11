@@ -151,6 +151,9 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 	// instead of an unconditional "active". A dead token is caught here rather
 	// than at the first agent turn.
 	created = apiServer.revalidateClaudeSubscription(req.Context(), created)
+	if cleanupErr := apiServer.cleanupSubscriptionLoginSessionsForOwner(req.Context(), user.ID, claudeLoginSessionName, claudeLoginSessionProvider); cleanupErr != nil {
+		log.Warn().Err(cleanupErr).Str("user_id", user.ID).Msg("failed to clean up completed Claude login sessions")
+	}
 
 	log.Info().
 		Str("subscription_id", created.ID).
@@ -736,12 +739,12 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 	// Create a minimal session for the login flow
 	session := &types.Session{
 		ID:             system.GenerateSessionID(),
-		Name:           "Claude Login",
+		Name:           claudeLoginSessionName,
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Mode:           types.SessionModeInference,
 		Type:           types.SessionTypeText,
-		Provider:       "anthropic",
+		Provider:       claudeLoginSessionProvider,
 		ModelName:      "external_agent",
 		Owner:          user.ID,
 		OwnerType:      types.OwnerTypeUser,
@@ -838,6 +841,9 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 	}
 	if session.Owner != user.ID {
 		return nil, system.NewHTTPError403("access denied")
+	}
+	if !isTemporarySubscriptionLoginSession(session, claudeLoginSessionName, claudeLoginSessionProvider) {
+		return nil, system.NewHTTPError404("login session not found")
 	}
 
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)

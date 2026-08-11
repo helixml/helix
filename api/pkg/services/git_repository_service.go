@@ -160,7 +160,7 @@ func (s *GitRepositoryService) GetGitHomePath() string {
 func (s *GitRepositoryService) GetLocalBranchSHA(ctx context.Context, repoID, branch string) (string, error) {
 	repoPath := filepath.Join(s.gitRepoBase, repoID)
 	stdout, _, err := gitcmd.NewCommand("rev-parse").
-		AddDynamicArguments("refs/heads/" + branch).
+		AddDynamicArguments("refs/heads/"+branch).
 		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
 	if err != nil {
 		return "", fmt.Errorf("rev-parse refs/heads/%s in %s: %w", branch, repoID, err)
@@ -368,11 +368,14 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		}
 	}
 
-	// Check for duplicate repository name for this owner and auto-increment if needed
-	existingRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		OrganizationID: request.OrganizationID,
-		OwnerID:        request.OwnerID,
-	})
+	// Repository names are unique within their workspace. Organization repositories
+	// must consider every member's repositories; personal repositories are scoped to
+	// their owner.
+	listRequest := &types.ListGitRepositoriesRequest{OrganizationID: request.OrganizationID}
+	if request.OrganizationID == "" {
+		listRequest.OwnerID = request.OwnerID
+	}
+	existingRepos, err := s.store.ListGitRepositories(ctx, listRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list repositories: %w", err)
 	}
@@ -380,9 +383,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	// Build a set of existing names for quick lookup
 	existingNames := make(map[string]bool)
 	for _, repo := range existingRepos {
-		if repo.OwnerID == request.OwnerID {
-			existingNames[repo.Name] = true
-		}
+		existingNames[repo.Name] = true
 	}
 
 	// Auto-increment name if it already exists (e.g., repo -> repo-2 -> repo-3)
@@ -1050,9 +1051,16 @@ func incrementRepositoryName(name string) string {
 // The existingNames map is updated with the returned name marked as used.
 // Examples: "helix" -> "helix", "helix" (if exists) -> "helix-2", etc.
 func GetUniqueRepoName(baseName string, existingNames map[string]bool) string {
+	normalizedExistingNames := make(map[string]bool, len(existingNames))
+	for name, exists := range existingNames {
+		if exists {
+			normalizedExistingNames[strings.ToLower(strings.TrimSpace(name))] = true
+		}
+	}
+
 	name := baseName
 	suffix := 2
-	for existingNames[name] {
+	for normalizedExistingNames[strings.ToLower(strings.TrimSpace(name))] {
 		name = fmt.Sprintf("%s-%d", baseName, suffix)
 		suffix++
 	}

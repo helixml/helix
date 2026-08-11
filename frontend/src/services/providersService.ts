@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesProviderEndpoint, RequestParams, TypesUpdateProviderEndpoint, ContentType } from '../api/api';
+import {
+  ContentType,
+  RequestParams,
+  TypesAggregatedUsageMetric,
+  TypesProviderEndpoint,
+  TypesUpdateProviderEndpoint,
+  TypesUsersAggregatedUsageMetric,
+} from '../api/api';
 
 export const providersQueryKey = (loadModels: boolean = false, orgId?: string, all?: boolean) => [
   "providers",
@@ -34,6 +41,68 @@ export function useListProviders(options: ListProvidersOptions) {
     enabled: enabled,
     staleTime: 3 * 1000, // 3 seconds (useful when going between pages)
   });
+}
+
+export const providerUsageQueryKey = (id: string, from?: string, to?: string) => [
+  'providers',
+  'usage',
+  id,
+  from,
+  to,
+]
+
+export function useProviderDailyUsage(id: string, from?: string, to?: string, enabled = true) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: providerUsageQueryKey(id, from, to),
+    queryFn: async (): Promise<TypesAggregatedUsageMetric[]> => {
+      const result = await apiClient.v1ProviderEndpointsDailyUsageDetail(id, { from, to })
+      return result.data
+    },
+    enabled: enabled && Boolean(id),
+  })
+}
+
+export type ProviderThroughputAggregation = '30min' | 'hourly'
+
+export function useProviderThroughputUsage(
+  id: string,
+  from: string | undefined,
+  to: string | undefined,
+  aggregationLevel: ProviderThroughputAggregation,
+  enabled = true,
+) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: [...providerUsageQueryKey(id, from, to), 'throughput', aggregationLevel],
+    queryFn: async (): Promise<TypesAggregatedUsageMetric[]> => {
+      const result = await apiClient.v1ProviderEndpointsThroughputUsageDetail(id, {
+        from,
+        to,
+        aggregation_level: aggregationLevel,
+      })
+      return result.data
+    },
+    enabled: enabled && Boolean(id),
+  })
+}
+
+export function useProviderUsersDailyUsage(id: string, from?: string, to?: string, enabled = true) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: [...providerUsageQueryKey(id, from, to), 'users'],
+    queryFn: async (): Promise<TypesUsersAggregatedUsageMetric[]> => {
+      const result = await apiClient.v1ProviderEndpointsUsersDailyUsageDetail(id, { from, to })
+      return result.data
+    },
+    enabled: enabled && Boolean(id),
+  })
 }
 
 export function useCreateProviderEndpoint() {

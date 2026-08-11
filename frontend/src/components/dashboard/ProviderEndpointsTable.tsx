@@ -1,12 +1,5 @@
-import React, { FC, useState, useEffect } from 'react';
+import React, { FC, useEffect, useMemo, useState } from 'react';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
   Typography,
   Box,
   Button,
@@ -17,12 +10,10 @@ import {
 } from '@mui/material';
 import { IProviderEndpoint } from '../../types';
 import { TypesAggregatedUsageMetric } from '../../api/api';
-import AddIcon from '@mui/icons-material/Add';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
+import { Boxes, EllipsisVertical, ListChecks, Pencil, Plus, Trash2 } from 'lucide-react';
 import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
 import DeleteProviderEndpointDialog from './DeleteProviderEndpointDialog';
 import EditProviderEndpointDialog from './EditProviderEndpointDialog';
-import ProviderEndpointUsageDialog from './ProviderEndpointUsageDialog';
 import EditProviderModelsDialog from './EditProviderModelsDialog';
 import ProviderEndpointUsageBarChart from './ProviderEndpointUsageBarChart';
 import { useApi } from '../../hooks/useApi';
@@ -34,6 +25,9 @@ import DialogContent from '@mui/material/DialogContent';
 import LMStudioModels from '../providers/LMStudioModels';
 import { getUserById } from '../../services/userService';
 import { useGetOrgById } from '../../services/orgService';
+import useRouter from '../../hooks/useRouter';
+import SimpleTable, { ITableField } from '../widgets/SimpleTable';
+import ProviderEndpointIcon from '../providers/ProviderEndpointIcon';
 
 // Component to display owner information
 const OwnerInfo: FC<{ ownerId: string; ownerType?: string }> = ({ ownerId, ownerType }) => {
@@ -62,11 +56,14 @@ const OwnerInfo: FC<{ ownerId: string; ownerType?: string }> = ({ ownerId, owner
   );
 };
 
-const ProviderEndpointsTable: FC = () => {
+interface ProviderEndpointsTableProps {
+  onOpenProvider?: (providerId: string) => void
+}
+
+const ProviderEndpointsTable: FC<ProviderEndpointsTableProps> = ({ onOpenProvider }) => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [usageDialogOpen, setUsageDialogOpen] = useState(false);
   const [editModelsDialogOpen, setEditModelsDialogOpen] = useState(false);
   const [localModelsDialogOpen, setLocalModelsDialogOpen] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<IProviderEndpoint | null>(null);
@@ -75,6 +72,7 @@ const ProviderEndpointsTable: FC = () => {
   const api = useApi()
   const apiClient = api.getApiClient()
   const account = useAccount()
+  const router = useRouter()
   const providersManagementEnabled = account.serverConfig.providers_management_enabled ?? false    
 
   const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
@@ -90,11 +88,12 @@ const ProviderEndpointsTable: FC = () => {
 
       let endpoints = providerEndpoints as IProviderEndpoint[]
       
-      const usagePromises = endpoints.map(endpoint => 
-        apiClient.v1ProviderEndpointsDailyUsageDetail(endpoint.id && endpoint.id !== "-" ? endpoint.id : endpoint.name)
-          .then(response => ({ [endpoint.name]: response.data as TypesAggregatedUsageMetric[] }))
-          .catch(() => ({ [endpoint.name]: null }))
-      )
+      const usagePromises = endpoints.map(endpoint => {
+        const providerId = endpoint.id && endpoint.id !== '-' ? endpoint.id : endpoint.name
+        return apiClient.v1ProviderEndpointsDailyUsageDetail(providerId)
+          .then(response => ({ [providerId]: response.data as TypesAggregatedUsageMetric[] }))
+          .catch(() => ({ [providerId]: null }))
+      })
       const results = await Promise.all(usagePromises)
       const combinedData = results.reduce((acc, curr) => ({ ...acc, ...curr }), {} as {[key: string]: TypesAggregatedUsageMetric[] | null})
       setUsageData(combinedData)
@@ -143,9 +142,16 @@ const ProviderEndpointsTable: FC = () => {
     handleMenuClose();
   };
 
-  const handleUsageClick = (endpoint: IProviderEndpoint) => {
-    setSelectedEndpoint(endpoint);
-    setUsageDialogOpen(true);
+  const openProvider = (endpoint: IProviderEndpoint) => {
+    const providerId = endpoint.id && endpoint.id !== '-' ? endpoint.id : endpoint.name
+    if (onOpenProvider) {
+      onOpenProvider(providerId)
+      return
+    }
+    router.navigate('org_provider_detail', {
+      org_id: router.params.org_id,
+      provider_id: providerId,
+    })
   };
 
   const isSystemEndpoint = (endpoint: IProviderEndpoint) => {
@@ -159,22 +165,81 @@ const ProviderEndpointsTable: FC = () => {
   // Helper function to render owner information
   const renderOwnerInfo = (endpoint: IProviderEndpoint) => {
     if (endpoint.owner === 'system') {
-      return 'System';
+      return <Typography variant="body2" color="text.secondary">System</Typography>;
     }
 
     // For non-system endpoints, fetch and display user email
     return <OwnerInfo ownerId={endpoint.owner} ownerType={endpoint.owner_type} />;
   };
 
+  const fields: ITableField[] = [
+    { name: 'name', title: 'Name' },
+    { name: 'type', title: 'Type' },
+    { name: 'owner', title: 'Owner' },
+    { name: 'baseUrl', title: 'Base URL' },
+    { name: 'billing', title: 'Billing' },
+    { name: 'usage', title: 'Usage' },
+  ]
+
+  const tableData = useMemo(() => (providerEndpoints as IProviderEndpoint[]).map(endpoint => ({
+    id: endpoint.id && endpoint.id !== '-' ? endpoint.id : endpoint.name,
+    _data: endpoint,
+    name: (
+      <Box sx={{ minWidth: 220, maxWidth: 430, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+        <Box sx={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: 0.125 }}>
+          <ProviderEndpointIcon endpoint={endpoint} size={22} />
+        </Box>
+        <Box>
+          <Typography
+            variant="body2"
+            component="a"
+            href="#"
+            onClick={(event: React.MouseEvent) => {
+              event.preventDefault()
+              event.stopPropagation()
+              openProvider(endpoint)
+            }}
+            sx={{ color: 'text.primary', fontWeight: 600, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+          >
+            {endpoint.name}
+          </Typography>
+          {endpoint.description && (
+            <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.25 }}>
+              {endpoint.description}
+            </Typography>
+          )}
+        </Box>
+      </Box>
+    ),
+    type: <Typography variant="body2" color="text.secondary">{endpoint.endpoint_type}</Typography>,
+    owner: renderOwnerInfo(endpoint),
+    baseUrl: (
+      <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 310, overflowWrap: 'anywhere' }}>
+        {endpoint.base_url || 'Default endpoint'}
+      </Typography>
+    ),
+    billing: (
+      <Typography variant="body2" color={endpoint.billing_enabled ? 'success.main' : 'text.secondary'}>
+        {endpoint.billing_enabled ? 'Enabled' : 'Disabled'}
+      </Typography>
+    ),
+    usage: (
+      <ProviderEndpointUsageBarChart
+        data={usageData[endpoint.id && endpoint.id !== '-' ? endpoint.id : endpoint.name]}
+        onClick={() => openProvider(endpoint)}
+      />
+    ),
+  })), [providerEndpoints, usageData])
+
   if (!providerEndpoints || providerEndpoints.length === 0) {
     return (
-      <Paper sx={{ p: 2, width: '100%' }}>
+      <Box sx={{ width: '100%' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="body1">No provider endpoints configured.</Typography>
           <Button
             variant="outlined"
             color="secondary"
-            startIcon={<AddIcon />}
+            startIcon={<Plus size={18} />}
             onClick={() => setCreateDialogOpen(true)}
           >
             Add Endpoint
@@ -186,89 +251,58 @@ const ProviderEndpointsTable: FC = () => {
           existingEndpoints={providerEndpoints as IProviderEndpoint[]}
           providersManagementEnabled={providersManagementEnabled}
         />
-      </Paper>
+      </Box>
     );
   }
 
   return (
-    <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <Box sx={{ width: '100%', overflow: 'hidden' }}>
+      <Box sx={{ pb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h6">Global Provider Endpoints</Typography>
         <Button
           variant="outlined"
           color="secondary"
-          startIcon={<AddIcon />}
+          startIcon={<Plus size={18} />}
           onClick={() => setCreateDialogOpen(true)}
         >
           Add Endpoint
         </Button>
       </Box>
-      <TableContainer>
-        <Table stickyHeader aria-label="provider endpoints table">
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell>Owner</TableCell>
-              <TableCell>Base URL</TableCell>
-              <TableCell>Billing</TableCell>
-              <TableCell>Usage</TableCell>
-              <TableCell>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {(providerEndpoints as IProviderEndpoint[]).map((endpoint: IProviderEndpoint) => (
-              <TableRow key={endpoint.id && endpoint.id !== "-" ? endpoint.id : endpoint.name}>
-                <TableCell>
-                  <Typography variant="body2">
-                    {endpoint.name}
-                    {endpoint.description && (
-                      <Typography variant="caption" display="block" color="text.secondary">
-                        {endpoint.description}
-                      </Typography>
-                    )}
-                  </Typography>
-                </TableCell>
-                <TableCell>{endpoint.endpoint_type}</TableCell>
-                <TableCell>{renderOwnerInfo(endpoint)}</TableCell>
-                <TableCell>{endpoint.base_url}</TableCell>
-                <TableCell>
-                  <Typography variant="body2" color={endpoint.billing_enabled ? "success.main" : "text.secondary"}>
-                    {endpoint.billing_enabled ? "Enabled" : "Disabled"}
-                  </Typography>
-                </TableCell>
-                <TableCell>
-                  <ProviderEndpointUsageBarChart
-                    data={usageData[endpoint.name]}
-                    onClick={() => handleUsageClick(endpoint)}
-                  />
-                </TableCell>
-                <TableCell>
-                  {isSystemEndpoint(endpoint) ? (
-                    <Tooltip title="System endpoints can only be configured through environment variables in your Helix instance">
-                      <span>
-                        <IconButton
-                          aria-label="more"
-                          disabled={true}
-                        >
-                          <MoreVertIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  ) : (
-                    <IconButton
-                      aria-label="more"
-                      onClick={(e) => handleMenuOpen(e, endpoint)}
-                    >
-                      <MoreVertIcon />
-                    </IconButton>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      <SimpleTable
+        authenticated
+        fields={fields}
+        data={tableData}
+        loading={isLoadingProviders}
+        onRowClick={row => openProvider(row._data as IProviderEndpoint)}
+        getActions={row => {
+          const endpoint = row._data as IProviderEndpoint
+          if (isSystemEndpoint(endpoint)) {
+            return (
+              <Tooltip title="System endpoints can only be configured through environment variables in your Helix instance">
+                <span>
+                  <IconButton aria-label={`Actions for ${endpoint.name}`} disabled size="small">
+                    <EllipsisVertical size={18} />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            )
+          }
+          return (
+            <Tooltip title="Provider actions">
+              <IconButton
+                aria-label={`Actions for ${endpoint.name}`}
+                size="small"
+                onClick={event => {
+                  event.stopPropagation()
+                  handleMenuOpen(event, endpoint)
+                }}
+              >
+                <EllipsisVertical size={18} />
+              </IconButton>
+            </Tooltip>
+          )
+        }}
+      />
       <CreateProviderEndpointDialog
         open={createDialogOpen}
         onClose={() => setCreateDialogOpen(false)}
@@ -280,15 +314,21 @@ const ProviderEndpointsTable: FC = () => {
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleEditClick}>Edit Details</MenuItem>
-        <MenuItem onClick={handleEditModelsClick}>Edit Models</MenuItem>
+        <MenuItem onClick={event => { event.stopPropagation(); handleEditClick() }} sx={{ gap: 1.25 }}>
+          <Pencil size={20} /> Edit Details
+        </MenuItem>
+        <MenuItem onClick={event => { event.stopPropagation(); handleEditModelsClick() }} sx={{ gap: 1.25 }}>
+          <ListChecks size={20} /> Edit Models
+        </MenuItem>
         {selectedEndpoint && (selectedEndpoint.name === 'lmstudio' || selectedEndpoint.name === 'ollama' || selectedEndpoint.name?.includes('lmstudio') || selectedEndpoint.name?.includes('ollama')) && (
           <MenuItem onClick={() => {
             handleMenuClose();
             setLocalModelsDialogOpen(true);
-          }}>Manage Local Models</MenuItem>
+          }} sx={{ gap: 1.25 }}><Boxes size={20} /> Manage Local Models</MenuItem>
         )}
-        <MenuItem onClick={handleDeleteClick}>Delete</MenuItem>
+        <MenuItem onClick={event => { event.stopPropagation(); handleDeleteClick() }} sx={{ gap: 1.25 }}>
+          <Trash2 size={20} /> Delete
+        </MenuItem>
       </Menu>
       <DeleteProviderEndpointDialog
         open={deleteDialogOpen}
@@ -301,11 +341,6 @@ const ProviderEndpointsTable: FC = () => {
         endpoint={selectedEndpoint}
         onClose={handleEditDialogClose}
         refreshData={loadData}
-      />
-      <ProviderEndpointUsageDialog
-        open={usageDialogOpen}
-        endpoint={selectedEndpoint}
-        onClose={() => setUsageDialogOpen(false)}
       />
       <EditProviderModelsDialog
         open={editModelsDialogOpen}
@@ -329,7 +364,7 @@ const ProviderEndpointsTable: FC = () => {
           )}
         </DialogContent>
       </Dialog>
-    </Paper>
+    </Box>
   );
 };
 

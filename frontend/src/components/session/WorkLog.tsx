@@ -1,13 +1,12 @@
 import React, { FC, useState } from "react";
 import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { useTheme } from "@mui/material/styles";
+import { ChevronDown } from "lucide-react";
 
 import { CollapsibleToolCall } from "./CollapsibleToolCall";
 import { preserveDisclosureExpansion } from "./disclosureScroll";
 import { getChatColors } from "./chatStyles";
-import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import { APP_FONT_FAMILY } from "../../styles/typography";
 
 export interface WorkLogEntry {
   id: string;
@@ -41,7 +40,7 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
   };
 
   return (
-    <Box sx={{ my: 0.5 }}>
+    <Box sx={{ my: 0.25 }}>
       <CollapsibleToolCall
         toolName={latestEntry.toolName}
         status={latestEntry.status}
@@ -49,35 +48,67 @@ export const WorkLog: FC<WorkLogProps> = ({ entries }) => {
         dense
       />
       {previousCount > 0 && (
-        <Button
-          size="small"
+        <Box
+          component="button"
+          type="button"
           onClick={toggleExpanded}
           aria-expanded={expanded}
-          startIcon={
-            <ExpandMoreIcon
-              sx={{
-                fontSize: 15,
-                color: isDark ? chatColors.subtle : "rgba(0,0,0,0.45)",
-                transform: `translateX(-1px) rotate(${expanded ? 180 : 0}deg)`,
-              }}
-            />
-          }
           sx={{
+            display: "flex",
+            alignItems: "center",
+            width: "100%",
             minHeight: 24,
-            px: 0,
+            m: 0,
+            px: 0.25,
+            py: 0.25,
             gap: 0.75,
+            border: 0,
+            borderRadius: "6px",
+            background: "transparent",
             color: isDark ? chatColors.foreground : "text.primary",
-            fontSize: "0.76rem",
-            fontWeight: 600,
-            fontFamily: APP_MONO_FONT_FAMILY,
-            textTransform: "none",
-            "&:hover": { backgroundColor: "transparent" },
-            "& .MuiButton-startIcon": { m: 0 },
+            fontSize: "0.75rem",
+            lineHeight: "20px",
+            fontWeight: 500,
+            fontFamily: APP_FONT_FAMILY,
+            textAlign: "left",
+            cursor: "pointer",
+            transition: "background-color 150ms ease",
+            "&:hover": {
+              backgroundColor: isDark
+                ? "rgba(255,255,255,0.012)"
+                : "rgba(0,0,0,0.025)",
+            },
+            "&:focus-visible": {
+              outline: `2px solid ${isDark ? chatColors.borderStrong : "rgba(0,0,0,0.2)"}`,
+              outlineOffset: -2,
+            },
           }}
         >
-          +{previousCount} previous tool{" "}
-          {previousCount === 1 ? "call" : "calls"}
-        </Button>
+          <Box
+            component="span"
+            sx={{
+              display: "flex",
+              width: 20,
+              height: 20,
+              flexShrink: 0,
+              alignItems: "center",
+              justifyContent: "center",
+              color: isDark ? chatColors.subtle : "rgba(0,0,0,0.45)",
+            }}
+          >
+            <ChevronDown
+              size={14}
+              strokeWidth={1.8}
+              style={{
+                transform: `rotate(${expanded ? 180 : 0}deg)`,
+                transition: "transform 200ms ease",
+              }}
+            />
+          </Box>
+          {expanded
+            ? "Show fewer tool calls"
+            : `+${previousCount} previous tool ${previousCount === 1 ? "call" : "calls"}`}
+        </Box>
       )}
       {expanded &&
         previousEntries.map((entry) => (

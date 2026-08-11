@@ -110,6 +110,7 @@ const SimpleTable: FC<{
           return (
             <TableRow
               hover
+              sx={{ cursor: onRowClick ? 'pointer' : 'default' }}
               onClick={e => {
                 if(!onRowClick) return
                 onRowClick(dataRow)

@@ -322,8 +322,8 @@ func (apiServer *HelixAPIServer) startCodexLogin(_ http.ResponseWriter, req *htt
 		orgID = memberships[0].OrganizationID
 	}
 	session, err := apiServer.Store.CreateSession(req.Context(), types.Session{
-		ID: system.GenerateSessionID(), Name: "Codex Login", Created: time.Now(), Updated: time.Now(),
-		Mode: types.SessionModeInference, Type: types.SessionTypeText, Provider: "openai", ModelName: "external_agent",
+		ID: system.GenerateSessionID(), Name: codexLoginSessionName, Created: time.Now(), Updated: time.Now(),
+		Mode: types.SessionModeInference, Type: types.SessionTypeText, Provider: codexLoginSessionProvider, ModelName: "external_agent",
 		Owner: user.ID, OwnerType: types.OwnerTypeUser, OrganizationID: orgID,
 		Metadata: types.SessionMetadata{Stream: true, AgentType: "zed_external", SessionRole: "exploratory"},
 	})
@@ -379,7 +379,7 @@ func (apiServer *HelixAPIServer) pollCodexLogin(_ http.ResponseWriter, req *http
 	}
 	sessionID := mux.Vars(req)["sessionId"]
 	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-	if err != nil || session.Owner != user.ID || session.Name != "Codex Login" {
+	if err != nil || session.Owner != user.ID || !isTemporarySubscriptionLoginSession(session, codexLoginSessionName, codexLoginSessionProvider) {
 		return nil, system.NewHTTPError404("login session not found")
 	}
 	runnerID := "desktop-" + sessionID
@@ -391,6 +391,9 @@ func (apiServer *HelixAPIServer) pollCodexLogin(_ http.ResponseWriter, req *http
 		}
 		if _, createErr := apiServer.createCodexSubscriptionFromCredentials(req.Context(), user.ID, credentials); createErr != nil {
 			return nil, system.NewHTTPError500("failed to persist Codex credentials")
+		}
+		if cleanupErr := apiServer.cleanupSubscriptionLoginSessionsForOwner(req.Context(), user.ID, codexLoginSessionName, codexLoginSessionProvider); cleanupErr != nil {
+			log.Warn().Err(cleanupErr).Str("user_id", user.ID).Msg("failed to clean up completed Codex login sessions")
 		}
 		return &CodexPollLoginResponse{Found: true}, nil
 	}

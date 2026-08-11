@@ -61,9 +61,10 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 }
 
 // ResponseEntry represents a single typed entry in the response.
-// Used to preserve the structural boundary between assistant text and tool calls.
+// Used to preserve structural boundaries between assistant text, tool calls,
+// and plan snapshots.
 type ResponseEntry struct {
-	Type       string `json:"type"` // "text", "tool_call" or "elicitation"
+	Type       string `json:"type"` // "text", "tool_call", "plan" or "elicitation"
 	Content    string `json:"content"`
 	MessageID  string `json:"message_id"`
 	ToolName   string `json:"tool_name,omitempty"`   // For tool_call: the tool label
@@ -131,7 +132,7 @@ type MessageAccumulator struct {
 	messageOrder []string
 	// Map from message_id to its content
 	messageContent map[string]string
-	// Map from message_id to its entry type ("text" or "tool_call")
+	// Map from message_id to its entry type ("text", "tool_call", or "plan")
 	messageType map[string]string
 	// Map from message_id to tool metadata (name, status) for tool_call entries
 	messageToolName   map[string]string
@@ -169,7 +170,8 @@ func (a *MessageAccumulator) AddMessage(messageID, content string) {
 }
 
 // AddMessageWithType processes a new content update from Zed, with an explicit entry type.
-// entryType should be "text" for assistant prose or "tool_call" for tool invocations.
+// entryType should be "text" for assistant prose, "tool_call" for tool
+// invocations, or "plan" for a replaceable plan snapshot.
 // An empty entryType preserves any previously stored type for this message_id.
 func (a *MessageAccumulator) AddMessageWithType(messageID, content, entryType string) {
 	a.AddMessageWithToolInfo(messageID, content, entryType, "", "")
@@ -372,12 +374,16 @@ func (a *MessageAccumulator) Rebuild() {
 	a.contentDirty = false
 }
 
-// rebuild reconstructs Content by joining all messages in insertion order.
-// Empty messages are included (they may get content later via streaming).
+// rebuild reconstructs the legacy flat Content by joining prose and tool
+// entries in insertion order. Plan snapshots remain structured-only so their
+// JSON never leaks into assistant prose or downstream transcripts.
 func (a *MessageAccumulator) rebuild() {
 	// Collect non-empty parts
 	parts := make([]string, 0, len(a.messageOrder))
 	for _, id := range a.messageOrder {
+		if a.messageType[id] == "plan" {
+			continue
+		}
 		c := a.messageContent[id]
 		if c != "" {
 			parts = append(parts, c)
@@ -390,6 +396,9 @@ func (a *MessageAccumulator) rebuild() {
 	if a.LastMessageID != "" {
 		offset := 0
 		for _, id := range a.messageOrder {
+			if a.messageType[id] == "plan" {
+				continue
+			}
 			c := a.messageContent[id]
 			if c == "" {
 				continue

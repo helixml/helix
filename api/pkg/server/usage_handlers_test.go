@@ -60,6 +60,60 @@ func TestEnrichOrgUsageCostsSeparatesSavingsAndHelixCredits(t *testing.T) {
 	require.Equal(t, "openai", summary.Models[0].Provider)
 }
 
+func TestEnrichOrgUsageCostsUsesGlobalEndpointAttribution(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	modelInfo := model.NewMockModelInfoProvider(ctrl)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore, modelInfoProvider: modelInfo}
+	date := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	summary := &types.OrgUsageSummaryResponse{
+		Metrics: []*types.AggregatedUsageMetric{{Date: date}},
+		Models: []types.UsageBreakdownRow{{
+			ID: "pe_node06:deepseek-v4-flash", Provider: "pe_node06", Model: "deepseek-v4-flash",
+		}},
+		CostBreakdown: []types.UsageCostBreakdownRow{{
+			Date:             date,
+			Source:           types.UsageMetricSourceHelixProxy,
+			Provider:         "pe_node06",
+			Model:            "deepseek-v4-flash",
+			PromptTokens:     100,
+			CompletionTokens: 20,
+			TotalTokens:      120,
+			TotalCost:        42,
+		}},
+	}
+	modelInfo.EXPECT().GetModelInfo(gomock.Any(), &model.ModelInfoRequest{
+		Provider: "pe_node06",
+		Model:    "deepseek-v4-flash",
+	}).Return(&types.ModelInfo{
+		ProviderSlug: "baidu/fp8",
+		Pricing: types.Pricing{
+			Prompt:     "1",
+			Completion: "1",
+		},
+	}, nil)
+	mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: "pe_node06"}).
+		Return(&types.ProviderEndpoint{
+			ID:           "pe_node06",
+			Name:         "ds4-flash-node06",
+			EndpointType: types.ProviderEndpointTypeGlobal,
+			OwnerType:    types.OwnerTypeSystem,
+		}, nil)
+
+	server.enrichOrgUsageCosts(context.Background(), summary)
+
+	require.Equal(t, 42.0, summary.RawTokenCost)
+	require.Len(t, summary.Providers, 1)
+	require.Equal(t, "helix/ds4-flash-node06", summary.Providers[0].Provider)
+	require.Equal(t, "helix/ds4-flash-node06", summary.Providers[0].Name)
+	require.Equal(t, 42.0, summary.Providers[0].TotalCost)
+	require.Len(t, summary.ProviderTimeSeries, 1)
+	require.Equal(t, "helix/ds4-flash-node06", summary.ProviderTimeSeries[0].Provider)
+	require.Len(t, summary.Models, 1)
+	require.Equal(t, "helix/ds4-flash-node06", summary.Models[0].Provider)
+	require.Equal(t, 42.0, summary.Models[0].TotalCost)
+}
+
 func TestMergeSandboxUsageCostsAddsSandboxSpend(t *testing.T) {
 	date := time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC)
 	metrics := []*types.AggregatedUsageMetric{

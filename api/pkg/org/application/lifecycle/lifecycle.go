@@ -97,14 +97,20 @@ type OrgReconciler interface {
 	Reconcile(ctx context.Context, orgID string) error
 }
 
+type AgentDeliveryLifecycle interface {
+	CleanupAgent(ctx context.Context, orgID string, agentID orgchart.NodeID) error
+	RestoreAgent(orgID string, agentID orgchart.NodeID)
+}
+
 // Service composes the node-lifecycle operations the REST/MCP layers
 // drive. All fields are required; pass nil HelixRuntime only in tests
 // that don't need the Helix-side teardown.
 type Service struct {
-	Store  *store.Store
-	Helix  HelixRuntime
-	Agents AgentCreator
-	Logger *slog.Logger
+	Store         *store.Store
+	Helix         HelixRuntime
+	Agents        AgentCreator
+	Logger        *slog.Logger
+	AgentDelivery AgentDeliveryLifecycle
 
 	// Nodes is the node-mutation service Create delegates the row creation
 	// to, so the base-tool union and id minting are shared with the
@@ -305,6 +311,9 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		}
 	}
 
+	if s.AgentDelivery != nil {
+		s.AgentDelivery.RestoreAgent(orgID, id)
+	}
 	if p.DeferActivation {
 		return CreateResult{Node: node}, nil
 	}
@@ -392,7 +401,7 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 // events themselves are intentionally left behind as an audit trail; only
 // the Topic row is dropped. A configured Helix project is not node-owned and
 // survives deletion; only its reference to the deleted default agent is unset.
-func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
+func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) (err error) {
 	if id == "" {
 		return errors.New("node id is empty")
 	}
@@ -402,6 +411,16 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 	node, err := s.Store.Nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return fmt.Errorf("get node %q: %w", id, err)
+	}
+	if s.AgentDelivery != nil {
+		if err := s.AgentDelivery.CleanupAgent(ctx, orgID, id); err != nil {
+			return fmt.Errorf("cleanup agent delivery %q: %w", id, err)
+		}
+		defer func() {
+			if err != nil {
+				s.AgentDelivery.RestoreAgent(orgID, id)
+			}
+		}()
 	}
 
 	// Capture the deleted Node's managers AND reports BEFORE deletion: the

@@ -42,6 +42,28 @@ func (d *DefaultClientGetter) NewClient(ctx context.Context, meta agent.Meta, oa
 
 	maps.Copy(headers, cfg.Headers)
 
+	// Tell the MCP server which session, user and app this call is for.
+	//
+	// WHY THIS MATTERS. An MCP server that needs to act on behalf of the end user
+	// otherwise has to take their identity from a TOOL ARGUMENT, which the model
+	// controls — and a model that reads untrusted input (an uploaded CV, a web
+	// page) can be talked into sending someone else's id. These headers are set
+	// here, by Helix, from the session it is actually running; nothing the model
+	// emits can change them, so a server can treat them as trustworthy in a way
+	// it can never treat an argument.
+	//
+	// Set AFTER the operator's own headers on purpose: a configured header must
+	// not be able to spoof the acting session.
+	if meta.SessionID != "" {
+		headers["X-Helix-Session-Id"] = meta.SessionID
+	}
+	if meta.UserID != "" {
+		headers["X-Helix-User-Id"] = meta.UserID
+	}
+	if meta.AppID != "" {
+		headers["X-Helix-App-Id"] = meta.AppID
+	}
+
 	if cfg.OAuthProvider != "" && headers["Authorization"] == "" {
 		// Get the token with required scopes
 		token, err := oauthManager.GetTokenForTool(ctx, meta.UserID, cfg.OAuthProvider, cfg.OAuthScopes)

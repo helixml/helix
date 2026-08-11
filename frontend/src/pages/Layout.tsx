@@ -73,6 +73,7 @@ import {
 const SettingsDialogs: FC = () => {
   const { activeDialog, dialogOptions, closeDialog } = useSettingsDialog()
   const [adminTab, setAdminTab] = useState('llm_calls')
+  const [adminProviderId, setAdminProviderId] = useState<string | undefined>()
   const [accountTab, setAccountTab] = useState('general')
   const [projectSettingsTab, setProjectSettingsTab] = useState('general')
 
@@ -80,8 +81,9 @@ const SettingsDialogs: FC = () => {
   React.useEffect(() => {
     if (activeDialog === 'admin' && dialogOptions.tab) {
       setAdminTab(dialogOptions.tab)
+      setAdminProviderId(dialogOptions.tab === 'providers' ? dialogOptions.providerId : undefined)
     }
-  }, [activeDialog, dialogOptions.tab])
+  }, [activeDialog, dialogOptions.providerId, dialogOptions.tab])
 
   // When opening project settings with a specific tab, set it
   React.useEffect(() => {
@@ -94,6 +96,7 @@ const SettingsDialogs: FC = () => {
   React.useEffect(() => {
     if (!activeDialog) {
       setAdminTab('llm_calls')
+      setAdminProviderId(undefined)
       setAccountTab('general')
       setProjectSettingsTab('general')
     }
@@ -102,8 +105,29 @@ const SettingsDialogs: FC = () => {
   // Sync admin tab to URL so refresh preserves the current tab
   const handleAdminTabChange = React.useCallback((tab: string) => {
     setAdminTab(tab)
+    if (tab !== 'providers') {
+      setAdminProviderId(undefined)
+    }
     const url = new URL(window.location.href)
     url.searchParams.set('dialog_tab', tab)
+    if (tab !== 'providers') {
+      url.searchParams.delete('dialog_provider_id')
+      url.searchParams.delete('dialog_provider_from')
+      url.searchParams.delete('dialog_provider_to')
+    }
+    window.history.replaceState({}, '', url.toString())
+  }, [])
+
+  const handleAdminProviderChange = React.useCallback((providerId?: string) => {
+    setAdminProviderId(providerId)
+    const url = new URL(window.location.href)
+    if (providerId) {
+      url.searchParams.set('dialog_provider_id', providerId)
+    } else {
+      url.searchParams.delete('dialog_provider_id')
+      url.searchParams.delete('dialog_provider_from')
+      url.searchParams.delete('dialog_provider_to')
+    }
     window.history.replaceState({}, '', url.toString())
   }, [])
 
@@ -132,7 +156,12 @@ const SettingsDialogs: FC = () => {
             <AdminPanelSidebar activeTab={adminTab} onTabChange={handleAdminTabChange} />
           </Box>
           <Box sx={{ flex: 1, overflow: 'auto' }}>
-            <Dashboard tab={adminTab} initialSessionFilter={dialogOptions.sessionFilter} />
+            <Dashboard
+              tab={adminTab}
+              initialSessionFilter={dialogOptions.sessionFilter}
+              providerId={adminProviderId}
+              onProviderChange={handleAdminProviderChange}
+            />
           </Box>
         </Box>
       </FullScreenDialog>

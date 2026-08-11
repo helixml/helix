@@ -3,7 +3,6 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
 } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -15,16 +14,12 @@ import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import FormControl from "@mui/material/FormControl";
 import InputLabel from "@mui/material/InputLabel";
-import Divider from "@mui/material/Divider";
+import ButtonBase from "@mui/material/ButtonBase";
 
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import BusinessIcon from "@mui/icons-material/Business";
-import FolderIcon from "@mui/icons-material/Folder";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
-import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import PersonIcon from "@mui/icons-material/Person";
-import GitHubIcon from "@mui/icons-material/GitHub";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
 import CloseIcon from "@mui/icons-material/Close";
 import IconButton from "@mui/material/IconButton";
@@ -35,42 +30,19 @@ import useApi from "../hooks/useApi";
 import useLightTheme from "../hooks/useLightTheme";
 import useSnackbar from "../hooks/useSnackbar";
 import useRouter from "../hooks/useRouter";
-import { IApp } from "../types";
-import { selectCodingAgents } from "../utils/apps";
-import { CodeAgentRuntime, generateAgentName } from "../contexts/apps";
-import BrowseProvidersDialog from "../components/project/BrowseProvidersDialog";
 import { SELECTED_ORG_STORAGE_KEY } from "../utils/localStorage";
 import { useCreateOrg } from "../services/orgService";
-import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint, DetectedProvider } from "../services/providersService";
-import {
-  useGetSystemSettings,
-  useUpdateSystemSettings,
-} from "../services/systemSettingsService";
-import { PROVIDERS, Provider } from "../components/providers/types";
-import AddProviderDialog from "../components/providers/AddProviderDialog";
 import ClaudeSubscriptionConnect, {
   useClaudeSubscriptions,
 } from "../components/account/ClaudeSubscriptionConnect";
 import AnthropicLogo from "../components/providers/logos/anthropic";
-import AgentDropdown from "../components/agent/AgentDropdown";
-import CodingAgentForm from "../components/agent/CodingAgentForm";
-import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
+import AgentHarness from "../components/agent/AgentHarness";
+import CodexSubscriptionConnect from "../components/account/CodexSubscriptionConnect";
 import { useGetConfig } from "../services/userService";
 import { useGetWallet } from "../services/useBilling";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import type { TypesWallet } from "../api/api";
-import { RECOMMENDED_CODING_MODELS } from "../constants/models";
-
-const DEFAULT_ONBOARDING_AGENT_MODEL = "claude-opus-4-8";
-import type {
-  TypesExternalRepositoryType,
-  TypesRepositoryInfo,
-  TypesGitHub,
-  TypesGitLab,
-  TypesAzureDevOps,
-  TypesBitbucket,
-} from "../api/api";
-import { TypesProviderEndpointType } from "../api/api";
+import { useCodexSubscriptions } from "../services/codexSubscriptionsService";
 
 const ACCENT = "#00e891";
 const ACCENT_DIM = "rgba(0, 232, 145, 0.08)";
@@ -145,14 +117,21 @@ const btnSx = {
   },
 };
 
+const SUBSCRIPTION_BENEFITS = [
+  "Full Linux desktop sandboxes where your agents can work safely",
+  "Your entire subscription fee becomes credits for running AI models",
+  "Bring your own Claude and Codex subscriptions",
+  "Collaborate with your team, set budgets, and track usage",
+];
+
+type CodingAccessOption = "helix" | "claude" | "codex";
+
 // Step type identifiers - used for conditional rendering and step content matching
 type StepType =
   | "signin"
   | "organization"
   | "subscription"
-  | "provider"
-  | "project"
-  | "task";
+  | "provider";
 
 interface StepConfig {
   type: StepType;
@@ -184,21 +163,8 @@ const ALL_STEPS: StepConfig[] = [
   {
     type: "provider",
     icon: <Server size={20} />,
-    title: "Connect an AI provider",
-    subtitle: "Add an API key so your agents can use AI models.",
-  },
-  {
-    type: "project",
-    icon: <FolderIcon />,
-    title: "Create your first project",
-    subtitle: "Set up your project with a repository and AI agent.",
-  },
-  {
-    type: "task",
-    icon: <RocketLaunchIcon />,
-    title: "Create your first task",
-    subtitle:
-      "Describe what you want to build and let AI handle the implementation.",
+    title: "Choose how to run coding agents",
+    subtitle: "Use Helix credits or connect an existing coding subscription.",
   },
 ];
 
@@ -220,15 +186,6 @@ export default function Onboarding() {
   const { data: serverConfig, isLoading: isLoadingServerConfig } =
     useGetConfig();
   const [isSubscribing, setIsSubscribing] = useState(false);
-
-  // Step 1: Provider
-  const [selectedOnboardingProvider, setSelectedOnboardingProvider] =
-    useState<Provider | null>(null);
-  const [addProviderDialogOpen, setAddProviderDialogOpen] = useState(false);
-  const [hasAutoSetKodit, setHasAutoSetKodit] = useState(false);
-  const initialProvidersChecked = useRef(false);
-  const systemSettings = useGetSystemSettings();
-  const updateSystemSettings = useUpdateSystemSettings();
 
   // Step 1: Organization
   const [orgMode, setOrgMode] = useState<"select" | "create">("select");
@@ -254,134 +211,29 @@ export default function Onboarding() {
   const isSubscriptionActive =
     wallet?.subscription_status === "active" || isTrialing;
 
-  // Step 3: Project + Agent
-  const [projectName, setProjectName] = useState("");
-  const [projectDescription, setProjectDescription] = useState("");
-  const [repoMode, setRepoMode] = useState<"new" | "external">("new");
-  const [creatingProject, setCreatingProject] = useState(false);
-  const [createdProjectId, setCreatedProjectId] = useState<string>("");
-  const [linkRepoDialogOpen, setLinkRepoDialogOpen] = useState(false);
-  const [linkingRepo, setLinkingRepo] = useState(false);
-  const [linkedExternalRepo, setLinkedExternalRepo] = useState<{
-    repo: TypesRepositoryInfo;
-    providerType: string;
-    oauthConnectionId?: string;
-    patConnectionId?: string;
-    patCredentials?: {
-      pat?: string;
-      username?: string;
-      orgUrl?: string;
-      gitlabBaseUrl?: string;
-      githubBaseUrl?: string;
-      bitbucketBaseUrl?: string;
-    };
-  } | null>(null);
-
-  // Agent selection (part of step 2)
-  const [agentMode, setAgentMode] = useState<"select" | "create">("create");
-  const [selectedAgentId, setSelectedAgentId] = useState("");
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [hasUserSelectedModel, setHasUserSelectedModel] = useState(false);
-  const [codeAgentRuntime, setCodeAgentRuntime] =
-    useState<CodeAgentRuntime>("zed_agent");
-  const [claudeCodeMode, setClaudeCodeMode] = useState<
-    "subscription" | "api_key"
-  >("subscription");
-  const [newAgentName, setNewAgentName] = useState("-");
-  const [userModifiedAgentName, setUserModifiedAgentName] = useState(false);
-  const [creatingAgent, setCreatingAgent] = useState(false);
-  const [createdAgentId, setCreatedAgentId] = useState<string>("");
-  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
-  const [desktopResolution, setDesktopResolution] = useState<"1080p" | "4k">(
-    "1080p",
-  );
-
-  // Step 4: Task
-  const [taskPrompt, setTaskPrompt] = useState("");
-  const [creatingTask, setCreatingTask] = useState(false);
-  const [createdTaskId, setCreatedTaskId] = useState<string>("");
+  // Final step: choose Helix credits or an external coding subscription.
+  const [codingAccessOption, setCodingAccessOption] =
+    useState<CodingAccessOption>("helix");
+  const [finishingOnboarding, setFinishingOnboarding] = useState(false);
 
   const existingOrgs = account.organizationTools.organizations;
   const hasExistingOrgs = existingOrgs.length > 0;
 
-  const { data: providers, isLoading: isLoadingProviders } = useListProviders({
-    loadModels: true,
-    orgId: createdOrg?.id,
-    all: false,
-    enabled: !!createdOrg?.id,
-  });
-
-  // Claude subscription state
+  // External coding subscription state
   const { data: claudeSubscriptions } = useClaudeSubscriptions();
   const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0;
-  const [claudeSubOrgId, setClaudeSubOrgId] = useState<string>("");
+  const { data: codexSubscriptions } = useCodexSubscriptions();
+  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0;
 
-  // Derived provider state
-  const connectedProviderIds = useMemo(() => {
-    if (!providers) return new Set<string>();
-    const ids = new Set<string>();
-    providers.forEach((p) => {
-      if (p.name) {
-        ids.add(p.name);
-      }
-    });
-    return ids;
-  }, [providers]);
-  const globalProviders = useMemo(() => {
-    if (!providers) return [];
-    return providers.filter(
-      (p) =>
-        p.endpoint_type ===
-        TypesProviderEndpointType.ProviderEndpointTypeGlobal,
-    );
-  }, [providers]);
-  const providerLogoMap = useMemo(() => {
-    const map = new Map<string, Provider>();
-    PROVIDERS.forEach((provider) => {
-      map.set(provider.id, provider);
-      map.set(provider.id.replace(/^user\//, ""), provider);
-      provider.alias.forEach((alias) => map.set(alias, provider));
-    });
-    return map;
-  }, []);
-  // Consider Claude subscription as a valid provider for the "Continue" button
-  const hasUserProviders =
-    connectedProviderIds.size > 0 || hasClaudeSubscription;
-  const hasProvidersForContinue =
-    hasUserProviders || globalProviders.length > 0;
-
-  // Check if any providers (including system/global) have enabled models
-  const hasAnyEnabledModels = useMemo(() => {
-    if (!providers) return false;
-    return providers.some((p) =>
-      (p.available_models || []).some((m) => m.enabled && m.type === "chat"),
-    );
-  }, [providers]);
-
-  // Filter steps based on server config - hide steps that aren't needed
+  // Billing is optional on self-hosted installations; coding access is always
+  // shown because it is the final onboarding choice.
   const visibleSteps = useMemo(() => {
     let steps = ALL_STEPS;
     if (!serverConfig?.billing_enabled) {
       steps = steps.filter((step) => step.type !== "subscription");
     }
-    // Skip the provider step when admin-configured global providers already
-    // cover the user's needs (typical on self-hosted). On cloud we keep it
-    // visible regardless so new signups still see the BYO Claude prompt at
-    // the top of the step, even though SaaS has env-baked Anthropic/OpenAI
-    // keys that would otherwise satisfy has_providers.
-    if (
-      serverConfig?.has_providers &&
-      serverConfig?.edition !== "cloud"
-    ) {
-      steps = steps.filter((step) => step.type !== "provider");
-    }
     return steps;
-  }, [
-    serverConfig?.billing_enabled,
-    serverConfig?.has_providers,
-    serverConfig?.edition,
-  ]);
+  }, [serverConfig?.billing_enabled]);
 
   // Helper to get step index by type (in the visible steps array)
   const getStepIndexByType = useCallback(
@@ -398,29 +250,6 @@ export default function Onboarding() {
     },
     [visibleSteps],
   );
-
-  // Detect local inference servers (LM Studio, Ollama, ds4)
-  const isOnProviderStep = visibleSteps[activeStep]?.type === "provider";
-  const { data: detectedProviders } = useDetectLocalProviders(!!createdOrg?.id && isOnProviderStep);
-  const createProvider = useCreateProviderEndpoint();
-  const [connectingProvider, setConnectingProvider] = useState<string>("");
-
-  const handleConnectDetected = useCallback(async (dp: DetectedProvider) => {
-    if (!createdOrg?.id) return;
-    setConnectingProvider(dp.server_type);
-    try {
-      await createProvider.mutateAsync({
-        name: dp.server_type === "lmstudio" ? "lmstudio" : dp.server_type === "ollama" ? "ollama" : dp.server_type,
-        base_url: dp.base_url,
-        api_key: "",
-        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
-        owner: "system",
-        owner_type: "system" as any,
-      });
-    } finally {
-      setConnectingProvider("");
-    }
-  }, [createdOrg?.id, createProvider]);
 
   // Refetch wallet when organization is selected/created
   useEffect(() => {
@@ -470,61 +299,6 @@ export default function Onboarding() {
     setActiveStep(orgStepIndex + 1);
   }, [createdOrg, existingOrgs, getStepIndexByType]);
 
-  // Auto-complete provider step if any providers already exist on initial load
-  // (either user-configured or system/global providers)
-  useEffect(() => {
-    if (initialProvidersChecked.current || isLoadingProviders || !providers)
-      return;
-    initialProvidersChecked.current = true;
-
-    if (hasAnyEnabledModels) {
-      const providerStepIndex = getStepIndexByType("provider");
-      setCompletedSteps((prev) => new Set([...prev, providerStepIndex]));
-      if (activeStep === providerStepIndex) {
-        setActiveStep(providerStepIndex + 1);
-      }
-    }
-  }, [isLoadingProviders, getStepIndexByType, activeStep]);
-
-  // Auto-set kodit enrichment model after first provider connection during onboarding
-  useEffect(() => {
-    if (hasAutoSetKodit || !providers?.length) return;
-    const userProviders = providers.filter(
-      (p) =>
-        p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser,
-    );
-    if (userProviders.length === 0) return;
-    // Don't auto-set if already configured
-    if (systemSettings.data?.kodit_enrichment_model) return;
-
-    const firstProvider = userProviders[0];
-    const providerName = firstProvider.name || "";
-    const modelMap: Record<string, { model: string; provider: string }> = {
-      "user/openai": { model: "gpt-4o-mini", provider: "user/openai" },
-      "user/anthropic": {
-        model: "claude-haiku-4-5-20251001",
-        provider: "user/anthropic",
-      },
-      "user/google": { model: "gemini-2.5-flash", provider: "user/google" },
-      "user/groq": { model: "llama-3.1-8b-instant", provider: "user/groq" },
-      "user/togetherai": {
-        model: "Qwen/Qwen3-30B-A3B",
-        provider: "user/togetherai",
-      },
-      "user/cerebras": { model: "llama-3.3-70b", provider: "user/cerebras" },
-    };
-
-    const mapping = modelMap[providerName];
-    if (!mapping) return;
-
-    setHasAutoSetKodit(true);
-    updateSystemSettings.mutate({
-      kodit_enrichment_model: mapping.model,
-      kodit_enrichment_provider: mapping.provider,
-      providers_management_enabled: true,
-    });
-  }, [providers, systemSettings.data, hasAutoSetKodit]);
-
   useEffect(() => {
     if (hasExistingOrgs) {
       setOrgMode("select");
@@ -535,91 +309,6 @@ export default function Onboarding() {
       setOrgMode("create");
     }
   }, [hasExistingOrgs, existingOrgs]);
-
-  const [orgApps, setOrgApps] = useState<IApp[]>([]);
-
-  const codingAgents = useMemo(() => {
-    if (!orgApps) return [];
-    return selectCodingAgents(orgApps);
-  }, [orgApps]);
-
-  useEffect(() => {
-    if (codingAgents.length > 0 && !selectedAgentId) {
-      setAgentMode("select");
-      setSelectedAgentId(codingAgents[0].id);
-    }
-  }, [codingAgents, selectedAgentId]);
-
-  useEffect(() => {
-    if (activeStep !== 4 || !createdOrg) return;
-
-    api
-      .get<IApp[]>(
-        "/api/v1/agents",
-        {
-          params: { organization_id: createdOrg.id },
-        },
-        { snackbar: true },
-      )
-      .then((result) => {
-        setOrgApps(result || []);
-      });
-  }, [activeStep, createdOrg]);
-
-  useEffect(() => {
-    if (
-      agentMode !== "create" ||
-      selectedModel ||
-      hasUserSelectedModel ||
-      isLoadingProviders ||
-      !providers?.length
-    ) {
-      return;
-    }
-
-    const providerWithDefault = providers.find((provider) =>
-      (provider.available_models || []).some(
-        (model) =>
-          model.enabled &&
-          model.type === "chat" &&
-          model.id === DEFAULT_ONBOARDING_AGENT_MODEL,
-      ),
-    );
-
-    if (providerWithDefault) {
-      setSelectedProvider(providerWithDefault.name || "");
-      setSelectedModel(DEFAULT_ONBOARDING_AGENT_MODEL);
-      return;
-    }
-
-    const firstAvailableModel = providers
-      .flatMap((provider) =>
-        (provider.available_models || []).map((model) => ({ provider, model })),
-      )
-      .find(({ model }) => model.enabled && model.type === "chat");
-
-    if (!firstAvailableModel?.model.id) return;
-
-    setSelectedProvider(firstAvailableModel.provider.name || "");
-    setSelectedModel(firstAvailableModel.model.id);
-  }, [
-    agentMode,
-    selectedModel,
-    hasUserSelectedModel,
-    isLoadingProviders,
-    providers,
-  ]);
-
-  // Auto-generate agent name when model or runtime changes
-  useEffect(() => {
-    if (
-      !userModifiedAgentName &&
-      agentMode === "create" &&
-      (selectedModel || codeAgentRuntime === "claude_code")
-    ) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
-    }
-  }, [selectedModel, codeAgentRuntime, userModifiedAgentName, agentMode]);
 
   const markComplete = useCallback((step: number) => {
     if (step < 0) return;
@@ -636,33 +325,25 @@ export default function Onboarding() {
   );
 
   const handleComplete = useCallback(
-    async (taskId?: string) => {
+    async () => {
       if (!createdOrg?.name) {
         snackbar.error("No organization selected");
         return;
       }
-      if (!createdProjectId) {
-        snackbar.error("No project available");
-        return;
-      }
 
       account.dismissOnboarding();
-
       localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name);
-
-      account.orgNavigate("project-specs", {
-        id: createdProjectId,
-        org_id: createdOrg.name,
-        highlight: taskId || createdTaskId || undefined,
-      });
+      setFinishingOnboarding(true);
 
       try {
         await api.getApiClient().v1UsersMeOnboardingCreate();
       } catch (err) {
         console.error("Failed to mark onboarding complete:", err);
+      } finally {
+        router.navigateReplace("org_chat", { org_id: createdOrg.name });
       }
     },
-    [account, api, createdOrg?.name, createdProjectId, createdTaskId, snackbar],
+    [createdOrg?.name],
   );
 
   const handleSelectExistingOrg = useCallback(() => {
@@ -738,307 +419,6 @@ export default function Onboarding() {
     }
   }, [api, createdOrg, snackbar]);
 
-  const handleBrowseSelectRepository = useCallback(
-    (
-      repo: TypesRepositoryInfo,
-      providerTypeOrCreds: string,
-      oauthConnectionId?: string,
-      patConnectionId?: string,
-    ) => {
-      let providerType = providerTypeOrCreds;
-      let patCredentials:
-        | {
-            pat?: string;
-            username?: string;
-            orgUrl?: string;
-            gitlabBaseUrl?: string;
-            githubBaseUrl?: string;
-            bitbucketBaseUrl?: string;
-          }
-        | undefined;
-
-      try {
-        const parsed = JSON.parse(providerTypeOrCreds);
-        providerType = parsed.type;
-        patCredentials = {
-          pat: parsed.pat,
-          username: parsed.username,
-          orgUrl: parsed.orgUrl,
-          gitlabBaseUrl: parsed.gitlabBaseUrl,
-          githubBaseUrl: parsed.githubBaseUrl,
-          bitbucketBaseUrl: parsed.bitbucketBaseUrl,
-        };
-      } catch {
-        // Not JSON - plain provider type (OAuth flow)
-      }
-
-      setLinkedExternalRepo({
-        repo,
-        providerType,
-        oauthConnectionId,
-        patConnectionId,
-        patCredentials,
-      });
-      if (!projectName.trim() && repo.name) {
-        setProjectName(repo.name);
-      }
-      setLinkRepoDialogOpen(false);
-    },
-    [projectName],
-  );
-
-  // Step 3: Create project (includes agent creation/selection)
-  const handleCreateProject = useCallback(async () => {
-    if (!projectName.trim()) {
-      snackbar.error("Please enter a project name");
-      return;
-    }
-    if (repoMode === "external" && !linkedExternalRepo) {
-      snackbar.error("Please link a repository first");
-      return;
-    }
-
-    // Validate agent selection
-    if (agentMode === "select" && !selectedAgentId) {
-      snackbar.error("Please select an agent");
-      return;
-    }
-    const isClaudeCodeSub =
-      codeAgentRuntime === "claude_code" && claudeCodeMode === "subscription";
-    if (
-      agentMode === "create" &&
-      !isClaudeCodeSub &&
-      (!selectedModel || !selectedProvider)
-    ) {
-      snackbar.error("Please select both provider and model for the agent");
-      return;
-    }
-
-    if (!createdOrg) {
-      snackbar.error(
-        "No valid organization selected. Please go back and set up your organization first.",
-      );
-      return;
-    }
-
-    const orgId = createdOrg.id;
-
-    setCreatingProject(true);
-    try {
-      const apiClient = api.getApiClient();
-
-      // Create or use existing agent
-      let agentId = "";
-      if (agentMode === "select") {
-        agentId = selectedAgentId;
-      } else {
-        const createdAgent =
-          await codingAgentFormRef.current?.handleCreateAgent();
-        if (!createdAgent?.id) {
-          snackbar.error("Failed to create agent");
-          return;
-        }
-        agentId = createdAgent.id;
-        setCreatedAgentId(createdAgent.id);
-
-        // Update the agent with resolution config
-        try {
-          await apiClient.v1AgentsUpdate(agentId, {
-            ...createdAgent,
-            config: {
-              ...createdAgent.config,
-              helix: {
-                ...createdAgent.config?.helix,
-                external_agent_config: {
-                  ...createdAgent.config?.helix?.external_agent_config,
-                  resolution: desktopResolution,
-                  zoom_level: desktopResolution === "4k" ? 200 : 100,
-                },
-              },
-            },
-          } as any);
-        } catch (err) {
-          console.error("Failed to update agent resolution config:", err);
-          // Continue anyway - agent was created, just resolution wasn't set
-        }
-      }
-
-      if (!agentId) {
-        snackbar.error("Agent is required");
-        return;
-      }
-
-      let repoId = "";
-      if (repoMode === "new") {
-        const repoResponse = await apiClient.v1GitRepositoriesCreate({
-          name: projectName.trim(),
-          description: projectDescription.trim(),
-          owner_id: account.user?.id || "",
-          organization_id: orgId,
-          repo_type: "code" as any,
-          default_branch: "main",
-        });
-        repoId = repoResponse.data?.id || "";
-      } else if (repoMode === "external" && linkedExternalRepo) {
-        const {
-          repo,
-          providerType,
-          oauthConnectionId,
-          patConnectionId,
-          patCredentials,
-        } = linkedExternalRepo;
-
-        const externalTypeMap: Record<string, TypesExternalRepositoryType> = {
-          github: "github" as TypesExternalRepositoryType,
-          gitlab: "gitlab" as TypesExternalRepositoryType,
-          "azure-devops": "ado" as TypesExternalRepositoryType,
-          bitbucket: "bitbucket" as TypesExternalRepositoryType,
-        };
-
-        let github: TypesGitHub | undefined;
-        let gitlab: TypesGitLab | undefined;
-        let azureDevOps: TypesAzureDevOps | undefined;
-        let bitbucket: TypesBitbucket | undefined;
-
-        if (patCredentials?.pat) {
-          if (providerType === "github") {
-            github = {
-              personal_access_token: patCredentials.pat,
-              base_url: patCredentials.githubBaseUrl,
-            };
-          } else if (providerType === "gitlab") {
-            gitlab = {
-              personal_access_token: patCredentials.pat,
-              base_url: patCredentials.gitlabBaseUrl,
-            };
-          } else if (providerType === "azure-devops") {
-            azureDevOps = {
-              organization_url: patCredentials.orgUrl || "",
-              personal_access_token: patCredentials.pat,
-            };
-          } else if (providerType === "bitbucket") {
-            bitbucket = {
-              username: patCredentials.username || "",
-              app_password: patCredentials.pat,
-              base_url: patCredentials.bitbucketBaseUrl,
-            };
-          }
-        }
-
-        const repoResponse = await apiClient.v1GitRepositoriesCreate({
-          name: repo.name || projectName.trim(),
-          description: repo.description || projectDescription.trim(),
-          owner_id: account.user?.id || "",
-          organization_id: orgId,
-          repo_type: "code" as any,
-          default_branch: repo.default_branch || "main",
-          is_external: true,
-          external_url: repo.clone_url || repo.html_url || "",
-          external_type:
-            externalTypeMap[providerType] ||
-            ("github" as TypesExternalRepositoryType),
-          kodit_indexing: true,
-          github,
-          gitlab,
-          azure_devops: azureDevOps,
-          bitbucket,
-          oauth_connection_id: oauthConnectionId,
-          git_provider_connection_id: patConnectionId,
-        });
-        repoId = repoResponse.data?.id || "";
-      }
-
-      if (!repoId) {
-        snackbar.error("Failed to create repository");
-        setCreatingProject(false);
-        return;
-      }
-
-      const projectResponse = await apiClient.v1ProjectsCreate({
-        name: projectName.trim(),
-        description: projectDescription.trim(),
-        default_repo_id: repoId,
-        organization_id: orgId,
-        default_helix_app_id: agentId,
-      });
-
-      if (projectResponse.data?.id) {
-        setCreatedProjectId(projectResponse.data.id);
-        if (agentMode === "select") {
-          setCreatedAgentId(selectedAgentId);
-        }
-        markStepCompleteByType("project");
-      }
-    } catch (err: any) {
-      console.error("Failed to create project:", err);
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        "Failed to create project";
-      snackbar.error(msg);
-    } finally {
-      setCreatingProject(false);
-    }
-  }, [
-    projectName,
-    projectDescription,
-    repoMode,
-    linkedExternalRepo,
-    createdOrg,
-    account,
-    api,
-    markStepCompleteByType,
-    snackbar,
-    agentMode,
-    selectedAgentId,
-    desktopResolution,
-  ]);
-
-  // Step 4: Create task
-  const handleCreateTask = useCallback(async () => {
-    if (!taskPrompt.trim()) {
-      snackbar.error("Please describe what you want to build");
-      return;
-    }
-    if (!createdProjectId) {
-      snackbar.error("No project available");
-      return;
-    }
-    setCreatingTask(true);
-    try {
-      const response = await api.getApiClient().v1SpecTasksFromPromptCreate({
-        prompt: taskPrompt.trim(),
-        project_id: createdProjectId,
-        app_id: createdAgentId || undefined,
-      });
-
-      if (response.data) {
-        setCreatedTaskId(response.data.id || "");
-        markStepCompleteByType("task");
-        snackbar.success(
-          "Task created! Your AI agent will start working on it.",
-        );
-        setTimeout(() => handleComplete(response.data?.id || undefined), 1500);
-      }
-    } catch (err: any) {
-      console.error("Failed to create task:", err);
-      const msg =
-        err?.response?.data?.message || err?.message || "Failed to create task";
-      snackbar.error(msg);
-    } finally {
-      setCreatingTask(false);
-    }
-  }, [
-    taskPrompt,
-    createdProjectId,
-    createdTaskId,
-    createdAgentId,
-    api,
-    markStepCompleteByType,
-    snackbar,
-    handleComplete,
-  ]);
-
   const handleDismiss = useCallback(async () => {
     account.dismissOnboarding();
     try {
@@ -1053,7 +433,7 @@ export default function Onboarding() {
   }, [api, router]);
 
   const userName =
-    account.user?.name?.split(" ")[0] ||
+    account.user?.name?.trim() ||
     account.user?.email?.split("@")[0] ||
     "there";
 
@@ -1329,9 +709,9 @@ export default function Onboarding() {
                     ? "Your free trial is active. No payment method required - you have full access for the duration of the trial. Click Continue to proceed."
                     : isSubscriptionActive
                       ? "Your subscription is active. Click Continue to proceed."
-                      : "Subscribe to activate your organization and unlock product features. The monthly fee is converted to credits and added to your balance."}
+                      : "Subscribe to activate your organization and unlock everything Helix offers."}
                 </Typography>
-                {wallet && (
+                {isSubscriptionActive && wallet ? (
                   <Box sx={{ mb: 2 }}>
                     <Typography
                       sx={{
@@ -1386,6 +766,33 @@ export default function Onboarding() {
                       credits
                     </Typography>
                   </Box>
+                ) : (
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                    {SUBSCRIPTION_BENEFITS.map((benefit) => (
+                      <Box
+                        key={benefit}
+                        sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}
+                      >
+                        <CheckCircleIcon
+                          sx={{
+                            color: ACCENT,
+                            fontSize: 16,
+                            mt: "2px",
+                            flexShrink: 0,
+                          }}
+                        />
+                        <Typography
+                          sx={{
+                            color: palette.TEXT_SECONDARY,
+                            fontSize: "0.8rem",
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {benefit}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
                 )}
               </Box>
 
@@ -1435,1004 +842,219 @@ export default function Onboarding() {
           </Fade>
         );
 
-      case "provider":
+      case "provider": {
+        const canFinish =
+          codingAccessOption === "helix" ||
+          (codingAccessOption === "claude" && hasClaudeSubscription) ||
+          (codingAccessOption === "codex" && hasCodexSubscription);
+        const continueLabel =
+          codingAccessOption === "claude"
+            ? "Continue with Claude subscription"
+            : codingAccessOption === "codex"
+              ? "Continue with ChatGPT subscription"
+              : "Continue with Helix credits";
+
+        const codingOptions: Array<{
+          id: CodingAccessOption;
+          title: string;
+          description: string;
+          connected?: boolean;
+        }> = [
+          {
+            id: "helix",
+            title: "Helix Providers",
+            description:
+              "Use Helix credits for coding models. No external account required.",
+          },
+          {
+            id: "claude",
+            title: "Claude Subscription",
+            description: "Use the tokens included with your Claude Pro or Max plan.",
+            connected: hasClaudeSubscription,
+          },
+          {
+            id: "codex",
+            title: "ChatGPT Subscription",
+            description: "Use the Codex tokens included with your ChatGPT plan.",
+            connected: hasCodexSubscription,
+          },
+        ];
+
         return (
           <Fade in={isStepActive(stepIndex)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
+              <Typography
+                sx={{
+                  color: palette.TEXT_SECONDARY,
+                  fontSize: "0.78rem",
+                  mb: 2,
+                }}
+              >
+                External subscriptions are optional. Helix Providers is selected
+                by default and charges model usage to your Helix credit balance.
+              </Typography>
+
               <Box
                 sx={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(2, 1fr)",
-                  gap: 1.5,
-                  mb: 2.5,
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(3, minmax(0, 1fr))",
+                  },
+                  gap: 1.25,
+                  mb: 2,
                 }}
               >
-                {/* Claude Subscription - special card at the top */}
-                <Box
-                  sx={{
-                    gridColumn: "1 / -1",
-                    p: 1.5,
-                    borderRadius: 1.5,
-                    border: `1px solid ${hasClaudeSubscription ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
-                    bgcolor: hasClaudeSubscription ? ACCENT_DIM : "transparent",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 1.5,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 28,
-                      height: 28,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                      color: palette.TEXT_PRIMARY,
-                    }}
-                  >
-                    <AnthropicLogo style={{ width: 24, height: 24 }} />
-                  </Box>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 0.75,
-                      }}
-                    >
-                      <Typography
-                        sx={{
-                          color: palette.TEXT_PRIMARY,
-                          fontWeight: 500,
-                          fontSize: "0.78rem",
-                        }}
-                      >
-                        Claude Subscription
-                      </Typography>
-                      {!hasClaudeSubscription && (
-                        <Box
-                          component="span"
-                          sx={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            fontSize: "0.62rem",
-                            fontWeight: 600,
-                            letterSpacing: "0.04em",
-                            textTransform: "uppercase",
-                            color: ACCENT,
-                            bgcolor: ACCENT_DIM,
-                            border: `1px solid ${ACCENT}`,
-                            borderRadius: 999,
-                            px: 0.75,
-                            py: 0.1,
-                          }}
-                        >
-                          Recommended
-                        </Box>
-                      )}
-                    </Box>
-                    <Typography
-                      sx={{
-                        color: palette.TEXT_FADED,
-                        fontSize: "0.7rem",
-                      }}
-                    >
-                      {serverConfig?.edition === "cloud"
-                        ? "Connect your Claude Pro or Max account to use Helix with your existing subscription, no Helix credits needed."
-                        : "Connect your Claude Pro or Max account to use Helix with your existing Claude subscription."}
-                    </Typography>
-                  </Box>
-                  {createdOrg && (
-                    <FormControl size="small" sx={{ minWidth: 160 }}>
-                      <Select
-                        value={claudeSubOrgId || "personal"}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setClaudeSubOrgId(val === "personal" ? "" : val);
-                        }}
-                        sx={{
-                          color: palette.TEXT_PRIMARY,
-                          fontSize: "0.72rem",
-                          "& fieldset": {
-                            borderColor: palette.INPUT_BORDER,
-                          },
-                          "&:hover fieldset": {
-                            borderColor: palette.INPUT_BORDER_HOVER,
-                          },
-                          "&.Mui-focused fieldset": { borderColor: ACCENT },
-                          "& .MuiSvgIcon-root": {
-                            color: palette.TEXT_FADED,
-                          },
-                        }}
-                        MenuProps={{
-                          PaperProps: {
-                            sx: { bgcolor: palette.MENU_BG, color: palette.MENU_TEXT },
-                          },
-                        }}
-                      >
-                        <MenuItem value="personal" sx={{ fontSize: "0.78rem" }}>
-                          Personal (just me)
-                        </MenuItem>
-                        <MenuItem
-                          value={createdOrg.id}
-                          sx={{ fontSize: "0.78rem" }}
-                        >
-                          {createdOrg.display_name || createdOrg.name}
-                        </MenuItem>
-                      </Select>
-                    </FormControl>
-                  )}
-                  <ClaudeSubscriptionConnect
-                    variant="button"
-                    orgId={claudeSubOrgId || undefined}
-                  />
-                </Box>
-
-                {detectedProviders && detectedProviders.length > 0 && (
-                  <>
-                    <Divider
-                      sx={{
-                        gridColumn: "1 / -1",
-                        borderColor: ACCENT,
-                        my: 0.5,
-                        opacity: 0.3,
-                      }}
-                    />
-                    <Typography
-                      sx={{
-                        gridColumn: "1 / -1",
-                        color: ACCENT,
-                        fontSize: "0.72rem",
-                        fontWeight: 600,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 0.5,
-                      }}
-                    >
-                      <Server size={12} />
-                      Local AI Detected
-                    </Typography>
-                    {detectedProviders.map((dp) => {
-                      const providerName = dp.server_type === "lmstudio" ? "lmstudio" : dp.server_type === "ollama" ? "ollama" : dp.server_type;
-                      const alreadyConnected = connectedProviderIds.has(providerName) || connectedProviderIds.has(`user/${providerName}`);
-                      const isConnecting = connectingProvider === dp.server_type;
-                      return (
-                        <Box
-                          key={dp.server_type}
-                          sx={{
-                            gridColumn: "1 / -1",
-                            p: 1.5,
-                            borderRadius: 1.5,
-                            border: `1px solid ${alreadyConnected ? CARD_BORDER_ACTIVE : ACCENT}`,
-                            borderColor: alreadyConnected ? CARD_BORDER_ACTIVE : "rgba(0, 232, 145, 0.3)",
-                            bgcolor: alreadyConnected ? ACCENT_DIM : "rgba(0, 232, 145, 0.04)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1.5,
-                          }}
-                        >
-                          <SmartToyIcon sx={{ fontSize: 24, color: ACCENT }} />
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography
-                              sx={{
-                                color: palette.TEXT_PRIMARY,
-                                fontWeight: 600,
-                                fontSize: "0.82rem",
-                              }}
-                            >
-                              {dp.name}
-                            </Typography>
-                            <Typography
-                              sx={{
-                                color: palette.TEXT_SECONDARY,
-                                fontSize: "0.72rem",
-                              }}
-                            >
-                              {dp.models.length} model{dp.models.length !== 1 ? "s" : ""} loaded
-                            </Typography>
-                          </Box>
-                          {alreadyConnected ? (
-                            <CheckCircleIcon
-                              sx={{ fontSize: 20, color: ACCENT, flexShrink: 0 }}
-                            />
-                          ) : (
-                            <Button
-                              size="small"
-                              disabled={isConnecting}
-                              onClick={() => handleConnectDetected(dp)}
-                              sx={{
-                                ...btnSx,
-                                py: 0.4,
-                                px: 1.5,
-                                fontSize: "0.72rem",
-                                minWidth: 0,
-                              }}
-                            >
-                              {isConnecting ? (
-                                <CircularProgress size={14} sx={{ color: "#000" }} />
-                              ) : (
-                                "Connect"
-                              )}
-                            </Button>
-                          )}
-                        </Box>
-                      );
-                    })}
-                  </>
-                )}
-
-                <Divider
-                  sx={{
-                    gridColumn: "1 / -1",
-                    borderColor: palette.BORDER_SUBTLE,
-                    my: 0.5,
-                  }}
-                />
-                <Typography
-                  sx={{
-                    gridColumn: "1 / -1",
-                    color: palette.TEXT_DIM,
-                    fontSize: "0.72rem",
-                  }}
-                >
-                  API Key Providers (for chat, Zed Agent, and Qwen Code)
-                </Typography>
-
-                {PROVIDERS.map((prov) => {
-                  const isConnected = connectedProviderIds.has(prov.id);
-                  const Logo = prov.logo;
+                {codingOptions.map((option) => {
+                  const selected = codingAccessOption === option.id;
                   return (
-                    <Box
-                      key={prov.id}
-                      onClick={() => {
-                        setSelectedOnboardingProvider(prov);
-                        setAddProviderDialogOpen(true);
-                      }}
+                    <ButtonBase
+                      key={option.id}
+                      onClick={() => setCodingAccessOption(option.id)}
                       sx={{
+                        display: "block",
+                        textAlign: "left",
                         p: 1.5,
+                        minHeight: 126,
                         borderRadius: 1.5,
-                        border: `1px solid ${isConnected ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
-                        bgcolor: isConnected ? ACCENT_DIM : "transparent",
-                        cursor: "pointer",
+                        border: `1px solid ${
+                          selected ? CARD_BORDER_ACTIVE : palette.CARD_BORDER
+                        }`,
+                        bgcolor: selected ? ACCENT_DIM : "transparent",
                         transition: "all 0.2s",
-                        "&:hover": {
-                          borderColor: palette.BORDER_HOVER,
-                          bgcolor: palette.OVERLAY_FAINT,
-                        },
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 1.5,
+                        "&:hover": { borderColor: palette.BORDER_HOVER },
                       }}
                     >
                       <Box
                         sx={{
-                          width: 28,
-                          height: 28,
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "center",
-                          flexShrink: 0,
-                          color: palette.TEXT_PRIMARY,
+                          gap: 0.8,
+                          mb: 0.75,
                         }}
                       >
-                        {typeof Logo === "string" ? (
-                          <img
-                            src={Logo}
-                            alt=""
+                        {option.id === "helix" ? (
+                          <Server
+                            size={18}
+                            color={selected ? ACCENT : palette.TEXT_FADED}
+                          />
+                        ) : option.id === "claude" ? (
+                          <AnthropicLogo
                             style={{
-                              width: 24,
-                              height: 24,
-                              background: "#fff",
-                              borderRadius: 4,
+                              width: 18,
+                              height: 18,
+                              color: "#d97757",
                             }}
                           />
                         ) : (
-                          <Logo style={{ width: 24, height: 24 }} />
+                          <AgentHarness
+                            runtime="codex_cli"
+                            variant="short"
+                            size={18}
+                            showTooltip={false}
+                          />
                         )}
-                      </Box>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Typography
                           sx={{
                             color: palette.TEXT_PRIMARY,
-                            fontWeight: 500,
+                            fontWeight: 600,
                             fontSize: "0.78rem",
                           }}
                         >
-                          {prov.name}
+                          {option.title}
                         </Typography>
                       </Box>
-                      {isConnected && (
-                        <CheckCircleIcon
-                          sx={{ fontSize: 16, color: ACCENT, flexShrink: 0 }}
-                        />
-                      )}
-                    </Box>
-                  );
-                })}
-                {globalProviders.length > 0 && (
-                  <>
-                    <Divider
-                      sx={{
-                        gridColumn: "1 / -1",
-                        borderColor: palette.BORDER_SUBTLE,
-                        my: 0.5,
-                      }}
-                    />
-                    <Typography
-                      sx={{
-                        gridColumn: "1 / -1",
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.72rem",
-                      }}
-                    >
-                      Globally configured providers
-                    </Typography>
-                    {globalProviders.map((providerEndpoint) => {
-                      const providerMeta = providerLogoMap.get(
-                        providerEndpoint.name || "",
-                      );
-                      const Logo = providerMeta?.logo;
-                      const providerName =
-                        providerMeta?.name ||
-                        providerEndpoint.name ||
-                        "Provider";
-                      return (
-                        <Box
-                          key={`global-provider-${providerEndpoint.name}-${providerEndpoint.id}`}
+                      <Typography
+                        sx={{
+                          color: palette.TEXT_FADED,
+                          fontSize: "0.68rem",
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        {option.description}
+                      </Typography>
+                      {option.id !== "helix" && (
+                        <Typography
                           sx={{
-                            p: 1.5,
-                            borderRadius: 1.5,
-                            border: `1px solid ${CARD_BORDER_ACTIVE}`,
-                            bgcolor: ACCENT_DIM,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1.5,
+                            color: option.connected
+                              ? ACCENT
+                              : palette.TEXT_DIM,
+                            fontSize: "0.65rem",
+                            fontWeight: 600,
+                            mt: 0.75,
                           }}
                         >
-                          <Box
-                            sx={{
-                              width: 28,
-                              height: 28,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              flexShrink: 0,
-                              color: palette.TEXT_PRIMARY,
-                            }}
-                          >
-                            {Logo ? (
-                              typeof Logo === "string" ? (
-                                <img
-                                  src={Logo}
-                                  alt=""
-                                  style={{
-                                    width: 24,
-                                    height: 24,
-                                    background: "#fff",
-                                    borderRadius: 4,
-                                  }}
-                                />
-                              ) : (
-                                <Logo style={{ width: 24, height: 24 }} />
-                              )
-                            ) : (
-                              <Server size={20} />
-                            )}
-                          </Box>
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography
-                              sx={{
-                                color: palette.TEXT_PRIMARY,
-                                fontWeight: 500,
-                                fontSize: "0.78rem",
-                              }}
-                            >
-                              {providerName}
-                            </Typography>
-                          </Box>
-                          <CheckCircleIcon
-                            sx={{ fontSize: 16, color: ACCENT, flexShrink: 0 }}
-                          />
-                        </Box>
-                      );
-                    })}
-                  </>
-                )}
+                          {option.connected ? "Connected" : "Not connected"}
+                        </Typography>
+                      )}
+                    </ButtonBase>
+                  );
+                })}
               </Box>
 
-              <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
-                <Button
-                  variant="contained"
-                  onClick={() => markStepCompleteByType("provider")}
-                  disabled={!hasProvidersForContinue}
-                  sx={btnSx}
-                >
-                  Continue
-                </Button>
-                <Button
-                  variant="text"
-                  onClick={() => markStepCompleteByType("provider")}
-                  sx={{
-                    color: palette.TEXT_DIM,
-                    textTransform: "none",
-                    fontSize: "0.78rem",
-                    "&:hover": { color: palette.TEXT_SECONDARY },
-                  }}
-                >
-                  I'll do this later
-                </Button>
-              </Box>
-            </Box>
-          </Fade>
-        );
-
-      case "project":
-        return (
-          <Fade in={isStepActive(stepIndex)} timeout={400}>
-            <Box sx={{ mt: 2.5 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Project name"
-                placeholder="my-awesome-project"
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                variant="outlined"
-                sx={{ mb: 1.5 }}
-                InputProps={{ sx: palette.inputSx }}
-                InputLabelProps={{ sx: palette.labelSx }}
-              />
-              <TextField
-                fullWidth
-                size="small"
-                label="Description (optional)"
-                placeholder="A brief description of your project"
-                value={projectDescription}
-                onChange={(e) => setProjectDescription(e.target.value)}
-                variant="outlined"
-                multiline
-                rows={2}
-                sx={{ mb: 2 }}
-                InputProps={{ sx: palette.inputSx }}
-                InputLabelProps={{ sx: palette.labelSx }}
-              />
-
-              <Typography
-                sx={{
-                  color: palette.TEXT_FADED,
-                  fontSize: "0.75rem",
-                  mb: 1,
-                }}
-              >
-                Repository
-              </Typography>
-              <Box sx={{ display: "flex", gap: 1.5, mb: 2 }}>
+              {codingAccessOption === "claude" && !hasClaudeSubscription && (
                 <Box
-                  onClick={() => setRepoMode("new")}
                   sx={{
-                    flex: 1,
                     p: 1.5,
-                    borderRadius: 1.5,
-                    border: `1px solid ${repoMode === "new" ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
-                    bgcolor: repoMode === "new" ? ACCENT_DIM : "transparent",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    "&:hover": { borderColor: palette.BORDER_HOVER },
-                  }}
-                >
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 0.8,
-                      mb: 0.3,
-                    }}
-                  >
-                    <CreateNewFolderIcon
-                      sx={{
-                        fontSize: 16,
-                        color:
-                          repoMode === "new" ? ACCENT : palette.TEXT_FADED,
-                      }}
-                    />
-                    <Typography
-                      sx={{
-                        color: palette.TEXT_PRIMARY,
-                        fontWeight: 500,
-                        fontSize: "0.78rem",
-                      }}
-                    >
-                      New repository
-                    </Typography>
-                  </Box>
-                  <Typography
-                    sx={{ color: palette.TEXT_DIM, fontSize: "0.7rem" }}
-                  >
-                    Start fresh with an empty repository
-                  </Typography>
-                </Box>
-                <Box
-                  onClick={() => {
-                    setRepoMode("external");
-                    setLinkRepoDialogOpen(true);
-                  }}
-                  sx={{
-                    flex: 1,
-                    p: 1.5,
-                    borderRadius: 1.5,
-                    border: `1px solid ${repoMode === "external" ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
-                    bgcolor:
-                      repoMode === "external" ? ACCENT_DIM : "transparent",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    "&:hover": { borderColor: palette.BORDER_HOVER },
-                  }}
-                >
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 0.8,
-                      mb: 0.3,
-                    }}
-                  >
-                    <GitHubIcon
-                      sx={{
-                        fontSize: 16,
-                        color:
-                          repoMode === "external"
-                            ? ACCENT
-                            : palette.TEXT_FADED,
-                      }}
-                    />
-                    <Typography
-                      sx={{
-                        color: palette.TEXT_PRIMARY,
-                        fontWeight: 500,
-                        fontSize: "0.78rem",
-                      }}
-                    >
-                      External repository
-                    </Typography>
-                  </Box>
-                  <Typography
-                    sx={{ color: palette.TEXT_DIM, fontSize: "0.7rem" }}
-                  >
-                    Connect a GitHub repository
-                  </Typography>
-                </Box>
-              </Box>
-
-              {repoMode === "external" && linkedExternalRepo && (
-                <Box sx={{ mb: 2 }}>
-                  <Box
-                    sx={{
-                      px: 1.5,
-                      py: 1,
-                      borderRadius: 1.5,
-                      bgcolor: "rgba(0,232,145,0.04)",
-                      border: `1px solid ${CARD_BORDER_ACTIVE}`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <Box>
-                      <Typography
-                        sx={{
-                          color: palette.TEXT_PRIMARY,
-                          fontSize: "0.78rem",
-                          fontWeight: 500,
-                        }}
-                      >
-                        {linkedExternalRepo.repo.full_name ||
-                          linkedExternalRepo.repo.name}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          color: palette.TEXT_DIM,
-                          fontSize: "0.7rem",
-                        }}
-                      >
-                        {linkedExternalRepo.repo.clone_url ||
-                          linkedExternalRepo.repo.html_url}
-                      </Typography>
-                    </Box>
-                    <Button
-                      size="small"
-                      onClick={() => setLinkRepoDialogOpen(true)}
-                      sx={{
-                        color: palette.TEXT_FADED,
-                        textTransform: "none",
-                        fontSize: "0.72rem",
-                        minWidth: "auto",
-                        "&:hover": { color: palette.TEXT_PRIMARY },
-                      }}
-                    >
-                      Change
-                    </Button>
-                  </Box>
-                </Box>
-              )}
-
-              <Divider
-                sx={{ borderColor: palette.BORDER_SUBTLE, my: 1.5 }}
-              />
-
-              <Typography
-                sx={{
-                  color: palette.TEXT_FADED,
-                  fontSize: "0.75rem",
-                  mb: 2,
-                }}
-              >
-                AI Agent
-              </Typography>
-
-              {codingAgents.length > 0 && (
-                <Box sx={{ display: "flex", gap: 1.5, mb: 2 }}>
-                  <Box
-                    onClick={() => setAgentMode("select")}
-                    sx={{
-                      flex: 1,
-                      p: 1.5,
-                      borderRadius: 1.5,
-                      border: `1px solid ${agentMode === "select" ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
-                      bgcolor:
-                        agentMode === "select" ? ACCENT_DIM : "transparent",
-                      cursor: "pointer",
-                      transition: "all 0.2s",
-                      "&:hover": { borderColor: palette.BORDER_HOVER },
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 0.8,
-                        mb: 0.3,
-                      }}
-                    >
-                      <SmartToyIcon
-                        sx={{
-                          fontSize: 16,
-                          color:
-                            agentMode === "select"
-                              ? ACCENT
-                              : palette.TEXT_FADED,
-                        }}
-                      />
-                      <Typography
-                        sx={{
-                          color: palette.TEXT_PRIMARY,
-                          fontWeight: 500,
-                          fontSize: "0.78rem",
-                        }}
-                      >
-                        Existing agent
-                      </Typography>
-                    </Box>
-                    <Typography
-                      sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.7rem",
-                      }}
-                    >
-                      Use one of your agents
-                    </Typography>
-                  </Box>
-                  <Box
-                    onClick={() => setAgentMode("create")}
-                    sx={{
-                      flex: 1,
-                      p: 1.5,
-                      borderRadius: 1.5,
-                      border: `1px solid ${agentMode === "create" ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
-                      bgcolor:
-                        agentMode === "create" ? ACCENT_DIM : "transparent",
-                      cursor: "pointer",
-                      transition: "all 0.2s",
-                      "&:hover": { borderColor: palette.BORDER_HOVER },
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 0.8,
-                        mb: 0.3,
-                      }}
-                    >
-                      <CreateNewFolderIcon
-                        sx={{
-                          fontSize: 16,
-                          color:
-                            agentMode === "create"
-                              ? ACCENT
-                              : palette.TEXT_FADED,
-                        }}
-                      />
-                      <Typography
-                        sx={{
-                          color: palette.TEXT_PRIMARY,
-                          fontWeight: 500,
-                          fontSize: "0.78rem",
-                        }}
-                      >
-                        New agent
-                      </Typography>
-                    </Box>
-                    <Typography
-                      sx={{
-                        color: palette.TEXT_DIM,
-                        fontSize: "0.7rem",
-                      }}
-                    >
-                      Create a new AI agent
-                    </Typography>
-                  </Box>
-                </Box>
-              )}
-
-              {agentMode === "select" && codingAgents.length > 0 ? (
-                <Box sx={{ mb: 2 }}>
-                  <AgentDropdown
-                    value={selectedAgentId}
-                    onChange={setSelectedAgentId}
-                    agents={codingAgents}
-                    label="Select Agent"
-                    labelSx={{
-                      ...palette.labelSx,
-                      "&.Mui-focused": { color: ACCENT },
-                    }}
-                    selectSx={palette.selectSx}
-                    menuPaperSx={{
-                      bgcolor: palette.MENU_BG,
-                      color: palette.MENU_TEXT,
-                      maxHeight: 280,
-                    }}
-                  />
-                </Box>
-              ) : (
-                <Box
-                  sx={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 1.5,
                     mb: 2,
+                    borderRadius: 1.5,
+                    border: `1px solid ${palette.BORDER_SUBTLE}`,
+                    bgcolor: palette.OVERLAY_FAINT,
                   }}
                 >
-                  <CodingAgentForm
-                    ref={codingAgentFormRef}
-                    value={{
-                      codeAgentRuntime,
-                      claudeCodeMode,
-                      selectedProvider,
-                      selectedModel,
-                      agentName: newAgentName,
-                    }}
-                    onChange={(nextValue) => {
-                      const switchedToClaudeSubscription =
-                        (codeAgentRuntime !== "claude_code" ||
-                          claudeCodeMode !== "subscription") &&
-                        nextValue.codeAgentRuntime === "claude_code" &&
-                        nextValue.claudeCodeMode === "subscription";
-                      setCodeAgentRuntime(nextValue.codeAgentRuntime);
-                      setClaudeCodeMode(nextValue.claudeCodeMode);
-                      setSelectedProvider(nextValue.selectedProvider);
-                      setSelectedModel(nextValue.selectedModel);
-                      if (nextValue.selectedModel !== selectedModel) {
-                        setHasUserSelectedModel(true);
-                      }
-                      if (switchedToClaudeSubscription) {
-                        setHasUserSelectedModel(false);
-                      }
-                      if (nextValue.agentName !== newAgentName) {
-                        setUserModifiedAgentName(true);
-                      }
-                      setNewAgentName(nextValue.agentName);
-                    }}
-                    disabled={creatingAgent}
-                    recommendedModels={RECOMMENDED_CODING_MODELS}
-                    createAgentDescription="Code development agent"
-                    createAgentOrganizationId={createdOrg?.id}
-                    onCreateStateChange={setCreatingAgent}
-                    onAgentCreated={(app) => {
-                      setCreatedAgentId(app.id);
-                      setSelectedAgentId(app.id);
-                      setAgentMode("select");
-                    }}
-                    modelPickerHint={
-                      codeAgentRuntime === "claude_code"
-                        ? "Choose a Claude model for code generation."
-                        : "Choose a capable model for agentic coding."
-                    }
-                    modelPickerDisplayMode="full"
-                    modelPickerAutoSelectFirst={true}
-                    showCreateButton={false}
-                    labelSx={palette.labelSx}
-                    captionSx={palette.helperSx}
-                    selectSx={{
-                      color: palette.TEXT_PRIMARY,
-                      fontSize: "0.82rem",
-                      "& fieldset": { borderColor: palette.INPUT_BORDER },
-                      "&:hover fieldset": {
-                        borderColor: palette.INPUT_BORDER_HOVER,
-                      },
-                      "&.Mui-focused fieldset": { borderColor: ACCENT },
-                      "& .MuiSvgIcon-root": { color: palette.TEXT_FADED },
-                    }}
-                    menuPaperSx={{
-                      bgcolor: palette.MENU_BG,
-                      color: palette.MENU_TEXT,
-                    }}
-                    textFieldInputSx={palette.inputSx}
-                    textFieldLabelSx={palette.labelSx}
-                    textFieldHelperSx={palette.helperSx}
-                    claudeCredentialsBoxSx={{
-                      borderRadius: 1.5,
-                      border: `1px solid ${palette.BORDER_SUBTLE}`,
-                      bgcolor: palette.OVERLAY_FAINT,
-                      color: palette.TEXT_PRIMARY,
-                    }}
-                    claudeRadioSx={{
-                      color: palette.TEXT_DIM,
-                      "&.Mui-checked": { color: ACCENT },
-                    }}
-                    agentNameHelperText="Auto-generated from model and runtime"
-                    sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}
-                  />
-
-                  {/* Desktop Resolution */}
                   <Typography
                     sx={{
-                      color: palette.TEXT_FADED,
+                      color: palette.TEXT_SECONDARY,
                       fontSize: "0.75rem",
                       mb: 1,
-                      mt: 1,
                     }}
                   >
-                    Desktop Resolution
+                    Connect your personal Claude subscription before continuing.
                   </Typography>
-                  <FormControl fullWidth size="small" sx={{ mb: 1 }}>
-                    <Select
-                      value={desktopResolution}
-                      onChange={(e) =>
-                        setDesktopResolution(e.target.value as "1080p" | "4k")
-                      }
-                      sx={{
-                        color: palette.TEXT_PRIMARY,
-                        fontSize: "0.82rem",
-                        "& fieldset": { borderColor: palette.INPUT_BORDER },
-                        "&:hover fieldset": {
-                          borderColor: palette.INPUT_BORDER_HOVER,
-                        },
-                        "&.Mui-focused fieldset": { borderColor: ACCENT },
-                        "& .MuiSvgIcon-root": {
-                          color: palette.TEXT_FADED,
-                        },
-                      }}
-                      MenuProps={{
-                        PaperProps: {
-                          sx: {
-                            bgcolor: palette.MENU_BG,
-                            color: palette.MENU_TEXT,
-                          },
-                        },
-                      }}
-                    >
-                      <MenuItem value="1080p">
-                        <Box>
-                          <Typography variant="body2">1080p</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Run more agents in parallel
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                      <MenuItem value="4k">
-                        <Box>
-                          <Typography variant="body2">
-                            4K (2x scaling)
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Sharper display quality
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                    </Select>
-                  </FormControl>
+                  <ClaudeSubscriptionConnect variant="button" />
+                </Box>
+              )}
+
+              {codingAccessOption === "codex" && !hasCodexSubscription && (
+                <Box
+                  sx={{
+                    p: 1.5,
+                    mb: 2,
+                    borderRadius: 1.5,
+                    border: `1px solid ${palette.BORDER_SUBTLE}`,
+                    bgcolor: palette.OVERLAY_FAINT,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      color: palette.TEXT_SECONDARY,
+                      fontSize: "0.75rem",
+                      mb: 1,
+                    }}
+                  >
+                    Connect your personal ChatGPT subscription before continuing.
+                  </Typography>
+                  <CodexSubscriptionConnect />
                 </Box>
               )}
 
               <Button
                 variant="contained"
-                onClick={handleCreateProject}
-                disabled={
-                  creatingProject ||
-                  creatingAgent ||
-                  !projectName.trim() ||
-                  !createdOrg ||
-                  (repoMode === "external" && !linkedExternalRepo) ||
-                  (agentMode === "select" && !selectedAgentId) ||
-                  (agentMode === "create" &&
-                    !(
-                      codeAgentRuntime === "claude_code" &&
-                      claudeCodeMode === "subscription"
-                    ) &&
-                    (!selectedModel || !selectedProvider))
-                }
+                onClick={handleComplete}
+                disabled={!canFinish || finishingOnboarding}
                 sx={btnSx}
                 startIcon={
-                  creatingProject || creatingAgent ? (
+                  finishingOnboarding ? (
                     <CircularProgress size={14} sx={{ color: "#000" }} />
-                  ) : (
-                    <FolderIcon sx={{ fontSize: 16 }} />
-                  )
+                  ) : undefined
                 }
               >
-                {creatingAgent
-                  ? "Creating agent..."
-                  : creatingProject
-                    ? "Creating project..."
-                    : "Create project"}
+                {finishingOnboarding ? "Finishing setup..." : continueLabel}
               </Button>
             </Box>
           </Fade>
         );
-
-      case "task":
-        return (
-          <Fade in={isStepActive(stepIndex)} timeout={400}>
-            <Box sx={{ mt: 2.5 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="What would you like to build?"
-                placeholder="e.g., Create a REST API with user authentication and CRUD operations for a todo app"
-                value={taskPrompt}
-                onChange={(e) => setTaskPrompt(e.target.value)}
-                variant="outlined"
-                multiline
-                rows={3}
-                sx={{ mb: 2 }}
-                InputProps={{ sx: palette.inputSx }}
-                InputLabelProps={{ sx: palette.labelSx }}
-              />
-
-              <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
-                <Button
-                  variant="contained"
-                  onClick={handleCreateTask}
-                  disabled={creatingTask || !taskPrompt.trim()}
-                  sx={btnSx}
-                  startIcon={
-                    creatingTask ? (
-                      <CircularProgress size={14} sx={{ color: "#000" }} />
-                    ) : (
-                      <RocketLaunchIcon sx={{ fontSize: 16 }} />
-                    )
-                  }
-                >
-                  {creatingTask ? "Creating..." : "Create task"}
-                </Button>
-                <Button
-                  variant="text"
-                  onClick={() => handleComplete()}
-                  sx={{
-                    color: palette.TEXT_DIM,
-                    textTransform: "none",
-                    fontSize: "0.78rem",
-                    "&:hover": { color: palette.TEXT_SECONDARY },
-                  }}
-                >
-                  Skip this step
-                </Button>
-              </Box>
-            </Box>
-          </Fade>
-        );
-
+      }
       default:
         return null;
     }
@@ -2495,7 +1117,7 @@ export default function Onboarding() {
                 fontSize: "0.88rem",
               }}
             >
-              Let's set up for success 😉
+              Let&apos;s set you up for success 😉
             </Typography>
           </Box>
         </Fade>
@@ -2575,52 +1197,6 @@ export default function Onboarding() {
           })}
         </Box>
 
-        <BrowseProvidersDialog
-          open={linkRepoDialogOpen}
-          onClose={() => setLinkRepoDialogOpen(false)}
-          onSelectRepository={handleBrowseSelectRepository}
-          isLinking={linkingRepo}
-        />
-
-        {selectedOnboardingProvider && (
-          <AddProviderDialog
-            open={addProviderDialogOpen}
-            onClose={() => setAddProviderDialogOpen(false)}
-            onClosed={() => setSelectedOnboardingProvider(null)}
-            orgId={createdOrg?.id || ""}
-            provider={selectedOnboardingProvider}
-          />
-        )}
-
-        {/* All done message */}
-        {completedSteps.size === visibleSteps.length && (
-          <Fade in timeout={600}>
-            <Box sx={{ mt: 4, textAlign: "center" }}>
-              <Typography
-                sx={{
-                  color: ACCENT,
-                  fontWeight: 600,
-                  fontSize: "0.95rem",
-                  mb: 1.5,
-                }}
-              >
-                You're all set!
-              </Typography>
-              <Button
-                variant="contained"
-                onClick={() => handleComplete()}
-                sx={{
-                  ...btnSx,
-                  px: 4,
-                  py: 1,
-                  fontSize: "0.85rem",
-                }}
-              >
-                Go to your workspace
-              </Button>
-            </Box>
-          </Fade>
-        )}
       </Box>
     </Box>
   );

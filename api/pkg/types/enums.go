@@ -245,6 +245,18 @@ const (
 	APIkeytypeAPI APIKeyType = "api"
 	// a helix access token for a specific app
 	APIkeytypeApp APIKeyType = "app"
+	// APIkeytypeEmbed is a browser-safe key for embedding ONE spec task's UI in
+	// an iframe on an untrusted page. It is restricted, fail-closed, to a small
+	// path allowlist AND to the single SpecTaskID/SessionID recorded on the key
+	// (see embedKeyAllows in auth_middleware.go).
+	//
+	// This exists because the pre-existing "ephemeral session key" is not a
+	// scope: it is minted as APIkeytypeAPI with SessionID/SpecTaskID set purely
+	// "for metrics/attribution", so it authorizes as a full user key. Handing one
+	// of those to an end user's browser hands them the owning account. Embed keys
+	// are opt-in precisely so that existing ephemeral keys — which agent
+	// sandboxes rely on for broad API access — keep working unchanged.
+	APIkeytypeEmbed APIKeyType = "embed"
 )
 
 type DataEntityType string

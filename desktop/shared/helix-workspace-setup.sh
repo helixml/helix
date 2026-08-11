@@ -801,6 +801,14 @@ if [ ${#ZED_FOLDERS[@]} -eq 0 ]; then
     exit 1
 fi
 
+# Chat attachments are uploaded here after Zed starts. Open the directory as
+# its own worktree up front so agent tools can read uploaded files without
+# granting access to paths outside the project workspace.
+ATTACHMENTS_DIR="$WORK_DIR/incoming"
+mkdir -p "$ATTACHMENTS_DIR"
+ZED_FOLDERS+=("$ATTACHMENTS_DIR")
+echo "  Attachments: incoming"
+
 # Write folders to file for main script to read
 printf '%s\n' "${ZED_FOLDERS[@]}" > "$FOLDERS_FILE"
 echo ""

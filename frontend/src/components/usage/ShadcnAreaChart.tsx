@@ -44,6 +44,10 @@ export interface ShadcnAreaChartProps {
   variant?: 'area' | 'line';
   /** Fixed Y-axis bounds for values with a known range. */
   yDomain?: [number, number];
+  /** Width reserved for Y-axis tick labels. Default 72. */
+  yAxisWidth?: number;
+  /** Include the time of day in X-axis labels and tooltips. */
+  showTime?: boolean;
   /**
    * Bridge gaps in a line series instead of breaking it. Use when a missing
    * point means "no sample that day" rather than "measured zero" — bridging
@@ -54,13 +58,20 @@ export interface ShadcnAreaChartProps {
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number) => string, zeroIsData: boolean) => {
+const ShadcnTooltip = (
+  seriesConfig: ShadcnSeries[],
+  valueFormatter: (v: number) => string,
+  zeroIsData: boolean,
+  showTime: boolean,
+) => {
   const TooltipComponent: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
     const lightTheme = useLightTheme();
     if (!active || !payload || !payload.length) return null;
     const date = label ? new Date(label as string) : null;
     const dateLabel = date
-      ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      ? date.toLocaleString(undefined, showTime
+        ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+        : { month: 'short', day: 'numeric' })
       : '';
     const byKey = new Map(payload.map(p => [p.dataKey as string, p] as const));
     return (
@@ -127,6 +138,8 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   zeroIsData = false,
   variant = 'area',
   yDomain,
+  yAxisWidth = 72,
+  showTime = false,
   connectNulls = false,
 }) => {
   const lightTheme = useLightTheme();
@@ -204,25 +217,22 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 tickMargin={8}
                 minTickGap={32}
                 tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
-                tickFormatter={(v: string) =>
-                  new Date(v).toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                  })
-                }
+                tickFormatter={(v: string) => new Date(v).toLocaleString(undefined, showTime
+                  ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+                  : { month: 'short', day: 'numeric' })}
               />
               <YAxis
                 tickLine={false}
                 axisLine={false}
                 tickMargin={10}
-                width={72}
+                width={yAxisWidth}
                 tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={valueFormatter}
                 domain={yDomain}
               />
               <Tooltip
                 cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
-                content={React.createElement(ShadcnTooltip(series, valueFormatter, zeroIsData))}
+                content={React.createElement(ShadcnTooltip(series, valueFormatter, zeroIsData, showTime))}
               />
               {/* Recharts' default legend lays items at whatever order they
                   enter the chart and wraps awkwardly when there are many

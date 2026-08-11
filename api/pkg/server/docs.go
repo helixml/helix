@@ -4353,6 +4353,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/workspace-skills": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns agent skills installed for the connected external-agent workspace and sandbox user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "List workspace skills",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceSkillsResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/workspaces": {
             "get": {
                 "security": [
@@ -12640,6 +12680,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/system.HTTPError"
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -15136,6 +15182,87 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/provider-endpoints/{id}/throughput-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get provider throughput aggregated into 30-minute or hourly buckets",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "providers"
+                ],
+                "summary": "Get provider throughput usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "30min",
+                            "hourly"
+                        ],
+                        "type": "string",
+                        "default": "30min",
+                        "description": "Aggregation level",
+                        "name": "aggregation_level",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -27468,12 +27595,14 @@ const docTemplate = `{
             "enum": [
                 "",
                 "api",
-                "app"
+                "app",
+                "embed"
             ],
             "x-enum-varnames": [
                 "APIkeytypeNone",
                 "APIkeytypeAPI",
-                "APIkeytypeApp"
+                "APIkeytypeApp",
+                "APIkeytypeEmbed"
             ]
         },
         "types.AccessGrant": {
@@ -29955,6 +30084,10 @@ const docTemplate = `{
                     "description": "Optional: Skip spec planning, go straight to implementation",
                     "type": "boolean"
                 },
+                "name": {
+                    "description": "Name is the task title. Empty means derive it from the prompt.",
+                    "type": "string"
+                },
                 "priority": {
                     "$ref": "#/definitions/types.SpecTaskPriority"
                 },
@@ -31394,7 +31527,7 @@ const docTemplate = `{
                     }
                 },
                 "response_entries": {
-                    "description": "ResponseEntries holds the structured response as an ordered list of typed entries.\nEach entry is either \"text\" (assistant prose) or \"tool_call\" (tool invocation),\npreserving the ordering and boundaries that Zed's internal Vec\u003cAgentThreadEntry\u003e has.\nThis is populated on completion alongside ResponseMessage (flat string, backward compat).\nThe frontend uses this to render entries with the correct component in the correct order.",
+                    "description": "ResponseEntries holds the structured response as an ordered list of typed entries.\nEach entry is \"text\" (assistant prose), \"tool_call\" (tool invocation), or\n\"plan\" (the latest structured plan snapshot),\npreserving the ordering and boundaries that Zed's internal Vec\u003cAgentThreadEntry\u003e has.\nThis is populated on completion alongside ResponseMessage (flat string, backward compat).\nThe frontend uses this to render entries with the correct component in the correct order.",
                     "type": "array",
                     "items": {
                         "type": "integer"
@@ -34281,6 +34414,9 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "icon": {
+                    "type": "string"
                 },
                 "id": {
                     "type": "string"
@@ -38143,6 +38279,15 @@ const docTemplate = `{
         "types.SystemSettingsRequest": {
             "type": "object",
             "properties": {
+                "default_new_project_agent_model": {
+                    "type": "string"
+                },
+                "default_new_project_agent_provider": {
+                    "type": "string"
+                },
+                "default_new_project_agent_reasoning_effort": {
+                    "type": "string"
+                },
                 "enforce_quotas": {
                     "type": "boolean"
                 },
@@ -38224,6 +38369,15 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created": {
+                    "type": "string"
+                },
+                "default_new_project_agent_model": {
+                    "type": "string"
+                },
+                "default_new_project_agent_provider": {
+                    "type": "string"
+                },
+                "default_new_project_agent_reasoning_effort": {
                     "type": "string"
                 },
                 "enforce_quotas": {
@@ -39107,6 +39261,9 @@ const docTemplate = `{
                 "base_url": {
                     "type": "string"
                 },
+                "billing_enabled": {
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -39124,6 +39281,9 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "icon": {
+                    "type": "string"
                 },
                 "models": {
                     "type": "array",
@@ -39443,6 +39603,14 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "api_key_type": {
+                    "description": "APIKeyType is the type of the API key this request authenticated with, when\nit authenticated with one. Carried so the auth middleware can apply the\nper-type restrictions (app keys: chat paths only; embed keys: one spec task).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.APIKeyType"
+                        }
+                    ]
                 },
                 "app_id": {
                     "description": "if the token is associated with an app",
@@ -40241,6 +40409,34 @@ const docTemplate = `{
                 },
                 "truncated": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.WorkspaceSkillEntry": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceSkillsResponse": {
+            "type": "object",
+            "properties": {
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkspaceSkillEntry"
+                    }
                 }
             }
         },

@@ -10,6 +10,7 @@ import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
 import WorkLog from "./WorkLog";
 import ActivitySummary from "./ActivitySummary";
+import { SessionPlanProgress } from "./PlanProgress";
 import { getInteractionDurationMs } from "./interactionDuration";
 import ImageLightbox, { LightboxImage } from "./ImageLightbox";
 import ElicitationCardContainer from "./ElicitationCardContainer";
@@ -20,7 +21,7 @@ import type { ElicitationPayload } from "./ElicitationCard";
  * Preserves the type and ordering of each entry as Zed originally had them.
  */
 export interface ResponseEntry {
-  type: "text" | "tool_call" | "elicitation";
+  type: "text" | "tool_call" | "plan" | "elicitation";
   content: string;
   message_id: string;
   tool_name?: string;
@@ -129,6 +130,11 @@ export function buildActivityTimeline(
       return;
     }
 
+    if (entry.type === "plan") {
+      currentToolSegment = undefined;
+      return;
+    }
+
     // Any text entry ends the current tool run, even when its thinking content
     // is hidden while streaming.
     currentToolSegment = undefined;
@@ -215,6 +221,7 @@ export const MessageWithToolCalls: FC<{
   durationMs?: number;
   activityStartedAt?: number;
   showActivitySummary?: boolean;
+  includeTaskChecklist?: boolean;
 }> = ({
   text,
   responseEntries,
@@ -227,6 +234,7 @@ export const MessageWithToolCalls: FC<{
   durationMs = 0,
   activityStartedAt,
   showActivitySummary = true,
+  includeTaskChecklist = false,
 }) => {
   if (!showActivitySummary) {
     return (
@@ -241,6 +249,14 @@ export const MessageWithToolCalls: FC<{
       />
     );
   }
+
+  const planProgress = (
+    <SessionPlanProgress
+      responseEntries={responseEntries}
+      session={session}
+      includeTaskChecklist={includeTaskChecklist}
+    />
+  );
 
   // Structured path: use response_entries from the Go API (preserves type + order)
   if (responseEntries && responseEntries.length > 0) {
@@ -306,6 +322,7 @@ export const MessageWithToolCalls: FC<{
     return isStreaming ? (
       <>
         {activity}
+        {planProgress}
         <ActivitySummary
           durationMs={durationMs}
           hasActivity={false}
@@ -325,6 +342,7 @@ export const MessageWithToolCalls: FC<{
           {activity}
         </ActivitySummary>
         {questions}
+        {planProgress}
         {finalContent}
       </>
     );
@@ -361,6 +379,7 @@ export const MessageWithToolCalls: FC<{
   return isStreaming ? (
     <>
       {finalContent}
+      {planProgress}
       <ActivitySummary
         durationMs={durationMs}
         hasActivity={plainHasThinking}
@@ -381,6 +400,7 @@ export const MessageWithToolCalls: FC<{
       >
         {activityContent}
       </ActivitySummary>
+      {planProgress}
     </>
   );
 };
@@ -744,6 +764,7 @@ export const InteractionInference: FC<{
                       isStreaming={false}
                       durationMs={getInteractionDurationMs(interaction)}
                       showActivitySummary={isFromAssistant}
+                      includeTaskChecklist={isFromAssistant && !!isLastInteraction}
                       onFilterDocument={onFilterDocument}
                     />
                   </Box>

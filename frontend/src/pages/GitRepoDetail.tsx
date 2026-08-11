@@ -475,7 +475,8 @@ const GitRepoDetail: FC = () => {
     username?: string,
     password?: string,
     azureDevOps?: TypesAzureDevOps,
-    oauthConnectionId?: string
+    oauthConnectionId?: string,
+    gitProviderConnectionId?: string,
   ): Promise<TypesGitRepository | null> => {
     try {
       const result = await createRepoMutation.mutateAsync({
@@ -487,6 +488,7 @@ const GitRepoDetail: FC = () => {
         azure_devops: azureDevOps,
         organization_id: currentOrg?.id,
         oauth_connection_id: oauthConnectionId,
+        git_provider_connection_id: gitProviderConnectionId,
       })
       return result || null
     } catch (err) {

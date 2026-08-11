@@ -20,6 +20,7 @@ import {
   TypesTokenType,
   TypesAssistantAPI,
   TypesAssistantZapier,
+  TypesOpenAIModel,
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -1006,8 +1007,9 @@ export interface IProviderEndpoint {
   updated: string
   name: string
   description: string
+  icon?: string
   models?: string[]
-  available_models?: string[] 
+  available_models?: TypesOpenAIModel[]
   endpoint_type: IProviderEndpointType
   owner: string
   owner_type: IOwnerType

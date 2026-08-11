@@ -1341,7 +1341,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		return fmt.Errorf("missing or invalid role")
 	}
 
-	// entry_type distinguishes "text" (assistant prose) from "tool_call" (tool invocations).
+	// entry_type distinguishes assistant prose, tool invocations, and plan snapshots.
 	// Optional field — old Zed versions don't send it (defaults to empty string).
 	entryType, _ := syncMsg.Data["entry_type"].(string)
 	// request_id correlates this response to the chat_message that triggered it.

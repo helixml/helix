@@ -768,6 +768,11 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
+	if updatedEndpoint.BillingEnabled != nil && !user.Admin {
+		http.Error(rw, "Only admins can change provider billing", http.StatusForbidden)
+		return
+	}
+
 	// Only admins can add endpoints with API key path auth
 	if existingEndpoint.APIKeyFromFile != "" && !user.Admin {
 		http.Error(rw, "Only admins can add endpoints with API key path auth", http.StatusForbidden)
@@ -816,6 +821,12 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		existingEndpoint.Name = newName
 	}
 	existingEndpoint.Description = updatedEndpoint.Description
+	if updatedEndpoint.Icon != nil {
+		existingEndpoint.Icon = strings.TrimSpace(*updatedEndpoint.Icon)
+	}
+	if updatedEndpoint.BillingEnabled != nil {
+		existingEndpoint.BillingEnabled = *updatedEndpoint.BillingEnabled
+	}
 	existingEndpoint.Models = updatedEndpoint.Models
 	existingEndpoint.BaseURL = strings.TrimSpace(updatedEndpoint.BaseURL)
 	if updatedEndpoint.APIKey != nil {
@@ -1012,6 +1023,90 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 	metrics, err := s.Store.GetProviderDailyUsageMetrics(r.Context(), id, from, to)
 	if err != nil {
 		writeErrResponse(rw, fmt.Errorf("error getting provider daily usage: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, metrics, http.StatusOK)
+}
+
+// getProviderThroughputUsage godoc
+// @Summary Get provider throughput usage
+// @Description Get provider throughput aggregated into 30-minute or hourly buckets
+// @Accept json
+// @Produce json
+// @Tags    providers
+// @Param   id path string true "Provider ID"
+// @Param   from query string false "Start date"
+// @Param   to query string false "End date"
+// @Param   aggregation_level query string false "Aggregation level" Enums(30min,hourly) default(30min)
+// @Success 200 {array} types.AggregatedUsageMetric
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/provider-endpoints/{id}/throughput-usage [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getProviderThroughputUsage(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	if !s.isProvidersManagementEnabled(r.Context()) && !user.Admin {
+		writeErrResponse(rw, errors.New("providers management is not enabled"), http.StatusForbidden)
+		return
+	}
+
+	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
+		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
+		return
+	}
+
+	from := time.Now().Add(-time.Hour * 24 * 7)
+	to := time.Now()
+	var err error
+
+	if value := r.URL.Query().Get("from"); value != "" {
+		from, err = time.Parse(time.RFC3339, value)
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to parse from date: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if value := r.URL.Query().Get("to"); value != "" {
+		to, err = time.Parse(time.RFC3339, value)
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to parse to date: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	aggregationLevel := store.AggregationLevel30Min
+	switch value := r.URL.Query().Get("aggregation_level"); value {
+	case "", string(store.AggregationLevel30Min):
+	case string(store.AggregationLevelHourly):
+		aggregationLevel = store.AggregationLevelHourly
+	default:
+		writeErrResponse(rw, fmt.Errorf("invalid aggregation level %q", value), http.StatusBadRequest)
+		return
+	}
+
+	visible, err := s.providerVisible(r.Context(), user, id)
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
+		return
+	}
+	if !visible {
+		writeErrResponse(rw, errors.New("not authorized to access this provider"), http.StatusForbidden)
+		return
+	}
+
+	metrics, err := s.Store.GetAggregatedUsageMetrics(r.Context(), &store.GetAggregatedUsageMetricsQuery{
+		AggregationLevel: aggregationLevel,
+		Provider:         id,
+		From:             from,
+		To:               to,
+	})
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error getting provider throughput usage: %w", err), http.StatusInternalServerError)
 		return
 	}
 

@@ -32,13 +32,14 @@ import {
 import GitHubIcon from "@mui/icons-material/GitHub";
 import {
   Search,
-  Brain,
   ExternalLink,
   CheckCircle,
   Cloud,
+  FolderGit2,
   Key,
   Trash2,
   RefreshCw,
+  ChevronRight,
 } from "lucide-react";
 import { SiGitlab, SiBitbucket } from "react-icons/si";
 
@@ -59,11 +60,11 @@ import {
   TypesRepositoryInfo,
   TypesExternalRepositoryType,
 } from "../../api/api";
+import type { TypesGitRepository } from "../../api/api";
 import useApi from "../../hooks/useApi";
 import { GITHUB_VCS_SCOPES } from "../../hooks/useOAuthFlow";
 import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
-import useRouter from "../../hooks/useRouter";
 import { useSettingsDialog } from "../../contexts/settingsDialog";
 import {
   matchesProviderType,
@@ -71,6 +72,7 @@ import {
   hasRequiredScopes,
   PROVIDER_TYPES,
 } from "../../utils/oauthProviders";
+import { matchesAllTokens } from "../../utils/searchUtils";
 
 // Scopes required for GitHub repo browsing (including workflow file support)
 const GITHUB_REQUIRED_SCOPES = ["repo", "workflow", "read:org"];
@@ -85,6 +87,10 @@ interface BrowseProvidersDialogProps {
     patConnectionId?: string,
   ) => void;
   isLinking?: boolean;
+  helixRepositories?: TypesGitRepository[];
+  helixRepositoriesLoading?: boolean;
+  onSelectHelixRepository?: (repo: TypesGitRepository) => void;
+  repositorySourceLabel?: string;
   // If provided, shows warning that repo will be visible to org members
   organizationName?: string;
 }
@@ -92,6 +98,7 @@ interface BrowseProvidersDialogProps {
 type ProviderType = "github" | "gitlab" | "azure-devops" | "bitbucket";
 type ViewMode =
   | "providers"
+  | "browse-helix-repos"
   | "choose-method"
   | "pat-entry"
   | "browse-repos"
@@ -135,17 +142,45 @@ const PROVIDERS: ProviderConfig[] = [
   },
 ];
 
+const repositoryKey = (repo: TypesRepositoryInfo) =>
+  repo.full_name || repo.clone_url || repo.html_url || repo.name || "repository";
+
+const outlinedAlertSx = {
+  borderRadius: 1.5,
+  bgcolor: "transparent",
+  px: 1,
+  py: 0.25,
+  alignItems: "center",
+  "& .MuiAlert-icon": {
+    py: 0.5,
+    mr: 1,
+    fontSize: 18,
+  },
+  "& .MuiAlert-message": {
+    py: 0.5,
+    fontSize: "0.78rem",
+    lineHeight: 1.5,
+  },
+  "& .MuiAlert-action": {
+    py: 0.25,
+    alignItems: "center",
+  },
+};
+
 const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   open,
   onClose,
   onSelectRepository,
   isLinking = false,
+  helixRepositories = [],
+  helixRepositoriesLoading = false,
+  onSelectHelixRepository,
+  repositorySourceLabel = "Helix-hosted repositories",
   organizationName,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
   const account = useAccount();
-  const router = useRouter();
   const settingsDialog = useSettingsDialog();
   const queryClient = useQueryClient();
   const oauthPopupRef = useRef<Window | null>(null);
@@ -161,10 +196,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   >(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [orgFilter, setOrgFilter] = useState("all");
-  const [koditIndexing, setKoditIndexing] = useState(true);
   const [selectedRepo, setSelectedRepo] = useState<TypesRepositoryInfo | null>(
     null,
   );
+  const [selectedHelixRepo, setSelectedHelixRepo] =
+    useState<TypesGitRepository | null>(null);
 
   // PAT entry state
   const [pat, setPat] = useState("");
@@ -224,7 +260,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setSearchQuery("");
       setOrgFilter("all");
       setSelectedRepo(null);
-      setKoditIndexing(true);
+      setSelectedHelixRepo(null);
       setPat("");
       setOrgUrl("");
       setGitlabBaseUrl("");
@@ -392,8 +428,30 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   };
 
   const handleProviderClick = (providerType: ProviderType) => {
-    // Always show the choose-method screen so users can pick OAuth or PAT
     setSelectedProvider(providerType);
+
+    const oauthConnection = getOAuthConnectionForProvider(providerType);
+    const oauthNeedsScopeUpgrade =
+      providerType === "github" &&
+      !!oauthConnection &&
+      !hasRequiredScopes(oauthConnection.scopes, GITHUB_REQUIRED_SCOPES);
+
+    if (oauthConnection?.id && !oauthNeedsScopeUpgrade) {
+      setSelectedConnectionId(oauthConnection.id);
+      setSelectedPatConnectionId(null);
+      setViewMode("browse-repos");
+      return;
+    }
+
+    const patConnection = getPatConnectionForProvider(providerType);
+    if (patConnection?.id) {
+      setSelectedConnectionId(null);
+      setSelectedPatConnectionId(patConnection.id);
+      setViewMode("browse-pat-repos");
+      fetchReposForSavedConnection(patConnection.id);
+      return;
+    }
+
     setViewMode("choose-method");
   };
 
@@ -561,6 +619,12 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   };
 
   const handleBack = () => {
+    if (viewMode === "browse-helix-repos") {
+      setSelectedHelixRepo(null);
+      setSearchQuery("");
+      setViewMode("providers");
+      return;
+    }
     if (viewMode === "browse-pat-repos" && patCredentials) {
       // Coming from PAT entry - go back to PAT entry
       setViewMode("pat-entry");
@@ -568,8 +632,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setPatReposError(null);
       setSelectedRepo(null);
     } else if (viewMode === "browse-pat-repos" || viewMode === "browse-repos") {
-      // Coming from repo browser - go back to choose-method
-      setViewMode("choose-method");
+      // Connected providers skip connection setup, so Back returns to sources.
+      setViewMode("providers");
+      setSelectedProvider(null);
       setSelectedConnectionId(null);
       setSelectedPatConnectionId(null);
       setSearchQuery("");
@@ -645,12 +710,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       if (owner !== orgFilter) return false;
     }
     // Apply search filter
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      repo.name?.toLowerCase().includes(query) ||
-      repo.full_name?.toLowerCase().includes(query) ||
-      repo.description?.toLowerCase().includes(query)
+    return matchesAllTokens(
+      searchQuery,
+      repo.name,
+      repo.full_name,
+      repo.description,
     );
   }).sort((a, b) => (a.full_name || a.name || "").localeCompare(b.full_name || b.name || ""));
 
@@ -660,10 +724,10 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   if (viewMode === "providers") {
     return (
       <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-        <DialogTitle>Connect & Browse Repositories</DialogTitle>
+        <DialogTitle>Choose a Repository Source</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Select a provider to browse your repositories.
+            Browse Helix-hosted repositories or connect an external provider.
           </Typography>
 
           {connectionsLoading ? (
@@ -671,7 +735,43 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               <CircularProgress />
             </Box>
           ) : (
-            <List>
+            <List
+              disablePadding
+              sx={{
+                border: 1,
+                borderColor: "divider",
+                borderRadius: 1.5,
+                overflow: "hidden",
+              }}
+            >
+              {onSelectHelixRepository && (
+                <>
+                  <ListItem disablePadding>
+                    <ListItemButton
+                      onClick={() => setViewMode("browse-helix-repos")}
+                      disabled={helixRepositories.length === 0}
+                      title={helixRepositories.length === 0 ? "No repositories are available." : undefined}
+                      sx={{ minHeight: 56, px: 1.5, py: 1 }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 36, color: "text.secondary" }}>
+                        <FolderGit2 size={18} />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={repositorySourceLabel}
+                        primaryTypographyProps={{ variant: "body2", fontWeight: 600 }}
+                        secondaryTypographyProps={{ variant: "caption" }}
+                        secondary={
+                          helixRepositories.length > 0
+                            ? `${helixRepositories.length} available in this organization`
+                            : "No repositories available yet"
+                        }
+                      />
+                      <ChevronRight size={16} />
+                    </ListItemButton>
+                  </ListItem>
+                  <Divider />
+                </>
+              )}
               {PROVIDERS.map((provider, index) => {
                 const oauthConnection = getOAuthConnectionForProvider(
                   provider.id,
@@ -706,43 +806,24 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                     <ListItem disablePadding>
                       <ListItemButton
                         onClick={() => handleProviderClick(provider.id)}
+                        sx={{ minHeight: 56, px: 1.5, py: 1 }}
                       >
-                        <ListItemIcon sx={{ color: provider.color }}>
+                        <ListItemIcon sx={{ minWidth: 36, color: provider.color }}>
                           {provider.icon}
                         </ListItemIcon>
                         <ListItemText
                           primary={provider.name}
+                          primaryTypographyProps={{ variant: "body2", fontWeight: 600 }}
+                          secondaryTypographyProps={{ variant: "caption" }}
                           secondary={
                             isConnected
                               ? `Connected as ${getConnectionDisplayName()}`
                               : hasOAuth
-                                ? "Click to connect via OAuth"
-                                : "Click to enter access token"
+                                ? `Connect your ${provider.name} account`
+                                : `Connect ${provider.name} with an access token`
                           }
                         />
-                        {isConnected ? (
-                          <Chip
-                            icon={<CheckCircle size={14} />}
-                            label="Browse"
-                            size="small"
-                            color="success"
-                            variant="outlined"
-                          />
-                        ) : hasOAuth ? (
-                          <Chip
-                            icon={<ExternalLink size={14} />}
-                            label="Connect"
-                            size="small"
-                            variant="outlined"
-                          />
-                        ) : (
-                          <Chip
-                            icon={<Key size={14} />}
-                            label="Enter Token"
-                            size="small"
-                            variant="outlined"
-                          />
-                        )}
+                        <ChevronRight size={16} />
                       </ListItemButton>
                     </ListItem>
                   </React.Fragment>
@@ -753,6 +834,97 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         </DialogContent>
         <DialogActions>
           <Button onClick={onClose}>Cancel</Button>
+        </DialogActions>
+      </Dialog>
+    );
+  }
+
+  if (viewMode === "browse-helix-repos") {
+    const filteredHelixRepositories = helixRepositories.filter((repo) =>
+      matchesAllTokens(searchQuery, repo.name, repo.description),
+    );
+
+    return (
+      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <FolderGit2 size={22} />
+          {repositorySourceLabel}
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Search repositories..."
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            sx={{ mb: 2 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search size={18} />
+                </InputAdornment>
+              ),
+            }}
+          />
+
+          {helixRepositoriesLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : filteredHelixRepositories.length === 0 ? (
+            <Box sx={{ textAlign: "center", py: 4 }}>
+              <Typography variant="body2" color="text.secondary">
+                {searchQuery
+                  ? "No repositories match your search"
+                  : "No repositories available yet"}
+              </Typography>
+            </Box>
+          ) : (
+            <List
+              disablePadding
+              sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}
+            >
+              {filteredHelixRepositories.map((repo, index) => (
+                <React.Fragment key={repo.id || repo.name || index}>
+                  {index > 0 && <Divider />}
+                  <ListItem disablePadding>
+                    <ListItemButton
+                      selected={selectedHelixRepo?.id === repo.id}
+                      onClick={() => setSelectedHelixRepo(repo)}
+                    >
+                      <ListItemIcon>
+                        <FolderGit2 size={20} />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={repo.name || "Untitled repository"}
+                        secondary={repo.description || "No repository description"}
+                      />
+                      {selectedHelixRepo?.id === repo.id && (
+                        <CheckCircle size={18} />
+                      )}
+                    </ListItemButton>
+                  </ListItem>
+                </React.Fragment>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleBack} sx={{ mr: "auto" }}>
+            Back
+          </Button>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            disabled={!selectedHelixRepo}
+            onClick={() => {
+              if (!selectedHelixRepo || !onSelectHelixRepository) return;
+              onSelectHelixRepository(selectedHelixRepo);
+            }}
+          >
+            Select Repository
+          </Button>
         </DialogActions>
       </Dialog>
     );
@@ -788,7 +960,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           </Typography>
 
           {needsScopeUpgrade && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
+            <Alert
+              severity="warning"
+              variant="outlined"
+              sx={{ ...outlinedAlertSx, mb: 2 }}
+            >
               Your GitHub connection is missing required permissions. Click &ldquo;Connect via OAuth&rdquo; below to reconnect with the required scopes (<code>repo</code>, <code>workflow</code>, <code>read:org</code>).
             </Alert>
           )}
@@ -934,7 +1110,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
 
           {/* Help text when OAuth is not available */}
           {!hasOAuth && (
-            <Alert severity="info" sx={{ mt: 2 }}>
+            <Alert
+              severity="info"
+              variant="outlined"
+              sx={{ ...outlinedAlertSx, mt: 2 }}
+            >
               OAuth is not configured for {currentProvider?.name}.
               {account.admin ? (
                 <>
@@ -990,7 +1170,12 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             </Typography>
 
             {patSubmitError && (
-              <Alert severity="error" onClose={() => setPatSubmitError(null)}>
+              <Alert
+                severity="error"
+                variant="outlined"
+                onClose={() => setPatSubmitError(null)}
+                sx={outlinedAlertSx}
+              >
                 {patSubmitError}
               </Alert>
             )}
@@ -1117,17 +1302,48 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
 
   // Repository browser view (OAuth or PAT)
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <Box sx={{ color: currentProvider?.color }}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      fullWidth
+      PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
+    >
+      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1.5, py: 2 }}>
+        <Box
+          sx={{
+            width: 36,
+            height: 36,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 1.5,
+            bgcolor: "action.hover",
+            color: currentProvider?.color,
+          }}
+        >
           {currentProvider?.icon}
         </Box>
-        Browse {currentProvider?.name} Repositories
+        <Box>
+          <Typography variant="h6" component="div">
+            Choose a {currentProvider?.name} repository
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Select the repository Helix should use for this project.
+          </Typography>
+        </Box>
       </DialogTitle>
-      <DialogContent>
-        <Box sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+      <DialogContent dividers sx={{ py: 2.5 }}>
+        <Box
+          sx={{
+            mb: 2,
+            display: "flex",
+            gap: 1,
+            alignItems: "center",
+          }}
+        >
           {availableOrgs.length > 1 && (
-            <FormControl size="small" sx={{ minWidth: 140 }}>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
               <Select
                 value={orgFilter}
                 onChange={(e) => setOrgFilter(e.target.value)}
@@ -1135,7 +1351,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               >
                 <MenuItem value="all">All orgs</MenuItem>
                 {availableOrgs.map((org) => (
-                  <MenuItem key={org} value={org}>{org}</MenuItem>
+                  <MenuItem key={org} value={org}>
+                    {org}
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -1156,42 +1374,72 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           />
           <Tooltip title="Refresh repository list">
             <IconButton
-              size="small"
-              onClick={() => queryClient.invalidateQueries({ queryKey: ["oauth-connection-repositories"] })}
+              aria-label="Refresh repository list"
+              onClick={() =>
+                queryClient.invalidateQueries({
+                  queryKey: ["oauth-connection-repositories"],
+                })
+              }
               disabled={reposFetching}
-              sx={reposFetching ? { animation: 'spin 1s linear infinite', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } } : {}}
+              sx={{
+                width: 30,
+                height: 30,
+                color: "text.secondary",
+                ...(reposFetching
+                  ? {
+                      animation: "spin 1s linear infinite",
+                      "@keyframes spin": {
+                        "100%": { transform: "rotate(360deg)" },
+                      },
+                    }
+                  : {}),
+              }}
             >
               <RefreshCw size={18} />
             </IconButton>
           </Tooltip>
         </Box>
 
-        {viewMode === "browse-repos" && selectedProvider === "github" && (() => {
-          const ghProvider = providers?.find((p) => matchesProviderType(p.type, p.name, "github"));
-          const settingsUrl = ghProvider?.client_id
-            ? `https://github.com/settings/connections/applications/${ghProvider.client_id}`
-            : "https://github.com/settings/applications";
-          return (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Not seeing repos from all your organizations? Organizations can restrict OAuth app access.
-              Check your{" "}
-              <Link
-                href={settingsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                color="inherit"
-                underline="always"
-                sx={{ fontWeight: 600 }}
+        {viewMode === "browse-repos" &&
+          selectedProvider === "github" &&
+          (() => {
+            const ghProvider = providers?.find((p) =>
+              matchesProviderType(p.type, p.name, "github"),
+            );
+            const settingsUrl = ghProvider?.client_id
+              ? `https://github.com/settings/connections/applications/${ghProvider.client_id}`
+              : "https://github.com/settings/applications";
+            return (
+              <Alert
+                severity="info"
+                variant="outlined"
+                sx={{
+                  ...outlinedAlertSx,
+                  mb: 2,
+                }}
               >
-                GitHub application settings
-              </Link>{" "}
-              and grant access for each organization.
-            </Alert>
-          );
-        })()}
+                Missing an organization&apos;s repositories? Grant it access in{" "}
+                <Link
+                  href={settingsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  color="inherit"
+                  underline="always"
+                  sx={{ fontWeight: 600 }}
+                >
+                  GitHub application settings
+                </Link>
+                .
+              </Alert>
+            );
+          })()}
 
         {currentError && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert
+            severity="error"
+            variant="outlined"
+            sx={{ ...outlinedAlertSx, mb: 2 }}
+          >
             {currentError}
           </Alert>
         )}
@@ -1209,27 +1457,63 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             </Typography>
           </Box>
         ) : (
-          <List sx={{ maxHeight: 400, overflow: "auto" }}>
-            {filteredRepos.map((repo, index) => (
-              <React.Fragment key={repo.full_name || index}>
-                {index > 0 && <Divider />}
-                <ListItem disablePadding>
+          <List
+            disablePadding
+            sx={{
+              maxHeight: 420,
+              overflow: "auto",
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1.5,
+            }}
+          >
+            {filteredRepos.map((repo) => {
+              const selected =
+                selectedRepo !== null &&
+                repositoryKey(selectedRepo) === repositoryKey(repo);
+              return (
+                <ListItem
+                  key={repositoryKey(repo)}
+                  disablePadding
+                  sx={{
+                    borderBottom: "1px solid",
+                    borderColor: "divider",
+                    "&:last-child": { borderBottom: 0 },
+                  }}
+                >
                   <ListItemButton
-                    selected={
-                      selectedRepo?.full_name === repo.full_name
-                    }
+                    selected={selected}
                     onClick={() => setSelectedRepo(repo)}
+                    sx={{
+                      minHeight: 64,
+                      px: 2,
+                      py: 1.25,
+                      borderLeft: "3px solid transparent",
+                      "&.Mui-selected": {
+                        bgcolor: "action.selected",
+                        borderLeftColor: "secondary.main",
+                      },
+                      "&.Mui-selected:hover": { bgcolor: "action.selected" },
+                    }}
                   >
-                    <ListItemIcon>
+                    <ListItemIcon sx={{ minWidth: 44 }}>
                       <Avatar
-                        sx={{ width: 32, height: 32, bgcolor: "action.hover" }}
+                        sx={{
+                          width: 32,
+                          height: 32,
+                          bgcolor: selected ? "secondary.main" : "action.hover",
+                          color: selected ? "secondary.contrastText" : "text.secondary",
+                          fontSize: "0.8rem",
+                          fontWeight: 700,
+                        }}
                       >
                         {repo.name?.[0]?.toUpperCase() || "R"}
                       </Avatar>
                     </ListItemIcon>
                     <ListItemText
                       primary={repo.full_name || repo.name}
-                      secondary={repo.description || "No description"}
+                      secondary={repo.description || "No repository description"}
+                      primaryTypographyProps={{ variant: "body2", fontWeight: 600 }}
                       secondaryTypographyProps={{ noWrap: true }}
                     />
                     {repo.can_write === false && (
@@ -1253,52 +1537,21 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                     )}
                   </ListItemButton>
                 </ListItem>
-              </React.Fragment>
-            ))}
+              );
+            })}
           </List>
         )}
 
-        {selectedRepo && (
-          <Box sx={{ mt: 2, p: 2, bgcolor: "action.hover", borderRadius: 1 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Selected: {selectedRepo.full_name || selectedRepo.name}
-            </Typography>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={koditIndexing}
-                  onChange={(e) => setKoditIndexing(e.target.checked)}
-                  color="primary"
-                  size="small"
-                />
-              }
-              label={
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <Brain size={16} />
-                  <Typography variant="body2">
-                    Enable Code Intelligence
-                  </Typography>
-                </Box>
-              }
-            />
-            {selectedRepo.can_write === false && (
-              <Alert severity="warning" sx={{ mt: 2 }}>
-                You only have read access to this repo. Helix needs push access to commit changes
-                and open pull requests, so it can&apos;t be linked to a project. To contribute,
-                fork it to your own account or organization first.
-              </Alert>
-            )}
-            {organizationName && (
-              <Alert severity="info" sx={{ mt: 2 }}>
-                This repository will be accessible to all members of{" "}
-                <strong>{organizationName}</strong>.
-              </Alert>
-            )}
-          </Box>
+        {selectedRepo && organizationName && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+            Members of <strong>{organizationName}</strong> will be able to use this repository.
+          </Typography>
         )}
       </DialogContent>
-      <DialogActions>
-        <Button onClick={handleBack}>Back</Button>
+      <DialogActions sx={{ px: 3, py: 2 }}>
+        <Button onClick={handleBack} sx={{ mr: "auto" }}>
+          Back
+        </Button>
         <Button onClick={onClose}>Cancel</Button>
         <Tooltip
           title={

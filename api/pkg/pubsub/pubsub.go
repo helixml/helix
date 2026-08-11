@@ -27,6 +27,20 @@ type PubSub interface {
 	OnConnectionStatus(handler ConnectionStatusHandler)
 }
 
+type DurablePubSub interface {
+	EnsurePersistentStream(ctx context.Context, name string, subjects []string) error
+	PublishDurable(ctx context.Context, stream, subject string, payload []byte) error
+	ConsumeDurable(ctx context.Context, stream, consumer, subject string, ackWait time.Duration, handler func(msg *Message) error) (Subscription, error)
+	ListDurableConsumers(ctx context.Context, stream string) ([]DurableConsumer, error)
+	DeleteDurableConsumer(ctx context.Context, stream, consumer string) error
+	PurgeDurableSubject(ctx context.Context, stream, subject string) error
+}
+
+type DurableConsumer struct {
+	Name    string
+	Subject string
+}
+
 type Message struct {
 	Type   string
 	Reply  string
@@ -39,6 +53,8 @@ type Message struct {
 type acker interface {
 	Ack() error
 	Nak() error
+	NakWithDelay(time.Duration) error
+	InProgress() error
 }
 
 // natsMsgWrapper is used to wrap nats msg to ensure
@@ -55,6 +71,14 @@ func (a *natsMsgWrapper) Nak() error {
 	return a.msg.Nak()
 }
 
+func (a *natsMsgWrapper) NakWithDelay(delay time.Duration) error {
+	return a.msg.NakWithDelay(delay)
+}
+
+func (a *natsMsgWrapper) InProgress() error {
+	return a.msg.InProgress()
+}
+
 // Ack acknowledges a message
 // This tells the server that the message was successfully processed and it can move on to the next message
 func (m *Message) Ack() error {
@@ -65,6 +89,14 @@ func (m *Message) Ack() error {
 // This tells the server to redeliver the message
 func (m *Message) Nak() error {
 	return m.msg.Nak()
+}
+
+func (m *Message) NakWithDelay(delay time.Duration) error {
+	return m.msg.NakWithDelay(delay)
+}
+
+func (m *Message) InProgress() error {
+	return m.msg.InProgress()
 }
 
 type Subscription interface {

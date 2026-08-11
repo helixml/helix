@@ -165,6 +165,7 @@ export const InteractionLiveStream: FC<{
             durationMs={effectiveDurationMs}
             activityStartedAt={activityStartedAt}
             onFilterDocument={onFilterDocument}
+            includeTaskChecklist
           />
         </div>
       )}

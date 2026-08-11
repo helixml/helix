@@ -905,6 +905,7 @@ const SpecTasksPage: FC = () => {
               projectOwner={project?.user}
               projectId={projectId || ""}
               organizationId={project?.organization_id}
+              organizationOwnerId={account.organizationTools.organization?.owner}
               accessGrants={accessGrants}
               inviteOpen={inviteOpen}
               onOpenInvite={handleOpenInvite}

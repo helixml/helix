@@ -42,13 +42,27 @@ func (s *ProjectRepositoryHandlersSuite) SetupTest() {
 	}
 }
 
+func TestProjectNameExists(t *testing.T) {
+	projects := []*types.Project{
+		{Name: "Existing Project"},
+		{Name: "Another Project"},
+	}
+
+	if !projectNameExists(projects, " existing project ") {
+		t.Fatal("expected case-insensitive trimmed name to conflict")
+	}
+	if projectNameExists(projects, "New Project") {
+		t.Fatal("expected unique project name not to conflict")
+	}
+}
+
 // makeProject returns a personal project owned by the test user.
 func (s *ProjectRepositoryHandlersSuite) makeProject(id, defaultRepoID string) *types.Project {
 	return &types.Project{
-		ID:            id,
-		UserID:        s.userID,
+		ID:             id,
+		UserID:         s.userID,
 		OrganizationID: "",
-		DefaultRepoID: defaultRepoID,
+		DefaultRepoID:  defaultRepoID,
 	}
 }
 

@@ -62,6 +62,11 @@ interface CodingAgentFormProps {
   agentNameLabel?: string
   agentNameHelperText?: string
   showClaudeCodeOption?: boolean
+  showCredentialSelection?: boolean
+  showModelSelection?: boolean
+  showAgentName?: boolean
+  autoSelectRuntime?: boolean
+  deferModelSelection?: boolean
   sx?: SxProps<Theme>
   labelSx?: SxProps<Theme>
   captionSx?: SxProps<Theme>
@@ -105,6 +110,11 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   agentNameLabel = defaultAgentNameLabel,
   agentNameHelperText = defaultAgentNameHelper,
   showClaudeCodeOption = true,
+  showCredentialSelection = true,
+  showModelSelection = true,
+  showAgentName = true,
+  autoSelectRuntime = true,
+  deferModelSelection = false,
   sx,
   labelSx,
   captionSx,
@@ -132,7 +142,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   // kept local because the create-form parents don't round-trip extra value fields.
   const [claudeSubscriptionModel, setClaudeSubscriptionModel] = useState(DEFAULT_CLAUDE_SUBSCRIPTION_MODEL)
   const [codexSubscriptionModel, setCodexSubscriptionModel] = useState(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
-  const { hasAnthropicProvider, hasClaudeSubscription, hasCodexSubscription } = useCodingAgentProviderState(value, onChange)
+  const { hasAnthropicProvider, hasClaudeSubscription, hasCodexSubscription } = useCodingAgentProviderState(value, onChange, autoSelectRuntime)
   const isSubscriptionRuntime = (value.codeAgentRuntime === 'claude_code' || value.codeAgentRuntime === 'codex_cli') && value.claudeCodeMode === 'subscription'
   const showModelPicker = !isSubscriptionRuntime
   const isClaudeCodeSubscription = value.codeAgentRuntime === 'claude_code' && value.claudeCodeMode === 'subscription'
@@ -143,7 +153,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
       return null
     }
 
-    if (!isSubscriptionRuntime && (!value.selectedModel || !value.selectedProvider)) {
+    if (!deferModelSelection && !isSubscriptionRuntime && (!value.selectedModel || !value.selectedProvider)) {
       setCreateError('Please select both provider and model')
       return null
     }
@@ -153,7 +163,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
       : isSubscriptionRuntime ? '' : (value.selectedModel || '')
     const providerToUse = isSubscriptionRuntime ? '' : (value.selectedProvider || '')
 
-    if (!isSubscriptionRuntime && (!modelToUse || !providerToUse)) {
+    if (!deferModelSelection && !isSubscriptionRuntime && (!modelToUse || !providerToUse)) {
       setCreateError('Please select both provider and model')
       return null
     }
@@ -169,6 +179,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         agentType: AGENT_TYPE_ZED_EXTERNAL,
         codeAgentRuntime: value.codeAgentRuntime,
         codeAgentCredentialType: value.claudeCodeMode === 'subscription' ? 'subscription' : 'api_key',
+        deferModelSelection: deferModelSelection && !isSubscriptionRuntime,
         claudeSubscriptionModel: isClaudeCodeSubscription ? claudeSubscriptionModel : undefined,
         provider: providerToUse,
         model: modelToUse,
@@ -208,6 +219,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
     apps,
     createAgentDescription,
     createAgentOrganizationId,
+    deferModelSelection,
     isClaudeCodeSubscription,
     claudeSubscriptionModel,
     onAgentCreated,
@@ -218,7 +230,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
     value.selectedModel,
     value.selectedProvider,
   ])
-  const canCreateAgent = !!value.agentName.trim() && (isSubscriptionRuntime || (!!value.selectedModel && !!value.selectedProvider))
+  const canCreateAgent = !!value.agentName.trim() && (deferModelSelection || isSubscriptionRuntime || (!!value.selectedModel && !!value.selectedProvider))
   const createButtonDisabled = disabled || isCreating || !canCreateAgent
 
   return (
@@ -233,9 +245,16 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         <Select
           value={value.codeAgentRuntime}
           onChange={(event) => {
+            const nextRuntime = event.target.value as CodeAgentRuntime
+            const nextMode = nextRuntime === 'claude_code'
+              ? hasClaudeSubscription ? 'subscription' : 'api_key'
+              : nextRuntime === 'codex_cli'
+                ? hasCodexSubscription ? 'subscription' : 'api_key'
+                : 'api_key'
             onChange({
               ...value,
-              codeAgentRuntime: event.target.value as CodeAgentRuntime,
+              codeAgentRuntime: nextRuntime,
+              claudeCodeMode: nextMode,
             })
           }}
           disabled={disabled}
@@ -310,7 +329,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         </Select>
       </FormControl>
 
-      {value.codeAgentRuntime === 'claude_code' && (
+      {showCredentialSelection && value.codeAgentRuntime === 'claude_code' && (
         <Box sx={{ p: 1.5, mb: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider', ...claudeCredentialsBoxSx }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, ...labelSx }}>
             Credentials
@@ -381,7 +400,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         </Box>
       )}
 
-      {value.codeAgentRuntime === 'codex_cli' && (
+      {showCredentialSelection && value.codeAgentRuntime === 'codex_cli' && (
         <Box sx={{ p: 1.5, mb: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider', ...claudeCredentialsBoxSx }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>Credentials</Typography>
           <RadioGroup value={value.claudeCodeMode} onChange={(event) => onChange({ ...value, claudeCodeMode: event.target.value as ClaudeCodeMode, selectedProvider: '', selectedModel: '' })}>
@@ -413,7 +432,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         </Box>
       )}
 
-      {showModelPicker && (
+      {showModelSelection && showModelPicker && (
         <>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1, ...labelSx }}>
             {modelLabel}
@@ -441,25 +460,29 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         </>
       )}
 
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1, ...labelSx }}>
-        {agentNameLabel}
-      </Typography>
-      <TextField
-        value={value.agentName}
-        onChange={(event) => {
-          onChange({
-            ...value,
-            agentName: event.target.value,
-          })
-        }}
-        fullWidth
-        size="small"
-        disabled={disabled}
-        helperText={agentNameHelperText}
-        InputProps={{ sx: textFieldInputSx }}
-        InputLabelProps={{ sx: textFieldLabelSx }}
-        FormHelperTextProps={{ sx: textFieldHelperSx }}
-      />
+      {showAgentName && (
+        <>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1, ...labelSx }}>
+            {agentNameLabel}
+          </Typography>
+          <TextField
+            value={value.agentName}
+            onChange={(event) => {
+              onChange({
+                ...value,
+                agentName: event.target.value,
+              })
+            }}
+            fullWidth
+            size="small"
+            disabled={disabled}
+            helperText={agentNameHelperText}
+            InputProps={{ sx: textFieldInputSx }}
+            InputLabelProps={{ sx: textFieldLabelSx }}
+            FormHelperTextProps={{ sx: textFieldHelperSx }}
+          />
+        </>
+      )}
       {showCreateButton && (
         <Box sx={{ mt: 2 }}>
           <Button

@@ -36,6 +36,7 @@ var (
 	ErrNoAPIKeyFound           = errors.New("no API key found")
 	ErrNoUserIDFound           = errors.New("no user ID found")
 	ErrAppAPIKeyPathNotAllowed = errors.New("path not allowed for app API keys, use your personal account key from your /account page instead")
+	ErrEmbedKeyNotAllowed      = errors.New("this embed key is scoped to a single task and may not access this resource")
 	// ErrHelixTokenWithOIDC is returned when a Helix-issued JWT is used while OIDC authentication
 	// is configured. This can happen when a user has stale cookies from when the server was using
 	// regular auth. The user needs to clear their cookies and log in again via OIDC.
@@ -217,6 +218,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 
 		user.Token = token
 		user.TokenType = types.TokenTypeAPIKey
+		user.APIKeyType = apiKey.Type
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
 		user.Admin = auth.isAdminWithContext(ctx, user.ID)
@@ -387,6 +389,21 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
+		// Embed keys live in an untrusted browser, so they are restricted to one
+		// spec task's read surface. Fail closed.
+		if user.APIKeyType == types.APIkeytypeEmbed && !embedKeyAllows(user, r) {
+			// Some inventory endpoints are required by the embed page but must not
+			// show a visitor real data. Serve an empty success rather than a 403,
+			// which breaks the page without making anything safer.
+			if body, ok := embedNeuteredResponse(r); ok {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+				return
+			}
+			http.Error(w, ErrEmbedKeyNotAllowed.Error(), http.StatusForbidden)
+			return
+		}
+
 		auth.touchUserLastSeen(user)
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 		next.ServeHTTP(w, r)
@@ -425,6 +442,21 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 				http.Error(w, ErrAppAPIKeyPathNotAllowed.Error(), http.StatusForbidden)
 				return
 			}
+		}
+
+		// Embed keys live in an untrusted browser, so they are restricted to one
+		// spec task's read surface. Fail closed.
+		if user.APIKeyType == types.APIkeytypeEmbed && !embedKeyAllows(user, r) {
+			// Some inventory endpoints are required by the embed page but must not
+			// show a visitor real data. Serve an empty success rather than a 403,
+			// which breaks the page without making anything safer.
+			if body, ok := embedNeuteredResponse(r); ok {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+				return
+			}
+			http.Error(w, ErrEmbedKeyNotAllowed.Error(), http.StatusForbidden)
+			return
 		}
 
 		auth.touchUserLastSeen(user)
