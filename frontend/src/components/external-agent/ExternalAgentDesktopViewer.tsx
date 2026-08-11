@@ -830,6 +830,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 onImagePaste={handleImagePaste}
                 onCancel={handleCancelTurn}
                 isAgentBusy={isAgentBusy}
+                enableSandboxCompletions
               />
             </Box>
           </Box>

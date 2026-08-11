@@ -102,6 +102,20 @@ func (apiServer *HelixAPIServer) getWorkspaceFile(w http.ResponseWriter, req *ht
 	apiServer.proxyAuthorizedWorkspaceGET(w, req, "/workspace/file", &types.WorkspaceFileResponse{})
 }
 
+// getWorkspaceSkills godoc
+// @Summary List workspace skills
+// @Description Returns agent skills installed for the connected external-agent workspace and sandbox user.
+// @Tags ExternalAgents
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Param workspace query string false "Workspace name"
+// @Success 200 {object} types.WorkspaceSkillsResponse
+// @Router /api/v1/external-agents/{sessionID}/workspace-skills [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getWorkspaceSkills(w http.ResponseWriter, req *http.Request) {
+	apiServer.proxyAuthorizedWorkspaceGET(w, req, "/workspace/skills", &types.WorkspaceSkillsResponse{})
+}
+
 func (apiServer *HelixAPIServer) proxyAuthorizedWorkspaceGET(w http.ResponseWriter, req *http.Request, desktopPath string, response interface{}) {
 	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req)
 	if !ok {

@@ -117,4 +117,5 @@ describe('Markdown chat spacing', () => {
     expect(roots[1]).not.toHaveAttribute('data-chat-markdown-visible')
     expect(roots[1]).not.toHaveStyle({ marginTop: '14px' })
   })
+
 })

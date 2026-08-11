@@ -453,6 +453,47 @@ func TestWorkspaceFilesListsTrackedAndUntrackedOnly(t *testing.T) {
 	assert.Equal(t, workspace, response.Workspace)
 }
 
+func TestListWorkspaceSkillsUsesProjectPrecedenceAndFollowsSymlinks(t *testing.T) {
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+
+	writeSkill := func(root, directory, name, description string) string {
+		t.Helper()
+		skillDir := filepath.Join(root, directory)
+		require.NoError(t, os.MkdirAll(skillDir, 0o755))
+		content := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n# %s\n", name, description, name)
+		require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644))
+		return skillDir
+	}
+
+	writeSkill(filepath.Join(homeDir, ".agents", "skills"), "review", "review", "Personal review")
+	writeSkill(filepath.Join(workDir, ".agents", "skills"), "review", "review", "Project review")
+	target := writeSkill(filepath.Join(homeDir, "skill-sources"), "deploy", "deploy", "Deploy safely")
+	personalSkills := filepath.Join(homeDir, ".codex", "skills")
+	require.NoError(t, os.MkdirAll(personalSkills, 0o755))
+	require.NoError(t, os.Symlink(target, filepath.Join(personalSkills, "deploy")))
+
+	skills, err := listWorkspaceSkills(workDir, homeDir)
+	require.NoError(t, err)
+	require.Len(t, skills, 2)
+	assert.Equal(t, "deploy", skills[0].Name)
+	assert.Equal(t, "personal", skills[0].Scope)
+	assert.Equal(t, "review", skills[1].Name)
+	assert.Equal(t, "Project review", skills[1].Description)
+	assert.Equal(t, "project", skills[1].Scope)
+}
+
+func TestReadWorkspaceSkillRejectsInvalidFrontmatter(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "invalid")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Missing frontmatter\n"), 0o644))
+
+	_, ok, err := readWorkspaceSkill(workspaceSkillRoot{path: root, scope: "project"}, filepath.Join(skillDir, "SKILL.md"))
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
 func TestResolveReviewWorkspaceFallsBackAndRejectsUnknownNames(t *testing.T) {
 	if _, _, err := resolveReviewWorkspace("definitely-not-a-workspace"); err == nil {
 		t.Fatal("an unknown workspace name must not resolve")

@@ -43,6 +43,8 @@ export const workspaceReviewKeys = {
     ] as const,
   files: (sessionId: string, workspace: string | undefined) =>
     [...workspaceReviewKeys.all(sessionId), "files", workspace] as const,
+  skills: (sessionId: string, workspace: string | undefined) =>
+    [...workspaceReviewKeys.all(sessionId), "skills", workspace] as const,
   file: (sessionId: string, workspace: string | undefined, path: string) =>
     [...workspaceReviewKeys.all(sessionId), "file", workspace, path] as const,
   turn: (sessionId: string, interactionId: string, ignoreWhitespace: boolean) =>
@@ -109,6 +111,7 @@ export function useWorkspaceReview(
 export function useWorkspaceFiles(
   sessionId: string | undefined,
   workspace: string | undefined,
+  enabled = true,
 ) {
   const api = useApi();
   return useQuery({
@@ -119,8 +122,29 @@ export function useWorkspaceFiles(
         .v1ExternalAgentsWorkspaceFilesDetail(sessionId!, { workspace });
       return response.data;
     },
-    enabled: !!sessionId,
+    enabled: !!sessionId && enabled,
     staleTime: 10_000,
+    refetchOnWindowFocus: false,
+    retry: desktopQueryRetry,
+  });
+}
+
+export function useWorkspaceSkills(
+  sessionId: string | undefined,
+  workspace: string | undefined,
+  enabled = true,
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: workspaceReviewKeys.skills(sessionId || "", workspace),
+    queryFn: async () => {
+      const response = await api
+        .getApiClient()
+        .v1ExternalAgentsWorkspaceSkillsDetail(sessionId!, { workspace });
+      return response.data;
+    },
+    enabled: !!sessionId && enabled,
+    staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: desktopQueryRetry,
   });

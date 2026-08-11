@@ -163,6 +163,7 @@ const AgentChat: FC<AgentChatProps> = ({
               leadingActions={leadingActions}
               placeholder={placeholder}
               disabled={disabled}
+              enableSandboxCompletions
             />
           </Box>
           {footerContent && (

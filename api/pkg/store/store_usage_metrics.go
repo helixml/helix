@@ -302,6 +302,9 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 	case AggregationLevel5Min:
 		dateExpr = "date_trunc('hour', usage_metrics.created) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM usage_metrics.created) / 5) as date"
 		groupBy = "date_trunc('hour', usage_metrics.created) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM usage_metrics.created) / 5)"
+	case AggregationLevel30Min:
+		dateExpr = "date_trunc('hour', usage_metrics.created) + INTERVAL '30 min' * FLOOR(EXTRACT(MINUTE FROM usage_metrics.created) / 30) as date"
+		groupBy = "date_trunc('hour', usage_metrics.created) + INTERVAL '30 min' * FLOOR(EXTRACT(MINUTE FROM usage_metrics.created) / 30)"
 	case AggregationLevelHourly:
 		dateExpr = "date_trunc('hour', usage_metrics.created) as date"
 		groupBy = "date_trunc('hour', usage_metrics.created)"
@@ -371,6 +374,8 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 	switch aggregationLevel {
 	case AggregationLevel5Min:
 		completeMetrics = fillInMissing5Minutes(metrics, q.From, q.To)
+	case AggregationLevel30Min:
+		completeMetrics = fillInMissing30Minutes(metrics, q.From, q.To)
 	case AggregationLevelHourly:
 		completeMetrics = fillInMissingHours(metrics, q.From, q.To)
 	default:
@@ -1308,92 +1313,37 @@ func fillInMissingDates(metrics []*types.AggregatedUsageMetric, from time.Time, 
 	return completeMetrics
 }
 
-type metricHour struct {
-	Year  int
-	Month int
-	Day   int
-	Hour  int
-}
-
 func fillInMissingHours(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
-	var completeMetrics []*types.AggregatedUsageMetric
-
-	metricsMap := make(map[metricHour]*types.AggregatedUsageMetric)
-	for _, metric := range metrics {
-		hour := metricHour{
-			Year:  metric.Date.Year(),
-			Month: int(metric.Date.Month()),
-			Day:   metric.Date.Day(),
-			Hour:  metric.Date.Hour(),
-		}
-		metricsMap[hour] = metric
-	}
-
-	currentHour := from.Truncate(time.Hour)
-	endHour := to.Truncate(time.Hour)
-	for !currentHour.After(endHour) {
-		mHour := metricHour{
-			Year:  currentHour.Year(),
-			Month: int(currentHour.Month()),
-			Day:   currentHour.Day(),
-			Hour:  currentHour.Hour(),
-		}
-
-		if metric, exists := metricsMap[mHour]; exists {
-			completeMetrics = append(completeMetrics, metric)
-		} else {
-			completeMetrics = append(completeMetrics, &types.AggregatedUsageMetric{
-				Date: currentHour,
-			})
-		}
-		currentHour = currentHour.Add(time.Hour)
-	}
-
-	return completeMetrics
+	return fillInMissingIntervals(metrics, from, to, time.Hour)
 }
 
-type metric5Min struct {
-	Year   int
-	Month  int
-	Day    int
-	Hour   int
-	Minute int
+func fillInMissing30Minutes(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
+	return fillInMissingIntervals(metrics, from, to, 30*time.Minute)
 }
 
 func fillInMissing5Minutes(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
+	return fillInMissingIntervals(metrics, from, to, 5*time.Minute)
+}
+
+func fillInMissingIntervals(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time, interval time.Duration) []*types.AggregatedUsageMetric {
 	var completeMetrics []*types.AggregatedUsageMetric
 
-	metricsMap := make(map[metric5Min]*types.AggregatedUsageMetric)
+	metricsMap := make(map[int64]*types.AggregatedUsageMetric)
 	for _, metric := range metrics {
-		m5 := metric5Min{
-			Year:   metric.Date.Year(),
-			Month:  int(metric.Date.Month()),
-			Day:    metric.Date.Day(),
-			Hour:   metric.Date.Hour(),
-			Minute: (metric.Date.Minute() / 5) * 5,
-		}
-		metricsMap[m5] = metric
+		metricsMap[metric.Date.Truncate(interval).UnixNano()] = metric
 	}
 
-	current := from.Truncate(5 * time.Minute)
-	end := to.Truncate(5 * time.Minute)
+	current := from.Truncate(interval)
+	end := to.Truncate(interval)
 	for !current.After(end) {
-		m5 := metric5Min{
-			Year:   current.Year(),
-			Month:  int(current.Month()),
-			Day:    current.Day(),
-			Hour:   current.Hour(),
-			Minute: current.Minute(),
-		}
-
-		if metric, exists := metricsMap[m5]; exists {
+		if metric, exists := metricsMap[current.UnixNano()]; exists {
 			completeMetrics = append(completeMetrics, metric)
 		} else {
 			completeMetrics = append(completeMetrics, &types.AggregatedUsageMetric{
 				Date: current,
 			})
 		}
-		current = current.Add(5 * time.Minute)
+		current = current.Add(interval)
 	}
 
 	return completeMetrics

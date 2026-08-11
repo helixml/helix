@@ -125,10 +125,15 @@ func serializeAgentResponse(in *types.Interaction) string {
 	}
 
 	var b strings.Builder
-	for i, e := range entries {
-		if i > 0 {
+	wroteEntry := false
+	for _, e := range entries {
+		if e.Type == "plan" {
+			continue
+		}
+		if wroteEntry {
 			b.WriteString("\n\n")
 		}
+		wroteEntry = true
 		switch e.Type {
 		case "tool_call":
 			name := e.ToolName

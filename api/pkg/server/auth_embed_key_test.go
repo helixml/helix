@@ -107,6 +107,7 @@ func TestEmbedKeyCannotMutateOrDriveDesktop(t *testing.T) {
 		{"POST", "/api/v1/external-agents/ses_A/clipboard"},
 		{"GET", "/api/v1/sessions/ses_A/terminal"},
 		{"GET", "/api/v1/external-agents/ses_A/workspace-files"},
+		{"GET", "/api/v1/external-agents/ses_A/workspace-skills"},
 	}
 	for _, c := range denied {
 		if embedKeyAllows(u, req(c.method, c.path)) {

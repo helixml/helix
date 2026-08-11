@@ -165,6 +165,17 @@ func TestSerializeAgentResponse_ToolCallWithoutStatus(t *testing.T) {
 	assert.Contains(t, got, "cmd")
 }
 
+func TestSerializeAgentResponse_OmitsPlanSnapshots(t *testing.T) {
+	entries := []wsprotocol.ResponseEntry{
+		{Type: "text", Content: "Starting", MessageID: "1"},
+		{Type: "plan", Content: `{"steps":[{"step":"Build","status":"inProgress"}]}`, MessageID: "plan"},
+		{Type: "text", Content: "Done", MessageID: "2"},
+	}
+	in := &types.Interaction{ResponseEntries: mustEntries(t, entries)}
+
+	assert.Equal(t, "Starting\n\nDone", serializeAgentResponse(in))
+}
+
 func TestMaybePrependTranscript_NoOpWhenThreadAlreadyExists(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	parent := newTestParentSession("user_a")

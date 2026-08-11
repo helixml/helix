@@ -3465,11 +3465,13 @@ definitions:
     - ""
     - api
     - app
+    - embed
     type: string
     x-enum-varnames:
     - APIkeytypeNone
     - APIkeytypeAPI
     - APIkeytypeApp
+    - APIkeytypeEmbed
   types.AccessGrant:
     properties:
       created_at:
@@ -5305,6 +5307,9 @@ definitions:
       just_do_it_mode:
         description: 'Optional: Skip spec planning, go straight to implementation'
         type: boolean
+      name:
+        description: Name is the task title. Empty means derive it from the prompt.
+        type: string
       priority:
         $ref: '#/definitions/types.SpecTaskPriority'
       project_id:
@@ -6357,7 +6362,8 @@ definitions:
       response_entries:
         description: |-
           ResponseEntries holds the structured response as an ordered list of typed entries.
-          Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+          Each entry is "text" (assistant prose), "tool_call" (tool invocation), or
+          "plan" (the latest structured plan snapshot),
           preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
           This is populated on completion alongside ResponseMessage (flat string, backward compat).
           The frontend uses this to render entries with the correct component in the correct order.
@@ -12324,6 +12330,13 @@ definitions:
         items:
           type: string
         type: array
+      api_key_type:
+        allOf:
+        - $ref: '#/definitions/types.APIKeyType'
+        description: |-
+          APIKeyType is the type of the API key this request authenticated with, when
+          it authenticated with one. Carried so the auth middleware can apply the
+          per-type restrictions (app keys: chat paths only; embed keys: one spec task).
       app_id:
         description: if the token is associated with an app
         type: string
@@ -12905,6 +12918,24 @@ definitions:
         type: integer
       truncated:
         type: boolean
+    type: object
+  types.WorkspaceSkillEntry:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+      scope:
+        type: string
+    type: object
+  types.WorkspaceSkillsResponse:
+    properties:
+      skills:
+        items:
+          $ref: '#/definitions/types.WorkspaceSkillEntry'
+        type: array
     type: object
   types.WorkspacesResponse:
     properties:
@@ -15820,6 +15851,32 @@ paths:
       security:
       - BearerAuth: []
       summary: Get the immutable diff for one interaction
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/workspace-skills:
+    get:
+      description: Returns agent skills installed for the connected external-agent
+        workspace and sandbox user.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Workspace name
+        in: query
+        name: workspace
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WorkspaceSkillsResponse'
+      security:
+      - BearerAuth: []
+      summary: List workspace skills
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/workspaces:
@@ -21103,6 +21160,10 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/system.HTTPError'
         "500":
           description: Internal Server Error
           schema:
@@ -22729,6 +22790,59 @@ paths:
       security:
       - BearerAuth: []
       summary: Get provider daily usage
+      tags:
+      - providers
+  /api/v1/provider-endpoints/{id}/throughput-usage:
+    get:
+      consumes:
+      - application/json
+      description: Get provider throughput aggregated into 30-minute or hourly buckets
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      - default: 30min
+        description: Aggregation level
+        enum:
+        - 30min
+        - hourly
+        in: query
+        name: aggregation_level
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get provider throughput usage
       tags:
       - providers
   /api/v1/provider-endpoints/{id}/users-daily-usage:

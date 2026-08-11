@@ -27,6 +27,8 @@ import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 import { getChatColors } from "./chatStyles";
 import MarkdownTable from "./MarkdownTable";
 import MarkdownCodeBlock from "./MarkdownCodeBlock";
+import ChangedFileIcon from "./ChangedFileIcon";
+import { parseWorkspaceFileReference } from "../common/workspaceFileReferences";
 
 export interface MessageProcessorOptions {
   session: TypesSession;
@@ -1153,6 +1155,13 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
         },
         a(props: any) {
           const { node, href, target, children, ...rest } = props;
+          const label = React.Children.toArray(children)
+            .filter((child): child is string | number => typeof child === "string" || typeof child === "number")
+            .join("");
+          const workspacePath = parseWorkspaceFileReference(href, label);
+          if (workspacePath) {
+            return <WorkspaceFileReference path={workspacePath} label={label} />;
+          }
           // Internal action links (filter mentions, doc-group links) use
           // href="#" and have JS click handlers — leave them alone. Same
           // for in-page anchors like [Top](#section).
@@ -1210,6 +1219,39 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
 );
 
 MemoizedMarkdownRenderer.displayName = "MemoizedMarkdownRenderer";
+
+const WorkspaceFileReference: FC<{ path: string; label: string }> = ({ path, label }) => {
+  const theme = useTheme();
+  const colors = getChatColors(theme);
+  return (
+    <Box
+      component="span"
+      title={path}
+      data-workspace-file-reference={path}
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.5,
+        maxWidth: "100%",
+        px: 0.625,
+        py: "1px",
+        border: `1px solid ${colors.inlineCodeBorder}`,
+        borderRadius: "5px",
+        bgcolor: colors.inlineCodeSurface,
+        color: colors.inlineCodeForeground,
+        fontFamily: APP_MONO_FONT_FAMILY,
+        fontSize: "0.75rem",
+        lineHeight: 1.5,
+        verticalAlign: "text-bottom",
+      }}
+    >
+      <ChangedFileIcon path={path} darkMode={theme.palette.mode === "dark"} size={13} />
+      <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {label}
+      </Box>
+    </Box>
+  );
+};
 
 function processBasicContent(text: string): string {
   // Implement basic processing logic here
