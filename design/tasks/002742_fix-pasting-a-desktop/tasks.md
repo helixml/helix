@@ -9,20 +9,20 @@
 
 ## Paste side (primary fix)
 
-- [~] Filter sentinel candidates out of `filesFromClipboard` in `frontend/src/components/common/chatAttachments.ts`
-- [ ] Add the comment in `RobustPromptInput.handlePaste` documenting the files-vs-text rule and why there is no blanket text-over-image preference
-- [ ] Replace the hand-rolled `items` loop in `InferenceTextField.handlePaste` with `filesFromClipboard(...)` + an `image/*` filter
-- [ ] Confirm the large-text-paste path in `RobustPromptInput` is still reached when the clipboard is text + sentinel
+- [x] Filter sentinel candidates out of `filesFromClipboard` in `frontend/src/components/common/chatAttachments.ts`
+- [x] Add the comment in `RobustPromptInput.handlePaste` documenting the files-vs-text rule and why there is no blanket text-over-image preference
+- [x] Replace the hand-rolled `items` loop in `InferenceTextField.handlePaste` with `filesFromClipboard(...)` + an `image/*` filter
+- [~] Confirm the large-text-paste path in `RobustPromptInput` is still reached when the clipboard is text + sentinel
 
 ## Copy side (stop the leak at source)
 
-- [ ] In `DesktopStreamViewer.tsx`, chain a best-effort `navigator.clipboard.writeText(d.data)` after the gesture-anchored `write()` resolves, only when the fetched clipboard is text
-- [ ] Swallow `writeText` failures locally so the toast and the existing write are unaffected
-- [ ] Leave the iframe / no-`ClipboardItem` fallback branch untouched
+- [x] In `DesktopStreamViewer.tsx`, chain a best-effort `navigator.clipboard.writeText(d.data)` after the gesture-anchored `write()` resolves, only when the fetched clipboard is text
+- [x] Swallow `writeText` failures locally so the toast and the existing write are unaffected
+- [x] Leave the iframe / no-`ClipboardItem` fallback branch untouched
 
 ## Tests
 
-- [ ] New `clipboardPlaceholder.test.ts`: sentinel base64 decodes to exactly 70 bytes and is a valid PNG signature
+- [~] New `clipboardPlaceholder.test.ts`: sentinel base64 decodes to exactly 70 bytes and is a valid PNG signature
 - [ ] `chatAttachments.test.ts`: `filesFromClipboard` drops a sentinel-sized `image/png`, keeps a real PNG, keeps non-image files
 - [ ] `RobustPromptInput.test.tsx`: text + sentinel PNG → text inserted, no attachment appears
 - [ ] `RobustPromptInput.test.tsx`: real pasted image → still attaches (no regression)
