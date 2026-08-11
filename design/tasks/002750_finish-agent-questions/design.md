@@ -210,6 +210,50 @@ pinned to the wrong commit indefinitely.
 - Use `http://localhost:8080` (local dev stack) for all testing — **never** `api:8080`,
   which is the outer production stack.
 
+## 4a. What the work actually turned up (findings, 2026-08-11)
+
+Recorded because none of these were visible from the brief, and all six cost real time.
+
+1. **The committed Rust did not compile.** `AsyncApp::update<R>(&self, f) -> R` is
+   *infallible* in this fork's gpui (`crates/gpui/src/app/async_context.rs:163`), but the
+   elicitation code matched on it as if it returned `Result` — 5 × E0308 in
+   `thread_service.rs` (the heartbeat's `match cx.update(...)`, and `Ok(Ok(status))` on the
+   respond task). The previous attempt never built Zed. Fixed in `749368dda5`.
+   **This also explains why the sandbox had no stack**: the session startup script died at
+   "Step 2/4: Building Zed IDE", so nothing was ever started.
+2. **`memorystore` had no elicitation methods** (Gap 3, as predicted) — added.
+3. **The e2e was already red before Phase 18 existed**, and not because of memorystore.
+   Phase 11 sets `session.Metadata.SpecTaskID` but never created the `SpecTask` row;
+   `codeAgentConfigSnapshot` (new, from the main merge) hard-fails on the missing task, so
+   **phases 11–17 all failed**. Fixed by seeding the task with `store.SeedSpecTask`.
+   Lesson: a session carrying a `SpecTaskID` whose row does not exist is a state
+   production never reaches, so the hard failure is correct and the *test* was wrong.
+4. **One synthetic question cannot test both halves of the cycle.** Zed correctly returns
+   `elicitation_response_ack{not_found}` for a question it never held, and Helix's ack
+   handler correctly reconciles that to `cancelled(agent_no_longer_holds)`. Cancelled is
+   terminal, so the follow-up `elicitation_resolved(accepted)` correctly affected zero
+   rows. Phase 18 was therefore split into **18a (egress + real ack round trip)** and
+   **18b (resolution)**, with two separate elicitation ids.
+5. **A real transcript-isolation bug, found by the e2e and not by any unit test.**
+   `writeElicitationEntry` took the session-keyed streaming context's accumulator, but the
+   target interaction is resolved independently. When the context's `interaction` had
+   advanced while its accumulator had not, the question was persisted onto the newer
+   interaction **carrying the previous turn's entries** — the e2e's response-entries
+   isolation check caught it as `ISOLATION VIOLATION ... message_id "11" belongs to
+   earlier interaction`. Fixed by rebuilding from the target interaction's own entries
+   when `sctx.interactionID` disagrees, plus keeping `sctx.interactionID` in step.
+   Regression test: `TestRequested_DoesNotLeakAnotherInteractionsEntries` (verified to
+   fail without the fix).
+6. **`elicitation` had to be added to the e2e's entry-type allowlist**, and the frontend's
+   `elicitationService.ts` imported a **default export that the generated `api.ts` does not
+   have** — the generated client is only reachable via the `useApi()` hook, so the service
+   now takes an `Api` client parameter and `ElicitationCardContainer` supplies it.
+
+Process notes that paid off: `./stack update_openapi` needs `$(go env GOPATH)/bin` on
+`PATH` for `swag`, and npm's cache needed `sudo chown -R 1000:1000 ~/.npm`. Both repos'
+feature branches moved under me mid-task (another agent pushed a `ZED_COMMIT` pin and
+merged `main`), so fetch-and-rebase before every push.
+
 ## 5. Notes for future agents cloning this spec
 
 - The `entry_index` == accumulator `message_id` equivalence is *statically* proven
