@@ -939,8 +939,11 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           </Typography>
         )}
       </Box>
+    </Box>
+  );
 
-      {/* Repositories */}
+  const renderRepositoriesTab = () => (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <Box>
         <Box
           sx={{
@@ -988,7 +991,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
             sx={{ textAlign: "center", py: 4 }}
           >
             No code repositories attached to this project yet. Click
-            "Attach Repository" to add one.
+            "Attach" to add one.
           </Typography>
         ) : (
           <ProjectRepositoriesList
@@ -2062,6 +2065,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     <>
       <Container maxWidth="lg" sx={{ px: 2 }}>
         {tab ==="general" && renderGeneralTab()}
+        {tab ==="repositories" && renderRepositoriesTab()}
         {tab ==="sandbox" && renderSandboxTab()}
         {tab ==="web-service" && <WebServiceTab projectId={projectId} />}
         {tab ==="agents" && renderAgentsTab()}
