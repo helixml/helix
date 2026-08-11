@@ -1,19 +1,19 @@
 function workspacePathBasename(path: string): string {
-  const normalized = path.replaceAll('\\', '/')
+  const normalized = path.replace(/\\/g, '/')
   return normalized.slice(normalized.lastIndexOf('/') + 1)
 }
 
 function escapeMarkdownLinkLabel(label: string): string {
-  return label.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]')
+  return label.replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]')
 }
 
 function encodeMarkdownLinkDestination(path: string): string {
   return encodeURI(path)
-    .replaceAll('(', '%28')
-    .replaceAll(')', '%29')
-    .replaceAll('#', '%23')
-    .replaceAll('?', '%3F')
-    .replaceAll('\\', '%5C')
+    .replace(/\(/g, '%28')
+    .replace(/\)/g, '%29')
+    .replace(/#/g, '%23')
+    .replace(/\?/g, '%3F')
+    .replace(/\\/g, '%5C')
 }
 
 export function serializeWorkspaceFileReference(path: string): string {
@@ -26,7 +26,7 @@ export function parseWorkspaceFileReference(href: string | undefined, label: str
   }
   let path: string
   try {
-    path = decodeURI(href).replaceAll('\\', '/')
+    path = decodeURI(href).replace(/\\/g, '/')
   } catch {
     return null
   }

@@ -202,7 +202,7 @@ export const getToolCallPresentation = (toolName: string, body: string) => {
 };
 
 const stripToolCallEnvelope = (body: string) => body
-  .replace(/^\*\*Tool Call:.*?\*\*\s*\nStatus:\s*\S+\s*/s, "")
+  .replace(/^\*\*Tool Call:[\s\S]*?\*\*\s*\nStatus:\s*\S+\s*/, "")
   .trim();
 
 const unwrapCodeFence = (value: string) => {
