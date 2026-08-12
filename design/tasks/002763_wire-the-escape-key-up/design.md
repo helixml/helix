@@ -125,7 +125,47 @@ Why here and why this call:
      regression);
   4. **test the next operation after the cancel** — send a new message and confirm it runs.
 
-## 5. Gotchas for whoever implements this
+## 5. Implementation notes (filled in during implementation)
+
+Files changed in `helix`:
+
+| File | Change |
+|---|---|
+| `frontend/src/components/common/RobustPromptInput.tsx` | Escape branch in `handleKeyDown` (after `composerTrigger`, before `Enter`); `isAgentBusy`/`isCancelling`/`onCancel` added to the dep array; Stop tooltip → `Stop generation (Esc)`. |
+| `frontend/src/pages/SpecTaskDetailPage.tsx` | `if (e.defaultPrevented) return` at the top of the window `keydown` handler. |
+| `frontend/src/pages/SpecTasksPage.tsx` | Same guard on its Escape handler — **not in the original plan**, see below. |
+| `api/pkg/server/session_handlers.go` | `nudgeSessionQueue(sessionID)` in `cancelSessionTurn` when status != `noop`. |
+| `frontend/src/components/common/RobustPromptInput.test.tsx` | 3 tests + a `createEscapeEvent()` helper. |
+| `frontend/src/components/common/RobustPromptInput.sandbox.test.tsx` | 1 test: completion popup consumes the first Escape. |
+| `api/pkg/server/prompt_history_handlers_test.go` | 2 tests on `cancelSessionTurn` (drain / no drain). |
+
+Discovered during implementation:
+
+- **`SpecTasksPage` needed the same guard.** It renders `TabsView` (line ~1269), which
+  contains an `AgentChat` composer, *and* it has its own window-level Escape handler for the
+  create/chat panels. Without the guard, Escape in the workspace-tab chat would cancel the
+  turn and close the panel. Its other handler (Enter) already filters on
+  `target.tagName === "TEXTAREA"`, so it needed no change.
+- **Testing `preventDefault` needs a real native event.** `fireEvent.keyDown(el, {...})` gives
+  no handle on the dispatched event, so the tests build
+  `new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })` and pass
+  it to `fireEvent(el, event)`, then assert `event.defaultPrevented`. That is the property the
+  page-level guards actually key off, so it is worth asserting directly.
+- **The popup-precedence test lives in `RobustPromptInput.sandbox.test.tsx`, not the main test
+  file.** The main file mocks `usePromptHistory` with a constant `draft: ''`, so no amount of
+  typing can open the completion popup (`composerTrigger` is derived from `draft` + cursor +
+  focus). The sandbox test file mocks the hook with real `useState`, which is why the trigger
+  can fire there.
+- **Backend test needed one shared `*types.Interaction` pointer.** `cancelActiveTurn` flips it
+  to `Interrupted` and the drain then re-reads it via `ListInteractions`; returning the same
+  pointer from both expectations reproduces production ordering (state durable before ack) and
+  lets the drain see an idle session. The assertion is that `GetNextPendingPrompt` is reached
+  (signalled over a channel), which is the moment a queued prompt gets claimed.
+- **Go tests need CGo/gcc** (tree-sitter), per `CLAUDE.md`:
+  `sudo apt-get install -y gcc libc6-dev` then `CGO_ENABLED=1 go test ...`. The
+  `frontend/node_modules` directory was also absent in this sandbox — `yarn install` first.
+
+## 6. Gotchas for whoever implements this
 
 - `SpecTaskDetailPage`'s Escape listener is on `window`, not the React tree — you must add the
   `defaultPrevented` guard there or you get double handling.
