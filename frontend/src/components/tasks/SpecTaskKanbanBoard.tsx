@@ -39,7 +39,6 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getCSRFToken } from "../../utils/csrf";
 import {
-  Add as AddIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Source as GitIcon,
@@ -66,6 +65,7 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   Celebration as CelebrationIcon,
+  KeyboardReturn as KeyboardReturnIcon,
 } from "@mui/icons-material";
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from "@mui/material/styles";
@@ -105,6 +105,7 @@ import VCSConnectionLozenges from "./VCSConnectionLozenges";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
 import { useSampleTypes } from "../../hooks/useSampleTypes";
 import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
+import { getNewTaskShortcutLabel } from "./specTaskKeyboardShortcuts";
 
 // SpecTask types and statuses
 type SpecTaskPhase =
@@ -684,6 +685,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const newTaskShortcutLabel = getNewTaskShortcutLabel();
 
   // Open the matching repository provider when planning requires OAuth.
   const { startOAuthFlow } = useOAuthFlow();
@@ -897,64 +899,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Available sample types for planning
   const [sampleTypes, setSampleTypes] = useState<any[]>([]);
-
-  // Keyboard shortcut for creating new task (Enter key)
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      // Only trigger if not in an interactive element
-      const target = e.target as HTMLElement;
-
-      // Skip if in form elements
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT"
-      ) {
-        return;
-      }
-
-      // Skip if in iframe (video stream)
-      if (target.tagName === "IFRAME") {
-        return;
-      }
-
-      // Skip if element is contentEditable
-      if (target.isContentEditable) {
-        return;
-      }
-
-      // Skip if inside an element with role that expects keyboard input
-      const role = target.getAttribute("role");
-      if (role === "textbox" || role === "searchbox" || role === "combobox") {
-        return;
-      }
-
-      // Skip if inside DesktopStreamViewer or any video container
-      if (
-        target.closest("[data-video-container]") ||
-        target.closest(".desktop-stream-viewer")
-      ) {
-        return;
-      }
-
-      // Skip if inside prompt input area
-      if (
-        target.closest("[data-prompt-input]") ||
-        target.closest(".prompt-input-container")
-      ) {
-        return;
-      }
-
-      if (e.key === "Enter") {
-        if (onCreateTask) {
-          onCreateTask();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [onCreateTask]);
 
   // WIP limits for kanban columns (use prop values or defaults)
   const WIP_LIMITS = {
@@ -1755,14 +1699,43 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             </Tooltip>
           </Box>
           {onCreateTask && (
-            <Tooltip title="Press Enter">
+            <Tooltip title={`New task (${newTaskShortcutLabel})`}>
               <Button
                 variant="contained"
                 color="secondary"
-                startIcon={<AddIcon />}
                 onClick={onCreateTask}
+                aria-keyshortcuts={
+                  navigator.platform.includes("Mac")
+                    ? "Meta+Enter"
+                    : "Control+Enter"
+                }
               >
                 New Task
+                <Box
+                  component="span"
+                  aria-hidden="true"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 0.5,
+                    ml: 1,
+                    px: 0.75,
+                    height: 20,
+                    borderRadius: 0.75,
+                    border: "1px solid rgba(0, 0, 0, 0.18)",
+                    bgcolor: "rgba(0, 0, 0, 0.1)",
+                    fontSize: "0.7rem",
+                    fontWeight: 600,
+                    lineHeight: 1,
+                    letterSpacing: 0,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Box component="span">
+                    {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
+                  </Box>
+                  <KeyboardReturnIcon sx={{ fontSize: 14 }} />
+                </Box>
               </Button>
             </Tooltip>
           )}

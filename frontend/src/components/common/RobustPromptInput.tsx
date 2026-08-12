@@ -21,6 +21,7 @@ import {
   alpha,
   Collapse,
   LinearProgress,
+  Chip,
 } from '@mui/material'
 import {
   SendHorizontal,
@@ -37,6 +38,7 @@ import {
   Paperclip,
   Camera,
   Square,
+  MessageCircle,
 } from 'lucide-react'
 import {
   DndContext,
@@ -78,9 +80,14 @@ import {
   PendingChatAttachment,
   validateChatAttachmentFiles,
 } from './chatAttachments'
+import {
+  appendWorkspaceReviewComments,
+  type WorkspaceReviewComment,
+} from '../workspace-inspector/workspaceReviewComments'
 
 // Threshold for converting large text paste to file attachment (10KB)
 const LARGE_TEXT_THRESHOLD = 10 * 1024
+const NO_REVIEW_COMMENTS: readonly WorkspaceReviewComment[] = []
 
 interface RobustPromptInputProps {
   sessionId: string
@@ -129,6 +136,9 @@ interface RobustPromptInputProps {
   // viewer shows the spinner without waiting for the next 3s poll).
   // Must be cheap and synchronous — runs in the user's click handler.
   onWillSend?: () => void
+  reviewComments?: readonly WorkspaceReviewComment[]
+  onRemoveReviewComment?: (commentId: string) => void
+  onReviewCommentsSent?: () => void
 }
 
 // Props for sortable queue item
@@ -533,6 +543,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   formatContextMenuInsert,
   autoFocus = false,
   enableSandboxCompletions = false,
+  reviewComments = NO_REVIEW_COMMENTS,
+  onRemoveReviewComment,
+  onReviewCommentsSent,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const sandboxEditorRef = useRef<HTMLDivElement>(null)
@@ -550,6 +563,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const attachmentsRef = useRef<PendingChatAttachment[]>([])
   const attachmentUploadsInFlightRef = useRef(new Set<string>())
+  const reviewCommentsRef = useRef(reviewComments)
+  const onReviewCommentsSentRef = useRef(onReviewCommentsSent)
+  reviewCommentsRef.current = reviewComments
+  onReviewCommentsSentRef.current = onReviewCommentsSent
 
   // Use onFileUpload if provided, otherwise fall back to onImagePaste for backwards compat
   const handleFileUploadCallback = onFileUpload || onImagePaste
@@ -848,7 +865,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const submitDraft = useCallback(async (interrupt: boolean) => {
     const content = draft.trim()
     if (
-      (!content && attachments.length === 0) ||
+      (!content && attachments.length === 0 && reviewComments.length === 0) ||
       inputDisabled ||
       (sendMode === 'direct' && isAgentBusy)
     ) return
@@ -857,7 +874,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     if (uploadingAttachments.length > 0) return
     if (attachments.some((attachment) => attachment.uploadStatus === 'failed')) return
 
-    const fullContent = buildMessageWithAttachments(content, attachments)
+    const fullContent = appendWorkspaceReviewComments(
+      buildMessageWithAttachments(content, attachments),
+      reviewCommentsRef.current,
+    )
 
     // Optimistic UI hook: fires synchronously before the queue persist /
     // backend sync POST so the parent can flip a paused desktop's cached
@@ -875,10 +895,15 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       const inlineImages = attachments.flatMap((attachment) => attachment.file ? [attachment.file] : [])
       setIsDirectSending(true)
       try {
-        const sent = await onSend(content, true, inlineImages)
+        const sent = await onSend(
+          appendWorkspaceReviewComments(content, reviewCommentsRef.current),
+          true,
+          inlineImages,
+        )
         if (sent === false) return
         clearDraft()
         clearCurrentAttachments()
+        onReviewCommentsSentRef.current?.()
       } catch (error) {
         console.error('Failed to send prompt:', error)
       } finally {
@@ -890,7 +915,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     saveToHistory(fullContent, interrupt)
     clearDraft()
     clearCurrentAttachments()
-  }, [draft, attachments, inputDisabled, sendMode, isAgentBusy, onSend, clearDraft, clearCurrentAttachments, saveToHistory, onWillSend])
+    onReviewCommentsSentRef.current?.()
+  }, [draft, attachments, inputDisabled, sendMode, isAgentBusy, onSend, clearDraft, clearCurrentAttachments, saveToHistory, onWillSend, reviewComments.length])
 
   const handleSend = useCallback(async () => {
     await submitDraft(interruptMode)
@@ -1052,7 +1078,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       const content = draft.trim()
 
       // Empty field: promote most-recent queued entry to interrupt instead of sending nothing.
-      if (!content && attachments.length === 0) {
+      if (!content && attachments.length === 0 && reviewComments.length === 0) {
         if (inputDisabled || sendMode === 'direct') return
         // Promote the OLDEST NON-interrupt queued message to interrupt.
         // Scans queuedPrompts (failed + pending) so a deferred message — the one
@@ -1073,7 +1099,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       return
     }
 
-  }, [composerSelectedIndex, composerSuggestions.items, composerTrigger, draft, attachments.length, inputDisabled, sendMode, submitDraft, queuedPrompts, updateInterrupt, sendingId, editingId, selectComposerSuggestion])
+  }, [composerSelectedIndex, composerSuggestions.items, composerTrigger, draft, attachments.length, reviewComments.length, inputDisabled, sendMode, submitDraft, queuedPrompts, updateInterrupt, sendingId, editingId, selectComposerSuggestion])
 
   const addFilesAsAttachments = useCallback((files: File[]) => {
     if (!attachmentsEnabled || files.length === 0) return
@@ -1439,6 +1465,28 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           pb: { xs: 1.5, sm: 2 },
         }}
       >
+        {reviewComments.length > 0 && (
+          <Box data-review-comment-tray sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
+            {reviewComments.map((comment) => (
+              <Chip
+                key={comment.id}
+                size="small"
+                icon={<MessageCircle size={13} />}
+                label={`${comment.filePath} ${comment.rangeLabel}`}
+                title={comment.text}
+                onDelete={onRemoveReviewComment ? () => onRemoveReviewComment(comment.id) : undefined}
+                sx={{
+                  maxWidth: '100%',
+                  height: 24,
+                  bgcolor: (theme) => getChatColors(theme).inlineCodeSurface,
+                  border: '1px solid',
+                  borderColor: (theme) => getChatColors(theme).inlineCodeBorder,
+                  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
+                }}
+              />
+            ))}
+          </Box>
+        )}
         <ChatAttachmentTray
           attachments={attachments}
           onRemove={removeAttachment}
@@ -1715,7 +1763,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
           {/* Send button */}
           {!isAgentBusy && !isDirectSending && (() => {
-            const hasContent = draft.trim().length > 0
+            const hasContent = draft.trim().length > 0 || reviewComments.length > 0
             const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded')
             const pendingUploads = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
             const failedUploads = attachments.filter(a => a.uploadStatus === 'failed')

@@ -139,6 +139,7 @@ func (s *WorkspaceReviewHandlersSuite) TestWorkspaceProxiesRejectUnauthorizedCal
 		"review": s.server.getWorkspaceReview,
 		"files":  s.server.getWorkspaceFiles,
 		"file":   s.server.getWorkspaceFile,
+		"write":  s.server.putWorkspaceFile,
 	} {
 		s.store.EXPECT().GetSession(gomock.Any(), "ses_1").
 			Return(&types.Session{ID: "ses_1", Owner: "usr_someone_else"}, nil)
@@ -152,4 +153,17 @@ func (s *WorkspaceReviewHandlersSuite) TestWorkspaceProxiesRejectUnauthorizedCal
 
 		s.Equal(http.StatusForbidden, w.Code, "%s must not serve a session the caller cannot read", name)
 	}
+}
+
+func (s *WorkspaceReviewHandlersSuite) TestWorkspaceFileWriteAuthorizesBeforeReadingBody() {
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_1").
+		Return(&types.Session{ID: "ses_1", Owner: s.user.ID}, nil)
+	req := httptest.NewRequest(http.MethodPut, "/workspace-file", nil)
+	req = mux.SetURLVars(req, map[string]string{"sessionID": "ses_1"})
+	req = req.WithContext(setRequestUser(req.Context(), s.user))
+	w := httptest.NewRecorder()
+
+	s.server.putWorkspaceFile(w, req)
+
+	s.Equal(http.StatusBadRequest, w.Code)
 }

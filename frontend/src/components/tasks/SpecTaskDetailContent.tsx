@@ -104,6 +104,7 @@ import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import AgentChat from "../session/AgentChat";
 import { getChatColors } from "../session/chatStyles";
+import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
 import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
 import SharePreviewSection from "./SharePreviewSection";
 import SandboxBrowser from "./SandboxBrowser";
@@ -145,6 +146,7 @@ import {
 
 const SPEC_TASK_CHAT_PANEL_IDS = ["spec-task-chat", "spec-task-content"] as const;
 const SPEC_TASK_CHAT_LAYOUT_KEY = "helix.specTaskChat.layout";
+const NO_WORKSPACE_REVIEW_COMMENTS: readonly WorkspaceReviewComment[] = [];
 const taskToolbarIconButtonSx = {
   width: 30,
   height: 30,
@@ -638,6 +640,33 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = selectedThreadSessionId || task?.planning_session_id;
+  const [workspaceCommentsBySession, setWorkspaceCommentsBySession] = useState<
+    Record<string, WorkspaceReviewComment[]>
+  >({});
+  const activeWorkspaceComments = activeSessionId
+    ? workspaceCommentsBySession[activeSessionId] || NO_WORKSPACE_REVIEW_COMMENTS
+    : NO_WORKSPACE_REVIEW_COMMENTS;
+  const upsertWorkspaceComment = useCallback((comment: WorkspaceReviewComment) => {
+    if (!activeSessionId) return;
+    setWorkspaceCommentsBySession((current) => {
+      const existing = current[activeSessionId] || [];
+      return {
+        ...current,
+        [activeSessionId]: [...existing.filter((entry) => entry.id !== comment.id), comment],
+      };
+    });
+  }, [activeSessionId]);
+  const removeWorkspaceComment = useCallback((commentId: string) => {
+    if (!activeSessionId) return;
+    setWorkspaceCommentsBySession((current) => ({
+      ...current,
+      [activeSessionId]: (current[activeSessionId] || []).filter((entry) => entry.id !== commentId),
+    }));
+  }, [activeSessionId]);
+  const clearWorkspaceComments = useCallback(() => {
+    if (!activeSessionId) return;
+    setWorkspaceCommentsBySession((current) => ({ ...current, [activeSessionId]: [] }));
+  }, [activeSessionId]);
 
   useEffect(() => {
     const handleTerminalShortcut = (event: KeyboardEvent) => {
@@ -2503,6 +2532,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       : "Send message to agent..."
                   }
                   disabled={!!sessionData?.config?.paused}
+                  reviewComments={activeWorkspaceComments}
+                  onRemoveReviewComment={removeWorkspaceComment}
+                  onReviewCommentsSent={clearWorkspaceComments}
                 />
               </Box>
             </Panel>
@@ -2654,6 +2686,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         ? "This task has been merged to the default branch. Start the desktop to review its workspace."
                         : undefined
                     }
+                    comments={activeWorkspaceComments}
+                    onUpsertComment={upsertWorkspaceComment}
+                    onRemoveComment={removeWorkspaceComment}
                   />
                 )}
                 {currentView === "details" && (
@@ -2809,6 +2844,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       : "Send message to agent..."
                   }
                   disabled={!!sessionData?.config?.paused}
+                  reviewComments={activeWorkspaceComments}
+                  onRemoveReviewComment={removeWorkspaceComment}
+                  onReviewCommentsSent={clearWorkspaceComments}
                 />
               </Box>
             )}
@@ -2912,6 +2950,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       ? "This task has been merged to the default branch. Start the desktop to review its workspace."
                       : undefined
                   }
+                  comments={activeWorkspaceComments}
+                  onUpsertComment={upsertWorkspaceComment}
+                  onRemoveComment={removeWorkspaceComment}
                 />
               </Box>
             )}

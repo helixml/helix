@@ -10,6 +10,10 @@ import WorkspaceFileSurface from "./WorkspaceFileSurface";
 import { closeWorkspaceTabs, type WorkspaceTabCloseAction } from "./workspaceTabs";
 import TaskSessionPlaceholder from "../tasks/TaskSessionPlaceholder";
 import { isDesktopUnavailableError, useWorkspaces } from "./workspaceReviewService";
+import type { WorkspaceReviewComment } from "./workspaceReviewComments";
+
+const NO_COMMENTS: readonly WorkspaceReviewComment[] = [];
+const NOOP_COMMENT = () => undefined;
 
 interface WorkspaceInspectorProps {
   sessionId: string | undefined;
@@ -30,6 +34,9 @@ interface WorkspaceInspectorProps {
   desktopUnavailableDetail?: string;
   desktopUnavailableTitle?: string;
   desktopUnavailableDescription?: string;
+  comments?: readonly WorkspaceReviewComment[];
+  onUpsertComment?: (comment: WorkspaceReviewComment) => void;
+  onRemoveComment?: (commentId: string) => void;
 }
 
 type Surface = "changes" | "files" | string;
@@ -54,6 +61,9 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
   desktopUnavailableDetail,
   desktopUnavailableTitle,
   desktopUnavailableDescription,
+  comments = NO_COMMENTS,
+  onUpsertComment,
+  onRemoveComment,
 }) => {
   const lightTheme = useLightTheme();
   const router = useRouter();
@@ -310,6 +320,9 @@ const WorkspaceInspector: FC<WorkspaceInspectorProps> = ({
             path={selectedFile}
             revealPath={treeRevealPath}
             onOpenFile={openFileFromTree}
+            comments={comments}
+            onUpsertComment={onUpsertComment || NOOP_COMMENT}
+            onRemoveComment={onRemoveComment || NOOP_COMMENT}
           />
         )}
       </Box>

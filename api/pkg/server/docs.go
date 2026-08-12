@@ -4188,6 +4188,80 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces an existing browsable UTF-8 workspace file when its content hash still matches the version the user opened.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Update a workspace file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Workspace file update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceFileWriteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceFileResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/external-agents/{sessionID}/workspace-files": {
@@ -40314,6 +40388,23 @@ const docTemplate = `{
                 },
                 "truncated": {
                     "type": "boolean"
+                },
+                "workspace": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceFileWriteRequest": {
+            "type": "object",
+            "properties": {
+                "contents": {
+                    "type": "string"
+                },
+                "expected_content_hash": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
                 },
                 "workspace": {
                     "type": "string"

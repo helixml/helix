@@ -8,9 +8,9 @@ vi.mock("../../hooks/useLightTheme", () => ({
   default: () => ({ isLight: false }),
 }));
 vi.mock("./WorkspaceFileTree", () => ({ default: () => <div data-testid="tree" /> }));
-vi.mock("@pierre/diffs/react", () => ({
-  CodeView: ({ items }: { items: { file: { contents: string } }[] }) => (
-    <pre data-testid="file-view">{items[0]?.file.contents}</pre>
+vi.mock("./WorkspaceEditableFile", () => ({
+  default: ({ initialContents }: { initialContents: string }) => (
+    <pre data-testid="file-view">{initialContents}</pre>
   ),
 }));
 vi.mock("./workspaceReviewService", () => ({
@@ -28,6 +28,9 @@ const renderSurface = (path: string | null = "src/app.ts") =>
       path={path}
       revealPath={null}
       onOpenFile={vi.fn()}
+      comments={[]}
+      onUpsertComment={vi.fn()}
+      onRemoveComment={vi.fn()}
     />,
   );
 

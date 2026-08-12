@@ -41,6 +41,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type desktopHTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *desktopHTTPError) Error() string {
+	return fmt.Sprintf("desktop returned HTTP %d: %s", e.StatusCode, e.Body)
+}
+
 // resolveExpectedBranch returns the branch the fork's pre-commit step
 // should target. Reads from the spec task's BranchName first (set when
 // the task transitions to implementation), then falls back to the
@@ -221,7 +230,7 @@ func callDesktopJSON(conn io.ReadWriteCloser, method, path string, body interfac
 		return fmt.Errorf("read body: %w", err)
 	}
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("desktop returned HTTP %d: %s", resp.StatusCode, string(respBody))
+		return &desktopHTTPError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 	if out != nil {
 		if err := json.Unmarshal(respBody, out); err != nil {

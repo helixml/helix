@@ -157,6 +157,8 @@ import CopyButtonWithCheck from "./CopyButtonWithCheck";
 import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
 import MessageReceivedTimestamp from "./MessageReceivedTimestamp";
 import ToolStepsWidget from "./ToolStepsWidget";
+import WorkspaceReviewMessage from "./WorkspaceReviewMessage";
+import { parseWorkspaceReviewMessage } from "./workspaceReviewMessage";
 
 import { ThumbsUp, ThumbsDown, Download, FileText, Paperclip } from "lucide-react";
 
@@ -484,9 +486,17 @@ export const InteractionInference: FC<{
       .map((e: ResponseEntry) => e.content)
       .join("\n\n");
   }, [message, interaction]);
-  const shouldCollapseUserMessage = !isFromAssistant && !!message && (
-    message.length > 600 || message.split("\n").length > 8
-  );
+  const hasWorkspaceReviewComments =
+    !isFromAssistant &&
+    !!message &&
+    parseWorkspaceReviewMessage(message).some(
+      (segment) => segment.type === "comment",
+    );
+  const shouldCollapseUserMessage =
+    !isFromAssistant &&
+    !hasWorkspaceReviewComments &&
+    !!message &&
+    (message.length > 600 || message.split("\n").length > 8);
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
   if (!interaction) return null;
@@ -712,18 +722,26 @@ export const InteractionInference: FC<{
                         : undefined,
                     }}
                   >
-                    <MessageWithToolCalls
-                      text={message || ""}
-                      responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
-                      session={session}
-                      getFileURL={getFileURL}
-                      showBlinker={false}
-                      isStreaming={false}
-                      durationMs={getInteractionDurationMs(interaction)}
-                      showActivitySummary={isFromAssistant}
-                      includeTaskChecklist={isFromAssistant && !!isLastInteraction}
-                      onFilterDocument={onFilterDocument}
-                    />
+                    {!isFromAssistant && hasWorkspaceReviewComments ? (
+                      <WorkspaceReviewMessage
+                        text={message || ""}
+                        session={session}
+                        getFileURL={getFileURL}
+                      />
+                    ) : (
+                      <MessageWithToolCalls
+                        text={message || ""}
+                        responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
+                        session={session}
+                        getFileURL={getFileURL}
+                        showBlinker={false}
+                        isStreaming={false}
+                        durationMs={getInteractionDurationMs(interaction)}
+                        showActivitySummary={isFromAssistant}
+                        includeTaskChecklist={isFromAssistant && !!isLastInteraction}
+                        onFilterDocument={onFilterDocument}
+                      />
+                    )}
                   </Box>
                   {shouldCollapseUserMessage && (
                     <Button

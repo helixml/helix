@@ -774,19 +774,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 }
               }, 300);
             }}
-            onKeyDown={(e) => {
-              // If user presses Enter in empty text box, close panel
-              if (
-                e.key === "Enter" &&
-                !taskPrompt.trim() &&
-                !e.shiftKey &&
-                !e.ctrlKey &&
-                !e.metaKey
-              ) {
-                e.preventDefault();
-                onClose?.();
-              }
-            }}
             placeholder={
               justDoItMode
                 ? "Describe what you want the agent to do. It will start immediately without planning."

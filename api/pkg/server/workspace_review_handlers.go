@@ -2,13 +2,16 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func (apiServer *HelixAPIServer) authorizeWorkspaceReviewRequest(w http.ResponseWriter, req *http.Request) (*types.Session, bool) {
+func (apiServer *HelixAPIServer) authorizeWorkspaceReviewRequest(w http.ResponseWriter, req *http.Request, action types.Action) (*types.Session, bool) {
 	user := getRequestUser(req)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -20,7 +23,7 @@ func (apiServer *HelixAPIServer) authorizeWorkspaceReviewRequest(w http.Response
 		http.Error(w, "session not found", http.StatusNotFound)
 		return nil, false
 	}
-	if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet); err != nil {
+	if err := apiServer.authorizeUserToSession(req.Context(), user, session, action); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return nil, false
 	}
@@ -57,7 +60,7 @@ func (apiServer *HelixAPIServer) callSessionDesktopJSON(ctx context.Context, ses
 // @Router /api/v1/external-agents/{sessionID}/workspace-review [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getWorkspaceReview(w http.ResponseWriter, req *http.Request) {
-	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req)
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -102,6 +105,45 @@ func (apiServer *HelixAPIServer) getWorkspaceFile(w http.ResponseWriter, req *ht
 	apiServer.proxyAuthorizedWorkspaceGET(w, req, "/workspace/file", &types.WorkspaceFileResponse{})
 }
 
+// putWorkspaceFile godoc
+// @Summary Update a workspace file
+// @Description Replaces an existing browsable UTF-8 workspace file when its content hash still matches the version the user opened.
+// @Tags ExternalAgents
+// @Accept json
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Param request body types.WorkspaceFileWriteRequest true "Workspace file update"
+// @Success 200 {object} types.WorkspaceFileResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 409 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/workspace-file [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) putWorkspaceFile(w http.ResponseWriter, req *http.Request) {
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, types.ActionUpdate)
+	if !ok {
+		return
+	}
+	var request types.WorkspaceFileWriteRequest
+	if err := json.NewDecoder(io.LimitReader(req.Body, 8*1024*1024)).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	var response types.WorkspaceFileResponse
+	if err := apiServer.callSessionDesktopJSON(req.Context(), session.ID, http.MethodPut, "/workspace/file", request, &response); err != nil {
+		status := http.StatusServiceUnavailable
+		var desktopErr *desktopHTTPError
+		if errors.As(err, &desktopErr) && desktopErr.StatusCode >= 400 && desktopErr.StatusCode < 500 {
+			status = desktopErr.StatusCode
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
 // getWorkspaceSkills godoc
 // @Summary List workspace skills
 // @Description Returns agent skills installed for the connected external-agent workspace and sandbox user.
@@ -117,7 +159,7 @@ func (apiServer *HelixAPIServer) getWorkspaceSkills(w http.ResponseWriter, req *
 }
 
 func (apiServer *HelixAPIServer) proxyAuthorizedWorkspaceGET(w http.ResponseWriter, req *http.Request, desktopPath string, response interface{}) {
-	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req)
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, types.ActionGet)
 	if !ok {
 		return
 	}
@@ -143,7 +185,7 @@ func (apiServer *HelixAPIServer) proxyAuthorizedWorkspaceGET(w http.ResponseWrit
 // @Router /api/v1/external-agents/{sessionID}/workspace-review/turn/{interactionID} [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getWorkspaceTurnReview(w http.ResponseWriter, req *http.Request) {
-	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req)
+	session, ok := apiServer.authorizeWorkspaceReviewRequest(w, req, types.ActionGet)
 	if !ok {
 		return
 	}

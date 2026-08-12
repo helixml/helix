@@ -228,6 +228,10 @@ func (s *Server) handleWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut {
+		s.handleWorkspaceFileWrite(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -256,6 +260,93 @@ func (s *Server) handleWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 		Workspace: workspace, Path: rel, Contents: content, ByteLength: size,
 		ContentHash: hashString(content), Truncated: truncated, Binary: binary,
 	})
+}
+
+func (s *Server) handleWorkspaceFileWrite(w http.ResponseWriter, r *http.Request) {
+	var request types.WorkspaceFileWriteRequest
+	decoder := json.NewDecoder(io.LimitReader(r.Body, int64(workspaceFileLimit*8)))
+	if err := decoder.Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if len(request.Contents) > workspaceFileLimit {
+		http.Error(w, "file exceeds the editable size limit", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if request.ExpectedContentHash == "" {
+		http.Error(w, "expected_content_hash is required", http.StatusBadRequest)
+		return
+	}
+
+	workDir, workspace, err := resolveReviewWorkspace(request.Workspace)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	resolved, rel, err := resolveWorkspaceFile(workDir, request.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !workspaceFileIsBrowsable(r.Context(), workDir, rel) {
+		http.Error(w, "path is not an editable workspace file", http.StatusBadRequest)
+		return
+	}
+	currentContents, _, truncated, binary, err := readBoundedFile(resolved, workspaceFileLimit)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("read workspace file before write: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if truncated || binary {
+		http.Error(w, "file is not editable", http.StatusBadRequest)
+		return
+	}
+	if hashString(currentContents) != request.ExpectedContentHash {
+		http.Error(w, "workspace file changed since it was opened", http.StatusConflict)
+		return
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("stat workspace file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := replaceWorkspaceFile(resolved, []byte(request.Contents), info.Mode().Perm()); err != nil {
+		http.Error(w, fmt.Sprintf("write workspace file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, types.WorkspaceFileResponse{
+		Workspace:   workspace,
+		Path:        rel,
+		Contents:    request.Contents,
+		ByteLength:  int64(len(request.Contents)),
+		ContentHash: hashString(request.Contents),
+	})
+}
+
+func replaceWorkspaceFile(pathValue string, contents []byte, mode os.FileMode) error {
+	temporary, err := os.CreateTemp(filepath.Dir(pathValue), ".helix-file-edit-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err := temporary.Chmod(mode); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(contents); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, pathValue)
 }
 
 type workspaceSkillFrontmatter struct {

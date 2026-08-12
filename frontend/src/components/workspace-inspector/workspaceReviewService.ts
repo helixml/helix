@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import useApi from "../../hooks/useApi";
 
 /**
@@ -9,6 +9,18 @@ import useApi from "../../hooks/useApi";
  */
 export function isDesktopUnavailableError(error: unknown): boolean {
   return (error as { response?: { status?: number } } | null)?.response?.status === 503;
+}
+
+export function getWorkspaceFileSaveError(error: unknown, path: string): string {
+  const status = (error as { response?: { status?: number } } | null)?.response
+    ?.status;
+  if (status === 409) {
+    return `${path} changed outside the editor. Reload it before saving.`;
+  }
+  if (status === 405) {
+    return "This desktop was started before file editing was available. Copy your unsaved changes, then stop and start the desktop.";
+  }
+  return `Could not save ${path}`;
 }
 
 /**
@@ -28,6 +40,8 @@ export const desktopPollInterval =
 
 export const workspaceReviewKeys = {
   all: (sessionId: string) => ["workspace-review", sessionId] as const,
+  reviewPrefix: (sessionId: string) =>
+    [...workspaceReviewKeys.all(sessionId), "review"] as const,
   review: (
     sessionId: string,
     workspace: string | undefined,
@@ -171,6 +185,39 @@ export function useWorkspaceFile(
     staleTime: 5_000,
     refetchOnWindowFocus: false,
     retry: desktopQueryRetry,
+  });
+}
+
+export function useUpdateWorkspaceFile(
+  sessionId: string,
+  workspace: string | undefined,
+  path: string,
+) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ contents, expectedContentHash }: {
+      contents: string;
+      expectedContentHash: string;
+    }) => {
+      const response = await api
+        .getApiClient()
+        .v1ExternalAgentsWorkspaceFileUpdate(sessionId, {
+          workspace,
+          path,
+          contents,
+          expected_content_hash: expectedContentHash,
+        });
+      return response.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceReviewKeys.reviewPrefix(sessionId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: workspaceReviewKeys.files(sessionId, workspace),
+      });
+    },
   });
 }
 
