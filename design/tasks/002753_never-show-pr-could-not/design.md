@@ -151,6 +151,43 @@ Net effect for the bug: an autonomous run whose work landed by fast-forward on a
 internal repo is never put into `pull_request` waiting for a merge that already happened —
 it completes on the click instead.
 
+### Mixed repo sets — some external PRs, some internal merges
+
+`PullRequestPossible()` is deliberately *not* "all work is external". A task with work in
+both kinds of repo takes the PR path (status `pull_request`) **and** must still have its
+internal half merged. Three existing holes have to close for that to be true.
+
+**1. `ensurePullRequestsForAllRepos` skips the internal primary repo.**
+`spec_task_workflow_handlers.go:~759-772` merges internal repos only when
+`repo.ID != primaryRepoID && !repo.IsExternal`. The `primaryRepoID` carve-out assumes
+`approveImplementation` already merged it — true on the non-PR branch, false here. In a
+project whose primary repo is internal with external secondaries, the primary is therefore
+never merged by any route. Drop the carve-out and merge **every** internal repo in
+`landing.WorkRepos()`. `mergeInternalRepoBranch` already no-ops when the branch is absent
+(`spec_task_workflow_handlers.go:~740`), so this cannot merge repos the task never touched.
+
+**2. `taskHasPRsForAllRepos` strands internal work pushed after the PRs exist.**
+`spec_task_orchestrator.go:970-1005` returns true once every *external* repo has a tracked
+PR, and `handlePullRequest` then skips `ensurePRs` — the only thing that merges internal
+repos during polling. A secondary internal push after that point is never merged. Extend
+the predicate: skip only when every external repo has a PR **and** every internal work repo
+is already `merged`. The added condition is local git only (`GetDivergence` on
+`LocalPath`), so the GitHub-rate-limit protection that motivated the skip is preserved —
+we still avoid the push+list-PRs round trip in the steady state.
+
+**3. Completion must not outrun the internal half.**
+`processExternalPullRequestStatus` moves the task to `done` when all tracked PRs are
+merged. Gate that on `AllWorkLanded()`: if an internal work repo is still `pending`, merge
+it first (via the same `mergeInternalRepoBranch`); if it is `diverged`, hold the task in
+`pull_request` and write the US-3 diverged message naming that repo. The open PRs are not
+touched either way.
+
+**Error precedence in mixed tasks.** `ensurePullRequestsForAllRepos` writes real
+PR-creation errors into the same `metadata.error` key (OAuth required, permission denied,
+rate limit — `spec_task_workflow_handlers.go:~783-800`). The US-4 eraser fires **only**
+when `AllWorkLanded()`, which cannot be true while a PR-capable work repo is unmerged, so
+those errors are structurally safe from it. Do not add any broader clearing rule.
+
 ## Decisions and trade-offs
 
 - **Shared helper in `services`, not `server`** — `server` imports `services`, not the
@@ -196,6 +233,12 @@ Go unit tests in `api/pkg/services/spec_task_orchestrator_test.go` (existing gom
 | Diverged | 1 internal `diverged` | diverged message naming branch, repo and remedy |
 | Stale error + landed | internal `merged`, `metadata.error` preset | error key absent after the poll |
 | Resolver error | store returns error | original message; existing error untouched |
+| Mixed, PR open | external `pending` + tracked PR, internal `pending` | internal repo merged; no error; task stays `pull_request` |
+| Mixed, internal primary | internal primary `pending` + external secondary `pending` | internal **primary** merged (regression test for the dropped `primaryRepoID` carve-out) |
+| Mixed, late internal push | all external repos have PRs, internal `pending` | `taskHasPRsForAllRepos` returns false; `ensurePRs` runs; internal repo merged |
+| Mixed, PRs merged | all PRs merged, internal `pending` | internal merged, then `done` |
+| Mixed, internal diverged | all PRs merged, internal `diverged` | diverged message; task holds in `pull_request`; **not** `done` |
+| Mixed, real PR error | external work repo unmerged, `metadata.error` = OAuth required | error preserved, not cleared |
 
 E2E in the inner Helix per requirements.md §Verification — this is the evidence that
 matters; the unit tests are not a substitute.

@@ -11,10 +11,15 @@
 - [ ] In `approveImplementation`: decide the workflow branch from `landing.PullRequestPossible()` instead of `shouldOpenPullRequest(project.DefaultRepoID)`
 - [ ] In the non-PR branch of `approveImplementation`: fast-forward every repo in `landing.WorkRepos()` via the existing `mergeInternalRepoBranch`, instead of `MergeBranchFastForward` on `project.DefaultRepoID` — otherwise the merge fails on an external default repo that has no branch and a spurious rebase instruction is sent
 - [ ] Verify the internal path still ends in `done` + `CompletedAt` + `DismissTaskAttentionEvents`, and that the rebase/`RebaseRequestedAt` handling now keys off the diverged work repo and names that repo's default branch
-- [ ] Unit tests for all six cases in design.md's test-plan table
+- [ ] Mixed case, hole 1: in `ensurePullRequestsForAllRepos`, drop the `repo.ID == primaryRepoID` carve-out and merge every internal repo in `landing.WorkRepos()`, so an internal *primary* repo with external secondaries is merged too
+- [ ] Mixed case, hole 2: extend `taskHasPRsForAllRepos` to also require every internal work repo to be `merged`, so internal work pushed after the PRs exist is not stranded by the `ensurePRs` skip (keep the check local-only so the GitHub rate-limit protection stands)
+- [ ] Mixed case, hole 3: gate the `done` transition in `processExternalPullRequestStatus` on `AllWorkLanded()` — merge a still-`pending` internal repo first, hold in `pull_request` with the diverged message if one has diverged
+- [ ] Confirm the US-4 eraser cannot clear a genuine PR-creation error (OAuth / permission / rate limit) — it fires only when `AllWorkLanded()`, which is false while any PR-capable work repo is unmerged
+- [ ] Unit tests for all cases in design.md's test-plan table, including the six mixed-repo rows
 - [ ] `cd api && go build ./...` and run the new tests with `CGO_ENABLED=1`
 - [ ] E2E in the inner Helix at `http://localhost:8080`: external-default project + `bot_run` task landing on an internal repo; push, let it auto-merge, wait past the 5-minute window, confirm no error banner and that the task reads as landed
 - [ ] E2E the "Open PR" click on an internal-only task: confirm it merges the internal repo, completes the task, and does not send a rebase instruction
 - [ ] E2E regression: external-repo task with an unpushed branch still shows the original message
+- [ ] E2E mixed case: a task with work in both an external and an internal repo — confirm the PR opens, the internal branch is merged from the same click, and the task only completes once both halves have landed
 - [ ] Check whether a diverged branch in `tryAutoMergeBotRun` is still a log-line-only silent failure; report it in the PR (do not retroactively merge the five stranded `chris-outreach` branches, and do not touch that repo)
 - [ ] Commit with conventional-commit messages on a feature branch, push, open a PR against `helixml/helix` main, report full PR URLs, and record any `NOT tested: <what and why>` in the PR body — do not merge

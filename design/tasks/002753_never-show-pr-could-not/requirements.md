@@ -78,6 +78,30 @@ Acceptance criteria:
       evaluated. **No migration and no one-off repair for
       `spt_01kzg669penpt2rg9b40zvpfd6`.**
 
+### US-6 — A task with work in both external and internal repos finishes both halves
+**As** a user of a mixed-backing project (GitHub primary + internal playbook repo, or the
+reverse), **I want** the external half to open PRs *and* the internal half to be merged
+from the same approval, **so that** neither half is stranded and neither is misreported.
+
+Acceptance criteria:
+- [ ] Approving a task with work in both kinds of repo opens PRs for every PR-capable
+      work repo **and** fast-forward merges every internal work repo — from one click.
+- [ ] This holds when the internal repo is the project's **primary/default** repo and the
+      external repos are secondary. Today `ensurePullRequestsForAllRepos` skips
+      `repo.ID == primaryRepoID`, on the assumption that `approveImplementation` merged
+      it — which is only true on the non-PR branch, so an internal primary in a mixed
+      project is never merged at all.
+- [ ] Internal work pushed **after** the PRs already exist is still merged. Today
+      `taskHasPRsForAllRepos` returns true as soon as every external repo has a PR, which
+      skips `ensurePRs` — and with it the internal merge — for the rest of the task's life.
+- [ ] While the external PRs are legitimately open, no PR-failure message is written.
+- [ ] The task does not reach `done` until the internal work repos have landed too; an
+      internal repo that has diverged holds the task and reports the US-3 diverged
+      message naming that repo, without disturbing the open PRs.
+- [ ] Error-clearing (US-4) must not erase a genuine PR-creation error — OAuth required,
+      permission denied, rate limit — written by `ensurePullRequestsForAllRepos`. Errors
+      are cleared only when **every** work repo has landed.
+
 ### US-5 — The decision uses one repo-resolution, not a second divergent one
 **As** a maintainer, **I want** a single shared helper answering "where did this task's
 work land?", **so that** the merge path and the surfacing path cannot drift apart again.
