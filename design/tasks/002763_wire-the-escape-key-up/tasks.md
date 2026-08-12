@@ -1,6 +1,6 @@
 # Implementation Tasks: Escape Cancels the Current Turn in the Spec Task Chat
 
-- [ ] Add an `Escape` branch to `handleKeyDown` in `frontend/src/components/common/RobustPromptInput.tsx`, after the `composerTrigger` block: when `isAgentBusy && onCancel && !isCancelling`, `preventDefault()` and call `onCancel()`; otherwise return and let the event bubble
+- [~] Add an `Escape` branch to `handleKeyDown` in `frontend/src/components/common/RobustPromptInput.tsx`, after the `composerTrigger` block: when `isAgentBusy && onCancel && !isCancelling`, `preventDefault()` and call `onCancel()`; otherwise return and let the event bubble
 - [ ] Guard the window-level Escape handler in `frontend/src/pages/SpecTaskDetailPage.tsx` with `if (e.defaultPrevented) return` so a cancel does not also close the New Task panel (mirror `HelixOrgSideDrawer.tsx`)
 - [ ] Update the Stop button tooltip to `Stop generation (Esc)`, leaving the `aria-label` unchanged
 - [ ] Nudge the queue after a user-initiated cancel: in `cancelSessionTurn` (`api/pkg/server/session_handlers.go`), call `s.nudgeSessionQueue(sessionID)` when `cancelActiveTurn` returns a non-`noop` status
