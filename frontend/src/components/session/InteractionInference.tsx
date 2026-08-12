@@ -286,10 +286,6 @@ export const MessageWithToolCalls: FC<{
       if (segment.type === "tools") {
         return <WorkLog key={`tool-run-${segmentIndex}`} entries={segment.entries} />;
       }
-      if (segment.type === "elicitation") {
-        return null;
-      }
-
       return (
         <Markdown
           key={`activity-text-${segment.index}`}

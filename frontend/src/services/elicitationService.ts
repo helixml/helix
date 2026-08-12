@@ -1,5 +1,9 @@
 import { Api, TypesElicitationRespondResponse } from "../api/api";
 
+// `useApi().getApiClient()` hands back the generated client's `api` namespace
+// object, not the `Api` instance itself, so that is what these take.
+type ApiNamespace = Api<unknown>["api"];
+
 /**
  * Answers a question the agent asked.
  *
@@ -16,7 +20,7 @@ import { Api, TypesElicitationRespondResponse } from "../api/api";
  * the message rather than retrying.
  */
 export async function respondToElicitation(
-  client: Api<unknown>,
+  client: ApiNamespace,
   sessionId: string,
   elicitationId: string,
   action: "accept" | "decline",
@@ -32,7 +36,7 @@ export async function respondToElicitation(
 
 /** Questions on this session that can still be answered. */
 export async function listSessionElicitations(
-  client: Api<unknown>,
+  client: ApiNamespace,
   sessionId: string,
 ) {
   const response = await client.v1SessionsElicitationsDetail(sessionId);
