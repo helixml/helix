@@ -97,10 +97,17 @@ Replace `projectHasExternalRepo` (delete it) with a single decision block, evalu
 **before** the existing `hasErr` guard:
 
 1. `AllWorkLanded()` ⇒ **clear** `task.Metadata["error"]`, set `MergedToMain`/`MergedAt`
-   if unset, persist, and skip the timeout error entirely. This alone fixes the reported
-   row, whose `merged_to_main` was already `t` eight minutes before the error was written.
-   Runs on every poll, not just after the timeout — that is the self-healing mechanism
-   for existing stale rows (US-4), so no migration is needed.
+   if unset, and — when the task tracks no PRs (`!task.HasAnyPR()`) — complete it:
+   `TaskStatusDone`, `CompletedAt`, `services.DismissTaskAttentionEvents`, mirroring the
+   tail of the internal-merge branch of `approveImplementation`
+   (`spec_task_workflow_handlers.go:384-405`). Persist, and skip the timeout error
+   entirely. This alone fixes the reported row, whose `merged_to_main` was already `t`
+   eight minutes before the error was written. Runs on every poll, not just after the
+   timeout — that is the self-healing mechanism for existing stale rows (US-4), so no
+   migration is needed. Completing the task ends the agent session, which is the intended
+   behaviour (review answer to Open Question 2); there is **no** autonomous-run carve-out
+   here. If PRs *are* tracked, leave status alone and let
+   `processExternalPullRequestStatus` own the transition as it does today.
 2. Past the 5-minute window with no PRs, pick the message in this order (first match wins):
    - `len(DivergedRepos()) > 0` → *"The feature branch `<branch>` in `<repo>` has diverged
      from `<default>` and cannot be fast-forwarded. The agent must merge `<default>` into
@@ -124,13 +131,25 @@ Change the condition from `s.shouldOpenPullRequest(repo)` to
 still used for `DefaultBranch`, `ensurePullRequestsForAllRepos`, and the push
 instruction — only the *decision* moves off it.
 
-When `PullRequestPossible()` is false, the existing internal path runs; extend it to
-fast-forward **every internal work repo** by reusing `mergeInternalRepoBranch`
-(`spec_task_workflow_handlers.go:~740`) rather than only the default repo. That is a
-generalisation of existing code, not a new path.
+When `PullRequestPossible()` is false, the existing internal path runs — **but its merge
+target must move off `project.DefaultRepoID` too.** Today that branch calls
+`MergeBranchFastForward(repo.LocalPath, …)` on the default repo
+(`spec_task_workflow_handlers.go:281`). For the HelixOS shape the default repo is the
+external `helixos`, which does not even have the branch, so the merge fails and the
+handler mistakes that for divergence and fires a rebase instruction at the agent. Change
+the merge to iterate `landing.WorkRepos()` (all internal by construction on this branch),
+reusing `mergeInternalRepoBranch` (`spec_task_workflow_handlers.go:~740`). A merge failure
+on a work repo still means genuine divergence, so the existing rebase/`RebaseRequestedAt`
+handling stays — it just keys off the repo that actually diverged, and the rebase
+instruction names that repo's default branch rather than the project default's.
+
+The tail of that branch is unchanged and already does what the review asked for: it sets
+`MergedToMain`, `TaskStatusDone`, `CompletedAt` and dismisses attention events. Ending the
+session is intended; HelixOS starts another run. No bot special-casing.
 
 Net effect for the bug: an autonomous run whose work landed by fast-forward on an
-internal repo is never put into `pull_request` waiting for a merge that already happened.
+internal repo is never put into `pull_request` waiting for a merge that already happened —
+it completes on the click instead.
 
 ## Decisions and trade-offs
 
@@ -170,7 +189,8 @@ Go unit tests in `api/pkg/services/spec_task_orchestrator_test.go` (existing gom
 
 | Case | Repo set | Expected |
 |---|---|---|
-| HelixOS shape | 2 external `absent` + 1 internal `merged` | no error written; existing error cleared; `merged_to_main` true |
+| HelixOS shape | 2 external `absent` + 1 internal `merged` | no error written; existing error cleared; `merged_to_main` true; task completed (`done`) since no PRs are tracked |
+| `approveImplementation`, internal-only | external default `absent` + internal `pending` | merges the *internal* repo (not the default), task ends `done`; no rebase instruction sent |
 | Genuine failure | 1 external, no work repos | original message written verbatim |
 | All-internal project | 1 internal `absent` | `77726b750` internal-repo message |
 | Diverged | 1 internal `diverged` | diverged message naming branch, repo and remedy |

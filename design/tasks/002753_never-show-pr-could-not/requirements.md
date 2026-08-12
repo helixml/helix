@@ -36,7 +36,10 @@ Acceptance criteria:
       feature branch." — not as a fallback, not on timeout, not ever.
 - [ ] After the 5-minute PR timeout window elapses on such a task, no error banner is
       present on the task page.
-- [ ] The task's `merged_to_main` state reflects that the branch landed.
+- [ ] The task's `merged_to_main` state reflects that the branch landed, and the task
+      completes (`done`) rather than sitting in `pull_request`. Completing the task ends
+      the agent session; that is intended — HelixOS starts another run. This applies to
+      autonomous runs too: there is no bot carve-out on the "Open PR" path.
 
 ### US-2 — A genuine "the agent never pushed" failure still reports accurately
 **As** a user of a project backed by an external GitHub/GitLab/ADO repo, **I want** the
@@ -68,6 +71,9 @@ previously-written error gone, **so that** the row does not contradict itself.
 Acceptance criteria:
 - [ ] When the task's branch is contained in the default branch of every repo it has
       work in, `metadata.error` is removed and the change is persisted.
+- [ ] Such a task, sitting in `pull_request` with no PRs tracked, is completed (`done`,
+      `merged_to_main`, attention events dismissed) rather than left waiting for a merge
+      that already happened.
 - [ ] Existing rows carrying a stale error self-heal the next time the task is
       evaluated. **No migration and no one-off repair for
       `spt_01kzg669penpt2rg9b40zvpfd6`.**
@@ -127,11 +133,13 @@ not merge it.
    'code-chris-outreach-01kvtnnpgaz5eg525et25tx62f';`. If that returns nothing, the
    candidate repo set must be widened (org-scoped repos / app-attached repos) and the
    design changes materially. The design below assumes the junction row exists.
-2. **Should a landed internal-only task leave `pull_request`?** `77726b750` deliberately
-   does *not* set autonomous runs to `done` (HelixOS bots are long-running, one
-   persistent task each; completing it would stop the bot). Current assumption: clear the
-   error and record the merge, but do not change status for autonomous runs. Is that the
-   wanted behaviour, or should non-autonomous internal-only tasks go to `done`?
+2. ~~**Should a landed internal-only task leave `pull_request`?**~~ **Answered
+   (review, 2026-08-12):** the only flow for getting these changes merged is clicking
+   "Open PR", and it is fine for the session to end and HelixOS to start another run.
+   So internal-only tasks take the existing internal-merge path, which already ends in
+   `done` + `completed_at` + `DismissTaskAttentionEvents` — with no autonomous-run
+   carve-out. `77726b750`'s "do not set `done`" rule stays scoped to the *push-triggered*
+   `tryAutoMergeBotRun` path, which has no human click behind it and is out of scope here.
 3. **Attention event on divergence?** Should the diverged case also emit an attention
    event (making it visible on the board), or is `metadata.error` enough? Assumed: error
    only, and the attention-event gap is reported, not fixed.
