@@ -16,7 +16,7 @@ func TestConfigsSetGetUpsert(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
 
-	cfg, err := config.New("claude.bin", `"claude"`, now, "w-owner", "org-test")
+	cfg, err := config.New("claude.bin", `"claude"`, now, "org-test")
 	if err != nil {
 		t.Fatalf("NewConfig: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestConfigsSetGetUpsert(t *testing.T) {
 	}
 
 	// Upsert: change value, key stays the same.
-	cfg2, _ := config.New("claude.bin", `"/usr/local/bin/claude"`, now.Add(time.Hour), "w-owner", "org-test")
+	cfg2, _ := config.New("claude.bin", `"/usr/local/bin/claude"`, now.Add(time.Hour), "org-test")
 	if err := s.Configs.Set(ctx, cfg2); err != nil {
 		t.Fatalf("Set (update): %v", err)
 	}
@@ -66,7 +66,7 @@ func TestConfigsListPrefix(t *testing.T) {
 		{"transport.postmark", `{"token":"x"}`},
 		{"dispatcher.timeout", `300`},
 	} {
-		c, _ := config.New(kv.k, kv.v, now, "", "org-test")
+		c, _ := config.New(kv.k, kv.v, now, "org-test")
 		if err := s.Configs.Set(ctx, c); err != nil {
 			t.Fatalf("Set %q: %v", kv.k, err)
 		}
@@ -94,7 +94,7 @@ func TestConfigsDelete(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
 
-	c, _ := config.New("temp.x", `1`, now, "", "org-test")
+	c, _ := config.New("temp.x", `1`, now, "org-test")
 	if err := s.Configs.Set(ctx, c); err != nil {
 		t.Fatalf("Set: %v", err)
 	}

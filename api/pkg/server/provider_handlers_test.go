@@ -654,8 +654,11 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchUserToGlobal() 
 	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
 			s.Equal(types.ProviderEndpointTypeGlobal, ep.EndpointType)
-			s.Equal(string(types.OwnerTypeSystem), ep.Owner)
-			s.Equal(types.OwnerTypeSystem, ep.OwnerType)
+			// Owner must stay the admin creator, NOT be reassigned to "system".
+			// Reassigning to "system" made the row look like a synthetic env-var
+			// endpoint and stranded it as read-only in the UI.
+			s.Equal("admin_id", ep.Owner)
+			s.Equal(types.OwnerTypeUser, ep.OwnerType)
 			return ep, nil
 		})
 
@@ -712,6 +715,139 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotSwitchT
 
 	s.Equal(http.StatusForbidden, rr.Code)
 	s.Contains(rr.Body.String(), "Only admins can update global endpoints")
+}
+
+// A non-admin who owns a global endpoint (e.g. one an admin switched to global,
+// which now retains the original owner) must not be able to edit it, even via a
+// request that omits endpoint_type. The gate keys on the stored row's type.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotEditGlobal() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_123"
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "my-endpoint",
+		BaseURL:      "http://localhost:11434",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeGlobal,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	// Payload deliberately omits endpoint_type — the attack that skipped the old
+	// payload-only gate.
+	update := types.UpdateProviderEndpoint{
+		Name:    "my-endpoint",
+		BaseURL: "http://evil.example.com",
+	}
+	body, _ := json.Marshal(update)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code)
+	s.Contains(rr.Body.String(), "Only admins can update global endpoints")
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_AdminUpdatesPresentationAndBilling() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_admin_metadata"
+	billingEnabled := true
+	icon := "deepseek"
+
+	existing := &types.ProviderEndpoint{
+		ID:             endpointID,
+		Name:           "deepseek-node",
+		Description:    "Old description",
+		BaseURL:        "http://deepseek.local/v1",
+		Owner:          "admin_id",
+		OwnerType:      types.OwnerTypeUser,
+		EndpointType:   types.ProviderEndpointTypeGlobal,
+		BillingEnabled: false,
+	}
+
+	adminCtx := setRequestUser(context.Background(), types.User{ID: "admin_id", Admin: true})
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+			s.Equal("DeepSeek Production", ep.Name)
+			s.Equal("Primary DeepSeek inference cluster", ep.Description)
+			s.Equal("deepseek", ep.Icon)
+			s.True(ep.BillingEnabled)
+			return ep, nil
+		})
+	s.manager.EXPECT().ListProviders(gomock.Any(), "admin_id").Return([]types.Provider{}, nil)
+
+	update := types.UpdateProviderEndpoint{
+		Name:           "DeepSeek Production",
+		Description:    "Primary DeepSeek inference cluster",
+		Icon:           &icon,
+		EndpointType:   types.ProviderEndpointTypeGlobal,
+		BaseURL:        "http://deepseek.local/v1",
+		BillingEnabled: &billingEnabled,
+	}
+	body, _ := json.Marshal(update)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(adminCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotEnableBilling() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_user_billing"
+	billingEnabled := true
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "user-provider",
+		BaseURL:      "http://provider.local/v1",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	update := types.UpdateProviderEndpoint{
+		Name:           existing.Name,
+		BaseURL:        existing.BaseURL,
+		BillingEnabled: &billingEnabled,
+	}
+	body, _ := json.Marshal(update)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code)
+	s.Contains(rr.Body.String(), "Only admins can change provider billing")
 }
 
 func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchToOrgRejected() {
@@ -918,4 +1054,52 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NoRenameStillInvalida
 	s.server.cache.Wait()
 	_, found := s.server.cache.Get(key)
 	s.False(found, "cache must be cleared after BaseURL change so next read sees the new upstream")
+}
+
+// TestGetCachedModels_DecodesWrappedPayload guards the cache-format unification.
+// The cache stores the wrapped cachedModels{Models,FetchedAt} payload (the only
+// writer is refreshProviderModels). getCachedModels previously unmarshalled the
+// raw entry into a bare []OpenAIModel, which always failed — leaving the
+// aggregate /v1/models empty for env-baked global providers. It must now decode
+// the wrapped shape.
+func (s *ProviderHandlersSuite) TestGetCachedModels_DecodesWrappedPayload() {
+	key := modelCacheKey("openai", string(types.OwnerTypeSystem))
+	payload, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "gpt-4o"}, {ID: "gpt-4o-mini"}},
+		FetchedAt: time.Now(),
+	})
+	s.server.cache.SetWithTTL(key, string(payload), 1, time.Hour)
+	s.server.cache.Wait()
+
+	models := s.server.getCachedModels(key)
+	s.Require().Len(models, 2, "wrapped cache payload must decode into models")
+	s.Equal("gpt-4o", models[0].ID)
+	s.Equal("gpt-4o-mini", models[1].ID)
+}
+
+// TestFindProviderWithModel_ResolvesFromWrappedCache guards that chat-completion
+// routing can resolve a bare model id against a dynamically-fetched provider's
+// cached model list. Before the fix findProviderWithModel read the cache as a
+// bare []OpenAIModel and silently missed the wrapped payload, so only providers
+// with a static Models list ever resolved.
+func (s *ProviderHandlersSuite) TestFindProviderWithModel_ResolvesFromWrappedCache() {
+	// No env-baked globals in this test.
+	s.manager.EXPECT().ListProviders(gomock.Any(), "").Return([]types.Provider{}, nil)
+
+	// One DB provider with NO static Models list — only the dynamic cache can match.
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
+		{Name: "dynprov", Owner: "user_id", BaseURL: "http://dynprov.local"},
+	}, nil)
+
+	key := modelCacheKey("dynprov", "user_id")
+	payload, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "some-dynamic-model"}},
+		FetchedAt: time.Now(),
+	})
+	s.server.cache.SetWithTTL(key, string(payload), 1, time.Hour)
+	s.server.cache.Wait()
+
+	provider, bareModel := s.server.findProviderWithModel(context.Background(), "some-dynamic-model", "user_id", "")
+	s.Equal("dynprov", provider, "must resolve provider from wrapped cache payload")
+	s.Equal("some-dynamic-model", bareModel)
 }

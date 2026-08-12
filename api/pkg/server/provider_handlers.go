@@ -174,28 +174,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			}
 		}
 
-		var baseURL string
-		switch provider {
-		case types.ProviderOpenAI:
-			baseURL = s.Cfg.Providers.OpenAI.BaseURL
-		case types.ProviderTogetherAI:
-			baseURL = s.Cfg.Providers.TogetherAI.BaseURL
-		case types.ProviderVLLM:
-			baseURL = s.Cfg.Providers.VLLM.BaseURL
-		case types.ProviderHelix:
-			baseURL = "internal"
-		}
-
-		providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
-			ID:             "-",
-			Name:           string(provider),
-			Description:    "",
-			BaseURL:        baseURL,
-			EndpointType:   types.ProviderEndpointTypeGlobal,
-			Owner:          string(types.OwnerTypeSystem),
-			APIKey:         "",
-			BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
-		})
+		providerEndpoints = append(providerEndpoints, s.globalProviderEndpoint(provider))
 	}
 
 	// Set default
@@ -276,6 +255,17 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 // doesn't empty the model picker for every UI page — see getProviderModels.
 const modelCacheTTL = 1 * time.Hour
 
+// emptyModelCacheTTL is a much shorter TTL applied when an upstream
+// returned ZERO models. The long modelCacheTTL is safe for "here is the
+// list" answers, but pinning an empty list for 1h causes a cold-start
+// blackout: the Helix self-provider returns an empty list during the
+// brief window between API boot and the first sandbox heartbeat landing,
+// and an unlucky cache miss in that window would leave the model picker
+// empty for up to an hour after sandboxes came online. 30s lets the
+// picker recover within a single user retry without forcing every page
+// load to re-fetch.
+const emptyModelCacheTTL = 30 * time.Second
+
 // errUpstreamUnreachable marks refresh failures that came from the upstream
 // /v1/models call itself (not from provider client construction). Callers use
 // errors.Is to decide whether falling back to a cached payload is safe: an
@@ -287,6 +277,114 @@ var errUpstreamUnreachable = errors.New("upstream models endpoint unreachable")
 // must invalidate the entry under the OLD name and let the next read repopulate.
 func modelCacheKey(name, owner string) string {
 	return fmt.Sprintf("%s:%s", name, owner)
+}
+
+// globalProviderEndpoint builds the synthetic ProviderEndpoint for an
+// env-baked global provider (one that has no database row). Used both when
+// listing endpoints for the UI and when resolving a model's owning provider
+// for chat-completion routing.
+func (s *HelixAPIServer) globalProviderEndpoint(provider types.Provider) *types.ProviderEndpoint {
+	var baseURL string
+	switch provider {
+	case types.ProviderOpenAI:
+		baseURL = s.Cfg.Providers.OpenAI.BaseURL
+	case types.ProviderTogetherAI:
+		baseURL = s.Cfg.Providers.TogetherAI.BaseURL
+	case types.ProviderVLLM:
+		baseURL = s.Cfg.Providers.VLLM.BaseURL
+	case types.ProviderHelix:
+		baseURL = "internal"
+	}
+
+	return &types.ProviderEndpoint{
+		ID:             "-",
+		Name:           string(provider),
+		Description:    "",
+		BaseURL:        baseURL,
+		EndpointType:   types.ProviderEndpointTypeGlobal,
+		Owner:          string(types.OwnerTypeSystem),
+		APIKey:         "",
+		BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
+	}
+}
+
+// resolveModelProviderLive is the last-resort routing resolver for
+// /v1/chat/completions. The fast path (findProviderWithModel) only reads the
+// per-provider model cache, which is populated lazily by /v1/models and the
+// model-picker fetch. When neither has run yet — a fresh API process, or a
+// downstream Helix that forwards a prefix-stripped bare model id to an upstream
+// Helix configured as a provider — the cache is cold, the bare id has no
+// usable provider prefix to parse, and routing would otherwise fall through to
+// the default ("helix") provider and 500 with "model X is not configured in the
+// default provider". This resolver warms each accessible provider's model list
+// via the shared stale-while-revalidate getProviderModels path (singleflighted,
+// cached, 3s timeout) and returns the provider that actually serves modelName
+// plus the bare upstream id. Returns ("", "") when no provider serves it.
+//
+// Only called after the cache-only lookup and prefix parsing both fail, so the
+// common (prefixed, or cache-warm) requests never pay the live-fetch cost. The
+// "helix" provider is skipped: it is the default that already failed, and
+// enumerating runner models here adds nothing.
+func (s *HelixAPIServer) resolveModelProviderLive(ctx context.Context, modelName, ownerID, orgID string) (string, string) {
+	var endpoints []*types.ProviderEndpoint
+
+	dbProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      ownerID,
+		WithGlobal: true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("live model resolution: failed to list provider endpoints")
+	} else {
+		endpoints = append(endpoints, dbProviders...)
+	}
+
+	if orgID != "" && orgID != ownerID {
+		if orgProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+			Owner:     orgID,
+			OwnerType: types.OwnerTypeOrg,
+		}); err == nil {
+			endpoints = append(endpoints, orgProviders...)
+		}
+	}
+
+	existing := make(map[string]bool)
+	for _, ep := range endpoints {
+		existing[ep.Name] = true
+	}
+	if globals, err := s.providerManager.ListProviders(ctx, ""); err == nil {
+		for _, g := range globals {
+			if existing[string(g)] {
+				continue
+			}
+			endpoints = append(endpoints, s.globalProviderEndpoint(g))
+		}
+	}
+
+	for _, ep := range endpoints {
+		if ep.Name == string(types.ProviderHelix) {
+			continue
+		}
+		residue := modelName
+		if strings.HasPrefix(modelName, ep.Name+"/") {
+			residue = modelName[len(ep.Name)+1:]
+		}
+		pm, err := s.getProviderModels(ctx, ep)
+		if err != nil {
+			continue
+		}
+		for _, m := range pm.Models {
+			if m.ID == modelName || m.ID == residue {
+				log.Debug().
+					Str("model", modelName).
+					Str("provider", ep.Name).
+					Str("bare_model", residue).
+					Msg("resolved provider via live model lookup (cache was cold)")
+				return ep.Name, residue
+			}
+		}
+	}
+
+	return "", ""
 }
 
 // invalidateProviderModelCache clears the cached model list for the given
@@ -443,7 +541,11 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 		if err != nil {
 			return nil, err
 		}
-		s.cache.SetWithTTL(key, string(payload), 1, modelCacheTTL)
+		ttl := modelCacheTTL
+		if len(models) == 0 {
+			ttl = emptyModelCacheTTL
+		}
+		s.cache.SetWithTTL(key, string(payload), 1, ttl)
 
 		return models, nil
 	})
@@ -654,9 +756,20 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	// For global endpoints, only allow updates by admins
-	if updatedEndpoint.EndpointType == types.ProviderEndpointTypeGlobal && !user.Admin {
+	// For global endpoints, only allow updates by admins. Gate on the stored
+	// row, not the request payload: a global endpoint now retains its original
+	// (possibly non-admin) owner, so the ownership check above no longer blocks
+	// that owner. If we only checked updatedEndpoint.EndpointType, a request that
+	// omits endpoint_type would skip this gate entirely and let the owner edit a
+	// globally-shared endpoint.
+	if (existingEndpoint.EndpointType == types.ProviderEndpointTypeGlobal ||
+		updatedEndpoint.EndpointType == types.ProviderEndpointTypeGlobal) && !user.Admin {
 		http.Error(rw, "Only admins can update global endpoints", http.StatusForbidden)
+		return
+	}
+
+	if updatedEndpoint.BillingEnabled != nil && !user.Admin {
+		http.Error(rw, "Only admins can change provider billing", http.StatusForbidden)
 		return
 	}
 
@@ -671,13 +784,17 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	// otherwise.
 	prevName, prevOwner := existingEndpoint.Name, existingEndpoint.Owner
 
-	// Apply endpoint type change and update ownership accordingly
+	// Apply endpoint type change. Keep the existing owner — global visibility is
+	// keyed on endpoint_type='global' in the store, not on owner, so there is no
+	// reason to reassign ownership. Stamping Owner="system" here made a real DB
+	// row indistinguishable from a synthetic env-var endpoint (ID="-", Owner=
+	// "system"), which the UI treats as read-only, permanently stranding it. This
+	// now matches createProviderEndpoint, which leaves a global endpoint owned by
+	// its admin creator.
 	if updatedEndpoint.EndpointType != "" && updatedEndpoint.EndpointType != existingEndpoint.EndpointType {
 		switch updatedEndpoint.EndpointType {
 		case types.ProviderEndpointTypeGlobal:
 			existingEndpoint.EndpointType = updatedEndpoint.EndpointType
-			existingEndpoint.Owner = string(types.OwnerTypeSystem)
-			existingEndpoint.OwnerType = types.OwnerTypeSystem
 		default:
 			http.Error(rw, fmt.Sprintf("Unsupported endpoint type switch to %q", updatedEndpoint.EndpointType), http.StatusBadRequest)
 			return
@@ -704,6 +821,12 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		existingEndpoint.Name = newName
 	}
 	existingEndpoint.Description = updatedEndpoint.Description
+	if updatedEndpoint.Icon != nil {
+		existingEndpoint.Icon = strings.TrimSpace(*updatedEndpoint.Icon)
+	}
+	if updatedEndpoint.BillingEnabled != nil {
+		existingEndpoint.BillingEnabled = *updatedEndpoint.BillingEnabled
+	}
 	existingEndpoint.Models = updatedEndpoint.Models
 	existingEndpoint.BaseURL = strings.TrimSpace(updatedEndpoint.BaseURL)
 	if updatedEndpoint.APIKey != nil {
@@ -900,6 +1023,90 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 	metrics, err := s.Store.GetProviderDailyUsageMetrics(r.Context(), id, from, to)
 	if err != nil {
 		writeErrResponse(rw, fmt.Errorf("error getting provider daily usage: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, metrics, http.StatusOK)
+}
+
+// getProviderThroughputUsage godoc
+// @Summary Get provider throughput usage
+// @Description Get provider throughput aggregated into 30-minute or hourly buckets
+// @Accept json
+// @Produce json
+// @Tags    providers
+// @Param   id path string true "Provider ID"
+// @Param   from query string false "Start date"
+// @Param   to query string false "End date"
+// @Param   aggregation_level query string false "Aggregation level" Enums(30min,hourly) default(30min)
+// @Success 200 {array} types.AggregatedUsageMetric
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/provider-endpoints/{id}/throughput-usage [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getProviderThroughputUsage(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	if !s.isProvidersManagementEnabled(r.Context()) && !user.Admin {
+		writeErrResponse(rw, errors.New("providers management is not enabled"), http.StatusForbidden)
+		return
+	}
+
+	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
+		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
+		return
+	}
+
+	from := time.Now().Add(-time.Hour * 24 * 7)
+	to := time.Now()
+	var err error
+
+	if value := r.URL.Query().Get("from"); value != "" {
+		from, err = time.Parse(time.RFC3339, value)
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to parse from date: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if value := r.URL.Query().Get("to"); value != "" {
+		to, err = time.Parse(time.RFC3339, value)
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to parse to date: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	aggregationLevel := store.AggregationLevel30Min
+	switch value := r.URL.Query().Get("aggregation_level"); value {
+	case "", string(store.AggregationLevel30Min):
+	case string(store.AggregationLevelHourly):
+		aggregationLevel = store.AggregationLevelHourly
+	default:
+		writeErrResponse(rw, fmt.Errorf("invalid aggregation level %q", value), http.StatusBadRequest)
+		return
+	}
+
+	visible, err := s.providerVisible(r.Context(), user, id)
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
+		return
+	}
+	if !visible {
+		writeErrResponse(rw, errors.New("not authorized to access this provider"), http.StatusForbidden)
+		return
+	}
+
+	metrics, err := s.Store.GetAggregatedUsageMetrics(r.Context(), &store.GetAggregatedUsageMetricsQuery{
+		AggregationLevel: aggregationLevel,
+		Provider:         id,
+		From:             from,
+		To:               to,
+	})
+	if err != nil {
+		writeErrResponse(rw, fmt.Errorf("error getting provider throughput usage: %w", err), http.StatusInternalServerError)
 		return
 	}
 

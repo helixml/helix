@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/memory"
 	"github.com/helixml/helix/api/pkg/agent/skill/project"
 	"github.com/helixml/helix/api/pkg/agent/skill/repository"
+	modelpkg "github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -104,10 +106,19 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		return nil, nil, fmt.Errorf("failed to get generation model config: %w", err)
 	}
 
+	// Generation models carry the tool-calling turns (decideNextAction et al).
+	// Reasoning is the ReasoningModel's job in this architecture, so where the
+	// model understands "none" we say so explicitly rather than leaving the
+	// parameter off and inheriting the provider's default — gpt-5.6-* rejects
+	// its own "medium" default outright when the request carries function
+	// tools. Models that do not understand "none" are left untouched.
+	generationModel.ReasoningEffort = defaultGenerationReasoningEffort(generationModel)
+
 	log.Debug().
 		Str("generation_model_provider", withFallbackProvider(req.Assistant.GenerationModelProvider, req.Assistant)).
 		Str("generation_model", req.Assistant.GenerationModel).
 		Str("configured_model", generationModel.Model).
+		Str("reasoning_effort", generationModel.ReasoningEffort).
 		Msg("Generation model configuration")
 
 	smallReasoningModel, err := c.getLLMModelConfig(ctx,
@@ -126,6 +137,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get small generation model config: %w", err)
 	}
+	smallGenerationModel.ReasoningEffort = defaultGenerationReasoningEffort(smallGenerationModel)
 
 	llm := agent.NewLLM(
 		reasoningModel,
@@ -336,9 +348,73 @@ func (c *Controller) getLLMModelConfig(ctx context.Context, owner, provider, mod
 	}
 
 	return &agent.LLMModelConfig{
-		Client: client,
-		Model:  model,
+		Client:                     client,
+		Model:                      model,
+		AcceptsNoneReasoningEffort: c.modelAcceptsNoneReasoningEffort(ctx, provider, model),
 	}, nil
+}
+
+// defaultGenerationReasoningEffort returns the effort a generation model should
+// send when the assistant has not configured one: "none" for models that accept
+// it, empty (parameter omitted, provider default) for everything else.
+func defaultGenerationReasoningEffort(cfg *agent.LLMModelConfig) string {
+	if cfg != nil && cfg.AcceptsNoneReasoningEffort {
+		return "none"
+	}
+	return ""
+}
+
+// modelAcceptsNoneReasoningEffort reports whether the model's catalog entry
+// lists "none" among its supported reasoning efforts. Unknown models answer
+// false, which preserves the historical behaviour of stripping "none".
+func (c *Controller) modelAcceptsNoneReasoningEffort(ctx context.Context, provider, modelName string) bool {
+	if c.Options.ModelInfoProvider == nil {
+		return false
+	}
+	info, err := c.Options.ModelInfoProvider.GetModelInfo(ctx, &modelpkg.ModelInfoRequest{
+		Provider: provider,
+		Model:    modelName,
+	})
+	if err != nil || info == nil {
+		return false
+	}
+	return slices.Contains(info.SupportedReasoningEfforts, "none")
+}
+
+// collectAgentResponse drains an agent session, accumulating its text until the
+// agent signals End.
+//
+// An Error response is returned as an error rather than dropped. Dropping it
+// meant a failed inference produced HTTP 200 with an empty assistant message —
+// so a provider outage read as "the model said nothing", and a 429 surfaced as
+// an integration test asserting on an empty string instead of a legible error.
+//
+// The drain continues to End even after an error, because the agent still emits
+// it; abandoning the channel early would leave the producer blocked on a send
+// nobody reads.
+func collectAgentResponse(next func() agent.Response) (string, error) {
+	var (
+		response strings.Builder
+		agentErr error
+	)
+
+	for {
+		out := next()
+
+		switch out.Type {
+		case agent.ResponseTypePartialText:
+			response.WriteString(out.Content)
+		case agent.ResponseTypeError:
+			if agentErr == nil {
+				agentErr = fmt.Errorf("agent error: %s", out.Content)
+			}
+		case agent.ResponseTypeEnd:
+			if agentErr != nil {
+				return "", agentErr
+			}
+			return response.String(), nil
+		}
+	}
 }
 
 func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionResponse, error) {
@@ -347,16 +423,9 @@ func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest)
 		return nil, err
 	}
 
-	var response string
-	for {
-		out := session.Out()
-
-		if out.Type == agent.ResponseTypePartialText {
-			response += out.Content
-		}
-		if out.Type == agent.ResponseTypeEnd {
-			break
-		}
+	response, err := collectAgentResponse(session.Out)
+	if err != nil {
+		return nil, err
 	}
 
 	// Update session metadata with accumulated RAG results for citation rendering

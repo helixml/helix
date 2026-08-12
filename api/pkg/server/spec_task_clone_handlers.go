@@ -208,6 +208,10 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
 	}
+	if autoStart {
+		newTask.AssigneeID = userID
+		newTask.PlanningStartedBy = userID
+	}
 
 	// Assign task number immediately at creation time so it's always visible in UI
 	// Task numbers are globally unique across the entire deployment

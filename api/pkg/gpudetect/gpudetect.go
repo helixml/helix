@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -32,8 +34,39 @@ func Detect(ctx context.Context) []types.GPUStatus {
 	var out []types.GPUStatus
 	out = append(out, detectNVIDIA(ctx)...)
 	out = append(out, detectAMD(ctx)...)
+	out = append(out, detectNeuron()...)
 	if out == nil {
 		out = []types.GPUStatus{}
+	}
+	return out
+}
+
+// neuronDeviceRe matches the per-chip Neuron device nodes (/dev/neuron0,
+// /dev/neuron1, ...) while excluding control nodes like /dev/neuron-rtd.
+var neuronDeviceRe = regexp.MustCompile(`^neuron[0-9]+$`)
+
+// detectNeuron enumerates AWS Neuron accelerator devices (Inferentia /
+// Trainium) by globbing /dev/neuron*. One GPUStatus entry per chip, so the
+// inference router and admin UI see the device count. The chip family and
+// NeuronCore count are derived from the instance type elsewhere — the device
+// node alone doesn't reveal inf2 vs trn1 vs trn2. Returns nil on any host
+// without Neuron devices (the common case), so NVIDIA/AMD/bare-metal hosts
+// are unaffected.
+func detectNeuron() []types.GPUStatus {
+	devs, err := filepath.Glob("/dev/neuron*")
+	if err != nil {
+		return nil
+	}
+	var out []types.GPUStatus
+	for _, d := range devs {
+		if !neuronDeviceRe.MatchString(filepath.Base(d)) {
+			continue
+		}
+		out = append(out, types.GPUStatus{
+			Index:     len(out),
+			Vendor:    types.GPUVendorNeuron,
+			ModelName: "AWS Neuron Device",
+		})
 	}
 	return out
 }

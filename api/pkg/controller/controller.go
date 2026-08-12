@@ -39,10 +39,11 @@ type Options struct {
 	Janitor               *janitor.Janitor
 	Notifier              notification.Notifier
 	ProviderManager       manager.ProviderManager // OpenAI client provider
-	OAuthManager     *oauth.Manager
-	Browser          *browser.Browser
-	SearchProvider   searxng.SearchProvider
-	MCPClientGetter  mcp.ClientGetter
+	ModelInfoProvider     model.ModelInfoProvider // Model capability/pricing catalog
+	OAuthManager          *oauth.Manager
+	Browser               *browser.Browser
+	SearchProvider        searxng.SearchProvider
+	MCPClientGetter       mcp.ClientGetter
 }
 
 type Controller struct {
@@ -130,10 +131,10 @@ func NewController(
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
 		},
-		stepInfoEmitter: agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
-		triggerStatuses:     make(map[TriggerStatusKey]types.TriggerStatus),
-		triggerStatusesMu:   &sync.RWMutex{},
-		browserCache:        browserCache,
+		stepInfoEmitter:   agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
+		triggerStatuses:   make(map[TriggerStatusKey]types.TriggerStatus),
+		triggerStatusesMu: &sync.RWMutex{},
+		browserCache:      browserCache,
 	}
 
 	// Default provider — boot-time client used by the tools planner for

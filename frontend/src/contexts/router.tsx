@@ -1,6 +1,5 @@
-import React, { createContext, useMemo, useCallback, ReactNode } from 'react'
+import React, { createContext, useCallback, ReactNode } from 'react'
 import { useRoute } from 'react-router5'
-import router, { useApplicationRoute } from '../router'
 
 import {
   IRouterNavigateFunction,
@@ -28,6 +27,15 @@ export interface IRouterContext {
   },
 }
 
+interface ApplicationRoute {
+  render: () => JSX.Element,
+  meta: Record<string, any>,
+}
+
+// Keep this module independent of ../router. The application router imports every
+// page, and pages import this context through useRouter; closing that cycle makes
+// Vite refresh only the edited page instead of the entire application.
+
 export const RouterContext = createContext<IRouterContext>({
   name: '',
   params: {},
@@ -41,14 +49,9 @@ export const RouterContext = createContext<IRouterContext>({
   removeParams: () => {},
 })
 
-export const useRouterContext = (): IRouterContext => {
-  const { route } = useRoute()
-  const appRoute = useApplicationRoute()
-  const meta = useMemo(() => {
-    return appRoute.meta
-  }, [
-    appRoute,
-  ])
+const useRouterContext = (appRoute: ApplicationRoute): IRouterContext => {
+  const { route, router } = useRoute()
+  const routeParamsKey = JSON.stringify(route.params)
   const navigate = useCallback((name: string, params?: Record<string, any>) => {
     params ?
       router.navigate(name, params) :
@@ -65,21 +68,21 @@ export const useRouterContext = (): IRouterContext => {
     router.navigate(route.name, replace ? params : Object.assign({}, route.params, params))
   }, [
     route.name,
-    route.params,
+    routeParamsKey,
   ])
 
   const mergeParams = useCallback((params: Record<string, string>) => {
     router.navigate(route.name, Object.assign({}, route.params, params), { replace: true })
   }, [
     route.name,
-    route.params,
+    routeParamsKey,
   ])
 
   const replaceParams = useCallback((params: Record<string, string>) => {
     router.navigate(route.name, params, { replace: true })
   }, [
     route.name,
-    route.params,
+    routeParamsKey,
   ])
 
   const removeParams = useCallback((params: string[]) => {
@@ -92,41 +95,31 @@ export const useRouterContext = (): IRouterContext => {
     router.navigate(route.name, newParams)
   }, [
     route.name,
-    route.params,
+    routeParamsKey,
   ])
 
-  const render = useCallback(() => {
-    return appRoute.render()
-  }, [
-    appRoute,
-  ])
-
-  const contextValue = useMemo<IRouterContext>(() => ({
+  return {
     name: route.name,
     params: route.params,
-    meta,
+    meta: appRoute.meta,
     navigate,
     navigateReplace,
     setParams,
     mergeParams,
     replaceParams,
     removeParams,
-    render,
-  }), [
-    route.name,
-    route.params,
-    meta,
-    navigate,
-    navigateReplace,
-    setParams,
-    removeParams,
-    render,
-  ])
-  return contextValue
+    render: appRoute.render,
+  }
 }
 
-export const RouterContextProvider = ({ children }: { children: ReactNode }) => {
-  const value = useRouterContext()
+export const RouterContextProvider = ({
+  appRoute,
+  children,
+}: {
+  appRoute: ApplicationRoute,
+  children: ReactNode,
+}) => {
+  const value = useRouterContext(appRoute)
   return (
     <RouterContext.Provider value={ value }>
       { children }

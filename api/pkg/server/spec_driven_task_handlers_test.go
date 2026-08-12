@@ -1,10 +1,94 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
+
+func TestSpecTaskProviderPreflightHandlers(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		body    string
+		handler func(*HelixAPIServer, http.ResponseWriter, *http.Request)
+	}{
+		{
+			name:    "start planning",
+			path:    "/api/v1/spec-tasks/task1/start-planning",
+			handler: (*HelixAPIServer).startPlanning,
+		},
+		{
+			name:    "approve specs",
+			path:    "/api/v1/spec-tasks/task1/approve-specs",
+			body:    `{"approved":true}`,
+			handler: (*HelixAPIServer).approveSpecs,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			mockProviderManager := manager.NewMockProviderManager(ctrl)
+			server := &HelixAPIServer{
+				Store:           mockStore,
+				providerManager: mockProviderManager,
+			}
+			user := types.User{ID: "user1"}
+			task := &types.SpecTask{
+				ID:         "task1",
+				ProjectID:  "project1",
+				HelixAppID: "app1",
+				Status:     types.TaskStatusBacklog,
+			}
+			project := &types.Project{ID: "project1", UserID: user.ID}
+			app := &types.App{
+				ID:             "app1",
+				OrganizationID: "org1",
+				Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+					AgentType:               types.AgentTypeZedExternal,
+					CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+					CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+					Provider:                "anthropic",
+					Model:                   "claude-opus-4-8",
+					GenerationModelProvider: "pe_personal",
+					GenerationModel:         "scope-e2e-model",
+				}}}},
+			}
+
+			mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+			mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(2)
+			mockStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+			mockProviderManager.EXPECT().ListProviderEndpoints(gomock.Any(), app.OrganizationID).Return([]*types.ProviderEndpoint{{Name: "anthropic"}}, nil)
+
+			req := httptest.NewRequest(http.MethodPost, tt.path, bytes.NewBufferString(tt.body))
+			req = mux.SetURLVars(req, map[string]string{"taskId": task.ID})
+			req = req.WithContext(setRequestUser(req.Context(), user))
+			response := httptest.NewRecorder()
+
+			tt.handler(server, response, req)
+
+			require.Equal(t, http.StatusUnprocessableEntity, response.Code)
+			var payload struct {
+				Error   string `json:"error"`
+				Message string `json:"message"`
+			}
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&payload))
+			require.Equal(t, "agent_misconfigured", payload.Error)
+			require.Equal(t, types.OrganizationProviderUnavailableMessage, payload.Message)
+		})
+	}
+}
 
 func TestDeriveAgentWorkState(t *testing.T) {
 	cases := []struct {

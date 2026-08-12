@@ -2,15 +2,17 @@ import React, { FC } from 'react'
 
 import SettingsIcon from '@mui/icons-material/Settings'
 import CodeIcon from '@mui/icons-material/Code'
-import { Bot } from 'lucide-react'
+import { Bot, GitBranch } from 'lucide-react'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import HubIcon from '@mui/icons-material/Hub'
+import PublicIcon from '@mui/icons-material/Public'
 import WarningIcon from '@mui/icons-material/Warning'
+import PeopleIcon from '@mui/icons-material/People'
 
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
-export type ProjectSettingsTab = 'general' | 'sandbox' | 'agents' | 'board' | 'secrets' | 'skills' | 'danger'
+export type ProjectSettingsTab = 'general' | 'repositories' | 'sandbox' | 'web-service' | 'agents' | 'board' | 'secrets' | 'skills' | 'access' | 'danger'
 
 interface ProjectSettingsSidebarProps {
   activeTab?: ProjectSettingsTab
@@ -35,11 +37,25 @@ const ProjectSettingsSidebar: FC<ProjectSettingsSidebarProps> = ({ activeTab = '
           onClick: () => handleClick('general'),
         },
         {
+          id: 'repositories',
+          label: 'Repositories',
+          icon: <GitBranch size={22} />,
+          isActive: activeTab === 'repositories',
+          onClick: () => handleClick('repositories'),
+        },
+        {
           id: 'sandbox',
           label: 'Sandbox',
           icon: <CodeIcon />,
           isActive: activeTab === 'sandbox',
           onClick: () => handleClick('sandbox'),
+        },
+        {
+          id: 'web-service',
+          label: 'Web Service',
+          icon: <PublicIcon />,
+          isActive: activeTab === 'web-service',
+          onClick: () => handleClick('web-service'),
         },
         {
           id: 'agents',
@@ -64,10 +80,17 @@ const ProjectSettingsSidebar: FC<ProjectSettingsSidebarProps> = ({ activeTab = '
         },
         {
           id: 'skills',
-          label: 'Skills',
+          label: 'MCPs & APIs',
           icon: <HubIcon />,
           isActive: activeTab === 'skills',
           onClick: () => handleClick('skills'),
+        },
+        {
+          id: 'access',
+          label: 'Manage Access',
+          icon: <PeopleIcon />,
+          isActive: activeTab === 'access',
+          onClick: () => handleClick('access'),
         },
       ],
     },

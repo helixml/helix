@@ -5,10 +5,32 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/types"
+)
+
+// projectEnsureMu serialises project provisioning; repoEnsureMu serialises
+// per-Worker repo creation. Two
+// activations for the same bot otherwise both observe DefaultRepoID=="" and each
+// create+attach a same-named repo — duplicates the desktop workspace setup then
+// clones into one path and fails on. A single global lock is fine: activation is
+// low-throughput and the critical section is a check-create-attach.
+//
+// ponytail: this lock is process-local — it only closes the window within one
+// API process. It does NOT protect against two API replicas racing the same
+// activation (each would still create a repo, and CreateGitRepo auto-increments
+// the name rather than erroring, so the loser silently makes `<worker>-2`). The
+// real fix is a store-level uniqueness constraint on (owner/org, repo name) so
+// the create fails cleanly and the loser re-fetches — that removes this lock
+// entirely and holds across replicas. Prod is single-replica today, so the lock
+// suffices for now.
+var (
+	// ponytail: global lock; use per-Bot or database locks if provisioning throughput matters.
+	projectEnsureMu sync.Mutex
+	repoEnsureMu    sync.Mutex
 )
 
 // ErrProjectNotFound is the sentinel a ProjectService impl must return
@@ -17,6 +39,11 @@ import (
 // error from the underlying transport must wrap this sentinel so the
 // fast-path verification can clear stale state and re-apply.
 var ErrProjectNotFound = errors.New("helix project: not found")
+
+// ErrRepoNotFound is the sentinel a ProjectService impl must return (wrapped)
+// when GetGitRepo is called against a repo that no longer exists. WorkerProject
+// compares with errors.Is to decide whether to re-provision the repo.
+var ErrRepoNotFound = errors.New("helix git repo: not found")
 
 // ProjectService is the slice of Helix's project/git/app API that the
 // per-Worker WorkerProject depends on. The wiring in api/pkg/server
@@ -52,10 +79,26 @@ type ProjectService interface {
 	// PutProjectSecret upserts an env-var injected into the agent's
 	// container at session start.
 	PutProjectSecret(ctx context.Context, projectID, name, value string) error
+	DeleteProjectSecret(ctx context.Context, projectID, name string) error
+
+	// ListProjectSecrets returns the project's dev-scoped secrets as a
+	// decrypted name→value map, read live. Backs list_secrets so a bot can
+	// pick up a secret added after its container booted.
+	ListProjectSecrets(ctx context.Context, projectID string) (map[string]string, error)
 
 	// CreateGitRepo creates a Helix-internal git repository. Used when
 	// project-apply doesn't auto-create one.
 	CreateGitRepo(ctx context.Context, req types.GitRepositoryCreateRequest) (types.GitRepository, error)
+
+	// GetGitRepo returns a repo by ID. Returns ErrRepoNotFound (wrapped if
+	// needed) when the repo no longer exists, so the fast path can detect a
+	// deleted repo and re-provision instead of handing back a dead id.
+	GetGitRepo(ctx context.Context, repoID string) (types.GitRepository, error)
+
+	// DeleteGitRepo removes a repo by ID. Used to reclaim a just-created repo
+	// that could not be attached (or that lost a create race), so a retry
+	// doesn't accumulate duplicates. A missing repo is not an error.
+	DeleteGitRepo(ctx context.Context, repoID string) error
 
 	// AttachRepoToProject attaches an existing repo as a project's
 	// primary (or secondary) repository.
@@ -68,10 +111,7 @@ type ProjectService interface {
 	// GetAppConfig returns the typed config for an App. Used to round-
 	// trip the helix.assistants[0] MCP list for MCP attachment.
 	GetAppConfig(ctx context.Context, id string) (types.AppConfig, error)
-
-	// UpdateAppConfig persists a mutated app config. WorkerProject
-	// uses this to attach helix-org's MCP server to the auto-provisioned
-	// Agent App.
+	GetApp(ctx context.Context, id string) (*types.App, error)
 	UpdateAppConfig(ctx context.Context, id string, config types.AppConfig) error
 
 	// DeleteProject soft-deletes a Helix project and stops any active
@@ -95,9 +135,9 @@ type ProjectService interface {
 // needs a per-Worker project so the org-graph MCP server can be wired
 // in via the project's auto-provisioned Agent App.
 //
-// Idempotent: re-applying for a Worker that already has a project is
-// a no-op for the project itself, but always re-pushes the canonical
-// role/identity files so update_role / update_identity changes land.
+// Idempotent: ensuring a Bot that already has a project is a no-op for the
+// project itself. Runtime instructions are published by the activation
+// spawner after it resolves Bot content, linked Agent content, and overrides.
 //
 // WorkerProject routes the project / git / app calls through the
 // ProjectService interface and the file pushes through ProjectGit
@@ -106,15 +146,15 @@ type ProjectService interface {
 // in-process adapter that calls HelixAPIServer handlers directly.
 type WorkerProject struct {
 	Service ProjectService
-	// Workspace owns the on-branch file layout — WorkerProject
-	// delegates all file pushes (agent.md / role.md / identity.md
-	// at first apply) through it so there is exactly one place in
-	// the helix runtime that knows the `workers/<id>/.context/`
-	// / `.context/` path convention.
-	Workspace   *Workspace
-	Store       *store.Store
-	HelixOrgURL string
-	OrgID       string
+	Store   *store.Store
+	OrgID   string
+	// OrgDisplayName is the org's human label, used to build the
+	// project's display name (`<Bot> @ <Org>`). The host resolves it
+	// from the main store and stamps it here; empty falls back to a
+	// bare bot label. Both the owner-chat applier and the spawner MUST
+	// set it identically — the project is upserted by name, so a
+	// divergent value would create a duplicate project.
+	OrgDisplayName string
 	// Runtime overrides the default `zed_agent` runtime constant.
 	// Empty means "use the package-level Runtime const" (zed_agent),
 	// which routes inference back through Helix and honours
@@ -127,11 +167,7 @@ type WorkerProject struct {
 	Model    string
 	// Credentials selects the in-sandbox auth source for the runtime.
 	Credentials string
-	// AgentMD is the org-wide agent policy pushed verbatim to
-	// `.context/agent.md` on every Worker's helix-specs branch. Empty
-	// string skips the push.
-	AgentMD string
-	Logger  *slog.Logger
+	Logger      *slog.Logger
 }
 
 // Ensure applies a Helix project for the given Worker if one
@@ -143,7 +179,7 @@ type WorkerProject struct {
 // inside the activation path (project.go:156 in the original
 // crash); now they're checked up front so the failure is a
 // clear error message instead of a panic.
-func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error) {
+func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgchart.NodeID) (projectID, agentAppID, repoID string, err error) {
 	if a == nil {
 		return "", "", "", errors.New("worker project applier is nil")
 	}
@@ -153,30 +189,95 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	if a.Store == nil {
 		return "", "", "", errors.New("worker project applier: Store is nil")
 	}
-	worker, err := a.Store.Workers.Get(ctx, orgID, workerID)
+	projectEnsureMu.Lock()
+	defer projectEnsureMu.Unlock()
+
+	bot, err := a.Store.Nodes.Get(ctx, orgID, workerID)
 	if err != nil {
-		return "", "", "", fmt.Errorf("get worker: %w", err)
+		return "", "", "", fmt.Errorf("get bot: %w", err)
 	}
 	state, err := LoadState(ctx, a.Store, orgID, workerID)
 	if err != nil {
 		return "", "", "", err
 	}
-	var roleContent, roleName string
-	if rid := worker.RoleID(); rid != "" {
-		if role, err := a.Store.Roles.Get(ctx, orgID, rid); err == nil {
-			roleContent = role.Content
-			roleName = string(role.ID)
+	var existingProject types.Project
+	var existingProjectErr error
+	if state.ProjectID != "" {
+		existingProject, existingProjectErr = a.Service.GetProject(ctx, state.ProjectID)
+		if existingProjectErr == nil && existingProject.DefaultHelixAppID != "" && existingProject.DefaultHelixAppID != bot.AgentID {
+			defaultApp, appErr := a.Service.GetApp(ctx, existingProject.DefaultHelixAppID)
+			if appErr != nil {
+				return "", "", "", fmt.Errorf("get project default agent app %s for %s: %w", existingProject.DefaultHelixAppID, workerID, appErr)
+			}
+			if defaultApp.OrganizationID == orgID && len(defaultApp.Config.Helix.Assistants) == 1 {
+				allBots, err := a.Store.Nodes.List(ctx, orgID)
+				if err != nil {
+					return "", "", "", fmt.Errorf("check project default agent app claims for %s: %w", workerID, err)
+				}
+				claimed := false
+				for _, other := range allBots {
+					if other.ID != workerID && other.AgentID == defaultApp.ID {
+						claimed = true
+						break
+					}
+				}
+				if !claimed {
+					bot = bot.WithAgentID(defaultApp.ID)
+					if err := a.Store.Nodes.Update(ctx, bot); err != nil {
+						return "", "", "", fmt.Errorf("link project default agent app %s to bot %s: %w", defaultApp.ID, workerID, err)
+					}
+					state.AgentID = defaultApp.ID
+					if err := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, state.AgentID, state.RepoID); err != nil {
+						return "", "", "", fmt.Errorf("persist project default agent app for %s: %w", workerID, err)
+					}
+				}
+			}
 		}
+	}
+	roleContent := bot.Content
+	roleName := string(bot.ID)
+	botLabel := bot.Name
+	if bot.AgentID != "" {
+		cfg, err := a.Service.GetAppConfig(ctx, bot.AgentID)
+		if err != nil {
+			return "", "", "", fmt.Errorf("get linked agent %s: %w", bot.AgentID, err)
+		}
+		if len(cfg.Helix.Assistants) != 1 {
+			return "", "", "", fmt.Errorf("linked agent %s must contain exactly one assistant", bot.AgentID)
+		}
+		roleName = cfg.Helix.Assistants[0].Name
+		if roleName == "" {
+			roleName = cfg.Helix.Name
+		}
+		roleContent = cfg.Helix.Assistants[0].SystemPrompt
+		botLabel = roleName
 	}
 	runtime := a.Runtime
 	if runtime == "" {
 		runtime = Runtime
 	}
+	// Project display name: `<Bot> @ <Org>` (e.g. "Chief of Staff @ Acme")
+	// rather than the bare slug. bot.Name may be empty (fall back to the
+	// ID); OrgDisplayName may be empty in bare/test wirings (fall back to
+	// just the bot label). Deterministic so upsert-by-name stays idempotent.
+	if botLabel == "" {
+		botLabel = string(bot.ID)
+	}
+	projectName := botLabel
+	if a.OrgDisplayName != "" {
+		projectName = fmt.Sprintf("%s @ %s", botLabel, a.OrgDisplayName)
+	}
 	applyReq := types.ProjectApplyRequest{
-		OrganizationID: a.OrgID,
-		Name:           string(workerID),
+		// Scope the project to the org this Ensure call was invoked for,
+		// not the struct's OrgID field. They are normally equal, but a
+		// caller that reuses a WorkerProject across orgs (or stamps OrgID
+		// from frozen config) must not be able to apply one org's project
+		// into another — the org parameter is the authority here.
+		OrganizationID: orgID,
+		Name:           projectName,
+		AgentAppID:     bot.AgentID,
 		Spec: types.ProjectSpec{
-			Description: worker.IdentityContent(),
+			Description: roleContent,
 			Agent: &types.ProjectAgentSpec{
 				Name:        roleName,
 				Runtime:     runtime,
@@ -187,7 +288,8 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		},
 	}
 	if state.ProjectID != "" {
-		if _, err := a.Service.GetProject(ctx, state.ProjectID); err != nil {
+		existing, err := existingProject, existingProjectErr
+		if err != nil {
 			if errors.Is(err, ErrProjectNotFound) {
 				if clearErr := ClearProject(ctx, a.Store, orgID, workerID); clearErr != nil {
 					return "", "", "", fmt.Errorf("clear stale project state for %s: %w", workerID, clearErr)
@@ -200,57 +302,106 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				return "", "", "", fmt.Errorf("verify project %s for %s: %w", state.ProjectID, workerID, err)
 			}
 		} else {
+			if bot.AgentID != "" && existing.DefaultHelixAppID != bot.AgentID {
+				linkedAppID := bot.AgentID
+				updatedProject, err := a.Service.UpdateProject(ctx, state.ProjectID, types.ProjectUpdateRequest{DefaultHelixAppID: &linkedAppID})
+				if err != nil {
+					return "", "", "", fmt.Errorf("link canonical agent app %s to project %s: %w", linkedAppID, state.ProjectID, err)
+				}
+				existing = updatedProject
+				state.AgentID = linkedAppID
+				if err := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, linkedAppID, state.RepoID); err != nil {
+					return "", "", "", fmt.Errorf("persist canonical agent app for %s: %w", workerID, err)
+				}
+			} else if bot.AgentID != "" && state.AgentID != bot.AgentID {
+				state.AgentID = bot.AgentID
+				if err := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, state.AgentID, state.RepoID); err != nil {
+					return "", "", "", fmt.Errorf("repair runtime agent app for %s: %w", workerID, err)
+				}
+			}
 			// Project already exists — fast path.
 			//
-			// We DO re-call ApplyProject so worker.* changes (runtime,
-			// credentials, provider, model) made on the Settings page
-			// after this worker was first provisioned propagate to the
-			// helix-side agent app on the next activation. ApplyProject
-			// is upsert-by-name and idempotent — without this re-apply,
-			// the agent app's Runtime/Credentials/Provider/Model stay
-			// frozen at first-apply time and operators have to fire +
-			// re-hire every worker to pick up settings drift. That gap
-			// surfaced when the chart UI's owner-chat hit
-			// "Authentication required" because the org had been
-			// flipped to api_key mode but w-owner's agent app still
-			// thought it was in subscription mode.
-			//
-			// We do NOT re-push canonical files (role.md / identity.md
-			// / agent.md): republishing on every activation clobbers
-			// any external edits the Worker has made on the
-			// helix-specs branch since the last apply. Canonical-
-			// content updates flow through Workspace.MirrorFile
-			// explicitly; that's the only path that touches these
-			// files outside first-activation provisioning.
-			if _, err := a.Service.ApplyProject(ctx, applyReq); err != nil {
-				return "", "", "", fmt.Errorf("refresh project spec for %s: %w", workerID, err)
+			// The project is tracked by ID (state.ProjectID) but ApplyProject
+			// upserts by NAME. When the desired display name has drifted from
+			// the tracked project's current name — an existing worker whose
+			// project predates the `<Bot> @ <Org>` scheme, or an org/bot
+			// rename — a bare ApplyProject would match nothing and FORK an
+			// orphan project. Rename in place
+			// by ID first so ApplyProject matches the same project.
+			if existing.Name != projectName {
+				renamed := projectName
+				if _, err := a.Service.UpdateProject(ctx, state.ProjectID, types.ProjectUpdateRequest{Name: &renamed}); err != nil {
+					// Don't fork: skip the by-name refresh this activation and
+					// keep the worker running on its existing project. Retries
+					// next activation.
+					if a.Logger != nil {
+						a.Logger.Warn("project applier: rename to display name failed, skipping refresh to avoid orphan", "worker", workerID, "project", state.ProjectID, "want_name", projectName, "err", err)
+					}
+					return state.ProjectID, state.AgentID, state.RepoID, nil
+				}
 			}
-			return state.ProjectID, state.AgentAppID, state.RepoID, nil
+			if !existing.Metadata.OrgMembersAccess {
+				existing.Metadata.OrgMembersAccess = true
+				if _, err := a.Service.UpdateProject(ctx, state.ProjectID, types.ProjectUpdateRequest{Metadata: &existing.Metadata}); err != nil {
+					return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", state.ProjectID, workerID, err)
+				}
+			}
+			// Runtime/model configuration is owned by the generated Helix app
+			// after initial provisioning. Do not re-apply the provisioning
+			// spec here: doing so would overwrite edits made through the app
+			// settings UI/API with worker.* defaults on every bot start.
+			// Self-heal a deleted repo: the project is live but its repo may
+			// have been removed out-of-band. The project self-heals above (via
+			// ErrProjectNotFound); give the repo the same treatment so the
+			// worker isn't left pointing at a dead repo id. Only re-provision
+			// on a definitive not-found — a transient read error keeps the
+			// existing id rather than risk a needless recreate.
+			repoID := state.RepoID
+			if repoID != "" {
+				if _, gerr := a.Service.GetGitRepo(ctx, repoID); errors.Is(gerr, ErrRepoNotFound) {
+					if a.Logger != nil {
+						a.Logger.Info("project applier: persisted repo missing, re-provisioning", "worker", workerID, "stale_repo_id", repoID)
+					}
+					newRepoID, rerr := a.ensureWorkerRepo(ctx, state.ProjectID, orgID, workerID)
+					if rerr != nil {
+						return "", "", "", fmt.Errorf("re-provision missing repo for %s: %w", workerID, rerr)
+					}
+					repoID = newRepoID
+					if serr := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, state.AgentID, repoID); serr != nil {
+						return "", "", "", fmt.Errorf("persist re-provisioned repo for %s: %w", workerID, serr)
+					}
+				} else if gerr != nil && a.Logger != nil {
+					a.Logger.Warn("verify persisted repo failed; keeping existing id", "worker", workerID, "repo", repoID, "err", gerr)
+				}
+			}
+			a.syncProjectRuntimeSecrets(ctx, state.ProjectID, workerID)
+			return state.ProjectID, state.AgentID, repoID, nil
 		}
 	}
 	resp, err := a.Service.ApplyProject(ctx, applyReq)
 	if err != nil {
 		return "", "", "", fmt.Errorf("apply project for %s: %w", workerID, err)
 	}
-	// Project secrets — env-var injection.
-	_ = a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_ORG_URL", a.HelixOrgURL)
-	_ = a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_WORKER_ID", string(workerID))
-	// Discover the project's primary repo and its org.
-	repoID = ""
-	var projOrgID string
-	if proj, err := a.Service.GetProject(ctx, resp.ProjectID); err == nil {
-		repoID = proj.DefaultRepoID
-		projOrgID = proj.OrganizationID
+	project, err := a.Service.GetProject(ctx, resp.ProjectID)
+	if err != nil {
+		return "", "", "", fmt.Errorf("get applied project %s for %s: %w", resp.ProjectID, workerID, err)
 	}
+	if !project.Metadata.OrgMembersAccess {
+		project.Metadata.OrgMembersAccess = true
+		project, err = a.Service.UpdateProject(ctx, resp.ProjectID, types.ProjectUpdateRequest{Metadata: &project.Metadata})
+		if err != nil {
+			return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", resp.ProjectID, workerID, err)
+		}
+	}
+	a.syncProjectRuntimeSecrets(ctx, resp.ProjectID, workerID)
+	repoID = project.DefaultRepoID
 	// Helix's project-apply does NOT auto-create a default repo. We
 	// MUST create one and attach it as primary, because:
 	//
 	//   - HELIX_REPOSITORIES is set from the project's attached repos
 	//     when hydra launches the desktop; an empty list means the
 	//     bringup script has nothing for Zed to open.
-	//   - update_role / update_identity write role.md / identity.md
-	//     into the repo on the helix-specs branch — without a repo
-	//     they have nowhere to go.
+	//   - Zed needs a real repository workspace to open.
 	//
 	// Earlier versions of this code logged a warning on failure and
 	// returned a project with empty RepoID, which surfaced as a 5-min
@@ -259,36 +410,17 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	// it, the operator sees it in the snackbar instead of "Still
 	// waiting for external agent to connect".
 	if repoID == "" {
-		ownerID, _ := a.Service.WhoAmI(ctx)
-		if ownerID == "" {
-			return "", "", "", fmt.Errorf("apply project for %s: cannot create per-Worker repo — WhoAmI returned empty owner id (host wiring forgot to supply a service user?)", workerID)
-		}
-		repo, err := a.Service.CreateGitRepo(ctx, types.GitRepositoryCreateRequest{
-			Name:           string(workerID),
-			OwnerID:        ownerID,
-			OrganizationID: projOrgID,
-			InitialFiles: map[string]string{
-				"README.md": "# " + string(workerID) + "\n\nWorkspace for Helix Worker `" + string(workerID) + "`. Files in `job/` carry the role + identity prompt.\n",
-			},
-		})
-		if err != nil {
-			return "", "", "", fmt.Errorf("apply project for %s: create per-Worker repo: %w", workerID, err)
-		}
-		if err := a.Service.AttachRepoToProject(ctx, resp.ProjectID, repo.ID, true); err != nil {
-			return "", "", "", fmt.Errorf("apply project for %s: attach repo %s to project %s: %w", workerID, repo.ID, resp.ProjectID, err)
-		}
-		repoID = repo.ID
-		if a.Logger != nil {
-			a.Logger.Info("helix repo created and attached", "worker", workerID, "repo", repo.ID)
+		// Use the authoritative orgID (the org the project was applied into),
+		// NOT an org read back from GetProject — that read may have failed
+		// above, leaving an empty org that would create an org-less repo and
+		// then be rejected by AttachRepoToProject ("must be in the same org"),
+		// leaking the just-created repo.
+		var rerr error
+		repoID, rerr = a.ensureWorkerRepo(ctx, resp.ProjectID, orgID, workerID)
+		if rerr != nil {
+			return "", "", "", fmt.Errorf("apply project for %s: %w", workerID, rerr)
 		}
 	}
-	a.republishWorkerFiles(ctx, workerID, repoID, roleContent, worker.IdentityContent())
-	// NB: helix-org MCP attachment is NOT done here. applyProject
-	// (helix project handler) wholesale-replaces agentApp.Config.Helix
-	// on update, so anything we attach now is clobbered on the next
-	// re-apply. The Spawner and dynamicProjectApplier call
-	// AttachHelixOrgMCP themselves *after* this Ensure returns — that's
-	// the single place MCP mutation lives.
 	if err := SaveProject(ctx, a.Store, orgID, workerID, resp.ProjectID, resp.AgentAppID, repoID); err != nil {
 		return "", "", "", fmt.Errorf("persist helix project IDs: %w", err)
 	}
@@ -296,7 +428,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		a.Logger.Info("helix project applied",
 			"worker", workerID,
 			"project", resp.ProjectID,
-			"agent_app", resp.AgentAppID,
+			"agent", resp.AgentAppID,
 			"repo", repoID,
 			"created", resp.Created,
 		)
@@ -304,34 +436,78 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	return resp.ProjectID, resp.AgentAppID, repoID, nil
 }
 
-// republishWorkerFiles writes the agent.md / role.md / identity.md
-// files on the Worker's helix-specs branch through the Workspace, so
-// the on-branch path layout is owned in exactly one place
-// (workspace.go). Best-effort: errors are logged, not returned —
-// a single failed file shouldn't block the rest of the apply.
-func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.WorkerID, repoID, roleContent, identityContent string) {
-	if repoID == "" || a.Workspace == nil {
-		return
+func (a *WorkerProject) syncProjectRuntimeSecrets(ctx context.Context, projectID string, workerID orgchart.NodeID) {
+	if err := a.Service.DeleteProjectSecret(ctx, projectID, "HELIX_ORG_URL"); err != nil && a.Logger != nil {
+		a.Logger.Warn("delete legacy project secret HELIX_ORG_URL", "worker", workerID, "project", projectID, "err", err)
 	}
-	if err := a.Workspace.EnsureBranch(ctx, repoID, "main"); err != nil {
-		if a.Logger != nil {
-			a.Logger.Warn("republish worker files: create helix-specs branch", "worker", workerID, "err", err)
-		}
-	}
-	if a.AgentMD != "" {
-		if err := a.Workspace.WriteOrgFile(ctx, repoID, "agent.md", a.AgentMD, "republish .context/agent.md"); err != nil && a.Logger != nil {
-			a.Logger.Warn("republish worker files: agent.md", "worker", workerID, "err", err)
-		}
-	}
-	if roleContent != "" {
-		if err := a.Workspace.WriteWorkerFile(ctx, workerID, repoID, "role.md", roleContent, "republish role.md"); err != nil && a.Logger != nil {
-			a.Logger.Warn("republish worker files: role.md", "worker", workerID, "err", err)
-		}
-	}
-	if identityContent != "" {
-		if err := a.Workspace.WriteWorkerFile(ctx, workerID, repoID, "identity.md", identityContent, "republish identity.md"); err != nil && a.Logger != nil {
-			a.Logger.Warn("republish worker files: identity.md", "worker", workerID, "err", err)
-		}
+	if err := a.Service.DeleteProjectSecret(ctx, projectID, "HELIX_WORKER_ID"); err != nil && a.Logger != nil {
+		a.Logger.Warn("delete legacy project secret HELIX_WORKER_ID", "worker", workerID, "project", projectID, "err", err)
 	}
 }
 
+// ensureWorkerRepo returns the project's per-Worker repo, creating and attaching
+// one only if the project truly has none. Serialised on repoEnsureMu and
+// re-checks GetProject inside the lock, so two concurrent activations for the
+// same bot cannot each create a duplicate same-named repo (which the desktop
+// workspace setup would then clone into the same path and fail on).
+func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID string, workerID orgchart.NodeID) (string, error) {
+	repoEnsureMu.Lock()
+	defer repoEnsureMu.Unlock()
+	// A concurrent activation may have created+attached the repo since the
+	// caller read DefaultRepoID; re-check under the lock before creating.
+	if proj, err := a.Service.GetProject(ctx, projectID); err == nil && proj.DefaultRepoID != "" {
+		// Trust the attached repo only if it still exists — a DefaultRepoID
+		// pointing at a deleted repo must be re-provisioned, not handed back.
+		// On a transient (non-not-found) read error, do NOT fall through to
+		// create: that would risk a duplicate. Surface it and let the caller
+		// retry.
+		if _, gerr := a.Service.GetGitRepo(ctx, proj.DefaultRepoID); gerr == nil {
+			return proj.DefaultRepoID, nil
+		} else if !errors.Is(gerr, ErrRepoNotFound) {
+			return "", fmt.Errorf("verify attached repo %s: %w", proj.DefaultRepoID, gerr)
+		}
+	}
+	ownerID, err := a.Service.WhoAmI(ctx)
+	if err != nil {
+		return "", fmt.Errorf("cannot create per-Worker repo — WhoAmI failed: %w", err)
+	}
+	if ownerID == "" {
+		return "", fmt.Errorf("cannot create per-Worker repo — WhoAmI returned empty owner id (host wiring forgot to supply a service user?)")
+	}
+	repo, err := a.Service.CreateGitRepo(ctx, types.GitRepositoryCreateRequest{
+		Name:           string(workerID),
+		OwnerID:        ownerID,
+		OrganizationID: orgID,
+		InitialFiles: map[string]string{
+			"README.md": "# " + string(workerID) + "\n\nWorkspace for Helix bot `" + string(workerID) + "`. Files in `job/` carry the bot's role prompt.\n",
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("create per-Worker repo: %w", err)
+	}
+	// CreateGitRepo auto-increments the name on collision (`<worker>` ->
+	// `<worker>-2`) rather than erroring. A name we didn't ask for means a
+	// same-named repo already existed — i.e. another process (a second API
+	// replica, which repoEnsureMu can't serialise) won the create race. Don't
+	// keep the duplicate: delete it and error, so the caller retries and the
+	// outer re-check picks up the winner's now-attached repo.
+	if repo.Name != string(workerID) {
+		if derr := a.Service.DeleteGitRepo(ctx, repo.ID); derr != nil && a.Logger != nil {
+			a.Logger.Warn("delete raced duplicate repo", "worker", workerID, "repo", repo.ID, "err", derr)
+		}
+		return "", fmt.Errorf("per-Worker repo %q already exists (create race); retrying", string(workerID))
+	}
+	if err := a.Service.AttachRepoToProject(ctx, projectID, repo.ID, true); err != nil {
+		// The repo was created but couldn't be attached — it's an orphan with
+		// nothing pointing at it. Delete it so a retry starts clean instead of
+		// creating `<worker>-2` alongside the leaked one.
+		if derr := a.Service.DeleteGitRepo(ctx, repo.ID); derr != nil && a.Logger != nil {
+			a.Logger.Warn("delete orphaned repo after failed attach", "worker", workerID, "repo", repo.ID, "err", derr)
+		}
+		return "", fmt.Errorf("attach repo %s to project %s: %w", repo.ID, projectID, err)
+	}
+	if a.Logger != nil {
+		a.Logger.Info("helix repo created and attached", "worker", workerID, "repo", repo.ID)
+	}
+	return repo.ID, nil
+}

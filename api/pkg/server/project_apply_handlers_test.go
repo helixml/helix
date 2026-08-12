@@ -451,9 +451,299 @@ func (s *ApplyProjectSuite) TestApply_MultiRepo_PrimarySetCorrectly() {
 	s.Nil(httpErr)
 }
 
+// TestApply_NewAgentAppIsCodingAgent: the agent app apply provisions must be
+// classified as a coding agent. Stamping org_agent here made every project
+// created through the public apply endpoint (the CLI) unable to run a spec
+// task: createTaskFromPrompt, listProjectSpecTaskAgents and updateProject all
+// reject anything that isn't coding_agent, so the project was a dead end.
+func (s *ApplyProjectSuite) TestApply_NewAgentAppIsCodingAgent() {
+	existingProject := &types.Project{
+		ID:     "proj-new-agent",
+		Name:   "cli-project",
+		UserID: s.userID,
+	}
+	req := types.ProjectApplyRequest{
+		Name: existingProject.Name,
+		Spec: types.ProjectSpec{
+			Agent: &types.ProjectAgentSpec{
+				Name:    "cli-agent",
+				Runtime: "claude_code",
+			},
+		},
+	}
+
+	s.store.EXPECT().
+		ListProjects(gomock.Any(), &store.ListProjectsQuery{UserID: s.userID}).
+		Return([]*types.Project{existingProject}, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+
+	var created *types.App
+	s.store.EXPECT().
+		CreateApp(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
+			created = app
+			return app, nil
+		})
+
+	resp, httpErr := s.server.applyProject(httptest.NewRecorder(), s.applyRequest(req))
+	s.Nil(httpErr)
+	s.Require().NotNil(resp)
+	s.Require().NotNil(created)
+	// Empty means "let the store classify it" — DefaultAgentType is
+	// zed_external here, so setAgentKindDefault lands on coding_agent.
+	s.NotEqual(types.AgentKindOrg, created.AgentKind)
+	s.Equal(types.AgentTypeZedExternal, created.Config.Helix.DefaultAgentType)
+}
+
 // ---------------------------------------------------------------------------
 // Validation errors
 // ---------------------------------------------------------------------------
+
+// TestApply_PreservesExistingAgentSkills: re-applying an agent spec must not
+// wipe MCPs / APIs / Zapier / system prompt that operators configured via the
+// Skills UI. Org-bot activation calls ApplyProject on every restart — without
+// this preserve, user-added MCPs (e.g. macroplane) vanish after restart.
+func (s *ApplyProjectSuite) TestApply_PreservesExistingAgentSkills() {
+	const appID = "app-with-skills"
+	existingProject := &types.Project{
+		ID:                "proj-skills-1",
+		Name:              "Macroplane Engineer @ unmanned-org",
+		UserID:            s.userID,
+		DefaultHelixAppID: appID,
+	}
+	existingApp := &types.App{
+		ID:    appID,
+		Owner: s.userID,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name: "b-mason",
+				Assistants: []types.AssistantConfig{{
+					Name:         "b-mason",
+					SystemPrompt: "you are the macroplane eng",
+					MCPs: []types.AssistantMCP{
+						{
+							Name: "helix",
+							URL:  "http://localhost:8080/api/v1/mcp/helix-org/org/workers/b-mason/mcp",
+							Headers: map[string]string{
+								"Authorization": "Bearer old-helix",
+							},
+						},
+						{
+							Name: "macroplane",
+							URL:  "https://macroplane.com/mcp",
+							Headers: map[string]string{
+								"Authorization": "Bearer ark_test",
+							},
+						},
+					},
+					APIs: []types.AssistantAPI{{
+						Name: "custom-api",
+						URL:  "https://example.com/api",
+					}},
+					Browser:   types.AssistantBrowser{Enabled: true},
+					WebSearch: types.AssistantWebSearch{Enabled: true, MaxResults: 5},
+				}},
+				ExternalAgentEnabled: true,
+				ExternalAgentConfig: &types.ExternalAgentConfig{
+					Resolution:  "1920x1080",
+					DesktopType: "gnome",
+				},
+			},
+		},
+	}
+
+	req := types.ProjectApplyRequest{
+		Name: existingProject.Name,
+		Spec: types.ProjectSpec{
+			Description: "role content",
+			Agent: &types.ProjectAgentSpec{
+				Name:        "b-mason",
+				Runtime:     "codex_cli",
+				Model:       "gpt-5.6-sol",
+				Credentials: "subscription",
+				// Tools intentionally nil — org Ensure path does not set them.
+			},
+		},
+	}
+
+	s.store.EXPECT().
+		ListProjects(gomock.Any(), &store.ListProjectsQuery{UserID: s.userID}).
+		Return([]*types.Project{existingProject}, nil)
+	s.store.EXPECT().
+		UpdateProject(gomock.Any(), gomock.Any()).
+		Return(nil)
+	s.store.EXPECT().
+		GetApp(gomock.Any(), appID).
+		Return(existingApp, nil)
+
+	var updated *types.App
+	s.store.EXPECT().
+		UpdateApp(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
+			updated = app
+			return app, nil
+		})
+
+	rec := httptest.NewRecorder()
+	resp, httpErr := s.server.applyProject(rec, s.applyRequest(req))
+	s.Nil(httpErr)
+	s.Require().NotNil(resp)
+	s.Equal(appID, resp.AgentAppID)
+	s.Require().NotNil(updated)
+	s.Require().Len(updated.Config.Helix.Assistants, 1)
+
+	asst := updated.Config.Helix.Assistants[0]
+	s.Equal("gpt-5.6-sol", asst.Model)
+	s.Equal(types.CodeAgentRuntimeCodexCLI, asst.CodeAgentRuntime)
+	s.Equal(types.CodeAgentCredentialTypeSubscription, asst.CodeAgentCredentialType)
+	s.Equal("you are the macroplane eng", asst.SystemPrompt)
+	s.Require().Len(asst.MCPs, 2)
+	s.Equal("helix", asst.MCPs[0].Name)
+	s.Equal("macroplane", asst.MCPs[1].Name)
+	s.Equal("https://macroplane.com/mcp", asst.MCPs[1].URL)
+	s.Equal("Bearer ark_test", asst.MCPs[1].Headers["Authorization"])
+	s.Require().Len(asst.APIs, 1)
+	s.Equal("custom-api", asst.APIs[0].Name)
+	s.True(asst.Browser.Enabled)
+	s.True(asst.WebSearch.Enabled)
+	s.Equal(5, asst.WebSearch.MaxResults)
+	// Display settings preserved when apply did not specify Display.
+	s.Require().NotNil(updated.Config.Helix.ExternalAgentConfig)
+	s.Equal("1920x1080", updated.Config.Helix.ExternalAgentConfig.Resolution)
+}
+
+func (s *ApplyProjectSuite) TestApply_LinkedAgentPreservesCanonicalConfig() {
+	const appID = "app-linked"
+	existingProject := &types.Project{
+		ID:     "proj-linked",
+		Name:   "linked-project",
+		UserID: s.userID,
+	}
+	existingApp := &types.App{
+		ID:        appID,
+		AgentKind: types.AgentKindCoding,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Name:                 "Canonical",
+			DefaultAgentType:     types.AgentTypeZedExternal,
+			ExternalAgentEnabled: true,
+			ExternalAgentConfig: &types.ExternalAgentConfig{
+				Resolution:  "2560x1440",
+				DesktopType: "sway",
+			},
+			Assistants: []types.AssistantConfig{{
+				Name:                    "Canonical",
+				SystemPrompt:            "canonical instructions",
+				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+				GenerationModelProvider: "openai",
+				GenerationModel:         "gpt-5.6-sol",
+				MCPs:                    []types.AssistantMCP{{Name: "custom", URL: "https://example.com/mcp"}},
+			}},
+		}},
+	}
+	before, err := json.Marshal(existingApp.Config)
+	s.Require().NoError(err)
+
+	req := types.ProjectApplyRequest{
+		Name:       existingProject.Name,
+		AgentAppID: appID,
+		Spec: types.ProjectSpec{Agent: &types.ProjectAgentSpec{
+			Name:        "ignored",
+			Runtime:     "zed_agent",
+			Provider:    "anthropic",
+			Model:       "claude-sonnet-4",
+			Credentials: "api_key",
+		}},
+	}
+
+	s.store.EXPECT().
+		ListProjects(gomock.Any(), &store.ListProjectsQuery{UserID: s.userID}).
+		Return([]*types.Project{existingProject}, nil)
+	s.store.EXPECT().
+		UpdateProject(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, project *types.Project) error {
+			if project.DefaultHelixAppID != "" {
+				s.Equal(appID, project.DefaultHelixAppID)
+			}
+			return nil
+		}).Times(2)
+	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(existingApp, nil)
+	// No UpdateApp: linking an app to a project must not rewrite the app —
+	// neither its config nor its kind. Reclassifying a caller's coding agent to
+	// org_agent here would silently drop it out of every coding-agent surface
+	// with no way back. gomock fails the test if UpdateApp is called.
+
+	resp, httpErr := s.server.applyProject(httptest.NewRecorder(), s.applyRequest(req))
+
+	s.Nil(httpErr)
+	s.Require().NotNil(resp)
+	s.Equal(appID, resp.AgentAppID)
+	s.Equal(types.AgentKindCoding, existingApp.AgentKind)
+	after, err := json.Marshal(existingApp.Config)
+	s.Require().NoError(err)
+	s.Equal(string(before), string(after))
+}
+
+// TestApply_ToolsFromSpecOverrideSkills: when the apply YAML sets tools.*,
+// those values win over previously-stored Browser/WebSearch/Calculator.
+func (s *ApplyProjectSuite) TestApply_ToolsFromSpecOverrideSkills() {
+	const appID = "app-tools-override"
+	existingProject := &types.Project{
+		ID:                "proj-tools-1",
+		Name:              "tools-project",
+		UserID:            s.userID,
+		DefaultHelixAppID: appID,
+	}
+	existingApp := &types.App{
+		ID: appID,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{{
+					Name:      "agent",
+					Browser:   types.AssistantBrowser{Enabled: true},
+					WebSearch: types.AssistantWebSearch{Enabled: true, MaxResults: 9},
+					MCPs:      []types.AssistantMCP{{Name: "keep-me", URL: "https://keep.example/mcp"}},
+				}},
+			},
+		},
+	}
+
+	req := types.ProjectApplyRequest{
+		Name: existingProject.Name,
+		Spec: types.ProjectSpec{
+			Agent: &types.ProjectAgentSpec{
+				Name: "agent",
+				Tools: &types.ProjectAgentTools{
+					WebSearch:  false,
+					Browser:    false,
+					Calculator: true,
+				},
+			},
+		},
+	}
+
+	s.store.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return([]*types.Project{existingProject}, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil)
+	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(existingApp, nil)
+
+	var updated *types.App
+	s.store.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
+			updated = app
+			return app, nil
+		})
+
+	_, httpErr := s.server.applyProject(httptest.NewRecorder(), s.applyRequest(req))
+	s.Nil(httpErr)
+	s.Require().NotNil(updated)
+	asst := updated.Config.Helix.Assistants[0]
+	s.False(asst.Browser.Enabled)
+	s.False(asst.WebSearch.Enabled)
+	s.True(asst.Calculator.Enabled)
+	// MCPs still preserved.
+	s.Require().Len(asst.MCPs, 1)
+	s.Equal("keep-me", asst.MCPs[0].Name)
+}
 
 // TestApply_MissingName: name is required.
 func (s *ApplyProjectSuite) TestApply_MissingName() {

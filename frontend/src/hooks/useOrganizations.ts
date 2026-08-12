@@ -16,7 +16,7 @@ export interface IOrganizationTools {
   loadingAccessGrants: boolean,
   // Organization methods
   loadOrganizations: () => Promise<void>,
-  createOrganization: (org: TypesOrganization) => Promise<boolean>,
+  createOrganization: (org: TypesOrganization) => Promise<TypesOrganization | null>,
   updateOrganization: (id: string, org: TypesOrganization) => Promise<boolean>,
   deleteOrganization: (id: string) => Promise<boolean>,
   loadOrganization: (id: string) => Promise<void>,
@@ -51,7 +51,7 @@ export const defaultOrganizationTools: IOrganizationTools = {
   appAccessGrants: [],
   loadingAccessGrants: false,
   loadOrganizations: async () => {},
-  createOrganization: async () => false,
+  createOrganization: async () => null,
   updateOrganization: async () => false,
   deleteOrganization: async () => false,
   loadOrganization: async () => {},
@@ -257,15 +257,15 @@ export default function useOrganizations(): IOrganizationTools {
 
   const createOrganization = useCallback(async (org: TypesOrganization) => {
     try {
-      await api.getApiClient().v1OrganizationsCreate(org)
+      const res = await api.getApiClient().v1OrganizationsCreate(org)
       snackbar.success('Organization created')
       await loadOrganizations()
-      return true
+      return res.data
     } catch (error) {
       console.error(error)
       const errorMessage = extractErrorMessage(error)
       snackbar.error(errorMessage || 'Error creating organization')
-      return false
+      return null
     }
   }, [])
 
@@ -587,7 +587,7 @@ export default function useOrganizations(): IOrganizationTools {
   const listAppAccessGrants = useCallback(async (appId: string): Promise<TypesAccessGrant[]> => {
     setLoadingAccessGrants(true)
     try {
-      const response = await api.getApiClient().v1AppsAccessGrantsDetail(appId)
+      const response = await api.getApiClient().v1AgentsAccessGrantsDetail(appId)
       setAppAccessGrants(response.data)
       return response.data
     } catch (error) {
@@ -601,7 +601,7 @@ export default function useOrganizations(): IOrganizationTools {
 
   const createAppAccessGrant = useCallback(async (appId: string, grant: TypesCreateAccessGrantRequest): Promise<boolean> => {
     try {
-      await api.getApiClient().v1AppsAccessGrantsCreate(appId, grant)
+      await api.getApiClient().v1AgentsAccessGrantsCreate(appId, grant)
       // Refresh the list to get updated data
       await listAppAccessGrants(appId)
       snackbar.success('Access grant created successfully')
@@ -637,7 +637,7 @@ export default function useOrganizations(): IOrganizationTools {
   const deleteAppAccessGrant = useCallback(async (appId: string, grantId: string): Promise<boolean> => {
     try {
       // The API client doesn't have this endpoint defined, so we'll make a direct axios call
-      await api.delete(`/api/v1/apps/${appId}/access-grants/${grantId}`)
+      await api.delete(`/api/v1/agents/${appId}/access-grants/${grantId}`)
       
       // Update the local state by filtering out the deleted grant
       setAppAccessGrants(prev => prev.filter(grant => grant.id !== grantId))

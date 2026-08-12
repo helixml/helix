@@ -19,6 +19,14 @@ export interface DesktopStreamViewerProps {
   suppressOverlay?: boolean;
   showLoadingOverlay?: boolean;
   isRestart?: boolean;
+  // Monotonic counter bumped by the parent each time the session is woken from a
+  // paused/absent state (user sent a message or clicked "Start Desktop" on a slept
+  // task). Whenever this value changes the viewer resets its exhausted reconnect retry
+  // counters, clears any stale error, and starts a fresh connect — so a freshly-woken
+  // desktop gets a full retry budget instead of showing the old "gave up" error.
+  // A counter (not a boolean) is used so the wake is caught even when the transient
+  // "starting" state is never sampled by the parent's polling (fast resume).
+  wakeSignal?: number;
 }
 
 // Stats for video streaming
@@ -59,6 +67,10 @@ export interface VideoStats {
   renderJitterMs?: string;           // "min-max" interval between frames rendering
   avgReceiveIntervalMs?: number;     // Average receive interval (16.7ms = 60fps)
   avgRenderIntervalMs?: number;      // Average render interval
+  receiveIntervalSamples?: number[]; // Rolling window of inter-arrival intervals (sparkline/burst)
+  renderIntervalSamples?: number[];  // Rolling window of inter-render intervals (sparkline/burst)
+  playoutBufferMs?: number;          // Adaptive playout buffer depth (0 while interacting / no jitter)
+  playoutState?: 'smoothing' | 'interactive' | 'idle'; // why the buffer is at its current depth
   // Debug flags
   usingSoftwareDecoder?: boolean;    // True if software decoding was forced (?softdecode=1)
   // Decoder health

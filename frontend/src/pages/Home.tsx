@@ -1,1229 +1,595 @@
-import React, { FC, useState, useCallback, KeyboardEvent, useRef, useEffect, MouseEvent } from 'react'
-import Grid from '@mui/material/Grid'
-import Typography from '@mui/material/Typography'
-import Box from '@mui/material/Box'
-import Container from '@mui/material/Container'
-import Paper from '@mui/material/Paper'
-import Button from '@mui/material/Button'
-import IconButton from '@mui/material/IconButton'
-import AddIcon from '@mui/icons-material/Add'
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
-import CloseIcon from '@mui/icons-material/Close'
-import Tooltip from '@mui/material/Tooltip'
-import Avatar from '@mui/material/Avatar'
-import AttachFileIcon from '@mui/icons-material/AttachFile'
-import ImageIcon from '@mui/icons-material/Image'
-import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
-import LightbulbIcon from '@mui/icons-material/Lightbulb'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
-import Menu from '@mui/material/Menu'
-import MenuItem from '@mui/material/MenuItem'
-import ListItemIcon from '@mui/material/ListItemIcon'
-import ListItemText from '@mui/material/ListItemText'
-import { Brain } from 'lucide-react'
+import React, { FC, useEffect, useState } from 'react'
+import {
+  Box,
+  Button,
+  CircularProgress,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
+  Tooltip,
+  Typography,
+} from '@mui/material'
+import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo, MessageCircle } from 'lucide-react'
 
-import Page from '../components/system/Page'
-import Row from '../components/widgets/Row'
-import SessionTypeButton from '../components/create/SessionTypeButton'
+import {
+  TypesCodeAgentOverrides,
+  TypesSandboxResourceOverrides,
+} from '../api/api'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
-import ExamplePrompts from '../components/create/ExamplePrompts'
-import LoadingSpinner from '../components/widgets/LoadingSpinner'
-import { ISessionType, SESSION_TYPE_TEXT } from '../types'
+import RobustPromptInput from '../components/common/RobustPromptInput'
+import SpecTaskExecutionControls from '../components/tasks/SpecTaskExecutionControls'
+import ManagedCreateProjectDialog from '../components/project/ManagedCreateProjectDialog'
+import Page from '../components/system/Page'
 import { useAccount } from '../contexts/account'
-
-import useLightTheme from '../hooks/useLightTheme'
-import useIsBigScreen from '../hooks/useIsBigScreen'
-import useSnackbar from '../hooks/useSnackbar'
-import useApps from '../hooks/useApps'
-import useCreateBlankAgent from '../hooks/useCreateBlankAgent'
 import { useStreaming } from '../contexts/streaming'
-import { useListUserCronTriggers } from '../services/appService'
-import { useListProjects } from '../services'
-import { generateCronShortSummary } from '../utils/cronUtils'
+import { getBrowserLocale } from '../hooks/useBrowserLocale'
+import useLightTheme from '../hooks/useLightTheme'
+import useApps from '../hooks/useApps'
+import useRouter from '../hooks/useRouter'
+import useSnackbar from '../hooks/useSnackbar'
+import { useListProjectSpecTaskAgents, useListProjects } from '../services'
+import { useListProviders } from '../services/providersService'
 import { invalidateSessionsQuery } from '../services/sessionService'
+import {
+  SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
+  SPEC_TASK_ATTACHMENT_MAX_BYTES,
+  SPEC_TASK_ATTACHMENT_MAX_PER_TASK,
+  useUploadSpecTaskAttachments,
+} from '../services/specTaskAttachmentsService'
+import {
+  useCreateSpecTaskFromPrompt,
+  useStartSpecTaskPlanning,
+} from '../services/specTaskService'
+import { SESSION_TYPE_TEXT } from '../types'
 import { useQueryClient } from '@tanstack/react-query'
+import {
+  buildNewChatTaskRequest,
+  chooseProjectChatAgentId,
+  modelSupportsReasoningEffort,
+  NEW_CHAT_REASONING_EFFORT_OPTIONS,
+  newChatHeading,
+  NewChatReasoningEffort,
+  NewChatTaskMode,
+  projectChatAgentStorageKey,
+  readNewChatReasoningEffort,
+} from './newChatLogic'
 
-const getTimeAgo = (date: Date) => {
-  const now = new Date()
-  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
+const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
+const TASK_ATTACHMENT_ACCEPT = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
+  .flatMap(([mime, extensions]) => [mime, ...extensions])
+  .join(',')
+const TASK_ATTACHMENT_MIME_TYPES = new Set(Object.keys(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME))
+const TASK_ATTACHMENT_EXTENSIONS = Object.values(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME).flat()
 
-  if (days > 0) return `${days} days ago`
-  if (hours > 0) return `${hours} hours ago`
-  if (minutes > 0) return `${minutes} minutes ago`
-  return 'just now'
+const selectorButtonSx = {
+  minWidth: 0,
+  height: 28,
+  px: 0.75,
+  borderRadius: 1,
+  color: 'text.secondary',
+  fontSize: '0.75rem',
+  fontWeight: 500,
+  lineHeight: 1,
+  textTransform: 'none',
+  '& .MuiButton-startIcon': {
+    ml: 0,
+    mr: 0.625,
+  },
+  '& .MuiButton-endIcon': {
+    ml: 0.375,
+    mr: 0,
+  },
+  '&:hover': {
+    color: 'text.primary',
+    backgroundColor: 'action.hover',
+  },
 }
 
-const LAST_LOGIN_DATE_KEY = 'helix_last_login_date'
-const WELCOME_MESSAGE_KEY = 'helix_welcome_message_index'
-
-const checkFirstLoginToday = (): boolean => {
-  const today = new Date().toDateString()
-  const lastLoginDate = localStorage.getItem(LAST_LOGIN_DATE_KEY)
-  
-  if (lastLoginDate !== today) {
-    localStorage.setItem(LAST_LOGIN_DATE_KEY, today)
-    return true
-  }
-  
-  return false
+function taskAttachmentValidation(file: File): string | null {
+  if (TASK_ATTACHMENT_MIME_TYPES.has(file.type)) return null
+  const lowerName = file.name.toLowerCase()
+  if (TASK_ATTACHMENT_EXTENSIONS.some((extension) => lowerName.endsWith(extension))) return null
+  return 'file type is not supported for task attachments'
 }
 
-const getWelcomeMessage = (): string => {
-  const lastIndex = localStorage.getItem(WELCOME_MESSAGE_KEY)
-  const messages = ['Welcome back, Commander', 'Ready to assume command']
-  const nextIndex = lastIndex === '0' ? 1 : 0
-  localStorage.setItem(WELCOME_MESSAGE_KEY, nextIndex.toString())
-  return messages[nextIndex]
+function errorMessage(error: any, fallback: string): string {
+  const responseData = error?.response?.data
+  if (typeof responseData === 'string') return responseData
+  return responseData?.message || responseData?.error || error?.message || fallback
 }
-
-const getTimeBasedGreeting = (userName?: string, isFirstLogin: boolean = false) => {
-  if (isFirstLogin) {
-    return getWelcomeMessage()
-  }
-  
-  const now = new Date()
-  const hour = now.getHours()
-  
-  const firstName = userName ? userName.split(' ')[0] : ''
-  const nameWithComma = firstName ? `, ${firstName}` : ''
-  
-  if (hour >= 5 && hour < 12) {
-    return `Coffee and Helix${nameWithComma}?`
-  } else if (hour >= 12 && hour < 17) {
-    return `Good afternoon${nameWithComma}`
-  } else if (hour >= 17 && hour < 22) {
-    return `Good evening${nameWithComma}`
-  } else {
-    return `Burning the candle at both ends${nameWithComma}?`
-  }
-}
-
-// Helper function to get schedule information from trigger
-const getScheduleInfo = (trigger: any) => {
-  if (trigger.cron?.schedule) {
-    return generateCronShortSummary(trigger.cron.schedule)
-  }
-  if (trigger.slack?.enabled) {
-    return 'Slack'
-  }
-  if (trigger.azure_devops?.enabled) {
-    return 'Azure DevOps'
-  }
-  if (trigger.discord) {
-    return 'Discord'
-  }
-  return 'Unknown'
-}
-
-// Helper function to find app by ID
-const findAppById = (apps: any[], appId: string) => {
-  return apps.find(app => app.id === appId)
-}
-
-const LOGGED_OUT_PROMPT_KEY = 'logged-out-prompt'
 
 const Home: FC = () => {
-  const isBigScreen = useIsBigScreen()
-  const lightTheme = useLightTheme()
-  const snackbar = useSnackbar()
   const account = useAccount()
-  const apps = useApps()
-  const createBlankAgent = useCreateBlankAgent()
-  const { NewInference } = useStreaming()
+  const lightTheme = useLightTheme()
+  const router = useRouter()
+  const snackbar = useSnackbar()
   const queryClient = useQueryClient()
-  const [currentPrompt, setCurrentPrompt] = useState('')
-  const [currentType, setCurrentType] = useState<ISessionType>(SESSION_TYPE_TEXT)
-  const [currentModel, setCurrentModel] = useState<string>('')
-  const [currentProvider, setCurrentProvider] = useState<string>('')
-  const [loading, setLoading] = useState(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
-  const [attachmentMenuAnchorEl, setAttachmentMenuAnchorEl] = useState<null | HTMLElement>(null)
-  const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
-  const [showExamples, setShowExamples] = useState(false)
-  const [isFirstLoginToday, setIsFirstLoginToday] = useState(false)
-  const [greeting, setGreeting] = useState('')
+  const apps = useApps()
+  const { NewInference } = useStreaming()
+  const orgId = account.organizationTools.organization?.id || ''
+  const requestedProjectId = router.params.project_id || ''
+  const userId = account.user?.id || ''
 
-  const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
-    account.organizationTools.organization?.id || ''
+  const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId, {
+    enabled: !!userId && !!orgId,
+  })
+  const { data: providers = [] } = useListProviders({
+    loadModels: true,
+    orgId,
+    enabled: !!userId && !!orgId,
+  })
+  const selectedProject = projects.find((project) => project.id === requestedProjectId)
+  const selectedProjectId = selectedProject?.id || ''
+  const { data: codingAgents = [] } = useListProjectSpecTaskAgents(
+    selectedProjectId,
+    !!userId && !!selectedProjectId,
   )
 
-  const { data: projects = [] } = useListProjects(account.organizationTools.organization?.id || '')
+  const [selectedProvider, setSelectedProvider] = useState(() => localStorage.getItem('helix_provider') || '')
+  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem('helix_model') || '')
+  const [reasoningEffort, setReasoningEffort] = useState<NewChatReasoningEffort>(() => (
+    readNewChatReasoningEffort(localStorage.getItem('helix_reasoning_effort'))
+  ))
+  const [selectedAgentId, setSelectedAgentId] = useState('')
+  const [taskCodeAgentOverrides, setTaskCodeAgentOverrides] = useState<TypesCodeAgentOverrides>({})
+  const [taskSandboxResources, setTaskSandboxResources] = useState<TypesSandboxResourceOverrides>({
+    vcpus: 4,
+    memory_mb: 8192,
+  })
+  const [taskMode, setTaskMode] = useState<NewChatTaskMode>('build')
+  const [modeMenuAnchor, setModeMenuAnchor] = useState<HTMLElement | null>(null)
+  const [effortMenuAnchor, setEffortMenuAnchor] = useState<HTMLElement | null>(null)
+  const [projectMenuAnchor, setProjectMenuAnchor] = useState<HTMLElement | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [createProjectOpen, setCreateProjectOpen] = useState(false)
+
+  const createTask = useCreateSpecTaskFromPrompt()
+  const uploadTaskAttachments = useUploadSpecTaskAttachments()
+  const startTask = useStartSpecTaskPlanning()
 
   useEffect(() => {
-    apps.loadApps()
-  }, [
-    apps.loadApps,
-  ])
-
-  // Check for serialized page state on mount
-  useEffect(() => {
-    const dataString = localStorage.getItem(LOGGED_OUT_PROMPT_KEY)
-    if(dataString) {
-      setCurrentPrompt(dataString)
-      localStorage.removeItem(LOGGED_OUT_PROMPT_KEY)
-    }
-
-    // Load saved provider and model from local storage
-    const savedProvider = localStorage.getItem('helix_provider')
-    const savedModel = localStorage.getItem('helix_model')
-    if (savedProvider && savedModel) {
-      setCurrentProvider(savedProvider)
-      setCurrentModel(savedModel)
-    }
-
-    if (textareaRef.current) {
-      textareaRef.current.focus()
-    }
-  }, [])
-
-  // Save provider and model to local storage when they change
-  useEffect(() => {
-    if (currentProvider && currentModel) {
-      localStorage.setItem('helix_provider', currentProvider)
-      localStorage.setItem('helix_model', currentModel)
-    }
-  }, [currentProvider, currentModel])
+    if (!selectedProvider || !selectedModel) return
+    localStorage.setItem('helix_provider', selectedProvider)
+    localStorage.setItem('helix_model', selectedModel)
+  }, [selectedProvider, selectedModel])
 
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.focus()
-    }
-  }, [
-    currentModel
-  ])
+    localStorage.setItem('helix_reasoning_effort', reasoningEffort)
+  }, [reasoningEffort])
+
+  const codingAgentIds = codingAgents.flatMap((agent) => agent.id ? [agent.id] : []).join(',')
+  const agentStorageKey = projectChatAgentStorageKey(orgId)
 
   useEffect(() => {
-    if (account.user) {
-      const firstLogin = checkFirstLoginToday()
-      setIsFirstLoginToday(firstLogin)
-      setGreeting(getTimeBasedGreeting(account.user.name, firstLogin))
-    }
-  }, [account.user])
+    const availableIds = codingAgentIds ? codingAgentIds.split(',') : []
+    setSelectedAgentId(chooseProjectChatAgentId(
+      availableIds,
+      orgId ? localStorage.getItem(agentStorageKey) : null,
+    ))
+  }, [agentStorageKey, codingAgentIds, orgId])
 
-  const submitPrompt = async () => {
-    if (!currentPrompt.trim()) return
+  useEffect(() => {
+    if (!orgId || !selectedAgentId) return
+    const availableIds = codingAgentIds ? codingAgentIds.split(',') : []
+    if (!availableIds.includes(selectedAgentId)) return
+    localStorage.setItem(agentStorageKey, selectedAgentId)
+  }, [agentStorageKey, codingAgentIds, orgId, selectedAgentId])
+
+  useEffect(() => {
+    setTaskCodeAgentOverrides({})
+    setTaskSandboxResources({ vcpus: 4, memory_mb: 8192 })
+  }, [selectedProjectId])
+
+  const taskAgents = codingAgents.flatMap((summary) => {
+    const app = apps.apps.find((candidate) => candidate.id === summary.id)
+    return app ? [app] : []
+  })
+  const isProjectContext = !!selectedProjectId
+  const supportsReasoningEffort = modelSupportsReasoningEffort(
+    providers,
+    selectedProvider,
+    selectedModel,
+  )
+
+  const openProject = (projectId?: string) => {
+    setProjectMenuAnchor(null)
+    if (projectId) account.orgNavigate('chat', {}, { project_id: projectId })
+    else account.orgNavigate('chat')
+  }
+
+  const handleNormalChat = async (message: string, _interrupt?: boolean, attachments: File[] = []) => {
     if (!account.user) {
-      localStorage.setItem(LOGGED_OUT_PROMPT_KEY, currentPrompt)
       account.setShowLoginWindow(true)
-      return
+      return false
     }
-    setLoading(true)
-    let orgId = ''
-    if(account.organizationTools.organization?.id) {
-      orgId = account.organizationTools.organization.id
-    }
+
+    setSubmitting(true)
     try {
       const session = await NewInference({
         regenerate: false,
-        type: currentType,
-        message: currentPrompt,
+        type: SESSION_TYPE_TEXT,
+        message,
         messages: [],
-        provider: currentProvider,
-        modelName: currentModel,
-        image: selectedImage || undefined, // Optional field
-        image_filename: selectedImageName || undefined, // Optional field
-        orgId,        
+        provider: selectedProvider,
+        modelName: selectedModel,
+        reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined,
+        attachedImages: attachments,
+        orgId,
       })
-      if (!session) return
+      if (!session?.id) return false
       invalidateSessionsQuery(queryClient)
-      setLoading(false)
-      setSelectedImage(null)
-      setSelectedImageName(null)
       account.orgNavigate('session', { session_id: session.id })
+      return true
     } catch (error) {
-      console.error('Error in submitPrompt:', error)
-      snackbar.error('Failed to start inference')
-      setLoading(false)
+      snackbar.error(errorMessage(error, 'Failed to start chat'))
+      return false
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  const openApp = async (appId: string) => {
-    account.orgNavigate('new', { app_id: appId });
-  }
-
-  const handleNewAgent = async () => {
+  const handleProjectTask = async (message: string, _interrupt?: boolean, attachments: File[] = []) => {
     if (!account.user) {
       account.setShowLoginWindow(true)
-      return
+      return false
     }
-    await createBlankAgent()
-  }
+    if (!selectedProjectId) return false
+    if (!selectedAgentId) {
+      snackbar.error('Select a coding agent before starting this task')
+      return false
+    }
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      submitPrompt()
+    setSubmitting(true)
+    let taskId = ''
+    try {
+      const task = await createTask.mutateAsync(buildNewChatTaskRequest({
+        appId: selectedAgentId,
+        mode: taskMode,
+        projectId: selectedProjectId,
+        prompt: message,
+        codeAgentOverrides: taskCodeAgentOverrides,
+        sandboxResourceOverrides: taskSandboxResources,
+      }))
+      taskId = task?.id || ''
+      if (!taskId) throw new Error('Task creation returned no task ID')
+
+      if (attachments.length > 0) {
+        try {
+          await uploadTaskAttachments.mutateAsync({ taskId, files: attachments })
+        } catch (error) {
+          snackbar.error(errorMessage(error, 'Task created, but its attachments could not be uploaded'))
+          account.orgNavigate('chat-task', { id: selectedProjectId, taskId })
+          return true
+        }
+      }
+
+      try {
+        const { keyboardLayout, timezone } = getBrowserLocale()
+        await startTask.mutateAsync({ taskId, keyboard: keyboardLayout, timezone })
+      } catch (error) {
+        snackbar.error(errorMessage(error, 'Task created, but it could not be started'))
+        account.orgNavigate('chat-task', { id: selectedProjectId, taskId })
+        return true
+      }
+
+      account.orgNavigate('chat-task', { id: selectedProjectId, taskId })
+      return true
+    } catch (error) {
+      snackbar.error(errorMessage(error, 'Failed to create task'))
+      if (taskId) account.orgNavigate('chat-task', { id: selectedProjectId, taskId })
+      return !!taskId
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  const handleAttachmentMenuOpen = (event: MouseEvent<HTMLElement>) => {
-    setAttachmentMenuAnchorEl(event.currentTarget)
+  const modeSelector = (
+    <>
+      <Tooltip title={taskMode === 'build' ? 'Start implementation immediately' : 'Start with planning'}>
+        <Button
+          disabled={submitting}
+          startIcon={taskMode === 'build' ? <Hammer size={15} /> : <ListTodo size={15} />}
+          onClick={(event) => setModeMenuAnchor(event.currentTarget)}
+          sx={selectorButtonSx}
+        >
+          {taskMode === 'build' ? 'Build' : 'Plan'}
+        </Button>
+      </Tooltip>
+      <Menu
+        anchorEl={modeMenuAnchor}
+        open={!!modeMenuAnchor}
+        onClose={() => setModeMenuAnchor(null)}
+      >
+        <MenuItem
+          selected={taskMode === 'plan'}
+          onClick={() => {
+            setTaskMode('plan')
+            setModeMenuAnchor(null)
+          }}
+        >
+          <ListItemIcon><ListTodo size={16} /></ListItemIcon>
+          <ListItemText primary="Plan" secondary="Create specifications first" />
+        </MenuItem>
+        <MenuItem
+          selected={taskMode === 'build'}
+          onClick={() => {
+            setTaskMode('build')
+            setModeMenuAnchor(null)
+          }}
+        >
+          <ListItemIcon><Hammer size={16} /></ListItemIcon>
+          <ListItemText primary="Build" secondary="Go directly to implementation" />
+        </MenuItem>
+      </Menu>
+    </>
+  )
+
+  const projectActions = (
+    <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
+      <SpecTaskExecutionControls
+        agents={taskAgents}
+        selectedAgentId={selectedAgentId}
+        codeAgentOverrides={taskCodeAgentOverrides}
+        sandboxResourceOverrides={taskSandboxResources}
+        onAgentModelChange={(agentId, overrides) => {
+          setSelectedAgentId(agentId)
+          setTaskCodeAgentOverrides(overrides)
+        }}
+        onSandboxResourceOverridesChange={setTaskSandboxResources}
+        disabled={submitting}
+        compact
+      />
+      <Box
+        aria-hidden="true"
+        sx={{
+          width: '1px',
+          height: 16,
+          mx: 0.5,
+          flexShrink: 0,
+          bgcolor: 'divider',
+          opacity: 0.65,
+        }}
+      />
+      {modeSelector}
+    </Box>
+  )
+
+  const modelSelector = (
+    <AdvancedModelPicker
+      selectedProvider={selectedProvider}
+      selectedModelId={selectedModel}
+      onSelectModel={(provider, model) => {
+        setSelectedProvider(provider)
+        setSelectedModel(model)
+      }}
+      currentType={SESSION_TYPE_TEXT}
+      displayMode="short"
+      buttonVariant="text"
+    />
+  )
+
+  const effortSelector = supportsReasoningEffort ? (
+    <>
+      <Tooltip title={`Reasoning effort: ${reasoningEffort}`}>
+        <Button
+          disabled={submitting}
+          endIcon={<ChevronDown size={13} />}
+          onClick={(event) => setEffortMenuAnchor(event.currentTarget)}
+          sx={selectorButtonSx}
+        >
+          {NEW_CHAT_REASONING_EFFORT_OPTIONS.find((option) => option.value === reasoningEffort)?.label}
+        </Button>
+      </Tooltip>
+      <Menu
+        anchorEl={effortMenuAnchor}
+        open={!!effortMenuAnchor}
+        onClose={() => setEffortMenuAnchor(null)}
+      >
+        {NEW_CHAT_REASONING_EFFORT_OPTIONS.map((option) => (
+          <MenuItem
+            key={option.value}
+            selected={option.value === reasoningEffort}
+            onClick={() => {
+              setReasoningEffort(option.value)
+              setEffortMenuAnchor(null)
+            }}
+          >
+            <ListItemText primary={option.label} />
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
+  ) : null
+
+  const modelActions = (
+    <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+      {modelSelector}
+      {effortSelector && (
+        <>
+          <Box
+            aria-hidden="true"
+            sx={{ width: '1px', height: 16, mx: 0.5, flexShrink: 0, bgcolor: 'divider', opacity: 0.65 }}
+          />
+          {effortSelector}
+        </>
+      )}
+    </Box>
+  )
+
+  if (projectsLoading) {
+    return (
+      <Page
+        breadcrumbs={[{ title: 'None' }]}
+        breadcrumbTitle="New thread"
+        breadcrumbShowHome={false}
+        disableContentScroll
+        px={2}
+      >
+        <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <CircularProgress size={24} />
+        </Box>
+      </Page>
+    )
   }
 
-  const handleAttachmentMenuClose = () => {
-    setAttachmentMenuAnchorEl(null)
-  }
-
-  const handleImageUploadClick = () => {
-    if (imageInputRef.current) {
-      imageInputRef.current.click()
-    }
-    handleAttachmentMenuClose()
-  }
-
-  const attachImageFile = (file: File) => {
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setSelectedImage(reader.result as string)
-      setSelectedImageName(file.name || `pasted-image-${Date.now()}.png`)
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      attachImageFile(file)
-    }
-  }
-
-  // Cmd+V / Ctrl+V image paste — same path as the file picker. Text pastes
-  // fall through unchanged (we only preventDefault when we actually attach).
-  const handlePromptPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = event.clipboardData?.items
-    if (!items || items.length === 0) return
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
-      if (item.kind !== 'file') continue
-      if (!item.type.startsWith('image/')) continue
-      const file = item.getAsFile()
-      if (!file) continue
-      event.preventDefault()
-      attachImageFile(file)
-      return
-    }
+  if (projects.length === 0) {
+    return (
+      <>
+        <Page
+          breadcrumbs={[{ title: 'Projects' }]}
+          breadcrumbTitle="Get started"
+          breadcrumbShowHome={false}
+          disableContentScroll
+          px={2}
+        >
+          <Box
+            sx={{
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: lightTheme.isLight ? '#f7f7f8' : '#080808',
+              px: 3,
+            }}
+          >
+            <Box sx={{ textAlign: 'center', maxWidth: 440 }}>
+              <Box
+                sx={{
+                  width: 56,
+                  height: 56,
+                  mx: 'auto',
+                  mb: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 2,
+                  bgcolor: 'action.selected',
+                  color: 'text.secondary',
+                }}
+              >
+                <FolderPlus size={28} />
+              </Box>
+              <Typography component="h1" variant="h5" sx={{ fontWeight: 600, mb: 1 }}>
+                Get started by creating a new project
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Create a new or connect an existing repository
+              </Typography>
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={<FolderPlus size={18} />}
+                onClick={() => setCreateProjectOpen(true)}
+              >
+                Create new project
+              </Button>
+            </Box>
+          </Box>
+        </Page>
+        <ManagedCreateProjectDialog
+          open={createProjectOpen}
+          onClose={() => setCreateProjectOpen(false)}
+          onSuccess={(projectId) => {
+            setCreateProjectOpen(false)
+            account.orgNavigate('chat', {}, { project_id: projectId })
+          }}
+        />
+      </>
+    )
   }
 
   return (
     <Page
-      globalSearch={true}
-      organizationId={account.organizationTools.organization?.id}
-      showTopbar={true}
+      breadcrumbs={[{ title: selectedProject?.name || 'None' }]}
+      breadcrumbTitle={isProjectContext ? 'New Task' : 'New thread'}
+      breadcrumbShowHome={false}
+      disableContentScroll
+      px={2}
     >
       <Box
         sx={{
+          height: '100%',
+          minHeight: 0,
           display: 'flex',
-          flexDirection: 'column',
-          minHeight: '100%',
+          alignItems: 'center',
+          justifyContent: 'center',
+          px: { xs: 2, sm: 3 },
+          pb: { xs: 4, md: 12 },
+          backgroundColor: lightTheme.isLight ? '#f7f7f8' : '#080808',
+          fontFamily: T3_FONT_FAMILY,
+          '& .MuiTypography-root, & .MuiButton-root': { fontFamily: 'inherit' },
         }}
       >
-        {/* Main content */}
-        <Box
-          sx={{
-            flex: 1,
-          }}
-        >
-          <Container
-            maxWidth="md"
-            sx={{
-              py: 4,
-              display: 'flex',
-              px: { xs: 2, sm: 3, md: 3 },
-              width: '100%',
-              maxWidth: '100%',
-              overflow: 'hidden',
-            }}
-          >
-            <Grid container spacing={1} justifyContent="center" sx={{ 
-              width: '100%', 
-              margin: 0,
-              maxWidth: '100%',
-            }}>
-              <Grid item xs={12} sx={{ 
-                textAlign: 'center',
-                width: '100%',
-                maxWidth: '100%',
-                paddingX: '0 !important',
-              }}>
-                <Row
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '100%',
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      color: lightTheme.textColor,
-                      fontSize: '1.5rem',
-                      fontWeight: 'bold',
-                      textAlign: 'center',
-                      mb: 2,
-                    }}
-                  >
-                    {greeting}
-                  </Typography>
-                </Row>
-                <Row>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.28)' : 'rgba(255, 255, 255, 0.2)'}`,
-                      borderRadius: '12px',
-                      backgroundColor: lightTheme.isLight ? '#fff' : 'rgba(255, 255, 255, 0.05)',
-                      p: 2,
-                      mb: 2,
-                    }}
-                  >
-                    {/* Top row - Chat with Helix */}
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        mb: 2,
-                      }}
-                    >
-                      <textarea
-                        ref={textareaRef}
-                        value={currentPrompt}
-                        onChange={(e) => setCurrentPrompt(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        onPaste={handlePromptPaste}
-                        rows={2}
-                        style={{
-                          width: '100%',
-                          backgroundColor: 'transparent',
-                          border: 'none',
-                          color: lightTheme.textColor,
-                          opacity: 0.7,
-                          resize: 'none',
-                          outline: 'none',
-                          fontFamily: 'inherit',
-                          fontSize: 'inherit',
-                        }}
-                        placeholder="Chat with Helix"
-                      />
-                    </Box>
-
-                    {/* Bottom row - Split into left and right sections */}
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: 1,
-                      }}
-                    >
-                      {/* Left section - Will contain SessionTypeButton, ModelPicker and plus button */}
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1,
-                          flexWrap: 'wrap',
-                          flex: '1 1 auto',
-                        }}
-                      >
-                        {/* Temporarily disabled - image models from third-party providers may not work properly and we no longer bundle FLUX.1-dev
-                        {account.hasImageModels && (
-                          <SessionTypeButton 
-                            type={currentType}
-                            onSetType={setCurrentType}
-                          />
-                        )}
-                        */}
-
-                        <AdvancedModelPicker
-                          selectedProvider={currentProvider}
-                          selectedModelId={currentModel}
-                          onSelectModel={function (provider: string, model: string): void {
-                            setCurrentModel(model)
-                            setCurrentProvider(provider)
-                          }}
-                          currentType={currentType}
-                          displayMode="short"
-                        />
-                        {/* Action buttons - Only show if not in Image mode */}
-                        {currentType !== 'image' && (
-                          <>
-                            <Tooltip title="Attach Files" placement="top">
-                              <Box
-                                sx={{
-                                  width: 32,
-                                  height: 32,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: 'pointer',
-                                  border: `2px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)'}`,
-                                  borderRadius: '50%',
-                                  '&:hover': {
-                                    borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)',
-                                    '& svg': {
-                                      color: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)'
-                                    }
-                                  }
-                                }}
-                                onClick={handleAttachmentMenuOpen}
-                              >
-                                <AttachFileIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
-                              </Box>
-                            </Tooltip>
-                            <Tooltip title={showExamples ? "Hide examples" : "Show examples"} placement="top">
-                              <Box
-                                sx={{
-                                  width: 32,
-                                  height: 32,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: 'pointer',
-                                  border: `2px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)'}`,
-                                  borderRadius: '50%',
-                                  backgroundColor: 'transparent',
-                                  '&:hover': {
-                                    borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)',
-                                    backgroundColor: 'transparent',
-                                    '& svg': {
-                                      color: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)'
-                                    }
-                                  }
-                                }}
-                                onClick={() => setShowExamples(!showExamples)}
-                              >
-                                {showExamples ? (
-                                  <LightbulbIcon sx={{
-                                    color: lightTheme.textColorFaded,
-                                    fontSize: '20px'
-                                  }} />
-                                ) : (
-                                  <LightbulbOutlinedIcon sx={{
-                                    color: lightTheme.textColorFaded,
-                                    fontSize: '20px'
-                                  }} />
-                                )}
-                              </Box>
-                            </Tooltip>
-                            {selectedImage && (
-                              <Box
-                                sx={{
-                                  position: 'relative',
-                                  ml: 0.5,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 0.75,
-                                }}
-                              >
-                                <Tooltip title={selectedImageName || 'Attached image'} placement="top">
-                                  <Box
-                                    component="img"
-                                    src={selectedImage}
-                                    alt={selectedImageName || 'Attached image'}
-                                    sx={{
-                                      width: 36,
-                                      height: 36,
-                                      objectFit: 'cover',
-                                      borderRadius: '6px',
-                                      border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
-                                    }}
-                                  />
-                                </Tooltip>
-                                <Typography sx={{ color: lightTheme.textColorFaded, fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {selectedImageName}
-                                </Typography>
-                                <Box
-                                  role="button"
-                                  aria-label="Remove attached image"
-                                  onClick={() => {
-                                    setSelectedImage(null)
-                                    setSelectedImageName(null)
-                                    if (imageInputRef.current) imageInputRef.current.value = ''
-                                  }}
-                                  sx={{
-                                    width: 18,
-                                    height: 18,
-                                    borderRadius: '50%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    fontSize: '12px',
-                                    color: lightTheme.textColorFaded,
-                                    border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.3)'}`,
-                                    '&:hover': {
-                                      color: lightTheme.textColor,
-                                      borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.6)',
-                                    },
-                                  }}
-                                >
-                                  ×
-                                </Box>
-                              </Box>
-                            )}
-                            <Menu
-                              anchorEl={attachmentMenuAnchorEl}
-                              open={Boolean(attachmentMenuAnchorEl)}
-                              onClose={handleAttachmentMenuClose}
-                              PaperProps={{
-                                style: {
-                                  backgroundColor: lightTheme.isLight ? 'rgba(220, 220, 220, 0.9)' : 'rgba(40, 40, 40, 0.9)',
-                                  color: lightTheme.textColor,
-                                  borderRadius: '8px',
-                                },
-                              }}
-                            >
-                              <MenuItem onClick={handleImageUploadClick}>
-                                <ListItemIcon>
-                                  <ImageIcon fontSize="small" sx={{ color: lightTheme.textColorFaded }} />
-                                </ListItemIcon>
-                                <ListItemText primary="Upload image" />
-                              </MenuItem>
-                            </Menu>
-                            <input
-                              type="file"
-                              ref={imageInputRef}
-                              style={{ display: 'none' }}
-                              accept="image/*"
-                              onChange={handleImageFileChange}
-                            />
-                          </>
-                        )}
-                      </Box>
-
-                      {/* Right section - Up arrow icon */}
-                      <Box>
-                        <Tooltip title="Send Prompt" placement="top">
-                          <Box
-                            onClick={submitPrompt}
-                            sx={{
-                              width: 32,
-                              height: 32,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: loading ? 'default' : 'pointer',
-                              border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)'}`,
-                              borderRadius: '8px',
-                              opacity: loading ? 0.5 : 1,
-                              '&:hover': loading ? {} : {
-                                borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)',
-                                '& svg': {
-                                  color: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)'
-                                }
-                              }
-                            }}
-                          >
-                            {loading ? (
-                              <LoadingSpinner />
-                            ) : (
-                              <ArrowUpwardIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
-                            )}
-                          </Box>
-                        </Tooltip>
-                      </Box>
-                    </Box>
-                  </Box>
-                </Row>
-                {showExamples && (
-                  <Row>
-                    <Box
-                      sx={{
-                        width: '100%',
-                        // px: 2,
-                        mb: 6,
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          justifyContent: 'center',
-                          mb: 2,
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            color: lightTheme.textColor,
-                            fontSize: '0.9rem',
-                            fontWeight: 'bold',
-                          }}
-                        >
-                          Try an example
-                        </Typography>
-                      </Box>
-                      <ExamplePrompts
-                        header={false}
-                        layout="vertical"
-                        type={currentType}
-                        onChange={prompt => {
-                          setCurrentPrompt(prompt)
-                          setTimeout(() => {
-                            if(!textareaRef.current) return
-                            textareaRef.current.focus()
-                          }, 100)
-                        }}
-                      />
-                    </Box>
-                  </Row>
-                )}
-                {/* Projects Section */}
-                <Row
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    mb: 1,
-                    mt: 3,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography
-                      sx={{
-                        color: lightTheme.textColor,
-                        fontSize: '1.1rem',
-                        fontWeight: 'bold',
-                        cursor: 'pointer',
-                        '&:hover': {
-                          textDecoration: 'underline',
-                        },
-                      }}
-                      onClick={() => account.orgNavigate('projects')}
-                    >
-                      Projects
-                    </Typography>
-                    <Tooltip
-                      title="A Kanban board where you can organize work for your agents to complete"
-                      placement="right"
-                      arrow
-                    >
-                      <InfoOutlinedIcon
-                        sx={{
-                          color: lightTheme.textColorFaded,
-                          fontSize: '1rem',
-                          cursor: 'help',
-                          '&:hover': {
-                            color: lightTheme.textColor,
-                          },
-                        }}
-                      />
-                    </Tooltip>
-                  </Box>
-                </Row>
-                <Row
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'left',
-                    justifyContent: 'left',
-                    mb: 1,
-                  }}
-                >
-                  <Grid container spacing={1} justifyContent="left">
-                    {
-                      [...projects]
-                        .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime())
-                        .slice(0, 5)
-                        .map((project) => (
-                          <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'left', maxWidth: '100%' }} key={project.id}>
-                            <Box
-                              sx={{
-                                borderRadius: '12px',
-                                border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
-                                p: 1.5,
-                                pb: 0.5,
-                                cursor: 'pointer',
-                                '&:hover': {
-                                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
-                                },
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'flex-start',
-                                gap: 1,
-                                width: '100%',
-                                minWidth: 0,
-                              }}
-                              onClick={() => account.orgNavigate('project-specs', { id: project.id })}
-                            >
-                              <Avatar
-                                sx={{
-                                  width: 28,
-                                  height: 28,
-                                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.1)',
-                                  color: lightTheme.textColor,
-                                  fontWeight: 'bold',
-                                }}
-                              >
-                                {project.name && project.name.length > 0
-                                  ? project.name[0].toUpperCase()
-                                  : 'P'}
-                              </Avatar>
-                              <Box sx={{ textAlign: 'left', width: '100%', minWidth: 0 }}>
-                                <Typography sx={{
-                                  color: lightTheme.textColor,
-                                  fontSize: '0.95rem',
-                                  lineHeight: 1.2,
-                                  fontWeight: 'bold',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                  width: '100%',
-                                }}>
-                                  {project.name}
-                                </Typography>
-                                <Typography variant="caption" sx={{
-                                  color: lightTheme.textColorFaded,
-                                  fontSize: '0.8rem',
-                                  lineHeight: 1.2,
-                                }}>
-                                  {getTimeAgo(new Date(project.updated_at || project.created_at))}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </Grid>
-                        ))
-                    }
-                    <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'center' }}>
-                      <Box
-                        sx={{
-                          borderRadius: '12px',
-                          border: `1px dashed ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
-                          p: 1.5,
-                          pb: 0.5,
-                          cursor: 'pointer',
-                          '&:hover': {
-                            backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
-                          },
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'flex-start',
-                          gap: 1,
-                        }}
-                        onClick={() => account.orgNavigate('projects')}
-                      >
-                        <Box
-                          sx={{
-                            width: 28,
-                            height: 28,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            borderRadius: '50%',
-                            backgroundColor: 'rgb(0, 153, 255)',
-                          }}
-                        >
-                          <AddIcon sx={{ color: '#fff', fontSize: '20px' }} />
-                        </Box>
-                        <Box sx={{ textAlign: 'left' }}>
-                          <Typography sx={{
-                            color: lightTheme.textColor,
-                            fontSize: '0.95rem',
-                            lineHeight: 1.2,
-                            fontWeight: 'bold',
-                          }}>
-                            New project
-                          </Typography>
-                          <Typography variant="caption" sx={{
-                            color: lightTheme.textColorFaded,
-                            fontSize: '0.8rem',
-                            lineHeight: 1.2,
-                          }}>
-                            &nbsp;
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </Grid>
-                  </Grid>
-                </Row>
-
-                {/* Tasks Section */}
-                <Row
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    mb: 1,
-                    mt: 3,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography
-                      sx={{
-                        color: lightTheme.textColor,
-                        fontSize: '1.1rem',
-                        fontWeight: 'bold',
-                        cursor: 'pointer',
-                        '&:hover': {
-                          textDecoration: 'underline',
-                        },
-                      }}
-                      onClick={() => account.orgNavigate('tasks')}
-                    >
-                      Tasks
-                    </Typography>
-                    <Tooltip
-                      title="Schedule prompts to run automatically in your agents at specific times or on triggers"
-                      placement="right"
-                      arrow
-                    >
-                      <InfoOutlinedIcon
-                        sx={{
-                          color: lightTheme.textColorFaded,
-                          fontSize: '1rem',
-                          cursor: 'help',
-                          '&:hover': {
-                            color: lightTheme.textColor,
-                          },
-                        }}
-                      />
-                    </Tooltip>
-                  </Box>
-                </Row>
-                <Row
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'left',
-                    justifyContent: 'left',
-                    mb: 1,
-                  }}
-                >
-                  <Grid container spacing={1} justifyContent="left">
-                    {
-                      triggers?.data
-                        ?.filter((trigger: any) => trigger.enabled && !trigger.archived)
-                        .sort((a: any, b: any) => new Date(b.updated).getTime() - new Date(a.updated).getTime())
-                        .slice(0, 5)
-                        .map((trigger: any) => {
-                          const app = findAppById(apps.apps, trigger.app_id)
-                          return (
-                            <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'left', maxWidth: '100%' }} key={trigger.id}>
-                              <Box
-                                sx={{
-                                  borderRadius: '12px',
-                                  border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
-                                  p: 1.5,
-                                  pb: 0.5,
-                                  cursor: 'pointer',
-                                  '&:hover': {
-                                    backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
-                                  },
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'flex-start',
-                                  gap: 1,
-                                  width: '100%',
-                                  minWidth: 0,
-                                }}
-                                onClick={() => account.orgNavigate('tasks', { task: trigger.id })}
-                              >
-                                <Avatar
-                                  sx={{
-                                    width: 28,
-                                    height: 28,
-                                    backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.1)',
-                                    color: lightTheme.textColor,
-                                    fontWeight: 'bold',
-                                    border: (theme) => app?.config.helix.avatar ? `2px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.8)'}` : 'none',
-                                  }}
-                                  src={app?.config.helix.avatar ? (
-                                    app.config.helix.avatar.startsWith('http://') || app.config.helix.avatar.startsWith('https://')
-                                      ? app.config.helix.avatar
-                                      : `/api/v1/apps/${trigger.app_id}/avatar`
-                                  ) : undefined}
-                                >
-                                  {app?.config.helix.name && app.config.helix.name.length > 0
-                                    ? app.config.helix.name[0].toUpperCase()
-                                    : '?'}
-                                </Avatar>
-                                <Box sx={{ textAlign: 'left', width: '100%', minWidth: 0 }}>
-                                  <Typography sx={{
-                                    color: lightTheme.textColor,
-                                    fontSize: '0.95rem',
-                                    lineHeight: 1.2,
-                                    fontWeight: 'bold',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    width: '100%',
-                                  }}>
-                                    { trigger.name }
-                                  </Typography>
-                                  <Typography variant="caption" sx={{
-                                    color: lightTheme.textColorFaded,
-                                    fontSize: '0.8rem',
-                                    lineHeight: 1.2,
-                                  }}>
-                                    { getScheduleInfo(trigger.trigger) }
-                                  </Typography>
-                                </Box>
-                              </Box>
-                            </Grid>
-                          )
-                        }) || []
-                    }
-                    <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'center' }}>
-                      <Box
-                        sx={{
-                          borderRadius: '12px',
-                          border: `1px dashed ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
-                          p: 1.5,
-                          pb: 0.5,
-                          cursor: 'pointer',
-                          '&:hover': {
-                            backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
-                          },
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'flex-start',
-                          gap: 1,
-                        }}
-                        onClick={() => account.orgNavigate('tasks', { task: 'new' })}
-                      >
-                        <Box
-                          sx={{
-                            width: 28,
-                            height: 28,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            borderRadius: '50%',
-                            backgroundColor: 'rgb(0, 153, 255)',
-                          }}
-                        >
-                          <AddIcon sx={{ color: '#fff', fontSize: '20px' }} />
-                        </Box>
-                        <Box sx={{ textAlign: 'left' }}>
-                          <Typography sx={{
-                            color: lightTheme.textColor,
-                            fontSize: '0.95rem',
-                            lineHeight: 1.2,
-                            fontWeight: 'bold',
-                          }}>
-                            New task
-                          </Typography>
-                          <Typography variant="caption" sx={{
-                            color: lightTheme.textColorFaded,
-                            fontSize: '0.8rem',
-                            lineHeight: 1.2,
-                          }}>
-                            &nbsp;
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </Grid>
-                  </Grid>
-                </Row>
-
-                {/* Agents Section */}
-                <Row
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    mb: 1,
-                    mt: 3,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography
-                      sx={{
-                        color: lightTheme.textColor,
-                        fontSize: '1.1rem',
-                        fontWeight: 'bold',
-                        cursor: 'pointer',
-                        '&:hover': {
-                          textDecoration: 'underline',
-                        },
-                      }}
-                      onClick={() => account.orgNavigate('agents')}
-                    >
-                      Agents
-                    </Typography>
-                    <Tooltip
-                      title="Configure AI agents by choosing models, adding knowledge, connecting skills, and testing with prompts"
-                      placement="right"
-                      arrow
-                    >
-                      <InfoOutlinedIcon
-                        sx={{
-                          color: lightTheme.textColorFaded,
-                          fontSize: '1rem',
-                          cursor: 'help',
-                          '&:hover': {
-                            color: lightTheme.textColor,
-                          },
-                        }}
-                      />
-                    </Tooltip>
-                  </Box>
-                </Row>
-                <Row
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'left',
-                    justifyContent: 'left',
-                    mb: 1,
-                  }}
-                >
-                  <Grid container spacing={1} justifyContent="left">
-                    {
-                      [...apps.apps]
-                        .sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime())
-                        .slice(0, 5)
-                        .map((app) => (
-                          <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'left', maxWidth: '100%' }} key={ app.id }>
-                            <Box
-                              sx={{
-                                borderRadius: '12px',
-                                border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
-                                p: 1.5,
-                                pb: 0.5,
-                                cursor: 'pointer',
-                                '&:hover': {
-                                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
-                                },
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'flex-start',
-                                gap: 1,
-                                width: '100%',
-                                minWidth: 0,
-                              }}
-                              onClick={() => openApp(app.id)}
-                            >
-                              <Avatar
-                                sx={{
-                                  width: 28,
-                                  height: 28,
-                                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.1)',
-                                  color: lightTheme.textColor,
-                                  fontWeight: 'bold',
-                                  border: (theme) => app.config.helix.avatar ? `2px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.8)'}` : 'none',
-                                }}
-                                src={app.config.helix.avatar ? (
-                                  app.config.helix.avatar.startsWith('http://') || app.config.helix.avatar.startsWith('https://')
-                                    ? app.config.helix.avatar
-                                    : `/api/v1/apps/${app.id}/avatar`
-                                ) : undefined}
-                              >
-                                {app.config.helix.name && app.config.helix.name.length > 0
-                                  ? app.config.helix.name[0].toUpperCase()
-                                  : '?'}
-                              </Avatar>
-                              <Box sx={{ textAlign: 'left', width: '100%', minWidth: 0 }}>
-                                <Typography sx={{
-                                  color: lightTheme.textColor,
-                                  fontSize: '0.95rem',
-                                  lineHeight: 1.2,
-                                  fontWeight: 'bold',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                  width: '100%',
-                                }}>
-                                  { app.config.helix.name }
-                                </Typography>
-                                <Typography variant="caption" sx={{
-                                  color: lightTheme.textColorFaded,
-                                  fontSize: '0.8rem',
-                                  lineHeight: 1.2,
-                                }}>
-                                  { getTimeAgo(new Date(app.updated)) }
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </Grid>
-                        ))
-                    }
-                    <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'center' }}>
-                      <Box
-                        sx={{
-                          borderRadius: '12px',
-                          border: `1px dashed ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
-                          p: 1.5,
-                          pb: 0.5,
-                          cursor: 'pointer',
-                          '&:hover': {
-                            backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
-                          },
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'flex-start',
-                          gap: 1,
-                        }}
-                        onClick={handleNewAgent}
-                      >
-                        <Box
-                          sx={{
-                            width: 28,
-                            height: 28,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            borderRadius: '50%',
-                            backgroundColor: 'rgb(0, 153, 255)',
-                          }}
-                        >
-                          <AddIcon sx={{ color: '#fff', fontSize: '20px' }} />
-                        </Box>
-                        <Box sx={{ textAlign: 'left' }}>
-                          <Typography sx={{
-                            color: lightTheme.textColor,
-                            fontSize: '0.95rem',
-                            lineHeight: 1.2,
-                            fontWeight: 'bold',
-                          }}>
-                            New agent
-                          </Typography>
-                          <Typography variant="caption" sx={{
-                            color: lightTheme.textColorFaded,
-                            fontSize: '0.8rem',
-                            lineHeight: 1.2,
-                          }}>
-                            &nbsp;
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </Grid>
-                  </Grid>
-                </Row>
-                
-              </Grid>
-            </Grid>
-          </Container>
-        </Box>
-
-        {/* Footer */}
-        <Box
-          component="footer"
-          sx={{
-            py: 2,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            borderTop: (theme) => `1px solid ${theme.palette.divider}`,
-          }}
-        >
+        <Box sx={{ width: '100%', maxWidth: 768 }}>
           <Typography
+            component="h1"
             sx={{
-              color: lightTheme.textColorFaded,
-              fontSize: '0.8rem',
+              mb: 3.5,
+              color: 'text.primary',
+              fontSize: { xs: '1.65rem', sm: '1.9rem' },
+              fontWeight: 560,
+              lineHeight: 1.2,
+              letterSpacing: '-0.025em',
+              textAlign: 'center',
             }}
           >
-            LLMs can make mistakes. Check facts, dates and events.
+            {newChatHeading(selectedProject?.name)}
           </Typography>
+
+          {requestedProjectId && projectsLoading ? (
+            <Box sx={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CircularProgress size={22} />
+            </Box>
+          ) : (
+            <RobustPromptInput
+              key={selectedProjectId || 'none'}
+              sessionId={`new-thread:${selectedProjectId || 'none'}`}
+              sendMode="direct"
+              autoFocus
+              disabled={submitting || (isProjectContext && !selectedAgentId)}
+              placeholder={isProjectContext ? 'Describe what you want to build' : 'Ask anything'}
+              inlineImageAttachments={!isProjectContext}
+              deferredFileAttachments={isProjectContext}
+              attachmentAccept={isProjectContext ? TASK_ATTACHMENT_ACCEPT : undefined}
+              attachmentMaxBytes={isProjectContext ? SPEC_TASK_ATTACHMENT_MAX_BYTES : undefined}
+              attachmentMaxCount={isProjectContext ? SPEC_TASK_ATTACHMENT_MAX_PER_TASK : undefined}
+              validateAttachment={isProjectContext ? taskAttachmentValidation : undefined}
+              leadingActions={isProjectContext ? projectActions : modelActions}
+              onSend={isProjectContext ? handleProjectTask : handleNormalChat}
+            />
+          )}
+
+          <Box sx={{ mt: 1, px: 2 }}>
+            <Button
+              startIcon={isProjectContext ? <Folder size={14} /> : <MessageCircle size={14} />}
+              endIcon={<ChevronDown size={12} />}
+              onClick={(event) => setProjectMenuAnchor(event.currentTarget)}
+              sx={{ ...selectorButtonSx, fontSize: '0.7rem' }}
+            >
+              {selectedProject?.name || 'None'}
+            </Button>
+            <Menu
+              anchorEl={projectMenuAnchor}
+              open={!!projectMenuAnchor}
+              onClose={() => setProjectMenuAnchor(null)}
+            >
+              <MenuItem selected={!isProjectContext} onClick={() => openProject()}>
+                <ListItemIcon><MessageCircle size={16} /></ListItemIcon>
+                <ListItemText primary="None" secondary="Start a normal chat" />
+              </MenuItem>
+              {projects.map((project) => (
+                <MenuItem
+                  key={project.id}
+                  selected={project.id === selectedProjectId}
+                  onClick={() => openProject(project.id)}
+                >
+                  <ListItemIcon><Folder size={16} /></ListItemIcon>
+                  <ListItemText primary={project.name || 'Untitled project'} />
+                </MenuItem>
+              ))}
+            </Menu>
+          </Box>
         </Box>
       </Box>
     </Page>

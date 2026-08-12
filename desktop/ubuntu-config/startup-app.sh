@@ -70,6 +70,16 @@ mkdir -p $QWEN_DATA_DIR
 rm -rf ~/.qwen && ln -sf $QWEN_DATA_DIR ~/.qwen
 gow_log "[start] Qwen data directory set: QWEN_DATA_DIR=$QWEN_DATA_DIR"
 
+# Codex stores ACP rollouts under ~/.codex. Keep them with the session
+# workspace so a recreated desktop can resume the Zed thread it advertises.
+CODEX_STATE_DIR=$WORK_DIR/.codex-state
+mkdir -p $CODEX_STATE_DIR
+if [ -d ~/.codex ] && [ ! -L ~/.codex ]; then
+    cp -a ~/.codex/. $CODEX_STATE_DIR/
+fi
+rm -rf ~/.codex && ln -sf $CODEX_STATE_DIR ~/.codex
+gow_log "[start] Codex state directory set: $CODEX_STATE_DIR"
+
 # Note: RevDial client is now integrated into desktop-bridge
 
 # Disable IBus Input Method Framework
@@ -108,6 +118,17 @@ WOLF_WAYLAND_DISPLAY=$WAYLAND_DISPLAY
 cat <<GNOME_EOF > $XDG_RUNTIME_DIR/start_gnome
 #!/bin/bash
 source /opt/gow/bash-lib/utils.sh
+
+# Web-service sandboxes only host a docker-compose app reached via the proxy —
+# they don't need the GNOME desktop or the video-streaming stack. When
+# HELIX_DISABLE_DESKTOP=1, skip the entire desktop/streaming boot (GNOME shell,
+# desktop-bridge, settings-sync daemon) and just keep the container alive so
+# exec and web-service deploys work. dockerd starts independently via cont-init,
+# so it is unaffected. (HELIX_DISABLE_AGENT only skips Zed; this skips the rest.)
+if [ "${HELIX_DISABLE_DESKTOP}" = "1" ]; then
+  gow_log "[start] HELIX_DISABLE_DESKTOP=1 — skipping GNOME + streaming boot (web-service mode); keeping container alive"
+  exec sleep infinity
+fi
 
 # Set GNOME environment
 export XDG_CURRENT_DESKTOP=GNOME

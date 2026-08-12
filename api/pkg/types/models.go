@@ -195,20 +195,24 @@ type DynamicModelInfo struct {
 }
 
 type ModelInfo struct { //nolint:revive
-	ProviderSlug        string     `json:"provider_slug"`
-	ProviderModelID     string     `json:"provider_model_id"`
-	Slug                string     `json:"slug"`
-	Permaslug           string     `json:"permaslug"`
-	Name                string     `json:"name"`
-	Author              string     `json:"author"`
-	SupportedParameters []string   `json:"supported_parameters"`
-	Description         string     `json:"description"`
-	InputModalities     []Modality `json:"input_modalities"`
-	OutputModalities    []Modality `json:"output_modalities"`
-	SupportsReasoning   bool       `json:"supports_reasoning"`
-	ContextLength       int        `json:"context_length"`
-	MaxCompletionTokens int        `json:"max_completion_tokens"`
-	Pricing             Pricing    `json:"pricing"`
+	ProviderSlug            string     `json:"provider_slug"`
+	ProviderModelID         string     `json:"provider_model_id"`
+	Slug                    string     `json:"slug"`
+	Permaslug               string     `json:"permaslug"`
+	Name                    string     `json:"name"`
+	Author                  string     `json:"author"`
+	SupportedParameters     []string   `json:"supported_parameters"`
+	Description             string     `json:"description"`
+	InputModalities         []Modality `json:"input_modalities"`
+	OutputModalities        []Modality `json:"output_modalities"`
+	SupportsReasoning       bool       `json:"supports_reasoning"`
+	SupportsReasoningEffort bool       `json:"supports_reasoning_effort"`
+	// SupportedReasoningEfforts lists the effort values the model accepts,
+	// e.g. ["high","low","medium","none","xhigh"]. Empty when unknown.
+	SupportedReasoningEfforts []string `json:"supported_reasoning_efforts"`
+	ContextLength             int      `json:"context_length"`
+	MaxCompletionTokens       int      `json:"max_completion_tokens"`
+	Pricing                   Pricing  `json:"pricing"`
 }
 
 type Pricing struct {

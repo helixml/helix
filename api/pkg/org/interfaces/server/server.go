@@ -1,55 +1,93 @@
-// Package server exposes the HTTP surface. There is exactly one
-// endpoint: /workers/{id}/mcp — every Worker is its own MCP server,
-// scoped to the tools listed in that Worker's Role, and used for both
-// reads and mutations of the org graph. The CLI bootstraps by opening
-// the store directly; there is no other HTTP write path.
+// Package server exposes the HTTP surface: the per-Bot MCP endpoint
+// (/orgs/{org}/workers/{id}/mcp — every Bot is its own MCP server,
+// scoped to the tools in its Bot.Tools) and the inbound webhook
+// endpoint (/webhooks/{org}/{topicID}). The URL still uses the
+// `/workers/` path segment for backward compatibility with the helix
+// MCP backend; the {id} is a Bot ID. Neither handler touches a store
+// repository: caller resolution and topic reads go through the queries
+// read facade, and inbound events go through the publishing service
+// (append → notify → dispatch). The store stays in the composition
+// root, behind those services.
 package server
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
-	"github.com/helixml/helix/api/pkg/org/application/tools"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/application/queries"
+	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 )
 
-// Dispatcher is the subset of the dispatcher this package needs:
-// fan an Event out to subscribed AI Workers. Defining the interface
-// here (rather than importing dispatch) keeps the import edge
-// one-directional — dispatch already imports server's siblings.
-type Dispatcher interface {
-	Dispatch(ctx context.Context, event streaming.Event)
-}
-
-// Server wires handlers over a store and the tool registry.
+// Server wires the MCP + webhook handlers over the application services.
 type Server struct {
-	store       *store.Store
-	registry    *tools.Registry
-	prompts     *prompts.Registry
-	broadcaster *streamhub.Hub
-	dispatcher  Dispatcher
-	logger      *slog.Logger
+	queries    *queries.Queries
+	publishing *publishing.Publishing
+	registry   *mcptools.Registry
+	prompts    *prompts.Registry
+	logger     *slog.Logger
+	audit      orgaudit.Recorder
+	projects   orgaudit.ProjectResolver
+	assets     store.Assets
 }
 
-// New returns a Server bound to the given store, registry, broadcaster,
-// dispatcher and logger. If logger is nil, a discard logger is used.
-// The broadcaster wakes long-poll readers; it may be nil in tests.
-// The dispatcher is required only for routes that fan-out events to
-// subscribed Workers (e.g. /webhooks/{streamID}); leave it nil in
-// tests that don't exercise those paths.
-func New(s *store.Store, registry *tools.Registry, broadcaster *streamhub.Hub, dispatcher Dispatcher, logger *slog.Logger) *Server {
+// New returns a Server bound to the read facade, the publishing service,
+// the tool registry and a logger. If logger is nil, a discard logger is
+// used. publishing may be nil in tests that don't exercise the inbound
+// webhook route.
+func New(q *queries.Queries, pub *publishing.Publishing, registry *mcptools.Registry, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, nil))
 	}
-	return &Server{store: s, registry: registry, broadcaster: broadcaster, dispatcher: dispatcher, logger: logger}
+	return &Server{queries: q, publishing: pub, registry: registry, logger: logger}
 }
 
-// WithPrompts attaches a prompts.Registry so the per-worker MCP server
+// NewFromStore is the composition-time convenience constructor: it
+// builds the read facade and the publishing service from a store (+
+// broadcaster + dispatcher) and returns a Server over them. The Server
+// itself never holds the store — this just keeps the wiring (and tests)
+// terse. broadcaster/dispatcher may be nil (the publish trio then skips
+// the corresponding step).
+func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wakebus.Bus, dispatcher publishing.Dispatcher, logger *slog.Logger) *Server {
+	q := queries.New(queries.Deps{
+		Nodes:          s.Nodes,
+		ReportingLines: s.ReportingLines,
+		Topics:         s.Topics,
+		Subscriptions:  s.Subscriptions,
+		Events:         s.Events,
+		Activations:    s.Activations,
+	})
+	pd := publishing.Deps{
+		Topics: s.Topics,
+		Events: s.Events,
+		Now:    func() time.Time { return time.Now().UTC() },
+		NewID:  uuid.NewString,
+	}
+	if broadcaster != nil {
+		pd.Hub = broadcaster
+	}
+	if dispatcher != nil {
+		pd.Dispatcher = dispatcher
+	}
+	server := New(q, publishing.New(pd), registry, logger)
+	server.assets = s.Assets
+	return server
+}
+
+func (s *Server) WithAudit(recorder orgaudit.Recorder, projects orgaudit.ProjectResolver) *Server {
+	s.audit = recorder
+	s.projects = projects
+	return s
+}
+
+// WithPrompts attaches a prompts.Registry so the per-bot MCP server
 // will surface MCP prompts (slash commands) alongside tools. Returns
 // the same Server so the call can be chained off New. Passing nil is
 // equivalent to no prompts registered — the MCP server just answers
@@ -68,17 +106,18 @@ type Route struct {
 }
 
 // Handler returns an http.Handler with all built-in routes registered
-// (MCP per-worker, /webhooks/{streamID}) plus any extras passed in by
+// (MCP per-bot, /webhooks/{topicID}) plus any extras passed in by
 // the wiring layer. The request-logging middleware wraps the lot.
 func (s *Server) Handler(extras ...Route) http.Handler {
 	mux := http.NewServeMux()
-	// Per-org MCP per Worker. The {org} segment is required: composite
-	// (id, org_id) PKs mean the worker handle ("w-owner") repeats
-	// across tenants. The MCP handler reads orgID from
-	// OrgIDFromContext, so this route wraps the inner handler in a
-	// middleware that lifts {org} into the request context.
+	// Per-org MCP per Bot. The {org} segment is required: composite
+	// (id, org_id) PKs mean the bot handle repeats across tenants. The
+	// MCP handler reads orgID from OrgIDFromContext, so this route wraps
+	// the inner handler in a middleware that lifts {org} into the
+	// request context. The path keeps the `/workers/` segment for
+	// compatibility with the helix MCP backend rewrite; {id} is a Bot ID.
 	mux.Handle("/orgs/{org}/workers/{id}/mcp", withMCPOrgScope(s.mcpHandler()))
-	mux.Handle("POST /webhooks/{org}/{streamID}", s.webhookHandler())
+	mux.Handle("POST /webhooks/{org}/{topicID}", s.webhookHandler())
 	for _, r := range extras {
 		mux.Handle(r.Pattern, r.Handler)
 	}
@@ -86,7 +125,7 @@ func (s *Server) Handler(extras ...Route) http.Handler {
 }
 
 // withMCPOrgScope lifts the {org} URL segment into the context via
-// WithOrgID so the per-Worker MCP handler can scope its store lookups
+// WithOrgID so the per-Bot MCP handler can scope its store lookups
 // to the right helix tenant. Used by the standalone helix-org server
 // only — the helix-embedded MCP backend (mcp_backend_helix_org.go in
 // the helix package) does its own resolution because it needs to

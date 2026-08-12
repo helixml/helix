@@ -7,6 +7,7 @@ import Session from './pages/Session'
 import AdminRunnerLogsPage from './pages/AdminRunnerLogsPage'
 import Apps from './pages/Apps'
 import Providers from './pages/Providers'
+import ProviderDetail from './pages/ProviderDetail'
 import Orgs from './pages/Orgs'
 import OrgSettings from './pages/OrgSettings'
 import OrgTeams from './pages/OrgTeams'
@@ -30,13 +31,12 @@ import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
 import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
 import EmbedTaskPage from './pages/EmbedTaskPage'
+import EmbedSessionPage from './pages/EmbedSessionPage'
 import Projects from './pages/Projects'
 import Sandboxes from './pages/Sandboxes'
 import SandboxDetail from './pages/SandboxDetail'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
-import QuestionSets from './pages/QuestionSets'
-import QuestionSetResults from './pages/QuestionSetResults'
 import GitRepoDetail from './pages/GitRepoDetail'
 import PasswordReset from './pages/PasswordReset'
 import PasswordResetComplete from './pages/PasswordResetComplete'
@@ -46,15 +46,15 @@ import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import HelixOrgChart from './pages/HelixOrgChart'
-import HelixOrgRoles from './pages/HelixOrgRoles'
-import HelixOrgRoleDetail from './pages/HelixOrgRoleDetail'
-import HelixOrgSettings from './pages/HelixOrgSettings'
-import HelixOrgStreams from './pages/HelixOrgStreams'
-import HelixOrgStreamDetail from './pages/HelixOrgStreamDetail'
-import HelixOrgWorkers from './pages/HelixOrgWorkers'
-import HelixOrgWorkerDetail from './pages/HelixOrgWorkerDetail'
+import HelixOrgHumanDetail from './pages/HelixOrgHumanDetail'
+import HelixOrgTopics from './pages/HelixOrgTopics'
+import HelixOrgAssets from './pages/HelixOrgAssets'
+import HelixOrgTopicDetail from './pages/HelixOrgTopicDetail'
+import HelixOrgProcessorDetail from './pages/HelixOrgProcessorDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
+import { useHelixOrgBot } from './services/helixOrgService'
+import { orgLandingRoute } from './utils/organizations'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -67,6 +67,30 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
   path: '/notfound',
   meta: {},
   render: () => <NotFound />,
+}
+
+const HelixOrgAgentRedirect = () => {
+  const { navigateReplace, params } = useRouter()
+  const { data } = useHelixOrgBot(params.bot_id)
+
+  React.useEffect(() => {
+    const agentID = data?.agent_id ?? data?.agent_app_id
+    if (data?.bot?.kind === 'human') {
+      navigateReplace('helix_org_human_detail', { org_id: params.org_id, bot_id: params.bot_id })
+    } else if (agentID) {
+      navigateReplace('org_agent', { org_id: params.org_id, app_id: agentID })
+    }
+  }, [data?.agent_id, data?.agent_app_id, data?.bot?.kind, params.org_id, params.bot_id])
+
+  return null
+}
+
+const RouteRedirect = ({ route }: { route: string }) => {
+  const { navigateReplace, params } = useRouter()
+  React.useEffect(() => {
+    navigateReplace(route, params)
+  }, [])
+  return null
 }
 
 
@@ -90,6 +114,27 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Home />
+  ),
+}, {
+  name: 'org_session',
+  path: '/orgs/:org_id/chat/session/:session_id',
+  meta: {
+    drawer: true,
+    topbar: false,
+    title: 'Session',
+  },
+  render: () => (
+    <Session orgChatView />
+  ),
+}, {
+  name: 'org_chat-task',
+  path: '/orgs/:org_id/chat/projects/:id/tasks/:taskId',
+  meta: {
+    title: 'Task Details',
+    drawer: true,
+  },
+  render: () => (
+    <SpecTaskDetailPage />
   ),
 }, {
   name: 'org_new',
@@ -178,20 +223,21 @@ const routes: IApplicationRoute[] = [
     <GitRepoDetail />
   ),
 }, {
-  name: 'org_qa',
-  path: '/orgs/:org_id/qa',
+  name: 'org_provider_detail',
+  path: '/orgs/:org_id/providers/:provider_id',
   meta: {
-    drawer: false,
-    title: 'Q&A',
+    drawer: true,
+    menu: 'orgs',
   },
   render: () => (
-    <QuestionSets />
+    <ProviderDetail />
   ),
 }, {
   name: 'org_providers',
   path: '/orgs/:org_id/providers',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
   },
   render: () => (
     <Providers />
@@ -250,7 +296,7 @@ const routes: IApplicationRoute[] = [
   path: '/orgs/:org_id/projects/:id/desktop/:sessionId',
   meta: {
     drawer: false,
-    title: 'Human Desktop',
+    title: 'Project Desktop',
   },
   render: () => (
     <TeamDesktopPage />
@@ -289,13 +335,18 @@ const routes: IApplicationRoute[] = [
   ),
 }, {
   name: 'org_agent',
-  path: '/orgs/:org_id/agent/:app_id',
+  path: '/orgs/:org_id/agents/:app_id',
   meta: {
     drawer: true,
   },
   render: () => (
     <App />
   ),
+}, {
+  name: 'org_agent_legacy',
+  path: '/orgs/:org_id/agent/:app_id',
+  meta: { drawer: true },
+  render: () => <RouteRedirect route="org_agent" />,
 }, {
   // Backward compat: redirect /app/:app_id to /agent/:app_id
   name: 'org_app',
@@ -318,25 +369,13 @@ const routes: IApplicationRoute[] = [
     <Apps />
   ),
 }, {
-  name: 'org_session',
+  name: 'org_session_legacy',
   path: '/orgs/:org_id/session/:session_id',
   meta: {
     drawer: true,
     topbar: false,
   },
-  render: () => (
-    <Session />
-  ),
-}, {
-  name: 'org_qa-results',
-  path: '/orgs/:org_id/qa-results/:question_set_id/:execution_id',
-  meta: {
-    drawer: true,
-    topbar: false,
-  },
-  render: () => (
-    <QuestionSetResults />
-  ),
+  render: () => <RouteRedirect route="org_session" />,
 }, {
   name: 'import-agent',
   path: '/import-agent',
@@ -518,6 +557,15 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <EmbedTaskPage />,
 }, {
+  name: 'embed_session',
+  path: '/embed/session/:sessionId',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Session',
+  },
+  render: () => <EmbedSessionPage />,
+}, {
   name: 'login',
   path: '/login',
   meta: {
@@ -540,59 +588,96 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <AdminRunnerLogsPage />,
 }, {
-  // helix-org alpha — Other resources (workers, roles, streams,
-  // settings) are operated via MCP tools / API; the overview is the
-  // visual entry point.
+  // Backward-compatible redirects for the old /helix-org URLs.
   name: 'helix_org_root',
   path: '/orgs/:org_id/helix-org',
-  meta: { drawer: true, title: 'Helix Org' },
-  render: () => {
-    const { navigateReplace, params } = useRouter()
-    React.useEffect(() => {
-      navigateReplace('helix_org_chart', { org_id: params.org_id })
-    }, [params.org_id])
-    return null
-  },
+  meta: { drawer: false, title: 'Helix Org' },
+  render: () => <RouteRedirect route="helix_org_chart" />,
 }, {
   name: 'helix_org_chart',
-  path: '/orgs/:org_id/helix-org/chart',
-  meta: { drawer: true, title: 'Helix Org · Chart' },
+  path: '/orgs/:org_id/chart',
+  meta: { drawer: false, title: 'Org Chart' },
   render: () => <HelixOrgChart />,
 }, {
-  name: 'helix_org_roles',
-  path: '/orgs/:org_id/helix-org/roles',
-  meta: { drawer: true, title: 'Helix Org · Roles' },
-  render: () => <HelixOrgRoles />,
+  name: 'helix_org_chart_legacy',
+  path: '/orgs/:org_id/helix-org/chart',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="helix_org_chart" />,
 }, {
-  name: 'helix_org_role_detail',
-  path: '/orgs/:org_id/helix-org/roles/:role_id',
-  meta: { drawer: true, title: 'Helix Org · Role' },
-  render: () => <HelixOrgRoleDetail />,
+  name: 'helix_org_bots',
+  path: '/orgs/:org_id/helix-org/agents',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="org_agents" />,
 }, {
-  name: 'helix_org_workers',
-  path: '/orgs/:org_id/helix-org/workers',
-  meta: { drawer: true, title: 'Helix Org · Workers' },
-  render: () => <HelixOrgWorkers />,
+  name: 'helix_org_bot_detail',
+  path: '/orgs/:org_id/helix-org/agents/:bot_id',
+  meta: { drawer: false },
+  render: () => <HelixOrgAgentRedirect />,
 }, {
-  name: 'helix_org_worker_detail',
-  path: '/orgs/:org_id/helix-org/workers/:worker_id',
-  meta: { drawer: true, title: 'Helix Org · Worker' },
-  render: () => <HelixOrgWorkerDetail />,
+  name: 'helix_org_bots_legacy',
+  path: '/orgs/:org_id/helix-org/bots',
+  meta: { drawer: false, title: 'Helix Org - Agents' },
+  render: () => <RouteRedirect route="helix_org_bots" />,
+}, {
+  name: 'helix_org_bot_detail_legacy',
+  path: '/orgs/:org_id/helix-org/bots/:bot_id',
+  meta: { drawer: false, title: 'Helix Org - Agent' },
+  render: () => <RouteRedirect route="helix_org_bot_detail" />,
+}, {
+  name: 'helix_org_human_detail',
+  path: '/orgs/:org_id/people/:bot_id',
+  meta: { drawer: false, title: 'Person' },
+  render: () => <HelixOrgHumanDetail />,
+}, {
+  name: 'helix_org_human_detail_legacy',
+  path: '/orgs/:org_id/helix-org/humans/:bot_id',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="helix_org_human_detail" />,
 }, {
   name: 'helix_org_settings',
   path: '/orgs/:org_id/helix-org/settings',
-  meta: { drawer: true, title: 'Helix Org · Settings' },
-  render: () => <HelixOrgSettings />,
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="org_general" />,
 }, {
-  name: 'helix_org_streams',
-  path: '/orgs/:org_id/helix-org/streams',
-  meta: { drawer: true, title: 'Helix Org · Streams' },
-  render: () => <HelixOrgStreams />,
+  name: 'helix_org_topics',
+  path: '/orgs/:org_id/topics',
+  meta: { drawer: false, title: 'Topics' },
+  render: () => <HelixOrgTopics />,
 }, {
-  name: 'helix_org_stream_detail',
-  path: '/orgs/:org_id/helix-org/streams/:stream_id',
-  meta: { drawer: true, title: 'Helix Org · Stream' },
-  render: () => <HelixOrgStreamDetail />,
+  name: 'helix_org_topics_legacy',
+  path: '/orgs/:org_id/helix-org/topics',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="helix_org_topics" />,
+}, {
+  name: 'helix_org_assets',
+  path: '/orgs/:org_id/assets',
+  meta: { drawer: false, title: 'Assets' },
+  render: () => <HelixOrgAssets />,
+}, {
+  name: 'helix_org_assets_legacy',
+  path: '/orgs/:org_id/helix-org/assets',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="helix_org_assets" />,
+}, {
+  name: 'helix_org_processor_detail',
+  path: '/orgs/:org_id/processors/:processor_id',
+  meta: { drawer: false, title: 'Processor' },
+  render: () => <HelixOrgProcessorDetail />,
+}, {
+  name: 'helix_org_processor_detail_legacy',
+  path: '/orgs/:org_id/helix-org/processors/:processor_id',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="helix_org_processor_detail" />,
+}, {
+  name: 'helix_org_topic_detail',
+  path: '/orgs/:org_id/topics/:topic_id',
+  meta: { drawer: false, title: 'Topic' },
+  render: () => <HelixOrgTopicDetail />,
+}, {
+  name: 'helix_org_topic_detail_legacy',
+  path: '/orgs/:org_id/helix-org/topics/:topic_id',
+  meta: { drawer: false },
+  render: () => <RouteRedirect route="helix_org_topic_detail" />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
@@ -629,7 +714,7 @@ const initialPath = window.location.pathname
 router.start()
 
 if (storedOrg) {
-  router.navigate('org_projects', { org_id: storedOrg }, { replace: true })
+  router.navigate(orgLandingRoute(), { org_id: storedOrg }, { replace: true })
 } else if (initialPath === '/' || initialPath === '') {
   // On mobile, UserOrgSelector may not be mounted (temporary Drawer is closed),
   // so its auto-select effect won't fire. Redirect to /orgs so users can pick one.
@@ -640,11 +725,6 @@ export function useApplicationRoute(): IApplicationRoute {
   const { route } = useRoute()
   const fullRoute = routes.find(r => r.name == route?.name) || NOT_FOUND_ROUTE
   return fullRoute
-}
-
-export function RenderPage() {
-  const route = useApplicationRoute()
-  return route.render()
 }
 
 export default router

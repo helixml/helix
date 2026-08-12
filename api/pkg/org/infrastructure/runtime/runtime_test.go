@@ -10,7 +10,7 @@ import (
 func TestNoopWorkspaceSyncIsAlwaysNil(t *testing.T) {
 	t.Parallel()
 	var ws WorkspaceSync = NoopWorkspaceSync{}
-	if err := ws.MirrorFile(context.Background(), "org-test", "w-test", "role.md", "x", "msg"); err != nil {
+	if err := ws.MirrorFile(context.Background(), "org-test", "w-test", "notes.md", "x", "msg"); err != nil {
 		t.Errorf("NoopWorkspaceSync.MirrorFile: %v", err)
 	}
 }
@@ -29,7 +29,7 @@ func TestNoopHireHandlerIsAlwaysNil(t *testing.T) {
 
 func TestValidateWorkspaceName(t *testing.T) {
 	t.Parallel()
-	for _, ok := range []string{"role.md", "identity.md", "sub/file.md"} {
+	for _, ok := range []string{"notes.md", "report.txt", "sub/file.md"} {
 		if err := ValidateWorkspaceName(ok); err != nil {
 			t.Errorf("name %q rejected: %v", ok, err)
 		}
@@ -41,4 +41,4 @@ func TestValidateWorkspaceName(t *testing.T) {
 	}
 }
 
-var _ orgchart.WorkerID = orgchart.WorkerID("w-test") // import-pin
+var _ orgchart.NodeID = orgchart.NodeID("w-test") // import-pin

@@ -101,6 +101,8 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 		Edition:                                apiServer.Cfg.Edition,
 		DefaultChatSystemPrompt:                types.DefaultChatSystemPrompt,
+		DevSubdomain:                           apiServer.Cfg.WebServer.DevSubdomain,
+		PreviewURLHTTPS:                        apiServer.Cfg.WebServer.PreviewURLHTTPS,
 		// ServerURL: operator-configured public origin. Empty when
 		// only the default localhost listen-URL is set, which signals
 		// the frontend to surface its window.location.origin instead
@@ -140,7 +142,6 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
 	return apiServer.getConfig(req.Context())
 }
-
 
 // status godoc
 // @Summary Get user status
@@ -986,6 +987,101 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 	}
 
 	return updatedUser, nil
+}
+
+// adminMintUserAPIKey godoc
+// @Summary Mint an API key for a user (Admin only)
+// @Description Create (or return the existing) named API key owned by another user, so a trusted orchestrator can act as the people it runs work for instead of putting the whole fleet on one shared account. Idempotent per (user, name).
+// @Tags    users
+// @Success 200 {object} types.ApiKey
+// @Param   id path string true "User ID"
+// @Param   name query string true "Key name, e.g. the orchestrator's slug"
+// @Router  /api/v1/admin/users/{id}/api-keys [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminMintUserAPIKey(_ http.ResponseWriter, req *http.Request) (*types.ApiKey, *system.HTTPError) {
+	ctx := req.Context()
+	adminUser := getRequestUser(req)
+
+	if !adminUser.Admin {
+		return nil, system.NewHTTPError403("only admins can mint API keys for other users")
+	}
+
+	targetUserID := mux.Vars(req)["id"]
+	if targetUserID == "" {
+		return nil, system.NewHTTPError400("user ID is required")
+	}
+	name := req.URL.Query().Get("name")
+	if name == "" {
+		return nil, system.NewHTTPError400("name is required so the key is identifiable and re-mintable")
+	}
+
+	// The target must already be a Helix user. This is the boundary that keeps
+	// this endpoint safe once the orchestrator calling it is web-facing: signing
+	// up there must not be enough to get a Helix identity minted for you. Both
+	// sides share an IdP, so a person who has logged into Helix already has a row
+	// here; one who hasn't is not someone we will act as.
+	targetUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("user not found")
+		}
+		return nil, system.NewHTTPError500("failed to get user: " + err.Error())
+	}
+
+	// Idempotent per (user, name): an orchestrator mints on every login, and a
+	// fresh key each time would leave a pile of live credentials behind.
+	existing, err := apiServer.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
+		Owner:     targetUserID,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to list API keys: " + err.Error())
+	}
+	for _, key := range existing {
+		if key.Name == name {
+			return key, nil
+		}
+	}
+
+	// Via the controller, not the store: it generates the key material and stamps
+	// the owner from the user passed in. Going straight to the store leaves Key
+	// empty, which it rejects with "key not specified".
+	// Optional: mint a restricted EMBED key instead of a full user key. An embed
+	// key is browser-safe — it is confined, fail-closed, to the read surface of
+	// the one spec task and session named here (see embedKeyAllows). This is what
+	// lets an orchestrator put a live agent conversation in an iframe on an
+	// untrusted public page without shipping a real credential to the visitor.
+	//
+	// Callers make the key name scope-unique (it encodes the ids), so the
+	// idempotency check above already prevents a stale-scope key being reused.
+	keyType := types.APIkeytypeAPI
+	specTaskID := req.URL.Query().Get("spec_task_id")
+	sessionID := req.URL.Query().Get("session_id")
+	if req.URL.Query().Get("type") == string(types.APIkeytypeEmbed) {
+		if specTaskID == "" {
+			return nil, system.NewHTTPError400("spec_task_id is required for an embed key — an unbound embed key can address nothing")
+		}
+		keyType = types.APIkeytypeEmbed
+	}
+
+	created, err := apiServer.Controller.CreateAPIKey(ctx, targetUser, &types.ApiKey{
+		Name:       name,
+		Type:       keyType,
+		SpecTaskID: specTaskID,
+		SessionID:  sessionID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to create API key: " + err.Error())
+	}
+
+	log.Info().
+		Str("admin_id", adminUser.ID).
+		Str("target_user_id", targetUserID).
+		Str("target_user_email", targetUser.Email).
+		Str("key_name", name).
+		Msg("admin minted an API key on behalf of a user")
+
+	return created, nil
 }
 
 // adminDeleteUser godoc

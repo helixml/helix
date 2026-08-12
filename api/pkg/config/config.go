@@ -1,6 +1,9 @@
 package config
 
 import (
+	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -45,6 +48,42 @@ type ServerConfig struct {
 	// DesktopIdleCheckInterval controls how often the idle checker scans for desktops to shut down.
 	DesktopIdleCheckInterval time.Duration `envconfig:"HELIX_DESKTOP_IDLE_CHECK_INTERVAL" default:"5m"`
 
+	// OrphanReaperEnabled toggles the durable, DB-driven orphan-resource reaper
+	// that garbage-collects leaked session zvols and per-task/session workspace
+	// dirs after host reboots / API restarts / failed destroys.
+	OrphanReaperEnabled bool `envconfig:"HELIX_ORPHAN_REAPER_ENABLED" default:"true"`
+
+	// OrphanReaperInterval is how often the orphan-resource reaper computes the
+	// DB live-set and fans it out to connected sandboxes.
+	OrphanReaperInterval time.Duration `envconfig:"HELIX_ORPHAN_REAPER_INTERVAL" default:"30m"`
+
+	// OrphanReaperGracePeriod is the minimum age a resource must reach before
+	// the reaper will destroy it.
+	//
+	// This is NOT merely a race guard against newly-created resources. Reaping a
+	// spec-task workspace destroys the agent's working directory — including
+	// .claude-state, which holds the Claude Code transcript — so the window is
+	// really "how long after a task finishes might someone still want to pick it
+	// back up". At the previous 6h, a PR merged at 14:04 had its workspace
+	// deleted the same evening, breaking the shell of a container that was still
+	// running and losing the thread history irrecoverably.
+	//
+	// 30 days: bringing a finished task back to life days or weeks later is
+	// normal, and losing its conversation history is not an acceptable cost for
+	// reclaiming disk early. Disk pressure should be handled by surfacing usage
+	// (and by Keep Alive being visible in the UI), not by a short fuse.
+	OrphanReaperGracePeriod time.Duration `envconfig:"HELIX_ORPHAN_REAPER_GRACE_PERIOD" default:"720h"`
+
+	// OrphanReaperDryRun, when true, makes the reaper report what it WOULD reap
+	// without destroying anything. Defaults to FALSE so garbage collection
+	// actually runs out of the box — the previous true default meant any
+	// deployment that didn't explicitly opt in never reclaimed leaked zvols, so
+	// pools filled up (the recurring prod ~95%-full / fragmentation incidents).
+	// Safety is provided by the DB-driven live-set + the grace period
+	// (OrphanReaperGracePeriod), not by withholding the destroy. Set to true to
+	// audit what would be reaped without deleting.
+	OrphanReaperDryRun bool `envconfig:"HELIX_ORPHAN_REAPER_DRY_RUN" default:"false"`
+
 	// SandboxReaperInterval is how often the sandbox-instance reaper scans
 	// the sandbox_instances table for stale rows and flips their status to
 	// offline. Used in conjunction with SandboxStaleThreshold and
@@ -64,6 +103,33 @@ type ServerConfig struct {
 	// their DB row.
 	SandboxDispatchStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_DISPATCH_STALE_THRESHOLD" default:"90s"`
 
+	// SandboxMaxDevContainers is the per-Runner ceiling on isolated dev
+	// containers (current vocab "sandboxes") that hydra will spawn
+	// inside one helix-sandbox host. Written to SandboxInstance.MaxSandboxes
+	// when a Runner is registered (both legacy auto-register and
+	// Manager-provisioned paths). The ComputeManager's autoscaler treats
+	// `headroom = sum(max_sandboxes) - sum(active_sandboxes) < ScaleUpHeadroomMin`
+	// as demand pressure, so this value is what determines when scale-up
+	// fires under load.
+	//
+	// NOTE: this value only affects the autoscaler signal today; the
+	// dispatcher (FindAvailableSandboxInstance) does NOT enforce a hard
+	// rejection at the ceiling - new dev containers can still be placed
+	// on a "full" Runner (sorted ASC by active_sandboxes). Hard
+	// dispatcher rejection is tracked separately as a follow-up.
+	//
+	// Default 20. Raise for hosts with more headroom, lower to make
+	// the autoscaler trigger sooner on smaller hosts. Range is not
+	// enforced - sane values are typically 1-50, beyond which the host
+	// kernel will OOM before the limit binds.
+	//
+	// Changing this env var only affects newly-registered Runners and
+	// Manager-provisioned rows on the next boot; existing rows keep
+	// their persisted MaxSandboxes value. A boot-time backfill rewrites
+	// rows that disagree with the current config so the new value takes
+	// effect across the fleet on next API restart.
+	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"20"`
+
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
@@ -76,14 +142,6 @@ type ServerConfig struct {
 	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
-
-	// HelixOrgEnabled is the deployment-wide kill switch for the
-	// embedded helix-org alpha. When false (the default), none of
-	// the helix-org init runs and none of its HTTP surfaces
-	// (/api/v1/orgs/{org}/, /api/v1/mcp/helix-org/) are mounted —
-	// the per-user alpha feature flag in the DB has no effect. Set
-	// HELIX_ORG_ENABLED=true to opt in.
-	HelixOrgEnabled bool `envconfig:"HELIX_ORG_ENABLED" default:"false"`
 }
 
 // Sandboxes configures the user-facing Sandboxes API.
@@ -131,6 +189,13 @@ type Compute struct {
 	// disables the whole subsystem. Currently the only supported
 	// value is "yellowdog".
 	Provider string `envconfig:"HELIX_COMPUTE_PROVIDER" default:""`
+
+	// GPUVendor is vestigial. The pool supervisor now derives each pool's
+	// GPU vendor from its instance type, and the runner launch script also
+	// auto-detects the accelerator on the host - so this install-wide value
+	// is no longer consumed. Kept to avoid breaking an existing
+	// HELIX_COMPUTE_GPU_VENDOR setting; remove in a follow-up.
+	GPUVendor string `envconfig:"HELIX_COMPUTE_GPU_VENDOR" default:""`
 
 	// DeploymentTag distinguishes work requirements created by this
 	// Helix install from WRs created by other tooling (e.g. someone
@@ -182,9 +247,150 @@ type Compute struct {
 	// headroom for cross-region fallback and slow NVIDIA image pulls.
 	MaxProvisioningAge time.Duration `envconfig:"HELIX_COMPUTE_MAX_PROVISIONING_AGE" default:"30m"`
 
+	// Max is the hard ceiling on Manager-owned hosts (Ready +
+	// Provisioning combined). Zero (the default) disables on-demand
+	// scale-up - the Manager only maintains Floor and ignores demand
+	// pressure. Set Max > Floor to allow the Manager to provision
+	// extra hosts when sandbox-session demand exhausts the headroom
+	// on existing hosts. Must be >= Floor when non-zero.
+	Max int `envconfig:"HELIX_COMPUTE_MAX" default:"0"`
+
+	// ScaleUpHeadroomMin is the minimum number of free sandbox slots
+	// the Manager tries to keep available across all Ready hosts.
+	// When (sum(MaxSandboxes) - sum(ActiveSandboxes)) drops below this
+	// value AND total owned is below Max, the Manager provisions
+	// an additional host. Default 1 (provision when 0 slots remain)
+	// when Max > Floor; ignored when Max = 0 (D3 disabled).
+	//
+	// Operators serving bursty workloads can raise this (e.g. to 2-3)
+	// to provision the next host before the last slot is claimed,
+	// hiding the ~90s cold-start latency from the user.
+	ScaleUpHeadroomMin int `envconfig:"HELIX_COMPUTE_SCALEUP_HEADROOM_MIN" default:"0"`
+
+	// IdleTimeout is the duration a Ready host must have zero active
+	// sandbox sessions before the Manager will deprovision it (D4).
+	// Default 10m. Hosts are never dropped below Floor.
+	//
+	// The idle timer is tracked in-memory: Manager restart resets it,
+	// so a fleet mid-scale-down sees one extra IdleTimeout window of
+	// grace before convergence resumes.
+	IdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_IDLE_TIMEOUT" default:"10m"`
+
+	// HardIdleTimeout is the safety override for D4's fleet-pressure
+	// inhibition (see manager.go tryDeprovisionIdle). When ANY Ready
+	// Runner is at-or-over its MaxSandboxes cap, D4 normally won't shed
+	// idle peers - because shedding them would just re-fire D3 next
+	// cycle (the oscillation bug fixed by the inhibition). But if a
+	// stuck session pins a Runner at-cap forever, the inhibition would
+	// hold idle peers alive indefinitely. HardIdleTimeout is the
+	// upper-bound: once an idle Runner crosses this threshold, D4
+	// sheds it regardless of the inhibition. Default 4h covers normal
+	// long-running sessions; set 0 to disable the override entirely.
+	HardIdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_HARD_IDLE_TIMEOUT" default:"4h"`
+
 	// Yellowdog is the provider-specific config block. Only consulted
 	// when Provider="yellowdog".
 	Yellowdog Yellowdog
+
+	// SandboxRegistry overrides the container registry HOSTNAME that
+	// workers pull the helix-sandbox image from. Default empty means
+	// workers pull from `ghcr.io/helixml/helix-sandbox:<version>`
+	// (current behaviour, cross-cloud pull from GHCR over GitHub's CDN).
+	//
+	// Setting this to an operator-controlled registry lets workers
+	// pull from a same-region mirror — typically ECR in the same AWS
+	// account as the YD worker pool. Cross-cloud (~120s for ~10GB on
+	// inf2.xlarge / g5.xlarge) becomes intra-region (~15-30s), which
+	// is the difference between "auto-scaling works" and "auto-scaling
+	// is broken" for the D3 on-demand path where the user is waiting
+	// during scale-up.
+	//
+	// Value is the registry HOSTNAME ONLY. The "helixml/helix-sandbox"
+	// org+image path is always appended. Examples:
+	//   "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+	//     -> "123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml/helix-sandbox:2.11.17"
+	//   "internal-registry.corp.example.com"
+	//     -> "internal-registry.corp.example.com/helixml/helix-sandbox:2.11.17"
+	//
+	// IMPORTANT: this env var is ALSO read by sandbox/04-start-dockerd.sh
+	// (the in-container hydra dockerd loader, which sed-swaps the
+	// leading hostname segment of the desktop image ref). That consumer
+	// expects the same HOSTNAME ONLY semantic. Passing a host+org
+	// prefix here is REJECTED at boot to prevent cross-consumer
+	// divergence on the same env var.
+	//
+	// composemgr's rewriteRegistry (Runner Profile compose-stack image
+	// rewriting) does NOT read this var - it reads the parallel
+	// HELIX_RUNNER_REGISTRY. To mirror Runner Profile pulls as well as
+	// sandbox host pulls, operators set both vars (and ideally to the
+	// same hostname).
+	//
+	// Several malformed shapes are rejected loudly at boot rather
+	// than passed through to fail opaquely at docker pull on the
+	// worker:
+	//
+	//   - Embedded path segments: "mirror.corp/helixml"
+	//     - would produce a DOUBLE-ORG path on the YD side
+	//       ("mirror.corp/helixml/helixml/helix-sandbox:tag") and
+	//       different garbage on the shell side. The exact footgun
+	//       the hostname-only contract exists to prevent.
+	//
+	//   - Leading slash: "/mirror.corp", "/${REGISTRY}" (templating
+	//     leak) - Go side could strip it but the shell consumer
+	//     (sandbox/04-start-dockerd.sh sed) does not, so a leading
+	//     slash on the env var means the two consumers diverge.
+	//
+	//   - URL form: "https://mirror.corp" - shell consumer would
+	//     produce "https://mirror.corp/..." which docker rejects.
+	//
+	//   - Internal whitespace: "mirror.corp\nhelixml", "foo bar" -
+	//     usually a line-wrapped paste or a multi-line ConfigMap value.
+	//
+	//   - Empty after trim: "/", "  /  ", "   " - silent fallback to
+	//     ghcr.io is the wrong default for air-gapped deployments
+	//     that meant to set a value.
+	//
+	// Edge whitespace and a single trailing slash ARE tolerated and
+	// stripped ("  ghcr.io/" -> "ghcr.io"); they're common in
+	// copy-pasted values.
+	//
+	// The version tag is still auto-derived from data.GetHelixVersion()
+	// — operators override the registry hostname, never the version.
+	// That preserves the "release-tag-is-the-truth" property the YD
+	// provisioning loop relies on.
+	//
+	// Operator workflow: before bumping the Helix release on a
+	// deployment that uses an override, manually push the matching
+	// helix-sandbox tag to the override registry. Forgetting leaves
+	// workers in a docker-pull-retry loop; loud failure, easy
+	// diagnostic (and the resolved image is logged at boot).
+	SandboxRegistry string `envconfig:"HELIX_SANDBOX_REGISTRY" default:""`
+
+	// SandboxImage pins the FULL helix-sandbox image reference the YD
+	// provider dispatches (e.g.
+	// "ghcr.io/helixml/helix-sandbox:abc1234-linux-amd64"). When set it is
+	// used verbatim and BYPASSES version derivation + SandboxRegistry — so
+	// it is the escape hatch for builds where data.Version is a placeholder
+	// (dev/source builds like a local Air stack) or for pinning a specific
+	// SHA when testing an in-flight sandbox PR. This mirrors the
+	// yellowdog-poc config.toml `helix_image` override.
+	//
+	// Leave empty for normal releases: the version-derived tag is the
+	// "release-tag-is-the-truth" default the provisioning loop relies on.
+	// The operator is responsible for the pinned image actually existing
+	// in a registry the workers can pull from.
+	SandboxImage string `envconfig:"HELIX_COMPUTE_SANDBOX_IMAGE" default:""`
+
+	// NeuronCompileCacheURL and RunnerReadinessTimeout are runner-side knobs
+	// (read by compose-manager inside the sandbox) that the Manager forwards
+	// onto provisioned hosts. They share the operator-facing names
+	// HELIX_NEURON_COMPILE_CACHE_URL / HELIX_RUNNER_READINESS_TIMEOUT with the
+	// vars compose-manager reads directly on bare (install.sh) runners — set
+	// the same var once and it works on both runner topologies. On YD runners
+	// the value travels control-plane -> task env -> bash_script -e -> sandbox.
+	// Empty = not forwarded (compose-manager keeps its own default).
+	NeuronCompileCacheURL  string `envconfig:"HELIX_NEURON_COMPILE_CACHE_URL" default:""`
+	RunnerReadinessTimeout string `envconfig:"HELIX_RUNNER_READINESS_TIMEOUT" default:""`
 }
 
 // Yellowdog is the YellowDog-provider-specific configuration block.
@@ -206,25 +412,9 @@ type Yellowdog struct {
 	// Helix install.
 	Namespace string `envconfig:"HELIX_YD_NAMESPACE" default:""`
 
-	// WorkerTag is the tag the operator-provisioned YD worker pool
-	// advertises. Tasks include this in their RunSpecification so
-	// the YD scheduler only assigns them to matching workers.
-	//
-	// Auto-derived from Namespace when unset:
-	//   WorkerTag = "worker-" + Namespace
-	//
-	// Matches the yd-provision POC convention (`worker_tag =
-	// "worker-{{tag}}"`), so an operator who set up their pool
-	// per the POC docs gets working defaults. Override via
-	// HELIX_YD_WORKER_TAG when the pool was created with a
-	// different naming scheme.
-	//
-	// Mismatch between this value and the pool's advertised tag
-	// produces silent "tasks starved" failures rather than a
-	// clear error - the YD scheduler simply finds no eligible
-	// workers and leaves the task pending. Boot logs the resolved
-	// tag so the operator can spot a mismatch quickly.
-	WorkerTag string `envconfig:"HELIX_YD_WORKER_TAG" default:""`
+	// Worker tags are no longer configured: the pool supervisor discovers
+	// the worker tag of every online pool from the YD nodes and runs one
+	// Manager per pool. HELIX_YD_WORKER_TAG was removed.
 
 	// TaskTimeout bounds individual task runtime upstream-side. The
 	// platform aborts the task and records TaskError type=TIMED_OUT
@@ -245,13 +435,48 @@ func LoadServerConfig() (ServerConfig, error) {
 	if cfg.Notifications.AppURL == "" {
 		cfg.Notifications.AppURL = cfg.WebServer.URL
 	}
+	if cfg.WebServer.AssetSSHProxyAddress == "" {
+		address, err := inferAssetSSHProxyAddress(cfg.WebServer.SandboxAPIURL, cfg.WebServer.URL)
+		if err != nil {
+			return ServerConfig{}, err
+		}
+		cfg.WebServer.AssetSSHProxyAddress = address
+	}
 	return cfg, nil
+}
+
+func inferAssetSSHProxyAddress(sandboxAPIURL, serverURL string) (string, error) {
+	endpoint := sandboxAPIURL
+	name := "SANDBOX_API_URL"
+	if endpoint == "" {
+		endpoint = serverURL
+		name = "SERVER_URL"
+	}
+	if endpoint == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("parse %s for asset SSH proxy: %w", name, err)
+	}
+	if parsed.Hostname() == "" {
+		return "", fmt.Errorf("%s must include a hostname for the asset SSH proxy", name)
+	}
+	return net.JoinHostPort(parsed.Hostname(), "2224"), nil
 }
 
 type Inference struct {
 	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
 
 	DefaultContextLimit int `envconfig:"INFERENCE_DEFAULT_CONTEXT_LIMIT" default:"10" description:"The default context limit for inference."`
+
+	// AgentToolNudgeModels lists model-name substrings (case-insensitive) whose
+	// tool-enabled chat completions get a directive appended to the system prompt
+	// telling the model to act via tools rather than end its turn on a bare plan.
+	// This mitigates the narrate-then-stop stall that non-Claude models (GLM,
+	// Qwen, ...) exhibit and Claude does not. Extend via env as new models surface;
+	// set empty to disable entirely.
+	AgentToolNudgeModels []string `envconfig:"INFERENCE_AGENT_TOOL_NUDGE_MODELS" default:"glm,qwen"`
 }
 
 type Search struct {
@@ -343,13 +568,8 @@ type Anthropic struct {
 }
 
 type Helix struct {
-	OwnerID            string        `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
-	OwnerType          string        `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
-	ModelTTL           time.Duration `envconfig:"HELIX_MODEL_TTL" default:"10s"`                          // How long to keep models warm before allowing other work to be scheduled
-	SlotTTL            time.Duration `envconfig:"HELIX_SLOT_TTL" default:"600s"`                          // How long to wait for work to complete before slots are considered dead
-	RunnerTTL          time.Duration `envconfig:"HELIX_RUNNER_TTL" default:"30s"`                         // How long before runners are considered dead
-	SchedulingStrategy string        `envconfig:"HELIX_SCHEDULING_STRATEGY" default:"max_spread" description:"The strategy to use for scheduling workloads."`
-	QueueSize          int           `envconfig:"HELIX_QUEUE_SIZE" default:"100" description:"The size of the queue when buffering workloads."`
+	OwnerID   string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
+	OwnerType string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
 }
 
 type Tools struct {
@@ -418,6 +638,12 @@ type OIDC struct {
 	// This is especially useful with Google OIDC + OIDC_OFFLINE_ACCESS=true, as the refresh token
 	// will be preserved and can obtain new access tokens even after the browser is closed.
 	CookieMaxAge int `envconfig:"OIDC_COOKIE_MAX_AGE" default:"0"`
+	// AllowedEmailDomains restricts OIDC login/registration to these email domains
+	// (comma-separated, e.g. "helix.ml"). When empty (the default) there is no
+	// restriction — any verified account may sign in, preserving multi-tenant and
+	// customer deployments. Set it (e.g. on meta.helix.ml) to lock sign-in to a
+	// specific organisation's domain(s).
+	AllowedEmailDomains string `envconfig:"OIDC_ALLOWED_EMAIL_DOMAINS" default:""`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
@@ -632,9 +858,11 @@ type PGVectorStore struct {
 }
 
 type WebServer struct {
-	URL  string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
-	Host string `envconfig:"SERVER_HOST" default:"0.0.0.0" description:"The host to bind the api server to."`
-	Port int    `envconfig:"SERVER_PORT" default:"80" description:""`
+	URL                  string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
+	Host                 string `envconfig:"SERVER_HOST" default:"0.0.0.0" description:"The host to bind the api server to."`
+	Port                 int    `envconfig:"SERVER_PORT" default:"80" description:""`
+	AssetSSHProxyListen  string `envconfig:"ASSET_SSH_PROXY_LISTEN" default:":2224" description:"Address for the Helix managed-resource SSH proxy to listen on."`
+	AssetSSHProxyAddress string `envconfig:"ASSET_SSH_PROXY_ADDRESS" description:"Public host:port for agents to reach the Helix asset and sandbox SSH proxy."`
 	// Can either be a URL to frontend (for dev proxy) or a path to static files (for prod)
 	// Default is dev proxy; Dockerfile sets FRONTEND_URL=/www for production
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:"URL to proxy to or filesystem path to serve from"`
@@ -655,6 +883,12 @@ type WebServer struct {
 	// later, we might add a token to the URLs
 	// LocalFilestorePath string `envconfig:"LOCAL_FILESTORE_PATH"`
 
+	// MetricsListen, when set (e.g. "0.0.0.0:9110"), starts a dedicated
+	// Prometheus /metrics HTTP listener on that address, separate from the main
+	// API/vhost router so metrics are never exposed on the public app port.
+	// Restrict access at the network layer (firewall to your Prometheus).
+	MetricsListen string `envconfig:"HELIX_METRICS_LISTEN" description:"Address for a dedicated Prometheus /metrics listener (e.g. 0.0.0.0:9110). Empty disables it. Firewall this port to your Prometheus."`
+
 	// Path to UNIX socket for serving embeddings without auth
 	// TODO: naming
 	EmbeddingsSocket       string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
@@ -668,11 +902,71 @@ type WebServer struct {
 	// Example: p8080-ses_abc123.dev.helix.example.com → session ses_abc123, port 8080
 	DevSubdomain string `envconfig:"DEV_SUBDOMAIN" description:"Subdomain prefix for dev container port proxying. Format: 'dev' or 'dev.helix.example.com'"`
 
+	// PreviewURLHTTPS controls the public scheme used in generated sandbox
+	// preview URLs. It is independent of VHostTLSMode because TLS may terminate
+	// at an upstream ingress rather than in the Helix API process.
+	PreviewURLHTTPS bool `envconfig:"PREVIEW_URL_HTTPS" default:"true" description:"Generate sandbox preview URLs with HTTPS. Set false for HTTP-only development deployments."`
+
 	// SandboxAPIURL is the URL that sandbox containers use to connect back to the API.
 	// This is needed when the main SERVER_URL goes through a reverse proxy that doesn't
 	// support HTTP hijacking (used by RevDial). If not set, defaults to SERVER_URL.
 	// Example: http://api-internal.example.com:8080 (direct HTTP, bypassing Caddy)
 	SandboxAPIURL string `envconfig:"SANDBOX_API_URL" description:"Direct API URL for sandbox containers (bypasses reverse proxy). Defaults to SERVER_URL if not set."`
+
+	// VHostTLSMode controls embedded TLS termination for project web
+	// services and sandbox preview tokens. "off" (default) means Helix
+	// listens HTTP only and a reverse proxy in front terminates TLS.
+	// "auto" enables certmagic — Helix binds :443 + :80 and issues
+	// per-hostname Let's Encrypt certs on demand for any hostname
+	// registered in vhost_routes or matching SERVER_URL.
+	VHostTLSMode string `envconfig:"HELIX_VHOST_TLS_MODE" default:"off" description:"TLS termination mode for vhost-routed traffic: 'off' (rely on upstream) or 'auto' (embed certmagic + Let's Encrypt)."`
+
+	// VHostLetsEncryptEmail is the ACME registration email used by
+	// certmagic when VHostTLSMode=auto. Required in that mode.
+	VHostLetsEncryptEmail string `envconfig:"HELIX_VHOST_LETSENCRYPT_EMAIL" description:"ACME registration email used by certmagic when HELIX_VHOST_TLS_MODE=auto."`
+
+	// VHostACMEDNSProvider selects a DNS-01 challenge provider for
+	// certmagic when VHostTLSMode=auto. Empty (the default) uses the
+	// network challenges (HTTP-01 + TLS-ALPN-01). Set to "cloudflare"
+	// when running behind a Cloudflare proxy (orange-cloud DNS), where
+	// the network challenges cannot reach Helix.
+	VHostACMEDNSProvider string `envconfig:"HELIX_VHOST_ACME_DNS_PROVIDER" description:"DNS-01 challenge provider for certmagic when HELIX_VHOST_TLS_MODE=auto. Empty=use HTTP-01+TLS-ALPN-01. Supported: cloudflare."`
+
+	// VHostCloudflareAPIToken is the Cloudflare API token used when
+	// VHostACMEDNSProvider=cloudflare. Must be an API token (not a
+	// legacy global API key) with Zone:Zone:Read + Zone:DNS:Edit
+	// permissions on the zones Helix issues certs for.
+	VHostCloudflareAPIToken string `envconfig:"HELIX_VHOST_CLOUDFLARE_API_TOKEN" description:"Cloudflare API token (Zone:Zone:Read + Zone:DNS:Edit) used when HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare."`
+
+	// ProxyPathPrefix + ProxyUpstream configure a single generic reverse
+	// proxy: requests whose path starts with ProxyPathPrefix are forwarded
+	// to ProxyUpstream (the original Host and X-Forwarded-* headers are
+	// preserved). Both must be set for the route to mount; empty = disabled.
+	// This is deliberately generic (not tied to any one service) — its first
+	// use is fronting an external OIDC IdP (e.g. Keycloak at /auth/) when
+	// Helix terminates TLS for the canonical host itself, so the IdP path
+	// keeps working without a separate reverse proxy.
+	ProxyPathPrefix string `envconfig:"HELIX_PROXY_PATH_PREFIX" description:"Path prefix to reverse-proxy to HELIX_PROXY_UPSTREAM (e.g. '/auth/'). Requires HELIX_PROXY_UPSTREAM. Empty disables."`
+	ProxyUpstream   string `envconfig:"HELIX_PROXY_UPSTREAM" description:"Upstream base URL for HELIX_PROXY_PATH_PREFIX (e.g. 'http://keycloak:8080'). Empty disables."`
+
+	// VHostCNAMETarget overrides the hostname customers are told to point
+	// their custom-domain CNAME at. It should be a GREY / DNS-only host that
+	// resolves DIRECTLY to this origin, so a directly-pointed custom domain
+	// gets its cert via TLS-ALPN-01 with no DNS-01 fiddling. Empty falls back
+	// to the canonical hostname parsed from SERVER_URL — which is wrong when
+	// SERVER_URL is Cloudflare-proxied (orange), so set this in that case.
+	VHostCNAMETarget string `envconfig:"HELIX_VHOST_CNAME_TARGET" description:"Grey/DNS-only hostname customers CNAME custom domains to (resolves directly to this origin). Empty = use SERVER_URL host."`
+
+	// VHostACMEChallengeTarget OPTIONALLY overrides the delegation host that
+	// customers point "_acme-challenge.<their-domain>" at (via CNAME) when their
+	// custom domain sits behind a proxy/CDN that hides the origin from Let's
+	// Encrypt. It must be a name in the DNS zone Helix's Cloudflare token
+	// controls, so certmagic can follow the CNAME and place the ACME TXT record
+	// there. Normally this is left empty: when the Cloudflare DNS-01 provider is
+	// enabled, the target is derived automatically as "_acme-challenge." + the
+	// registrable domain of the CNAME target (e.g. _acme-challenge.helix.ml).
+	// Set this only when the ACME zone differs from the CNAME target's domain.
+	VHostACMEChallengeTarget string `envconfig:"HELIX_VHOST_ACME_CHALLENGE_TARGET" description:"Optional override for the '_acme-challenge.<domain>' delegation host for proxied custom domains. Empty = derive from the CNAME target's registrable domain when Cloudflare DNS-01 is enabled. Must live in the Helix Cloudflare zone."`
 }
 
 // AdminAllUsers is the special value for ADMIN_USER_IDS that makes all users admins

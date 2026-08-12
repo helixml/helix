@@ -23,15 +23,19 @@ import (
 )
 
 type Manager struct {
-	cfg                  *config.ServerConfig
-	store                store.Store
-	controller           *controller.Controller
-	notifier             notification.Notifier
+	cfg             *config.ServerConfig
+	store           store.Store
+	controller      *controller.Controller
+	notifier        notification.Notifier
+	azureDevOps     *azure.AzureDevOps
+	teams           *teams.Teams
+	helixCodeReview *project.HelixCodeReviewTrigger
+
+	// Wired after construction (the API server builds them later), and read by the
+	// cron scheduler goroutine — guard both.
+	depsMu               sync.RWMutex
 	specTaskCreator      cron.SpecTaskCreator
 	externalAgentStarter cron.ExternalAgentStarter
-	azureDevOps          *azure.AzureDevOps
-	teams                *teams.Teams
-	helixCodeReview      *project.HelixCodeReviewTrigger
 
 	wg sync.WaitGroup
 }
@@ -51,11 +55,31 @@ func NewTriggerManager(cfg *config.ServerConfig, store store.Store, notifier not
 // SetSpecTaskCreator sets the spec task creator for cron triggers that use the "spec_task" action.
 // This is set after construction because the SpecDrivenTaskService is created later in the init sequence.
 func (t *Manager) SetSpecTaskCreator(specTaskCreator cron.SpecTaskCreator) {
+	t.depsMu.Lock()
+	defer t.depsMu.Unlock()
 	t.specTaskCreator = specTaskCreator
 }
 
 func (t *Manager) SetExternalAgentStarter(starter cron.ExternalAgentStarter) {
+	t.depsMu.Lock()
+	defer t.depsMu.Unlock()
 	t.externalAgentStarter = starter
+}
+
+// SpecTaskCreator returns the currently wired creator. The cron scheduler calls
+// this when a job fires rather than capturing the value at construction time —
+// it starts before the API server has wired anything in.
+func (t *Manager) SpecTaskCreator() cron.SpecTaskCreator {
+	t.depsMu.RLock()
+	defer t.depsMu.RUnlock()
+	return t.specTaskCreator
+}
+
+// ExternalAgentStarter returns the currently wired starter. See SpecTaskCreator.
+func (t *Manager) ExternalAgentStarter() cron.ExternalAgentStarter {
+	t.depsMu.RLock()
+	defer t.depsMu.RUnlock()
+	return t.externalAgentStarter
 }
 
 func (t *Manager) Start(ctx context.Context) {
@@ -135,7 +159,7 @@ func (t *Manager) runDiscord(ctx context.Context) {
 }
 
 func (t *Manager) runCron(ctx context.Context) {
-	cronTrigger, err := cron.New(t.cfg, t.store, t.notifier, t.controller, t.specTaskCreator, t.externalAgentStarter)
+	cronTrigger, err := cron.New(t.cfg, t.store, t.notifier, t.controller, t.SpecTaskCreator, t.ExternalAgentStarter)
 	if err != nil {
 		log.Err(err).Msg("failed to create cron trigger")
 		return

@@ -14,12 +14,49 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// @Summary Sync prompt history
-// @Description Sync prompt history entries from the frontend (union merge - no deletes)
-// @Tags PromptHistory
+// desktopResumeReapStaleThreshold is how long a state=waiting interaction with
+// no live WebSocket must have been idle before the queue-side liveness guard
+// treats it as an orphan (agent gone) and reaps it so the desktop can resume.
+// Sized above the auto-wake stuck threshold (180s) so a genuinely in-flight or
+// mid-boot turn is never mistaken for a dead one.
+const desktopResumeReapStaleThreshold = 3 * time.Minute
+
+// isOrphanedWaitingInteraction reports whether `latest` (the newest interaction
+// of `session`) is a state=waiting turn whose external agent has gone away and
+// will therefore never complete — the case that deadlocks the prompt-queue
+// busy-check and stops the desktop from resuming. Pure so it can be unit-tested
+// exhaustively against every branch of the boot/live/orphan matrix.
+//
+// All must hold to classify as orphaned (any failing → treat as busy, defer):
+//   - latest is state=waiting (nothing else can be actively streaming);
+//   - no live WebSocket to the agent (wsLive=false) — a live turn keeps one;
+//   - the thread is already established (ZedThreadID set) — an empty ZedThreadID
+//     is the very-first-message boot race, which must never be reaped (mirrors
+//     the THREAD-ESTABLISHMENT BARRIER in processPendingPromptsForIdleSessions);
+//   - the turn has been idle past desktopResumeReapStaleThreshold — a freshly
+//     created / mid-boot in-flight turn is protected by the staleness window.
+func isOrphanedWaitingInteraction(session *types.Session, latest *types.Interaction, wsLive bool, now time.Time) bool {
+	if session == nil || latest == nil {
+		return false
+	}
+	if latest.State != types.InteractionStateWaiting {
+		return false
+	}
+	if wsLive {
+		return false
+	}
+	if session.Metadata.ZedThreadID == "" {
+		return false
+	}
+	return now.Sub(latest.Updated) > desktopResumeReapStaleThreshold
+}
+
+// @Summary Sync the prompt delivery queue
+// @Description Sync durable prompt delivery state from the frontend (union merge - no deletes)
+// @Tags PromptQueue
 // @Accept json
 // @Produce json
-// @Param request body types.PromptHistorySyncRequest true "Prompt history entries to sync"
+// @Param request body types.PromptHistorySyncRequest true "Prompt queue entries to sync"
 // @Success 200 {object} types.PromptHistorySyncResponse
 // @Failure 400 {object} system.HTTPError
 // @Failure 401 {object} system.HTTPError
@@ -38,9 +75,10 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("invalid request body")
 	}
 
-	// Validate required fields
-	if syncReq.SpecTaskID == "" {
-		return nil, system.NewHTTPError400("spec_task_id is required")
+	// Validate required fields. A queue is scoped either to a spec task
+	// (spec-task page) or to a session (org-chat / bot session with no spec task).
+	if syncReq.SpecTaskID == "" && syncReq.SessionID == "" {
+		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
 	response, err := apiServer.Store.SyncPromptHistory(ctx, user.ID, &syncReq)
@@ -60,11 +98,72 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 		Int("total_entries", len(response.Entries)).
 		Msg("Synced prompt history")
 
-	// Process pending prompts in the background
-	// This runs on EVERY sync to catch prompts that may have been missed
-	go apiServer.processPendingPromptsForIdleSessions(context.Background(), syncReq.SpecTaskID)
+	if syncReq.SpecTaskID != "" {
+		// Synchronously mark the canonical session as "starting" if it's idle and
+		// has no live WebSocket. This closes the race that caused the
+		// "Starting Desktop..." spinner to flicker off: the frontend's first
+		// refetch after the optimistic cache write would otherwise overwrite
+		// "starting" with the still-stale "stopped" backend row, because the
+		// wake goroutine below has not yet had time to call StartDesktop and
+		// have hydra write status=starting to the DB. See spec
+		// design/tasks/002047_yet-again-sending-a/design.md.
+		apiServer.markCanonicalSessionStartingForSync(ctx, syncReq.SpecTaskID)
+
+		// Process pending prompts in the background — spec-task queue path
+		// (resolves the canonical planning session + duplicate-session filter).
+		go apiServer.processPendingPromptsForIdleSessions(context.Background(), syncReq.SpecTaskID)
+	} else {
+		// Session-scoped queue (org-chat / bot session): nudge the session poller
+		// directly.
+		go apiServer.processPendingPromptsForSession(context.Background(), syncReq.SessionID)
+	}
 
 	return response, nil
+}
+
+// markCanonicalSessionStartingForSync flips the canonical planning session's
+// external_agent_status to "starting" when its desktop is genuinely idle (no
+// live WebSocket connection to the external agent). No-op when the session is
+// already "starting" / "running", or when a WS is alive (the existing socket
+// will deliver the prompt without any boot). Failures are logged but never
+// surfaced to the caller — the synchronous mark is a UX optimisation, not a
+// correctness requirement; the async wake goroutine that fires next still
+// works as before.
+func (apiServer *HelixAPIServer) markCanonicalSessionStartingForSync(ctx context.Context, specTaskID string) {
+	if specTaskID == "" {
+		return
+	}
+	specTask, err := apiServer.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil || specTask == nil {
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Msg("[PROMPT-SYNC] cannot resolve spec task for sync-time mark; skipping")
+		return
+	}
+	sessionID := specTask.AgentSessionID
+	if sessionID == "" {
+		return
+	}
+	if conn, connected := apiServer.externalAgentWSManager.getConnection(sessionID); connected && conn != nil {
+		return
+	}
+	updated, err := apiServer.Store.MarkSessionStartingIfIdle(ctx, sessionID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("spec_task_id", specTaskID).
+			Str("session_id", sessionID).
+			Msg("[PROMPT-SYNC] failed to mark session starting; spinner may flicker")
+		return
+	}
+	if updated {
+		log.Info().
+			Str("spec_task_id", specTaskID).
+			Str("session_id", sessionID).
+			Msg("[PROMPT-SYNC] marked idle session as starting (no live WS)")
+	} else {
+		log.Debug().
+			Str("spec_task_id", specTaskID).
+			Str("session_id", sessionID).
+			Msg("[PROMPT-SYNC] session already starting/running; no mark needed")
+	}
 }
 
 // processPendingPromptsForIdleSessions checks the database for any pending prompts
@@ -96,13 +195,12 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 		canonicalSessionID = specTask.AgentSessionID
 	}
 
-	// Collect pending prompts per session
-	type sessionPending struct {
-		interruptCount int
-		queueCount     int
-	}
-	sessionPrompts := make(map[string]*sessionPending)
-
+	// Collect the distinct sessions that have pending prompts, honouring the
+	// canonical-session filter (issue #10b): only the authoritative planning
+	// session is driven; duplicate race sessions are skipped. If we couldn't
+	// determine the canonical session, fall through to the old behaviour of
+	// processing every session that has pending prompts.
+	seen := make(map[string]bool)
 	for _, entry := range entries {
 		if entry.Status != "pending" && entry.Status != "failed" {
 			continue
@@ -110,8 +208,6 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 		if entry.SessionID == "" {
 			continue
 		}
-		// Skip sessions that are not the canonical planning session (issue #10b).
-		// If we couldn't determine the canonical session, fall through to the old behaviour.
 		if canonicalSessionID != "" && entry.SessionID != canonicalSessionID {
 			log.Debug().
 				Str("spec_task_id", specTaskID).
@@ -120,101 +216,264 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 				Msg("🔍 [QUEUE] Skipping prompt for non-canonical session (duplicate race session)")
 			continue
 		}
-
-		if sessionPrompts[entry.SessionID] == nil {
-			sessionPrompts[entry.SessionID] = &sessionPending{}
+		if seen[entry.SessionID] {
+			continue
 		}
-
-		if entry.Interrupt {
-			sessionPrompts[entry.SessionID].interruptCount++
-		} else {
-			sessionPrompts[entry.SessionID].queueCount++
-		}
+		seen[entry.SessionID] = true
+		apiServer.processPendingPromptsForSession(ctx, entry.SessionID)
 	}
+}
 
-	if len(sessionPrompts) == 0 {
+// processPendingPromptsForSession drains any pending prompts for a single
+// session: dispatch when idle, defer when busy. This is the session-scoped core
+// shared by the spec-task poller (above) and the general enqueue path — the
+// delivery unit is the session, not the spec task, so bots / general session
+// sends get the exact busy-defer, thread-establishment boot barrier, and
+// PR #2808 orphaned-waiting reap that make the queue reliable.
+func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Context, sessionID string) {
+	if sessionID == "" {
 		return
 	}
 
-	log.Debug().
-		Str("spec_task_id", specTaskID).
-		Int("session_count", len(sessionPrompts)).
-		Msg("🔍 [QUEUE] Found sessions with pending prompts")
-
-	// Process pending prompts for idle sessions
-	for sessionID, pending := range sessionPrompts {
-		session, err := apiServer.Store.GetSession(ctx, sessionID)
-		if err != nil {
-			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for queue processing")
+	// Coarse "is there work, and of which kind" check for this session. The
+	// actual claim/dispatch selectors (GetNext*Prompt) do the retry gating; here
+	// we only need to know whether interrupt vs queue prompts are pending to pick
+	// the drain function.
+	entries, err := apiServer.Store.ListPromptHistoryBySession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list session prompts for queue processing")
+		return
+	}
+	interruptCount := 0
+	queueCount := 0
+	for _, entry := range entries {
+		if entry.Status != "pending" && entry.Status != "failed" {
 			continue
 		}
-
-		if session == nil {
-			continue
+		if entry.Interrupt {
+			interruptCount++
+		} else {
+			queueCount++
 		}
+	}
+	if interruptCount == 0 && queueCount == 0 {
+		return
+	}
 
-		// Load the MOST RECENT interaction so we can check if the session is busy.
-		// CRITICAL: ListInteractions defaults to "id ASC" (oldest first). With
-		// PerPage=100 and 165 interactions, we'd get interactions 1-100 and
-		// interactions[len-1] would be the 100th — almost always Complete from
-		// hours ago — so the busy check would always say "idle" and the queue
-		// would dispatch on top of an actively-streaming Zed turn.
-		// Order DESC + PerPage 1 returns just the newest interaction.
-		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-			SessionID:    sessionID,
-			GenerationID: session.GenerationID,
-			PerPage:      1,
-			Order:        "id DESC",
-		})
-		if err != nil {
-			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
-			continue
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for queue processing")
+		return
+	}
+	if session == nil {
+		return
+	}
+
+	// Load the MOST RECENT interaction so we can check if the session is busy.
+	// CRITICAL: ListInteractions defaults to "id ASC" (oldest first). With
+	// PerPage=100 and 165 interactions, we'd get interactions 1-100 and
+	// interactions[len-1] would be the 100th — almost always Complete from
+	// hours ago — so the busy check would always say "idle" and the queue
+	// would dispatch on top of an actively-streaming Zed turn.
+	// Order DESC + PerPage 1 returns just the newest interaction.
+	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    sessionID,
+		GenerationID: session.GenerationID,
+		PerPage:      1,
+		Order:        "id DESC",
+	})
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
+		return
+	}
+
+	// Session is idle iff there is no interaction, or the latest one is
+	// not still Waiting for Zed. interactions[0] is the newest because of
+	// the DESC order above.
+	isIdle := true
+	if len(interactions) > 0 && interactions[0].State == types.InteractionStateWaiting {
+		isIdle = false
+	}
+
+	if isIdle {
+		if interruptCount > 0 {
+			log.Info().
+				Str("session_id", sessionID).
+				Int("interrupt_count", interruptCount).
+				Msg("📤 [QUEUE] Session is idle with interrupt prompts, sending interrupt")
+			apiServer.processInterruptPrompt(ctx, sessionID)
+		} else {
+			// Queue-mode messages when idle: use processPromptQueue for consistent semantics.
+			// This ensures queue-mode messages always go through the same code path as
+			// post-message_completed dispatch (Bug 2 fix).
+			log.Info().
+				Str("session_id", sessionID).
+				Int("queue_count", queueCount).
+				Msg("📤 [QUEUE] Session is idle with queue-mode prompts, dispatching via processPromptQueue")
+			apiServer.processPromptQueue(ctx, sessionID)
 		}
-
-		// Session is idle iff there is no interaction, or the latest one is
-		// not still Waiting for Zed. interactions[0] is the newest because of
-		// the DESC order above.
-		isIdle := true
-		if len(interactions) > 0 && interactions[0].State == types.InteractionStateWaiting {
-			isIdle = false
-		}
-
-		if isIdle {
-			if pending.interruptCount > 0 {
-				log.Info().
-					Str("session_id", sessionID).
-					Int("interrupt_count", pending.interruptCount).
-					Msg("📤 [QUEUE] Session is idle with interrupt prompts, sending interrupt")
-				apiServer.processInterruptPrompt(ctx, sessionID)
-			} else {
-				// Queue-mode messages when idle: use processPromptQueue for consistent semantics.
-				// This ensures queue-mode messages always go through the same code path as
-				// post-message_completed dispatch (Bug 2 fix).
-				log.Info().
-					Str("session_id", sessionID).
-					Int("queue_count", pending.queueCount).
-					Msg("📤 [QUEUE] Session is idle with queue-mode prompts, dispatching via processPromptQueue")
-				apiServer.processPromptQueue(ctx, sessionID)
-			}
-		} else if pending.interruptCount > 0 {
+	} else if interruptCount > 0 {
+		// THREAD-ESTABLISHMENT BARRIER: an interrupt cancels the agent's
+		// current turn and injects a new message — that only makes sense once
+		// the session's thread exists. During the agent boot race the session
+		// can be "busy" (the very first message is an in-flight Waiting
+		// interaction) while its thread is NOT yet established (ZedThreadID
+		// empty, thread_created not received). Firing the interrupt now would
+		// (a) cancel the just-delivered first turn before the agent processes
+		// it and (b) dispatch with an empty acp_thread_id, forking a NEW thread
+		// divorced from the first message — so the agent runs with no context.
+		// Defer until the first message lands and thread_created sets
+		// ZedThreadID; the prompt stays pending and the next poll retries,
+		// then the interrupt fires into the SAME, established thread.
+		// See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+		if session.Metadata.ZedThreadID == "" {
+			log.Info().
+				Str("session_id", sessionID).
+				Int("interrupt_count", interruptCount).
+				Msg("⏸️ [QUEUE] Busy but thread not established yet (no ZedThreadID) — deferring interrupt until first message lands and thread_created arrives")
+		} else {
 			// Session is busy but there are interrupt prompts - these should interrupt the agent
 			log.Info().
 				Str("session_id", sessionID).
-				Int("interrupt_count", pending.interruptCount).
+				Int("interrupt_count", interruptCount).
 				Msg("📤 [QUEUE] Session is busy but has interrupt prompts, sending interrupt")
 			apiServer.processInterruptPrompt(ctx, sessionID)
+		}
+	} else {
+		// Liveness guard for the busy branch. A Waiting latest interaction
+		// normally means an agent is actively streaming a turn, so we defer
+		// the queue until message_completed. BUT if the agent has gone away
+		// (desktop idle-stopped / crashed / restarted) that completion never
+		// arrives: the queue waits forever AND the desktop never resumes —
+		// the exact deadlock behind the "didn't boot when I sent a message"
+		// incident. The idle-checker reaps at stop time for the idle path;
+		// this net covers every OTHER way the desktop dies (OOM, crash,
+		// stack restart) where nothing reaped the dangling interaction.
+		//
+		// Reap ONLY when all three hold, so we never kill a live or mid-boot
+		// turn:
+		//   - no live WebSocket to the external agent (a live turn has one);
+		//   - the thread is already established (ZedThreadID set) — an empty
+		//     ZedThreadID means the very first message is mid-boot, which we
+		//     must not reap (mirrors the THREAD-ESTABLISHMENT BARRIER above);
+		//   - the waiting interaction is stale beyond the reap threshold — a
+		//     freshly-created in-flight turn is protected.
+		latest := interactions[0]
+		_, wsLive := apiServer.externalAgentWSManager.getConnection(sessionID)
+		if isOrphanedWaitingInteraction(session, latest, wsLive, time.Now()) {
+			reaped, reapErr := apiServer.Store.ReapWaitingInteractions(ctx, sessionID, types.InteractionStateInterrupted, "desktop stopped while turn in-flight; reaped so queue can resume")
+			if reapErr != nil {
+				log.Error().Err(reapErr).Str("session_id", sessionID).Msg("Failed to reap orphaned waiting interaction; queue still blocked")
+			} else {
+				log.Warn().
+					Str("session_id", sessionID).
+					Int("reaped_count", len(reaped)).
+					Time("latest_waiting_updated", latest.Updated).
+					Msg("♻️ [QUEUE] Reaped orphaned waiting interaction (no live agent) — dispatching queued prompt to resume desktop")
+				for _, in := range reaped {
+					apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, in)
+				}
+				if interruptCount > 0 {
+					apiServer.processInterruptPrompt(ctx, sessionID)
+				} else {
+					apiServer.processPromptQueue(ctx, sessionID)
+				}
+			}
 		} else {
 			log.Debug().
 				Str("session_id", sessionID).
-				Int("queue_count", pending.queueCount).
+				Int("queue_count", queueCount).
 				Msg("Session is busy (interaction waiting), queue prompts will be processed after message_completed")
 		}
 	}
 }
 
+// enqueueAgentMessage is the single server-side entry point for sending a
+// message to an agent. It inserts a pending prompt_history_entries row for the
+// session and nudges the session-scoped poller — the same mechanism the
+// frontend uses via syncPromptHistory. interrupt=false defers until the agent
+// is idle; interrupt=true is delivered as a proper interrupt (cancel current
+// turn, respecting the boot barrier). notifyUserID, when non-empty, is the user
+// the response should be streamed to (design-review commenter); it is carried on
+// the row and registered as a commenter mapping at dispatch. specTaskID is
+// optional — general session sends (e.g. org bots) omit it.
+//
+// This replaces the old immediate-dispatch direct path
+// (sendChatMessageToExternalAgent), which had no busy-check and fired concurrent
+// session/prompts mid-turn.
+// Returns the created prompt-history entry ID so callers that need to correlate
+// the eventual response (e.g. the design-review comment path) can link to it.
+func (apiServer *HelixAPIServer) enqueueAgentMessage(ctx context.Context, sessionID, message string, interrupt bool, notifyUserID, specTaskID string) (string, error) {
+	promptID, err := apiServer.persistQueuedPrompt(ctx, sessionID, message, interrupt, notifyUserID, specTaskID)
+	if err != nil {
+		return "", err
+	}
+	apiServer.nudgeSessionQueue(sessionID)
+	return promptID, nil
+}
+
+// persistQueuedPrompt inserts the pending prompt row synchronously and returns
+// its id, WITHOUT nudging the poller. Callers that must persist a link to the
+// prompt before dispatch runs (the design-review comment path stores
+// comment.PromptID so the dispatch-time backfill can find it) use this + an
+// explicit nudgeSessionQueue once their link is saved, closing the race where
+// the async poller could dispatch before the link exists.
+func (apiServer *HelixAPIServer) persistQueuedPrompt(ctx context.Context, sessionID, message string, interrupt bool, notifyUserID, specTaskID string) (string, error) {
+	if sessionID == "" {
+		return "", fmt.Errorf("enqueueAgentMessage: sessionID is required")
+	}
+	if message == "" {
+		return "", fmt.Errorf("enqueueAgentMessage: message is required")
+	}
+
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session %s: %w", sessionID, err)
+	}
+	if session == nil {
+		return "", fmt.Errorf("session %s not found", sessionID)
+	}
+
+	entry := &types.PromptHistoryEntry{
+		ID:           system.GeneratePromptHistoryID(),
+		UserID:       session.Owner,
+		ProjectID:    session.ProjectID, // best-effort; not required for delivery
+		SpecTaskID:   specTaskID,
+		SessionID:    sessionID,
+		Content:      message,
+		Status:       "pending",
+		Interrupt:    interrupt,
+		NotifyUserID: notifyUserID,
+	}
+	if err := apiServer.Store.CreatePromptHistoryEntry(ctx, entry); err != nil {
+		return "", fmt.Errorf("failed to enqueue agent message: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", entry.ID).
+		Bool("interrupt", interrupt).
+		Str("spec_task_id", specTaskID).
+		Msg("✉️  [QUEUE] Enqueued agent message")
+
+	return entry.ID, nil
+}
+
+// nudgeSessionQueue asks the session-scoped poller to drain now, in the
+// background. It dispatches when idle (or cancels-then-sends for interrupts).
+// Detached context so it survives the caller's request context being cancelled.
+func (apiServer *HelixAPIServer) nudgeSessionQueue(sessionID string) {
+	go apiServer.processPendingPromptsForSession(context.Background(), sessionID)
+}
+
 // processInterruptPrompt processes ONLY interrupt prompts (interrupt=true)
 // Used when the session is busy but user sent an interrupt message
 func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, sessionID string) {
+	// Serialise drains for this session — see lockPromptDrain. Held across
+	// cancel → send so two rapid interrupts can't cancel + dispatch concurrently
+	// and reorder; the second interrupt cancels the first's freshly-started turn.
+	defer apiServer.lockPromptDrain(sessionID)()
+
 	// Get the next interrupt prompt for this session
 	nextPrompt, err := apiServer.Store.GetNextInterruptPrompt(ctx, sessionID)
 	if err != nil {
@@ -266,11 +525,30 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 // cancelCurrentTurnIfActive finds the current waiting interaction for a session
 // and sends cancel_current_turn to Zed. It waits up to 3 seconds for acknowledgement.
 func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, sessionID string) {
+	status, err := apiServer.cancelActiveTurn(ctx, sessionID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Msg("[INTERRUPT] Cancel timed out or failed — proceeding with interrupt anyway")
+		return
+	}
+
+	if status != "noop" {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("status", status).
+			Msg("[INTERRUPT] Turn cancelled successfully")
+	}
+}
+
+// cancelActiveTurn interrupts a queued turn before dispatch, or waits for the
+// external agent to acknowledge cancellation of an active turn. A noop means
+// there is no waiting turn.
+func (apiServer *HelixAPIServer) cancelActiveTurn(ctx context.Context, sessionID string) (string, error) {
 	// Find the current waiting interaction
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("[INTERRUPT] Failed to get session for cancel")
-		return
+		return "", fmt.Errorf("get session for cancel: %w", err)
 	}
 
 	// Find the request_id for the waiting interaction
@@ -291,8 +569,77 @@ func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, 
 	apiServer.contextMappingsMutex.RUnlock()
 
 	if activeRequestID == "" {
-		log.Debug().Str("session_id", sessionID).Msg("[INTERRUPT] No active turn to cancel")
-		return
+		interactions, _, listErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    sessionID,
+			GenerationID: session.GenerationID,
+			PerPage:      1000,
+		})
+		if listErr != nil {
+			return "", fmt.Errorf("list interactions for cancel: %w", listErr)
+		}
+
+		var waitingInteraction *types.Interaction
+		for _, interaction := range interactions {
+			if interaction.State == types.InteractionStateWaiting {
+				waitingInteraction = interaction
+				break
+			}
+		}
+		if waitingInteraction == nil {
+			log.Debug().Str("session_id", sessionID).Msg("[INTERRUPT] No active turn to cancel")
+			return "noop", nil
+		}
+
+		// Serialize against pickupWaitingInteraction. If the turn has not been
+		// dispatched yet, interrupting it in the store prevents it from being
+		// picked up when the agent finishes booting.
+		apiServer.contextMappingsMutex.Lock()
+		for reqID, sessID := range apiServer.requestToSessionMapping {
+			if sessID != sessionID {
+				continue
+			}
+			interactionID, ok := apiServer.requestToInteractionMapping[reqID]
+			if !ok {
+				continue
+			}
+			mappedInteraction, getErr := apiServer.Store.GetInteraction(ctx, interactionID)
+			if getErr == nil && mappedInteraction.State == types.InteractionStateWaiting {
+				activeRequestID = reqID
+				break
+			}
+		}
+		if activeRequestID == "" {
+			current, getErr := apiServer.Store.GetInteraction(ctx, waitingInteraction.ID)
+			if getErr != nil {
+				apiServer.contextMappingsMutex.Unlock()
+				return "", fmt.Errorf("get queued interaction for cancel: %w", getErr)
+			}
+			if current.State != types.InteractionStateWaiting {
+				apiServer.contextMappingsMutex.Unlock()
+				return "noop", nil
+			}
+			current.State = types.InteractionStateInterrupted
+			current.Completed = time.Now()
+			current.Updated = time.Now()
+			if _, updateErr := apiServer.Store.UpdateInteraction(ctx, current); updateErr != nil {
+				apiServer.contextMappingsMutex.Unlock()
+				return "", fmt.Errorf("interrupt queued interaction: %w", updateErr)
+			}
+			apiServer.contextMappingsMutex.Unlock()
+
+			if publishErr := apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, current); publishErr != nil {
+				log.Warn().Err(publishErr).
+					Str("session_id", sessionID).
+					Str("interaction_id", current.ID).
+					Msg("Failed to publish queued turn cancellation")
+			}
+			log.Info().
+				Str("session_id", sessionID).
+				Str("interaction_id", current.ID).
+				Msg("[INTERRUPT] Cancelled queued turn before agent dispatch")
+			return "cancelled", nil
+		}
+		apiServer.contextMappingsMutex.Unlock()
 	}
 
 	log.Info().
@@ -302,27 +649,19 @@ func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, 
 
 	status, err := apiServer.sendCancelToExternalAgent(sessionID, activeRequestID, 3*time.Second)
 	if err != nil {
-		log.Warn().Err(err).
-			Str("session_id", sessionID).
-			Str("request_id", activeRequestID).
-			Msg("[INTERRUPT] Cancel timed out or failed — proceeding with interrupt anyway")
-	} else {
-		log.Info().
-			Str("session_id", sessionID).
-			Str("request_id", activeRequestID).
-			Str("status", status).
-			Msg("[INTERRUPT] Turn cancelled successfully")
+		return "", fmt.Errorf("cancel external agent turn %s: %w", activeRequestID, err)
 	}
 
-	_ = session // used above for getting the session
+	return status, nil
 }
 
-// @Summary List prompt history
-// @Description Get prompt history entries for the current user
-// @Tags PromptHistory
+// @Summary List the prompt delivery queue
+// @Description Get durable prompt delivery state for the current user
+// @Tags PromptQueue
 // @Accept json
 // @Produce json
-// @Param spec_task_id query string true "Spec Task ID (required)"
+// @Param spec_task_id query string false "Spec Task ID (required unless session_id is given)"
+// @Param session_id query string false "Session ID for session-scoped queues (required unless spec_task_id is given)"
 // @Param project_id query string false "Project ID (optional filter)"
 // @Param session_id query string false "Session ID (optional filter)"
 // @Param since query int false "Only entries after this timestamp (Unix milliseconds)"
@@ -340,17 +679,19 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError401("user not found")
 	}
 
-	// Parse query parameters
+	// Parse query parameters. A queue is scoped either to a spec task
+	// (spec-task page) or to a session (org-chat / bot session with no spec task).
 	query := req.URL.Query()
 	specTaskID := query.Get("spec_task_id")
-	if specTaskID == "" {
-		return nil, system.NewHTTPError400("spec_task_id is required")
+	sessionID := query.Get("session_id")
+	if specTaskID == "" && sessionID == "" {
+		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
 	listReq := &types.PromptHistoryListRequest{
 		SpecTaskID: specTaskID,
 		ProjectID:  query.Get("project_id"),
-		SessionID:  query.Get("session_id"),
+		SessionID:  sessionID,
 	}
 
 	// Parse since (Unix ms)
@@ -378,245 +719,21 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list prompt history: %v", err))
 	}
 
-	// Process pending prompts in the background
-	// This runs on EVERY list call (which the frontend polls every 2s when there are pending messages)
-	// to catch prompts that may have been synced but never processed
-	go apiServer.processPendingPromptsForIdleSessions(context.Background(), specTaskID)
+	// Process pending prompts in the background on EVERY list call (the frontend
+	// polls every 2s while there are pending messages) to catch prompts synced
+	// but not yet processed. Nudge the matching poller for the queue's scope.
+	if specTaskID != "" {
+		go apiServer.processPendingPromptsForIdleSessions(context.Background(), specTaskID)
+	} else {
+		go apiServer.processPendingPromptsForSession(context.Background(), sessionID)
+	}
 
 	return response, nil
 }
 
-// PromptPinRequest is the request body for pinning/unpinning a prompt
-type PromptPinRequest struct {
-	Pinned bool `json:"pinned"`
-}
-
-// PromptTagsRequest is the request body for updating prompt tags
-type PromptTagsRequest struct {
-	Tags string `json:"tags"` // JSON array of tags
-}
-
-// @Summary Update prompt pin status
-// @Description Pin or unpin a prompt for quick access
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param id path string true "Prompt ID"
-// @Param request body PromptPinRequest true "Pin status"
-// @Success 200 {object} map[string]bool
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/{id}/pin [put]
-func (apiServer *HelixAPIServer) updatePromptPin(_ http.ResponseWriter, req *http.Request) (map[string]bool, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	promptID := mux.Vars(req)["id"]
-	if promptID == "" {
-		return nil, system.NewHTTPError400("prompt id is required")
-	}
-
-	var pinReq PromptPinRequest
-	if err := json.NewDecoder(req.Body).Decode(&pinReq); err != nil {
-		return nil, system.NewHTTPError400("invalid request body")
-	}
-
-	// Verify user owns this prompt
-	prompt, err := apiServer.Store.GetPromptHistoryEntry(ctx, promptID)
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get prompt: %v", err))
-	}
-	if prompt == nil {
-		return nil, system.NewHTTPError404("prompt not found")
-	}
-	if prompt.UserID != user.ID {
-		return nil, system.NewHTTPError403("you don't have permission to modify this prompt")
-	}
-
-	if err := apiServer.Store.UpdatePromptPin(ctx, promptID, pinReq.Pinned); err != nil {
-		log.Error().Err(err).Str("prompt_id", promptID).Msg("Failed to update prompt pin status")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update pin status: %v", err))
-	}
-
-	return map[string]bool{"pinned": pinReq.Pinned}, nil
-}
-
-// @Summary Update prompt tags
-// @Description Update tags for a prompt
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param id path string true "Prompt ID"
-// @Param request body PromptTagsRequest true "Tags (JSON array)"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/{id}/tags [put]
-func (apiServer *HelixAPIServer) updatePromptTags(_ http.ResponseWriter, req *http.Request) (map[string]string, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	promptID := mux.Vars(req)["id"]
-	if promptID == "" {
-		return nil, system.NewHTTPError400("prompt id is required")
-	}
-
-	var tagsReq PromptTagsRequest
-	if err := json.NewDecoder(req.Body).Decode(&tagsReq); err != nil {
-		return nil, system.NewHTTPError400("invalid request body")
-	}
-
-	// Verify user owns this prompt
-	prompt, err := apiServer.Store.GetPromptHistoryEntry(ctx, promptID)
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get prompt: %v", err))
-	}
-	if prompt == nil {
-		return nil, system.NewHTTPError404("prompt not found")
-	}
-	if prompt.UserID != user.ID {
-		return nil, system.NewHTTPError403("you don't have permission to modify this prompt")
-	}
-
-	if err := apiServer.Store.UpdatePromptTags(ctx, promptID, tagsReq.Tags); err != nil {
-		log.Error().Err(err).Str("prompt_id", promptID).Msg("Failed to update prompt tags")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update tags: %v", err))
-	}
-
-	return map[string]string{"tags": tagsReq.Tags}, nil
-}
-
-// @Summary List pinned prompts
-// @Description Get all pinned prompts for the current user
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param spec_task_id query string false "Filter by spec task ID"
-// @Success 200 {array} types.PromptHistoryEntry
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/pinned [get]
-func (apiServer *HelixAPIServer) listPinnedPrompts(_ http.ResponseWriter, req *http.Request) ([]*types.PromptHistoryEntry, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	specTaskID := req.URL.Query().Get("spec_task_id")
-
-	entries, err := apiServer.Store.ListPinnedPrompts(ctx, user.ID, specTaskID)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to list pinned prompts")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list pinned prompts: %v", err))
-	}
-
-	return entries, nil
-}
-
-// @Summary Search prompts
-// @Description Search prompts by content
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param q query string true "Search query"
-// @Param limit query int false "Max results (default 50)"
-// @Success 200 {array} types.PromptHistoryEntry
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/search [get]
-func (apiServer *HelixAPIServer) searchPrompts(_ http.ResponseWriter, req *http.Request) ([]*types.PromptHistoryEntry, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	query := req.URL.Query()
-	searchQuery := query.Get("q")
-	if searchQuery == "" {
-		return nil, system.NewHTTPError400("search query 'q' is required")
-	}
-
-	limit := 50
-	if limitStr := query.Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-			limit = l
-		}
-	}
-
-	entries, err := apiServer.Store.SearchPrompts(ctx, user.ID, searchQuery, limit)
-	if err != nil {
-		log.Error().Err(err).
-			Str("user_id", user.ID).
-			Str("query", searchQuery).
-			Msg("Failed to search prompts")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to search prompts: %v", err))
-	}
-
-	return entries, nil
-}
-
-// @Summary Increment prompt usage
-// @Description Increment usage count when a prompt is reused
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param id path string true "Prompt ID"
-// @Success 200 {object} map[string]bool
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/{id}/use [post]
-func (apiServer *HelixAPIServer) incrementPromptUsage(_ http.ResponseWriter, req *http.Request) (map[string]bool, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	promptID := mux.Vars(req)["id"]
-	if promptID == "" {
-		return nil, system.NewHTTPError400("prompt id is required")
-	}
-
-	// Verify user owns this prompt
-	prompt, err := apiServer.Store.GetPromptHistoryEntry(ctx, promptID)
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get prompt: %v", err))
-	}
-	if prompt == nil {
-		return nil, system.NewHTTPError404("prompt not found")
-	}
-	if prompt.UserID != user.ID {
-		return nil, system.NewHTTPError403("you don't have permission to modify this prompt")
-	}
-
-	if err := apiServer.Store.IncrementPromptUsage(ctx, promptID); err != nil {
-		log.Error().Err(err).Str("prompt_id", promptID).Msg("Failed to increment prompt usage")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to increment usage: %v", err))
-	}
-
-	return map[string]bool{"success": true}, nil
-}
-
-// @Summary Delete a prompt history entry
-// @Description Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients
-// @Tags PromptHistory
+// @Summary Remove a prompt from the delivery queue
+// @Description Soft-deletes a prompt delivery entry so it is removed from the queue and no longer synced to clients
+// @Tags PromptQueue
 // @Produce json
 // @Param id path string true "Prompt ID"
 // @Success 200 {object} map[string]bool
@@ -660,12 +777,12 @@ func (apiServer *HelixAPIServer) deletePromptHistoryEntry(_ http.ResponseWriter,
 }
 
 // @Summary Unified search across Helix entities
-// @Description Search across projects, tasks, sessions, prompts, and code
+// @Description Search across projects, tasks, sessions, and code
 // @Tags Search
 // @Accept json
 // @Produce json
 // @Param q query string true "Search query"
-// @Param types query []string false "Entity types to search: projects, tasks, sessions, prompts, code"
+// @Param types query []string false "Entity types to search: projects, tasks, sessions, code"
 // @Param limit query int false "Max results per type (default 10)"
 // @Param org_id query string false "Filter by organization ID"
 // @Success 200 {object} types.UnifiedSearchResponse

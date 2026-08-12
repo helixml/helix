@@ -8,7 +8,9 @@ package memorystore
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,7 +31,13 @@ type MemoryStore struct {
 	interactions map[string]*types.Interaction
 	apps         map[string]*types.App
 	projects     map[string]*types.Project
-	mu           sync.RWMutex
+	specTasks    map[string]*types.SpecTask
+	prompts      map[string]*types.PromptHistoryEntry // prompt_history_entries by id
+	// planningSessionClaims tracks the atomic claim set by
+	// SetAgentSessionIDIfEmpty; keyed by taskID, value is the winning
+	// sessionID. Allocated lazily.
+	planningSessionClaims map[string]string
+	mu                    sync.RWMutex
 
 	// OnInteractionUpdated is called after every UpdateInteraction call.
 	// Test binaries use this to detect completion events.
@@ -43,6 +51,8 @@ func New() *MemoryStore {
 		interactions: make(map[string]*types.Interaction),
 		apps:         make(map[string]*types.App),
 		projects:     make(map[string]*types.Project),
+		specTasks:    make(map[string]*types.SpecTask),
+		prompts:      make(map[string]*types.PromptHistoryEntry),
 	}
 }
 
@@ -130,10 +140,34 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 	result := make([]*types.Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
 		cp := *s
+		if query.SortBy == "last_message" {
+			for _, interaction := range m.interactions {
+				if interaction.SessionID != s.ID {
+					continue
+				}
+				if cp.LastMessageAt == nil || interaction.Created.After(*cp.LastMessageAt) {
+					lastMessageAt := interaction.Created
+					cp.LastMessageAt = &lastMessageAt
+				}
+			}
+		}
 		result = append(result, &cp)
 	}
-	// Sort by created time descending (most recent first), like production
+	// Sort by the requested key, like production.
 	sort.Slice(result, func(a, b int) bool {
+		if query.SortBy == "last_message" {
+			left := result[a].Created
+			if result[a].LastMessageAt != nil {
+				left = *result[a].LastMessageAt
+			}
+			right := result[b].Created
+			if result[b].LastMessageAt != nil {
+				right = *result[b].LastMessageAt
+			}
+			if !left.Equal(right) {
+				return left.After(right)
+			}
+		}
 		return result[a].Created.After(result[b].Created)
 	})
 	// Apply PerPage limit
@@ -290,6 +324,27 @@ func (m *MemoryStore) MarkInteractionCompleteIfWaiting(_ context.Context, intera
 	return true, nil
 }
 
+func (m *MemoryStore) MarkInteractionErrorIfWaiting(_ context.Context, interactionID string, generationID int, reason string) (bool, error) {
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting {
+		m.mu.Unlock()
+		return false, nil
+	}
+	existing.State = types.InteractionStateError
+	existing.Error = reason
+	existing.Completed = time.Now()
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+
+	if cb != nil {
+		cb(&cp)
+	}
+	return true, nil
+}
+
 func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -305,13 +360,34 @@ func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInter
 		cp := *i
 		result = append(result, &cp)
 	}
-	// Sort by ID ascending (creation order)
-	sort.Slice(result, func(a, b int) bool { return result[a].ID < result[b].ID })
+	// Honor the requested order. The prompt-queue busy-check relies on
+	// Order="id DESC" + PerPage=1 returning the NEWEST interaction (ULID IDs sort
+	// chronologically); the default is ascending (creation order).
+	if strings.Contains(strings.ToLower(query.Order), "desc") {
+		sort.Slice(result, func(a, b int) bool { return result[a].ID > result[b].ID })
+	} else {
+		sort.Slice(result, func(a, b int) bool { return result[a].ID < result[b].ID })
+	}
 	// Apply PerPage limit
 	if query.PerPage > 0 && len(result) > query.PerPage {
 		result = result[:query.PerPage]
 	}
 	return result, int64(len(result)), nil
+}
+
+// ClearSessionInteractions deletes every interaction for a session,
+// mirroring the gorm store's atomic delete-by-session_id. Idempotent: a
+// session with no interactions is a no-op. Backs the clear-session
+// coordinator (and the org spawner's pre-reactivation clear).
+func (m *MemoryStore) ClearSessionInteractions(_ context.Context, sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, i := range m.interactions {
+		if i.SessionID == sessionID {
+			delete(m.interactions, id)
+		}
+	}
+	return nil
 }
 
 // --- Stubs for methods called in goroutines (prevent panics) ---
@@ -350,23 +426,106 @@ func (m *MemoryStore) ResetStuckComments(_ context.Context) (int64, error) {
 	return 0, nil
 }
 
-// Prompt queue — always return nil (no prompts queued)
-func (m *MemoryStore) GetNextPendingPrompt(_ context.Context, _ string) (*types.PromptHistoryEntry, error) {
-	return nil, nil
-}
+// Prompt queue — real in-memory implementation so the WebSocket-sync e2e can
+// drive the production queue path (enqueue → processPendingPromptsForSession →
+// sendQueuedPromptToSession). Claim semantics mirror the Postgres selectors:
+// pick the oldest pending/failed row for the session and atomically flip it to
+// 'sending' before returning.
 
-func (m *MemoryStore) GetAnyPendingPrompt(_ context.Context, _ string) (*types.PromptHistoryEntry, error) {
-	return nil, nil
-}
-
-func (m *MemoryStore) GetNextInterruptPrompt(_ context.Context, _ string) (*types.PromptHistoryEntry, error) {
-	return nil, nil
-}
-
-func (m *MemoryStore) MarkPromptAsPending(_ context.Context, _ string) error { return nil }
-func (m *MemoryStore) MarkPromptAsSent(_ context.Context, _ string) error    { return nil }
-func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, _ string, _ string) error {
+func (m *MemoryStore) CreatePromptHistoryEntry(_ context.Context, entry *types.PromptHistoryEntry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *entry
+	m.prompts[entry.ID] = &cp
 	return nil
+}
+
+func (m *MemoryStore) ListPromptHistoryBySession(_ context.Context, sessionID string) ([]*types.PromptHistoryEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []*types.PromptHistoryEntry
+	for _, p := range m.prompts {
+		if p.SessionID == sessionID && p.DeletedAt == nil {
+			cp := *p
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
+// claimNextPrompt finds the oldest pending/failed prompt for the session
+// matching the interrupt filter and flips it to 'sending'. interruptFilter:
+// nil = any, else must match.
+func (m *MemoryStore) claimNextPrompt(sessionID string, interruptFilter *bool) *types.PromptHistoryEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var best *types.PromptHistoryEntry
+	for _, p := range m.prompts {
+		if p.SessionID != sessionID || p.DeletedAt != nil {
+			continue
+		}
+		if p.Status != "pending" && p.Status != "failed" {
+			continue
+		}
+		if interruptFilter != nil && p.Interrupt != *interruptFilter {
+			continue
+		}
+		if best == nil || p.CreatedAt.Before(best.CreatedAt) {
+			best = p
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	best.Status = "sending"
+	cp := *best
+	return &cp
+}
+
+func (m *MemoryStore) GetNextPendingPrompt(_ context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	no := false
+	return m.claimNextPrompt(sessionID, &no), nil
+}
+
+func (m *MemoryStore) GetAnyPendingPrompt(_ context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	// Interrupt-first: try interrupt prompts, then any.
+	yes := true
+	if p := m.claimNextPrompt(sessionID, &yes); p != nil {
+		return p, nil
+	}
+	return m.claimNextPrompt(sessionID, nil), nil
+}
+
+func (m *MemoryStore) GetNextInterruptPrompt(_ context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	yes := true
+	return m.claimNextPrompt(sessionID, &yes), nil
+}
+
+func (m *MemoryStore) setPromptStatus(id, status string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if p, ok := m.prompts[id]; ok {
+		p.Status = status
+	}
+}
+
+func (m *MemoryStore) MarkPromptAsPending(_ context.Context, id string) error {
+	m.setPromptStatus(id, "pending")
+	return nil
+}
+func (m *MemoryStore) MarkPromptAsSent(_ context.Context, id string) error {
+	m.setPromptStatus(id, "sent")
+	return nil
+}
+func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, id string, _ string) error {
+	m.setPromptStatus(id, "failed")
+	return nil
+}
+
+// GetCommentByPromptID — the e2e drives plain queue prompts, not design-review
+// comments, so no comment is ever linked to a prompt: return not found.
+func (m *MemoryStore) GetCommentByPromptID(_ context.Context, _ string) (*types.SpecTaskDesignReviewComment, error) {
+	return nil, store.ErrNotFound
 }
 func (m *MemoryStore) MarkPromptAsCrashed(_ context.Context, _ string, _ string) error {
 	return nil
@@ -383,9 +542,116 @@ func (m *MemoryStore) ClaimPromptForSending(_ context.Context, _ string) (bool, 
 	return true, nil // In-memory: always succeed (no concurrency in tests)
 }
 
-// SpecTask methods — always return "not found" (no spectasks in test)
-func (m *MemoryStore) GetSpecTask(_ context.Context, _ string) (*types.SpecTask, error) {
-	return nil, store.ErrNotFound
+// SpecTask methods — minimal in-memory implementation. Earlier versions
+// returned ErrNotFound for everything; the fork-and-pause path needs
+// real CRUD because it re-points a SpecTask's AgentSessionID at the
+// child after a fork (see HelixAPIServer.repointSpecTasksToChild).
+func (m *MemoryStore) GetSpecTask(_ context.Context, id string) (*types.SpecTask, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	t, ok := m.specTasks[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *t
+	return &cp, nil
+}
+
+// ListSpecTasks supports the filter shapes the fork path uses today —
+// notably AgentSessionID for the reverse lookup from session → task.
+// Other filters are wired in as needed; everything not handled here is
+// effectively "no filter".
+func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*types.SpecTask, 0, len(m.specTasks))
+	for _, t := range m.specTasks {
+		if filters != nil && filters.AgentSessionID != "" && t.AgentSessionID != filters.AgentSessionID {
+			continue
+		}
+		if filters != nil && filters.FilterParticipants {
+			matchesParticipant := false
+			for _, userID := range filters.ParticipantIDs {
+				if t.AssigneeID == userID {
+					matchesParticipant = true
+					break
+				}
+			}
+			if !matchesParticipant {
+				continue
+			}
+		}
+		cp := *t
+		if filters != nil && filters.SortBy == "last_message" {
+			for _, interaction := range m.interactions {
+				if interaction.SessionID != t.AgentSessionID {
+					continue
+				}
+				if cp.LastMessageAt == nil || interaction.Created.After(*cp.LastMessageAt) {
+					lastMessageAt := interaction.Created
+					cp.LastMessageAt = &lastMessageAt
+				}
+			}
+		}
+		out = append(out, &cp)
+	}
+	if filters != nil && filters.SortBy == "last_message" {
+		sort.Slice(out, func(a, b int) bool {
+			left := out[a].CreatedAt
+			if out[a].LastMessageAt != nil {
+				left = *out[a].LastMessageAt
+			}
+			right := out[b].CreatedAt
+			if out[b].LastMessageAt != nil {
+				right = *out[b].LastMessageAt
+			}
+			if !left.Equal(right) {
+				return left.After(right)
+			}
+			return out[a].ID > out[b].ID
+		})
+	}
+	if filters != nil && filters.Offset > 0 {
+		if filters.Offset >= len(out) {
+			return []*types.SpecTask{}, nil
+		}
+		out = out[filters.Offset:]
+	}
+	if filters != nil && filters.Limit > 0 && len(out) > filters.Limit {
+		out = out[:filters.Limit]
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) UpdateSpecTask(_ context.Context, task *types.SpecTask) error {
+	if task == nil || task.ID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.specTasks[task.ID]; !ok {
+		return store.ErrNotFound
+	}
+	cp := *task
+	m.specTasks[task.ID] = &cp
+	return nil
+}
+
+// SeedSpecTask is a test helper: install a SpecTask into the store
+// without going through validation. Mirrors SeedApp / SeedSession.
+func (m *MemoryStore) SeedSpecTask(task *types.SpecTask) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *task
+	m.specTasks[task.ID] = &cp
+}
+
+// ListGitRepositories returns an empty list — the fork tests never seed
+// repos and the pre-fork commit+push helper relies on this to no-op
+// safely when there's no project (or no repos). If a future test needs
+// real repos here, add a SeedGitRepository helper.
+func (m *MemoryStore) ListGitRepositories(_ context.Context, _ *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
+	return nil, nil
 }
 
 // SpecTaskProposal stubs — no-op for in-memory tests
@@ -407,6 +673,25 @@ func (m *MemoryStore) UpdateSpecTaskProposal(_ context.Context, _ *types.SpecTas
 
 func (m *MemoryStore) TransitionSpecTaskStatus(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, _ map[string]any) (bool, error) {
 	return false, nil
+}
+
+// SetAgentSessionIDIfEmpty mirrors the postgres CAS — first caller wins, rest
+// lose. No persistence; just a per-task atomic gate keyed by taskID so tests can
+// exercise the race without a real DB.
+func (m *MemoryStore) SetAgentSessionIDIfEmpty(_ context.Context, taskID string, sessionID string) (bool, error) {
+	if taskID == "" || sessionID == "" {
+		return false, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.planningSessionClaims == nil {
+		m.planningSessionClaims = make(map[string]string)
+	}
+	if existing := m.planningSessionClaims[taskID]; existing != "" {
+		return false, nil
+	}
+	m.planningSessionClaims[taskID] = sessionID
+	return true, nil
 }
 
 func (m *MemoryStore) GetSpecTaskZedThreadByZedThreadID(_ context.Context, _ string) (*types.SpecTaskZedThread, error) {
@@ -480,5 +765,16 @@ func (m *MemoryStore) SeedProject(p *types.Project) {
 
 // Zed settings override — always return "not found"
 func (m *MemoryStore) GetZedSettingsOverride(_ context.Context, _ string) (*types.ZedSettingsOverride, error) {
+	return nil, store.ErrNotFound
+}
+
+// FinishTriggerExecution — always return "not found".
+//
+// The shared chat failure handlers call this for every session; ordinary chat
+// sessions have no linked trigger execution, and failRunningTriggerExecution
+// already treats ErrNotFound as a no-op. Without this the embedded nil
+// store.Store panicked on every chat_response_error, killing the sync
+// connection mid-turn and turning any error-path test into a timeout.
+func (m *MemoryStore) FinishTriggerExecution(_ context.Context, _ string, _ types.TriggerExecutionStatus, _ string) (*types.TriggerExecution, error) {
 	return nil, store.ErrNotFound
 }

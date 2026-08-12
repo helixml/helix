@@ -1,11 +1,20 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
+	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	orgbots "github.com/helixml/helix/api/pkg/org/application/nodes"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -13,6 +22,199 @@ import (
 
 	"go.uber.org/mock/gomock"
 )
+
+type failingAgentCreator struct{}
+
+func (failingAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (string, error) {
+	return "", fmt.Errorf("reconcile failed")
+}
+
+func TestUpdateAppRejectsInvalidLinkedOrgAgentShape(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+
+	bot, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), bot.WithAgentID("app-linked")))
+
+	existing := &types.App{
+		ID:             "app-linked",
+		Owner:          "user-test",
+		OrganizationID: "org-test",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: []types.AssistantConfig{{Name: "Linked"}},
+		}},
+	}
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID:         existing.Owner,
+		OrganizationID: existing.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store: orgStore,
+		},
+	}
+	body, err := json.Marshal(types.App{
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: nil,
+		}},
+	})
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/apps/"+existing.ID, bytes.NewReader(body))
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
+
+	updated, httpErr := server.updateAgent(nil, req)
+
+	require.Nil(t, updated)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusBadRequest, httpErr.StatusCode)
+	require.Contains(t, httpErr.Message, "exactly one assistant")
+}
+
+func TestUpdateAppRejectsMismatchedBodyID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	server := &HelixAPIServer{Store: store.NewMockStore(ctrl)}
+	body, err := json.Marshal(types.App{ID: "app-body"})
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/apps/app-path", bytes.NewReader(body))
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": "app-path"})
+
+	updated, httpErr := server.updateAgent(nil, req)
+
+	require.Nil(t, updated)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusBadRequest, httpErr.StatusCode)
+	require.Contains(t, httpErr.Message, "does not match URL")
+}
+
+func TestUpdateAppPreservesAgentKind(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+
+	node, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Nodes.Create(context.Background(), node.WithAgentID("app-linked")))
+
+	existing := &types.App{
+		ID:             "app-linked",
+		Owner:          "user-test",
+		OrganizationID: "org-test",
+		AgentKind:      types.AgentKindOrg,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Name:       "Linked",
+			Assistants: []types.AssistantConfig{{Name: "Linked"}},
+		}},
+	}
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID:         existing.Owner,
+		OrganizationID: existing.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	helixStore.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, updated *types.App) (*types.App, error) {
+		return updated, nil
+	})
+	helixStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store: orgStore,
+		},
+	}
+	body, err := json.Marshal(existing)
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/apps/"+existing.ID, bytes.NewReader(body))
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
+
+	updated, httpErr := server.updateAgent(nil, req)
+
+	require.Nil(t, httpErr)
+	require.NotNil(t, updated)
+	assert.Equal(t, types.AgentKindOrg, updated.AgentKind)
+}
+
+func TestIsSpecTaskSelectableAgent(t *testing.T) {
+	tests := []struct {
+		name string
+		app  *types.Agent
+		want bool
+	}{
+		{
+			name: "standalone external agent",
+			app:  &types.Agent{AgentKind: types.AgentKindCoding},
+			want: true,
+		},
+		{
+			name: "external org worker",
+			app:  &types.Agent{AgentKind: types.AgentKindOrg},
+			want: false,
+		},
+		{
+			name: "helix agent",
+			app:  &types.Agent{AgentKind: types.AgentKindHelix},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isSpecTaskSelectableAgent(tt.app))
+		})
+	}
+}
+
+func TestListOrganizationAppsDoesNotReconcileAgentLinks(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	ctx := context.Background()
+
+	bot, err := orgchart.NewNode("b-legacy", "Legacy instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Nodes.Create(ctx, bot))
+
+	user := &types.User{ID: "user-owner"}
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID: user.ID, OrganizationID: "org-test", Role: types.OrganizationRoleOwner,
+	}, nil)
+	helixStore.EXPECT().ListApps(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, *store.ListAppsQuery) ([]*types.App, error) {
+			linked, err := orgStore.Nodes.Get(ctx, "org-test", bot.ID)
+			require.NoError(t, err)
+			require.Empty(t, linked.AgentID)
+			return []*types.App{{ID: "app-existing", OrganizationID: "org-test"}}, nil
+		},
+	)
+
+	botService := orgbots.New(orgbots.Deps{Nodes: orgStore.Nodes})
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store: orgStore,
+			lifecycle: &lifecycle.Service{
+				Store: orgStore, Nodes: botService, Agents: failingAgentCreator{},
+			},
+		},
+	}
+
+	apps, httpErr := server.listOrganizationApps(ctx, user, "org-test")
+	require.Nil(t, httpErr)
+	require.Len(t, apps, 1)
+	require.Equal(t, "app-existing", apps[0].ID)
+}
 
 func Test_populateAppOwner_PopulateUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -132,7 +334,7 @@ func Test_handleDuplicateAppNames(t *testing.T) {
 	require.Equal(t, "", app3.Config.Helix.Name)
 }
 
-// Helper function to handle duplicate names (extracted from createApp handler)
+// Helper function to handle duplicate names (extracted from createAgent handler)
 func handleDuplicateAppNames(app *types.App, existingApps []*types.App) {
 	// Handle duplicate names by adding suffixes like (1), (2), etc.
 	if app.Config.Helix.Name != "" {
@@ -212,7 +414,6 @@ func TestFindModelSubstitution(t *testing.T) {
 			},
 		},
 	}
-
 	t.Run("finds exact match and returns first available alternative from same class", func(t *testing.T) {
 		availableProviders := map[types.Provider]bool{
 			"helix":     true,
@@ -325,6 +526,13 @@ func TestApplyModelSubstitutions(t *testing.T) {
 			},
 		},
 	}
+	providerIDModelClasses := []ModelClass{{
+		Name: "lightweight",
+		Alternatives: []AlternativeModelOption{
+			{Provider: "pe_personal", Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"},
+			{Provider: "helix", Model: "llama3.1:8b-instruct-q8_0"},
+		},
+	}}
 
 	user := &types.User{ID: "user1"}
 	ctx := context.Background()
@@ -359,6 +567,58 @@ func TestApplyModelSubstitutions(t *testing.T) {
 		require.Equal(t, "llama3.1:8b-instruct-q8_0", substitutions[0].NewModel)
 
 		// Verify the substitution occurred
+		require.Equal(t, "helix", app.Config.Helix.Assistants[0].Provider)
+		require.Equal(t, "llama3.1:8b-instruct-q8_0", app.Config.Helix.Assistants[0].Model)
+	})
+
+	t.Run("leaves unavailable provider ID for organization validation", func(t *testing.T) {
+		mockProviderManager.EXPECT().
+			ListProviderEndpoints(ctx, "org1").
+			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil).
+			Times(2)
+
+		app := &types.App{
+			OrganizationID: "org1",
+			Config: types.AppConfig{
+				Helix: types.AppHelixConfig{
+					Assistants: []types.AssistantConfig{{
+						Name:     "test-assistant",
+						Provider: "pe_personal",
+						Model:    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+					}},
+				},
+			},
+		}
+
+		substitutions, err := server.applyModelSubstitutions(ctx, user, app, providerIDModelClasses)
+		require.NoError(t, err)
+		require.Empty(t, substitutions)
+		require.Equal(t, "pe_personal", app.Config.Helix.Assistants[0].Provider)
+		require.Equal(t, "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", app.Config.Helix.Assistants[0].Model)
+
+		err = server.validateProvidersAndModels(ctx, user, app)
+		require.EqualError(t, err, types.OrganizationProviderUnavailableMessage)
+	})
+
+	t.Run("substitutes unavailable provider ID for personal app", func(t *testing.T) {
+		mockProviderManager.EXPECT().
+			ListProviderEndpoints(ctx, user.ID).
+			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
+
+		app := &types.App{
+			Config: types.AppConfig{
+				Helix: types.AppHelixConfig{
+					Assistants: []types.AssistantConfig{{
+						Provider: "pe_personal",
+						Model:    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+					}},
+				},
+			},
+		}
+
+		substitutions, err := server.applyModelSubstitutions(ctx, user, app, providerIDModelClasses)
+		require.NoError(t, err)
+		require.Len(t, substitutions, 1)
 		require.Equal(t, "helix", app.Config.Helix.Assistants[0].Provider)
 		require.Equal(t, "llama3.1:8b-instruct-q8_0", app.Config.Helix.Assistants[0].Model)
 	})
@@ -644,14 +904,11 @@ func TestApplyModelSubstitutions_AgentMode(t *testing.T) {
 	substitutions, err := server.applyModelSubstitutions(ctx, user, app, modelClasses)
 	require.NoError(t, err)
 
-	// Should have 3 substitutions (main provider/model, reasoning_model, and generation_model)
-	// Note: reasoning_model gets substituted even though anthropic is available because
-	// the substitution logic always uses the first available alternative from the same class
-	require.Len(t, substitutions, 5) // All 5 model fields should be substituted
+	require.Len(t, substitutions, 4) // Agent-mode model fields should be substituted; top-level provider/model is ignored.
 
-	// Verify the main provider/model substitution
-	assert.Equal(t, "helix", app.Config.Helix.Assistants[0].Provider)
-	assert.Equal(t, "llama3.1:8b-instruct-q8_0", app.Config.Helix.Assistants[0].Model)
+	// Main provider/model is not used by helix_agent and is normalized before persistence.
+	assert.Equal(t, "together", app.Config.Helix.Assistants[0].Provider)
+	assert.Equal(t, "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", app.Config.Helix.Assistants[0].Model)
 
 	// Verify agent mode model substitutions
 	assistant := app.Config.Helix.Assistants[0]
@@ -675,7 +932,6 @@ func TestApplyModelSubstitutions_AgentMode(t *testing.T) {
 	}
 
 	// Check that all expected field substitutions were recorded
-	assert.True(t, substitutionFields["Original provider 'together' not available for provider/model"])
 	assert.True(t, substitutionFields["Original provider 'together' not available for reasoning_model"])
 	assert.True(t, substitutionFields["Original provider 'anthropic' not available for generation_model"])
 	assert.True(t, substitutionFields["Original provider 'together' not available for small_reasoning_model"])
@@ -739,12 +995,12 @@ func TestApplyModelSubstitutions_AgentModePartialSubstitution(t *testing.T) {
 	substitutions, err := server.applyModelSubstitutions(ctx, user, app, modelClasses)
 	require.NoError(t, err)
 
-	// Should only have 2 substitutions (main provider/model and generation_model)
-	require.Len(t, substitutions, 2)
+	// Should only have 1 substitution (generation_model); top-level provider/model is ignored in agent mode.
+	require.Len(t, substitutions, 1)
 
-	// Verify the main provider/model substitution
-	assert.Equal(t, "helix", app.Config.Helix.Assistants[0].Provider)
-	assert.Equal(t, "llama3.1:8b-instruct-q8_0", app.Config.Helix.Assistants[0].Model)
+	// Main provider/model is not used by helix_agent and is normalized before persistence.
+	assert.Equal(t, "together", app.Config.Helix.Assistants[0].Provider)
+	assert.Equal(t, "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", app.Config.Helix.Assistants[0].Model)
 
 	// Verify agent mode model states
 	assistant := app.Config.Helix.Assistants[0]
@@ -896,9 +1152,167 @@ func TestO3MiniSubstitution(t *testing.T) {
 	}
 }
 
-// TestListEndpointsForApp covers the org-aware behaviour added in the
-// snapshot-helper refactor: org-owned apps must see both the org bucket
-// and the actor's personal providers, with sensible de-dup.
+func TestNormalizeHelixAgentAssistantSpecs(t *testing.T) {
+	app := &types.App{
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						Name:                         "agent",
+						AgentType:                    types.AgentTypeHelixAgent,
+						Provider:                     "user/google",
+						Model:                        "models/gemini-2.0-flash",
+						ReasoningModelProvider:       "openai",
+						ReasoningModel:               "gpt-5-nano",
+						GenerationModelProvider:      "openai",
+						GenerationModel:              "gpt-5-nano",
+						SmallReasoningModelProvider:  "openai",
+						SmallReasoningModel:          "gpt-5-nano",
+						SmallGenerationModelProvider: "openai",
+						SmallGenerationModel:         "gpt-5-nano",
+					},
+					{
+						Name:      "simple",
+						Provider:  "openai",
+						Model:     "gpt-5-nano",
+						AgentType: types.AgentTypeHelixBasic,
+					},
+				},
+			},
+		},
+	}
+
+	normalizeHelixAgentAssistantSpecs(app)
+
+	agent := app.Config.Helix.Assistants[0]
+	assert.Empty(t, agent.Provider)
+	assert.Empty(t, agent.Model)
+	assert.Equal(t, "openai", agent.GenerationModelProvider)
+	assert.Equal(t, "gpt-5-nano", agent.GenerationModel)
+
+	simple := app.Config.Helix.Assistants[1]
+	assert.Equal(t, "openai", simple.Provider)
+	assert.Equal(t, "gpt-5-nano", simple.Model)
+}
+
+func TestValidateProvidersAndModels_HelixAgentRejectsTopLevelProviderModel(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockProviderManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{providerManager: mockProviderManager}
+	ctx := context.Background()
+	user := &types.User{ID: "user1"}
+
+	mockProviderManager.EXPECT().
+		ListProviderEndpoints(ctx, user.ID).
+		Return([]*types.ProviderEndpoint{{Name: "openai"}}, nil)
+
+	app := &types.App{
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						Name:                         "agent",
+						AgentType:                    types.AgentTypeHelixAgent,
+						Provider:                     "user/google",
+						Model:                        "models/gemini-2.0-flash",
+						ReasoningModelProvider:       "openai",
+						ReasoningModel:               "gpt-5-nano",
+						GenerationModelProvider:      "openai",
+						GenerationModel:              "gpt-5-nano",
+						SmallReasoningModelProvider:  "openai",
+						SmallReasoningModel:          "gpt-5-nano",
+						SmallGenerationModelProvider: "openai",
+						SmallGenerationModel:         "gpt-5-nano",
+					},
+				},
+			},
+		},
+	}
+
+	err := server.validateProvidersAndModels(ctx, user, app)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not set top-level provider/model")
+}
+
+func TestValidateProvidersAndModelsRejectsIncompatibleCodeHarnessModel(t *testing.T) {
+	server := &HelixAPIServer{}
+	err := server.validateProvidersAndModels(context.Background(), &types.User{ID: "user1"}, &types.App{
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			Name:             "bad-codex",
+			CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+			Model:            "claude-opus-4-8",
+		}}}},
+	})
+
+	require.ErrorContains(t, err, "codex_cli requires a Codex model")
+}
+
+func TestValidateProvidersAndModels_HelixAgentRequiresModelProviders(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockProviderManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{providerManager: mockProviderManager}
+	ctx := context.Background()
+	user := &types.User{ID: "user1"}
+
+	mockProviderManager.EXPECT().
+		ListProviderEndpoints(ctx, user.ID).
+		Return([]*types.ProviderEndpoint{{Name: "openai"}}, nil)
+
+	app := &types.App{
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						Name:                         "agent",
+						AgentType:                    types.AgentTypeHelixAgent,
+						ReasoningModel:               "gpt-5-nano",
+						GenerationModelProvider:      "openai",
+						GenerationModel:              "gpt-5-nano",
+						SmallReasoningModelProvider:  "openai",
+						SmallReasoningModel:          "gpt-5-nano",
+						SmallGenerationModelProvider: "openai",
+						SmallGenerationModel:         "gpt-5-nano",
+					},
+				},
+			},
+		},
+	}
+
+	err := server.validateProvidersAndModels(ctx, user, app)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must have a provider for reasoning_model")
+}
+
+func TestValidateProvidersAndModels_UnavailableProviderMessage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockProviderManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{providerManager: mockProviderManager}
+	ctx := context.Background()
+	user := &types.User{ID: "user1"}
+	app := func(orgID string) *types.App {
+		return &types.App{
+			OrganizationID: orgID,
+			Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+				Provider: "pe_provider",
+				Model:    "model",
+			}}}},
+		}
+	}
+
+	mockProviderManager.EXPECT().ListProviderEndpoints(ctx, "org1").Return([]*types.ProviderEndpoint{}, nil)
+	err := server.validateProvidersAndModels(ctx, user, app("org1"))
+	require.EqualError(t, err, types.OrganizationProviderUnavailableMessage)
+
+	mockProviderManager.EXPECT().ListProviderEndpoints(ctx, user.ID).Return([]*types.ProviderEndpoint{}, nil)
+	err = server.validateProvidersAndModels(ctx, user, app(""))
+	require.ErrorContains(t, err, "provider 'pe_provider' is not available")
+}
+
+// TestListEndpointsForApp covers app-scoped provider snapshots.
 func TestListEndpointsForApp(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -918,49 +1332,19 @@ func TestListEndpointsForApp(t *testing.T) {
 		require.Equal(t, "pe_user_01", eps[0].ID)
 	})
 
-	t.Run("org app merges org and user buckets and de-dups", func(t *testing.T) {
-		// Both buckets see the same env-baked global ("openai", no ID); the
-		// merge must not double-count it. The user also has a personal
-		// provider that the org bucket doesn't see — that should land.
+	t.Run("org app excludes personal bucket", func(t *testing.T) {
 		mockProviderManager.EXPECT().
 			ListProviderEndpoints(ctx, "org1").
 			Return([]*types.ProviderEndpoint{
 				{ID: "pe_org_01", Name: "org-prov"},
 				{Name: "openai"},
 			}, nil)
-		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "user1").
-			Return([]*types.ProviderEndpoint{
-				{ID: "pe_user_01", Name: "user-prov"},
-				{Name: "openai"},
-			}, nil)
-
 		app := &types.App{ID: "app1", OrganizationID: "org1"}
 		eps, err := server.listEndpointsForApp(ctx, "user1", app)
 		require.NoError(t, err)
 
-		got := map[string]bool{}
-		for _, ep := range eps {
-			got[endpointKey(ep)] = true
-		}
-		require.True(t, got["id:pe_org_01"], "org-bucket DB provider should be present")
-		require.True(t, got["id:pe_user_01"], "user-bucket DB provider should be merged in for org apps")
-		require.True(t, got["name:openai"], "global should be present exactly once")
-		require.Len(t, eps, 3, "duplicate global must not be appended twice")
-	})
-
-	t.Run("personal-bucket failure still returns org bucket", func(t *testing.T) {
-		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "org1").
-			Return([]*types.ProviderEndpoint{{ID: "pe_org_01", Name: "org-prov"}}, nil)
-		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "user1").
-			Return(nil, fmt.Errorf("transient store error"))
-
-		app := &types.App{ID: "app1", OrganizationID: "org1"}
-		eps, err := server.listEndpointsForApp(ctx, "user1", app)
-		require.NoError(t, err, "personal-bucket failure should not propagate; org bucket is still useful")
-		require.Len(t, eps, 1)
+		require.Len(t, eps, 2)
 		require.Equal(t, "pe_org_01", eps[0].ID)
+		require.Equal(t, "openai", eps[1].Name)
 	})
 }

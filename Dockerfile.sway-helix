@@ -122,7 +122,7 @@ COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 # Builds with CUDA support on both amd64 and arm64 platforms
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cd gst-pipewire-zerocopy && \
-    cargo build --release && \
+    nice -n 19 cargo build --release && \
     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
 # (CUDA libraries are downloaded directly in main stage when needed)

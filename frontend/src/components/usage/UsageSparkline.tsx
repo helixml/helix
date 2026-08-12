@@ -7,6 +7,7 @@ import {
   Fade,
 } from '@mui/material'
 import type { TypesAggregatedUsageMetric } from '../../api/api'
+import useLightTheme from '../../hooks/useLightTheme'
 
 export const formatNumber = (num: number) => {
   if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`
@@ -30,6 +31,7 @@ const UsageSparkline: FC<UsageSparklineProps> = ({
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
+  const lightTheme = useLightTheme()
 
   if (!data || data.length === 0) {
     return (
@@ -104,7 +106,7 @@ const UsageSparkline: FC<UsageSparklineProps> = ({
             y1={0}
             x2={hoveredX}
             y2={height}
-            stroke="rgba(255,255,255,0.5)"
+            stroke={lightTheme.isLight ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.5)'}
             strokeWidth="0.5"
             strokeDasharray="1,1"
           />
@@ -131,9 +133,10 @@ const UsageSparkline: FC<UsageSparklineProps> = ({
           <Fade in={hoveredIndex !== null} timeout={150}>
             <Paper sx={{
               p: 1,
-              backgroundColor: 'rgba(30, 30, 30, 0.95)',
-              border: '1px solid rgba(255,255,255,0.1)',
+              backgroundColor: lightTheme.isLight ? 'rgba(255,255,255,0.97)' : 'rgba(30, 30, 30, 0.95)',
+              border: lightTheme.isLight ? '1px solid rgba(0,0,0,0.10)' : '1px solid rgba(255,255,255,0.1)',
               borderRadius: 1,
+              boxShadow: lightTheme.isLight ? '0 4px 16px rgba(0,0,0,0.12)' : undefined,
             }}>
               {hoveredData && (
                 <Box sx={{ minWidth: 100 }}>

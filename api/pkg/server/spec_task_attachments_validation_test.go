@@ -79,6 +79,13 @@ func TestSpecTaskAttachmentsLocked(t *testing.T) {
 	}
 }
 
+func TestSpecTaskAttachmentLimits(t *testing.T) {
+	// Guards the intended per-file limit (100 MB). The upload handler and
+	// frontend both derive their enforcement/copy from this constant, so this
+	// catches an accidental regression to the old 10 MB.
+	assert.Equal(t, 100*1024*1024, types.SpecTaskAttachmentMaxBytes)
+}
+
 func TestAllowedMimeTypes(t *testing.T) {
 	for _, mime := range []string{
 		"image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml",

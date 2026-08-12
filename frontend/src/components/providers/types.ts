@@ -7,12 +7,13 @@ import AWSLogo from './logos/aws';
 import XaiLogo from './logos/xai';
 import NvidiaLogo from './logos/nvidia';
 import CustomLogo from './logos/custom';
+import DeepSeekLogo from './logos/deepseek';
 
 // Direct image imports
 import togetheraiLogo from '../../../assets/img/together-logo.png'
 import googleLogo from '../../../assets/img/providers/google.svg';
 import fireworksLogo from '../../../assets/img/providers/fireworks.png';
-import { OllamaIcon } from "../icons/ProviderIcons";
+import { OllamaIcon, LMStudioIcon } from "../icons/ProviderIcons";
 
 export interface Provider {
   id: string;
@@ -149,6 +150,27 @@ export const PROVIDERS: Provider[] = [
     configurable_base_url: true,
     optional_api_key: true,
     setup_instructions: "Open Ollama settings and turn on 'Expose Ollama to the network'"
+  },
+  {
+    id: 'user/lmstudio',
+    alias: ['lmstudio', 'lm-studio'],
+    name: 'LM Studio',
+    description: 'Connect to LM Studio running on your local machine.',
+    logo: LMStudioIcon,
+    base_url: "http://host.docker.internal:1234/v1",
+    configurable_base_url: true,
+    optional_api_key: true,
+    setup_instructions: "Start LM Studio and load a model. The server runs automatically on port 1234."
+  },
+  {
+    id: 'user/deepseek',
+    alias: ['deepseek', 'deepseek-api'],
+    name: 'DeepSeek',
+    description: 'Connect to DeepSeek models through the OpenAI-compatible API.',
+    logo: DeepSeekLogo,
+    base_url: 'https://api.deepseek.com/v1',
+    setup_instructions: 'Get your API key from the DeepSeek platform.',
+    api_key_url: 'https://platform.deepseek.com/api_keys'
   },
   {
     id: 'user/custom',

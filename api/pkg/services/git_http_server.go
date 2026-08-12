@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +37,16 @@ type AuthorizationToRepositoryFunc func(ctx context.Context, user *types.User, r
 // tells the agent to cancel its current turn before processing — use it for reactive
 // feedback like design-review comments; use false for system-driven instructions.
 type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, notifyUserID string, interrupt bool) (string, string, error)
+
+// SpecTaskMessageEnqueuer enqueues a message onto the session-scoped prompt
+// queue for a spec task's canonical planning session and returns once the row is
+// persisted (delivery is async — the poller dispatches when the agent is idle,
+// or cancels-then-sends for interrupt=true). notifyUserID, when non-empty, is
+// the user the response should be streamed to (design-review commenter).
+//
+// This is the single sender abstraction for pkg/services callers; it replaces
+// SpecTaskMessageSender's immediate direct dispatch.
+type SpecTaskMessageEnqueuer func(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string) error
 
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {
@@ -88,12 +99,24 @@ type GitHTTPServer struct {
 	authorizeFn      AuthorizationToRepositoryFunc
 	triggerManager   TriggerManager
 	attentionService *AttentionService
-	wg               sync.WaitGroup
+	// onDefaultBranchPush, when set, is invoked asynchronously after a
+	// successful receive-pack on the repository's default branch. The
+	// project-web-service auto-deploy hook uses this to trigger
+	// webservice.Controller.Redeploy on the user pushing to main.
+	onDefaultBranchPush func(ctx context.Context, repoID, branch, userID string)
+	wg                  sync.WaitGroup
 }
 
 // SetAttentionService sets the attention service for emitting human-needed events.
 func (s *GitHTTPServer) SetAttentionService(svc *AttentionService) {
 	s.attentionService = svc
+}
+
+// SetOnDefaultBranchPush installs the post-receive hook that fires
+// (in a goroutine) after every successful push to a repo's default
+// branch. Used by the api server to wire up the web-service auto-deploy.
+func (s *GitHTTPServer) SetOnDefaultBranchPush(fn func(ctx context.Context, repoID, branch, userID string)) {
+	s.onDefaultBranchPush = fn
 }
 
 // GitHTTPServerConfig holds configuration for the git HTTP server
@@ -603,6 +626,19 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
 
+	// Fire the project-web-service auto-deploy hook (if installed) for
+	// every push that touched the repo's default branch. Detached so a
+	// slow deploy never blocks the git client's response.
+	if s.onDefaultBranchPush != nil && repo != nil && repo.DefaultBranch != "" {
+		if _, hit := pushedBranchesMap[repo.DefaultBranch]; hit {
+			var deployUserID string
+			if pushUser := s.getUser(r); pushUser != nil {
+				deployUserID = pushUser.ID
+			}
+			go s.onDefaultBranchPush(context.Background(), repoID, repo.DefaultBranch, deployUserID)
+		}
+	}
+
 	// Note: Branch restrictions for agent API keys are now enforced by the pre-receive hook
 	// via the HELIX_ALLOWED_BRANCHES environment variable set above. No post-receive
 	// rollback is needed - unauthorized pushes are rejected before refs are updated.
@@ -627,9 +663,11 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		// Using the latest actor available means agent-initiated pushes at
 		// any phase carry a real user identity rather than anonymous creds.
 		var pushUserID string
+		var pushTaskID string
 		if restriction != nil && restriction.IsAgentKey {
 			rawKey := s.extractRawAPIKey(apiKey)
 			if keyRecord, err := s.store.GetAPIKey(context.Background(), &types.ApiKey{Key: rawKey}); err == nil && keyRecord.SpecTaskID != "" {
+				pushTaskID = keyRecord.SpecTaskID
 				if pushTask, err := s.store.GetSpecTask(context.Background(), keyRecord.SpecTaskID); err == nil {
 					pushUserID = pushTask.ImplementationApprovedBy
 					if pushUserID == "" {
@@ -643,6 +681,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		}
 
 		upstreamPushFailed := false
+		var pushErr error
 		for branch, isForce := range pushedBranchesMap {
 			// Create per-branch timeout so later branches don't get starved
 			branchCtx, branchCancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -654,6 +693,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			if err != nil {
 				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Failed to push branch to upstream - rolling back")
 				upstreamPushFailed = true
+				pushErr = err
 				break
 			}
 			log.Info().Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Successfully pushed branch to upstream")
@@ -662,8 +702,14 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		if upstreamPushFailed {
 			log.Warn().Str("repo_id", repoID).Msg("Rolling back refs due to upstream push failure")
 			s.rollbackBranchRefs(repoPath, branchesBefore, pushedBranches)
+			// Persist a structured error on the task so the failure is surfaced
+			// instead of silently rolled back after the client already got 200.
+			s.recordPushError(context.Background(), pushTaskID, repo, pushUserID, pushErr)
 			return
 		}
+
+		// External push succeeded — clear any stale push error on the task.
+		s.clearPushError(context.Background(), pushTaskID)
 	}
 
 	// Trigger post-push hooks asynchronously
@@ -776,6 +822,47 @@ func (s *GitHTTPServer) rollbackBranchRefs(repoPath string, previousHashes map[s
 				log.Info().Str("branch", branch).Msg("Removed newly created branch ref")
 			}
 		}
+	}
+}
+
+// recordPushError persists a structured PushError on the spec task after a
+// user-initiated external push failed and its refs were rolled back. This is the
+// signal the board/agent reads instead of silently reporting success. Best-effort:
+// logs and returns on any error rather than failing the (already-completed) push.
+func (s *GitHTTPServer) recordPushError(ctx context.Context, taskID string, repo *types.GitRepository, actingUserID string, pushErr error) {
+	if taskID == "" || repo == nil {
+		return
+	}
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Could not load spec task to record push error")
+		return
+	}
+	rawMsg := ""
+	if pushErr != nil {
+		rawMsg = pushErr.Error()
+	}
+	account := s.gitRepoService.GetActingAccountHandle(ctx, repo, actingUserID)
+	task.LastPushError = types.NewPushError(repo.ExternalType, account, RepoOwnerName(repo), rawMsg, time.Now())
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to persist push error on spec task")
+		return
+	}
+	log.Warn().Str("task_id", taskID).Str("account", account).Str("repo", RepoOwnerName(repo)).Msg("Recorded external push failure on spec task")
+}
+
+// clearPushError removes a stale PushError from the task after a successful push.
+func (s *GitHTTPServer) clearPushError(ctx context.Context, taskID string) {
+	if taskID == "" {
+		return
+	}
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil || task.LastPushError == nil {
+		return
+	}
+	task.LastPushError = nil
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to clear push error on spec task")
 	}
 }
 
@@ -985,6 +1072,23 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
 				continue
 			}
+
+			// Autonomous runs have nobody to click Accept. On an internal repo
+			// there is also no PR path (CreatePullRequest rejects a repo with no
+			// ExternalURL), so without this the branch is never merged by any
+			// route: it just accumulates commits, diverges from main, and
+			// eventually cannot even fast-forward. That is how a fortnight of
+			// chris-outreach memory ended up stranded across five branches.
+			if isAutonomousRun(task.Type) && !repo.IsExternal {
+				s.wg.Add(1)
+				// Pass the repo that was pushed to. It is not necessarily the
+				// project default — a bot contributing to a shared internal repo
+				// pushes there while the project's default repo is external.
+				go func(taskID string, pushedRepo *types.GitRepository) {
+					defer s.wg.Done()
+					s.tryAutoMergeBotRun(context.Background(), taskID, pushedRepo)
+				}(task.ID, repo)
+			}
 		case types.TaskStatusImplementationReview:
 			// A push arrived while a PR is open. Always re-sync the PR
 			// title/description from helix-specs so edits to
@@ -1151,6 +1255,102 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		Msg("auto-merge: server-side merge completed after agent rebase push")
 }
 
+// SpecTask.Type values HelixOS sets for its unattended runs. All of them are
+// dispatched by the same helper (helixos handlers.dispatchBotRun) and share the
+// defining property: nobody ever clicks Accept, so the merge has to be driven for
+// them.
+//
+// Matching only "bot_run" was a bug. A hypothesis run is dispatched as
+// "hypothesis" and a candidate sourcing run as "candidate_search", so both were
+// silently excluded from auto-merge — including the hypothesis bots that do the
+// daily outreach and write back to the shared playbook repo.
+const (
+	specTaskTypeBotRun          = "bot_run"
+	specTaskTypeHypothesis      = "hypothesis"
+	specTaskTypeCandidateSearch = "candidate_search"
+)
+
+// isAutonomousRun reports whether a task is an unattended HelixOS run that must
+// have its merge driven server-side.
+func isAutonomousRun(taskType string) bool {
+	switch taskType {
+	case specTaskTypeBotRun, specTaskTypeHypothesis, specTaskTypeCandidateSearch:
+		return true
+	default:
+		return false
+	}
+}
+
+// tryAutoMergeBotRun fast-forward merges an autonomous bot run's feature branch
+// into the default branch after the agent pushes.
+//
+// Only for INTERNAL repos. External repos already have a working path (open a PR,
+// human merges it); internal repos have none, because CreatePullRequest refuses a
+// repo with no ExternalURL and the only other route, approveImplementation, waits
+// on a human click that never comes for a cron run.
+//
+// Deliberately does NOT set the task to `done`. HelixOS treats bots as
+// long-running (one persistent spec task per bot, terminated only when the bot is
+// archived), so completing the task here would stop the bot. We record the merge
+// and leave the lifecycle alone.
+//
+// If the fast-forward is not possible the branch has diverged. We do not attempt a
+// content merge server-side: the agent is told to merge the base branch into its
+// own before pushing (see agent_instruction_service.go), which is where conflict
+// resolution belongs — it can read the files, apply judgment, and ask a human.
+// repo MUST be the repository that was actually pushed to, not the project's
+// default. Re-resolving project.DefaultRepoID here was a bug: in a project whose
+// default repo is external (GitHub) but which also contains an internal repo, the
+// external guard below tripped on the default repo and returned every time — so a
+// bot pushing to the internal repo was never merged at all. That is the shape of
+// the HelixOS project: an external primary plus one internal playbook repo.
+func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string, repo *types.GitRepository) {
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("bot auto-merge: get task failed")
+		return
+	}
+	// Re-check under fresh state: the row may have moved since the push hook fired.
+	if task.Status != types.TaskStatusImplementation || !isAutonomousRun(task.Type) {
+		return
+	}
+	if task.BranchName == "" {
+		return
+	}
+	if repo == nil || repo.DefaultBranch == "" {
+		return
+	}
+	// Guard on the pushed repo: external repos have the PR path instead.
+	if repo.IsExternal {
+		return
+	}
+
+	if _, mergeErr := MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); mergeErr != nil {
+		log.Warn().
+			Err(mergeErr).
+			Str("task_id", task.ID).
+			Str("source_branch", task.BranchName).
+			Str("target_branch", repo.DefaultBranch).
+			Msg("bot auto-merge: branch has diverged from the default branch and cannot fast-forward - the agent must merge the base branch into its feature branch and push again")
+		return
+	}
+
+	now := time.Now()
+	task.MergedToMain = true
+	task.MergedAt = &now
+	task.UpdatedAt = now
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("bot auto-merge: failed to record merge on task")
+		return
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("source_branch", task.BranchName).
+		Str("target_branch", repo.DefaultBranch).
+		Msg("bot auto-merge: fast-forward merged autonomous run into default branch")
+}
+
 // handleMainBranchPush observes pushes to a default-branch and records merge
 // metadata (MergedToMain / MergedAt / MergeCommitHash) on any spec task whose
 // feature branch was merged into main as part of this push.
@@ -1307,28 +1507,36 @@ func pullRequestFileChangedForTask(files []string, designDocPath string) bool {
 	return false
 }
 
-// syncOpenPRDescriptions re-reads pull_request_<repo-name>.md (or generic
-// pull_request.md) from this repo's helix-specs branch and PATCHes the GitHub
-// PR title/body for any currently-open PR belonging to this same repo.
-//
-// Only updates PRs that live in the repo that received the helix-specs push —
-// multi-repo projects need pushes to each repo's helix-specs to update PRs in
-// that repo (the agent normally keeps them in sync).
-func (s *GitHTTPServer) syncOpenPRDescriptions(ctx context.Context, task *types.SpecTask, repo *types.GitRepository, repoPath string) {
-	if repo.ExternalURL == "" {
-		// Internal repos have no upstream PR to update.
-		return
-	}
-	pr := task.GetPRForRepo(repo.ID)
-	if pr == nil || pr.PRState != "open" || pr.PRNumber == 0 {
-		return
-	}
+type openPRDescriptionTarget struct {
+	repository  *types.GitRepository
+	pullRequest *types.RepoPR
+}
 
-	title, description, found := s.getPullRequestContent(repoPath, task, repo.Name)
-	if !found {
-		// File missing or unparseable. Leave the PR alone rather than
-		// overwriting with the task-name fallback — the user may have
-		// authored the current body manually.
+func openPRDescriptionTargets(task *types.SpecTask, repos []*types.GitRepository) []openPRDescriptionTarget {
+	targets := make([]openPRDescriptionTarget, 0, len(repos))
+	for _, repo := range repos {
+		if repo == nil || repo.ExternalURL == "" {
+			continue
+		}
+		pr := task.GetPRForRepo(repo.ID)
+		if pr == nil || pr.PRState != "open" || pr.PRNumber == 0 {
+			continue
+		}
+		targets = append(targets, openPRDescriptionTarget{repository: repo, pullRequest: pr})
+	}
+	return targets
+}
+
+// SyncOpenPRDescriptions re-reads pull_request_<repo-name>.md (or generic
+// pull_request.md) from the primary repo's helix-specs branch and updates every
+// open PR tracked by the task. A multi-repo task stores all PR description files
+// on that one branch, so one specs push must update all of its PRs.
+func (s *GitHTTPServer) SyncOpenPRDescriptions(ctx context.Context, task *types.SpecTask, primaryRepoPath string) {
+	repos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to list repositories for PR description sync")
 		return
 	}
 
@@ -1338,21 +1546,41 @@ func (s *GitHTTPServer) syncOpenPRDescriptions(ctx context.Context, task *types.
 			orgName = org.Name
 		}
 	}
-	description = description + "\n\n" + buildPRFooter(repo, task, orgName, s.serverBaseURL)
 
-	if err := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.PRNumber, title, description); err != nil {
-		log.Error().Err(err).
+	for _, target := range openPRDescriptionTargets(task, repos) {
+		repo := target.repository
+		pr := target.pullRequest
+
+		title, description, found := s.getPullRequestContent(primaryRepoPath, task, repo.Name)
+		if !found {
+			// Leave manually-authored PR content untouched when no metadata file exists.
+			continue
+		}
+
+		footer, err := s.renderPRFooter(ctx, repo, task, orgName, taskPRUserID(task))
+		if err != nil {
+			log.Error().Err(err).
+				Str("task_id", task.ID).
+				Str("repo_id", repo.ID).
+				Msg("Failed to render PR footer")
+			continue
+		}
+		description = AppendPRFooter(description, footer)
+
+		if err := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.PRNumber, title, description); err != nil {
+			log.Error().Err(err).
+				Str("task_id", task.ID).
+				Str("repo_id", repo.ID).
+				Int("pr_number", pr.PRNumber).
+				Msg("Failed to update PR description from helix-specs")
+			continue
+		}
+		log.Info().
 			Str("task_id", task.ID).
 			Str("repo_id", repo.ID).
 			Int("pr_number", pr.PRNumber).
-			Msg("Failed to update PR description from helix-specs")
-		return
+			Msg("Updated PR title/body from helix-specs pull_request_*.md")
 	}
-	log.Info().
-		Str("task_id", task.ID).
-		Str("repo_id", repo.ID).
-		Int("pr_number", pr.PRNumber).
-		Msg("Updated PR title/body from helix-specs pull_request_*.md")
 }
 
 // getSpecDocsBaseURL builds a URL to view spec docs in the external repo's web UI.
@@ -1383,35 +1611,23 @@ func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string 
 	}
 }
 
-// buildPRFooter generates the PR description footer with:
-// - "Open in Helix" link to the task in Helix UI
-// - Spec doc links (if available for the repo type)
-// - Helix branding
-func buildPRFooter(repo *types.GitRepository, task *types.SpecTask, orgName, helixBaseURL string) string {
-	var parts []string
-
-	// "Open in Helix" link - always include if we have the necessary info
-	if helixBaseURL != "" && orgName != "" && task.ProjectID != "" && task.ID != "" {
-		helixTaskURL := fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
-			strings.TrimSuffix(helixBaseURL, "/"), orgName, task.ProjectID, task.ID)
-		parts = append(parts, fmt.Sprintf("🔗 [Open in Helix](%s)", helixTaskURL))
+func taskPRUserID(task *types.SpecTask) string {
+	if task.ImplementationApprovedBy != "" {
+		return task.ImplementationApprovedBy
 	}
+	return task.CreatedBy
+}
 
-	// Spec doc links (if available for this repo type)
-	specDocsURL := ""
-	if task.DesignDocPath != "" {
-		specDocsURL = getSpecDocsBaseURL(repo, task.DesignDocPath)
+func (s *GitHTTPServer) renderPRFooter(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, orgName, userID string) (string, error) {
+	footerTemplate := DefaultPRFooterTemplate
+	if userID != "" {
+		user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+		if err != nil {
+			return "", fmt.Errorf("get PR owner settings: %w", err)
+		}
+		footerTemplate = UserPRFooterTemplate(user)
 	}
-
-	if specDocsURL != "" {
-		parts = append(parts, fmt.Sprintf("📋 Spec:\n- [Requirements](%s/requirements.md)\n- [Design](%s/design.md)\n- [Tasks](%s/tasks.md)",
-			specDocsURL, specDocsURL, specDocsURL))
-	}
-
-	// Helix branding - always include
-	parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
-
-	return "---\n" + strings.Join(parts, "\n\n")
+	return RenderPRFooter(footerTemplate, repo, task, orgName, s.serverBaseURL)
 }
 
 // ensurePullRequest creates a PR if one doesn't exist
@@ -1482,8 +1698,11 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 			orgName = org.Name
 		}
 	}
-	footer := buildPRFooter(repo, task, orgName, s.serverBaseURL)
-	description = description + "\n\n" + footer
+	footer, err := s.renderPRFooter(ctx, repo, task, orgName, taskPRUserID(task))
+	if err != nil {
+		return fmt.Errorf("failed to render PR footer: %w", err)
+	}
+	description = AppendPRFooter(description, footer)
 
 	// Check for existing PR on this branch
 	sourceBranchRef := "refs/heads/" + branch
@@ -1684,7 +1903,7 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 		}
 
 		// If this push was to helix-specs and touched the task's
-		// pull_request_*.md, re-sync the open GitHub PR's title and body so
+		// pull_request_*.md, re-sync every open PR's title and body so
 		// edits to the description after the PR was first opened propagate
 		// (previously the PR was templated once at creation time and never
 		// updated, so any pull_request_*.md added later was ignored).
@@ -1692,7 +1911,7 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 			s.wg.Add(1)
 			go func(t *types.SpecTask) {
 				defer s.wg.Done()
-				s.syncOpenPRDescriptions(context.Background(), t, repo, repoPath)
+				s.SyncOpenPRDescriptions(context.Background(), t, repoPath)
 			}(task)
 		}
 
@@ -1827,6 +2046,30 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 	}
 }
 
+var (
+	markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
+	markdownLinkRe  = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+	markdownTokenRe = regexp.MustCompile("[*_`~#>]+")
+	whitespaceRe    = regexp.MustCompile(`\s+`)
+)
+
+// normalizeForCommentMatch reduces markdown text to a comparable plain-text form
+// so a comment's quoted_text (captured from rendered text, without markdown
+// syntax) can be matched against the raw markdown source. Both sides MUST be
+// passed through this function. It resolves links/images to their visible text,
+// strips common inline markdown tokens, and collapses all whitespace to single
+// spaces. It intentionally over-normalizes: the goal is to avoid auto-resolving
+// a comment whose text is still present, so a few false matches (keeping a
+// comment that could have been resolved) are preferable to false non-matches
+// (silently deleting a live comment).
+func normalizeForCommentMatch(s string) string {
+	s = markdownImageRe.ReplaceAllString(s, "$1")
+	s = markdownLinkRe.ReplaceAllString(s, "$1")
+	s = markdownTokenRe.ReplaceAllString(s, "")
+	s = whitespaceRe.ReplaceAllString(s, " ")
+	return strings.TrimSpace(s)
+}
+
 // checkCommentResolution checks if design review comments should be auto-resolved
 // because the quoted text was removed/updated in the design documents
 func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, repoPath, branch string, gitRepo *GitRepo) {
@@ -1868,17 +2111,30 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 		}
 	}
 
+	// Pre-normalize each document once so the quoted_text (rendered, no markdown
+	// syntax) can be matched against a comparable form of the raw markdown.
+	normalizedDocs := make(map[string]string, len(docContents))
+	for docType, content := range docContents {
+		normalizedDocs[docType] = normalizeForCommentMatch(content)
+	}
+
 	now := time.Now()
 	resolvedCount := 0
 	for _, comment := range comments {
 		if comment.QuotedText == "" {
 			continue
 		}
-		content, exists := docContents[comment.DocumentType]
+		content, exists := normalizedDocs[comment.DocumentType]
 		if !exists {
 			continue
 		}
-		if !strings.Contains(content, comment.QuotedText) {
+		normalizedQuote := normalizeForCommentMatch(comment.QuotedText)
+		// Fail safe: if the quote normalizes to nothing we can't confidently
+		// decide it was removed, so keep the comment rather than dropping it.
+		if normalizedQuote == "" {
+			continue
+		}
+		if !strings.Contains(content, normalizedQuote) {
 			log.Info().Str("comment_id", comment.ID).Str("document_type", comment.DocumentType).Msg("Auto-resolving comment - quoted text removed")
 			// Use targeted update that only modifies resolution fields
 			if err := s.store.UpdateCommentResolved(ctx, comment.ID, true, &now, "system", "auto_text_removed"); err != nil {

@@ -1,12 +1,13 @@
 package api
 
 import (
-	"bytes"
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,13 +26,81 @@ import (
 var serverCmd *exec.Cmd
 var serverExited = make(chan error, 1) // signals when the server process exits
 
+// serverLogTailBytes bounds how much of the server's (debug-level) output we
+// keep. Enough to cover the requests around a failure without holding minutes
+// of trace output in memory.
+const serverLogTailBytes = 4 << 20 // 4 MiB
+
+// serverLogBuffer keeps the tail of the API server's output. exec writes to it
+// from its stdout and stderr copier goroutines while the test goroutine reads
+// it, so every access is mutex guarded.
+type serverLogBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (b *serverLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf = append(b.buf, p...)
+	if excess := len(b.buf) - serverLogTailBytes; excess > 0 {
+		b.buf = b.buf[excess:]
+	}
+	return len(p), nil
+}
+
+func (b *serverLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.buf)
+}
+
+// dump writes the captured server output to stderr. Without this the logs that
+// explain a failure (upstream 429s, exhausted provider balance, panics) are
+// collected and then silently discarded, leaving only an opaque test timeout.
+func (b *serverLogBuffer) dump(reason string) {
+	if b == nil {
+		return
+	}
+	contents := b.String()
+	if contents == "" {
+		fmt.Fprintf(os.Stderr, "\n===== API server logs (%s): EMPTY =====\n", reason)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\n===== API server logs (%s), last %d bytes =====\n%s\n===== end API server logs =====\n",
+		reason, len(contents), contents)
+}
+
+// dumpServerLogsBeforeTestTimeout arms a watchdog that prints the server logs
+// shortly before `go test -timeout` panics the process. The panic kills the
+// test binary outright, so anything deferred until after m.Run() never runs —
+// which is exactly how an 8 minute hang produced a stack trace with no server
+// side context at all.
+func dumpServerLogsBeforeTestTimeout(logs *serverLogBuffer) {
+	f := flag.Lookup("test.timeout")
+	if f == nil {
+		return
+	}
+	timeout, err := time.ParseDuration(f.Value.String())
+	if err != nil || timeout <= 0 {
+		return
+	}
+	lead := 30 * time.Second
+	if timeout <= lead {
+		lead = timeout / 4
+	}
+	time.AfterFunc(timeout-lead, func() {
+		logs.dump(fmt.Sprintf("watchdog: %s test timeout approaching", timeout))
+	})
+}
+
 func TestMain(m *testing.M) {
 	// Load file
 	_ = godotenv.Load(".test.env")
 
 	startServer := os.Getenv("START_HELIX_TEST_SERVER") == "true"
 	// Accumulate server logs
-	var buf *bytes.Buffer
+	var buf *serverLogBuffer
 
 	if startServer {
 		// Start server
@@ -40,14 +109,25 @@ func TestMain(m *testing.M) {
 		// Wait for server to be ready
 		if err := waitForAPIServer(buf); err != nil {
 			log.Printf("Failed to start API server: %v", err)
-			log.Printf("Server logs:\n%s", buf.String())
+			buf.dump("server failed to start")
 			os.Exit(1)
 		}
+
+		dumpServerLogsBeforeTestTimeout(buf)
 	}
 
 	runTests := m.Run()
 
 	if startServer {
+		// The server's logs are the only place the cause of a failure is
+		// recorded — the test binary sees an HTTP response, not why the agent
+		// produced it. Dumping them only on startup failure meant a red CI run
+		// showed the assertion and nothing else, which is a long way to go to
+		// find out a provider was returning 429.
+		if runTests != 0 {
+			buf.dump("tests failed")
+		}
+
 		// Clean up the server process
 		if serverCmd != nil && serverCmd.Process != nil {
 			if err := serverCmd.Process.Kill(); err != nil {
@@ -59,8 +139,8 @@ func TestMain(m *testing.M) {
 	os.Exit(runTests)
 }
 
-func startAPIServer() *bytes.Buffer {
-	buf := bytes.NewBuffer(nil)
+func startAPIServer() *serverLogBuffer {
+	buf := &serverLogBuffer{}
 
 	serverCmd = exec.Command("helix", "serve")
 	serverCmd.Stdout = buf
@@ -71,17 +151,19 @@ func startAPIServer() *bytes.Buffer {
 
 	// Define the rest env variables, similarly to what we set in docker-compose.dev.yaml
 	serverCmd.Env = append(serverCmd.Env,
-		"SERVER_PORT=8080",
+		"SERVER_PORT="+integrationServerPort(),
 		"LOG_LEVEL=debug",
-		"APP_URL=http://localhost:8080",
+		"APP_URL="+integrationServerURL(),
 		"RUNNER_TOKEN=oh-hallo-insecure-token",
-		"SERVER_URL=http://localhost:8080",
+		"SERVER_URL="+integrationServerURL(),
+		"ASSET_SSH_PROXY_LISTEN=127.0.0.1:"+integrationAssetSSHProxyPort(),
+		"ASSET_SSH_PROXY_ADDRESS=127.0.0.1:"+integrationAssetSSHProxyPort(),
 		"FILESTORE_LOCALFS_PATH=/tmp",
 		"FRONTEND_URL=/tmp", // No frontend here but doesn't matter for API integration tests
 		"FILESTORE_AVATARS_PATH=/tmp/avatars",
 	)
 
-	fmt.Println("Starting API server on port 8080")
+	fmt.Printf("Starting API server on port %s\n", integrationServerPort())
 
 	if err := serverCmd.Start(); err != nil {
 		log.Printf("Failed to start API server: %v (%s)", err, buf.String())
@@ -97,7 +179,7 @@ func startAPIServer() *bytes.Buffer {
 }
 
 // waitForAPIServer polls the server until it responds or the process exits.
-func waitForAPIServer(serverLogs *bytes.Buffer) error {
+func waitForAPIServer(serverLogs *serverLogBuffer) error {
 	httpClient := &http.Client{
 		Timeout: 5 * time.Second,
 	}
@@ -114,7 +196,7 @@ func waitForAPIServer(serverLogs *bytes.Buffer) error {
 		case <-timeout:
 			return fmt.Errorf("timeout waiting for API server to start")
 		case <-tick.C:
-			resp, err := httpClient.Get("http://localhost:8080/api/v1/config")
+			resp, err := httpClient.Get(integrationServerURL() + "/api/v1/config")
 			if err != nil {
 				log.Printf("API not ready yet: %v", err)
 				continue
@@ -130,11 +212,29 @@ func waitForAPIServer(serverLogs *bytes.Buffer) error {
 }
 
 func getAPIClient(userAPIKey string) (*client.HelixClient, error) {
-	apiClient, err := client.NewClient("http://localhost:8080", userAPIKey, false)
+	apiClient, err := client.NewClient(integrationServerURL(), userAPIKey, false)
 	if err != nil {
 		return nil, err
 	}
 	return apiClient, nil
+}
+
+func integrationServerPort() string {
+	if value := os.Getenv("HELIX_INTEGRATION_SERVER_PORT"); value != "" {
+		return value
+	}
+	return "8080"
+}
+
+func integrationServerURL() string {
+	return "http://localhost:" + integrationServerPort()
+}
+
+func integrationAssetSSHProxyPort() string {
+	if value := os.Getenv("HELIX_INTEGRATION_ASSET_SSH_PROXY_PORT"); value != "" {
+		return value
+	}
+	return "2224"
 }
 
 func getStoreClient() (*store.PostgresStore, error) {
@@ -177,7 +277,7 @@ func createUser(t *testing.T, db *store.PostgresStore, authenticator auth.Authen
 		return nil, "", fmt.Errorf("failed to generate API key: %w", err)
 	}
 
-	t.Logf("generated API key for user %s: %s", createdUser.ID, apiKey)
+	t.Logf("generated API key for user %s", createdUser.ID)
 
 	_, err = db.CreateAPIKey(context.Background(), &types.ApiKey{
 		Name:      "first-test-key",

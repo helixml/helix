@@ -1,14 +1,38 @@
 import React, { forwardRef, useImperativeHandle, useState } from 'react'
 import { useCodingAgentProviderState } from './useCodingAgentProviderState'
-import { Alert, Box, Button, CircularProgress, FormControl, FormControlLabel, MenuItem, Radio, RadioGroup, Select, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, FormControl, FormControlLabel, MenuItem, Radio, RadioGroup, Select, Stack, TextField, Typography } from '@mui/material'
 import { SxProps, Theme } from '@mui/material/styles'
 
 import { CodeAgentRuntime, ICreateAgentParams } from '../../contexts/apps'
 import useApps from '../../hooks/useApps'
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../../types'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
+import AgentHarness from './AgentHarness'
 
 export type ClaudeCodeMode = 'subscription' | 'api_key'
+
+// Claude Code model IDs available in subscription mode. Keep flagship models
+// versioned so the UI says exactly what will run; Sonnet and Haiku intentionally
+// use Claude Code's rolling aliases.
+export const CLAUDE_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
+  { id: 'claude-opus-5', label: 'Claude Opus 5 (1M context, recommended)' },
+  { id: 'claude-fable-5', label: 'Claude Fable 5 (1M context)' },
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 (1M context)' },
+  { id: 'sonnet', label: 'Claude Sonnet (latest)' },
+  { id: 'haiku', label: 'Claude Haiku (latest)' },
+]
+export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'claude-opus-5'
+
+export const CODEX_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
+  { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+  { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+  { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+  { id: 'gpt-5.5', label: 'GPT-5.5' },
+  { id: 'gpt-5.4', label: 'GPT-5.4' },
+  { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+  { id: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
+]
+export const DEFAULT_CODEX_SUBSCRIPTION_MODEL = 'gpt-5.6-sol'
 
 export interface CodingAgentFormValue {
   codeAgentRuntime: CodeAgentRuntime
@@ -38,6 +62,11 @@ interface CodingAgentFormProps {
   agentNameLabel?: string
   agentNameHelperText?: string
   showClaudeCodeOption?: boolean
+  showCredentialSelection?: boolean
+  showModelSelection?: boolean
+  showAgentName?: boolean
+  autoSelectRuntime?: boolean
+  deferModelSelection?: boolean
   sx?: SxProps<Theme>
   labelSx?: SxProps<Theme>
   captionSx?: SxProps<Theme>
@@ -81,6 +110,11 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   agentNameLabel = defaultAgentNameLabel,
   agentNameHelperText = defaultAgentNameHelper,
   showClaudeCodeOption = true,
+  showCredentialSelection = true,
+  showModelSelection = true,
+  showAgentName = true,
+  autoSelectRuntime = true,
+  deferModelSelection = false,
   sx,
   labelSx,
   captionSx,
@@ -104,8 +138,13 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   const apps = useApps()
   const [createError, setCreateError] = useState('')
   const [isCreating, setIsCreating] = useState(false)
-  const { hasAnthropicProvider, hasClaudeSubscription } = useCodingAgentProviderState(value, onChange)
-  const showModelPicker = value.codeAgentRuntime !== 'claude_code' || value.claudeCodeMode === 'api_key'
+  // Claude subscription mode has a fixed three-tier model choice (Opus/Sonnet/Haiku),
+  // kept local because the create-form parents don't round-trip extra value fields.
+  const [claudeSubscriptionModel, setClaudeSubscriptionModel] = useState(DEFAULT_CLAUDE_SUBSCRIPTION_MODEL)
+  const [codexSubscriptionModel, setCodexSubscriptionModel] = useState(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
+  const { hasAnthropicProvider, hasClaudeSubscription, hasCodexSubscription } = useCodingAgentProviderState(value, onChange, autoSelectRuntime)
+  const isSubscriptionRuntime = (value.codeAgentRuntime === 'claude_code' || value.codeAgentRuntime === 'codex_cli') && value.claudeCodeMode === 'subscription'
+  const showModelPicker = !isSubscriptionRuntime
   const isClaudeCodeSubscription = value.codeAgentRuntime === 'claude_code' && value.claudeCodeMode === 'subscription'
 
   const handleCreateAgent = async (): Promise<IApp | null> => {
@@ -114,15 +153,17 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
       return null
     }
 
-    if (!isClaudeCodeSubscription && (!value.selectedModel || !value.selectedProvider)) {
+    if (!deferModelSelection && !isSubscriptionRuntime && (!value.selectedModel || !value.selectedProvider)) {
       setCreateError('Please select both provider and model')
       return null
     }
 
-    const modelToUse = isClaudeCodeSubscription ? '' : (value.selectedModel || '')
-    const providerToUse = isClaudeCodeSubscription ? '' : (value.selectedProvider || '')
+    const modelToUse = value.codeAgentRuntime === 'codex_cli' && value.claudeCodeMode === 'subscription'
+      ? codexSubscriptionModel
+      : isSubscriptionRuntime ? '' : (value.selectedModel || '')
+    const providerToUse = isSubscriptionRuntime ? '' : (value.selectedProvider || '')
 
-    if (!isClaudeCodeSubscription && (!modelToUse || !providerToUse)) {
+    if (!deferModelSelection && !isSubscriptionRuntime && (!modelToUse || !providerToUse)) {
       setCreateError('Please select both provider and model')
       return null
     }
@@ -138,6 +179,8 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         agentType: AGENT_TYPE_ZED_EXTERNAL,
         codeAgentRuntime: value.codeAgentRuntime,
         codeAgentCredentialType: value.claudeCodeMode === 'subscription' ? 'subscription' : 'api_key',
+        deferModelSelection: deferModelSelection && !isSubscriptionRuntime,
+        claudeSubscriptionModel: isClaudeCodeSubscription ? claudeSubscriptionModel : undefined,
         provider: providerToUse,
         model: modelToUse,
         organizationId: createAgentOrganizationId,
@@ -176,7 +219,9 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
     apps,
     createAgentDescription,
     createAgentOrganizationId,
+    deferModelSelection,
     isClaudeCodeSubscription,
+    claudeSubscriptionModel,
     onAgentCreated,
     onCreateStateChange,
     value.agentName,
@@ -185,7 +230,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
     value.selectedModel,
     value.selectedProvider,
   ])
-  const canCreateAgent = !!value.agentName.trim() && (isClaudeCodeSubscription || (!!value.selectedModel && !!value.selectedProvider))
+  const canCreateAgent = !!value.agentName.trim() && (deferModelSelection || isSubscriptionRuntime || (!!value.selectedModel && !!value.selectedProvider))
   const createButtonDisabled = disabled || isCreating || !canCreateAgent
 
   return (
@@ -200,14 +245,24 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         <Select
           value={value.codeAgentRuntime}
           onChange={(event) => {
+            const nextRuntime = event.target.value as CodeAgentRuntime
+            const nextMode = nextRuntime === 'claude_code'
+              ? hasClaudeSubscription ? 'subscription' : 'api_key'
+              : nextRuntime === 'codex_cli'
+                ? hasCodexSubscription ? 'subscription' : 'api_key'
+                : 'api_key'
             onChange({
               ...value,
-              codeAgentRuntime: event.target.value as CodeAgentRuntime,
+              codeAgentRuntime: nextRuntime,
+              claudeCodeMode: nextMode,
             })
           }}
           disabled={disabled}
           size="small"
           sx={selectSx}
+          renderValue={(runtime) => (
+            <AgentHarness runtime={runtime} variant="long" size={16} />
+          )}
           MenuProps={{
             PaperProps: {
               sx: menuPaperSx,
@@ -215,43 +270,66 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
           }}
         >
           <MenuItem value="zed_agent">
-            <Box>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <AgentHarness runtime="zed_agent" variant="short" size={18} />
+              <Box>
               <Typography variant="body2">Zed Agent (Built-in)</Typography>
               <Typography variant="caption" color="text.secondary">
                 Uses Zed&apos;s native agent panel with direct API integration
               </Typography>
-            </Box>
+              </Box>
+            </Stack>
           </MenuItem>
           <MenuItem value="qwen_code">
-            <Box>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <AgentHarness runtime="qwen_code" variant="short" size={18} />
+              <Box>
               <Typography variant="body2">Qwen Code</Typography>
               <Typography variant="caption" color="text.secondary">
                 Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
               </Typography>
-            </Box>
+              </Box>
+            </Stack>
           </MenuItem>
           {showClaudeCodeOption && (
             <MenuItem value="claude_code">
-              <Box>
+              <Stack direction="row" spacing={1.25} alignItems="center">
+                <AgentHarness runtime="claude_code" variant="short" size={18} />
+                <Box>
                 <Typography variant="body2">Claude Code</Typography>
                 <Typography variant="caption" color="text.secondary">
                   Anthropic&apos;s coding agent — works with Claude subscriptions
                 </Typography>
-              </Box>
+                </Box>
+              </Stack>
             </MenuItem>
           )}
+          <MenuItem value="codex_cli">
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <AgentHarness runtime="codex_cli" variant="short" size={18} />
+              <Box>
+              <Typography variant="body2">Codex</Typography>
+              <Typography variant="caption" color="text.secondary">
+                OpenAI&apos;s coding agent with ChatGPT subscription support
+              </Typography>
+              </Box>
+            </Stack>
+          </MenuItem>
           <MenuItem value="goose_code">
-            <Box>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <AgentHarness runtime="goose_code" variant="short" size={18} />
+              <Box>
               <Typography variant="body2">Goose</Typography>
               <Typography variant="caption" color="text.secondary">
                 Open-source ACP agent from the Agentic AI Foundation (AAIF)
               </Typography>
-            </Box>
+              </Box>
+            </Stack>
           </MenuItem>
         </Select>
       </FormControl>
 
-      {value.codeAgentRuntime === 'claude_code' && (
+      {showCredentialSelection && value.codeAgentRuntime === 'claude_code' && (
         <Box sx={{ p: 1.5, mb: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider', ...claudeCredentialsBoxSx }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, ...labelSx }}>
             Credentials
@@ -296,10 +374,65 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
               Connect a Claude subscription or add an Anthropic API key in Providers.
             </Alert>
           )}
+          {isClaudeCodeSubscription && (
+            <Box sx={{ mt: 1.5 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, ...labelSx }}>
+                Model
+              </Typography>
+              <FormControl fullWidth>
+                <Select
+                  size="small"
+                  value={claudeSubscriptionModel}
+                  disabled={disabled}
+                  onChange={(event) => setClaudeSubscriptionModel(event.target.value)}
+                  sx={selectSx}
+                  MenuProps={{ PaperProps: { sx: menuPaperSx } }}
+                >
+                  {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
+                    <MenuItem key={m.id} value={m.id}>
+                      <Typography variant="body2">{m.label}</Typography>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+          )}
         </Box>
       )}
 
-      {showModelPicker && (
+      {showCredentialSelection && value.codeAgentRuntime === 'codex_cli' && (
+        <Box sx={{ p: 1.5, mb: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider', ...claudeCredentialsBoxSx }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>Credentials</Typography>
+          <RadioGroup value={value.claudeCodeMode} onChange={(event) => onChange({ ...value, claudeCodeMode: event.target.value as ClaudeCodeMode, selectedProvider: '', selectedModel: '' })}>
+            <FormControlLabel value="subscription" control={<Radio size="small" />} disabled={!hasCodexSubscription} label={`ChatGPT Subscription${hasCodexSubscription ? ' (connected)' : ' (not connected)'}`} />
+            <FormControlLabel value="api_key" control={<Radio size="small" />} label="OpenAI API Key" />
+          </RadioGroup>
+          {!hasCodexSubscription && value.claudeCodeMode === 'subscription' && <Alert severity="warning" sx={{ mt: 1 }}>Connect a ChatGPT subscription in Providers.</Alert>}
+          {value.claudeCodeMode === 'subscription' && (
+            <Box sx={{ mt: 1.5 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, ...labelSx }}>Model</Typography>
+              <FormControl fullWidth>
+                <Select
+                  size="small"
+                  value={codexSubscriptionModel}
+                  disabled={disabled}
+                  onChange={(event) => setCodexSubscriptionModel(event.target.value)}
+                  sx={selectSx}
+                  MenuProps={{ PaperProps: { sx: menuPaperSx } }}
+                >
+                  {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                    <MenuItem key={supportedModel.id} value={supportedModel.id}>
+                      <Typography variant="body2">{supportedModel.label}</Typography>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {showModelSelection && showModelPicker && (
         <>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1, ...labelSx }}>
             {modelLabel}
@@ -327,25 +460,29 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         </>
       )}
 
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1, ...labelSx }}>
-        {agentNameLabel}
-      </Typography>
-      <TextField
-        value={value.agentName}
-        onChange={(event) => {
-          onChange({
-            ...value,
-            agentName: event.target.value,
-          })
-        }}
-        fullWidth
-        size="small"
-        disabled={disabled}
-        helperText={agentNameHelperText}
-        InputProps={{ sx: textFieldInputSx }}
-        InputLabelProps={{ sx: textFieldLabelSx }}
-        FormHelperTextProps={{ sx: textFieldHelperSx }}
-      />
+      {showAgentName && (
+        <>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1, ...labelSx }}>
+            {agentNameLabel}
+          </Typography>
+          <TextField
+            value={value.agentName}
+            onChange={(event) => {
+              onChange({
+                ...value,
+                agentName: event.target.value,
+              })
+            }}
+            fullWidth
+            size="small"
+            disabled={disabled}
+            helperText={agentNameHelperText}
+            InputProps={{ sx: textFieldInputSx }}
+            InputLabelProps={{ sx: textFieldLabelSx }}
+            FormHelperTextProps={{ sx: textFieldHelperSx }}
+          />
+        </>
+      )}
       {showCreateButton && (
         <Box sx={{ mt: 2 }}>
           <Button

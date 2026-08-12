@@ -31,13 +31,13 @@ import {
   Chip,
   Switch,
   IconButton,
+  Tooltip,
 } from "@mui/material";
 import CodeIcon from "@mui/icons-material/Code";
 import AddIcon from "@mui/icons-material/Add";
 import WarningIcon from "@mui/icons-material/Warning";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import DeleteIcon from "@mui/icons-material/Delete";
-import LinkIcon from "@mui/icons-material/Link";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import HistoryIcon from "@mui/icons-material/History";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -47,12 +47,13 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import MoveUpIcon from "@mui/icons-material/MoveUp";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import HubIcon from "@mui/icons-material/Hub";
-import EditIcon from "@mui/icons-material/Edit";
+import SettingsIcon from "@mui/icons-material/Settings";
 
 import Skills from "../components/app/Skills";
-import { TypesAssistantSkills, TypesProject, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
+import { TypesAssistantSkills, TypesCreateAccessGrantRequest, TypesProject, TypesSecretScope, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
+import WebServiceTab from "../components/project/WebServiceTab";
 import CodingAgentForm from "../components/agent/CodingAgentForm";
 import {
   AppsContext,
@@ -60,11 +61,20 @@ import {
   generateAgentName,
 } from "../contexts/apps";
 import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
+import { selectCodingAgents } from "../utils/apps";
 import { RECOMMENDED_CODING_MODELS } from "../constants/models";
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
+import AttachProjectRepositoryDialog from "../components/project/AttachProjectRepositoryDialog";
 import AgentDropdown from "../components/agent/AgentDropdown";
 import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
+import AccessManagement from "../components/app/AccessManagement";
+import { canManageProjectAccess } from "../utils/projectAccess";
+import {
+  useCreateProjectAccessGrant,
+  useDeleteProjectAccessGrant,
+  useListProjectAccessGrants,
+} from "../services/projectAccessGrantService";
 import { SparkLineChart } from "@mui/x-charts";
 import DesktopStreamViewer from "../components/external-agent/DesktopStreamViewer";
 import { useSandboxState } from "../components/external-agent/ExternalAgentDesktopViewer";
@@ -72,13 +82,13 @@ import useAccount from "../hooks/useAccount";
 import useRouter from "../hooks/useRouter";
 import useSnackbar from "../hooks/useSnackbar";
 import useApi from "../hooks/useApi";
+import { useSettingsDialog } from "../contexts/settingsDialog";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import {
   useGetProject,
   useUpdateProject,
   useGetProjectRepositories,
   useSetProjectPrimaryRepository,
-  useAttachRepositoryToProject,
   useDetachRepositoryFromProject,
   useDeleteProject,
   useGetProjectExploratorySession,
@@ -87,7 +97,6 @@ import {
   projectExploratorySessionQueryKey,
   useGetProjectGuidelinesHistory,
 } from "../services";
-import { useGitRepositories } from "../services/gitRepositoryService";
 import { isProjectAccessDeniedError } from "../services/projectService";
 
 interface ProjectSettingsProps {
@@ -95,11 +104,25 @@ interface ProjectSettingsProps {
   tab?: string;
 }
 
+// Human-readable label for a secret's environment scope. Treats an empty/
+// unknown scope as "Dev" (the default).
+const secretScopeLabel = (scope?: TypesSecretScope): string => {
+  switch (scope) {
+    case TypesSecretScope.SecretScopeProd:
+      return "Prod";
+    case TypesSecretScope.SecretScopeBoth:
+      return "Both";
+    default:
+      return "Dev";
+  }
+};
+
 const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' }) => {
   const account = useAccount();
   const { navigate } = useRouter();
   const snackbar = useSnackbar();
   const api = useApi();
+  const { closeDialog } = useSettingsDialog();
   const queryClient = useQueryClient();
   const { apps, loadApps } = useContext(AppsContext);
 
@@ -114,17 +137,18 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const updateProjectMutation = useUpdateProject(projectId);
   const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId);
-  const attachRepoMutation = useAttachRepositoryToProject(projectId);
   const detachRepoMutation = useDetachRepositoryFromProject(projectId);
   const deleteProjectMutation = useDeleteProject();
-
-  // Get current org context for fetching repositories
-  const currentOrg = account.organizationTools.organization;
-  const { data: allUserRepositories = [] } = useGitRepositories(
-    currentOrg?.id
-      ? { organizationId: currentOrg.id }
-      : { ownerId: account.user?.id },
+  const {
+    data: accessGrants = [],
+    isLoading: accessGrantsLoading,
+    error: accessGrantsError,
+  } = useListProjectAccessGrants(
+    projectId,
+    projectDependentQueriesEnabled && !!project?.organization_id,
   );
+  const createAccessGrantMutation = useCreateProjectAccessGrant(projectId);
+  const deleteAccessGrantMutation = useDeleteProjectAccessGrant(projectId);
 
   // Exploratory session
   const { data: exploratorySessionData } =
@@ -181,7 +205,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [attachRepoDialogOpen, setAttachRepoDialogOpen] = useState(false);
-  const [selectedRepoToAttach, setSelectedRepoToAttach] = useState("");
   const [savingProject, setSavingProject] = useState(false);
   const [testingStartupScript, setTestingStartupScript] = useState(false);
   const [isSessionRestart, setIsSessionRestart] = useState(false);
@@ -352,6 +375,9 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [addSecretDialogOpen, setAddSecretDialogOpen] = useState(false);
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
+  const [newSecretScope, setNewSecretScope] = useState<TypesSecretScope>(
+    TypesSecretScope.SecretScopeDev,
+  );
   const [showSecretValue, setShowSecretValue] = useState(false);
 
   // Project skills
@@ -371,10 +397,18 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   // Create secret mutation
   const createSecretMutation = useMutation({
-    mutationFn: async ({ name, value }: { name: string; value: string }) => {
+    mutationFn: async ({
+      name,
+      value,
+      scope,
+    }: {
+      name: string;
+      value: string;
+      scope: TypesSecretScope;
+    }) => {
       const response = await api
         .getApiClient()
-        .v1ProjectsSecretsCreate(projectId, { name, value });
+        .v1ProjectsSecretsCreate(projectId, { name, value, scope });
       return response.data;
     },
     onSuccess: () => {
@@ -382,6 +416,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setAddSecretDialogOpen(false);
       setNewSecretName("");
       setNewSecretValue("");
+      setNewSecretScope(TypesSecretScope.SecretScopeDev);
       refetchSecrets();
     },
     onError: (err: any) => {
@@ -547,20 +582,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const sortedApps = useMemo(() => {
     if (!apps) return [];
-    const zedExternalApps: IApp[] = [];
-    const otherApps: IApp[] = [];
-    apps.forEach((app) => {
-      const hasZedExternal =
-        app.config?.helix?.assistants?.some(
-          (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-        ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
-      if (hasZedExternal) {
-        zedExternalApps.push(app);
-      } else {
-        otherApps.push(app);
-      }
-    });
-    return [...zedExternalApps, ...otherApps];
+    return selectCodingAgents(apps);
   }, [apps]);
 
   const primaryRepoIsExternal = useMemo(() => {
@@ -623,6 +645,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
     try {
       setSavingProject(true);
+      // Agent selections are NOT sent here. Each AgentDropdown persists its own
+      // change on select, and the server only accepts coding agents for these
+      // fields — re-sending a project's existing agent would 400 every unrelated
+      // save (name, guidelines, …) whenever that agent is an org agent.
       await updateProjectMutation.mutateAsync({
         name,
         description,
@@ -630,9 +656,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         guidelines,
         auto_start_backlog_tasks: autoStartBacklogTasks,
         pull_request_reviews_enabled: pullRequestReviewsEnabled,
-        default_helix_app_id: selectedAgentId || undefined,
-        project_manager_helix_app_id:
-          selectedProjectManagerAgentId || undefined,
         metadata: {
           board_settings: {
             wip_limits: wipLimits,
@@ -674,21 +697,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       snackbar.success("Primary repository updated");
     } catch (err) {
       snackbar.error("Failed to update primary repository");
-    }
-  };
-
-  const handleAttachRepository = async () => {
-    if (!selectedRepoToAttach) {
-      snackbar.error("Please select a repository");
-      return;
-    }
-    try {
-      await attachRepoMutation.mutateAsync(selectedRepoToAttach);
-      snackbar.success("Repository attached successfully");
-      setAttachRepoDialogOpen(false);
-      setSelectedRepoToAttach("");
-    } catch (err) {
-      snackbar.error("Failed to attach repository");
     }
   };
 
@@ -759,6 +767,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       await deleteProjectMutation.mutateAsync(projectId);
       snackbar.success("Project deleted successfully");
       setDeleteDialogOpen(false);
+      closeDialog();
       account.orgNavigate("projects");
     } catch (err) {
       snackbar.error("Failed to delete project");
@@ -930,8 +939,11 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           </Typography>
         )}
       </Box>
+    </Box>
+  );
 
-      {/* Repositories */}
+  const renderRepositoriesTab = () => (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <Box>
         <Box
           sx={{
@@ -979,7 +991,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
             sx={{ textAlign: "center", py: 4 }}
           >
             No code repositories attached to this project yet. Click
-            "Attach Repository" to add one.
+            "Attach" to add one.
           </Typography>
         ) : (
           <ProjectRepositoriesList
@@ -1386,6 +1398,11 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     </Box>
   );
 
+  const handleOpenAgentSettings = (agentId: string) => {
+    closeDialog();
+    account.orgNavigate("agent", { app_id: agentId });
+  };
+
   const renderAgentsTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <Box>
@@ -1400,7 +1417,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
         {!showCreateAgentForm ? (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {/* Default Agent with edit button */}
+            {/* Default Agent with settings button */}
             <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
               <Box sx={{ flex: 1 }}>
                 <AgentDropdown
@@ -1415,23 +1432,24 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                   label="Default Agent"
                 />
               </Box>
-              <IconButton
-                  size="small"
-                  disabled={!selectedAgentId}
-                  onClick={() => {
-                    const orgName = currentOrg?.name;
-                    if (orgName && selectedAgentId) {
-                      window.open(`/orgs/${orgName}/app/${selectedAgentId}`, '_blank');
+              <Tooltip title="Open agent settings">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={!selectedAgentId}
+                    onClick={() =>
+                      selectedAgentId && handleOpenAgentSettings(selectedAgentId)
                     }
-                  }}
-                  sx={{ mt: 0.5 }}
-                  title="Edit agent"
-                >
-                  <EditIcon fontSize="small" />
-                </IconButton>
+                    sx={{ mt: 0.5 }}
+                    aria-label="Open default agent settings"
+                  >
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </Box>
 
-            {/* Project Manager Agent with edit button */}
+            {/* Project Manager Agent with settings button */}
             <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
               <Box sx={{ flex: 1 }}>
                 <AgentDropdown
@@ -1446,23 +1464,25 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                   label="Project Manager Agent"
                 />
               </Box>
-              <IconButton
-                  size="small"
-                  disabled={!selectedProjectManagerAgentId}
-                  onClick={() => {
-                    const orgName = currentOrg?.name;
-                    if (orgName && selectedProjectManagerAgentId) {
-                      window.open(`/orgs/${orgName}/app/${selectedProjectManagerAgentId}`, '_blank');
+              <Tooltip title="Open agent settings">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={!selectedProjectManagerAgentId}
+                    onClick={() =>
+                      selectedProjectManagerAgentId &&
+                      handleOpenAgentSettings(selectedProjectManagerAgentId)
                     }
-                  }}
-                  sx={{ mt: 0.5 }}
-                  title="Edit agent"
-                >
-                  <EditIcon fontSize="small" />
-                </IconButton>
+                    sx={{ mt: 0.5 }}
+                    aria-label="Open project manager agent settings"
+                  >
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </Box>
 
-            {/* PR Reviewer Agent with edit button */}
+            {/* PR Reviewer Agent with settings button */}
             <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
               <Box sx={{ flex: 1 }}>
                 <AgentDropdown
@@ -1484,20 +1504,24 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                   }
                 />
               </Box>
-              <IconButton
-                  size="small"
-                  disabled={!selectedPullRequestReviewerAgentId}
-                  onClick={() => {
-                    const orgName = currentOrg?.name;
-                    if (orgName && selectedPullRequestReviewerAgentId) {
-                      window.open(`/orgs/${orgName}/app/${selectedPullRequestReviewerAgentId}`, '_blank');
+              <Tooltip title="Open agent settings">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={!selectedPullRequestReviewerAgentId}
+                    onClick={() =>
+                      selectedPullRequestReviewerAgentId &&
+                      handleOpenAgentSettings(
+                        selectedPullRequestReviewerAgentId,
+                      )
                     }
-                  }}
-                  sx={{ mt: 0.5 }}
-                  title="Edit agent"
-                >
-                  <EditIcon fontSize="small" />
-                </IconButton>
+                    sx={{ mt: 0.5 }}
+                    aria-label="Open pull request reviewer agent settings"
+                  >
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </Box>
 
             <Button
@@ -1821,6 +1845,19 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                     {secret.name}
                   </Typography>
                   <Chip
+                    label={secretScopeLabel(secret.scope)}
+                    size="small"
+                    color={
+                      secret.scope === TypesSecretScope.SecretScopeProd
+                        ? "warning"
+                        : secret.scope === TypesSecretScope.SecretScopeDev
+                          ? "info"
+                          : "default"
+                    }
+                    variant="outlined"
+                    sx={{ ml: 1, fontSize: "0.7rem" }}
+                  />
+                  <Chip
                     label="encrypted"
                     size="small"
                     sx={{ ml: 1, fontSize: "0.7rem" }}
@@ -1839,10 +1876,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       <Box>
         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
           <HubIcon sx={{ mr: 1, color: "#10B981" }} />
-          <Typography variant="h6">Skills</Typography>
+          <Typography variant="h6">MCPs & APIs</Typography>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Configure skills for this project. These overlay on top of agent-level skills.
+          Configure MCPs and APIs for this project. These overlay on top of agent-level MCPs and APIs.
         </Typography>
         <Divider sx={{ mb: 2 }} />
         <Skills
@@ -1855,6 +1892,78 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       </Box>
     </Box>
   );
+
+  const handleCreateAccessGrant = async (request: TypesCreateAccessGrantRequest) => {
+    try {
+      const result = await createAccessGrantMutation.mutateAsync(request);
+      snackbar.success("Access grant created");
+      return result || null;
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : "Failed to create access grant");
+      return null;
+    }
+  };
+
+  const handleDeleteAccessGrant = async (grantId: string) => {
+    try {
+      await deleteAccessGrantMutation.mutateAsync(grantId);
+      snackbar.success("Access grant removed");
+      return true;
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : "Failed to remove access grant");
+      return false;
+    }
+  };
+
+  const renderAccessTab = () => {
+    if (!project.organization_id) {
+      return (
+        <Alert severity="info">
+          Move this project to an organization to enable team sharing and access control.
+        </Alert>
+      );
+    }
+
+    if (accessGrantsError) {
+      return (
+        <Alert severity="error">
+          You do not have permission to view this project&apos;s access settings.
+        </Alert>
+      );
+    }
+
+    const canManageAccess = canManageProjectAccess(
+      account.user,
+      project.user_id,
+      account.organizationTools.organization?.owner,
+      accessGrants,
+    );
+
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <Box>
+          <Typography variant="h6">Manage Access</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Choose which users and teams can access this project.
+          </Typography>
+        </Box>
+        <Divider />
+        <AccessManagement
+          appId={projectId}
+          resourceLabel="project"
+          accessGrants={accessGrants}
+          isLoading={accessGrantsLoading}
+          isReadOnly={!canManageAccess}
+          organizationId={project.organization_id}
+          currentUser={account.user}
+          projectOwnerId={project.user_id}
+          projectOwner={project.user}
+          onCreateGrant={handleCreateAccessGrant}
+          onDeleteGrant={handleDeleteAccessGrant}
+        />
+      </Box>
+    );
+  };
 
   const renderDangerTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -1956,93 +2065,25 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     <>
       <Container maxWidth="lg" sx={{ px: 2 }}>
         {tab ==="general" && renderGeneralTab()}
+        {tab ==="repositories" && renderRepositoriesTab()}
         {tab ==="sandbox" && renderSandboxTab()}
+        {tab ==="web-service" && <WebServiceTab projectId={projectId} />}
         {tab ==="agents" && renderAgentsTab()}
         {tab ==="board" && renderBoardTab()}
         {tab ==="secrets" && renderSecretsTab()}
         {tab ==="skills" && renderSkillsTab()}
+        {tab ==="access" && renderAccessTab()}
         {tab ==="danger" && renderDangerTab()}
       </Container>
 
       {/* ─── Dialogs ──────────────────────────────────────────────────── */}
 
-      {/* Attach Repository Dialog */}
-      <Dialog
+      <AttachProjectRepositoryDialog
         open={attachRepoDialogOpen}
-        onClose={() => {
-          setAttachRepoDialogOpen(false);
-          setSelectedRepoToAttach("");
-        }}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <LinkIcon />
-            Attach Repository to Project
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Select a repository from your account to attach to this project.
-            Attached repositories will be cloned into the agent workspace when
-            working on this project.
-          </Typography>
-          <FormControl fullWidth>
-            <InputLabel>Select Repository</InputLabel>
-            <Select
-              value={selectedRepoToAttach}
-              onChange={(e) => setSelectedRepoToAttach(e.target.value)}
-              label="Select Repository"
-            >
-              {allUserRepositories
-                .filter((repo) => !repositories.some((pr) => pr.id === repo.id))
-                .map((repo) => (
-                  <MenuItem key={repo.id} value={repo.id}>
-                    {repo.name}
-                  </MenuItem>
-                ))}
-            </Select>
-            {allUserRepositories.filter(
-              (repo) => !repositories.some((pr) => pr.id === repo.id),
-            ).length === 0 && (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ mt: 1 }}
-              >
-                All your repositories are already attached to this project.
-              </Typography>
-            )}
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => {
-              setAttachRepoDialogOpen(false);
-              setSelectedRepoToAttach("");
-            }}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleAttachRepository}
-            variant="contained"
-            disabled={!selectedRepoToAttach || attachRepoMutation.isPending}
-            startIcon={
-              attachRepoMutation.isPending ? (
-                <CircularProgress size={16} />
-              ) : (
-                <LinkIcon />
-              )
-            }
-          >
-            {attachRepoMutation.isPending
-              ? "Attaching..."
-              : "Attach Repository"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onClose={() => setAttachRepoDialogOpen(false)}
+        projectId={projectId}
+        attachedRepositories={repositories}
+      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog
@@ -2140,7 +2181,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Secrets are encrypted at rest and injected as environment variables
-            when agents work on this project.
+            when agents work on this project. Choose whether a secret applies to
+            your dev sessions, the deployed prod web service, or both.
           </Typography>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <TextField
@@ -2178,6 +2220,26 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                 ),
               }}
             />
+            <TextField
+              select
+              label="Environment"
+              fullWidth
+              value={newSecretScope}
+              onChange={(e) =>
+                setNewSecretScope(e.target.value as TypesSecretScope)
+              }
+              helperText="Where this secret is injected"
+            >
+              <MenuItem value={TypesSecretScope.SecretScopeDev}>
+                Dev only (project sessions and spec tasks)
+              </MenuItem>
+              <MenuItem value={TypesSecretScope.SecretScopeProd}>
+                Prod only (deployed web service)
+              </MenuItem>
+              <MenuItem value={TypesSecretScope.SecretScopeBoth}>
+                Both (dev sessions and prod web service)
+              </MenuItem>
+            </TextField>
           </Box>
         </DialogContent>
         <DialogActions>
@@ -2186,6 +2248,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               setAddSecretDialogOpen(false);
               setNewSecretName("");
               setNewSecretValue("");
+              setNewSecretScope(TypesSecretScope.SecretScopeDev);
             }}
           >
             Cancel
@@ -2195,6 +2258,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               createSecretMutation.mutate({
                 name: newSecretName,
                 value: newSecretValue,
+                scope: newSecretScope,
               })
             }
             variant="contained"

@@ -13,7 +13,7 @@ import (
 
 // ProjectConfig is the helix-runtime implementation of
 // runtime.ProjectConfig. It resolves a workerID → Helix projectID
-// via the WorkerRuntimeState sidecar (where the spawner persists
+// via the NodeRuntimeState sidecar (where the spawner persists
 // the per-Worker pointers on hire), then reads / writes the
 // underlying Helix project through ProjectService.
 //
@@ -30,7 +30,7 @@ type ProjectConfig struct {
 
 // NewProjectConfig builds a ProjectConfig that uses the given
 // helix store + ProjectService. backend overrides the
-// WorkerRuntimeState namespace label — default ("") is the
+// NodeRuntimeState namespace label — default ("") is the
 // production `helix` backend. Test fakes can pass an alternate
 // label when they share a single store across multiple runtimes.
 func NewProjectConfig(st *store.Store, svc ProjectService) (*ProjectConfig, error) {
@@ -51,7 +51,7 @@ func NewProjectConfig(st *store.Store, svc ProjectService) (*ProjectConfig, erro
 //     activated yet).
 //   - project lookup fails → wrapped error returned verbatim;
 //     callers translate to a friendly message.
-func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID) (runtime.ProjectConfigSnapshot, error) {
+func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.NodeID) (runtime.ProjectConfigSnapshot, error) {
 	state, err := LoadState(ctx, c.store, orgID, workerID)
 	if err != nil {
 		return runtime.ProjectConfigSnapshot{}, fmt.Errorf("load worker state: %w", err)
@@ -69,6 +69,26 @@ func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string
 	}, nil
 }
 
+// ListWorkerProjectSecrets resolves the worker's project ID via the
+// helix runtime state, then returns the project's current secrets as a
+// name→value map. Read live on every call, so a secret added after the
+// worker's container booted is returned without a restart. Failure modes
+// match GetWorkerProjectConfig.
+func (c *ProjectConfig) ListWorkerProjectSecrets(ctx context.Context, orgID string, workerID orgchart.NodeID) (map[string]string, error) {
+	state, err := LoadState(ctx, c.store, orgID, workerID)
+	if err != nil {
+		return nil, fmt.Errorf("load worker state: %w", err)
+	}
+	if state.ProjectID == "" {
+		return nil, fmt.Errorf("worker %s: %w", workerID, runtime.ErrProjectConfigUnsupported)
+	}
+	secrets, err := c.helix.ListProjectSecrets(ctx, state.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("list project secrets for %s: %w", state.ProjectID, err)
+	}
+	return secrets, nil
+}
+
 // UpdateWorkerProjectConfig applies a partial patch to the
 // worker's helix project. Mirrors Helix's pointer convention:
 // nil fields on the runtime patch stay nil on the underlying
@@ -78,7 +98,7 @@ func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string
 // extra read.
 //
 // Failure modes match GetWorkerProjectConfig.
-func (c *ProjectConfig) UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID, patch runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+func (c *ProjectConfig) UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.NodeID, patch runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 	state, err := LoadState(ctx, c.store, orgID, workerID)
 	if err != nil {
 		return runtime.ProjectConfigSnapshot{}, fmt.Errorf("load worker state: %w", err)

@@ -26,7 +26,6 @@ import {
   Tab,
   Tooltip,
   Paper,
-  useTheme,
 } from '@mui/material'
 import {
   GitBranch,
@@ -130,11 +129,8 @@ const GitRepoDetail: FC = () => {
   const queryClient = useQueryClient()
   const api = useApi()
   const snackbar = useSnackbar()
-  const theme = useTheme()
 
   const currentOrg = account.organizationTools.organization
-  const ownerSlug = currentOrg?.name || account.userMeta?.slug || 'user'
-  const ownerId = currentOrg?.id || account.user?.id || ''
 
   const { data: repository, isLoading, error } = useGitRepository(repoId || '')
 
@@ -153,8 +149,15 @@ const GitRepoDetail: FC = () => {
   const { data: allProjects = [] } = useListProjects(currentOrg?.id)
   const projectsUsingThisRepo = allProjects.filter(p => p.default_repo_id === repoId)
 
-  // Fetch all repositories for the create project dialog
-  const { data: allRepositories = [], isLoading: allReposLoading } = useGitRepositories({ ownerId })
+  // Fetch all repositories for the create project dialog.
+  // Org repos are keyed by organization_id (not owner_id), so we must query by
+  // organizationId when in an org — mirroring the Projects page. Querying by
+  // owner_id with the org id returns nothing and leaves the dialog empty.
+  const { data: allRepositories = [], isLoading: allReposLoading } = useGitRepositories(
+    currentOrg?.id
+      ? { organizationId: currentOrg.id }
+      : { ownerId: account.user?.id }
+  )
   const createRepoMutation = useCreateGitRepository()
 
   // Query parameters
@@ -472,7 +475,8 @@ const GitRepoDetail: FC = () => {
     username?: string,
     password?: string,
     azureDevOps?: TypesAzureDevOps,
-    oauthConnectionId?: string
+    oauthConnectionId?: string,
+    gitProviderConnectionId?: string,
   ): Promise<TypesGitRepository | null> => {
     try {
       const result = await createRepoMutation.mutateAsync({
@@ -484,6 +488,7 @@ const GitRepoDetail: FC = () => {
         azure_devops: azureDevOps,
         organization_id: currentOrg?.id,
         oauth_connection_id: oauthConnectionId,
+        git_provider_connection_id: gitProviderConnectionId,
       })
       return result || null
     } catch (err) {
@@ -681,7 +686,7 @@ const GitRepoDetail: FC = () => {
       orgBreadcrumbs={true}
     >
         <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
-          {/* GitHub-style header */}
+          {/* Repository header */}
         <Box sx={{ mb: 3 }}>
 
           {/* Repo name and actions */}
@@ -689,14 +694,6 @@ const GitRepoDetail: FC = () => {
             <Box sx={{ flex: 1 }}>
               <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1, mb: 1, color: 'text.primary' }}>
                 <GitBranch size={24} style={{ color: 'currentColor', opacity: 0.6 }} />
-                <Box
-                  component="span"
-                  onClick={() => account.orgNavigate('projects', { tab: 'repositories' })}
-                  sx={{ color: theme.palette.secondary.main, cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                >
-                  {ownerSlug}
-                </Box>
-                <Box component="span" sx={{ color: 'text.secondary', fontWeight: 300 }}>/</Box>
                 <Box component="span" sx={{ fontWeight: 600 }}>{repository.name}</Box>
               </Typography>
 

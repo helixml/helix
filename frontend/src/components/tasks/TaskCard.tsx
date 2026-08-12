@@ -18,7 +18,6 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
-  Avatar,
   Chip,
 } from "@mui/material";
 import {
@@ -37,8 +36,13 @@ import {
   Unarchive as UnarchiveIcon,
   RemoveCircleOutline as RemoveFromQueueIcon,
   Undo as UndoIcon,
+  Schedule as ScheduleIcon,
 } from "@mui/icons-material";
-import { EllipsisVertical, Wand2, UserCircle2 } from "lucide-react";
+import {
+  EllipsisVertical,
+  GitPullRequest,
+  Wand2,
+} from "lucide-react";
 import {
   useApproveImplementation,
   useStopAgent,
@@ -62,8 +66,8 @@ import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import AssigneeSelector from "./AssigneeSelector";
 import useAccount from "../../hooks/useAccount";
 import useLightTheme from "../../hooks/useLightTheme";
-import { TypesOrganizationMembership, TypesUser } from "../../api/api";
 import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
+import OrganizationUserAvatar, { resolveOrganizationUser } from "../widgets/OrganizationUserAvatar";
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -151,6 +155,7 @@ export interface SpecTaskWithExtras {
   // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
   sandbox_state?: string; // "absent" | "running" | "starting"
   sandbox_status_message?: string; // Transient startup message
+  queue_reason?: string; // Why a queued task hasn't started yet (WIP/dependency); recomputed each read
   // Status tracking
   status_updated_at?: string;
   // Task number for display
@@ -591,24 +596,7 @@ function TaskCardInner({
   const account = useAccount();
   const orgMembers = account.organizationTools.organization?.memberships || [];
 
-  // Find the assigned user from org members
-  const assignedMember = useMemo(() => {
-    if (!task.assignee_id) return null;
-    return orgMembers.find((m) => m.user_id === task.assignee_id);
-  }, [task.assignee_id, orgMembers]);
-
-  const assignedUser = assignedMember?.user as TypesUser | undefined;
-
-  // Get initials for avatar
-  const getAssigneeInitials = (user: TypesUser | undefined): string => {
-    if (!user) return "?";
-    const name = user.full_name || user.username || user.email || "";
-    const parts = name.split(" ");
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-  };
+  const assignedUser = resolveOrganizationUser(task.assignee_id, orgMembers, account.user)
 
   // Handle assignee change
   const handleAssigneeChange = (userId: string | null) => {
@@ -1059,6 +1047,21 @@ function TaskCardInner({
                 • {runningDuration}
               </Typography>
             )}
+            {task.phase === "pull_request" && (
+              <Tooltip title="Open pull request">
+                <Box
+                  component="span"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    color: "#10b981",
+                    flexShrink: 0,
+                  }}
+                >
+                  <GitPullRequest size={14} />
+                </Box>
+              </Tooltip>
+            )}
             <CIStatusIcon prs={task.repo_pull_requests} />
           </Box>
 
@@ -1076,19 +1079,11 @@ function TaskCardInner({
                 ml: "auto",
               }}
             >
-              {assignedUser ? (
-                <Avatar
-                  sx={{
-                    width: 20,
-                    height: 20,
-                    fontSize: "0.6rem",
-                  }}
-                >
-                  {getAssigneeInitials(assignedUser)}
-                </Avatar>
-              ) : (
-                <UserCircle2 size={18} style={{ opacity: 0.4 }} />
-              )}
+              <OrganizationUserAvatar
+                userId={task.assignee_id}
+                members={orgMembers}
+                currentUser={account.user}
+              />
             </IconButton>
           </Tooltip>
         </Box>
@@ -1097,7 +1092,7 @@ function TaskCardInner({
         <AssigneeSelector
           assigneeId={task.assignee_id}
           members={orgMembers}
-          currentUserId={account.user?.id}
+          currentUser={account.user}
           onAssigneeChange={handleAssigneeChange}
           isLoading={updateSpecTask.isPending}
           anchorEl={assigneeAnchorEl}
@@ -1151,25 +1146,59 @@ function TaskCardInner({
           </Box>
         )}
 
-        {/* Queued state: waiting for orchestrator to create session */}
+        {/* Queued state: waiting for orchestrator to create session.
+            If the orchestrator is deliberately holding the task behind a WIP
+            limit or dependency, task.queue_reason explains why — show it
+            compactly (tooltip) instead of a misleading "Starting desktop..."
+            spinner so the card doesn't look dead. */}
         {isQueued && !task.agent_session_id && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              mt: 1,
-              px: 0.5,
-            }}
-          >
-            <CircularProgress size={10} thickness={5} />
-            <Typography
-              variant="caption"
-              sx={{ color: "text.secondary", fontSize: "0.7rem" }}
+          task.queue_reason ? (
+            <Tooltip title={task.queue_reason}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  mt: 1,
+                  px: 0.5,
+                }}
+              >
+                <ScheduleIcon
+                  sx={{ fontSize: 12, color: "text.secondary" }}
+                />
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: "text.secondary",
+                    fontSize: "0.7rem",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {task.queue_reason}
+                </Typography>
+              </Box>
+            </Tooltip>
+          ) : (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                mt: 1,
+                px: 0.5,
+              }}
             >
-              Starting desktop...
-            </Typography>
-          </Box>
+              <CircularProgress size={10} thickness={5} />
+              <Typography
+                variant="caption"
+                sx={{ color: "text.secondary", fontSize: "0.7rem" }}
+              >
+                Starting desktop...
+              </Typography>
+            </Box>
+          )
         )}
 
         {/* Live screenshot for active sessions - click opens desktop viewer.
@@ -1492,9 +1521,9 @@ function TaskCardInner({
                     textAlign: "center",
                   }}
                 >
-                  Address review comments with agent.
+                  A PR was detected for this task's branch, so it appears here.
                   <br />
-                  Moves to Merged when PR closes.
+                  Moves to Merged when the PR is merged.
                 </Typography>
               </>
             ) : (

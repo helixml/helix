@@ -41,7 +41,7 @@ export interface PickedTemplate {
   name: string;
   description: string;
   composeYAML: string;
-  vendor: "" | "nvidia" | "amd";
+  vendor: "" | "nvidia" | "amd" | "neuron";
   architectures: string[];
   modelMatch: string;
   minVRAMBytes: number;
@@ -187,7 +187,7 @@ const CuratedCard: FC<{ profile: CuratedProfile; onPick: (t: PickedTemplate) => 
 
 const BlocksTab: FC<{ onPick: (t: PickedTemplate) => void }> = ({ onPick }) => {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [vendor, setVendor] = useState<"" | "nvidia" | "amd">("nvidia");
+  const [vendor, setVendor] = useState<"" | "nvidia" | "amd" | "neuron">("nvidia");
 
   const toggle = (id: string) => {
     setSelected((prev) => {

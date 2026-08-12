@@ -286,7 +286,7 @@ export async function apiWakeUp(api: Api, request: PostWakeUpRequest): Promise<v
 }
 
 export async function apiGetApps(api: Api, query: GetAppsQuery): Promise<Array<App>> {
-    const response = await fetchApi(api, "/apps", "get", { query }) as GetAppsResponse
+    const response = await fetchApi(api, "/agents", "get", { query }) as GetAppsResponse
 
     return response.apps
 }

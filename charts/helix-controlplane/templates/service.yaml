@@ -15,6 +15,18 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    {{- if .Values.controlplane.vhostTLS.enabled }}
+    - port: {{ .Values.controlplane.vhostTLS.httpsPort }}
+      targetPort: https
+      protocol: TCP
+      name: https
+    {{- if .Values.controlplane.vhostTLS.httpEnabled }}
+    - port: {{ .Values.controlplane.vhostTLS.httpPort }}
+      targetPort: http-acme
+      protocol: TCP
+      name: http-acme
+    {{- end }}
+    {{- end }}
   selector:
     app.kubernetes.io/component: controlplane
     {{- include "helix-controlplane.selectorLabels" . | nindent 4 }}

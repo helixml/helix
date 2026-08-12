@@ -3,8 +3,6 @@
  *
  * Features:
  * - Auto-save drafts to localStorage on every keystroke (debounced)
- * - Persist sent prompts with timestamps
- * - Navigate history with arrow keys
  * - Recover drafts on page reload
  * - Track pending/failed sends for retry
  * - Backend sync for cross-device history (optional)
@@ -12,15 +10,11 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Api } from '../api/api'
+import { createRandomId } from '../utils/randomId'
 import {
   syncPromptHistory,
   listPromptHistory,
   backendToLocal,
-  updatePromptPin as apiUpdatePromptPin,
-  updatePromptTags as apiUpdatePromptTags,
-  incrementPromptUsage as apiIncrementPromptUsage,
-  listPinnedPrompts as apiListPinnedPrompts,
-  searchPrompts as apiSearchPrompts,
 } from '../services/promptHistoryService'
 
 const HISTORY_STORAGE_KEY = 'helix_prompt_history'
@@ -48,11 +42,6 @@ export interface PromptHistoryEntry {
   retryCount?: number       // Number of retry attempts
   nextRetryAt?: number      // Timestamp when retry will happen
   errorMessage?: string     // Last failure reason from server (shown under "Failed - retrying")
-  // Library features
-  pinned?: boolean          // User pinned this prompt for quick access
-  usageCount?: number       // How many times this prompt was reused
-  lastUsedAt?: number       // Timestamp when last reused
-  tags?: string[]           // User-defined tags
 }
 
 interface PromptDraft {
@@ -65,22 +54,12 @@ interface UsePromptHistoryOptions {
   specTaskId?: string  // Required for backend sync
   projectId?: string   // Required for backend sync
   apiClient?: Api<unknown>['api']  // Required for backend sync
-  onHistoryChange?: (history: PromptHistoryEntry[]) => void
 }
 
 interface UsePromptHistoryReturn {
   // Current draft
   draft: string
   setDraft: (value: string) => void
-
-  // History
-  history: PromptHistoryEntry[]
-  historyIndex: number
-
-  // Navigation
-  navigateUp: () => boolean  // Returns true if navigation occurred
-  navigateDown: () => boolean
-  resetNavigation: () => void
 
   // Actions
   saveToHistory: (content: string, interrupt?: boolean) => PromptHistoryEntry
@@ -92,24 +71,12 @@ interface UsePromptHistoryReturn {
   removeFromQueue: (id: string) => void  // Remove a message from queue
   reorderQueue: (activeId: string, overId: string) => void  // Reorder messages in queue
 
-  // Library features
-  pinPrompt: (id: string, pinned: boolean) => Promise<void>  // Pin/unpin a prompt
-  setTags: (id: string, tags: string[]) => Promise<void>  // Set tags on a prompt
-  reusePrompt: (id: string) => Promise<string | null>  // Reuse prompt and increment usage
-  getPinnedPrompts: () => Promise<PromptHistoryEntry[]>  // List pinned prompts
-  searchHistory: (query: string, limit?: number) => Promise<PromptHistoryEntry[]>  // Search prompts
-
   // Pending/failed prompts
   pendingPrompts: PromptHistoryEntry[]
   failedPrompts: PromptHistoryEntry[]
 
   // Clear
   clearDraft: () => void
-  clearHistory: () => void
-}
-
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 }
 
 function getStorageKey(specTaskId?: string): string {
@@ -174,20 +141,50 @@ function clearDraftStorage(sessionId: string): void {
   }
 }
 
+// reconcileEntry is the SINGLE source of truth for merging a backend view of a
+// prompt into its local copy. It encodes one invariant that, when scattered
+// across the merge/poll/push sites, broke twice and queued interrupts that the
+// UI showed as live:
+//
+//   - Backend-owned fields (status, retry, error) always reflect the backend —
+//     it is authoritative for them.
+//   - The dirty flag (syncedToBackend) is cleared (true) ONLY by a successful
+//     push of THIS entry (pushed=true). A pull (pushed=false) must PRESERVE a
+//     pending local edit: if the entry is dirty (syncedToBackend === false) it
+//     stays dirty, so the next push actually sends it. Clearing it on a pull —
+//     based on mere backend presence — silently drops the user's un-pushed change
+//     (e.g. promoting a queued prompt to interrupt).
+//
+// All reconciliation sites route through here so the invariant cannot diverge.
+// See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+export function reconcileEntry(
+  local: PromptHistoryEntry,
+  backend: PromptHistoryEntry,
+  pushed: boolean,
+): PromptHistoryEntry {
+  return {
+    ...local,
+    status: backend.status,
+    retryCount: backend.retryCount,
+    nextRetryAt: backend.nextRetryAt,
+    errorMessage: backend.errorMessage,
+    syncedToBackend: pushed ? true : local.syncedToBackend === false ? false : true,
+  }
+}
+
 export function usePromptHistory({
   sessionId,
   specTaskId,
   projectId,
   apiClient,
-  onHistoryChange,
 }: UsePromptHistoryOptions): UsePromptHistoryReturn {
   // Load initial state from localStorage
   const [history, setHistory] = useState<PromptHistoryEntry[]>(() => loadHistory(specTaskId))
+  // Mirror of the latest history for synchronous reads in event handlers (e.g.
+  // updateInterrupt's immediate push) without depending on a stale closure.
+  const historyRef = useRef<PromptHistoryEntry[]>(history)
+  historyRef.current = history
   const [draft, setDraftState] = useState<string>(() => loadDraft(sessionId))
-  const [historyIndex, setHistoryIndex] = useState(-1)  // -1 = current draft, 0+ = history
-
-  // Keep track of the original draft when navigating
-  const originalDraftRef = useRef<string>('')
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null)
   const hasSyncedRef = useRef(false)
@@ -209,10 +206,14 @@ export function usePromptHistory({
       // IDs that are locally tombstoned — never re-import these from backend
       const deletedIds = new Set(prev.filter(e => e.deleted).map(e => e.id))
 
-      // Mark existing entries that are in backend as synced (skip deleted ones)
-      const updatedPrev = prev.map(e =>
-        backendIds.has(e.id) && !e.deleted ? { ...e, syncedToBackend: true } : e
-      )
+      // Reconcile existing local entries against the backend view. This is a
+      // pull (pushed=false), so reconcileEntry preserves any un-pushed local edit.
+      const backendMap = new Map(backendEntries.map(e => [e.id, e]))
+      const updatedPrev = prev.map(e => {
+        if (e.deleted) return e
+        const backendEntry = backendMap.get(e.id)
+        return backendEntry ? reconcileEntry(e, backendEntry, false) : e
+      })
 
       // Add any backend entries that don't exist locally (mark as synced)
       // Also skip entries whose ID is locally tombstoned
@@ -298,22 +299,14 @@ export function usePromptHistory({
         // Merge backend entry status into local entries (especially important for 'sent' status)
         setHistory(prev => {
           const deletedIds = new Set(prev.filter(e => e.deleted).map(e => e.id))
+          // The entries in `toSync` are the ones we just pushed — they are now
+          // acknowledged, so reconcileEntry clears their dirty flag. Any other
+          // entries in the response are a pull and keep their pending local edit.
+          const pushedIds = new Set(toSync.map(e => e.id))
           const updated = prev.map(h => {
             if (h.deleted) return h // Don't update tombstoned entries
             const backendEntry = backendEntriesMap.get(h.id)
-            if (backendEntry) {
-              // Merge status and retry info from backend - this is critical for queue items
-              // to disappear when the backend marks them as 'sent' after processing
-              return {
-                ...h,
-                status: backendEntry.status,
-                retryCount: backendEntry.retryCount,
-                nextRetryAt: backendEntry.nextRetryAt,
-                errorMessage: backendEntry.errorMessage,
-                syncedToBackend: true
-              }
-            }
-            return h
+            return backendEntry ? reconcileEntry(h, backendEntry, pushedIds.has(h.id)) : h
           })
 
           // Also merge any new entries from backend (skip tombstoned IDs)
@@ -428,7 +421,11 @@ export function usePromptHistory({
             const newHistory = prev.map(h => {
               if (h.deleted) return h // Don't update tombstoned entries
               const backendEntry = backendEntriesMap.get(h.id)
-              // Check if status or retry info changed
+              // Check if status or retry info changed (covers "errored on backend":
+              // the backend marks it failed/crashed and we reflect that here).
+              // This poll is a pull: reflect backend-owned status but preserve any
+              // un-pushed local edit (reconcileEntry, pushed=false). Keep the
+              // changed-check so we don't churn state when nothing moved.
               if (backendEntry && (
                 h.status !== backendEntry.status ||
                 h.retryCount !== backendEntry.retryCount ||
@@ -436,13 +433,29 @@ export function usePromptHistory({
                 h.errorMessage !== backendEntry.errorMessage
               )) {
                 updated = true
+                return reconcileEntry(h, backendEntry, false)
+              }
+              // Reconcile against the source of truth: a queue entry we previously
+              // synced to the backend that is no longer in the authoritative list has
+              // been removed server-side (deleted/expired) and will never send.
+              // Surface it as failed instead of letting it sit as a perpetual
+              // "waiting to send", so the user can delete it. Guards:
+              //  - syncedToBackend: a freshly-created local entry not yet pushed is
+              //    legitimately absent — don't misclassify it.
+              //  - pending/sending only: don't touch 'sent'/'failed' rows.
+              //  - the `response.entries.length > 0` check above means we never act
+              //    on a transient empty response, and the poll passes no limit so the
+              //    backend returns the full set (no pagination false-positives).
+              if (
+                !backendEntry &&
+                h.syncedToBackend &&
+                (h.status === 'pending' || h.status === 'sending')
+              ) {
+                updated = true
                 return {
                   ...h,
-                  status: backendEntry.status,
-                  retryCount: backendEntry.retryCount,
-                  nextRetryAt: backendEntry.nextRetryAt,
-                  errorMessage: backendEntry.errorMessage,
-                  syncedToBackend: true
+                  status: 'failed' as const,
+                  errorMessage: 'This queued message is no longer on the server (it was removed). Delete it to clear.',
                 }
               }
               return h
@@ -468,11 +481,6 @@ export function usePromptHistory({
   const setDraft = useCallback((value: string) => {
     setDraftState(value)
 
-    // Reset history navigation when typing
-    if (historyIndex !== -1) {
-      setHistoryIndex(-1)
-    }
-
     // Debounced save to localStorage
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current)
@@ -480,7 +488,7 @@ export function usePromptHistory({
     debounceTimerRef.current = setTimeout(() => {
       saveDraft(sessionId, value)
     }, 300)
-  }, [sessionId, historyIndex])
+  }, [sessionId])
 
   // Clean up debounce timer
   useEffect(() => {
@@ -495,8 +503,6 @@ export function usePromptHistory({
   useEffect(() => {
     const loaded = loadDraft(sessionId)
     setDraftState(loaded)
-    setHistoryIndex(-1)
-    originalDraftRef.current = ''
   }, [sessionId])
 
   // Reload history when specTaskId changes
@@ -505,56 +511,6 @@ export function usePromptHistory({
     setHistory(loaded)
     hasSyncedRef.current = false // Allow re-sync for new specTaskId
   }, [specTaskId])
-
-  // Notify on history change
-  useEffect(() => {
-    onHistoryChange?.(history)
-  }, [history, onHistoryChange])
-
-  // Navigate up in history (older prompts)
-  const navigateUp = useCallback((): boolean => {
-    const sentHistory = sessionHistory.filter(h => h.status === 'sent')
-    if (sentHistory.length === 0) return false
-
-    if (historyIndex === -1) {
-      // Save current draft before navigating
-      originalDraftRef.current = draft
-      setHistoryIndex(0)
-      setDraftState(sentHistory[sentHistory.length - 1].content)
-      return true
-    } else if (historyIndex < sentHistory.length - 1) {
-      const newIndex = historyIndex + 1
-      setHistoryIndex(newIndex)
-      setDraftState(sentHistory[sentHistory.length - 1 - newIndex].content)
-      return true
-    }
-    return false
-  }, [sessionHistory, historyIndex, draft])
-
-  // Navigate down in history (newer prompts)
-  const navigateDown = useCallback((): boolean => {
-    if (historyIndex <= 0) {
-      if (historyIndex === 0) {
-        // Return to original draft
-        setHistoryIndex(-1)
-        setDraftState(originalDraftRef.current)
-        return true
-      }
-      return false
-    }
-
-    const sentHistory = sessionHistory.filter(h => h.status === 'sent')
-    const newIndex = historyIndex - 1
-    setHistoryIndex(newIndex)
-    setDraftState(sentHistory[sentHistory.length - 1 - newIndex].content)
-    return true
-  }, [sessionHistory, historyIndex])
-
-  // Reset navigation
-  const resetNavigation = useCallback(() => {
-    setHistoryIndex(-1)
-    originalDraftRef.current = ''
-  }, [])
 
   // Save prompt to history (called before sending)
   const saveToHistory = useCallback((content: string, interrupt: boolean = true): PromptHistoryEntry => {
@@ -569,7 +525,7 @@ export function usePromptHistory({
     })
 
     const entry: PromptHistoryEntry = {
-      id: generateId(),
+      id: createRandomId(),
       content,
       timestamp: Date.now(),
       sessionId,
@@ -654,7 +610,28 @@ export function usePromptHistory({
       saveHistory(updated, specTaskId)
       return updated
     })
-  }, [specTaskId])
+
+    // Persist the interrupt flag IMMEDIATELY rather than waiting for the
+    // SYNC_DEBOUNCE_MS batched sync. Interrupt is an intent-bearing escalation:
+    // if the backend drains the queue (current turn completes) before the
+    // debounced sync lands, the escalation is silently lost and the prompt is
+    // dispatched as a plain queue message — which can also reorder it relative
+    // to a sibling. A targeted single-entry push closes that window.
+    // See design/2026-06-23-queue-drain-out-of-order-dispatch.md.
+    const existing = historyRef.current.find(h => h.id === id)
+    if (existing && apiClient && specTaskId && projectId && navigator.onLine) {
+      syncPromptHistory(apiClient, projectId, specTaskId, [{ ...existing, interrupt }])
+        .then(() => {
+          setHistory(prev =>
+            prev.map(h => (h.id === id ? { ...h, syncedToBackend: true } : h))
+          )
+        })
+        .catch(e => {
+          // Leave syncedToBackend=false so the debounced sync retries.
+          console.warn('[PromptHistory] Failed to flush interrupt toggle immediately:', e)
+        })
+    }
+  }, [specTaskId, apiClient, projectId])
 
   // Remove a message from queue by marking it as deleted (tombstone).
   // The entry stays in localStorage to prevent re-import from backend on sync.
@@ -698,135 +675,11 @@ export function usePromptHistory({
     }
     setDraftState('')
     clearDraftStorage(sessionId)
-    setHistoryIndex(-1)
-    originalDraftRef.current = ''
   }, [sessionId])
-
-  // Clear all history
-  const clearHistoryStorage = useCallback(() => {
-    setHistory([])
-    try {
-      localStorage.removeItem(getStorageKey(specTaskId))
-    } catch (e) {
-      console.warn('Failed to clear history:', e)
-    }
-  }, [specTaskId])
-
-  // Pin/unpin a prompt (library feature)
-  const pinPrompt = useCallback(async (id: string, pinned: boolean): Promise<void> => {
-    if (!apiClient) {
-      console.warn('[PromptHistory] Cannot pin prompt without API client')
-      return
-    }
-    try {
-      await apiUpdatePromptPin(apiClient, id, pinned)
-      // Update local state
-      setHistory(prev => {
-        const updated = prev.map(h =>
-          h.id === id ? { ...h, pinned } : h
-        )
-        saveHistory(updated, specTaskId)
-        return updated
-      })
-    } catch (e) {
-      console.warn('[PromptHistory] Failed to pin prompt:', e)
-    }
-  }, [apiClient, specTaskId])
-
-  // Set tags on a prompt (library feature)
-  const setTags = useCallback(async (id: string, tags: string[]): Promise<void> => {
-    if (!apiClient) {
-      console.warn('[PromptHistory] Cannot set tags without API client')
-      return
-    }
-    try {
-      await apiUpdatePromptTags(apiClient, id, tags)
-      // Update local state
-      setHistory(prev => {
-        const updated = prev.map(h =>
-          h.id === id ? { ...h, tags } : h
-        )
-        saveHistory(updated, specTaskId)
-        return updated
-      })
-    } catch (e) {
-      console.warn('[PromptHistory] Failed to set tags:', e)
-    }
-  }, [apiClient, specTaskId])
-
-  // Reuse a prompt (increments usage count, returns content)
-  const reusePrompt = useCallback(async (id: string): Promise<string | null> => {
-    const entry = history.find(h => h.id === id)
-    if (!entry) return null
-
-    if (apiClient) {
-      try {
-        await apiIncrementPromptUsage(apiClient, id)
-        // Update local state
-        setHistory(prev => {
-          const updated = prev.map(h =>
-            h.id === id ? {
-              ...h,
-              usageCount: (h.usageCount || 0) + 1,
-              lastUsedAt: Date.now()
-            } : h
-          )
-          saveHistory(updated, specTaskId)
-          return updated
-        })
-      } catch (e) {
-        console.warn('[PromptHistory] Failed to increment usage:', e)
-      }
-    }
-
-    return entry.content
-  }, [apiClient, specTaskId, history])
-
-  // List pinned prompts (library feature)
-  const getPinnedPrompts = useCallback(async (): Promise<PromptHistoryEntry[]> => {
-    if (!apiClient) {
-      // Fall back to local filter
-      return history.filter(h => h.pinned)
-    }
-    try {
-      const entries = await apiListPinnedPrompts(apiClient, specTaskId)
-      return entries.map(backendToLocal)
-    } catch (e) {
-      console.warn('[PromptHistory] Failed to get pinned prompts:', e)
-      return history.filter(h => h.pinned)
-    }
-  }, [apiClient, specTaskId, history])
-
-  // Search prompts by content (library feature)
-  const searchHistory = useCallback(async (query: string, limit?: number): Promise<PromptHistoryEntry[]> => {
-    if (!apiClient) {
-      // Fall back to local search
-      const lowerQuery = query.toLowerCase()
-      return history
-        .filter(h => h.content.toLowerCase().includes(lowerQuery))
-        .slice(0, limit || 50)
-    }
-    try {
-      const entries = await apiSearchPrompts(apiClient, query, limit)
-      return entries.map(backendToLocal)
-    } catch (e) {
-      console.warn('[PromptHistory] Failed to search prompts:', e)
-      // Fall back to local search
-      const lowerQuery = query.toLowerCase()
-      return history
-        .filter(h => h.content.toLowerCase().includes(lowerQuery))
-        .slice(0, limit || 50)
-    }
-  }, [apiClient, history])
 
   return {
     draft,
     setDraft,
-    history: sessionHistory,
-    historyIndex,
-    navigateUp,
-    navigateDown,
-    resetNavigation,
     saveToHistory,
     markAsSent,
     markAsFailed,
@@ -835,16 +688,9 @@ export function usePromptHistory({
     updateInterrupt,
     removeFromQueue,
     reorderQueue,
-    // Library features
-    pinPrompt,
-    setTags,
-    reusePrompt,
-    getPinnedPrompts,
-    searchHistory,
     // Status
     pendingPrompts,
     failedPrompts,
     clearDraft,
-    clearHistory: clearHistoryStorage,
   }
 }

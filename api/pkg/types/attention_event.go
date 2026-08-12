@@ -21,6 +21,10 @@ type AttentionEvent struct {
 	Description    string             `json:"description,omitempty" gorm:"type:text"`
 	CreatedAt      time.Time          `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP;index"`
 	AcknowledgedAt *time.Time         `json:"acknowledged_at,omitempty"`
+	// RepliedAt is set when the user answers an org_message inline from the
+	// notification bell. It keeps replied messages visible (marked "Replied")
+	// so the user has a record the message came through and was answered.
+	RepliedAt      *time.Time         `json:"replied_at,omitempty"`
 	DismissedAt    *time.Time         `json:"dismissed_at,omitempty" gorm:"index"`
 	SnoozedUntil   *time.Time         `json:"snoozed_until,omitempty"`
 	IdempotencyKey string             `json:"idempotency_key,omitempty" gorm:"size:500;uniqueIndex"`
@@ -40,6 +44,10 @@ const (
 	AttentionEventSpecFailed                AttentionEventType = "spec_failed"
 	AttentionEventImplementationFailed      AttentionEventType = "implementation_failed"
 	AttentionEventPRReady                   AttentionEventType = "pr_ready"
+	// AttentionEventOrgMessage is a helix-org bot messaging a person (the
+	// "ask_human" in-app inbox). It has no spec task / project — ProjectID
+	// and SpecTaskID are empty.
+	AttentionEventOrgMessage AttentionEventType = "org_message"
 	AttentionEventCIPassed                  AttentionEventType = "ci_passed"
 	AttentionEventCIFailed                  AttentionEventType = "ci_failed"
 )
@@ -56,6 +64,9 @@ type AttentionEventFilters struct {
 // (acknowledge, dismiss, or snooze).
 type AttentionEventUpdateRequest struct {
 	Acknowledge  bool       `json:"acknowledge,omitempty"`
+	// Reply marks an org_message answered — sets replied_at (and acknowledges),
+	// keeping it visible as "Replied" instead of dismissing it.
+	Reply        bool       `json:"reply,omitempty"`
 	Dismiss      bool       `json:"dismiss,omitempty"`
 	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
 }

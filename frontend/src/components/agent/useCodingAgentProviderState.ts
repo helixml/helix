@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import { useListProviders } from '../../services/providersService'
 import { CodingAgentFormValue } from './CodingAgentForm'
 
@@ -13,9 +14,11 @@ import { CodingAgentFormValue } from './CodingAgentForm'
 export function useCodingAgentProviderState(
   value: CodingAgentFormValue,
   onChange: (value: CodingAgentFormValue) => void,
+  autoSelectRuntime = true,
 ) {
   const { data: providerEndpoints } = useListProviders({ loadModels: false })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const { data: codexSubscriptions } = useCodexSubscriptions()
 
   const hasAnthropicProvider = useMemo(() => {
     if (!providerEndpoints) return false
@@ -23,6 +26,7 @@ export function useCodingAgentProviderState(
   }, [providerEndpoints])
 
   const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
 
   // Use a primitive so we stay within the "only primitives in deps" rule.
   const providerEndpointsLoaded = providerEndpoints !== undefined
@@ -34,12 +38,13 @@ export function useCodingAgentProviderState(
     if (hasAutoSelected.current) return
     if (!providerEndpointsLoaded) return
     hasAutoSelected.current = true
+    if (!autoSelectRuntime) return
     if (hasAnthropicProvider) {
       onChange({ ...value, codeAgentRuntime: 'claude_code', claudeCodeMode: 'api_key' })
     } else if (hasClaudeSubscription) {
       onChange({ ...value, codeAgentRuntime: 'claude_code', claudeCodeMode: 'subscription' })
     }
-  }, [hasAnthropicProvider, hasClaudeSubscription, providerEndpointsLoaded])
+  }, [autoSelectRuntime, hasAnthropicProvider, hasClaudeSubscription, providerEndpointsLoaded])
 
-  return { hasAnthropicProvider, hasClaudeSubscription }
+  return { hasAnthropicProvider, hasClaudeSubscription, hasCodexSubscription }
 }

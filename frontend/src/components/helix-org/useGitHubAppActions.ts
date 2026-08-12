@@ -1,5 +1,5 @@
 // useGitHubAppActions encapsulates the GitHub App create / install / manage
-// browser flows shared by the New Stream dialog and the Settings page panel.
+// browser flows shared by the New Topic dialog and the Settings page panel.
 // All three are top-level navigations to github.com in a popup; GitHub's COOP
 // headers sever window.opener, so completion is detected by a postMessage from
 // our callback (when available) AND a window-focus fallback. The caller passes

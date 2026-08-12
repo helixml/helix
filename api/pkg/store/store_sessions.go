@@ -25,14 +25,6 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("parent_session = ?", query.ParentSession)
 	}
 
-	if query.QuestionSetID != "" {
-		q = q.Where("question_set_id", query.QuestionSetID)
-	}
-
-	if query.QuestionSetExecutionID != "" {
-		q = q.Where("question_set_execution_id = ?", query.QuestionSetExecutionID)
-	}
-
 	if query.OrganizationID != "" {
 		q = q.Where("organization_id = ?", query.OrganizationID)
 	} else {
@@ -43,8 +35,29 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("parent_app = ?", query.AppID)
 	}
 
-	if query.ProjectID != "" {
-		q = q.Where("project_id = ?", query.ProjectID)
+	switch query.ProjectScope {
+	case "none":
+		q = q.Where("project_id IS NULL OR project_id = ''")
+	case "project":
+		q = q.Where(
+			"project_id = ? AND COALESCE(config->>'spec_task_id', '') = ''",
+			query.ProjectID,
+		)
+	default:
+		if query.ProjectID != "" {
+			q = q.Where("project_id = ?", query.ProjectID)
+		}
+	}
+
+	// `sessions.archived` is deliberately unindexed: the default predicate matches
+	// nearly every row, so the planner would never choose a plain boolean index,
+	// and AutoMigrate builds indexes non-concurrently — an ACCESS EXCLUSIVE lock
+	// on `sessions` for the length of the build.
+	switch {
+	case query.ArchivedOnly:
+		q = q.Where("archived = true")
+	case query.ExcludeArchived:
+		q = q.Where("archived = false OR archived IS NULL")
 	}
 
 	if query.SessionRole != "" {
@@ -61,8 +74,24 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("model_name != 'external_agent'")
 	}
 
-	// Add ordering
-	q = q.Order("created DESC")
+	// Last-message order is computed in SQL before pagination. Session.Updated is
+	// also changed by metadata, title, and sandbox lifecycle writes, so it is not
+	// a conversation timestamp.
+	if query.SortBy == "last_message" {
+		const lastMessageAt = `COALESCE(
+			(SELECT MAX(interactions.created)
+			 FROM interactions
+			 WHERE interactions.session_id = sessions.id),
+			sessions.created
+		)`
+		q = q.
+			Select("sessions.*, " + lastMessageAt + " AS last_message_at").
+			Order(lastMessageAt + " DESC, sessions.created DESC, sessions.id DESC")
+	} else if query.SortBy == "updated" {
+		q = q.Order("updated DESC, created DESC")
+	} else {
+		q = q.Order("created DESC")
+	}
 
 	if query.PerPage == 0 {
 		query.PerPage = -1
@@ -329,7 +358,6 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 	return &session, nil
 }
 
-
 // ClearStaleStartingSessions clears external_agent_status and status_message
 // for sessions stuck in "starting" state. Called on API startup — if the API
 // just started, no session can legitimately be mid-startup.
@@ -341,6 +369,62 @@ func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, 
 			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
 		})
 	return result.RowsAffected, result.Error
+}
+
+// MarkSessionStartingIfIdle atomically flips external_agent_status to "starting"
+// and status_message to "Starting Desktop..." for the named session, but ONLY
+// if the current external_agent_status is neither "starting" nor "running".
+// Targeted JSONB merge — does NOT use GORM Save, so it can't race with the
+// streaming path's full-row writes (see auto_wake_stuck_interactions.go header
+// at lines 75-86 for the original incident this pattern guards against).
+//
+// Returns true when the row was updated. False (with err=nil) means the row
+// already showed "starting" or "running" — caller can log a no-op and move on.
+//
+// Used by syncPromptHistory to close the cache-vs-backend race that causes
+// the "Starting Desktop..." spinner to flicker off when chatting to an idle
+// spec-task session: by marking the row synchronously before firing the
+// async wake goroutine, the frontend's first refetch sees "starting" and
+// agrees with the optimistic React Query cache write. See spec
+// design/tasks/002047_yet-again-sending-a/design.md.
+func (s *PostgresStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID string) (bool, error) {
+	if sessionID == "" {
+		return false, errors.New("session_id is required")
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("id = ?", sessionID).
+		Where("COALESCE(config->>'external_agent_status', '') NOT IN ('starting', 'running')").
+		Updates(map[string]interface{}{
+			"config": gorm.Expr(`config || '{"external_agent_status":"starting","status_message":"Starting Desktop..."}'::jsonb`),
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// ClearSessionStartingStatus reverts external_agent_status from "starting"
+// back to empty (and clears status_message), but ONLY if the current status
+// is "starting". Used by the auto-wake worker after retry exhaustion so the
+// frontend spinner returns to "Desktop Paused" instead of sitting on
+// "Starting Desktop..." forever. Targeted JSONB merge for the same race
+// reasons as MarkSessionStartingIfIdle.
+func (s *PostgresStore) ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error) {
+	if sessionID == "" {
+		return false, errors.New("session_id is required")
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("id = ?", sessionID).
+		Where("config->>'external_agent_status' = ?", "starting").
+		Updates(map[string]interface{}{
+			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 // ListSessionsBySandbox returns all sessions associated with a specific sandbox
@@ -413,6 +497,40 @@ ORDER BY s.config->>'dev_container_id', s.created ASC`
 		return nil, err
 	}
 	return sessions, nil
+}
+
+// ListExternalAgentSessionIDs returns the IDs of external-agent (hydra) sessions
+// that should be considered LIVE for the purposes of the orphan-resource reaper.
+//
+// A session is live if ANY of:
+//   - its external_agent_status is "running" (a desktop container is up), OR
+//   - it was updated at or after cutoff (recent activity — covers sessions
+//     mid-startup or recently stopped whose container row hasn't settled), OR
+//   - it backs a spec-task marked keep_alive = true (never auto-reap).
+//
+// Only the live set is returned. The reaper subtracts this from what's on disk,
+// so anything omitted here becomes a reap candidate (still subject to hydra's
+// grace period). Note: the sessions table uses the column `updated` (NOT
+// updated_at).
+func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error) {
+	var ids []string
+	err := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("deleted_at IS NULL").
+		Where("model_name = ?", "external_agent").
+		Where(s.gdb.
+			Where("config->>'external_agent_status' = ?", "running").
+			Or("updated >= ?", cutoff).
+			Or(`EXISTS (
+				SELECT 1 FROM spec_tasks st
+				WHERE st.agent_session_id = sessions.id
+				  AND st.keep_alive = true
+			)`)).
+		Pluck("id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list external agent session ids: %w", err)
+	}
+	return ids, nil
 }
 
 func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation StoreEventOperation, session *types.Session) error {

@@ -54,7 +54,7 @@ import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType } from "../../utils/oauthProviders";
+import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
 import { useUpdateSpecTask, useSpecTask } from "../../services/specTaskService";
 import { useQuery } from "@tanstack/react-query";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
@@ -121,9 +121,7 @@ const useAgentActivityCheck = (
   return { isActive, needsAttention, markAsSeen };
 };
 
-// Generate unique panel IDs using timestamp + random to avoid collisions
-const generatePanelId = () =>
-  `panel-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+const generatePanelId = () => `panel-${crypto.randomUUID()}`;
 
 interface TabData {
   id: string;
@@ -377,7 +375,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
           ? tab.reviewTitle
           : `Review: ${tab.reviewTitle || "Spec"}`
         : tab.type === "desktop"
-          ? tab.desktopTitle || "Human Desktop"
+          ? tab.desktopTitle || "Project Desktop"
           : displayTask?.user_short_title ||
             displayTask?.short_title ||
             displayTask?.name ||
@@ -394,7 +392,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
     }
     // Desktop tabs
     if (tab.type === "desktop") {
-      return tab.desktopTitle || "Human Desktop";
+      return tab.desktopTitle || "Project Desktop";
     }
     if (!hasSession) {
       return (
@@ -770,12 +768,9 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const account = useAccount();
   const streaming = useStreaming();
 
-  // OAuth flow — planner without GitHub OAuth gets 422 oauth_required from
-  // start-planning; open the connect flow instead of surfacing the raw
-  // string.
+  // Open the matching repository provider when planning requires OAuth.
   const { startOAuthFlow } = useOAuthFlow();
   const { data: oauthProviders } = useListOAuthProviders();
-  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
 
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
@@ -868,18 +863,21 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           response.status === 422 &&
           errorData?.error === "oauth_required"
         ) {
-          if (gitHubProvider?.id) {
-            snackbar.info("Connect GitHub to start planning this task.");
+          const providerType = errorData?.provider_type === "gitlab" ? "gitlab" : "github";
+          const providerName = providerType === "gitlab" ? "GitLab" : "GitHub";
+          const oauthProvider = findOAuthProviderForType(oauthProviders, providerType);
+          if (oauthProvider?.id) {
+            snackbar.info(`Connect ${providerName} to start planning this task.`);
             startOAuthFlow({
-              providerId: gitHubProvider.id,
-              scopes: ["repo"],
+              providerId: oauthProvider.id,
+              scopes: vcsScopesForProvider(oauthProvider.type, oauthProvider.name),
               onSuccess: () => {
                 snackbar.success(
-                  "GitHub connected. Click Start Planning again to continue.",
+                  `${providerName} connected. Click Start Planning again to continue.`,
                 );
               },
               onError: (oauthError) => {
-                snackbar.error(`GitHub connection failed: ${oauthError}`);
+                snackbar.error(`${providerName} connection failed: ${oauthError}`);
               },
             });
           } else {
@@ -887,14 +885,14 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             // error message is PR-centric and actionless for this user, so
             // override it with admin-direction guidance.
             snackbar.error(
-              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
+              `${providerName} OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.`,
             );
           }
           return;
         }
         throw new Error(
-          errorData.error ||
-            errorData.message ||
+          errorData.message ||
+            errorData.error ||
             `Failed to start planning: ${response.statusText}`,
         );
       }
@@ -1308,7 +1306,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             </>
           )}
 
-          {/* Human Desktop - the exploratory session for the project */}
+          {/* Project Desktop - the exploratory session for the project */}
           {exploratorySessionId &&
             (() => {
               const desktopTabId = `desktop-${exploratorySessionId}`;
@@ -1321,7 +1319,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                         onAddDesktop(
                           panel.id,
                           exploratorySessionId,
-                          "Human Desktop",
+                          "Project Desktop",
                         );
                       }
                       setMenuAnchor(null);
@@ -1337,7 +1335,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                       />
                     </ListItemIcon>
                     <ListItemText
-                      primary="Human Desktop"
+                      primary="Project Desktop"
                       secondary={alreadyOpen ? "Already open" : undefined}
                       primaryTypographyProps={{ fontSize: "0.875rem" }}
                       secondaryTypographyProps={{ fontSize: "0.7rem" }}
@@ -1473,6 +1471,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                     });
                   }}
                   placeholder="Send message to agent..."
+                  enableSandboxCompletions
                 />
               </Box>
             </Box>
@@ -1592,7 +1591,7 @@ interface TabsViewProps {
   initialTaskId?: string; // Task ID to open initially (from "Split Screen" button)
   initialDesktopId?: string; // Desktop session ID to open initially (from "Split Screen" button)
   initialReviewId?: string; // Review ID to open initially (requires initialTaskId)
-  exploratorySessionId?: string; // Human Desktop session ID (one per project)
+  exploratorySessionId?: string; // Project Desktop session ID (one per project)
 }
 
 // localStorage key prefix for workspace state (per-project)
@@ -1849,7 +1848,7 @@ const TabsView: React.FC<TabsViewProps> = ({
         ? tasks.find((t) => t.agent_session_id === initialDesktopId)
         : null;
       const desktopTitle = isTeamDesktop
-        ? "Human Desktop"
+        ? "Project Desktop"
         : ownerTask
           ? ownerTask.user_short_title ||
             ownerTask.short_title ||
@@ -1995,7 +1994,7 @@ const TabsView: React.FC<TabsViewProps> = ({
       ? tasks.find((t) => t.agent_session_id === initialDesktopId)
       : null;
     const desktopTitle = isTeamDesktop
-      ? "Human Desktop"
+      ? "Project Desktop"
       : ownerTask
         ? ownerTask.user_short_title ||
           ownerTask.short_title ||
@@ -2405,7 +2404,7 @@ const TabsView: React.FC<TabsViewProps> = ({
     [],
   );
 
-  // Handle adding a Human Desktop tab to a panel
+  // Handle adding a Project Desktop tab to a panel
   const handleAddDesktop = useCallback(
     (panelId: string, sessionId: string, title?: string) => {
       const desktopTabId = `desktop-${sessionId}`;
@@ -2426,7 +2425,7 @@ const TabsView: React.FC<TabsViewProps> = ({
                 id: desktopTabId,
                 type: "desktop" as const,
                 sessionId,
-                desktopTitle: title || "Human Desktop",
+                desktopTitle: title || "Project Desktop",
               },
             ],
             activeTabId: desktopTabId,

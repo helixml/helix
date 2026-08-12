@@ -16,7 +16,7 @@ import (
 type eventRow struct {
 	ID        string    `gorm:"primaryKey;type:text"`
 	OrgID     string    `gorm:"primaryKey;type:text;index"`
-	StreamID  string    `gorm:"not null;index"`
+	TopicID   string    `gorm:"not null;index"`
 	Source    string    `gorm:"index"` // empty for system-emitted
 	Body      string    `gorm:"not null"`
 	CreatedAt time.Time `gorm:"index"`
@@ -30,7 +30,7 @@ func (eventMapper) ToRow(e streaming.Event) (eventRow, error) {
 	return eventRow{
 		ID:        string(e.ID),
 		OrgID:     e.OrganizationID,
-		StreamID:  string(e.StreamID),
+		TopicID:   string(e.TopicID),
 		Source:    string(e.Source),
 		Body:      e.Body,
 		CreatedAt: e.CreatedAt,
@@ -40,8 +40,8 @@ func (eventMapper) ToRow(e streaming.Event) (eventRow, error) {
 func (eventMapper) ToDomain(row eventRow) (streaming.Event, error) {
 	return streaming.NewEvent(
 		streaming.EventID(row.ID),
-		streaming.StreamID(row.StreamID),
-		orgchart.WorkerID(row.Source),
+		streaming.TopicID(row.TopicID),
+		orgchart.NodeID(row.Source),
 		row.Body,
 		row.CreatedAt,
 		row.OrgID,
@@ -50,27 +50,59 @@ func (eventMapper) ToDomain(row eventRow) (streaming.Event, error) {
 
 type eventsRepo struct {
 	*Repository[streaming.Event, eventRow]
-	workers *workersRepo
+	bots *nodesRepo
 }
 
-func newEventsRepo(db *gorm.DB, workers *workersRepo) *eventsRepo {
+func newEventsRepo(db *gorm.DB, bots *nodesRepo) *eventsRepo {
 	return &eventsRepo{
 		Repository: NewRepository[streaming.Event, eventRow](db, eventMapper{}, "event"),
-		workers:    workers,
+		bots:       bots,
 	}
 }
 
 func (r *eventsRepo) Append(ctx context.Context, e streaming.Event) error {
-	return r.Repository.Create(ctx, e)
+	err := r.Repository.Create(ctx, e)
+	if isUniqueViolation(err) {
+		return fmt.Errorf("event %q: %w", e.ID, store.ErrConflict)
+	}
+	return err
 }
 
-func (r *eventsRepo) ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID, limit int) ([]streaming.Event, error) {
+func (r *eventsRepo) DeleteForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) error {
+	result := r.Repository.db.WithContext(ctx).
+		Where("org_id = ? AND topic_id = ?", orgID, string(topicID)).
+		Delete(&eventRow{})
+	if result.Error != nil {
+		return fmt.Errorf("delete events for topic: %w", result.Error)
+	}
+	return nil
+}
+
+func (r *eventsRepo) ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error) {
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),
-		store.WithCondition("stream_id", string(streamID)),
+		store.WithCondition("topic_id", string(topicID)),
 		store.WithOrderDesc("created_at"),
 		store.WithOrderDesc("id"),
 		store.WithLimit(limit),
+	)
+}
+
+func (r *eventsRepo) PageForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit, offset int) ([]streaming.Event, error) {
+	return r.Repository.Find(ctx,
+		store.WithOrg(orgID),
+		store.WithCondition("topic_id", string(topicID)),
+		store.WithOrderDesc("created_at"),
+		store.WithOrderDesc("id"),
+		store.WithLimit(limit),
+		store.WithOffset(offset),
+	)
+}
+
+func (r *eventsRepo) CountForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) (int, error) {
+	return r.Repository.Count(ctx,
+		store.WithOrg(orgID),
+		store.WithCondition("topic_id", string(topicID)),
 	)
 }
 
@@ -83,36 +115,36 @@ func (r *eventsRepo) ListAll(ctx context.Context, orgID string, limit int) ([]st
 	)
 }
 
-func (r *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
-	// Subscriptions are worker-anchored. Join events against
-	// subscriptions for this worker directly.
-	if r.workers == nil {
-		return nil, fmt.Errorf("eventsRepo: workers repo not wired")
+func (r *eventsRepo) ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID, limit int) ([]streaming.Event, error) {
+	// Subscriptions are bot-anchored. Join events against
+	// subscriptions for this bot directly.
+	if r.bots == nil {
+		return nil, fmt.Errorf("eventsRepo: bots repo not wired")
 	}
-	if _, err := r.workers.Get(ctx, orgID, workerID); err != nil {
+	if _, err := r.bots.Get(ctx, orgID, botID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("resolve worker for event listing: %w", err)
+		return nil, fmt.Errorf("resolve bot for event listing: %w", err)
 	}
 	return r.Repository.Find(ctx,
 		store.WithTable("org_events AS e"),
-		store.WithJoin("JOIN org_subscriptions AS s ON s.stream_id = e.stream_id AND s.org_id = e.org_id"),
+		store.WithJoin("JOIN org_subscriptions AS s ON s.topic_id = e.topic_id AND s.org_id = e.org_id"),
 		store.WithSelect("e.*"),
 		store.WithCondition("e.org_id", orgID),
-		store.WithCondition("s.worker_id", string(workerID)),
+		store.WithCondition("s.bot_id", string(botID)),
 		store.WithOrderDesc("e.created_at"),
 		store.WithOrderDesc("e.id"),
 		store.WithLimit(limit),
 	)
 }
 
-func (r *eventsRepo) ListSince(ctx context.Context, orgID string, streamIDs []streaming.StreamID, since streaming.EventID, limit int) ([]streaming.Event, error) {
-	if len(streamIDs) == 0 {
+func (r *eventsRepo) ListSince(ctx context.Context, orgID string, topicIDs []streaming.TopicID, since streaming.EventID, limit int) ([]streaming.Event, error) {
+	if len(topicIDs) == 0 {
 		return nil, nil
 	}
-	ids := make([]string, 0, len(streamIDs))
-	for _, s := range streamIDs {
+	ids := make([]string, 0, len(topicIDs))
+	for _, s := range topicIDs {
 		ids = append(ids, string(s))
 	}
 
@@ -141,7 +173,7 @@ func (r *eventsRepo) ListSince(ctx context.Context, orgID string, streamIDs []st
 
 	opts := []store.Option{
 		store.WithCondition("org_id", orgID),
-		store.WithConditionIn("stream_id", ids),
+		store.WithConditionIn("topic_id", ids),
 	}
 	if hasLB {
 		opts = append(opts, store.WithWhere("(created_at > ?) OR (created_at = ? AND id > ?)", sinceTS, sinceTS, sinceID))

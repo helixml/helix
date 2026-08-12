@@ -61,6 +61,9 @@ type OIDCConfig struct {
 	Waitlist bool
 	// EventHandler receives lifecycle events (e.g., new user created). Optional.
 	EventHandler OIDCEventHandler
+	// AllowedEmailDomains restricts login/registration to these email domains
+	// (lowercased, e.g. "helix.ml"). Empty means no restriction.
+	AllowedEmailDomains []string
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -321,6 +324,15 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		return nil, fmt.Errorf("invalid access token (could not get user info): %w", err)
 	}
 
+	// Enforce the allowed email-domain restriction (if configured) BEFORE creating
+	// any user or granting access. Without this gate, any verified OIDC account is
+	// accepted even on deployments that intend to restrict sign-in to a specific
+	// domain. Empty AllowedEmailDomains means no restriction (default).
+	if !emailDomainAllowed(userInfo.Email, userInfo.EmailVerified, c.cfg.AllowedEmailDomains) {
+		log.Warn().Str("email", userInfo.Email).Msg("OIDC login rejected: email domain not allowed")
+		return nil, fmt.Errorf("access restricted: email domain not permitted")
+	}
+
 	// Try to get the user from the database by their OIDC subject ID
 	user, err := c.store.GetUser(ctx, &store.GetUserQuery{
 		ID: userInfo.Subject,
@@ -452,6 +464,44 @@ func (c *OIDCClient) tryAutoJoinOrganization(ctx context.Context, userID, email 
 		Str("email", email).
 		Str("domain", domain).
 		Msg("user auto-joined organization via email domain")
+}
+
+// ParseEmailDomains parses a comma-separated list of email domains into a
+// normalised (trimmed, lowercased, non-empty) slice. Empty input yields nil,
+// meaning "no restriction".
+func ParseEmailDomains(s string) []string {
+	var domains []string
+	for _, d := range strings.Split(s, ",") {
+		if trimmed := strings.ToLower(strings.TrimSpace(d)); trimmed != "" {
+			domains = append(domains, trimmed)
+		}
+	}
+	return domains
+}
+
+// emailDomainAllowed reports whether an OIDC login should be permitted based on
+// the user's email domain. If allowed is empty there is no restriction. Otherwise
+// the email must be verified and its domain (the part after the last "@") must
+// match one of the allowed domains exactly (case-insensitive). Exact matching —
+// not suffix matching — prevents spoofing like "helix.ml.evil.com".
+func emailDomainAllowed(email string, verified bool, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	if !verified {
+		return false
+	}
+	at := strings.LastIndex(email, "@")
+	if at < 0 || at == len(email)-1 {
+		return false
+	}
+	domain := strings.ToLower(email[at+1:])
+	for _, d := range allowed {
+		if domain == d {
+			return true
+		}
+	}
+	return false
 }
 
 type TokenResponse struct {

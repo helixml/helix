@@ -85,3 +85,20 @@ func TestSplitCSVTrim(t *testing.T) {
 		}
 	}
 }
+
+// TestNeuronDeviceRe ensures the Neuron device glob matches per-chip device
+// nodes (/dev/neuron0, neuron1, ...) and excludes control nodes.
+func TestNeuronDeviceRe(t *testing.T) {
+	match := []string{"neuron0", "neuron1", "neuron15"}
+	noMatch := []string{"neuron", "neuron-rtd", "neuronx", "neuron0a", "nvidia0"}
+	for _, m := range match {
+		if !neuronDeviceRe.MatchString(m) {
+			t.Errorf("expected %q to match neuronDeviceRe", m)
+		}
+	}
+	for _, n := range noMatch {
+		if neuronDeviceRe.MatchString(n) {
+			t.Errorf("expected %q NOT to match neuronDeviceRe", n)
+		}
+	}
+}

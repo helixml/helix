@@ -6,11 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -40,8 +42,13 @@ const (
 	// affects newly-created zvols.
 	zvolBlockSize = "8K"
 
+	// containerDockerRoot is the in-container mount of CONTAINER_DOCKER_PATH —
+	// the parent XFS-on-zvol holding buildkit state, file-copy docker-data, and
+	// the zvol-mounts tree.
+	containerDockerRoot = "/container-docker"
+
 	// zvolMountBase is where cloned zvols are mounted.
-	zvolMountBase = "/container-docker/zvol-mounts"
+	zvolMountBase = containerDockerRoot + "/zvol-mounts"
 )
 
 var (
@@ -95,10 +102,22 @@ var (
 // Result is cached after first call.
 func ZFSAvailable() bool {
 	zfsAvailableOnce.Do(func() {
+		// When the operator has declared ZFS is configured (HELIX_EXPECT_ZFS),
+		// a silent fall-through to file-copy mode is a misconfiguration that
+		// leaks disk and slows session starts — escalate those logs to Error so
+		// it's visible/alertable instead of a single Info/Warn line.
+		expectZFS, _ := strconv.ParseBool(os.Getenv("HELIX_EXPECT_ZFS"))
+		fallbackLog := func() *zerolog.Event {
+			if expectZFS {
+				return log.Error()
+			}
+			return log.Info()
+		}
+
 		// Check if zfs binary exists and can list datasets
 		out, err := execCmdCombinedOutput("zfs", "list", "-H", "-o", "name")
 		if err != nil {
-			log.Info().Err(err).Str("output", string(out)).
+			fallbackLog().Err(err).Str("output", string(out)).Bool("expect_zfs", expectZFS).
 				Msg("ZFS not available, will use file-copy fallback for golden cache")
 			return
 		}
@@ -108,7 +127,8 @@ func ZFSAvailable() bool {
 		// a dedicated helix-zvols dataset exists under it for cleanliness.
 		poolRoot := detectPoolRoot()
 		if poolRoot == "" {
-			log.Warn().Msg("ZFS available but could not detect pool for container-docker, disabling zvol cloning")
+			fallbackLog().Bool("expect_zfs", expectZFS).Str("container_docker_path", os.Getenv("CONTAINER_DOCKER_PATH")).
+				Msg("ZFS available but could not detect pool for container-docker, disabling zvol cloning (falling back to file-copy)")
 			zfsAvailableFlag = false
 			return
 		}
@@ -439,8 +459,10 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 			return mountPath, nil
 		}
 		// Clone exists but not mounted (e.g. after reboot) — mount with nouuid
-		// because the clone shares the golden's XFS UUID.
-		if err := mountZvolWithOptions(cloneName, mountPath, "nouuid"); err != nil {
+		// because the clone shares the golden's XFS UUID. discard so freed
+		// blocks are TRIMmed back to the pool (XFS-on-zvol doesn't reclaim
+		// otherwise — see mountZvolWithOptions).
+		if err := mountZvolWithOptions(cloneName, mountPath, "nouuid,discard"); err != nil {
 			return "", fmt.Errorf("failed to mount existing clone %s: %w", cloneName, err)
 		}
 		log.Info().
@@ -473,7 +495,7 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 	// entries from the golden build, which xfs_admin refuses to modify.
 	// nouuid skips the UUID check entirely — safe because each clone is on
 	// its own separate block device (zvol).
-	if err := mountZvolWithOptions(cloneName, mountPath, "nouuid"); err != nil {
+	if err := mountZvolWithOptions(cloneName, mountPath, "nouuid,discard"); err != nil {
 		// Cleanup the clone on mount failure
 		_ = runCmd("zfs", "destroy", cloneName)
 		return "", fmt.Errorf("failed to mount clone %s at %s: %w", cloneName, mountPath, err)
@@ -653,6 +675,16 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 	_ = runCmd("umount", goldenMount)
 	_ = os.Remove(goldenMount)
 
+	// Ensure golden ends up a true root dataset. `zfs promote` above only
+	// detaches one level, so without this golden stays a clone of the original
+	// session's zvol, which then becomes an unreapable clone-origin and leaks
+	// old snapshots forever. Metadata-only; the project lock is already held.
+	if n, err := flattenGoldenToRootLocked(goldenName); err != nil {
+		log.Warn().Err(err).Str("golden", goldenName).Msg("Failed to flatten golden to root after promote")
+	} else if n > 0 {
+		log.Info().Str("golden", goldenName).Int("promotes", n).Msg("Flattened golden to root after promote")
+	}
+
 	log.Info().
 		Str("project_id", projectID).
 		Str("golden", goldenName).
@@ -816,6 +848,245 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	return cleaned, nil
 }
 
+// zvolCreationAge returns how long ago a zvol was created, using the ZFS
+// `creation` property (unix seconds, via -p). Returns 0 if the property can't
+// be read or parsed — callers treat 0 as "unknown age" and apply their own
+// safe default.
+func zvolCreationAge(zvolName string) time.Duration {
+	out, err := execCmdOutput("zfs", "get", "-Hp", "-o", "value", "creation", zvolName)
+	if err != nil {
+		return 0
+	}
+	var created int64
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &created); err != nil || created <= 0 {
+		return 0
+	}
+	return time.Since(time.Unix(created, 0))
+}
+
+// ReconcileOrphanZvols reaps session zvols (prefix "<parent>/ses-") that are NOT
+// in the DB-derived liveSet, have aged past the grace period, and can be safely
+// destroyed.
+//
+// Safety contract (do not weaken):
+//   - Only ses- zvols are ever enumerated; golden-* zvols are never touched
+//     (the prefix guard filters them out, mirroring GCOrphanedZvols).
+//   - Destroys go through CleanupSessionZvol, which uses `zfs destroy -r`
+//     (lowercase). A clone-root or busy zvol fails with "has dependent clones"
+//     / "dataset is busy"; we record it as skipped and move on. We NEVER force
+//     (no `-R`, no `-f`) — refusing to destroy a busy/parent dataset is the
+//     desired behaviour.
+//   - Live sessions get their external marker refreshed so the legacy on-disk
+//     GC keeps treating them as fresh.
+func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
+	if !ZFSAvailable() {
+		return nil, nil
+	}
+
+	prefix := zfsParentDataset + "/ses-"
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
+	if err != nil {
+		log.Warn().Err(err).Msg("ReconcileOrphanZvols: failed to list zvols")
+		return nil, nil
+	}
+
+	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if !strings.HasPrefix(name, prefix) {
+			continue // never touch golden- or anything else
+		}
+		sessionID := strings.TrimPrefix(name, prefix)
+
+		if liveSet[sessionID] {
+			// Live per the DB — keep, and refresh the on-disk marker so the
+			// legacy 7-day GC also keeps treating it as fresh.
+			externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+			_ = os.MkdirAll(externalDir, 0755)
+			TouchSessionLastActive(externalDir)
+			skipped = append(skipped, GCSkip{Name: name, Reason: "live"})
+			continue
+		}
+
+		// Not live. Apply the grace period using zvol creation time. age == 0
+		// means we couldn't read the creation property — be conservative and
+		// skip (treat as within grace).
+		age := zvolCreationAge(name)
+		if age < grace {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "grace"})
+			continue
+		}
+
+		if dryRun {
+			reaped = append(reaped, name)
+			continue
+		}
+
+		if err := CleanupSessionZvol(sessionID); err != nil {
+			msg := err.Error()
+			// "has dependent clones" / "dataset is busy" → a golden clone-root
+			// or a manually-cloned descendant depends on this zvol. NEVER force.
+			if strings.Contains(msg, "dependent clones") || strings.Contains(msg, "busy") {
+				skipped = append(skipped, GCSkip{Name: name, Reason: "dependent: " + msg})
+				continue
+			}
+			log.Warn().Err(err).Str("zvol", name).Msg("ReconcileOrphanZvols: failed to destroy zvol")
+			skipped = append(skipped, GCSkip{Name: name, Reason: "error: " + msg})
+			continue
+		}
+		reaped = append(reaped, name)
+	}
+
+	return reaped, skipped
+}
+
+// ReconcileOrphanFileCopyDirs reaps per-session file-copy docker-data dirs
+// (sessionsBaseDir/docker-data-<id>) whose session is NOT in the DB-derived
+// liveSet and whose on-disk age has passed the grace period.
+//
+// These dirs hold the inner docker storage on hosts where ZFS is unavailable
+// (the file-copy fallback in resolveDockerDataDir), and stale marker dirs on
+// ZFS hosts. The durable reaper previously ignored them entirely — only the
+// legacy in-memory GCOrphanedSessionDirs touched them, and that path skips any
+// dir without a .last-active marker forever (age == 0). Ended-session docker
+// data therefore leaked indefinitely (this is what accumulated ~1T of dead
+// docker-data dirs on a file-copy host). This closes the gap using the same
+// durable, DB-derived live-set the zvol reaper uses.
+func ReconcileOrphanFileCopyDirs(liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
+	entries, err := os.ReadDir(sessionsBaseDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Warn().Err(err).Msg("ReconcileOrphanFileCopyDirs: failed to read sessions dir")
+		}
+		return nil, nil
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "docker-data-") {
+			continue
+		}
+		sessionID := strings.TrimPrefix(entry.Name(), "docker-data-")
+		dir := filepath.Join(sessionsBaseDir, entry.Name())
+
+		if liveSet[sessionID] {
+			// Live per the DB — keep, and refresh the marker so the legacy
+			// 7-day GC also keeps treating it as fresh.
+			TouchSessionLastActive(dir)
+			skipped = append(skipped, GCSkip{Name: dir, Reason: "live"})
+			continue
+		}
+
+		// Not live. Apply the grace period using fileCopyDirAge (dir mtime or
+		// marker, whichever is newer) — never the marker alone, so a dir
+		// lacking a .last-active marker is still reapable.
+		if fileCopyDirAge(dir) < grace {
+			skipped = append(skipped, GCSkip{Name: dir, Reason: "grace"})
+			continue
+		}
+
+		if dryRun {
+			reaped = append(reaped, dir)
+			continue
+		}
+
+		if err := os.RemoveAll(dir); err != nil {
+			log.Warn().Err(err).Str("dir", dir).Msg("ReconcileOrphanFileCopyDirs: failed to remove orphan docker-data dir")
+			skipped = append(skipped, GCSkip{Name: dir, Reason: "error: " + err.Error()})
+			continue
+		}
+		reaped = append(reaped, dir)
+	}
+
+	return reaped, skipped
+}
+
+// fileCopyDirAge returns how long since a session docker-data dir was last
+// active, using the newer of the dir's own mtime and its .last-active marker.
+// Unlike sessionLastActiveAge it never returns 0 for a marker-less dir: a
+// missing marker falls back to the dir mtime, so pre-marker / crashed dirs are
+// still reapable. Returns 0 only when the dir can't be stat'd at all (treated
+// as fresh — conservative, won't reap).
+func fileCopyDirAge(dir string) time.Duration {
+	var newest time.Time
+	if fi, err := os.Stat(dir); err == nil {
+		newest = fi.ModTime()
+	}
+	if fi, err := os.Stat(filepath.Join(dir, ".last-active")); err == nil && fi.ModTime().After(newest) {
+		newest = fi.ModTime()
+	}
+	if newest.IsZero() {
+		return 0
+	}
+	return time.Since(newest)
+}
+
+// TrimContainerDockerStorage runs fstrim over the /container-docker parent
+// mount and each mounted session/golden zvol, returning blocks freed inside
+// their XFS filesystems back to the ZFS pool. This is a periodic backstop:
+//   - the `discard` mount option only trims a freshly-mounted XFS and cannot
+//     retroactively reclaim blocks freed before it was set;
+//   - operators may mount the parent /container-docker without `discard` at all
+//     (Helix ships no parent mount with discard for Linux prod), so its buildkit
+//     churn and any file-copy docker-data would otherwise never be reclaimed.
+//
+// Errors (EOPNOTSUPP on a mount that doesn't support discard, or a busy fs) are
+// logged at debug and skipped — fstrim is advisory, never fatal.
+func TrimContainerDockerStorage() {
+	targets := []string{containerDockerRoot}
+	if data, err := readMountsFile(); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 && strings.HasPrefix(fields[1], zvolMountBase+"/") {
+				targets = append(targets, fields[1])
+			}
+		}
+	}
+
+	trimmed := 0
+	for _, mp := range targets {
+		if execCmdRun("mountpoint", "-q", mp) != nil {
+			continue
+		}
+		out, err := execCmdCombinedOutput("fstrim", "-v", mp)
+		if err != nil {
+			log.Debug().Err(err).Str("mount", mp).Str("output", strings.TrimSpace(string(out))).
+				Msg("periodic fstrim skipped (no discard support or fs busy)")
+			continue
+		}
+		trimmed++
+		log.Debug().Str("mount", mp).Str("result", strings.TrimSpace(string(out))).Msg("periodic fstrim ok")
+	}
+	if trimmed > 0 {
+		log.Info().Int("mounts_trimmed", trimmed).Int("candidates", len(targets)).
+			Msg("periodic fstrim of container-docker storage completed")
+	}
+}
+
+// warnIfContainerDockerLacksDiscard logs a warning if /container-docker is a
+// zvol-backed mount without the `discard` option. Without discard (and absent
+// the periodic fstrim backstop above) blocks freed inside its XFS are never
+// returned to the ZFS pool and the zvol grows unboundedly — the leak that
+// filled a production pool. Diagnostic only; runs once at startup.
+func warnIfContainerDockerLacksDiscard() {
+	data, err := readMountsFile()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[1] != containerDockerRoot {
+			continue
+		}
+		dev := fields[0]
+		if !strings.HasPrefix(dev, "/dev/zvol/") && !strings.HasPrefix(dev, "/dev/zd") {
+			return // not zvol-backed — discard is not relevant
+		}
+		if !strings.Contains(","+fields[3]+",", ",discard,") {
+			log.Warn().Str("device", dev).Str("options", fields[3]).Str("mount", containerDockerRoot).
+				Msg("/container-docker is a zvol mounted WITHOUT 'discard' — freed blocks only return to the ZFS pool via the periodic fstrim backstop; mount it with 'discard' (and x-systemd.after=zfs-mount if in fstab) for immediate reclaim")
+		}
+		return
+	}
+}
+
 // GCStaleSnapshots destroys golden snapshots older than 7 days that have no
 // remaining clones. Keeps recent snapshots so the user can see cache progression.
 // Snapshots with active session clones can't be destroyed (ZFS refuses) — that's
@@ -891,6 +1162,99 @@ func GCStaleSnapshots() int {
 	}
 
 	return cleaned
+}
+
+// zfsOrigin returns the origin snapshot of a dataset, or "" when it has none
+// (a root dataset; ZFS reports "-"). "" is also returned on error.
+func zfsOrigin(dataset string) string {
+	out, err := execCmdOutput("zfs", "get", "-H", "-o", "value", "origin", dataset)
+	if err != nil {
+		return ""
+	}
+	v := strings.TrimSpace(string(out))
+	if v == "-" {
+		return ""
+	}
+	return v
+}
+
+// flattenGoldenToRootLocked promotes a golden zvol until it is a true root
+// dataset (origin == "-"). golden is built by promoting/cloning a running
+// session, and `zfs promote` only detaches ONE level — so without this, golden
+// stays a clone of the *first* session's zvol, which then becomes an
+// unreapable clone-origin holding old snapshots forever (the GC leak).
+//
+// `zfs promote` is metadata-only: it re-parents the shared snapshots onto
+// golden without copying or deleting any data, and live session clones keep
+// working throughout. Once golden is a root, the former origin session zvols
+// become ordinary leaf clones the orphan reaper can destroy, and their
+// now-absorbed old snapshots are pruned by GCStaleSnapshots. Safe + reversible.
+//
+// The caller MUST hold the project's golden lock.
+func flattenGoldenToRootLocked(goldenName string) (promotes int, err error) {
+	if !zfsDatasetExists(goldenName) {
+		return 0, nil
+	}
+	// Chains are short (golden ← session ← golden …); guard against an
+	// unexpected cycle so we can never spin forever.
+	const maxPromotes = 50
+	for promotes < maxPromotes {
+		if zfsOrigin(goldenName) == "" {
+			return promotes, nil // already a root
+		}
+		if err := runCmd("zfs", "promote", goldenName); err != nil {
+			return promotes, fmt.Errorf("zfs promote %s failed: %w", goldenName, err)
+		}
+		promotes++
+	}
+	return promotes, fmt.Errorf("golden %s still has an origin after %d promotes (possible clone cycle)", goldenName, maxPromotes)
+}
+
+// FlattenGoldenToRoot is the locked, public per-project entry point.
+func FlattenGoldenToRoot(projectID string) (int, error) {
+	lock := getGoldenLock(projectID)
+	lock.Lock()
+	defer lock.Unlock()
+	return flattenGoldenToRootLocked(goldenZvolName(projectID))
+}
+
+// FlattenInvertedGoldens finds golden zvols that are still clones of another
+// dataset (origin != "-") — the legacy topology where golden hangs off an
+// ended session's zvol — and promotes each to a true root, detaching the dead
+// session origin so the orphan reaper can reclaim it. Metadata-only and safe;
+// returns the goldens it flattened (or, in dryRun, would flatten).
+func FlattenInvertedGoldens(dryRun bool) (flattened []string) {
+	if !ZFSAvailable() {
+		return nil
+	}
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
+	if err != nil {
+		log.Warn().Err(err).Msg("FlattenInvertedGoldens: failed to list zvols")
+		return nil
+	}
+	goldenPrefix := zfsParentDataset + "/golden-"
+	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if !strings.HasPrefix(name, goldenPrefix) {
+			continue
+		}
+		if zfsOrigin(name) == "" {
+			continue // already a root — nothing to do
+		}
+		if dryRun {
+			flattened = append(flattened, name)
+			continue
+		}
+		projectID := strings.TrimPrefix(name, goldenPrefix)
+		promotes, err := FlattenGoldenToRoot(projectID)
+		if err != nil {
+			log.Warn().Err(err).Str("golden", name).Msg("FlattenInvertedGoldens: failed to flatten golden to root")
+			continue
+		}
+		log.Info().Str("golden", name).Int("promotes", promotes).
+			Msg("Flattened inverted golden to root (detached dead session origin)")
+		flattened = append(flattened, name)
+	}
+	return flattened
 }
 
 // effectiveGoldenBaseDir returns the golden base directory, respecting test overrides.
@@ -1099,12 +1463,17 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 	return nil
 }
 
-// mountZvol mounts a zvol at the given path.
+// mountZvol mounts a zvol at the given path. Mounts with "discard" so that
+// blocks freed inside the XFS filesystem are TRIMmed back to the ZFS pool —
+// without it, XFS-on-zvol never returns deleted space and the zvol grows
+// unboundedly (this is what leaked ~858G onto the container-docker zvol).
 func mountZvol(zvolName, mountPath string) error {
-	return mountZvolWithOptions(zvolName, mountPath, "")
+	return mountZvolWithOptions(zvolName, mountPath, "discard")
 }
 
-// mountZvolWithOptions mounts a zvol with optional mount options (e.g. "nouuid" for XFS).
+// mountZvolWithOptions mounts a zvol with optional mount options (e.g.
+// "nouuid" for XFS clones). Callers should include "discard" so freed blocks
+// are reclaimed (see mountZvol).
 func mountZvolWithOptions(zvolName, mountPath, options string) error {
 	if err := osMkdirAll(mountPath, 0755); err != nil {
 		return fmt.Errorf("failed to create mount point %s: %w", mountPath, err)

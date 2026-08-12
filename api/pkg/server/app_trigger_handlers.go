@@ -16,7 +16,7 @@ import (
 // listTriggers godoc
 // @Summary List all triggers configurations for either user or the org or user within an org
 // @Description List all triggers configurations for either user or the org or user within an org
-// @Tags    apps
+// @Tags    agents
 // @Success 200 {array} types.TriggerConfiguration
 // @Param org_id query string false "Organization ID"
 // @Param trigger_type query string false "Trigger type, defaults to 'cron'"
@@ -76,16 +76,16 @@ func (s *HelixAPIServer) listTriggers(_ http.ResponseWriter, r *http.Request) ([
 }
 
 // listAppTriggers godoc
-// @Summary List app triggers
-// @Description List triggers for the app
-// @Tags    apps
+// @Summary List agent triggers
+// @Description List triggers for the agent
+// @Tags    agents
 // @Success 200 {array} types.TriggerConfiguration
-// @Param app_id path string true "App ID"
-// @Router /api/v1/apps/{app_id}/triggers [get]
+// @Param agent_id path string true "Agent ID"
+// @Router /api/v1/agents/{agent_id}/triggers [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listAppTriggers(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerConfiguration, *system.HTTPError) {
 	ctx := r.Context()
-	id := getID(r)
+	id := mux.Vars(r)["agent_id"]
 	user := getRequestUser(r)
 
 	app, err := s.Store.GetApp(r.Context(), id)
@@ -118,9 +118,9 @@ func (s *HelixAPIServer) listAppTriggers(_ http.ResponseWriter, r *http.Request)
 }
 
 // createAppTriggers godoc
-// @Summary Create app triggers
-// @Description Create triggers for the app. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the app
-// @Tags    apps
+// @Summary Create agent triggers
+// @Description Create triggers for the agent. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the agent
+// @Tags    agents
 // @Success 200 {object} types.TriggerConfiguration
 // @Param request body types.TriggerConfiguration true "Trigger configuration"
 // @Router /api/v1/triggers [post]
@@ -151,6 +151,9 @@ func (s *HelixAPIServer) createAppTrigger(_ http.ResponseWriter, r *http.Request
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	if err := requireAgentKind(app, types.AgentKindHelix, "agent triggers"); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 
 	// Set the app ID and organization ID
 	triggerConfig.AppID = app.ID
@@ -173,9 +176,9 @@ func (s *HelixAPIServer) createAppTrigger(_ http.ResponseWriter, r *http.Request
 }
 
 // deleteAppTriggers godoc
-// @Summary Delete app triggers
-// @Description Delete triggers for the app
-// @Tags    apps
+// @Summary Delete agent triggers
+// @Description Delete triggers for the agent
+// @Tags    agents
 // @Success 200 {object} types.TriggerConfiguration
 // @Param trigger_id path string true "Trigger ID"
 // @Router /api/v1/triggers/{trigger_id} [delete]
@@ -206,9 +209,9 @@ func (s *HelixAPIServer) deleteAppTrigger(_ http.ResponseWriter, r *http.Request
 }
 
 // updateAppTriggers godoc
-// @Summary Update app triggers
-// @Description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
-// @Tags    apps
+// @Summary Update agent triggers
+// @Description Update triggers for the agent, for example to change the cron schedule or enable/disable the trigger
+// @Tags    agents
 // @Success 200 {object} types.TriggerConfiguration
 // @Param trigger_id path string true "Trigger ID"
 // @Param request body types.TriggerConfiguration true "Trigger configuration"
@@ -236,6 +239,9 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 	err = s.authorizeUserToApp(ctx, user, app, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+	if err := requireAgentKind(app, types.AgentKindHelix, "agent triggers"); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
 	}
 
 	// Get the existing trigger configuration
@@ -269,9 +275,9 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 }
 
 // executeAppTrigger godoc
-// @Summary Execute app trigger
-// @Description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
-// @Tags    apps
+// @Summary Execute agent trigger
+// @Description Update triggers for the agent, for example to change the cron schedule or enable/disable the trigger
+// @Tags    agents
 // @Success 200 {object} types.TriggerExecuteResponse
 // @Param trigger_id path string true "Trigger ID"
 // @Router /api/v1/triggers/{trigger_id}/execute [post]
@@ -303,20 +309,18 @@ func (s *HelixAPIServer) executeAppTrigger(_ http.ResponseWriter, r *http.Reques
 	}
 
 	// Execute the trigger
-	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, nil, s, app, user.ID, triggerID, triggerConfig.Trigger.Cron, triggerConfig.Name)
+	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, s.specDrivenTaskService, s, app, user.ID, triggerID, triggerConfig.Trigger.Cron, triggerConfig.Name)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return &types.TriggerExecuteResponse{
-		SessionID: response,
-	}, nil
+	return response, nil
 }
 
 // listTriggerExecutions godoc
 // @Summary List trigger executions
 // @Description List executions for the trigger
-// @Tags    apps
+// @Tags    agents
 // @Success 200 {array} types.TriggerExecution
 // @Param trigger_id path string true "Trigger ID"
 // @Param offset query int false "Offset"

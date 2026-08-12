@@ -1,11 +1,11 @@
 // Package streamcron is the in-process scheduler that fires events on
-// KindCron streams. It mirrors the design of api/pkg/trigger/cron — a
+// KindCron topics. It mirrors the design of api/pkg/trigger/cron — a
 // gocron.Scheduler held in process, reconciled every 10 seconds against
-// the current set of cron-kind streams in the database, with each
-// stream's schedule attached as one gocron.Job.
+// the current set of cron-kind topics in the database, with each
+// topic's schedule attached as one gocron.Job.
 //
 // On each fire the scheduler publishes a system-emitted streaming.Event
-// to the stream and lets the existing dispatcher fan it out to every
+// to the topic and lets the existing dispatcher fan it out to every
 // subscribed Worker. The call sequence (Events.Append → Hub.Notify →
 // Dispatcher.Dispatch) is identical to the `publish` MCP tool's path,
 // so cron ticks look the same as any other publish downstream.
@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,10 +28,10 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 )
 
 // reconcileInterval matches the existing app-cron cadence
@@ -45,12 +46,12 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, event streaming.Event)
 }
 
-// Scheduler reconciles KindCron streams onto an in-process gocron
+// Scheduler reconciles KindCron topics onto an in-process gocron
 // scheduler and fires events on each tick. Construct with New and call
 // Start; Start blocks until the supplied context is cancelled.
 type Scheduler struct {
 	store      *store.Store
-	hub        *streamhub.Hub
+	hub        *wakebus.Bus
 	dispatcher Dispatcher
 	scheduler  gocron.Scheduler
 
@@ -64,7 +65,7 @@ type Scheduler struct {
 // New constructs a Scheduler. store + dispatcher are required; hub may
 // be nil (skipping long-poll wakeups is fine — dispatch is the load-
 // bearing fan-out for Worker activation).
-func New(s *store.Store, hub *streamhub.Hub, dispatcher Dispatcher, newID func() string, now func() time.Time) (*Scheduler, error) {
+func New(s *store.Store, hub *wakebus.Bus, dispatcher Dispatcher, newID func() string, now func() time.Time) (*Scheduler, error) {
 	if s == nil {
 		return nil, fmt.Errorf("streamcron: store is required")
 	}
@@ -103,7 +104,7 @@ func (c *Scheduler) Start(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		// Initial reconcile so a freshly-started API picks up
-		// existing cron streams without waiting a full tick.
+		// existing cron topics without waiting a full tick.
 		if err := c.reconcile(ctx); err != nil {
 			log.Error().Err(err).Msg("streamcron: initial reconcile failed")
 		}
@@ -131,27 +132,27 @@ func (c *Scheduler) Start(ctx context.Context) error {
 	return nil
 }
 
-// streamKey is the gocron job name for a cron stream. Used to find &
+// topicKey is the gocron job name for a cron topic. Used to find &
 // dedupe the in-process job and to recover its schedule from the job's
 // tags during reconcile (gocron has no first-class "current schedule"
 // accessor — we stash it in a tag, mirroring trigger/cron's pattern).
-func streamKey(orgID string, streamID streaming.StreamID) string {
-	return fmt.Sprintf("%s:%s", orgID, streamID)
+func topicKey(orgID string, topicID streaming.TopicID) string {
+	return fmt.Sprintf("%s:%s", orgID, topicID)
 }
 
-// reconcile diffs the current set of cron streams in the database
+// reconcile diffs the current set of cron topics in the database
 // against the gocron scheduler's jobs and adds/updates/removes to
 // match. Identical pattern to api/pkg/trigger/cron/trigger_cron.go's
 // reconcileCronApps, kept structurally similar so they read as a pair.
 func (c *Scheduler) reconcile(ctx context.Context) error {
-	streams, err := c.store.Streams.ListByTransportKind(ctx, transport.KindCron)
+	topics, err := c.store.Topics.ListByTransportKind(ctx, transport.KindCron)
 	if err != nil {
-		return fmt.Errorf("list cron streams: %w", err)
+		return fmt.Errorf("list cron topics: %w", err)
 	}
 
-	want := make(map[string]streaming.Stream, len(streams))
-	for _, s := range streams {
-		want[streamKey(s.OrganizationID, s.ID)] = s
+	want := make(map[string]streaming.Topic, len(topics))
+	for _, s := range topics {
+		want[topicKey(s.OrganizationID, s.ID)] = s
 	}
 
 	jobs := c.scheduler.Jobs()
@@ -170,14 +171,14 @@ func (c *Scheduler) reconcile(ctx context.Context) error {
 	for key, s := range want {
 		cfg, err := s.Transport.CronConfig()
 		if err != nil {
-			log.Error().Err(err).Str("stream", string(s.ID)).Str("org", s.OrganizationID).Msg("streamcron: parse cron config")
+			log.Error().Err(err).Str("topic", string(s.ID)).Str("org", s.OrganizationID).Msg("streamcron: parse cron config")
 			continue
 		}
 		// Validate guards against sub-minimum intervals AND
 		// unparseable schedules. Skip rather than panic if a row got
 		// past validation somehow (manual SQL, migration, etc.).
 		if err := cfg.Validate(); err != nil {
-			log.Warn().Err(err).Str("stream", string(s.ID)).Str("org", s.OrganizationID).Str("schedule", cfg.Schedule).Msg("streamcron: skipping invalid schedule")
+			log.Warn().Err(err).Str("topic", string(s.ID)).Str("org", s.OrganizationID).Str("schedule", cfg.Schedule).Msg("streamcron: skipping invalid schedule")
 			continue
 		}
 
@@ -187,7 +188,7 @@ func (c *Scheduler) reconcile(ctx context.Context) error {
 				continue
 			}
 			log.Info().
-				Str("stream", string(s.ID)).
+				Str("topic", string(s.ID)).
 				Str("org", s.OrganizationID).
 				Str("from", jobSchedule(existing)).
 				Str("to", cfg.Schedule).
@@ -198,7 +199,7 @@ func (c *Scheduler) reconcile(ctx context.Context) error {
 				gocron.NewTask(c.fireFn(s.OrganizationID, s.ID)),
 				jobOptions(s, cfg.Schedule)...,
 			); err != nil {
-				log.Error().Err(err).Str("stream", string(s.ID)).Msg("streamcron: update job failed")
+				log.Error().Err(err).Str("topic", string(s.ID)).Msg("streamcron: update job failed")
 			}
 			continue
 		}
@@ -210,23 +211,23 @@ func (c *Scheduler) reconcile(ctx context.Context) error {
 			jobOptions(s, cfg.Schedule)...,
 		)
 		if err != nil {
-			log.Error().Err(err).Str("stream", string(s.ID)).Str("org", s.OrganizationID).Str("schedule", cfg.Schedule).Msg("streamcron: create job failed")
+			log.Error().Err(err).Str("topic", string(s.ID)).Str("org", s.OrganizationID).Str("schedule", cfg.Schedule).Msg("streamcron: create job failed")
 			continue
 		}
 		log.Info().
 			Str("job_id", job.ID().String()).
-			Str("stream", string(s.ID)).
+			Str("topic", string(s.ID)).
 			Str("org", s.OrganizationID).
 			Str("schedule", cfg.Schedule).
-			Msg("streamcron: scheduled stream")
+			Msg("streamcron: scheduled topic")
 	}
 
 	return nil
 }
 
-func jobOptions(s streaming.Stream, schedule string) []gocron.JobOption {
+func jobOptions(s streaming.Topic, schedule string) []gocron.JobOption {
 	return []gocron.JobOption{
-		gocron.WithName(streamKey(s.OrganizationID, s.ID)),
+		gocron.WithName(topicKey(s.OrganizationID, s.ID)),
 		// Tag carries the schedule string verbatim. Reconcile reads
 		// this to decide whether to re-create the job; gocron itself
 		// has no public accessor for the cron expression.
@@ -244,16 +245,16 @@ func jobSchedule(j gocron.Job) string {
 }
 
 // fireFn returns the closure gocron invokes on each tick. Stored as a
-// closure over (orgID, streamID) rather than passed as a parameter
+// closure over (orgID, topicID) rather than passed as a parameter
 // because gocron tasks take no arguments. Wrapped in panic recovery so
 // a single bad tick can't crash the scheduler loop.
-func (c *Scheduler) fireFn(orgID string, streamID streaming.StreamID) func() {
+func (c *Scheduler) fireFn(orgID string, topicID streaming.TopicID) func() {
 	return func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error().
 					Interface("panic", r).
-					Str("stream", string(streamID)).
+					Str("topic", string(topicID)).
 					Str("org", orgID).
 					Msg("streamcron: panic during fire — schedule continues")
 			}
@@ -264,11 +265,11 @@ func (c *Scheduler) fireFn(orgID string, streamID streaming.StreamID) func() {
 		// later cancelled (the dispatcher's own enqueue is fast and
 		// non-blocking).
 		ctx := context.Background()
-		if err := c.fire(ctx, orgID, streamID); err != nil {
-			log.Error().Err(err).Str("stream", string(streamID)).Str("org", orgID).Msg("streamcron: fire failed")
+		if err := c.fire(ctx, orgID, topicID); err != nil {
+			log.Error().Err(err).Str("topic", string(topicID)).Str("org", orgID).Msg("streamcron: fire failed")
 			return
 		}
-		log.Info().Str("stream", string(streamID)).Str("org", orgID).Msg("streamcron: fired")
+		log.Info().Str("topic", string(topicID)).Str("org", orgID).Msg("streamcron: fired")
 	}
 }
 
@@ -277,22 +278,42 @@ func (c *Scheduler) fireFn(orgID string, streamID streaming.StreamID) func() {
 // treat it as opaque markdown. Stable shape — downstream tooling can
 // match on `"kind":"scheduled"`.
 type scheduledBody struct {
-	Kind     string `json:"kind"`
-	FiredAt  string `json:"firedAt"`
-	StreamID string `json:"streamId"`
+	Kind    string `json:"kind"`
+	FiredAt string `json:"firedAt"`
+	TopicID string `json:"topicId"`
 }
 
 // fire builds and dispatches the tick event. Extracted from fireFn so
 // tests can call it directly without going through gocron.
-func (c *Scheduler) fire(ctx context.Context, orgID string, streamID streaming.StreamID) error {
+func (c *Scheduler) fire(ctx context.Context, orgID string, topicID streaming.TopicID) error {
 	firedAt := c.now()
-	body, err := json.Marshal(scheduledBody{
-		Kind:     "scheduled",
-		FiredAt:  firedAt.UTC().Format(time.RFC3339),
-		StreamID: string(streamID),
-	})
+	topic, err := c.store.Topics.Get(ctx, orgID, topicID)
 	if err != nil {
-		return fmt.Errorf("encode body: %w", err)
+		return fmt.Errorf("get topic: %w", err)
+	}
+	cfg, err := topic.Transport.CronConfig()
+	if err != nil {
+		return fmt.Errorf("parse cron config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("validate cron config: %w", err)
+	}
+
+	body := cfg.Message
+	bodyContentType := "text/plain"
+	if strings.TrimSpace(body) == "" {
+		// Preserve the structured payload for existing cron topics that do
+		// not have a configured message.
+		bodyBytes, err := json.Marshal(scheduledBody{
+			Kind:    "scheduled",
+			FiredAt: firedAt.UTC().Format(time.RFC3339),
+			TopicID: string(topicID),
+		})
+		if err != nil {
+			return fmt.Errorf("encode body: %w", err)
+		}
+		body = string(bodyBytes)
+		bodyContentType = "application/json"
 	}
 
 	// Wrap as a Message envelope so downstream readers (which always
@@ -302,11 +323,11 @@ func (c *Scheduler) fire(ctx context.Context, orgID string, streamID streaming.S
 		From:            "", // system-emitted
 		Subject:         "Scheduled trigger",
 		Body:            string(body),
-		BodyContentType: "application/json",
+		BodyContentType: bodyContentType,
 	}
 	event, err := streaming.NewMessageEvent(
 		streaming.EventID("e-"+c.newID()),
-		streamID,
+		topicID,
 		"", // empty source = system-emitted; see event.go:58-63
 		msg,
 		firedAt,
@@ -320,7 +341,7 @@ func (c *Scheduler) fire(ctx context.Context, orgID string, streamID streaming.S
 		return fmt.Errorf("append event: %w", err)
 	}
 	if c.hub != nil {
-		c.hub.Notify(streamID)
+		c.hub.Notify(orgID, topicID)
 	}
 	c.dispatcher.Dispatch(ctx, event)
 	return nil

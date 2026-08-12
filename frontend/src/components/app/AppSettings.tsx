@@ -16,10 +16,10 @@ import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
+import Alert from '@mui/material/Alert'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import Menu from '@mui/material/Menu'
-import { styled } from '@mui/material/styles'
 
 import { useQuery } from '@tanstack/react-query'
 
@@ -38,12 +38,22 @@ import useApi from '../../hooks/useApi'
 import useDebouncedCallback from '../../hooks/useDebouncedCallback'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
+import AgentHarness from '../agent/AgentHarness'
+import {
+  CLAUDE_SUBSCRIPTION_MODELS,
+  CODEX_SUBSCRIPTION_MODELS,
+  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+} from '../agent/CodingAgentForm'
+import CodeAgentEffortSelect, { getCodeAgentEffortOptions } from '../agent/CodeAgentEffortSelect'
 import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import useRouter from '../../hooks/useRouter'
 import { useGetOrgByName } from '../../services/orgService'
+import MonacoEditor from '../widgets/MonacoEditor'
 
 // Recommended models configuration
 const RECOMMENDED_MODELS = {
@@ -105,6 +115,12 @@ interface AppSettingsProps {
   readOnly?: boolean,
   showErrors?: boolean,
   isAdmin?: boolean,
+  section: 'general' | 'runtime',
+  hideAgentType?: boolean,
+  generalAside?: React.ReactNode,
+  focusedExternal?: boolean,
+  externalRuntimeView?: 'all' | 'configuration' | 'desktop',
+  embedded?: boolean,
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}.`
@@ -168,35 +184,6 @@ const BarsIcon = ({ effort }: { effort: string }) => {
   )
 }
 
-// Add styled resizable textarea component
-const ResizableTextarea = styled('textarea')(({ theme }) => ({
-  width: '100%',
-  minHeight: '200px', // Increased from 120px to 200px
-  padding: '16.5px 14px',
-  fontSize: '1rem',
-  fontFamily: 'inherit',
-  lineHeight: '1.4375em',
-  border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.23)' : 'rgba(255, 255, 255, 0.23)'}`,
-  borderRadius: '4px',
-  backgroundColor: 'transparent',
-  color: theme.palette.text.primary,
-  resize: 'vertical',
-  outline: 'none',
-  transition: theme.transitions.create(['border-color', 'box-shadow']),
-  '&:focus': {
-    borderColor: theme.palette.primary.main,
-    boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`,
-  },
-  '&:disabled': {
-    backgroundColor: theme.palette.action.disabledBackground,
-    color: theme.palette.action.disabled,
-    cursor: 'not-allowed',
-  },
-  '&::placeholder': {
-    color: theme.palette.text.disabled,
-  },
-}));
-
 const AppSettings: FC<AppSettingsProps> = ({
   id,
   app,
@@ -204,26 +191,15 @@ const AppSettings: FC<AppSettingsProps> = ({
   readOnly = false,
   showErrors = true,
   isAdmin = false,
+  section,
+  hideAgentType = false,
+  generalAside,
+  focusedExternal = false,
+  externalRuntimeView = 'all',
+  embedded = false,
 }) => {
-  // Get initial showAdvanced value from URL
-  const [showAdvanced, setShowAdvanced] = useState(() => {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('showAdvanced') === 'true'
-  })
-
-  // Update URL when showAdvanced changes
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (showAdvanced) {
-      params.set('showAdvanced', 'true')
-    } else {
-      params.delete('showAdvanced')
-    }
-    // Update URL without causing a page reload
-    window.history.replaceState({}, '', `${window.location.pathname}?${params}`)
-  }, [showAdvanced])
-
   // State for form fields
+  const [name, setName] = useState(app.name || '')
   const [system_prompt, setSystemPrompt] = useState(app.system_prompt || '')
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
@@ -263,6 +239,11 @@ const AppSettings: FC<AppSettingsProps> = ({
     app.generation_model_provider ? 'api_key' : 'subscription'
   )
 
+  // Claude subscription model (Opus/Sonnet/Haiku). Empty defaults to Opus.
+  const [claudeSubscriptionModel, setClaudeSubscriptionModel] = useState(
+    app.claude_subscription_model || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL
+  )
+
   // Provider availability checks for Claude Code mode selector
   const router = useRouter()
   const orgName = router.params.org_id
@@ -273,8 +254,35 @@ const AppSettings: FC<AppSettingsProps> = ({
     enabled: true,
   })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+  const { data: codexSubscriptions } = useCodexSubscriptions()
+  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
+
+  // Whose Claude subscription actually authenticates this agent? Sessions use the
+  // SESSION OWNER's subscription, not the editing user's. This endpoint resolves
+  // the APP OWNER's subscription status (the likely session owner) so the callout
+  // below can name the owner and warn when their subscription is missing/invalid —
+  // fixing the false "connected ✓" that showed the editor's own subscription.
+  const apiHookForClaude = useApi()
+  const { data: ownerClaudeStatus } = useQuery({
+    queryKey: ['app-claude-subscription-status', id],
+    queryFn: async () => {
+      const response = await apiHookForClaude.getApiClient().v1AgentsClaudeSubscriptionStatusDetail(id)
+      return response.data
+    },
+    // Only meaningful for a saved Claude Code agent in subscription mode.
+    enabled: !!id && code_agent_runtime === 'claude_code',
+    staleTime: 30000,
+  })
+  // Fall back to the editor's own subscription list only until the owner-scoped
+  // status resolves (or for brand-new unsaved apps with no id).
+  const hasClaudeSubscription = ownerClaudeStatus !== undefined
+    ? !!ownerClaudeStatus.connected
+    : (claudeSubscriptions?.length ?? 0) > 0
+  const ownerClaudeValid = ownerClaudeStatus !== undefined
+    ? !!ownerClaudeStatus.valid
+    : (claudeSubscriptions?.length ?? 0) > 0
   const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
+  const hasOpenAIProvider = providerEndpoints.some(ep => ep.name === 'openai')
 
   // Advanced settings state. Defaults must match the useEffect re-init below
   // and DEFAULT_VALUES (which mirrors api/pkg/store/store_apps.go).
@@ -287,6 +295,8 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort ?? DEFAULT_VALUES.reasoning_effort)
   const [temperature, setTemperature] = useState(app.temperature ?? DEFAULT_VALUES.temperature)
   const [topP, setTopP] = useState(app.top_p ?? DEFAULT_VALUES.top_p)
+  const codeAgentEffort = reasoningEffort === '' || reasoningEffort === 'none' ? 'default' : reasoningEffort
+  const codeAgentEffortOptions = getCodeAgentEffortOptions(code_agent_runtime)
 
   // Track if component has been initialized
   const isInitialized = useRef(false)
@@ -324,6 +334,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   useEffect(() => {
     // Only initialize values if not already initialized
     if (!isInitialized.current) {
+      setName(app.name || '')
       setSystemPrompt(app.system_prompt || DEFAULT_SYSTEM_PROMPT)
       setGlobal(app.global || false)
       setModel(app.model || '')
@@ -348,6 +359,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       setClaudeCodeMode(
         app.code_agent_credential_type === 'subscription' ? 'subscription' : 'api_key'
       )
+      setClaudeSubscriptionModel(app.claude_subscription_model || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL)
       // External agent display settings
       setResolution(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
       setDesktopType(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -426,6 +438,21 @@ const AppSettings: FC<AppSettingsProps> = ({
     const updates: Partial<IAppFlatState> = { default_agent_type: agentType }
     if (config !== undefined) {
       updates.external_agent_config = config
+    }
+    // The reasoning/generation quartet only applies to helix_agent. Clear it
+    // when switching to an external runtime so stale helix_agent defaults
+    // (e.g. gpt-4o) can't shadow the external agent's Model/Provider pick.
+    if (agentType === AGENT_TYPE_ZED_EXTERNAL) {
+      updates.reasoning_model = ''
+      updates.reasoning_model_provider = ''
+      updates.reasoning_model_effort = ''
+      updates.generation_model = ''
+      updates.generation_model_provider = ''
+      updates.small_reasoning_model = ''
+      updates.small_reasoning_model_provider = ''
+      updates.small_reasoning_model_effort = ''
+      updates.small_generation_model = ''
+      updates.small_generation_model_provider = ''
     }
     onUpdate(updates)
   }
@@ -548,11 +575,50 @@ const AppSettings: FC<AppSettingsProps> = ({
   };
 
   return (
-    <Box sx={{ mt: 2, mr: 2 }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
-          Configuration
+    <Box sx={{ mt: embedded ? 0 : 2, mr: embedded ? 0 : 2 }}>
+      {section === 'general' && (
+      <Box sx={{ mb: embedded ? 0 : 3 }}>
+        {!embedded && (<>
+        <Typography variant="h5" sx={{ mb: focusedExternal ? 0.5 : 3 }}>
+          {focusedExternal ? 'Basics' : 'General'}
         </Typography>
+        {focusedExternal && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            The name used to identify this agent across the organization.
+          </Typography>
+        )}
+        </>)}
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems="flex-start" sx={{ mb: focusedExternal ? 0 : 3 }}>
+          <TextField
+            id="app-name"
+            name="app-name"
+            label="Agent name"
+            value={name}
+            error={showErrors && !name}
+            helperText="Use a name that makes this agent easy to identify."
+            disabled={readOnly}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => {
+              if (name !== app.name) void onUpdate({ name })
+            }}
+            fullWidth
+            sx={{ flex: '1 1 0', minWidth: 0 }}
+          />
+          {generalAside && (
+            <Box
+              sx={{
+                flex: '1 1 0',
+                minWidth: 0,
+                display: 'flex',
+                justifyContent: 'flex-end',
+                mt: { xs: 0, sm: -1 },
+              }}
+            >
+              {generalAside}
+            </Box>
+          )}
+        </Stack>
+        {!focusedExternal && (<>
         <Stack direction="row" alignItems="center">
           <Typography gutterBottom>System Instructions</Typography>
           <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
@@ -561,25 +627,57 @@ const AppSettings: FC<AppSettingsProps> = ({
 
         </Typography>
         <Box sx={{ mb: 3, mt: 1 }}>
-          <ResizableTextarea
+          <MonacoEditor
             value={system_prompt}
-            onChange={(e) => {
-              setSystemPrompt(e.target.value)
-              debouncedUpdate('system_prompt', e.target.value)
+            onChange={(value: string) => {
+              setSystemPrompt(value)
+              debouncedUpdate('system_prompt', value)
             }}
-            disabled={readOnly}
-            placeholder="What does this agent do? How does it behave? What should it avoid doing?"
-            style={{
-              minHeight: '200px',
-              resize: 'vertical'
+            onSave={() => {
+              debouncedUpdate.cancel()
+              void onUpdate({ system_prompt })
+            }}
+            language="markdown"
+            readOnly={readOnly}
+            minHeight={240}
+            maxHeight={600}
+            autoHeight
+            theme="helix-dark"
+            options={{
+              overviewRulerLanes: 0,
+              overviewRulerBorder: false,
+              hideCursorInOverviewRuler: true,
             }}
           />
           <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            What does this agent do? How does it behave? What should it avoid doing?
+            Markdown supported. Cmd/Ctrl+S saves immediately.
           </Typography>
         </Box>
+        </>)}
+      </Box>
+      )}
+
+      {section === 'runtime' && (
+      <Box sx={{ mb: embedded ? 0 : 3 }}>
+        {!embedded && (<>
+        <Typography variant="h5" sx={{ mb: focusedExternal ? 0.5 : 3 }}>
+          {focusedExternal && externalRuntimeView === 'desktop'
+            ? 'Desktop configuration'
+            : focusedExternal
+              ? 'Provider and model'
+              : 'Runtime'}
+        </Typography>
+        {focusedExternal && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            {externalRuntimeView === 'desktop'
+              ? 'Configure the desktop environment available to this agent.'
+              : 'Choose the coding harness, credentials, model, and reasoning effort.'}
+          </Typography>
+        )}
+        </>)}
 
         {/* Agent Type Selection */}
+      {!hideAgentType && (
       <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Type</Typography>
         <AgentTypeSelector
@@ -590,12 +688,13 @@ const AppSettings: FC<AppSettingsProps> = ({
           size="small"
         />
       </Box>
+      )}
 
       {/* External Agent Configuration */}
       {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
-        <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: embedded ? 0 : 3 }}>
           {/* Agent Runtime & Model - compact section */}
-          <Stack spacing={2} sx={{ mb: 3 }}>
+          <Stack spacing={2} sx={{ mb: externalRuntimeView === 'all' ? 3 : 0, display: externalRuntimeView === 'desktop' ? 'none' : undefined }}>
             <Box>
               <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
                 Agent Runtime
@@ -604,55 +703,80 @@ const AppSettings: FC<AppSettingsProps> = ({
                 <Select
                   value={code_agent_runtime}
                   onChange={(e) => {
-                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'goose_code';
+                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code';
                     setCodeAgentRuntime(newRuntime);
-                    onUpdate({ code_agent_runtime: newRuntime });
+                    if (newRuntime === 'codex_cli' && !model) {
+                      setModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
+                      onUpdate({ code_agent_runtime: newRuntime, model: DEFAULT_CODEX_SUBSCRIPTION_MODEL })
+                    } else {
+                      onUpdate({ code_agent_runtime: newRuntime })
+                    }
                   }}
                   disabled={readOnly}
-                  renderValue={(value) => {
-                    if (value === 'claude_code') return 'Claude Code'
-                    if (value === 'qwen_code') return 'Qwen Code'
-                    if (value === 'goose_code') return 'Goose'
-                    return 'Zed Agent'
-                  }}
+                  renderValue={(runtime) => (
+                    <AgentHarness runtime={runtime} variant="long" size={16} />
+                  )}
                 >
                   <MenuItem value="zed_agent">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="zed_agent" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Zed Agent</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Built-in, Anthropic & OpenAI compatible
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="qwen_code">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="qwen_code" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Qwen Code</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Optimized for Qwen, including smaller models
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="claude_code">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="claude_code" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Claude Code</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Anthropic's coding agent
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
+                  </MenuItem>
+                  <MenuItem value="codex_cli">
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="codex_cli" variant="short" size={18} />
+                      <Box>
+                      <Typography variant="body2">Codex</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        OpenAI's coding agent
+                      </Typography>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                   <MenuItem value="goose_code">
-                    <Box>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <AgentHarness runtime="goose_code" variant="short" size={18} />
+                      <Box>
                       <Typography variant="body2">Goose</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Open-source ACP agent (AAIF)
                       </Typography>
-                    </Box>
+                      </Box>
+                    </Stack>
                   </MenuItem>
                 </Select>
               </FormControl>
             </Box>
 
-            {code_agent_runtime === 'claude_code' ? (
+            {code_agent_runtime === 'claude_code' || code_agent_runtime === 'codex_cli' ? (
               <>
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
@@ -665,13 +789,20 @@ const AppSettings: FC<AppSettingsProps> = ({
                         const mode = e.target.value as 'subscription' | 'api_key'
                         setClaudeCodeMode(mode)
                         if (mode === 'subscription') {
-                          setGenerationModel('')
-                          setGenerationModelProvider('')
-                          onUpdate({
-                            code_agent_credential_type: 'subscription',
-                            generation_model: '',
-                            generation_model_provider: '',
-                          })
+                          if (code_agent_runtime === 'claude_code') {
+                            setGenerationModel('')
+                            setGenerationModelProvider('')
+                            onUpdate({
+                              code_agent_credential_type: 'subscription',
+                              generation_model: '',
+                              generation_model_provider: '',
+                            })
+                          } else {
+                            setProvider('')
+                            const codexModel = model || DEFAULT_CODEX_SUBSCRIPTION_MODEL
+                            setModel(codexModel)
+                            onUpdate({ code_agent_credential_type: 'subscription', model: codexModel, provider: '' })
+                          }
                         } else {
                           onUpdate({ code_agent_credential_type: 'api_key' })
                         }
@@ -680,11 +811,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                       <FormControlLabel
                         value="subscription"
                         control={<Radio size="small" />}
-                        disabled={readOnly || !hasClaudeSubscription}
+                        disabled={readOnly || (code_agent_runtime === 'claude_code' ? !hasClaudeSubscription : !hasCodexSubscription)}
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body2">Claude Subscription</Typography>
-                            {hasClaudeSubscription ? (
+                            <Typography variant="body2">
+                              {code_agent_runtime === 'claude_code' ? 'Claude Subscription' : 'ChatGPT Subscription'}
+                            </Typography>
+                            {(code_agent_runtime === 'claude_code' ? hasClaudeSubscription : hasCodexSubscription) ? (
                               <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
                             ) : (
                               <Typography variant="caption" color="text.secondary">(not connected)</Typography>
@@ -695,11 +828,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                       <FormControlLabel
                         value="api_key"
                         control={<Radio size="small" />}
-                        disabled={readOnly || !hasAnthropicProvider}
+                        disabled={readOnly || (code_agent_runtime === 'claude_code' ? !hasAnthropicProvider : !hasOpenAIProvider)}
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body2">Anthropic API Key</Typography>
-                            {hasAnthropicProvider ? (
+                            <Typography variant="body2">
+                              {code_agent_runtime === 'claude_code' ? 'Anthropic API Key' : 'OpenAI API Key'}
+                            </Typography>
+                            {(code_agent_runtime === 'claude_code' ? hasAnthropicProvider : hasOpenAIProvider) ? (
                               <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
                             ) : (
                               <Typography variant="caption" color="text.secondary">(not configured)</Typography>
@@ -709,35 +844,156 @@ const AppSettings: FC<AppSettingsProps> = ({
                       />
                     </RadioGroup>
                   </FormControl>
-                  {!hasClaudeSubscription && !hasAnthropicProvider && (
+                  {!(code_agent_runtime === 'claude_code' ? hasClaudeSubscription || hasAnthropicProvider : hasCodexSubscription || hasOpenAIProvider) && (
                     <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>
-                      Connect a Claude subscription or add an Anthropic API key in Settings &gt; Providers.
+                      Connect a {code_agent_runtime === 'claude_code' ? 'Claude' : 'ChatGPT'} subscription or add an {code_agent_runtime === 'claude_code' ? 'Anthropic' : 'OpenAI'} API key in Settings &gt; Providers.
                     </Typography>
+                  )}
+                  {/* Whose subscription authenticates the agent? Sessions use the
+                      session owner's subscription, not the editor's. */}
+                  {code_agent_runtime === 'claude_code' && claudeCodeMode === 'subscription' && (
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        Sessions from this agent authenticate with the <strong>session owner's</strong> connected
+                        Claude subscription. If someone else runs this agent, their own subscription is used — not yours.
+                      </Typography>
+                      {ownerClaudeStatus !== undefined && !ownerClaudeStatus.is_current_user && (
+                        ownerClaudeValid ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            This agent is owned by <strong>{ownerClaudeStatus.owner_name || ownerClaudeStatus.owner_id}</strong>,
+                            who has an active Claude subscription connected.
+                          </Typography>
+                        ) : (
+                          <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
+                            <strong>{ownerClaudeStatus.owner_name || ownerClaudeStatus.owner_id}</strong>{' '}
+                            {ownerClaudeStatus.connected
+                              ? `has a Claude subscription, but it isn't working${ownerClaudeStatus.last_error ? ` (${ownerClaudeStatus.last_error})` : ''}.`
+                              : 'has no working Claude subscription connected.'}{' '}
+                            The agent will fail to authenticate. Ask them to reconnect it, or use API-key mode.
+                          </Alert>
+                        )
+                      )}
+                      {ownerClaudeStatus !== undefined && ownerClaudeStatus.is_current_user && ownerClaudeStatus.connected && !ownerClaudeValid && (
+                        <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
+                          Your Claude subscription isn't working{ownerClaudeStatus.last_error ? ` (${ownerClaudeStatus.last_error})` : ''}.
+                          Reconnect it in Settings, or use API-key mode.
+                        </Alert>
+                      )}
+                    </Box>
+                  )}
+                  {code_agent_runtime === 'claude_code' && claudeCodeMode === 'subscription' && (
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1.5 }} alignItems="flex-start">
+                      <Box sx={{ flex: 1, width: '100%' }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                          Model
+                        </Typography>
+                        <FormControl fullWidth>
+                          <Select
+                            size="small"
+                            value={claudeSubscriptionModel}
+                            disabled={readOnly}
+                            onChange={(e) => {
+                              const nextModel = e.target.value
+                              setClaudeSubscriptionModel(nextModel)
+                              onUpdate({ claude_subscription_model: nextModel })
+                            }}
+                          >
+                            {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
+                              <MenuItem key={m.id} value={m.id}>
+                                <Typography variant="body2">{m.label}</Typography>
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Box>
+                      <CodeAgentEffortSelect
+                        options={codeAgentEffortOptions}
+                        value={codeAgentEffort}
+                        disabled={readOnly}
+                        onChange={(value) => {
+                          const nextEffort = value === 'default' ? 'none' : value
+                          setReasoningEffort(nextEffort)
+                          onUpdate({ reasoning_effort: nextEffort })
+                        }}
+                      />
+                    </Stack>
+                  )}
+                  {code_agent_runtime === 'codex_cli' && claudeCodeMode === 'subscription' && (
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1.5 }} alignItems="flex-start">
+                      <Box sx={{ flex: 1, width: '100%' }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                          Model
+                        </Typography>
+                        <FormControl fullWidth>
+                          <Select
+                            size="small"
+                            value={model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
+                            disabled={readOnly}
+                            onChange={(e) => {
+                              const nextModel = e.target.value
+                              setModel(nextModel)
+                              onUpdate({ model: nextModel })
+                            }}
+                          >
+                            {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                              <MenuItem key={supportedModel.id} value={supportedModel.id}>
+                                <Typography variant="body2">{supportedModel.label}</Typography>
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Box>
+                      <CodeAgentEffortSelect
+                        options={codeAgentEffortOptions}
+                        value={codeAgentEffort}
+                        disabled={readOnly}
+                        onChange={(value) => {
+                          const nextEffort = value === 'default' ? 'none' : value
+                          setReasoningEffort(nextEffort)
+                          onUpdate({ reasoning_effort: nextEffort })
+                        }}
+                      />
+                    </Stack>
                   )}
                 </Box>
 
                 {claudeCodeMode === 'api_key' && (
-                  <Box>
-                    <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                      Model
-                    </Typography>
-                    <AdvancedModelPicker
-                      recommendedModels={RECOMMENDED_MODELS.zedExternal}
-                      hint="Select the Claude model for code generation"
-                      selectedProvider={generation_model_provider}
-                      selectedModelId={generation_model}
-                      onSelectModel={(provider, modelId) => {
-                        setGenerationModel(modelId);
-                        setGenerationModelProvider(provider);
-                        onUpdate({
-                          generation_model: modelId,
-                          generation_model_provider: provider,
-                        });
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
+                    <Box sx={{ flex: 1, width: '100%', minWidth: 0 }}>
+                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                        Model
+                      </Typography>
+                      <AdvancedModelPicker
+                        recommendedModels={RECOMMENDED_MODELS.zedExternal}
+                        hint={`Select the ${code_agent_runtime === 'claude_code' ? 'Claude' : 'OpenAI'} model for code generation`}
+                        selectedProvider={code_agent_runtime === 'claude_code' ? generation_model_provider : provider}
+                        selectedModelId={code_agent_runtime === 'claude_code' ? generation_model : model}
+                        onSelectModel={(provider, modelId) => {
+                          if (code_agent_runtime === 'claude_code') {
+                            setGenerationModel(modelId)
+                            setGenerationModelProvider(provider)
+                            onUpdate({ generation_model: modelId, generation_model_provider: provider })
+                          } else {
+                            setModel(modelId)
+                            setProvider(provider)
+                            onUpdate({ model: modelId, provider })
+                          }
+                        }}
+                        currentType="text"
+                        displayMode="short"
+                      />
+                    </Box>
+                    <CodeAgentEffortSelect
+                      options={codeAgentEffortOptions}
+                      value={codeAgentEffort}
+                      disabled={readOnly}
+                      onChange={(value) => {
+                        const nextEffort = value === 'default' ? 'none' : value
+                        setReasoningEffort(nextEffort)
+                        onUpdate({ reasoning_effort: nextEffort })
                       }}
-                      currentType="text"
-                      displayMode="short"
                     />
-                  </Box>
+                  </Stack>
                 )}
               </>
             ) : (
@@ -778,9 +1034,14 @@ const AppSettings: FC<AppSettingsProps> = ({
             )}
           </Stack>
 
-          <Divider sx={{ my: 2 }} />
+          <Divider sx={{ my: 2, display: externalRuntimeView === 'all' ? undefined : 'none' }} />
 
-          {/* Display Settings - side by side */}
+          <Box sx={{ display: externalRuntimeView === 'configuration' ? 'none' : undefined }}>
+          {!embedded && (
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            {focusedExternal ? 'Desktop' : 'Sandbox settings'}
+          </Typography>
+          )}
           <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
             Display
           </Typography>
@@ -958,13 +1219,16 @@ const AppSettings: FC<AppSettingsProps> = ({
                 }}
               />
             </Box>
+          </Box>
         </Box>
       )}
 
         {/* Multi-Turn Agent Configuration */}
         {default_agent_type === AGENT_TYPE_HELIX_AGENT && (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="subtitle1" sx={{ mb: 2 }}>Multi-Turn Agent Configuration</Typography>
+            <Typography variant="subtitle1">Advanced model settings</Typography>
+            <Box id="advanced-model-settings" sx={{ mt: 2 }}>
+                <Typography variant="subtitle1" sx={{ mb: 2 }}>Multi-Turn Agent Configuration</Typography>
 
             <Box sx={{ mb: 3 }}>
               <Typography gutterBottom>Main Reasoning Model (tool calling)</Typography>
@@ -1271,9 +1535,11 @@ const AppSettings: FC<AppSettingsProps> = ({
                 inputProps={{ min: 1 }}
               />
             </Box>
+              </Box>
           </Box>
         )}
       </Box>
+      )}
 
     </Box>
   )

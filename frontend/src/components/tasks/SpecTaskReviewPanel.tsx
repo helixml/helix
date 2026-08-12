@@ -25,6 +25,7 @@ import {
 import useAccount from '../../hooks/useAccount';
 import useSnackbar from '../../hooks/useSnackbar';
 import useApi from '../../hooks/useApi';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface SpecTaskReviewPanelProps {
   taskId: string;
@@ -53,7 +54,9 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
   const [isPublic, setIsPublic] = useState(publicDesignDocs);
   const [updating, setUpdating] = useState(false);
 
-  const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
+  // Unauthenticated public viewer — the /api/v1 prefix is required, otherwise
+  // the link hits the SPA and forces an OIDC login.
+  const publicLink = `${window.location.origin}/api/v1/spec-tasks/${taskId}/view`;
 
   const handlePublicToggle = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = event.target.checked;
@@ -73,8 +76,12 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
   };
 
   const copyToClipboard = async () => {
-    await navigator.clipboard.writeText(publicLink);
-    snackbar.success('Link copied to clipboard!');
+    try {
+      await copyTextToClipboard(publicLink);
+      snackbar.success('Link copied to clipboard!');
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : 'Failed to copy link');
+    }
   };
 
   const openPlanningSession = () => {

@@ -5,7 +5,7 @@
 // operator can re-pull after granting the App access to a new org.
 //
 // It is intentionally the single source of truth for "pick a GitHub
-// repo" across helix-org — the New Stream dialog and the per-stream
+// repo" across helix-org — the New Topic dialog and the per-topic
 // Edit form both render it, so the picker behaves identically wherever a
 // repository is configured. The parent owns the value + onChange; this
 // component owns the fetching, loading state, and validation hint.
@@ -19,14 +19,14 @@ import TextField from '@mui/material/TextField'
 import RefreshIcon from '@mui/icons-material/Refresh'
 
 import { useListGitHubRepos } from '../../services/helixOrgService'
-import { GITHUB_REPO_PATTERN } from './githubStreamConstants'
+import { GITHUB_REPO_PATTERN } from './githubTopicConstants'
 
 export interface GitHubRepoPickerProps {
   value: string
   onChange: (next: string) => void
   // enabled gates the underlying repo fetch — pass the dialog's `open`
   // so closed dialogs don't poll GitHub. Defaults to true for always-on
-  // surfaces (e.g. the inline stream-edit form).
+  // surfaces (e.g. the inline topic-edit form).
   enabled?: boolean
   label?: string
   // helperOverride replaces the default count/hint helper text when set.

@@ -35,6 +35,72 @@ func (suite *PostgresStoreTestSuite) TestListProjects_WithStats_EmptyProject() {
 	suite.Equal(float64(0), projects[0].Stats.AverageTaskTime)
 }
 
+func (suite *PostgresStoreTestSuite) TestListProjects_PopulatesLastActiveTaskOrChatActivity() {
+	project := &types.Project{
+		ID:     "proj-activity-" + system.GenerateUUID(),
+		Name:   "Project activity",
+		UserID: "test-user-" + system.GenerateUUID(),
+	}
+	createdProject, err := suite.db.CreateProject(suite.ctx, project)
+	suite.Require().NoError(err)
+
+	activeAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+	archivedAt := activeAt.Add(time.Hour)
+	activeSession := types.Session{
+		ID:        system.GenerateSessionID(),
+		ProjectID: project.ID,
+		Owner:     project.UserID,
+		Created:   activeAt.Add(-time.Hour),
+		Updated:   archivedAt,
+	}
+	archivedSession := types.Session{
+		ID:        system.GenerateSessionID(),
+		ProjectID: project.ID,
+		Owner:     project.UserID,
+		Created:   archivedAt,
+		Updated:   archivedAt,
+		Archived:  true,
+	}
+	_, err = suite.db.CreateSession(suite.ctx, activeSession)
+	suite.Require().NoError(err)
+	_, err = suite.db.CreateSession(suite.ctx, archivedSession)
+	suite.Require().NoError(err)
+	_, err = suite.db.CreateInteraction(suite.ctx, &types.Interaction{
+		ID:        system.GenerateInteractionID(),
+		SessionID: activeSession.ID,
+		UserID:    project.UserID,
+		Created:   activeAt,
+	})
+	suite.Require().NoError(err)
+	_, err = suite.db.CreateInteraction(suite.ctx, &types.Interaction{
+		ID:        system.GenerateInteractionID(),
+		SessionID: archivedSession.ID,
+		UserID:    project.UserID,
+		Created:   archivedAt,
+	})
+	suite.Require().NoError(err)
+	statusUpdatedAt := archivedAt
+	suite.Require().NoError(suite.db.CreateSpecTask(suite.ctx, &types.SpecTask{
+		ID:              "task-activity-" + system.GenerateUUID(),
+		ProjectID:       project.ID,
+		Name:            "Lifecycle update is not a message",
+		Status:          types.TaskStatusImplementation,
+		CreatedAt:       activeAt.Add(-2 * time.Hour),
+		StatusUpdatedAt: &statusUpdatedAt,
+	}))
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(context.Background(), activeSession.ID)
+		_, _ = suite.db.DeleteSession(context.Background(), archivedSession.ID)
+		_ = suite.db.DeleteProject(context.Background(), createdProject.ID)
+	})
+
+	projects, err := suite.db.ListProjects(suite.ctx, &ListProjectsQuery{UserID: project.UserID})
+	suite.Require().NoError(err)
+	suite.Require().Len(projects, 1)
+	suite.Require().NotNil(projects[0].LastActivityAt)
+	suite.WithinDuration(activeAt, *projects[0].LastActivityAt, time.Microsecond)
+}
+
 func (suite *PostgresStoreTestSuite) TestListProjects_WithStats_BasicCounts() {
 	project := &types.Project{
 		ID:     "proj-stats-basic-" + system.GenerateUUID(),

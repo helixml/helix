@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/helixml/helix/api/pkg/agent"
 	mcpclient "github.com/helixml/helix/api/pkg/agent/skill/mcp"
@@ -41,8 +45,9 @@ type ExternalMCPBackend struct {
 	clientGetter mcpclient.ClientGetter
 
 	// Cache of HTTP servers per session+mcp combination
-	servers   map[string]*externalMCPServer
-	serversMu sync.RWMutex
+	servers      map[string]*externalMCPServer
+	serversMu    sync.RWMutex
+	serverFlight singleflight.Group
 
 	// Cleanup goroutine control
 	cleanupCtx    context.Context
@@ -51,13 +56,14 @@ type ExternalMCPBackend struct {
 
 // externalMCPServer holds the MCP server for a specific external MCP
 type externalMCPServer struct {
-	httpServer *server.StreamableHTTPServer
-	mcpName    string
-	sessionID  string
-	createdAt  time.Time
-	lastUsed   time.Time          // Updated on each access to keep connection alive
-	cancelFunc context.CancelFunc // Cancel the background context when server is removed from cache
-	mu         sync.Mutex         // Protects lastUsed
+	httpServer  *server.StreamableHTTPServer
+	mcpName     string
+	sessionID   string
+	createdAt   time.Time
+	lastUsed    time.Time          // Updated on each access to keep connection alive
+	cancelFunc  context.CancelFunc // Cancel the background context when server is removed from cache
+	fingerprint [sha256.Size]byte  // Hash of the MCP config; never stores header secrets directly
+	mu          sync.Mutex         // Protects lastUsed
 }
 
 // touch updates the lastUsed timestamp
@@ -125,32 +131,25 @@ func (b *ExternalMCPBackend) cleanupLoop() {
 
 // cleanupExpiredServers removes servers that have been idle longer than the TTL
 func (b *ExternalMCPBackend) cleanupExpiredServers(ttl time.Duration) {
-	var expiredKeys []string
-	var expiredServers []*externalMCPServer
+	expired := make(map[string]*externalMCPServer)
 
 	// Find expired servers
 	b.serversMu.RLock()
 	for key, srv := range b.servers {
 		if srv.isExpired(ttl) {
-			expiredKeys = append(expiredKeys, key)
-			expiredServers = append(expiredServers, srv)
+			expired[key] = srv
 		}
 	}
 	b.serversMu.RUnlock()
 
-	if len(expiredKeys) == 0 {
+	if len(expired) == 0 {
 		return
 	}
 
-	// Remove expired servers
-	b.serversMu.Lock()
-	for _, key := range expiredKeys {
-		delete(b.servers, key)
-	}
-	b.serversMu.Unlock()
+	removed := b.deleteExpiredServers(expired)
 
 	// Cancel contexts outside the lock to avoid holding it during cleanup
-	for _, srv := range expiredServers {
+	for _, srv := range removed {
 		if srv.cancelFunc != nil {
 			srv.cancelFunc()
 		}
@@ -160,9 +159,25 @@ func (b *ExternalMCPBackend) cleanupExpiredServers(ttl time.Duration) {
 			Msg("cleaned up expired external MCP server")
 	}
 
-	log.Info().
-		Int("count", len(expiredKeys)).
-		Msg("cleaned up expired external MCP servers")
+	if len(removed) > 0 {
+		log.Info().
+			Int("count", len(removed)).
+			Msg("cleaned up expired external MCP servers")
+	}
+}
+
+func (b *ExternalMCPBackend) deleteExpiredServers(expired map[string]*externalMCPServer) []*externalMCPServer {
+	removed := make([]*externalMCPServer, 0, len(expired))
+	b.serversMu.Lock()
+	for key, snapshot := range expired {
+		if current := b.servers[key]; current != snapshot {
+			continue
+		}
+		delete(b.servers, key)
+		removed = append(removed, snapshot)
+	}
+	b.serversMu.Unlock()
+	return removed
 }
 
 // ServeHTTP implements MCPBackend
@@ -238,24 +253,18 @@ func parseMCPPath(path string) (mcpName, remaining string) {
 
 // getOrCreateServer gets or creates a Streamable HTTP server for the given session and MCP
 func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.User, sessionID, mcpName string) (*server.StreamableHTTPServer, error) {
-	// Check cache first (with TTL check)
 	cacheKey := fmt.Sprintf("%s:%s", sessionID, mcpName)
-	cacheTTL := 5 * time.Minute
-
-	b.serversMu.RLock()
-	if srv, ok := b.servers[cacheKey]; ok {
-		if !srv.isExpired(cacheTTL) {
-			// Refresh the lastUsed timestamp to keep the connection alive
-			srv.touch()
-			b.serversMu.RUnlock()
-			return srv.httpServer, nil
-		}
-		// TTL expired (idle too long), cancel old context
-		if srv.cancelFunc != nil {
-			srv.cancelFunc()
-		}
+	result, err, _ := b.serverFlight.Do(cacheKey, func() (any, error) {
+		return b.getOrCreateServerOnce(ctx, user, sessionID, mcpName, cacheKey)
+	})
+	if err != nil {
+		return nil, err
 	}
-	b.serversMu.RUnlock()
+	return result.(*server.StreamableHTTPServer), nil
+}
+
+func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *types.User, sessionID, mcpName, cacheKey string) (*server.StreamableHTTPServer, error) {
+	cacheTTL := 5 * time.Minute
 
 	// Get the session to find the parent app
 	session, err := b.store.GetSession(ctx, sessionID)
@@ -278,10 +287,40 @@ func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.
 		return nil, fmt.Errorf("agent not found: %w", err)
 	}
 
+	var projectSkills *types.AssistantSkills
+	if session.ProjectID != "" {
+		project, err := b.store.GetProject(ctx, session.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("project not found: %w", err)
+		}
+		projectSkills = project.Skills
+	}
+
 	// Find the MCP configuration by name
-	mcpConfig := b.findMCPConfig(app, mcpName)
+	mcpConfig := b.findMCPConfig(app, projectSkills, mcpName)
 	if mcpConfig == nil {
 		return nil, fmt.Errorf("MCP server '%s' not configured for this agent", mcpName)
+	}
+	configJSON, err := json.Marshal(mcpConfig)
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint MCP config: %w", err)
+	}
+	fingerprint := sha256.Sum256(configJSON)
+
+	var stale *externalMCPServer
+	b.serversMu.Lock()
+	if srv, ok := b.servers[cacheKey]; ok {
+		if srv.fingerprint == fingerprint && !srv.isExpired(cacheTTL) {
+			srv.touch()
+			b.serversMu.Unlock()
+			return srv.httpServer, nil
+		}
+		delete(b.servers, cacheKey)
+		stale = srv
+	}
+	b.serversMu.Unlock()
+	if stale != nil && stale.cancelFunc != nil {
+		stale.cancelFunc()
 	}
 
 	log.Info().
@@ -298,8 +337,15 @@ func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.
 	// The TTL is based on lastUsed timestamp, not creation time.
 	clientCtx, clientCancel := context.WithCancel(context.Background())
 
-	// Create MCP client to the external server
-	externalClient, err := b.clientGetter.NewClient(clientCtx, agent.Meta{UserID: user.ID}, nil, mcpConfig)
+	// Create MCP client to the external server.
+	//
+	// SessionID is load-bearing, not decoration. NewClient turns Meta into the
+	// X-Helix-Session-Id header, which is how an external MCP server learns which
+	// session a call is for without trusting a model-supplied tool argument. This
+	// is the only path Zed's tool calls take, so omitting it left every such
+	// server unable to identify the caller — Find AI's tools failed with "this
+	// tool requires a signed-in session" for exactly this reason.
+	externalClient, err := b.clientGetter.NewClient(clientCtx, proxyMeta(user, sessionID), nil, mcpConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to external MCP server: %w", err)
 	}
@@ -323,38 +369,7 @@ func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.
 		// Create a handler that forwards to the external server
 		handler := b.createToolHandler(externalClient, tool.Name)
 
-		// Build tool options
-		var opts []mcp.ToolOption
-		opts = append(opts, mcp.WithDescription(tool.Description))
-
-		// Add parameters from the tool's input schema
-		// mcp.ToolInputSchema has Properties map[string]interface{} and Required []string
-		if tool.InputSchema.Properties != nil {
-			required := make(map[string]bool)
-			for _, r := range tool.InputSchema.Required {
-				required[r] = true
-			}
-
-			for propName, propDef := range tool.InputSchema.Properties {
-				propMap, ok := propDef.(map[string]interface{})
-				if !ok {
-					continue
-				}
-
-				desc := ""
-				if d, ok := propMap["description"].(string); ok {
-					desc = d
-				}
-
-				if required[propName] {
-					opts = append(opts, mcp.WithString(propName, mcp.Required(), mcp.Description(desc)))
-				} else {
-					opts = append(opts, mcp.WithString(propName, mcp.Description(desc)))
-				}
-			}
-		}
-
-		mcpTool := mcp.NewTool(tool.Name, opts...)
+		mcpTool := buildProxyTool(tool)
 		mcpServer.AddTool(mcpTool, handler)
 
 		log.Debug().
@@ -373,33 +388,70 @@ func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.
 	now := time.Now()
 	b.serversMu.Lock()
 	b.servers[cacheKey] = &externalMCPServer{
-		httpServer: httpServer,
-		mcpName:    mcpName,
-		sessionID:  sessionID,
-		createdAt:  now,
-		lastUsed:   now,
-		cancelFunc: clientCancel,
+		httpServer:  httpServer,
+		mcpName:     mcpName,
+		sessionID:   sessionID,
+		createdAt:   now,
+		lastUsed:    now,
+		cancelFunc:  clientCancel,
+		fingerprint: fingerprint,
 	}
 	b.serversMu.Unlock()
 
 	return httpServer, nil
 }
 
-// findMCPConfig searches for an MCP configuration by name in the app's assistants
-func (b *ExternalMCPBackend) findMCPConfig(app *types.App, mcpName string) *types.AssistantMCP {
+// findMCPConfig searches project MCPs before app MCPs to match Zed config precedence.
+func (b *ExternalMCPBackend) findMCPConfig(app *types.App, projectSkills *types.AssistantSkills, mcpName string) *types.AssistantMCP {
+	if projectSkills != nil {
+		for i := range projectSkills.MCPs {
+			if sanitizeMCPName(projectSkills.MCPs[i].Name) == mcpName {
+				return &projectSkills.MCPs[i]
+			}
+		}
+	}
+
 	if app.Config.Helix.Assistants == nil {
 		return nil
 	}
 
 	for _, assistant := range app.Config.Helix.Assistants {
 		for i := range assistant.MCPs {
-			if assistant.MCPs[i].Name == mcpName {
+			if sanitizeMCPName(assistant.MCPs[i].Name) == mcpName {
 				return &assistant.MCPs[i]
 			}
 		}
 	}
 
 	return nil
+}
+
+func sanitizeMCPName(name string) string {
+	name = strings.ToLower(name)
+	return strings.Trim(strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, name), "-")
+}
+
+// buildProxyTool reconstructs the schema the proxy advertises to Zed for a
+// single upstream tool. It forwards the upstream input schema verbatim so
+// array/object/enum/nested params survive — a proxy transports schemas, it
+// must not reinterpret them. The previous per-property rebuild flattened every
+// param to string, which made array params like create_bot.tools/topics and
+// subscribe.topicIds uncallable ("cannot unmarshal string into []string").
+// See helix-specs task 002204_the-one-blocker.
+func buildProxyTool(tool mcp.Tool) mcp.Tool {
+	raw, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		// Degrade to a description-only tool rather than a wrong (all-string)
+		// schema; log so the drop is visible.
+		log.Error().Err(err).Str("tool", tool.Name).Msg("marshal upstream MCP schema; serving description-only")
+		return mcp.NewTool(tool.Name, mcp.WithDescription(tool.Description))
+	}
+	return mcp.NewToolWithRawSchema(tool.Name, tool.Description, raw)
 }
 
 // createToolHandler creates a handler that forwards tool calls to the external MCP server
@@ -427,5 +479,18 @@ func (b *ExternalMCPBackend) createToolHandler(client mcpclient.Client, toolName
 			Msg("external MCP tool call succeeded")
 
 		return result, nil
+	}
+}
+
+// proxyMeta is the identity travelling with a proxied tool call.
+//
+// Extracted so it can be tested: the SessionID here becomes the
+// X-Helix-Session-Id header, and dropping it silently breaks every external MCP
+// server that authorizes per user rather than per org.
+func proxyMeta(user *types.User, sessionID string) agent.Meta {
+	return agent.Meta{
+		UserID:    user.ID,
+		SessionID: sessionID,
+		AppID:     user.AppID,
 	}
 }

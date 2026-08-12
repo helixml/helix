@@ -8,20 +8,25 @@ import (
 	"github.com/helixml/helix/api/pkg/prompts/templates"
 )
 
-func ImplementationApprovedPushInstruction(branchName, primaryRepoName, baseBranch string, nonPrimaryRepoNames []string) (string, error) {
+func ImplementationApprovedPushInstruction(branchName, primaryRepoName, baseBranch, taskDirName string, nonPrimaryRepoNames []string) (string, error) {
 	if branchName == "" {
 		return "", errors.New("branch name is required")
+	}
+	if taskDirName == "" {
+		return "", errors.New("task directory name is required")
 	}
 
 	tmplData := struct {
 		BranchName          string
 		PrimaryRepoName     string
 		BaseBranch          string
+		TaskDirName         string
 		NonPrimaryRepoNames []string
 	}{
 		BranchName:          branchName,
 		PrimaryRepoName:     primaryRepoName,
 		BaseBranch:          baseBranch,
+		TaskDirName:         taskDirName,
 		NonPrimaryRepoNames: nonPrimaryRepoNames,
 	}
 	tmpl := template.Must(template.New("ImplementationApprovedPushPrompt").Parse(templates.ImplementationApprovedPushPrompt))

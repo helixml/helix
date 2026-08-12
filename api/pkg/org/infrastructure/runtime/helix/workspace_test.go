@@ -38,18 +38,16 @@ func (f *fakeGitWriter) CreateOrUpdateFileContents(_ context.Context, repoID, pa
 
 func (f *fakeGitWriter) CreateBranch(_ context.Context, _, _, _ string) error { return nil }
 
-func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.WorkerID) {
+func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.NodeID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	r, _ := orgchart.NewRole("r-eng", "# Role", nil, nil, time.Now().UTC(), "org-test")
-	_ = s.Roles.Create(ctx, r)
-	w, _ := orgchart.NewAIWorker("w-eng", "r-eng", "# Persona", "org-test")
-	_ = s.Workers.Create(ctx, w)
+	b, _ := orgchart.NewNode("w-eng", "# Worker", nil, time.Now().UTC(), "org-test")
+	_ = s.Nodes.Create(ctx, b)
 	if repoID != "" {
-		_ = SaveProject(ctx, s, "org-test", w.ID(), "prj_x", "app_x", repoID)
+		_ = SaveProject(ctx, s, "org-test", b.ID, "prj_x", "app_x", repoID)
 	}
-	return s, w.ID()
+	return s, b.ID
 }
 
 func TestWorkspaceWritesToWorkerRepo(t *testing.T) {
@@ -57,14 +55,14 @@ func TestWorkspaceWritesToWorkerRepo(t *testing.T) {
 	s, wid := newSeededStore(t, "repo-1")
 	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "helix-org", "ho@example.com")
-	if err := w.MirrorFile(context.Background(), "org-test", wid, "role.md", "# Role", "update_role: r-eng"); err != nil {
+	if err := w.MirrorFile(context.Background(), "org-test", wid, "notes.md", "# Notes", "update notes"); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
 	if fc.lastRepoID != "repo-1" {
 		t.Errorf("repo: %q", fc.lastRepoID)
 	}
-	wantPath := "workers/" + string(wid) + "/.context/role.md"
-	if fc.lastBranch != "helix-specs" || fc.lastPath != wantPath || string(fc.lastBody) != "# Role" {
+	wantPath := "workers/" + string(wid) + "/.context/notes.md"
+	if fc.lastBranch != "helix-specs" || fc.lastPath != wantPath || string(fc.lastBody) != "# Notes" {
 		t.Errorf("req: repo=%q path=%q branch=%q body=%q (want path=%q)",
 			fc.lastRepoID, fc.lastPath, fc.lastBranch, fc.lastBody, wantPath)
 	}
@@ -76,7 +74,7 @@ func TestWorkspaceUnboundWorkerIsNoop(t *testing.T) {
 	s, wid := newSeededStore(t, "")
 	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.MirrorFile(context.Background(), "org-test", wid, "role.md", "# Role", ""); err != nil {
+	if err := w.MirrorFile(context.Background(), "org-test", wid, "notes.md", "# Notes", ""); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
 	if fc.lastRepoID != "" {
@@ -89,7 +87,7 @@ func TestWorkspaceSurfacesErrors(t *testing.T) {
 	s, wid := newSeededStore(t, "repo-1")
 	fc := &fakeGitWriter{err: errors.New("boom")}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.MirrorFile(context.Background(), "org-test", wid, "role.md", "x", ""); err == nil {
+	if err := w.MirrorFile(context.Background(), "org-test", wid, "notes.md", "x", ""); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -99,7 +97,7 @@ func TestWorkspaceRejectsBadName(t *testing.T) {
 	s, wid := newSeededStore(t, "repo-1")
 	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	for _, bad := range []string{"", "/role.md", "../role.md", "a/../b"} {
+	for _, bad := range []string{"", "/notes.md", "../notes.md", "a/../b"} {
 		if err := w.MirrorFile(context.Background(), "org-test", wid, bad, "x", ""); err == nil {
 			t.Errorf("name %q: expected error", bad)
 		}
@@ -115,16 +113,12 @@ func TestWorkspaceEmptyWorkerIDError(t *testing.T) {
 	s, _ := newSeededStore(t, "repo-1")
 	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.MirrorFile(context.Background(), "org-test", "", "role.md", "x", ""); err == nil {
+	if err := w.MirrorFile(context.Background(), "org-test", "", "notes.md", "x", ""); err == nil {
 		t.Fatal("expected error for empty workerID")
 	}
 }
 
-// TestWorkspaceInvalidatesSessionOnRoleEdit verifies the warm-session
-// invalidation: editing role.md clears the persisted SessionID so the
-// next activation gets a fresh Claude context that re-reads role.md
-// from scratch.
-func TestWorkspaceInvalidatesSessionOnRoleEdit(t *testing.T) {
+func TestWorkspacePreservesSessionOnArtifactEdit(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
 	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_warm"); err != nil {
@@ -132,35 +126,17 @@ func TestWorkspaceInvalidatesSessionOnRoleEdit(t *testing.T) {
 	}
 	fc := &fakeGitWriter{}
 	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.MirrorFile(context.Background(), "org-test", wid, "role.md", "# Role v2", ""); err != nil {
+	if err := w.MirrorFile(context.Background(), "org-test", wid, "notes.md", "# Notes v2", ""); err != nil {
 		t.Fatalf("MirrorFile: %v", err)
 	}
 	state, _ := LoadState(context.Background(), s, "org-test", wid)
-	if state.SessionID != "" {
-		t.Errorf("session must be cleared after role edit; got %q", state.SessionID)
+	if state.SessionID != "ses_warm" {
+		t.Errorf("artifact edit must preserve warm session; got %q", state.SessionID)
 	}
 }
 
-// TestWorkspaceInvalidatesSessionOnIdentityEdit — same for identity.md.
-func TestWorkspaceInvalidatesSessionOnIdentityEdit(t *testing.T) {
-	t.Parallel()
-	s, wid := newSeededStore(t, "repo-1")
-	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_warm"); err != nil {
-		t.Fatalf("save session: %v", err)
-	}
-	fc := &fakeGitWriter{}
-	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.MirrorFile(context.Background(), "org-test", wid, "identity.md", "# Identity v2", ""); err != nil {
-		t.Fatalf("MirrorFile: %v", err)
-	}
-	state, _ := LoadState(context.Background(), s, "org-test", wid)
-	if state.SessionID != "" {
-		t.Errorf("session must be cleared after identity edit; got %q", state.SessionID)
-	}
-}
-
-// TestWorkspaceDoesNotInvalidateOnOtherFiles — checkpoint pushes leave
-// the warm session alone; only role.md and identity.md invalidate.
+// TestWorkspaceDoesNotInvalidateOnOtherFiles verifies other workspace
+// writes also preserve the warm session.
 func TestWorkspaceDoesNotInvalidateOnOtherFiles(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")

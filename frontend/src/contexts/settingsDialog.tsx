@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react'
-import { router } from '../router'
+import { useRoute } from 'react-router5'
 
 export type SettingsDialogName = 'admin' | 'connected-services' | 'account' | 'project-settings'
 
@@ -7,6 +7,7 @@ export interface SettingsDialogOptions {
   tab?: string
   projectId?: string
   sessionFilter?: string
+  providerId?: string
 }
 
 interface SettingsDialogContextType {
@@ -20,6 +21,7 @@ const DIALOG_PARAM = 'dialog'
 const DIALOG_TAB_PARAM = 'dialog_tab'
 const DIALOG_PROJECT_ID_PARAM = 'dialog_project_id'
 const DIALOG_SESSION_FILTER_PARAM = 'dialog_session_filter'
+const DIALOG_PROVIDER_ID_PARAM = 'dialog_provider_id'
 
 const VALID_DIALOGS: SettingsDialogName[] = ['admin', 'connected-services', 'account', 'project-settings']
 
@@ -29,8 +31,9 @@ function getDialogFromURL(): { name: SettingsDialogName | null; options: Setting
   const tab = params.get(DIALOG_TAB_PARAM) || undefined
   const projectId = params.get(DIALOG_PROJECT_ID_PARAM) || undefined
   const sessionFilter = params.get(DIALOG_SESSION_FILTER_PARAM) || undefined
+  const providerId = params.get(DIALOG_PROVIDER_ID_PARAM) || undefined
   if (name && VALID_DIALOGS.includes(name)) {
-    return { name, options: { tab, projectId, sessionFilter } }
+    return { name, options: { tab, projectId, sessionFilter, providerId } }
   }
   return { name: null, options: {} }
 }
@@ -54,11 +57,21 @@ function setDialogInURL(name: SettingsDialogName | null, options: SettingsDialog
     } else {
       url.searchParams.delete(DIALOG_SESSION_FILTER_PARAM)
     }
+    if (options.providerId) {
+      url.searchParams.set(DIALOG_PROVIDER_ID_PARAM, options.providerId)
+    } else {
+      url.searchParams.delete(DIALOG_PROVIDER_ID_PARAM)
+      url.searchParams.delete('dialog_provider_from')
+      url.searchParams.delete('dialog_provider_to')
+    }
   } else {
     url.searchParams.delete(DIALOG_PARAM)
     url.searchParams.delete(DIALOG_TAB_PARAM)
     url.searchParams.delete(DIALOG_PROJECT_ID_PARAM)
     url.searchParams.delete(DIALOG_SESSION_FILTER_PARAM)
+    url.searchParams.delete(DIALOG_PROVIDER_ID_PARAM)
+    url.searchParams.delete('dialog_provider_from')
+    url.searchParams.delete('dialog_provider_to')
   }
   window.history.replaceState({}, '', url.toString())
 }
@@ -73,6 +86,7 @@ const SettingsDialogContext = createContext<SettingsDialogContextType>({
 export const useSettingsDialog = () => useContext(SettingsDialogContext)
 
 export const SettingsDialogProvider = ({ children }: { children: ReactNode }) => {
+  const { route, previousRoute } = useRoute()
   const initial = getDialogFromURL()
   const [activeDialog, setActiveDialog] = useState<SettingsDialogName | null>(initial.name)
   const [dialogOptions, setDialogOptions] = useState<SettingsDialogOptions>(initial.options)
@@ -100,22 +114,13 @@ export const SettingsDialogProvider = ({ children }: { children: ReactNode }) =>
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  // Close dialog when the route changes — e.g. navigating to an agent page
+  // Close dialog when the route changes — e.g. navigating to an agent page.
   useEffect(() => {
-    const subscription = router.subscribe(({ route, previousRoute }) => {
-      if (previousRoute && route.name !== previousRoute.name) {
-        setActiveDialog(null)
-        setDialogOptions({})
-      }
-    }) as { unsubscribe: () => void } | (() => void)
-    return () => {
-      if (typeof subscription === 'function') {
-        subscription()
-      } else {
-        subscription.unsubscribe()
-      }
+    if (previousRoute && route.name !== previousRoute.name) {
+      setActiveDialog(null)
+      setDialogOptions({})
     }
-  }, [])
+  }, [route.name, previousRoute?.name])
 
   return (
     <SettingsDialogContext.Provider value={{ activeDialog, dialogOptions, openDialog, closeDialog }}>

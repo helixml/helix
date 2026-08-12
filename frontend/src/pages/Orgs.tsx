@@ -40,9 +40,9 @@ const Orgs: FC = () => {
   const handleSubmit = async (org: TypesOrganization) => {
     if (org.id) {
       await account.organizationTools.updateOrganization(org.id, org)
-    } else {
-      await account.organizationTools.createOrganization(org)
+      return
     }
+    return await account.organizationTools.createOrganization(org)
   }
 
   const handleConfirmDelete = async () => {

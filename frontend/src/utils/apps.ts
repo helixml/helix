@@ -1,6 +1,9 @@
 import {
   IApp,
   IAssistantConfig,
+  AGENT_KIND_CODING,
+  AGENT_KIND_HELIX,
+  AGENT_KIND_ORG,
 } from '../types'
 
 export const getAppImage = (app: IApp): string => {
@@ -21,7 +24,7 @@ export const getAppAvatarUrl = (app: IApp): string => {
   }
   
   // Otherwise, assume it's an uploaded avatar and use the API endpoint
-  return `/api/v1/apps/${app.id}/avatar`
+  return `/api/v1/agents/${app.id}/avatar`
 }
 
 export const getAppName = (app: IApp): string => {
@@ -76,6 +79,37 @@ export const getAssistantDescription = (app: IApp, assistantID: string): string 
   return assistant?.description || app.config.helix?.description || ''
 }
 
+
+export const isHelixAgent = (app: IApp | null | undefined): boolean => {
+  return app?.agent_kind === AGENT_KIND_HELIX
+}
+
+export const isCodingAgent = (app: IApp | null | undefined): boolean => {
+  return app?.agent_kind === AGENT_KIND_CODING
+}
+
+export const isOrgAgent = (app: IApp | null | undefined): boolean => {
+  return app?.agent_kind === AGENT_KIND_ORG
+}
+
+export const usesFocusedAgentDetails = (app: IApp | null | undefined): boolean => {
+  return isCodingAgent(app) || isOrgAgent(app)
+}
+
+/**
+ * The agents a project workflow can run on. Org-chart agents are excluded even
+ * though their runtime is also zed_external — the server rejects them for
+ * project/spec-task configuration, so offering them would only produce a 400.
+ * Use this everywhere a coding agent is picked so the surfaces cannot drift.
+ */
+export const selectCodingAgents = (apps: IApp[] | null | undefined): IApp[] => {
+  if (!apps) return []
+  return apps.filter(isCodingAgent)
+}
+
+export const isChatSelectableAgent = (app: IApp): boolean => {
+  return isHelixAgent(app)
+}
 
 export const getAssistant = (app: IApp, assistantID: string): IAssistantConfig | undefined => {
   if(!app || !app.config) return

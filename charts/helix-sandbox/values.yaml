@@ -94,6 +94,15 @@ sandbox:
   #   extraEnv:
   #     - name: HELIX_SANDBOX_APT_MIRROR
   #       value: "http://apt.internal/ubuntu"
+  #
+  # Disk-pressure admission paths: the chart provisions three PVCs
+  # (docker-storage /var/lib/docker, hydra-data /hydra-data, workspace-data
+  # /data). The hydra default only watches the first two because /data does
+  # not exist outside this chart. To extend coverage to /data on chart
+  # deployments, set:
+  #   extraEnv:
+  #     - name: HELIX_DISK_PRESSURE_PATHS
+  #       value: "/var/lib/docker,/hydra-data,/data"
   extraEnv: []
 
 # Hydra configuration (multi-tenant container isolation)

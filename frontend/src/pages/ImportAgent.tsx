@@ -570,7 +570,7 @@ const ImportAgent: FC = () => {
 
     // Post to the API with structured format
     const result = await api.post<any, IAppCreateResponse>(
-      "/api/v1/apps",
+      "/api/v1/agents",
       appData,
       {
         params: {

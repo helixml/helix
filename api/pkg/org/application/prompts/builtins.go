@@ -13,6 +13,7 @@ import "fmt"
 func RegisterBuiltins(reg *Registry) error {
 	for _, p := range []Prompt{
 		Role{},
+		PMBot{},
 	} {
 		if err := reg.Register(p); err != nil {
 			return fmt.Errorf("register %q: %w", p.Name(), err)

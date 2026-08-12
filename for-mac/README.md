@@ -220,10 +220,26 @@ All bundled libraries are open-source (MIT, BSD, LGPL, GPL). See `design/2026-02
 
 ```bash
 cd for-mac
-wails dev
+HELIX_DEV_IMAGE=~/helix-vm/helix-desktop/disk.qcow2 wails dev
 ```
 
-In dev mode, the app finds QEMU from your system PATH (`brew install qemu`) and firmware from Homebrew (`/opt/homebrew/share/qemu/`). No bundled frameworks needed.
+#### Prerequisites
+
+**Dev VM image:** Build one with `./for-mac/scripts/provision-vm.sh` (30-60 min, one-time). Set `HELIX_DEV_IMAGE` to point at the golden image — the app copies it to the working directory on first run. Delete `~/Library/Application Support/Helix/vm/helix-desktop/disk.qcow2` to force a fresh copy.
+
+**QEMU with SPICE:** Homebrew QEMU doesn't include SPICE support, which the app requires. If you have the production Helix.app installed, set up dev-qemu from it:
+
+```bash
+mkdir -p build/dev-qemu
+cp /Applications/Helix.app/Contents/MacOS/qemu-system-aarch64 build/dev-qemu/
+cp /Applications/Helix.app/Contents/MacOS/libqemu-aarch64-softmmu.dylib build/dev-qemu/
+cp /Applications/Helix.app/Contents/MacOS/qemu-img build/dev-qemu/
+ln -sfn /Applications/Helix.app/Contents/Frameworks build/Frameworks
+```
+
+The QEMU binary links against frameworks at `@executable_path/../Frameworks`, so the symlink is required.
+
+If you're modifying the QEMU C code itself (helix-frame-export patches, GPU changes, etc.), build the custom QEMU from source instead (see "Building from Scratch" above). After building, the output lands in `build/dev-qemu/` and picks up the sysroot frameworks automatically — but you still need the `build/Frameworks` symlink pointing at either the UTM sysroot output (`<path-to-UTM>/sysroot-macOS-arm64/lib/`) or the prod app bundle as above.
 
 ### Standalone Probe Tools
 

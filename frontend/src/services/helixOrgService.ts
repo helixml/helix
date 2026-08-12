@@ -1,69 +1,77 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import axios from 'axios'
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import {
-  ApiCreateRoleRequest,
-  ApiCreateStreamRequest,
+  ApiAssetDTO,
+  ApiAssetHealthDTO,
+  ApiCreateAssetRequest,
+  ApiBotActivateDTO,
+  ApiAgentDetailDTO,
+  ApiBotBadge,
+  ApiBotChatDTO,
+  ApiBotDTO,
+  ApiBotDetailDTO,
+  ApiBotSubscriptionDTO,
+  ApiBotSubscriptionsResponse,
+  ApiCreateBotRequest,
+  ApiCreateBotResponse,
+  ApiCreateTopicRequest,
   ApiEventCard,
   ApiGitHubReposResponse,
   ApiGitHubInstallationStatus,
   ApiGitHubManifestStartResponse,
-  ApiHireWorkerRequest,
-  ApiHireWorkerResponse,
   ApiInstallGitHubWebhookResponse,
   ApiGitHubWebhookStatusResponse,
+  ApiGitLabWebhookStatusResponse,
+  ApiInstallGitLabWebhookResponse,
   ApiOrgOverview,
-  ApiRoleDTO,
-  ApiRoleGroup,
   ApiSettingsResponse,
   ApiSettingsSpecDTO,
-  ApiStreamDTO,
-  ApiStreamsResponse,
+  ApiTopicDTO,
+  ApiTopicsResponse,
   ApiToolDTO,
-  ApiUpdateStreamRequest,
-  ApiWorkerActivateDTO,
-  ApiWorkerBadge,
-  ApiWorkerChatDTO,
-  ApiWorkerDTO,
-  ApiWorkerDetailDTO,
-  ApiWorkerSubscriptionDTO,
-  ApiWorkerSubscriptionsResponse,
+  ApiUpdateBotRequest,
+  ApiUpdateAssetRequest,
+  ApiUpdateTopicRequest,
 } from '../api/api'
 
 // Re-exported aliases. Generated Api* types mark every field
 // optional; consumers use them as if fields are present. strict
 // null checks are off project-wide so plain aliases suffice.
-export type WorkerBadge = ApiWorkerBadge
-export type RoleDTO = ApiRoleDTO
-export type WorkerDTO = ApiWorkerDTO
-export type WorkerDetailDTO = ApiWorkerDetailDTO
+export type BotBadge = ApiBotBadge
+export type BotDTO = ApiBotDTO
+export type BotDetailDTO = Omit<ApiBotDetailDTO, 'bot'> & { bot?: BotDTO }
+export type AgentDetailDTO = ApiAgentDetailDTO
+export type BotActivateDTO = ApiBotActivateDTO
+export type BotChatDTO = ApiBotChatDTO
 export type ToolDTO = ApiToolDTO
-export type StreamDTO = ApiStreamDTO
+export type TopicDTO = ApiTopicDTO
 export type EventCard = ApiEventCard
 export type SettingsSpecDTO = ApiSettingsSpecDTO
 export type SettingsResponse = ApiSettingsResponse
-export type StreamsResponse = ApiStreamsResponse
+export type TopicsResponse = ApiTopicsResponse
 export type GitHubRepoDTO = NonNullable<ApiGitHubReposResponse['repos']>[number]
 export type GitHubReposResponse = ApiGitHubReposResponse
 export type GitHubInstallationStatus = ApiGitHubInstallationStatus
 export type GitHubManifestStartResponse = ApiGitHubManifestStartResponse
 export type InstallGitHubWebhookResponse = ApiInstallGitHubWebhookResponse
 export type GitHubWebhookStatusResponse = ApiGitHubWebhookStatusResponse
-export type WorkerSubscription = ApiWorkerSubscriptionDTO
-export type WorkerSubscriptionsResponse = ApiWorkerSubscriptionsResponse
+export type GitLabWebhookStatusResponse = ApiGitLabWebhookStatusResponse
+export type InstallGitLabWebhookResponse = ApiInstallGitLabWebhookResponse
+export type BotSubscription = ApiBotSubscriptionDTO
+export type BotSubscriptionsResponse = ApiBotSubscriptionsResponse
 export type OrgOverview = ApiOrgOverview
-export type RoleGroup = ApiRoleGroup
+export type AssetDTO = ApiAssetDTO
+export type AssetHealthDTO = ApiAssetHealthDTO
+export type CreateAssetRequest = ApiCreateAssetRequest
+export type UpdateAssetRequest = ApiUpdateAssetRequest
 
-export interface HireWorkerRequest extends Omit<ApiHireWorkerRequest, 'kind'> {
-  role_id: string
-  parent_id?: string
-  kind: 'human' | 'ai'
-  identity_content: string
-}
-export type HireWorkerResponse = ApiHireWorkerResponse
-export type CreateRoleRequest = ApiCreateRoleRequest & { id: string; content: string }
-export type CreateStreamRequest = ApiCreateStreamRequest & { name: string }
-export type UpdateStreamRequest = ApiUpdateStreamRequest
+export type CreateBotRequest = ApiCreateBotRequest & { id: string; content: string }
+export type CreateBotResponse = ApiCreateBotResponse
+export type UpdateBotRequest = ApiUpdateBotRequest
+export type CreateTopicRequest = ApiCreateTopicRequest & { name: string }
+export type UpdateTopicRequest = ApiUpdateTopicRequest
 
 export interface HelixModelInfo {
   id: string
@@ -74,18 +82,165 @@ export interface HelixModelInfo {
 
 export const QUERY_KEYS = {
   overview: (orgID: string) => ['helix-org', orgID, 'overview'] as const,
-  worker: (orgID: string, id: string) => ['helix-org', orgID, 'workers', id] as const,
-  workers: (orgID: string) => ['helix-org', orgID, 'workers'] as const,
-  role: (orgID: string, id: string) => ['helix-org', orgID, 'roles', id] as const,
-  roles: (orgID: string) => ['helix-org', orgID, 'roles'] as const,
+  bot: (orgID: string, id: string) => ['helix-org', orgID, 'bots', id] as const,
+  bots: (orgID: string) => ['helix-org', orgID, 'bots'] as const,
   tools: (orgID: string) => ['helix-org', orgID, 'tools'] as const,
   settings: (orgID: string) => ['helix-org', orgID, 'settings'] as const,
   providers: () => ['helix-org', 'providers'] as const,
   modelsForProvider: (provider: string) => ['helix-org', 'models', provider] as const,
-  streams: (orgID: string) => ['helix-org', orgID, 'streams'] as const,
-  stream: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id] as const,
-  webhookStatus: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id, 'webhook-status'] as const,
-  workerSubs: (orgID: string, workerID: string) => ['helix-org', orgID, 'workers', workerID, 'subscriptions'] as const,
+  topics: (orgID: string) => ['helix-org', orgID, 'topics'] as const,
+  topic: (orgID: string, id: string) => ['helix-org', orgID, 'topics', id] as const,
+  webhookStatus: (orgID: string, id: string) => ['helix-org', orgID, 'topics', id, 'webhook-status'] as const,
+  topicMessageCount: (orgID: string, id: string) => ['helix-org', orgID, 'topics', id, 'message-count'] as const,
+  botSubs: (orgID: string, botID: string) => ['helix-org', orgID, 'bots', botID, 'subscriptions'] as const,
+  processors: (orgID: string) => ['helix-org', orgID, 'processors'] as const,
+  processor: (orgID: string, id: string) => ['helix-org', orgID, 'processors', id] as const,
+  chartPositions: (orgID: string) => ['helix-org', orgID, 'chart-positions'] as const,
+  assets: (orgID: string) => ['helix-org', orgID, 'assets'] as const,
+  asset: (orgID: string, id: string) => ['helix-org', orgID, 'assets', id] as const,
+  assetHealth: (orgID: string, id: string) => ['helix-org', orgID, 'assets', id, 'health'] as const,
+}
+
+export function useListAssets(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.assets(orgID),
+    queryFn: async () => {
+      const res = await api.getApiClient().v1OrgsAssetsDetail(orgID)
+      return (res.data.assets ?? []) as AssetDTO[]
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+  })
+}
+
+export function useAssetHealth(assetIDs: string[], options?: { enabled?: boolean; refetchInterval?: number | false }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  const enabled = !!orgID && (options?.enabled ?? true)
+  const results = useQueries({
+    queries: assetIDs.map((id) => ({
+      queryKey: QUERY_KEYS.assetHealth(orgID, id),
+      queryFn: async () => {
+        const res = await api.getApiClient().v1OrgsAssetsHealthDetail(orgID, id)
+        return res.data as AssetHealthDTO
+      },
+      enabled: enabled && !!id,
+      refetchInterval: options?.refetchInterval,
+      retry: false,
+    })),
+  })
+  return assetIDs.reduce<Record<string, AssetHealthDTO | undefined>>((health, id, index) => {
+    health[id] = results[index]?.data as AssetHealthDTO | undefined
+    return health
+  }, {})
+}
+
+export function useCreateAsset() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (payload: CreateAssetRequest) => {
+      const res = await api.getApiClient().v1OrgsAssetsCreate(orgID, payload)
+      return res.data as AssetDTO
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) }),
+  })
+}
+
+export function useUpdateAsset() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (payload: { id: string } & UpdateAssetRequest) => {
+      const { id, ...body } = payload
+      const res = await api.getApiClient().v1OrgsAssetsPartialUpdate(orgID, id, body)
+      return res.data as AssetDTO
+    },
+    onSuccess: (_data, payload) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.asset(orgID, payload.id) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.assetHealth(orgID, payload.id) })
+    },
+  })
+}
+
+export function useDeleteAsset() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (id: string) => api.getApiClient().v1OrgsAssetsDelete(orgID, id),
+    onSuccess: (_data, id) => {
+      qc.removeQueries({ queryKey: QUERY_KEYS.asset(orgID, id) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) })
+    },
+  })
+}
+
+export function useLinkAsset() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ assetID, agentID }: { assetID: string; agentID: string }) =>
+      api.getApiClient().v1OrgsAssetsLinksCreate(orgID, assetID, { agent_id: agentID }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+    },
+  })
+}
+
+export function useUnlinkAsset() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ assetID, agentID }: { assetID: string; agentID: string }) =>
+      api.getApiClient().v1OrgsAssetsLinksDelete(orgID, assetID, agentID),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.assets(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+    },
+  })
+}
+
+// ---- Processors ---------------------------------------------------------
+// A Processor is a transform/filter node interposed on the edge between a
+// Topic and its subscribers. Its REST surface is JSON:API, so the hooks
+// flatten {data:{id,attributes}} resources into flat ProcessorDTOs.
+
+export interface ProcessorOutput {
+  topic_id: string
+  match?: string
+  label?: string
+  owned?: boolean
+  // Set when this route is auto-managed by a reconciler for the named
+  // Worker (the Slack auto-router); empty for human-authored routes.
+  managed_for?: string
+}
+
+export interface ProcessorDTO {
+  id: string
+  name: string
+  input_topic_id: string
+  kind: string
+  config?: Record<string, unknown>
+  outputs: ProcessorOutput[]
+  created_by?: string
+  created_at?: string
+  // True for automation-created processors (the Slack auto-router).
+  automated?: boolean
+}
+
+interface JsonApiResource<T> { id: string; type: string; attributes: T }
+interface JsonApiDoc<T> { data: T }
+
+function flattenProcessor(res: JsonApiResource<Omit<ProcessorDTO, 'id'>>): ProcessorDTO {
+  return { id: res.id, ...res.attributes }
 }
 
 export function useHelixOrgBase(): { base: string; orgID: string } {
@@ -93,6 +248,85 @@ export function useHelixOrgBase(): { base: string; orgID: string } {
   const orgID = (params.org_id as string) || ''
   const base = orgID ? `/api/v1/orgs/${encodeURIComponent(orgID)}` : ''
   return { base, orgID }
+}
+
+// useListSlackWorkspaces returns the Slack workspaces installed for the
+// current org (org-scoped slack_workspace ServiceConnections). Used by
+// the topic transport picker (choose a workspace) and the Settings
+// integrations panel (list / disconnect).
+export function useListSlackWorkspaces(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: ['helix-org', orgID, 'slack-workspaces'],
+    queryFn: async () => {
+      const res = await api.getApiClient().v1OrgsSlackWorkspacesDetail(orgID)
+      return (res.data as any[]) || []
+    },
+    enabled: (options?.enabled ?? true) && !!orgID,
+  })
+}
+
+export function useListSlackApps(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: ['helix-org', orgID, 'slack-apps'],
+    queryFn: async () => {
+      const res = await api.getApiClient().v1OrgsSlackAppsDetail(orgID)
+      return (res.data as any[]) || []
+    },
+    enabled: (options?.enabled ?? true) && !!orgID,
+  })
+}
+
+// useStartSlackInstall asks the backend for the OAuth authorize URL (for a
+// specific app when more than one is configured), then the caller
+// redirects the browser to it.
+export function useStartSlackInstall() {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (appId?: string) => {
+      const res = await api.getApiClient().v1OrgsSlackOauthStartDetail(orgID, appId ? { app_id: appId } : undefined)
+      return (res.data as any).url as string
+    },
+  })
+}
+
+// useConnectSlackWorkspace connects a workspace from a pasted bot token
+// (Socket Mode / on-prem — no OAuth). The backend auth.tests the token,
+// derives the team, and stores a slack_workspace connection.
+export function useConnectSlackWorkspace() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (args: { botToken: string; appConnectionId?: string }) => {
+      const res = await api.getApiClient().v1OrgsSlackWorkspacesCreate(orgID, {
+        bot_token: args.botToken,
+        app_connection_id: args.appConnectionId,
+      })
+      return res.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['helix-org', orgID, 'slack-workspaces'] })
+    },
+  })
+}
+
+export function useDisconnectSlackWorkspace() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.getApiClient().v1OrgsSlackWorkspacesDelete(orgID, id)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['helix-org', orgID, 'slack-workspaces'] })
+    },
+  })
 }
 
 export function useHelixOrgOverview(options?: { enabled?: boolean }) {
@@ -108,87 +342,139 @@ export function useHelixOrgOverview(options?: { enabled?: boolean }) {
   })
 }
 
-export function useEnsureWorkerChat() {
+export function useEnsureBotChat() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (workerId: string) => {
-      const res = await api.getApiClient().v1OrgsWorkersChatCreate(workerId, orgID)
-      return res.data as ApiWorkerChatDTO & { agent_app_id: string }
+    mutationFn: async (botId: string) => {
+      const res = await api.getApiClient().v1OrgsAgentsChatCreate(orgID, botId)
+      return res.data as BotChatDTO
     },
-    onSuccess: (_data, workerId) => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.worker(orgID, workerId) })
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
     },
   })
 }
 
-// useActivateWorker manually triggers an activation for a Worker.
-// Wired to the worker page's "Start Desktop" button so the click goes
-// through the full activation pipeline (ensureProject → AttachHelixOrgMCP
-// → ensureSession → container start) instead of the generic
-// /sessions/{id}/resume — which doesn't re-attach the helix-org MCP
-// and so leaves the desktop without the org-graph tools.
-//
-// The accepts an orgID override so callers that aren't running inside
-// the helix-org base context (e.g. TeamDesktopPage opened in a new
-// tab from the worker detail page) can pass the org slug explicitly.
-export function useActivateWorker(orgIDOverride?: string) {
+// useActivateBot starts (or wakes) a bot's agent desktop via the full
+// activation pipeline. Used as "Start" when agent_status is stopped.
+export function useActivateBot(orgIDOverride?: string) {
   const api = useApi()
+  const qc = useQueryClient()
   const { orgID: baseOrgID } = useHelixOrgBase()
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
-    mutationFn: async (workerId: string) => {
-      const res = await api.getApiClient().v1OrgsWorkersActivateCreate(workerId, orgID)
-      return res.data as ApiWorkerActivateDTO
+    mutationFn: async (botId: string) => {
+      const res = await api.getApiClient().v1OrgsAgentsActivateCreate(orgID, botId)
+      return res.data as BotActivateDTO
+    },
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
     },
   })
 }
 
-export function useListHelixOrgWorkers(options?: { enabled?: boolean }) {
-  const api = useApi()
-  const { orgID } = useHelixOrgBase()
-  return useQuery({
-    queryKey: QUERY_KEYS.workers(orgID),
-    queryFn: async () => {
-      const res = await api.getApiClient().v1OrgsWorkersDetail(orgID)
-      return (res.data ?? []) as WorkerDTO[]
-    },
-    enabled: !!orgID && (options?.enabled ?? true),
-  })
-}
-
-export function useHelixOrgWorker(workerId: string | undefined, options?: { enabled?: boolean }) {
-  const api = useApi()
-  const { orgID } = useHelixOrgBase()
-  return useQuery({
-    queryKey: QUERY_KEYS.worker(orgID, workerId ?? ''),
-    queryFn: async () => {
-      if (!workerId) return null
-      const res = await api.getApiClient().v1OrgsWorkersDetail2(workerId, orgID)
-      return res.data as WorkerDetailDTO
-    },
-    enabled: !!orgID && !!workerId && (options?.enabled ?? true),
-  })
-}
-
-// useUpdateWorkerIdentity rewrites a Worker's identity markdown. The
-// Spawner projects the new content into the Worker's identity.md on the
-// next activation. Drives the editable Identity panel on the worker
-// detail page.
-export function useUpdateWorkerIdentity() {
+// useStopBotAgent stops the bot's desktop sandbox; session + transcript stay.
+export function useStopBotAgent(orgIDOverride?: string) {
   const api = useApi()
   const qc = useQueryClient()
-  const { orgID } = useHelixOrgBase()
+  const { orgID: baseOrgID } = useHelixOrgBase()
+  const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
-    mutationFn: async ({ workerId, identity }: { workerId: string; identity: string }) => {
-      await api.getApiClient().v1OrgsWorkersIdentityCreate(workerId, orgID, { identity })
+    mutationFn: async (botId: string) => {
+      await api.getApiClient().v1OrgsAgentsStopAgentCreate(orgID, botId)
     },
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.worker(orgID, vars.workerId) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
     },
   })
+}
+
+// useRestartBotAgent fully tears down the current session and starts a
+// brand-new one (fresh desktop + thread). When there is no session it
+// just activates.
+export function useRestartBotAgent(orgIDOverride?: string) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID: baseOrgID } = useHelixOrgBase()
+  const orgID = orgIDOverride ?? baseOrgID
+  return useMutation({
+    mutationFn: async (botId: string) => {
+      const res = await api.getApiClient().v1OrgsAgentsRestartAgentCreate(orgID, botId)
+      return res.data as BotActivateDTO
+    },
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    },
+  })
+}
+
+export function useListHelixOrgBots(options?: { enabled?: boolean; refetchInterval?: number | false }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.bots(orgID),
+    queryFn: async () => {
+      const res = await api.getApiClient().v1OrgsAgentsDetail(orgID)
+      return (res.data ?? []) as BotDTO[]
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+    refetchInterval: options?.refetchInterval,
+  })
+}
+
+export function useHelixOrgBot(botId: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.bot(orgID, botId ?? ''),
+    queryFn: async () => {
+      if (!botId) return null
+      const res = await api.getApiClient().v1OrgsAgentsDetail2(orgID, botId)
+      const agent = res.data as AgentDetailDTO
+      return {
+        bot: agent as BotDTO,
+        agent_id: agent.agent_id ?? agent.agent_app_id,
+        agent_app_id: agent.agent_app_id,
+        project_id: agent.project_id,
+      } as BotDetailDTO
+    },
+    enabled: !!orgID && !!botId && (options?.enabled ?? true),
+  })
+}
+
+// The list endpoint intentionally stays compact and omits the runtime's
+// project/app identifiers. The chart needs those identifiers to correlate a
+// bot with the spec tasks using its agent, so fetch the details in parallel.
+export function useListHelixOrgBotDetails(
+  botIds: string[],
+  options?: { enabled?: boolean; refetchInterval?: number | false },
+): Array<BotDetailDTO | undefined> {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  const enabled = !!orgID && (options?.enabled ?? true)
+  const results = useQueries({
+    queries: botIds.map((botId) => ({
+      queryKey: QUERY_KEYS.bot(orgID, botId),
+      queryFn: async () => {
+        const res = await api.getApiClient().v1OrgsAgentsDetail2(orgID, botId)
+        const agent = res.data as AgentDetailDTO
+        return {
+          bot: agent as BotDTO,
+          agent_id: agent.agent_id ?? agent.agent_app_id,
+          agent_app_id: agent.agent_app_id,
+          project_id: agent.project_id,
+        } as BotDetailDTO
+      },
+      enabled: enabled && !!botId,
+      refetchInterval: options?.refetchInterval,
+    })),
+  })
+  return results.map((result) => result.data as BotDetailDTO | undefined)
 }
 
 export function useListHelixOrgTools(options?: { enabled?: boolean }) {
@@ -205,211 +491,154 @@ export function useListHelixOrgTools(options?: { enabled?: boolean }) {
   })
 }
 
-export function useListHelixOrgRoles(options?: { enabled?: boolean }) {
-  const api = useApi()
-  const { orgID } = useHelixOrgBase()
-  return useQuery({
-    queryKey: QUERY_KEYS.roles(orgID),
-    queryFn: async () => {
-      const res = await api.getApiClient().v1OrgsRolesDetail(orgID)
-      return (res.data ?? []) as RoleDTO[]
-    },
-    enabled: !!orgID && (options?.enabled ?? true),
-  })
-}
-
-export function useHelixOrgRole(roleId: string | undefined, options?: { enabled?: boolean }) {
-  const api = useApi()
-  const { orgID } = useHelixOrgBase()
-  return useQuery({
-    queryKey: QUERY_KEYS.role(orgID, roleId ?? ''),
-    queryFn: async () => {
-      if (!roleId) return null
-      const res = await api.getApiClient().v1OrgsRolesDetail2(orgID, roleId)
-      return res.data as RoleDTO
-    },
-    enabled: !!orgID && !!roleId && (options?.enabled ?? true),
-  })
-}
-
-export function useHireHelixOrgWorker() {
+export function useCreateBot() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (payload: HireWorkerRequest) => {
-      const res = await api.getApiClient().v1OrgsWorkersCreate(orgID, payload as ApiHireWorkerRequest)
-      return res.data as HireWorkerResponse
+    mutationFn: async (payload: CreateBotRequest) => {
+      const res = await api.getApiClient().v1OrgsAgentsCreate(orgID, payload)
+      return res.data as CreateBotResponse
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
-      // An AI hire mints its s-activations-<id> stream — refresh the
-      // Streams list / chart stream nodes so it shows without a reload.
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      // Creating a bot mints its s-transcript-<id> topic — refresh the
+      // Topics list / chart topic nodes so it shows without a reload.
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
     },
   })
 }
 
-// useAddWorkerParent adds a reporting line — the Worker now also
-// reports to parentID. Reporting is many-to-many, so this is additive.
-// Drives the chart's drag-to-report: dragging manager → subordinate
-// adds the line. The topology reconciler wires the comms channels the
-// edge implies (the manager's s-team-<mgr> stream and the pair's
-// s-dm-<pair> channel, plus the manager observing the report's
-// activation stream), so we refresh streams too — not just the worker
-// list — so those new nodes render without a reload.
-export function useAddWorkerParent() {
+// useUpdateBot rewrites a Bot's content (its identity markdown), tools,
+// and/or topics. The Spawner projects the new content on the next
+// activation. Drives the editable content + tools panels on the bot
+// detail page.
+export function useUpdateBot() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async ({ workerID, parentID }: { workerID: string; parentID: string }) => {
-      await api.getApiClient().v1OrgsWorkersParentsCreate(workerID, orgID, { parent_id: parentID })
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-    },
-  })
-}
-
-// useRemoveWorkerParent drops one reporting line — the Worker no longer
-// reports to parentID. Drives the chart's delete-edge flow; only the
-// dragged edge's line is removed, leaving any other managers intact.
-// The reconciler tears down the channels the edge implied (the manager's
-// team stream when its last report leaves, and the pair's DM channel),
-// so refresh streams as well as the worker list.
-export function useRemoveWorkerParent() {
-  const api = useApi()
-  const qc = useQueryClient()
-  const { orgID } = useHelixOrgBase()
-  return useMutation({
-    mutationFn: async ({ workerID, parentID }: { workerID: string; parentID: string }) => {
-      await api.getApiClient().v1OrgsWorkersParentsDelete(workerID, parentID, orgID)
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-    },
-  })
-}
-
-// useSubscribeWorkerAtChart drives the chart's drag-to-subscribe flow.
-// Each call carries its own (workerID, streamID) because the chart
-// wires arbitrary Workers to arbitrary streams; useSubscribeWorker is
-// bound to a single workerID and so doesn't fit the canvas's onConnect.
-export function useSubscribeWorkerAtChart() {
-  const api = useApi()
-  const qc = useQueryClient()
-  const { orgID } = useHelixOrgBase()
-  return useMutation({
-    mutationFn: async ({ workerID, streamID }: { workerID: string; streamID: string }) => {
-      await api.getApiClient().v1OrgsWorkersSubscriptionsCreate(workerID, orgID, { stream_id: streamID })
-    },
-    onSuccess: (_data, { workerID }) => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSubs(orgID, workerID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-    },
-  })
-}
-
-// useUnsubscribeWorkerAtChart is the chart-scoped counterpart of
-// useSubscribeWorkerAtChart — it drops a (worker, stream) subscription
-// when the user deletes a subscription edge on the canvas.
-export function useUnsubscribeWorkerAtChart() {
-  const api = useApi()
-  const qc = useQueryClient()
-  const { orgID } = useHelixOrgBase()
-  return useMutation({
-    mutationFn: async ({ workerID, streamID }: { workerID: string; streamID: string }) => {
-      await api.getApiClient().v1OrgsWorkersSubscriptionsDelete(workerID, streamID, orgID)
-    },
-    onSuccess: (_data, { workerID }) => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSubs(orgID, workerID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-    },
-  })
-}
-
-export function useFireHelixOrgWorker() {
-  const api = useApi()
-  const qc = useQueryClient()
-  const { orgID } = useHelixOrgBase()
-  return useMutation({
-    mutationFn: async (workerId: string) => {
-      await api.getApiClient().v1OrgsWorkersDelete(workerId, orgID)
-    },
-    onSuccess: (_data, workerId) => {
-      // Evict the fired worker's own queries (the worker key prefix-
-      // matches its subscriptions key, so this drops both) and cancel
-      // any in-flight fetch. Without this the worker detail page would
-      // refetch a now-deleted worker and log a 404 (the QA F3 finding).
-      qc.removeQueries({ queryKey: QUERY_KEYS.worker(orgID, workerId) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-      // Exact: refresh the list itself without prefix-matching (and so
-      // refetching) the worker/subscriptions queries we just removed.
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID), exact: true })
-      // Firing cascades away the worker's s-activations-<id> stream and
-      // its direct reports' parent edge — refresh the Streams list (QA
-      // F6) and any open stream detail.
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-    },
-  })
-}
-
-export function useUpdateHelixOrgRole() {
-  const api = useApi()
-  const qc = useQueryClient()
-  const { orgID } = useHelixOrgBase()
-  return useMutation({
-    mutationFn: async (payload: { id: string; content?: string; tools?: string[]; streams?: string[] }) => {
+    mutationFn: async (payload: { id: string } & UpdateBotRequest) => {
       const { id, ...body } = payload
-      await api.getApiClient().v1OrgsRolesUpdate(orgID, id, body)
+      const res = await api.getApiClient().v1OrgsAgentsPartialUpdate(orgID, id, body)
+      return res.data as BotDTO
     },
     onSuccess: (_data, payload) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.role(orgID, payload.id) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, payload.id) })
     },
   })
 }
 
-export function useCreateHelixOrgRole() {
+// useAddBotParent adds a reporting line — the Bot now also reports to
+// parentID. Reporting is many-to-many, so this is additive. Drives the
+// chart's drag-to-report: dragging manager → subordinate adds the line.
+// The topology reconciler wires the comms channels the edge implies (the
+// manager's s-team-<mgr> topic and the pair's s-dm-<pair> channel, plus
+// the manager observing the report's transcript), so we refresh topics
+// too — not just the bot list — so those new nodes render without a
+// reload.
+export function useAddBotParent() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (payload: CreateRoleRequest) => {
-      await api.getApiClient().v1OrgsRolesCreate(orgID, payload)
+    mutationFn: async ({ botID, parentID }: { botID: string; parentID: string }) => {
+      await api.getApiClient().v1OrgsAgentsParentsCreate(orgID, botID, { parent_id: parentID })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
     },
   })
 }
 
-export function useDeleteHelixOrgRole() {
+// useRemoveBotParent drops one reporting line — the Bot no longer reports
+// to parentID. Drives the chart's delete-edge flow; only the dragged
+// edge's line is removed, leaving any other managers intact. The
+// reconciler tears down the channels the edge implied (the manager's team
+// topic when its last report leaves, and the pair's DM channel), so
+// refresh topics as well as the bot list.
+export function useRemoveBotParent() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (roleId: string) => {
-      await api.getApiClient().v1OrgsRolesDelete(orgID, roleId)
+    mutationFn: async ({ botID, parentID }: { botID: string; parentID: string }) => {
+      await api.getApiClient().v1OrgsAgentsParentsDelete(orgID, botID, parentID)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
-      // Deleting a role fires every Worker holding it, which tears down
-      // their activation streams — refresh both lists so neither shows
-      // ghost rows (QA F6).
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID), exact: true })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+    },
+  })
+}
+
+// useSubscribeBotAtChart drives the chart's drag-to-subscribe flow. Each
+// call carries its own (botID, topicID) because the chart wires arbitrary
+// Bots to arbitrary topics; useSubscribeBot is bound to a single botID and
+// so doesn't fit the canvas's onConnect.
+export function useSubscribeBotAtChart() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ botID, topicID }: { botID: string; topicID: string }) => {
+      await api.getApiClient().v1OrgsAgentsSubscriptionsCreate(orgID, botID, { topic_id: topicID })
+    },
+    onSuccess: (_data, { botID }) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.botSubs(orgID, botID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+// useUnsubscribeBotAtChart is the chart-scoped counterpart of
+// useSubscribeBotAtChart — it drops a (bot, topic) subscription when the
+// user deletes a subscription edge on the canvas.
+export function useUnsubscribeBotAtChart() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ botID, topicID }: { botID: string; topicID: string }) => {
+      await api.getApiClient().v1OrgsAgentsSubscriptionsDelete(orgID, botID, topicID)
+    },
+    onSuccess: (_data, { botID }) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.botSubs(orgID, botID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+export function useDeleteBot() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (botId: string) => {
+      await api.getApiClient().v1OrgsAgentsDelete(orgID, botId)
+    },
+    onSuccess: (_data, botId) => {
+      // Evict the deleted bot's own queries (the bot key prefix-matches
+      // its subscriptions key, so this drops both) and cancel any
+      // in-flight fetch. Without this the bot detail page would refetch a
+      // now-deleted bot and log a 404.
+      qc.removeQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+      // Exact: refresh the list itself without prefix-matching (and so
+      // refetching) the bot/subscriptions queries we just removed.
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID), exact: true })
+      // Deleting cascades away the bot's s-transcript-<id> topic and its
+      // direct reports' parent edge — refresh the Topics list and any
+      // open topic detail.
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
     },
   })
 }
@@ -484,62 +713,128 @@ export function useHelixModelsForProvider(provider: string | undefined, options?
   })
 }
 
-export function useListHelixOrgStreams(options?: { enabled?: boolean }) {
+export function useListHelixOrgTopics(options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.streams(orgID),
+    queryKey: QUERY_KEYS.topics(orgID),
     queryFn: async () => {
-      const res = await api.getApiClient().v1OrgsStreamsDetail(orgID)
-      return res.data as StreamsResponse
+      const res = await api.getApiClient().v1OrgsTopicsDetail(orgID)
+      return res.data as TopicsResponse
     },
     enabled: !!orgID && (options?.enabled ?? true),
   })
 }
 
-export function useHelixOrgStream(streamId: string | undefined, options?: { enabled?: boolean }) {
+export function useHelixOrgTopic(topicId: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.stream(orgID, streamId ?? ''),
+    queryKey: QUERY_KEYS.topic(orgID, topicId ?? ''),
     queryFn: async () => {
-      if (!streamId) return null
-      const res = await api.getApiClient().v1OrgsStreamsDetail2(streamId, orgID)
-      return res.data as StreamDTO
+      if (!topicId) return null
+      const res = await api.getApiClient().v1OrgsTopicsDetail2(topicId, orgID)
+      return res.data as TopicDTO
     },
-    enabled: !!orgID && !!streamId && (options?.enabled ?? true),
+    enabled: !!orgID && !!topicId && (options?.enabled ?? true),
   })
 }
 
-// useGitHubWebhookStatus reports the LIVE state of a github stream's repo
+// useGitHubWebhookStatus reports the LIVE state of a github topic's repo
 // webhook as seen on GitHub (state: "installed" | "missing" | "unknown"), so
 // the detail page can link to the real hook or offer a re-install. Read-only;
 // safe to refetch. Invalidate QUERY_KEYS.webhookStatus after an install.
-export function useGitHubWebhookStatus(streamId: string | undefined, options?: { enabled?: boolean }) {
+export function useGitHubWebhookStatus(topicId: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.webhookStatus(orgID, streamId ?? ''),
+    queryKey: QUERY_KEYS.webhookStatus(orgID, topicId ?? ''),
     queryFn: async () => {
-      if (!streamId) return null
-      const res = await api.getApiClient().v1OrgsStreamsGithubWebhookStatusDetail(streamId, orgID)
+      if (!topicId) return null
+      const res = await api.getApiClient().v1OrgsTopicsGithubWebhookStatusDetail(topicId, orgID)
       return res.data as GitHubWebhookStatusResponse
     },
-    enabled: !!orgID && !!streamId && (options?.enabled ?? true),
+    enabled: !!orgID && !!topicId && (options?.enabled ?? true),
   })
 }
 
-export function useCreateHelixOrgStream() {
+export function useGitLabWebhookStatus(topicId: string | undefined) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: [...QUERY_KEYS.webhookStatus(orgID, topicId ?? ''), 'gitlab'],
+    queryFn: async () => {
+      if (!topicId) return null
+      const res = await api.getApiClient().v1OrgsTopicsGitlabWebhookStatusDetail(topicId, orgID)
+      return res.data as GitLabWebhookStatusResponse
+    },
+    enabled: !!orgID && !!topicId,
+  })
+}
+
+// useTopicMessageCount reports the total number of retained messages on
+// a single topic via the paginated JSON:API messages endpoint. We only
+// need meta.total, so we request the smallest possible page (size 1) and
+// ignore the body — the count is the cheap part the server computes
+// independently of the page slice. Used by the topic detail metric card.
+export function useTopicMessageCount(topicId: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.topicMessageCount(orgID, topicId ?? ''),
+    queryFn: async () => {
+      if (!topicId) return 0
+      const res = await api.getApiClient().v1OrgsTopicsMessagesDetail(topicId, orgID, {
+        'page[number]': 1,
+        'page[size]': 1,
+      })
+      return res.data?.meta?.total ?? 0
+    },
+    enabled: !!orgID && !!topicId && (options?.enabled ?? true),
+  })
+}
+
+// useTopicMessageCounts fans the same per-topic count query out across
+// every topic id so the org chart can label each topic card. Returns a
+// topicId → total map; missing/in-flight ids resolve to 0 (the caller
+// renders 0 rather than flickering). One React Query per id keeps each
+// count independently cached + invalidated, shared with the detail
+// page's single-topic hook above (same query key).
+export function useTopicMessageCounts(topicIds: string[], options?: { enabled?: boolean }): Record<string, number> {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  const enabled = !!orgID && (options?.enabled ?? true)
+  const results = useQueries({
+    queries: topicIds.map((id) => ({
+      queryKey: QUERY_KEYS.topicMessageCount(orgID, id),
+      queryFn: async () => {
+        const res = await api.getApiClient().v1OrgsTopicsMessagesDetail(id, orgID, {
+          'page[number]': 1,
+          'page[size]': 1,
+        })
+        return res.data?.meta?.total ?? 0
+      },
+      enabled,
+    })),
+  })
+  const counts: Record<string, number> = {}
+  topicIds.forEach((id, i) => {
+    counts[id] = (results[i]?.data as number | undefined) ?? 0
+  })
+  return counts
+}
+
+export function useCreateHelixOrgTopic() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (payload: CreateStreamRequest) => {
-      const res = await api.getApiClient().v1OrgsStreamsCreate(orgID, payload)
-      return res.data as StreamDTO
+    mutationFn: async (payload: CreateTopicRequest) => {
+      const res = await api.getApiClient().v1OrgsTopicsCreate(orgID, payload)
+      return res.data as TopicDTO
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
     },
   })
@@ -568,7 +863,7 @@ export function useListGitHubRepos(options?: { enabled?: boolean }) {
 }
 
 // Probes "is the Helix GitHub App installed for this org?" — drives the
-// New Stream "Install Helix" gate. Quiet on failure (returns null) so the
+// New Topic "Install Helix" gate. Quiet on failure (returns null) so the
 // dialog renders the install CTA rather than a toast.
 export function useGitHubAppInstallation(options?: { enabled?: boolean; pollWhileNotInstalled?: boolean }) {
   const api = useApi()
@@ -616,9 +911,9 @@ export function useInstallGitHubWebhook() {
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (streamId: string) => {
+    mutationFn: async (topicId: string) => {
       try {
-        const res = await api.getApiClient().v1OrgsStreamsGithubInstallWebhookCreate(streamId, orgID)
+        const res = await api.getApiClient().v1OrgsTopicsGithubInstallWebhookCreate(topicId, orgID)
         return res.data as InstallGitHubWebhookResponse
       } catch (e: any) {
         const msg = e?.response?.data?.error ?? e?.message ?? 'install webhook failed'
@@ -626,10 +921,27 @@ export function useInstallGitHubWebhook() {
         throw failed
       }
     },
-    onSuccess: (_data, streamId) => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.stream(orgID, streamId) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.webhookStatus(orgID, streamId) })
+    onSuccess: (_data, topicId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topic(orgID, topicId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.webhookStatus(orgID, topicId) })
+    },
+  })
+}
+
+export function useInstallGitLabWebhook() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (topicId: string) => {
+      const res = await api.getApiClient().v1OrgsTopicsGitlabInstallWebhookCreate(topicId, orgID)
+      return res.data as InstallGitLabWebhookResponse
+    },
+    onSuccess: (_data, topicId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topic(orgID, topicId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: [...QUERY_KEYS.webhookStatus(orgID, topicId), 'gitlab'] })
     },
   })
 }
@@ -641,87 +953,313 @@ export class InstallWebhookFailedError extends Error {
   }
 }
 
-export function useUpdateHelixOrgStream() {
+export function useUpdateHelixOrgTopic() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async ({ streamId, payload }: { streamId: string; payload: UpdateStreamRequest }) => {
-      const res = await api.getApiClient().v1OrgsStreamsUpdate(streamId, orgID, payload)
-      return res.data as StreamDTO
+    mutationFn: async ({ topicId, payload }: { topicId: string; payload: UpdateTopicRequest }) => {
+      const res = await api.getApiClient().v1OrgsTopicsUpdate(topicId, orgID, payload)
+      return res.data as TopicDTO
     },
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.stream(orgID, vars.streamId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topic(orgID, vars.topicId) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
     },
   })
 }
 
-export function useDeleteHelixOrgStream() {
+export function useClearHelixOrgTopicMessages() {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (streamId: string) => {
-      await api.getApiClient().v1OrgsStreamsDelete(streamId, orgID)
+    mutationFn: async (topicId: string) => {
+      await api.getApiClient().v1OrgsTopicsMessagesDelete(topicId, orgID)
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+    onSuccess: (_data, topicId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topic(orgID, topicId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topicMessageCount(orgID, topicId) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
     },
   })
 }
 
-export function useListWorkerSubscriptions(workerID: string | undefined, options?: { enabled?: boolean }) {
+export function useDeleteHelixOrgTopic() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (topicId: string) => {
+      await api.getApiClient().v1OrgsTopicsDelete(topicId, orgID)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+export function useListBotSubscriptions(botID: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
-    queryKey: QUERY_KEYS.workerSubs(orgID, workerID ?? ''),
+    queryKey: QUERY_KEYS.botSubs(orgID, botID ?? ''),
     queryFn: async () => {
-      if (!workerID) return null
-      const res = await api.getApiClient().v1OrgsWorkersSubscriptionsDetail(workerID, orgID)
-      return res.data as WorkerSubscriptionsResponse
+      if (!botID) return null
+      const res = await api.getApiClient().v1OrgsAgentsSubscriptionsDetail(orgID, botID)
+      return res.data as BotSubscriptionsResponse
     },
-    enabled: !!orgID && !!workerID && (options?.enabled ?? true),
+    enabled: !!orgID && !!botID && (options?.enabled ?? true),
   })
 }
 
-export function useSubscribeWorker(workerID: string | undefined) {
+export function useSubscribeBot(botID: string | undefined) {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (streamID: string) => {
-      if (!workerID) throw new Error('workerID is required to subscribe')
-      const res = await api.getApiClient().v1OrgsWorkersSubscriptionsCreate(workerID, orgID, { stream_id: streamID })
-      return res.data as WorkerSubscription
+    mutationFn: async (topicID: string) => {
+      if (!botID) throw new Error('botID is required to subscribe')
+      const res = await api.getApiClient().v1OrgsAgentsSubscriptionsCreate(orgID, botID, { topic_id: topicID })
+      return res.data as BotSubscription
     },
     onSuccess: () => {
-      if (workerID) {
-        qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSubs(orgID, workerID) })
+      if (botID) {
+        qc.invalidateQueries({ queryKey: QUERY_KEYS.botSubs(orgID, botID) })
       }
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
     },
   })
 }
 
-export function useUnsubscribeWorker(workerID: string | undefined) {
+export function useUnsubscribeBot(botID: string | undefined) {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (streamID: string) => {
-      if (!workerID) throw new Error('workerID is required to unsubscribe')
-      await api.getApiClient().v1OrgsWorkersSubscriptionsDelete(workerID, streamID, orgID)
+    mutationFn: async (topicID: string) => {
+      if (!botID) throw new Error('botID is required to unsubscribe')
+      await api.getApiClient().v1OrgsAgentsSubscriptionsDelete(orgID, botID, topicID)
     },
     onSuccess: () => {
-      if (workerID) {
-        qc.invalidateQueries({ queryKey: QUERY_KEYS.workerSubs(orgID, workerID) })
+      if (botID) {
+        qc.invalidateQueries({ queryKey: QUERY_KEYS.botSubs(orgID, botID) })
       }
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+// useTopicSampleMessage fetches the single most recent REAL message on a
+// topic (newest first, page size 1) so the processor drawer can show
+// "what a message on this topic looks like". Returns null when the topic
+// has no messages — no synthetic/fake data.
+export function useTopicSampleMessage(topicId: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: ['helix-org', orgID, 'topics', topicId ?? '', 'sample-message'] as const,
+    queryFn: async () => {
+      if (!topicId) return null
+      const res = await api.getApiClient().v1OrgsTopicsMessagesDetail(topicId, orgID, {
+        'page[number]': 1,
+        'page[size]': 1,
+      })
+      const doc = res.data as unknown as { data?: { attributes?: ProcessorPreviewSample & { raw?: string } }[] }
+      const first = doc.data?.[0]
+      return first?.attributes ?? null
+    },
+    enabled: !!orgID && !!topicId && (options?.enabled ?? true),
+  })
+}
+
+export interface ProcessorPreviewSample {
+  from?: string
+  subject?: string
+  body?: string
+  raw?: string
+}
+
+export function useListHelixOrgProcessors(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.processors(orgID),
+    queryFn: async () => {
+      const res = await api.getApiClient().v1OrgsProcessorsDetail(orgID)
+      const doc = res.data as unknown as { data: JsonApiResource<Omit<ProcessorDTO, 'id'>>[] }
+      return (doc.data ?? []).map(flattenProcessor)
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+  })
+}
+
+export function useHelixOrgProcessor(id: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.processor(orgID, id ?? ''),
+    queryFn: async () => {
+      if (!id) return null
+      const res = await api.getApiClient().v1OrgsProcessorsDetail2(orgID, id)
+      const doc = res.data as unknown as JsonApiDoc<JsonApiResource<Omit<ProcessorDTO, 'id'>>>
+      return flattenProcessor(doc.data)
+    },
+    enabled: !!orgID && !!id && (options?.enabled ?? true),
+  })
+}
+
+export interface ProcessorWriteAttrs {
+  name: string
+  input_topic_id?: string
+  kind: string
+  config?: Record<string, unknown>
+  created_by?: string
+  outputs?: { topic_id?: string; match?: string; label?: string }[]
+}
+
+export function useCreateHelixOrgProcessor() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (attrs: ProcessorWriteAttrs) => {
+      const res = await api.getApiClient().v1OrgsProcessorsCreate(orgID, {
+        data: { type: 'processors', attributes: attrs },
+      })
+      const doc = res.data as unknown as JsonApiDoc<JsonApiResource<Omit<ProcessorDTO, 'id'>>>
+      return flattenProcessor(doc.data)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.processors(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+export function useUpdateHelixOrgProcessor() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ id, attrs }: { id: string; attrs: ProcessorWriteAttrs }) => {
+      const res = await api.getApiClient().v1OrgsProcessorsUpdate(orgID, id, {
+        data: { type: 'processors', attributes: attrs },
+      })
+      const doc = res.data as unknown as JsonApiDoc<JsonApiResource<Omit<ProcessorDTO, 'id'>>>
+      return flattenProcessor(doc.data)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.processors(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.processor(orgID, vars.id) })
+    },
+  })
+}
+
+export function useDeleteHelixOrgProcessor() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.getApiClient().v1OrgsProcessorsDelete(orgID, id)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.processors(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+// ---- Chart positions (free-placed canvas layout) ------------------------
+// Nodes without a saved position fall back to the chart's auto-layout
+// (dagre for bots, topic columns, processor strip). The OpenAPI client
+// is not regenerated for this yet — raw axios via useApi matches the
+// providers pattern until `./stack update_openapi` picks up the swagger
+// annotations on chart_positions.go.
+
+export type ChartNodeKind = 'bot' | 'topic' | 'processor'
+
+export interface ChartPositionDTO {
+  kind: ChartNodeKind | string
+  id: string
+  x: number
+  y: number
+}
+
+export interface ChartPositionsResponse {
+  positions: ChartPositionDTO[]
+}
+
+/** Map key is `${kind}:${id}` → {x,y}. */
+export type ChartPositionMap = Record<string, { x: number; y: number }>
+
+export function chartPositionKey(kind: string, id: string): string {
+  return `${kind}:${id}`
+}
+
+export function useListChartPositions(options?: { enabled?: boolean }) {
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.chartPositions(orgID),
+    queryFn: async (): Promise<ChartPositionMap> => {
+      // axios directly so 4xx/5xx throw into react-query (useApi.get
+      // swallows errors and returns null).
+      const res = await axios.get<ChartPositionsResponse>(`${base}/chart/positions`, {
+        withCredentials: true,
+      })
+      const map: ChartPositionMap = {}
+      for (const p of res.data?.positions ?? []) {
+        if (!p.kind || !p.id) continue
+        map[chartPositionKey(p.kind, p.id)] = { x: p.x, y: p.y }
+      }
+      return map
+    },
+    enabled: !!orgID && !!base && (options?.enabled ?? true),
+  })
+}
+
+export function useUpsertChartPositions() {
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (positions: ChartPositionDTO[]) => {
+      // Optimistically merge so the node stays put even if the
+      // response is slow / the graph rebuilds mid-flight.
+      qc.setQueryData<ChartPositionMap>(QUERY_KEYS.chartPositions(orgID), (prev) => {
+        const next: ChartPositionMap = { ...(prev ?? {}) }
+        for (const p of positions) {
+          if (!p.kind || !p.id) continue
+          next[chartPositionKey(p.kind, p.id)] = { x: p.x, y: p.y }
+        }
+        return next
+      })
+      const res = await axios.put<ChartPositionsResponse>(
+        `${base}/chart/positions`,
+        { positions },
+        { withCredentials: true },
+      )
+      return res.data
+    },
+  })
+}
+
+export function useClearChartPositions() {
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async () => {
+      await axios.delete(`${base}/chart/positions`, { withCredentials: true })
+    },
+    onSuccess: () => {
+      qc.setQueryData<ChartPositionMap>(QUERY_KEYS.chartPositions(orgID), {})
     },
   })
 }

@@ -18,6 +18,7 @@ import (
 	_ "github.com/lib/pq" // enable postgres driver
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -31,6 +32,12 @@ type PostgresStore struct {
 
 	gdb    *gorm.DB
 	pubsub pubsub.PubSub
+
+	// Embedded org/tenant subsystem (Organizations, Teams, Memberships, Roles,
+	// Invitations, AccessGrants + RBAC). Its methods are promoted onto
+	// PostgresStore, satisfying the store.Store org methods. Single source of
+	// truth, shared with downstream services (HelixOS) via the orgstore package.
+	*orgstore.Store
 }
 
 // GormDB returns the underlying *gorm.DB so adjacent subsystems
@@ -71,6 +78,7 @@ func NewPostgresStore(
 		cfg:    cfg,
 		gdb:    gormDB,
 		pubsub: pubsub,
+		Store:  orgstore.New(gormDB),
 	}
 
 	if cfg.AutoMigrate {
@@ -238,6 +246,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.TopUp{},
 		&types.Project{},
 		&types.ProjectAuditLog{}, // Audit trail for project activity
+		&types.OrgAuditLog{},     // Audit trail for Helix org activity
 		&types.SampleProject{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},
@@ -255,8 +264,6 @@ func (s *PostgresStore) runMigrations() error {
 		&types.AgentRunner{},
 		&types.ZedSettingsOverride{},
 		&types.Memory{},
-		&types.QuestionSet{},
-		&types.QuestionSetExecution{},
 		&types.SandboxInstance{},
 		&types.Sandbox{},
 		&types.DiskUsageHistory{},
@@ -265,15 +272,49 @@ func (s *PostgresStore) runMigrations() error {
 		&types.GlobalCounter{},
 		&types.CloneGroup{},
 		&types.ClaudeSubscription{},
+		&types.CodexSubscription{},
 		&types.AttentionEvent{},
 		&types.EvaluationSuite{},
 		&types.EvaluationRun{},
+		&types.VHostRoute{},
+		&types.ProjectWebServiceState{},
+		&types.WebServiceDeploy{},
 	)
 	if err != nil {
 		return err
 	}
+	if err := s.backfillAgentKinds(context.Background()); err != nil {
+		return err
+	}
 
-	err = s.autoMigrateRoleConfig(context.Background())
+	// Relax prompt_history_entries.spec_task_id / project_id to nullable. The
+	// queue is now session-scoped: general/system sends (org bots via
+	// POST /sessions/{id}/messages, and any non-spec-task session send) enqueue
+	// by session with no spec task. AutoMigrate does not reliably DROP NOT NULL,
+	// so do it explicitly. Idempotent — DROP NOT NULL on an already-nullable
+	// column is a no-op.
+	if s.gdb.Migrator().HasTable(&types.PromptHistoryEntry{}) {
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			"ALTER TABLE prompt_history_entries ALTER COLUMN spec_task_id DROP NOT NULL, ALTER COLUMN project_id DROP NOT NULL",
+		).Error; err != nil {
+			return fmt.Errorf("failed to relax prompt_history_entries not-null constraints: %w", err)
+		}
+	}
+
+	// One-time data fix: backfill secret scope for rows created before the
+	// column existed. AutoMigrate adds the column with default 'dev', but
+	// pre-existing rows can end up NULL/empty depending on the driver, so we
+	// normalise them to 'dev' — the default scope, which also exactly preserves
+	// the pre-feature behaviour (project secrets were dev-only). Idempotent.
+	if s.gdb.Migrator().HasTable(&types.Secret{}) {
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			"UPDATE secrets SET scope = 'dev' WHERE scope IS NULL OR scope = ''",
+		).Error; err != nil {
+			return fmt.Errorf("failed to backfill secret scope: %w", err)
+		}
+	}
+
+	err = s.AutoMigrateRoleConfig(context.Background())
 	if err != nil {
 		return err
 	}
@@ -351,10 +392,6 @@ func (s *PostgresStore) runMigrations() error {
 	}
 
 	if err := createFK(s.gdb, types.EvaluationSuite{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
-		log.Err(err).Msg("failed to add DB FK")
-	}
-
-	if err := createFK(s.gdb, types.QuestionSetExecution{}, types.QuestionSet{}, "question_set_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 

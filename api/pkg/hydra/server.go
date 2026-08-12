@@ -182,6 +182,7 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/dev-containers", s.handleCreateDevContainer).Methods("POST")
 	api.HandleFunc("/dev-containers", s.handleListDevContainers).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleGetDevContainer).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}/resources", s.handleUpdateDevContainerResources).Methods("PATCH")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
 	api.HandleFunc("/dev-containers/{session_id}/clients", s.handleGetDevContainerClients).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/video/stats", s.handleGetDevContainerVideoStats).Methods("GET")
@@ -214,6 +215,10 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/dev-containers/{session_id}/files/list", s.handleSandboxFileList).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/terminal", s.handleSandboxTerminal).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/forget", s.handleSandboxForget).Methods("POST")
+
+	// Durable DB-driven garbage collection: the API computes the live-set from
+	// Postgres and posts it here; hydra reconciles on-disk zvols + workspace dirs.
+	api.HandleFunc("/gc/reconcile", s.handleGCReconcile).Methods("POST")
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
@@ -323,6 +328,30 @@ func (s *Server) handleGetDevContainer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleUpdateDevContainerResources(w http.ResponseWriter, r *http.Request) {
+	sessionID := mux.Vars(r)["session_id"]
+	var req UpdateDevContainerResourcesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+		return
+	}
+	if req.VCPUs < 0 || req.MemoryMB < 0 || (req.VCPUs == 0) != (req.MemoryMB == 0) {
+		http.Error(w, "vcpus and memory_mb must both be positive or both be zero", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	resp, err := s.devContainerManager.UpdateDevContainerResources(ctx, sessionID, &req)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to update dev container resources")
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
@@ -577,7 +606,11 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 			Int("port", port).
 			Str("target_url", targetURL).
 			Msg("Failed to proxy request to dev container")
-		http.Error(w, fmt.Sprintf("failed to connect to service: %s", err), http.StatusBadGateway)
+		// Signal upstream-unavailable to the API proxy (which serves a branded
+		// page on the public host) and NEVER echo the raw dial error — it carries
+		// the internal container IP. Detail stays in the log above.
+		w.Header().Set("X-Helix-Upstream-Unavailable", "1")
+		http.Error(w, "web service temporarily unavailable", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
@@ -719,6 +752,22 @@ func (s *Server) handleDevContainerWebSocketProxy(w http.ResponseWriter, r *http
 	}()
 
 	wg.Wait()
+}
+
+// handleGCReconcile reconciles on-disk ephemeral resources against the
+// DB-derived live-set supplied by the API and reports what was (or would be)
+// reaped.
+func (s *Server) handleGCReconcile(w http.ResponseWriter, r *http.Request) {
+	var req GCReconcileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+		return
+	}
+
+	resp := s.devContainerManager.ReconcileGC(req)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleSystemStats returns GPU stats and session counts

@@ -50,6 +50,10 @@ export function GetAutoLoginURL() {
   return window['go']['main']['App']['GetAutoLoginURL']();
 }
 
+export function GetClipboardImagePNG() {
+  return window['go']['main']['App']['GetClipboardImagePNG']();
+}
+
 export function GetConsoleOutput() {
   return window['go']['main']['App']['GetConsoleOutput']();
 }
@@ -160,6 +164,10 @@ export function SaveSettings(arg1) {
 
 export function SendConsoleInput(arg1) {
   return window['go']['main']['App']['SendConsoleInput'](arg1);
+}
+
+export function SetClipboardImagePNG(arg1) {
+  return window['go']['main']['App']['SetClipboardImagePNG'](arg1);
 }
 
 export function SetCursor(arg1) {

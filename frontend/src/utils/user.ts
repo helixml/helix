@@ -1,8 +1,8 @@
 /**
  * Generates user initials for avatar display
- * Priority: full_name first letters, then username first letter
+ * Priority: full_name first letters, then username, then email
  */
-export const getUserInitials = (user?: { full_name?: string; username?: string }): string => {
+export const getUserInitials = (user?: { full_name?: string; username?: string; email?: string }): string => {
   if (!user) return '?'
   
   // If full_name is set, take first letters of first and last name
@@ -19,6 +19,10 @@ export const getUserInitials = (user?: { full_name?: string; username?: string }
   if (user.username && user.username.trim()) {
     return user.username[0].toUpperCase()
   }
+
+  if (user.email && user.email.trim()) {
+    return user.email[0].toUpperCase()
+  }
   
   return '?'
 }
@@ -26,9 +30,9 @@ export const getUserInitials = (user?: { full_name?: string; username?: string }
 /**
  * Gets the avatar URL for a user, with fallback to initials
  */
-export const getUserAvatarUrl = (user?: { avatar?: string; full_name?: string; username?: string }): string | undefined => {
+export const getUserAvatarUrl = (user?: { avatar?: string; full_name?: string; username?: string; email?: string }): string | undefined => {
   if (user?.avatar) {
     return user.avatar
   }
   return undefined
-} 
+}

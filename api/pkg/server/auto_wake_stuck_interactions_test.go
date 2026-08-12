@@ -113,7 +113,7 @@ func (s *AutoWakeColdStartSuite) TestKicksAutoStartWhenNoWS() {
 // spt_01kreb7sevt5ecyagxhctv3ejh failure mode (container booting normally,
 // but retry budget burned before WS connect).
 func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileStartDesktopInFlight() {
-	// Old enough to clear the SQL stuck threshold (60s default), but
+	// Old enough to clear the SQL stuck threshold (180s default), but
 	// firmly inside the 5-minute cold-start grace window — exactly the
 	// regime that used to burn the retry budget for nothing while the
 	// boot was still legitimately running.
@@ -122,7 +122,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileStartDesktopInFlight() {
 		SessionID:     "ses_starting",
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
-		Created:       time.Now().Add(-90 * time.Second),
+		Created:       time.Now().Add(-4 * time.Minute),
 		AutoWakeCount: 0,
 	}
 
@@ -152,7 +152,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileStartDesktopInFlight() {
 // The grace-period gate has to defer during that "running, no WS" gap
 // or the worker burns the retry budget before Zed ever connects.
 func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileRunningButNoWS() {
-	// Inside the 5-minute grace, comfortably past the 60s stuck threshold —
+	// Inside the 5-minute grace, comfortably past the 180s stuck threshold —
 	// the regime where the old "starting"-only gate fell through to the kick
 	// because status had already flipped to "running".
 	stuck := &types.Interaction{
@@ -160,7 +160,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileRunningButNoWS() {
 		SessionID:     "ses_running",
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
-		Created:       time.Now().Add(-90 * time.Second),
+		Created:       time.Now().Add(-4 * time.Minute),
 		AutoWakeCount: 0,
 	}
 
@@ -196,7 +196,7 @@ func (s *AutoWakeColdStartSuite) TestKicksAfterColdStartGraceExpires() {
 		SessionID:     "ses_grace_expired",
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
-		// Older than both stuck threshold (60s) AND the 1-second grace.
+		// Older than both stuck threshold (180s) AND the 1-second grace.
 		Created:       time.Now().Add(-5 * time.Minute),
 		AutoWakeCount: 0,
 	}
@@ -251,22 +251,52 @@ func (s *AutoWakeColdStartSuite) TestMarksAsErrorAfterMaxRetries() {
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_exhausted").Return(session, nil).Times(1)
 
-	var captured *types.Interaction
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, in *types.Interaction) (*types.Interaction, error) {
-			captured = in
-			return in, nil
-		},
-	).Times(1)
+	var reason string
+	s.store.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), "int-2", 0, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, in string) (bool, error) {
+			reason = in
+			return true, nil
+		})
+
+	// After marking the interaction as error, the worker also reverts any
+	// sync-time "starting" mark left by syncPromptHistory so the spinner
+	// returns to "Desktop Paused". Spec 002047_yet-again-sending-a.
+	s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), "ses_exhausted").Return(false, nil).Times(1)
 
 	// IncrementInteractionAutoWakeCount must NOT be called — we're past the cap.
 	// StartDesktop must NOT be called either. gomock fails on unexpected calls.
 
 	s.server.maybeAutoWake(context.Background(), stuck)
 
-	s.Require().NotNil(captured)
-	s.Equal(types.InteractionStateError, captured.State)
-	s.Contains(captured.Error, "helixml/helix#2397")
+	s.Contains(reason, "helixml/helix#2397")
+}
+
+// TestClearsStartingStatusOnExhaustion: when the worker exhausts cold-start
+// retries on a session that was sync-marked "starting" by syncPromptHistory,
+// it must also revert the status so the UI spinner returns to paused.
+func (s *AutoWakeColdStartSuite) TestClearsStartingStatusOnExhaustion() {
+	stuck := stuckInteraction("int-exh-clear", "ses_exh_clear", autoWakeMaxRetries)
+
+	session := &types.Session{
+		ID: "ses_exh_clear",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_exh_clear").Return(session, nil).Times(1)
+	s.store.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), "int-exh-clear", 0, gomock.Any()).Return(true, nil)
+	// Worker found a "starting" mark and cleared it.
+	s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), "ses_exh_clear").Return(true, nil).Times(1)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+}
+
+func (s *AutoWakeColdStartSuite) TestDoesNotClearStartingStatusAfterConcurrentCompletion() {
+	stuck := stuckInteraction("int-exh-complete", "ses_exh_complete", autoWakeMaxRetries)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_exh_complete").Return(&types.Session{ID: "ses_exh_complete"}, nil)
+	s.store.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), "int-exh-complete", 0, gomock.Any()).Return(false, nil)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
 }
 
 // TestSkipsWhenInteractionIsYoung: stuck row younger than threshold must
@@ -284,4 +314,79 @@ func (s *AutoWakeColdStartSuite) TestSkipsWhenInteractionIsYoung() {
 
 	// No mocks set — gomock fails if any store method is called.
 	s.server.maybeAutoWake(context.Background(), stuck)
+}
+
+// TestAutoWakeStuckThresholdDefault verifies the new 180s default.
+func TestAutoWakeStuckThresholdDefault(t *testing.T) {
+	t.Setenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS", "")
+	if got := autoWakeStuckThreshold(); got != 180*time.Second {
+		t.Fatalf("default threshold: want 180s, got %s", got)
+	}
+}
+
+// TestAutoWakeStuckThresholdOverride verifies operators can still
+// override the default at runtime via env var without redeploying.
+func TestAutoWakeStuckThresholdOverride(t *testing.T) {
+	t.Setenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS", "300")
+	if got := autoWakeStuckThreshold(); got != 300*time.Second {
+		t.Fatalf("override threshold: want 300s, got %s", got)
+	}
+
+	// Garbage and zero must fall back to the default rather than
+	// silently disabling the worker.
+	t.Setenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS", "not-a-number")
+	if got := autoWakeStuckThreshold(); got != 180*time.Second {
+		t.Fatalf("garbage env: want 180s default, got %s", got)
+	}
+	t.Setenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS", "0")
+	if got := autoWakeStuckThreshold(); got != 180*time.Second {
+		t.Fatalf("zero env: want 180s default, got %s", got)
+	}
+}
+
+type AutoWakeConnectedSuite struct {
+	suite.Suite
+	ctrl   *gomock.Controller
+	store  *store.MockStore
+	server *HelixAPIServer
+}
+
+func TestAutoWakeConnectedSuite(t *testing.T) {
+	suite.Run(t, new(AutoWakeConnectedSuite))
+}
+
+func (s *AutoWakeConnectedSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.store = store.NewMockStore(s.ctrl)
+	s.server = &HelixAPIServer{
+		Store:                  s.store,
+		externalAgentWSManager: NewExternalAgentWSManager(),
+		Controller: &controller.Controller{
+			Options: controller.Options{Store: s.store, PubSub: pubsub.NewNoop()},
+		},
+		streamingContexts: make(map[string]*streamingContext),
+	}
+}
+
+func (s *AutoWakeConnectedSuite) TearDownTest() { s.ctrl.Finish() }
+
+func (s *AutoWakeConnectedSuite) TestLeavesQuiescentInteractionWaitingWithoutReplay() {
+	sendChan := make(chan types.ExternalAgentCommand, 1)
+	s.server.externalAgentWSManager.registerConnection("ses_connected", &ExternalAgentWSConnection{
+		SessionID:   "ses_connected",
+		ConnectedAt: time.Now().Add(-10 * time.Minute),
+		SendChan:    sendChan,
+	})
+	session := &types.Session{
+		ID:      "ses_connected",
+		Updated: time.Now().Add(-10 * time.Minute),
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_connected").Return(session, nil)
+
+	stuck := stuckInteraction("int-connected", "ses_connected", 0)
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	s.Equal(types.InteractionStateWaiting, stuck.State)
+	s.Zero(stuck.AutoWakeCount)
+	s.Empty(sendChan)
 }

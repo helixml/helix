@@ -1,15 +1,24 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/extract"
+	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/janitor"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -66,7 +75,7 @@ func (s *FindProviderWithModelSuite) TestGlobal_BareIDMatchesCachedModel() {
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{}, nil).AnyTimes()
 
 	cacheKey := "openai:" + string(types.OwnerTypeSystem)
-	s.server.cache.SetWithTTL(cacheKey, `[{"id":"gpt-5.2"}]`, 1, time.Minute)
+	s.server.cache.SetWithTTL(cacheKey, `{"Models":[{"id":"gpt-5.2"}],"FetchedAt":"2030-01-01T00:00:00Z"}`, 1, time.Minute)
 	s.server.cache.Wait()
 
 	provider, bare := s.server.findProviderWithModel(context.Background(), "gpt-5.2", "user_x", "")
@@ -85,7 +94,7 @@ func (s *FindProviderWithModelSuite) TestDBProvider_PrefixedIDMatchesViaResidue(
 	}, nil).AnyTimes()
 
 	cacheKey := "user/openai:org_test"
-	s.server.cache.SetWithTTL(cacheKey, `[{"id":"gpt-5.2"}]`, 1, time.Minute)
+	s.server.cache.SetWithTTL(cacheKey, `{"Models":[{"id":"gpt-5.2"}],"FetchedAt":"2030-01-01T00:00:00Z"}`, 1, time.Minute)
 	s.server.cache.Wait()
 
 	provider, bare := s.server.findProviderWithModel(context.Background(), "user/openai/gpt-5.2", "user_x", "org_test")
@@ -114,7 +123,7 @@ func (s *FindProviderWithModelSuite) TestGlobal_PrefixedIDMatchesViaResidue() {
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{}, nil).AnyTimes()
 
 	cacheKey := "openai:" + string(types.OwnerTypeSystem)
-	s.server.cache.SetWithTTL(cacheKey, `[{"id":"gpt-4o"}]`, 1, time.Minute)
+	s.server.cache.SetWithTTL(cacheKey, `{"Models":[{"id":"gpt-4o"}],"FetchedAt":"2030-01-01T00:00:00Z"}`, 1, time.Minute)
 	s.server.cache.Wait()
 
 	provider, bare := s.server.findProviderWithModel(context.Background(), "openai/gpt-4o", "user_x", "")
@@ -132,4 +141,40 @@ func (s *FindProviderWithModelSuite) TestUnknownModel_ReturnsEmpty() {
 	provider, bare := s.server.findProviderWithModel(context.Background(), "made-up-model", "user_x", "")
 	s.Empty(provider)
 	s.Empty(bare)
+}
+
+func (s *FindProviderWithModelSuite) TestChatCompletionWithoutAppPassesOrganizationContext() {
+	client := oai.NewMockClient(s.ctrl)
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(client, nil).AnyTimes()
+	s.manager.EXPECT().ListProviders(gomock.Any(), "").Return([]types.Provider{}, nil)
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{}, nil).AnyTimes()
+	s.store.EXPECT().GetUserMeta(gomock.Any(), "user_test").Return(&types.UserMeta{}, nil)
+	client.EXPECT().BillingEnabled().Return(false)
+	client.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+			orgID, ok := oai.GetContextOrganizationID(ctx)
+			s.True(ok)
+			s.Equal("org_test", orgID)
+			return openai.ChatCompletionResponse{}, nil
+		},
+	)
+
+	controller, err := controller.NewController(context.Background(), controller.Options{
+		Config:          s.server.Cfg,
+		Store:           s.store,
+		Janitor:         janitor.NewJanitor(config.Janitor{}),
+		ProviderManager: s.manager,
+		Filestore:       filestore.NewMockFileStore(s.ctrl),
+		Extractor:       extract.NewMockExtractor(s.ctrl),
+	})
+	s.Require().NoError(err)
+	s.server.Controller = controller
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"openai/test-model","messages":[{"role":"user","content":"hi"}]}`))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test", OrganizationID: "org_test"}))
+	rw := httptest.NewRecorder()
+
+	s.server.createChatCompletion(rw, req)
+
+	s.Equal(http.StatusOK, rw.Code)
 }

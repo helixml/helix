@@ -1,12 +1,68 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// SetOrgPlanRequest is the body for POST /admin/orgs/{id}/plan.
+type SetOrgPlanRequest struct {
+	// Plan: "pro" | "free" forces the org's quota tier independent of Stripe
+	// (for customers who paid out-of-band). "" clears the override and reverts
+	// to the Stripe-derived tier.
+	Plan string `json:"plan"`
+}
+
+// adminSetOrgPlan godoc
+// @Summary Set an organization's plan override (admin only)
+// @Description Force an org's quota tier independent of Stripe — for customers who paid out-of-band. plan: "pro" | "free" | "" (clear). Never reverted by a Stripe webhook.
+// @Tags    organizations
+// @Param id path string true "Organization ID"
+// @Param request body SetOrgPlanRequest true "Plan override"
+// @Success 200 {object} types.Wallet
+// @Router /api/v1/admin/orgs/{id}/plan [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminSetOrgPlan(rw http.ResponseWriter, r *http.Request) {
+	orgID := mux.Vars(r)["id"]
+	if orgID == "" {
+		http.Error(rw, "organization id is required", http.StatusBadRequest)
+		return
+	}
+	var body SetOrgPlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	switch body.Plan {
+	case "", types.PlanOverridePro, types.PlanOverrideFree:
+	default:
+		http.Error(rw, "plan must be one of: pro, free, or empty", http.StatusBadRequest)
+		return
+	}
+
+	adminUser := getRequestUser(r)
+	wallet, err := apiServer.getOrCreateWallet(r.Context(), adminUser, orgID)
+	if err != nil {
+		log.Err(err).Str("org_id", orgID).Msg("failed to get/create org wallet")
+		http.Error(rw, "failed to get org wallet: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	wallet.PlanOverride = body.Plan
+	updated, err := apiServer.Store.UpdateWallet(r.Context(), wallet)
+	if err != nil {
+		log.Err(err).Str("org_id", orgID).Msg("failed to update org wallet plan override")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Info().Str("admin_id", adminUser.ID).Str("org_id", orgID).Str("plan", body.Plan).
+		Msg("admin set org plan override")
+	writeResponse(rw, updated, http.StatusOK)
+}
 
 // adminListOrganizations godoc
 // @Summary List organizations with wallets (admin only)

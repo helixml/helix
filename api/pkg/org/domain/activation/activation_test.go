@@ -11,13 +11,13 @@ import (
 )
 
 // TestNewActivationFromHireTrigger pins the happy-path constructor
-// shape. New(...) sets StartedAt, derives TranscriptStreamID from
+// shape. New(...) sets StartedAt, derives TranscriptID from
 // WorkerID, copies Triggers, leaves Outcome zero and EndedAt nil so
 // callers can tell the row is "still running."
 func TestNewActivationFromHireTrigger(t *testing.T) {
 	t.Parallel()
 	started := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
-	wid := orgchart.WorkerID("w-alice")
+	wid := orgchart.NodeID("w-alice")
 	triggers := []activation.Trigger{{Kind: activation.TriggerHire}}
 
 	a, err := activation.New("a-1", wid, triggers, started, "org-test")
@@ -39,8 +39,8 @@ func TestNewActivationFromHireTrigger(t *testing.T) {
 	if a.Outcome != (activation.Outcome{}) {
 		t.Errorf("Outcome = %+v, want zero (Complete hasn't fired)", a.Outcome)
 	}
-	if a.TranscriptStreamID != activation.StreamID(wid) {
-		t.Errorf("TranscriptStreamID = %q, want %q (derived from WorkerID)", a.TranscriptStreamID, activation.StreamID(wid))
+	if a.TranscriptID != activation.TranscriptID(wid) {
+		t.Errorf("TranscriptID = %q, want %q (derived from WorkerID)", a.TranscriptID, activation.TranscriptID(wid))
 	}
 	if len(a.Triggers) != 1 || a.Triggers[0].Kind != activation.TriggerHire {
 		t.Errorf("Triggers = %+v, want one hire trigger", a.Triggers)
@@ -166,6 +166,6 @@ func (fakeRepo) Complete(_ context.Context, _ string, _ activation.ID, _ activat
 func (fakeRepo) Get(_ context.Context, _ string, _ activation.ID) (*activation.Activation, error) {
 	return nil, errors.New("not found")
 }
-func (fakeRepo) ListForWorker(_ context.Context, _ string, _ orgchart.WorkerID, _ int) ([]*activation.Activation, error) {
+func (fakeRepo) ListForWorker(_ context.Context, _ string, _ orgchart.NodeID, _ int) ([]*activation.Activation, error) {
 	return nil, nil
 }

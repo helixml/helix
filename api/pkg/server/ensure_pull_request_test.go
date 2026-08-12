@@ -76,8 +76,8 @@ func (f *fakeGitRepoService) SetKoditService(_ services.KoditServicer) {
 func (f *fakeGitRepoService) CloneRepositoryAsync(_ *types.GitRepository, _ ...func(string)) {
 	panic("CloneRepositoryAsync unexpected")
 }
-func (f *fakeGitRepoService) ValidateUserGitHubOAuth(_ context.Context, _ *types.GitRepository, _ string) error {
-	panic("ValidateUserGitHubOAuth unexpected")
+func (f *fakeGitRepoService) ValidateUserOAuth(_ context.Context, _ *types.GitRepository, _ string) error {
+	panic("ValidateUserOAuth unexpected")
 }
 func (f *fakeGitRepoService) CreateRepository(_ context.Context, _ *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
 	panic("CreateRepository unexpected")
@@ -121,6 +121,12 @@ func (f *fakeGitRepoService) PullFromRemote(_ context.Context, _, _ string, _ bo
 }
 func (f *fakeGitRepoService) SyncAllBranches(_ context.Context, _ string, _ bool) error {
 	panic("SyncAllBranches unexpected")
+}
+func (f *fakeGitRepoService) SyncBaseBranch(_ context.Context, _, _ string) error {
+	panic("SyncBaseBranch unexpected")
+}
+func (f *fakeGitRepoService) GetLocalBranchSHA(_ context.Context, _, _ string) (string, error) {
+	panic("GetLocalBranchSHA unexpected")
 }
 func (f *fakeGitRepoService) GetExternalRepoStatus(_ context.Context, _, _ string) (*types.ExternalStatus, error) {
 	panic("GetExternalRepoStatus unexpected")

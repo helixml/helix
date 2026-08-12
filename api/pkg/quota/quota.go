@@ -7,7 +7,6 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/stripe/stripe-go/v76"
 )
 
 type QuotaManager interface {
@@ -61,7 +60,13 @@ func (m *DefaultQuotaManager) getOrgQuotas(ctx context.Context, orgID string) (*
 			MaxSpecTasks:          -1,
 		}
 	// Active subscription
-	case wallet.StripeSubscriptionID != "" && wallet.SubscriptionStatus == stripe.SubscriptionStatusActive:
+	// Admin plan override (paid out-of-band; independent of Stripe, so it's
+	// never reverted by a webhook). Takes precedence over the subscription.
+	case wallet.PlanOverride == types.PlanOverridePro:
+		quotas = m.getProQuotas()
+	case wallet.PlanOverride == types.PlanOverrideFree:
+		quotas = m.getFreeQuotas()
+	case wallet.StripeSubscriptionID != "" && wallet.IsSubscriptionActive():
 		// Paid plan limits
 		quotas = m.getProQuotas()
 	default:
@@ -131,7 +136,13 @@ func (m *DefaultQuotaManager) getUserQuotas(ctx context.Context, userID string) 
 			MaxRepositories:       -1,
 			MaxSpecTasks:          -1,
 		}
-	case wallet.StripeSubscriptionID != "" && wallet.SubscriptionStatus == stripe.SubscriptionStatusActive:
+	// Admin plan override (paid out-of-band; independent of Stripe, so it's
+	// never reverted by a webhook). Takes precedence over the subscription.
+	case wallet.PlanOverride == types.PlanOverridePro:
+		quotas = m.getProQuotas()
+	case wallet.PlanOverride == types.PlanOverrideFree:
+		quotas = m.getFreeQuotas()
+	case wallet.StripeSubscriptionID != "" && wallet.IsSubscriptionActive():
 		// Paid plan limits
 		quotas = m.getProQuotas()
 	default:

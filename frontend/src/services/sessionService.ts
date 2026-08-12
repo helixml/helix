@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesSession } from '../api/api';
+import { ServerForkSessionRequest, ServerSwitchAgentRequest, TypesSession } from '../api/api';
 import { QueryClient } from '@tanstack/react-query';
 
 export const SESSION_STEPS_QUERY_KEY = (id: string) => [
@@ -13,15 +13,46 @@ export const GET_SESSION_QUERY_KEY = (id: string) => [
   id
 ];
 
-export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId?: string, appId?: string) => [
+export function useDeleteSessionTerminalSession(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useMutation({
+    mutationFn: (terminalSessionName: string) =>
+      apiClient.v1SessionsTerminalSessionsDelete(sessionId, terminalSessionName),
+  })
+}
+
+export function sessionTerminalUrl(sessionId: string, terminalSessionName: string): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const base = `${proto}//${window.location.host}/api/v1/sessions/${sessionId}/terminal`
+  return `${base}?session=${encodeURIComponent(terminalSessionName)}`
+}
+
+export interface ListSessionsFilters {
+  includeExternalAgents?: boolean
+  projectScope?: 'project' | 'none'
+  sort?: 'created' | 'updated' | 'last_message'
+  archived?: boolean
+}
+
+// The "sessions" prefix is what every invalidation matches on, so it must stay
+// first; the rest is a single object so new filters can be added without another
+// positional argument.
+export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, projectId?: string, appId?: string, filters: ListSessionsFilters = {}) => [
   "sessions",
   orgId,
   page,
   pageSize,
   search,
-  questionSetExecutionId,
   projectId,
   appId,
+  {
+    includeExternalAgents: filters.includeExternalAgents ?? false,
+    projectScope: filters.projectScope ?? '',
+    sort: filters.sort ?? '',
+    archived: filters.archived ?? false,
+  },
 ];
 
 export const LIST_INTERACTIONS_QUERY_KEY = (sessionId: string, page?: number, perPage?: number, order?: string) => [
@@ -45,7 +76,7 @@ export function useListSessionSteps(sessionId: string, options?: { enabled?: boo
   })
 }
 
-export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false; skipInteractions?: boolean }) {
+export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false | ((query: any) => number | false); skipInteractions?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
   const skipInteractions = options?.skipInteractions ?? false
@@ -57,6 +88,14 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
       skipInteractions ? { skipInteractions: '1' } : undefined,
     ),
     enabled: options?.enabled ?? true,
+    // Don't hammer a session we can't read: a 4xx (403 forbidden / 404
+    // gone) is permanent, so retrying it is pointless noise. Other errors
+    // (5xx, network) keep the default retry.
+    retry: (failureCount: number, error: any) => {
+      const status = error?.response?.status
+      if (status >= 400 && status < 500) return false
+      return failureCount < 3
+    },
     refetchInterval: options?.refetchInterval,
     // Prevent immediate refetches when multiple consumers share this query.
     // E.g. useSandboxState (3s) and EmbeddedSessionView (5s) both poll the same
@@ -66,20 +105,23 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
   })
 }
 
-export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: { enabled?: boolean }, appId?: string) {
+export function useListSessions(orgId?: string, search?: string, projectId?: string, page?: number, pageSize?: number, options?: ListSessionsFilters & { enabled?: boolean }, appId?: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
-  
+
   return useQuery({
-    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? '', appId ?? ''),
+    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', projectId ?? '', appId ?? '', options),
     queryFn: () => apiClient.v1SessionsList({
       org_id: orgId,
       search: search,
-      question_set_execution_id: questionSetExecutionId,
       page: page,
       page_size: pageSize,
       project_id: projectId,
+      project_scope: options?.projectScope,
+      sort: options?.sort,
       app_id: appId,
+      include_external_agents: options?.includeExternalAgents,
+      archived: options?.archived,
     }),
     enabled: options?.enabled ?? true
   })
@@ -103,6 +145,98 @@ export function useUpdateSession(sessionId: string, options?: { enabled?: boolea
   })
 }
 
+export function useRenameSession() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ sessionId, name }: { sessionId: string; name: string }) =>
+      apiClient.v1SessionsUpdate(sessionId, { name }),
+    onSuccess: (_, { sessionId }) => {
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
+
+// useForkSession forks the given session to a different agent.
+// On success, the parent session is paused and the child session id is
+// returned (via the resolved promise). Callers typically navigate the
+// chat panel to the new session id and/or invalidate parent's data.
+//
+// See design/tasks/002081_kickoff-mid-session/design.md.
+export function useForkSession(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: ServerForkSessionRequest) =>
+      apiClient.v1SessionsForkCreate(sessionId, request).then((res) => res.data),
+    onSuccess: () => {
+      // Parent transitioned to paused; refresh its session row.
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+      // Refresh any session lists so the new child appears.
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
+// useSwitchAgent switches the agent framework on the given session IN PLACE —
+// same session, same desktop container. The backend rewrites Zed's config to
+// the new agent, restarts Zed, and repopulates a fresh thread with the prior
+// transcript. Unlike useForkSession, no new session id is created; the session
+// id is unchanged, so callers just refresh the existing session's data.
+//
+// See design/tasks/002111_so-we-recently-added-a/design.md.
+export function useSwitchAgent(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: ServerSwitchAgentRequest) =>
+      apiClient.v1SessionsSwitchAgentCreate(sessionId, request).then((res) => res.data),
+    onSuccess: () => {
+      // The session's agent changed in place; refresh its row + any lists.
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
+export const WORKSPACE_STATUS_QUERY_KEY = (sessionId: string) => [
+  "workspace-status",
+  sessionId,
+]
+
+// useWorkspaceStatus polls the parent session's desktop container for
+// uncommitted git changes and unpushed commits. The fork-confirm modal
+// uses this to either show a "N files will be committed and pushed
+// before the fork" panel or just proceed silently when clean.
+//
+// enabled defaults to false because this triggers a real exec into the
+// running desktop container — callers should only enable it when the
+// modal is actually open. We poll at a moderate interval while the
+// modal is open so a startup-race "container_reachable: false" gets
+// corrected once the desktop's RevDial connection registers (~1-2s
+// after a fresh container boot). Without this, the modal can show
+// stale "container isn't running" text even when the fork itself
+// works fine moments later.
+export function useWorkspaceStatus(sessionId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: WORKSPACE_STATUS_QUERY_KEY(sessionId),
+    queryFn: () => apiClient.v1SessionsWorkspaceStatusDetail(sessionId),
+    enabled: options?.enabled ?? false,
+    // Recheck every 3s — picks up "container just became reachable"
+    // without spamming the desktop. Stops automatically when enabled
+    // flips back to false (modal closes).
+    refetchInterval: 3000,
+    staleTime: 0,
+  })
+}
 
 export function useDeleteSession(sessionId: string, options?: { enabled?: boolean }) {
   const api = useApi()
@@ -114,6 +248,21 @@ export function useDeleteSession(sessionId: string, options?: { enabled?: boolea
       // Invalidate all sessions queries to refresh the list after deletion
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
     }
+  })
+}
+
+export function useArchiveSession() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ sessionId, archived }: { sessionId: string; archived: boolean }) =>
+      apiClient.v1SessionsArchivePartialUpdate(sessionId, { archived }).then((response) => response.data),
+    onSuccess: (_, { sessionId }) => {
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
   })
 }
 

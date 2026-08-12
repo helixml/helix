@@ -11,6 +11,9 @@ export default defineConfig({
     allowedHosts: true,  // Allow access from any hostname
   },
   publicDir: 'assets',
+  optimizeDeps: {
+    include: ['@react-pdf/renderer', '@uiw/react-md-editor'],
+  },
   build: {
     rollupOptions: {
       output: {
@@ -27,6 +30,7 @@ export default defineConfig({
     },
   },
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: {
       '#minpath': path.resolve(__dirname, 'src/polyfills/path.js'),
       '#minproc': path.resolve(__dirname, 'src/polyfills/process.js'),

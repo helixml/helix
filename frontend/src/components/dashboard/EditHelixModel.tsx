@@ -20,7 +20,6 @@ import {
     Link,
     Box,
     Typography,
-    LinearProgress,
     Slider,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
@@ -34,9 +33,6 @@ import {
     useCreateHelixModel,
     useUpdateHelixModel,
 } from "../../services/helixModelsService";
-import { useGetDashboardData } from "../../services/dashboardService";
-import MemoryEstimationWidget from "./MemoryEstimationWidget";
-import { RunnerModelStatus } from "../../types/dashboard";
 
 interface EditHelixModelDialogProps {
     open: boolean;
@@ -57,7 +53,6 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
         useCreateHelixModel();
     const { mutateAsync: updateModel, isPending: isUpdating } =
         useUpdateHelixModel();
-    const { data: dashboardData } = useGetDashboardData();
     const loading = isCreating || isUpdating;
 
     const [error, setError] = useState<string>("");
@@ -326,45 +321,6 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
         onClose();
     };
 
-    // Get download progress for the current model across all runners
-    const getModelDownloadStatus = useCallback(() => {
-        if (!formData.id || !dashboardData?.runners) return null;
-
-        const modelStatuses: RunnerModelStatus[] = [];
-        dashboardData.runners.forEach((runner) => {
-            if (runner.models) {
-                const modelStatus = runner.models.find(
-                    (m) => m.model_id === formData.id,
-                );
-                if (modelStatus) {
-                    modelStatuses.push(modelStatus);
-                }
-            }
-        });
-
-        if (modelStatuses.length === 0) return null;
-
-        const downloadingRunners = modelStatuses.filter(
-            (s) => s.download_in_progress,
-        );
-        const completedRunners = modelStatuses.filter(
-            (s) => !s.download_in_progress && !s.error,
-        );
-        const errorRunners = modelStatuses.filter((s) => s.error);
-
-        return {
-            total: modelStatuses.length,
-            downloading: downloadingRunners.length,
-            completed: completedRunners.length,
-            errors: errorRunners.length,
-            hasCompleted: completedRunners.length > 0,
-            allCompleted: completedRunners.length === modelStatuses.length,
-            statuses: modelStatuses,
-        };
-    }, [formData.id, dashboardData?.runners]);
-
-    const downloadStatus = getModelDownloadStatus();
-
     // Common context length presets in K (thousands)
     const CONTEXT_PRESETS = [4, 8, 16, 32, 64, 128, 256, 512];
 
@@ -617,85 +573,6 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                             </Box>
                         )}
 
-                    {/* Download progress for Ollama models */}
-                    {!isEditing &&
-                        formData.runtime === TypesRuntime.RuntimeOllama &&
-                        formData.id &&
-                        isModelRegistered &&
-                        downloadStatus && (
-                            <Box>
-                                <Typography variant="subtitle2" gutterBottom>
-                                    Download Status Across Runners
-                                </Typography>
-                                {downloadStatus.downloading > 0 && (
-                                    <Box sx={{ mb: 2 }}>
-                                        <Box
-                                            sx={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                mb: 1,
-                                            }}
-                                        >
-                                            <Typography
-                                                variant="body2"
-                                                sx={{ mr: 2 }}
-                                            >
-                                                Downloading on{" "}
-                                                {downloadStatus.downloading}{" "}
-                                                runner(s)
-                                            </Typography>
-                                            <CircularProgress size={16} />
-                                        </Box>
-                                        {downloadStatus.statuses
-                                            .filter(
-                                                (s) => s.download_in_progress,
-                                            )
-                                            .map((status, index) => (
-                                                <Box key={index} sx={{ mb: 1 }}>
-                                                    <Typography
-                                                        variant="caption"
-                                                        color="text.secondary"
-                                                    >
-                                                        Runner {index + 1}:{" "}
-                                                        {status.download_percent ||
-                                                            0}
-                                                        %
-                                                    </Typography>
-                                                    <LinearProgress
-                                                        variant="determinate"
-                                                        value={
-                                                            status.download_percent ||
-                                                            0
-                                                        }
-                                                        sx={{ mt: 0.5 }}
-                                                    />
-                                                </Box>
-                                            ))}
-                                    </Box>
-                                )}
-                                {downloadStatus.completed > 0 && (
-                                    <Typography
-                                        variant="body2"
-                                        color="success.main"
-                                        sx={{ mb: 1 }}
-                                    >
-                                        ✓ Downloaded on{" "}
-                                        {downloadStatus.completed} runner(s)
-                                    </Typography>
-                                )}
-                                {downloadStatus.errors > 0 && (
-                                    <Typography
-                                        variant="body2"
-                                        color="error.main"
-                                        sx={{ mb: 1 }}
-                                    >
-                                        ✗ Failed on {downloadStatus.errors}{" "}
-                                        runner(s)
-                                    </Typography>
-                                )}
-                            </Box>
-                        )}
-
                     {/* Memory field - only for non-Ollama models */}
                     {formData.runtime !== TypesRuntime.RuntimeOllama && (
                         <TextField
@@ -783,11 +660,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                                         autoComplete="off"
                                         placeholder="e.g., 128000"
                                         required
-                                        helperText={
-                                            downloadStatus?.hasCompleted
-                                                ? "Maximum context window size (in tokens). Full memory estimation available."
-                                                : "Maximum context window size (in tokens). Use slider for quick selection."
-                                        }
+                                        helperText="Maximum context window size (in tokens). Use slider for quick selection."
                                         disabled={loading}
                                         sx={{ mt: 2 }}
                                         InputProps={{
@@ -855,30 +728,6 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                         />
                     )}
 
-                    {/* Memory Estimation Widget for Ollama models - only show after download completes */}
-                    {formData.runtime === TypesRuntime.RuntimeOllama &&
-                        formData.id &&
-                        formData.type === TypesModelType.ModelTypeChat &&
-                        downloadStatus?.hasCompleted && (
-                            <MemoryEstimationWidget
-                                modelId={formData.id}
-                                currentContextLength={formData.context_length}
-                                onContextLengthChange={(value) =>
-                                    setFormData((prev) => ({
-                                        ...prev,
-                                        context_length: value,
-                                    }))
-                                }
-                                currentConcurrency={formData.concurrency}
-                                onConcurrencyChange={(value) =>
-                                    setFormData((prev) => ({
-                                        ...prev,
-                                        concurrency: value,
-                                    }))
-                                }
-                                disabled={loading}
-                            />
-                        )}
 
                     {/* Conditionally render Runtime Args field for VLLM runtime */}
                     {formData.runtime === TypesRuntime.RuntimeVLLM && (

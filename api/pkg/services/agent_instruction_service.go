@@ -6,27 +6,25 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 // AgentInstructionService sends automated instructions to agent sessions
 type AgentInstructionService struct {
-	store         store.Store
-	messageSender SpecTaskMessageSender
-	koditService  KoditServicer
+	store        store.Store
+	enqueuer     SpecTaskMessageEnqueuer
+	koditService KoditServicer
 }
 
 // NewAgentInstructionService creates a new agent instruction service
-func NewAgentInstructionService(store store.Store, messageSender SpecTaskMessageSender, koditService KoditServicer) *AgentInstructionService {
+func NewAgentInstructionService(store store.Store, enqueuer SpecTaskMessageEnqueuer, koditService KoditServicer) *AgentInstructionService {
 	return &AgentInstructionService{
-		store:         store,
-		messageSender: messageSender,
-		koditService:  koditService,
+		store:        store,
+		enqueuer:     enqueuer,
+		koditService: koditService,
 	}
 }
 
@@ -107,12 +105,6 @@ type RevisionPromptData struct {
 	Comments    string
 }
 
-// ImplementationReviewPromptData contains data for implementation review prompts
-type ImplementationReviewPromptData struct {
-	BranchName  string
-	TaskDirName string
-}
-
 // =============================================================================
 // Compiled Templates
 // =============================================================================
@@ -172,7 +164,11 @@ Small frequent pushes are better than one big push at the end.
 
 ` + "```bash" + `
 cd /home/retro/work/helix-specs
-git add -A && git commit -m "chore(specs): update progress" && git push origin helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "chore(specs): update progress"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 ` + "```" + `
 
 ## Steps
@@ -180,9 +176,15 @@ git add -A && git commit -m "chore(specs): update progress" && git push origin h
 1. Read design docs: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
 2. Verify branch: ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git branch --show-current`" + ` (should be {{.BranchName}})
 3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
-4. Before pushing code, merge the latest default branch into your feature branch in every repo that has changes:
+4. **Before pushing code, merge the base branch into your feature branch in every repo that has changes. This is not optional.**
    ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git fetch origin {{.BaseBranch}} && git merge origin/{{.BaseBranch}}`" + `
-   Resolve any conflicts and commit before pushing.
+   **Why it matters:** your branch can only land if ` + "`{{.BaseBranch}}`" + ` is an ancestor of it. Skip this and the branch diverges, the merge is refused, and your work sits on a branch nobody can land. Check with:
+   ` + "`git merge-base --is-ancestor origin/{{.BaseBranch}} HEAD && echo mergeable`" + `
+   **Resolving conflicts is your job, and you have the context to do it well:**
+   - Append-only logs and ledgers (daily logs, tracking tables): keep BOTH sides. Two people's entries for the same day are both true; picking one silently deletes someone's work.
+   - Two edits of the same rule: keep the newer structure and fold in any unique detail from the older one, rather than discarding either.
+   - Genuinely ambiguous, where choosing wrong would lose real information or change intent: **ask.** Use ` + "`request_human_attention`" + ` with the specific question. Do not guess, and do not abandon the branch.
+   Commit the merge before pushing.
 5. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
 6. **Opening pull requests (zero, one, or many)**
 
@@ -222,7 +224,33 @@ git add -A && git commit -m "chore(specs): update progress" && git push origin h
 
 **Do NOT run any of these to "debug" a push failure:** ` + "`gh`" + ` (any subcommand), ` + "`ssh-add`" + `, ` + "`ssh-keygen`" + `, ` + "`ssh-agent`" + `, ` + "`eval $(ssh-agent)`" + `, or anything that touches ` + "`~/.ssh/`" + `. None of those tools or files exist or apply here. Running them is a waste of turns and produces misleading output.
 
-If ` + "`git push`" + ` fails: paste the full verbatim stderr to the user in the chat, then stop. Do not guess at the cause, do not invent "SSH authentication issues" or "credential" explanations, and do not retry with alternative tools. The user (or a Helix engineer) will diagnose the underlying issue from the actual error message.
+## Recovering a Shared helix-specs Push
+
+` + "`helix-specs`" + ` is shared by concurrent agents and by Helix progress updates. A
+` + "`fetch first`" + `, ` + "`non-fast-forward`" + `, or ` + "`rejected`" + ` push on that branch is a
+normal race and is recoverable. Do not stop and do not force-push. First make sure
+your progress is committed, then replay your local commit(s) on the latest remote
+branch and retry:
+
+` + "```bash" + `
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "chore(specs): update progress"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+# If there are conflicts: edit the files, git add <resolved-files>, then git rebase --continue.
+git push origin helix-specs
+` + "```" + `
+
+If the push races another writer again, repeat the fetch/rebase/push sequence. Never
+use ` + "`git push --force`" + ` or ` + "`--force-with-lease`" + ` on ` + "`helix-specs`" + `: other agents'
+progress must be preserved. Once the specs push succeeds, continue with the code
+changes; a failed specs push is not a reason to abandon otherwise valid local work.
+
+For any other push failure (authentication, permission, server, or a repository hook),
+preserve the local commits, paste the full verbatim stderr to the user, and stop.
+Do not guess at the cause or use unrelated tools such as ` + "`gh`" + `, SSH tooling, or
+alternative remotes.
 
 {{if .KoditSection}}
 {{.KoditSection}}
@@ -346,7 +374,10 @@ What changed in {{.}} and why.
 - Key change 2
 EOF
 {{end}}
-cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): add PR descriptions" && git push origin helix-specs
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "docs(specs): add PR descriptions"; fi
+git fetch origin helix-specs && git rebase origin/helix-specs && git push origin helix-specs
 ` + "```" + `
 {{else}}
 ` + "```bash" + `
@@ -363,7 +394,10 @@ Brief description of what this PR does and why.
 ## Testing
 How this was tested (if applicable).
 EOF
-cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): add PR description" && git push origin helix-specs
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "docs(specs): add PR description"; fi
+git fetch origin helix-specs && git rebase origin/helix-specs && git push origin helix-specs
 ` + "```" + `
 {{end}}
 **Tips for good PR descriptions:**
@@ -419,20 +453,13 @@ Speak English.
 
 If changes are needed, update /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/ and push:
 ` + "```bash" + `
-cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): address feedback" && git push origin helix-specs
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "docs(specs): address feedback"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 ` + "```" + `
-`))
-
-var implementationReviewPromptTemplate = template.Must(template.New("implementationReview").Parse(`# Implementation Ready for Review
-
-Speak English.
-
-Your code has been pushed. The user will now test your work.
-
-If this is a web app, please start the dev server and provide the URL.
-
-**Branch:** {{.BranchName}}
-**Docs:** /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
 `))
 
 var revisionPromptTemplate = template.Must(template.New("revision").Parse(`# Changes Requested
@@ -449,7 +476,12 @@ Update your design based on this feedback:
 
 After updating, push immediately:
 ` + "```bash" + `
-cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): address feedback" && git push origin helix-specs
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "docs(specs): address feedback"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 ` + "```" + `
 `))
 
@@ -574,23 +606,6 @@ func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignR
 	return buf.String()
 }
 
-// BuildImplementationReviewPrompt builds the prompt for notifying agent that implementation is ready for review
-// This is the single source of truth for this prompt - used by WebSocket approaches
-func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) string {
-	taskDirName := GetTaskDirName(task)
-
-	data := ImplementationReviewPromptData{
-		BranchName:  branchName,
-		TaskDirName: taskDirName,
-	}
-
-	var buf bytes.Buffer
-	if err := implementationReviewPromptTemplate.Execute(&buf, data); err != nil {
-		return "Error generating implementation review prompt: " + err.Error()
-	}
-	return buf.String()
-}
-
 // BuildRevisionInstructionPrompt builds the prompt for sending revision feedback to the agent
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) string {
@@ -660,17 +675,12 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		Str("branch_name", branchName).
 		Msg("Sending approval instruction to agent")
 
-	// Use messageSender which:
-	// 1. Creates an interaction in the database
-	// 2. Sets up requestToInteractionMapping for response routing
-	// 3. Sends the message via WebSocket to the agent
-	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
-	// and overwrite the requestToInteractionMapping, causing responses to go
-	// to the wrong (empty) interaction.
-	// interrupt=false: approval kickoff begins a new phase with an idle agent; respect the queue.
-	_, _, err := s.messageSender(ctx, task, message, userID, false)
-	if err != nil {
-		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
+	// Enqueue onto the session-scoped prompt queue. interrupt=false: approval
+	// kickoff begins a new phase and should respect the queue (defer until idle).
+	// userID is carried as notifyUserID so the response streams to the same user
+	// as before.
+	if err := s.enqueuer(ctx, task, message, false, userID); err != nil {
+		return fmt.Errorf("failed to enqueue approval instruction to agent: %w", err)
 	}
 
 	return nil
@@ -749,79 +759,4 @@ func (s *AgentInstructionService) buildRepositorySectionForTask(ctx context.Cont
 	}
 
 	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
-}
-
-// SendImplementationReviewRequest notifies agent that implementation is ready for review
-// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildImplementationReviewPrompt
-// and send via sendMessageToSpecTaskAgent instead
-func (s *AgentInstructionService) SendImplementationReviewRequest(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	task *types.SpecTask,
-	branchName string,
-) error {
-	message := BuildImplementationReviewPrompt(task, branchName)
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("branch_name", branchName).
-		Msg("Sending implementation review request to agent")
-
-	return s.sendMessage(ctx, sessionID, userID, message)
-}
-
-// SendRevisionInstruction sends a message to the agent with revision feedback
-// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildRevisionInstructionPrompt
-// and send via sendMessageToSpecTaskAgent instead
-func (s *AgentInstructionService) SendRevisionInstruction(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	task *types.SpecTask,
-	comments string,
-) error {
-	message := BuildRevisionInstructionPrompt(task, comments)
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("task_id", task.ID).
-		Msg("Sending revision instruction to agent")
-
-	return s.sendMessage(ctx, sessionID, userID, message)
-}
-
-// sendMessage sends a user message to an agent session (triggers agent response)
-// Uses the same pattern as normal session message handling
-func (s *AgentInstructionService) sendMessage(ctx context.Context, sessionID string, userID string, message string) error {
-	// Create a user interaction that will trigger the agent to respond
-	// This matches how normal user messages are created in spec_driven_task_service.go
-	now := time.Now()
-	interaction := &types.Interaction{
-		ID:            system.GenerateInteractionID(),
-		GenerationID:  0,
-		Created:       now,
-		Updated:       now,
-		Scheduled:     now,
-		SessionID:     sessionID,
-		UserID:        userID, // User who created/owns the task
-		Mode:          types.SessionModeInference,
-		PromptMessage: message,
-		State:         types.InteractionStateWaiting, // Waiting state triggers agent response
-	}
-
-	// Store the interaction - this will queue it for the agent to process
-	_, err := s.store.CreateInteraction(ctx, interaction)
-	if err != nil {
-		return err
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("user_id", userID).
-		Str("interaction_id", interaction.ID).
-		Str("state", string(interaction.State)).
-		Msg("Successfully sent instruction to agent (waiting for response)")
-
-	return nil
 }

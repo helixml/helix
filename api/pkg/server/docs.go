@@ -743,6 +743,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/orgs/{id}/plan": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Force an org's quota tier independent of Stripe — for customers who paid out-of-band. plan: \"pro\" | \"free\" | \"\" (clear). Never reverted by a Stripe webhook.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Set an organization's plan override (admin only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Plan override",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SetOrgPlanRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Wallet"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}": {
             "delete": {
                 "security": [
@@ -793,6 +833,44 @@ const docTemplate = `{
                         "description": "User not found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/users/{id}/api-keys": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create (or return the existing) named API key owned by another user, so a trusted orchestrator can act as the people it runs work for instead of putting the whole fleet on one shared account. Idempotent per (user, name).",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Mint an API key for a user (Admin only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Key name, e.g. the orchestrator's slug",
+                        "name": "name",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ApiKey"
                         }
                     }
                 }
@@ -1074,6 +1152,1465 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/agents": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List agents for the user. Agents are pre-configured to spawn sessions with specific tools and config.",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "List agents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Agent"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with agent configuration. Can be legacy Agent format or structured format with organization_id, global, and yaml_config fields.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Agent"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AgentCreateResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{agent_id}/evaluation-runs/{run_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get evaluation run details",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Get an evaluation run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Run ID",
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationRun"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete an evaluation run",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Delete an evaluation run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Run ID",
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{agent_id}/evaluation-suites": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all evaluation suites for an agent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "List evaluation suites for an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.EvaluationSuite"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new evaluation suite for an agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Create an evaluation suite",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Evaluation suite to create",
+                        "name": "suite",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationSuite"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationSuite"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{agent_id}/evaluation-suites/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get an evaluation suite by ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Get an evaluation suite",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationSuite"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an evaluation suite",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Update an evaluation suite",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Updated suite",
+                        "name": "suite",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationSuite"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationSuite"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete an evaluation suite",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Delete an evaluation suite",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{agent_id}/evaluation-suites/{id}/runs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List evaluation runs for a suite",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "List evaluation runs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.EvaluationRun"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Start running an evaluation suite against an agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Start an evaluation run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.EvaluationRun"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{agent_id}/triggers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List triggers for the agent",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "List agent triggers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.TriggerConfiguration"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Agent"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with agent configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Agent"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Tool ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Agent"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/access-grants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List access grants for an agent (organization owners and members can list access grants)",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "List agent access grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AccessGrant"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Grant access to an agent to a team or organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with team or organization member ID and role",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AccessGrant"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/api-actions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Runs an API action for an agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Run an API action",
+                "parameters": [
+                    {
+                        "description": "Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.RunAPIActionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunAPIActionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/avatar": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the agent's avatar image",
+                "produces": [
+                    "image/*"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent avatar",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Avatar image data",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload a base64 encoded image as the agent's avatar",
+                "consumes": [
+                    "text/plain"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Upload agent avatar",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Base64 encoded image data",
+                        "name": "image",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete the agent's avatar image",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Delete agent avatar",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/claude-subscription-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reports whether the agent owner (whose subscription authenticates the agent's sessions) has a working Claude subscription",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Get the Claude subscription status for an agent's owner",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AppClaudeSubscriptionStatus"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/daily-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get agent daily usage",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/duplicate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Optional new name for the agent",
+                        "name": "name",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/interactions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List interactions with pagination and optional session filtering for a specific agent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "List interactions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session ID",
+                        "name": "session",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by interaction ID",
+                        "name": "interaction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Query by like/dislike",
+                        "name": "feedback",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PaginatedInteractions"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/llm-calls": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List user's LLM calls with pagination and optional session filtering for a specific agent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "llm_calls"
+                ],
+                "summary": "List LLM calls",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session ID",
+                        "name": "session",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by interaction ID",
+                        "name": "interaction",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PaginatedLLMCalls"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/memories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List memories for a specific agent and user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "memories"
+                ],
+                "summary": "List agent memories",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Memory"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/memories/{memory_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a specific memory for an agent and user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "memories"
+                ],
+                "summary": "Delete agent memory",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Memory ID",
+                        "name": "memory_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/skills/{skill}/enable": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Enable a marketplace skill on an agent. For autoProvision MCP skills the server generates URL and auth automatically.",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Enable a marketplace skill on an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Skill name (e.g. code-intelligence)",
+                        "name": "skill",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Agent"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/step-info": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List step info for a specific agent and interaction ID, used to build the timeline of events",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "step_info"
+                ],
+                "summary": "List step info",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interactionId",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.StepInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/trigger-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the status of a specific trigger type for an agent",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent trigger status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Trigger type (e.g., slack)",
+                        "name": "trigger_type",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.TriggerStatus"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/user-access": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the access rights the current user has for this agent",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get current user's access level for an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserAppAccessResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/users-daily-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get agent users daily usage",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent users daily usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/api_keys": {
             "get": {
                 "security": [
@@ -1159,1413 +2696,6 @@ const docTemplate = `{
                         "description": "API key",
                         "schema": {
                             "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "List apps",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization ID",
-                        "name": "organization_id",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.App"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "description": "Request body with app configuration. Can be legacy App format or structured format with organization_id, global, and yaml_config fields.",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.AppCreateResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/evaluation-runs/{run_id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get evaluation run details",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Get an evaluation run",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Run ID",
-                        "name": "run_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationRun"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete an evaluation run",
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Delete an evaluation run",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Run ID",
-                        "name": "run_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/evaluation-suites": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List all evaluation suites for an app",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "List evaluation suites for an app",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.EvaluationSuite"
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new evaluation suite for an agent",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Create an evaluation suite",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Evaluation suite to create",
-                        "name": "suite",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationSuite"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationSuite"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/evaluation-suites/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get an evaluation suite by ID",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Get an evaluation suite",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Suite ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationSuite"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update an evaluation suite",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Update an evaluation suite",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Suite ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Updated suite",
-                        "name": "suite",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationSuite"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationSuite"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete an evaluation suite",
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Delete an evaluation suite",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Suite ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/evaluation-suites/{id}/runs": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List evaluation runs for a suite",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "List evaluation runs",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Suite ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.EvaluationRun"
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Start running an evaluation suite against an agent",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Start an evaluation run",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Suite ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.EvaluationRun"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/triggers": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List triggers for the app",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "List app triggers",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.TriggerConfiguration"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "description": "Request body with app configuration.",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    },
-                    {
-                        "type": "string",
-                        "description": "Tool ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/access-grants": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List access grants for an app (organization owners and members can list access grants)",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "List app access grants",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.AccessGrant"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Grant access to an agent to a team or organization member",
-                "parameters": [
-                    {
-                        "description": "Request body with team or organization member ID and role",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.AccessGrant"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/api-actions": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Runs an API action for an app",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "summary": "Run an API action",
-                "parameters": [
-                    {
-                        "description": "Request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.RunAPIActionRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.RunAPIActionResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/avatar": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get the app's avatar image",
-                "produces": [
-                    "image/*"
-                ],
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Get app avatar",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Avatar image data",
-                        "schema": {
-                            "type": "file"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Upload a base64 encoded image as the app's avatar",
-                "consumes": [
-                    "text/plain"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Upload app avatar",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Base64 encoded image data",
-                        "name": "image",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete the app's avatar image",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Delete app avatar",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/daily-usage": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get app daily usage",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Get app usage",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Start date",
-                        "name": "from",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "End date",
-                        "name": "to",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.AggregatedUsageMetric"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/duplicate": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Optional new name for the app",
-                        "name": "name",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/interactions": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List interactions with pagination and optional session filtering for a specific app",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "interactions"
-                ],
-                "summary": "List interactions",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by session ID",
-                        "name": "session",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by interaction ID",
-                        "name": "interaction",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Query by like/dislike",
-                        "name": "feedback",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.PaginatedInteractions"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/llm-calls": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List user's LLM calls with pagination and optional session filtering for a specific app",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "llm_calls"
-                ],
-                "summary": "List LLM calls",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by session ID",
-                        "name": "session",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by interaction ID",
-                        "name": "interaction",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.PaginatedLLMCalls"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/memories": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List memories for a specific app and user",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "memories"
-                ],
-                "summary": "List app memories",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.Memory"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/memories/{memory_id}": {
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete a specific memory for an app and user",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "memories"
-                ],
-                "summary": "Delete app memory",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Memory ID",
-                        "name": "memory_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/skills/{skill}/enable": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.",
-                "tags": [
-                    "skills"
-                ],
-                "summary": "Enable a marketplace skill on an app",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Skill name (e.g. code-intelligence)",
-                        "name": "skill",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/step-info": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List step info for a specific app and interaction ID, used to build the timeline of events",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "step_info"
-                ],
-                "summary": "List step info",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Interaction ID",
-                        "name": "interactionId",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.StepInfo"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/trigger-status": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get the status of a specific trigger type for an app",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Get app trigger status",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Trigger type (e.g., slack)",
-                        "name": "trigger_type",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.TriggerStatus"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/user-access": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns the access rights the current user has for this app",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Get current user's access level for an app",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.UserAppAccessResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/users-daily-usage": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get app users daily usage",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Get app users daily usage",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Start date",
-                        "name": "from",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "End date",
-                        "name": "to",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.AggregatedUsageMetric"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -2957,7 +3087,7 @@ const docTemplate = `{
                 "summary": "Update Account",
                 "parameters": [
                     {
-                        "description": "Request body with full name.",
+                        "description": "Account settings",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -3300,18 +3430,26 @@ const docTemplate = `{
                         }
                     }
                 }
-            },
-            "delete": {
+            }
+        },
+        "/api/v1/claude-subscriptions/{id}/delegation": {
+            "put": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Disconnect a Claude subscription",
+                "description": "Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "Claude"
                 ],
-                "summary": "Delete a Claude subscription",
+                "summary": "Set which orgs may use a Claude subscription for delegated agent runs",
                 "parameters": [
                     {
                         "type": "string",
@@ -3319,16 +3457,28 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Delegated organizations",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.UpdateClaudeSubscriptionDelegationRequest"
+                        }
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/types.ClaudeSubscription"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     },
                     "401": {
@@ -3387,6 +3537,193 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "List Codex subscriptions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.CodexSubscription"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Connect a ChatGPT subscription using Codex CLI credentials",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Create a Codex subscription",
+                "parameters": [
+                    {
+                        "description": "Codex subscription credentials",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateCodexSubscriptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CodexSubscription"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions/poll-login/{sessionId}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Return device authentication instructions or persist completed credentials",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Poll Codex login",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.CodexPollLoginResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions/start-login": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Launch a temporary container and start Codex device authentication",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Start a Codex login session",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.CodexLoginSessionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Get a Codex subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CodexSubscription"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Delete a Codex subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -3597,94 +3934,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/external-agents/{sessionID}/diff": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns git diff information from the running desktop container.\nShows changes between the current working directory and base branch,\nincluding uncommitted changes.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ExternalAgents"
-                ],
-                "summary": "Get file diff from container",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "sessionID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Base branch to compare against (default: main)",
-                        "name": "base",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "Include full diff content for each file (default: false)",
-                        "name": "include_content",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter to specific file path",
-                        "name": "path",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Name of the workspace/repo to diff (optional, defaults to first found)",
-                        "name": "workspace",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "If true, diff the helix-specs branch uncommitted changes instead",
-                        "name": "helix_specs",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Diff response with files list",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/external-agents/{sessionID}/exec": {
             "post": {
                 "security": [
@@ -3743,24 +3992,21 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/external-agents/{sessionID}/input": {
-            "post": {
+        "/api/v1/external-agents/{sessionID}/file": {
+            "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Send keyboard and mouse input events to the remote desktop. Supports single events or batches.",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Streams one file from the external agent's incoming attachment directory.",
                 "produces": [
-                    "application/json"
+                    "application/octet-stream"
                 ],
                 "tags": [
                     "ExternalAgents"
                 ],
-                "summary": "Send input events to sandbox",
+                "summary": "Read an uploaded chat attachment",
                 "parameters": [
                     {
                         "type": "string",
@@ -3770,20 +4016,24 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Input event(s). Single event: {type, keycode, state} or batch: {events: [...]}",
-                        "name": "input",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object"
-                        }
+                        "type": "string",
+                        "description": "Uploaded attachment filename",
+                        "name": "name",
+                        "in": "query",
+                        "required": true
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "success response with processed count",
+                        "description": "OK",
                         "schema": {
-                            "type": "object"
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     },
                     "401": {
@@ -3893,6 +4143,256 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/workspace-file": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reads a bounded UTF-8 source file after real-path containment checks.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Read a workspace file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository-relative file path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceFileResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/workspace-files": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a bounded flat list of tracked and non-ignored untracked workspace entries.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "List workspace files",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceFilesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/workspace-review": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns coherent all-task, branch, and working-tree patches for a connected external-agent workspace.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Get workspace review sources",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Base ref (default main)",
+                        "name": "base",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Ignore whitespace-only changes",
+                        "name": "ignore_whitespace",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceReviewResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/workspace-review/turn/{interactionID}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resolves hidden checkpoint refs only from the stored interaction receipt.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Get the immutable diff for one interaction",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interactionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Ignore whitespace-only changes",
+                        "name": "ignore_whitespace",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceReviewSource"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/workspace-skills": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns agent skills installed for the connected external-agent workspace and sandbox user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "List workspace skills",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace name",
+                        "name": "workspace",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WorkspaceSkillsResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/workspaces": {
             "get": {
                 "security": [
@@ -3919,9 +4419,9 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Workspaces response with list of repos",
+                        "description": "OK",
                         "schema": {
-                            "type": "object"
+                            "$ref": "#/definitions/types.WorkspacesResponse"
                         }
                     },
                     "401": {
@@ -6908,6 +7408,20 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name. When set, lists org-owned knowledge instead of personal knowledge.",
+                        "name": "organization_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by app ID",
+                        "name": "app_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -9251,6 +9765,1648 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/agents": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "List the canonical Agents in an organization, including their instructions, tools, runtime, model configuration, and reporting lines.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list agents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.BotDTO"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a canonical Agent with its org-chart position, communication topics, tools, and Agent App configuration.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Agent specification",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateBotRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateBotResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get one canonical Agent with its instructions, tools, runtime, model configuration, project, and reporting lines.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get agent detail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AgentDetailDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Delete an Agent after atomically detaching and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Only the project's default agent ID is unset; the configured project, repositories, tasks, and other project configuration are preserved.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Update the canonical Agent instructions, tools, project access, runtime, provider, model, or reasoning configuration.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Agent fields to update",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateBotRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/activate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: activate an agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/chat": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: provision an agent chat",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotChatDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/parents": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: add an agent manager",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID of the direct report",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Manager Agent ID",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.AddBotParentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/parents/{parent_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: remove an agent manager",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID of the direct report",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Manager Agent ID",
+                        "name": "parent_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/restart-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: restart an agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/stop-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: stop an agent desktop",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list an agent's subscriptions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotSubscriptionsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: subscribe an agent to a topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Topic to subscribe the Agent to",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SubscribeBotRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotSubscriptionDTO"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotSubscriptionDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/agents/{id}/subscriptions/{topic_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: unsubscribe an agent from a topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "topic_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/assets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list assets",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AssetsResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create an asset",
+                "parameters": [
+                    {
+                        "description": "Asset spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateAssetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.AssetDTO"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/assets/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get an asset",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AssetDTO"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete an asset",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update an asset",
+                "parameters": [
+                    {
+                        "description": "Asset patch",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateAssetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AssetDTO"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/assets/{id}/health": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: check asset health",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AssetHealthDTO"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/assets/{id}/links": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list asset links",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AssetLinksResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: link an asset to an agent",
+                "parameters": [
+                    {
+                        "description": "Agent link",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.AssetLinkRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/asset.Link"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/assets/{id}/links/{agent_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: unlink an asset from an agent",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list bots",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.BotDTO"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a Bot. Wraps the lifecycle Create so REST + chat creates share semantics (base-tool union, reporting line, transcript topics, create dispatch).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create a bot",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or id",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Bot spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateBotRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateBotResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get bot detail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotDetailDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Delete a Bot. Cascades: detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Only the project's default agent ID is unset; the configured project, repositories, tasks, other project configuration, and activations are preserved.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a bot",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update a bot",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization slug or id",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Patch fields",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateBotRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/activate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: manually trigger a bot activation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/chat": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: provision a per-bot chat app",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotChatDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/parents": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: add a bot reporting line (manager)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID (the report)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Manager bot id",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.AddBotParentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/parents/{parent_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: remove a bot reporting line (manager)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID (the report)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Manager bot id",
+                        "name": "parent_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/restart-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: restart a bot's agent session (fresh session + desktop)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/stop-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: stop a bot's agent desktop",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a bot's subscriptions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotSubscriptionsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: subscribe a bot to a topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "topic to subscribe to",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SubscribeBotRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotSubscriptionDTO"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotSubscriptionDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/subscriptions/{topic_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: unsubscribe a bot from a topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "topic_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/chart/positions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns free-placed (x, y) coordinates for org-chart nodes. Nodes without a row fall back to auto-layout.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list chart node positions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.ChartPositionsResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Upserts (x, y) coordinates for one or more org-chart nodes after the user drags them.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: upsert chart node positions",
+                "parameters": [
+                    {
+                        "description": "positions to save",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpsertChartPositionsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.ChartPositionsResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Deletes every saved node position for the org; the chart reverts to auto-layout.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: reset chart layout",
+                "responses": {
+                    "204": {
+                        "description": "no content"
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/github/app-installation": {
             "get": {
                 "security": [
@@ -9357,7 +11513,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Delivery accepted but no matching streams"
+                        "description": "Delivery accepted but no matching topics"
                     },
                     "204": {
                         "description": "Delivery accepted and fanned out"
@@ -9384,7 +11540,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Returns roles + workers grouped by role for the helix-org React Overview page.",
+                "description": "Returns the flat set of Nodes in the org for the helix-org React Overview page.",
                 "produces": [
                     "application/json"
                 ],
@@ -9402,38 +11558,35 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/roles": {
+        "/api/v1/orgs/{org}/processors": {
             "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: list roles",
+                "summary": "Helix-org: list processors",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/api.RoleDTO"
-                            }
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
             },
             "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
                 "consumes": [
                     "application/json"
                 ],
@@ -9443,22 +11596,22 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: create a role",
+                "summary": "Helix-org: create a processor",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Organization slug or id",
+                        "description": "Organization ID or slug",
                         "name": "org",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "Role spec",
+                        "description": "Processor spec",
                         "name": "payload",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateRoleRequest"
+                            "$ref": "#/definitions/api.ProcessorWriteRequest"
                         }
                     }
                 ],
@@ -9466,24 +11619,51 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.RoleDTO"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
             }
         },
-        "/api/v1/orgs/{org}/roles/{id}": {
+        "/api/v1/orgs/{org}/processors/{id}": {
             "get": {
-                "security": [
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get a processor",
+                "parameters": [
                     {
-                        "ApiKeyAuth": []
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Processor ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
                     }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
                 ],
                 "produces": [
                     "application/json"
@@ -9491,73 +11671,29 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: get a role",
+                "summary": "Helix-org: update a processor",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Organization slug or id",
+                        "description": "Organization ID or slug",
                         "name": "org",
                         "in": "path",
                         "required": true
                     },
                     {
                         "type": "string",
-                        "description": "Role ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.RoleDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: update a role",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization slug or id",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Role ID",
+                        "description": "Processor ID",
                         "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "Patch fields",
+                        "description": "Processor spec",
                         "name": "payload",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.UpdateRoleRequest"
+                            "$ref": "#/definitions/api.ProcessorWriteRequest"
                         }
                     }
                 ],
@@ -9565,38 +11701,28 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.RoleDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
             },
             "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: delete a role (cascade-fires its workers)",
+                "summary": "Helix-org: delete a processor",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Organization slug or id",
+                        "description": "Organization ID or slug",
                         "name": "org",
                         "in": "path",
                         "required": true
                     },
                     {
                         "type": "string",
-                        "description": "Role ID",
+                        "description": "Processor ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9605,18 +11731,6 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
                     }
                 }
             }
@@ -9721,7 +11835,203 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams": {
+        "/api/v1/orgs/{org}/slack/apps": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the deployment's global Slack apps available to install into a workspace",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "slack"
+                ],
+                "summary": "List installable Slack apps",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ServiceConnectionResponse"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/slack/oauth/start": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Build the Slack OAuth authorize URL for installing the global app into an org's workspace",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "slack"
+                ],
+                "summary": "Start Slack workspace install",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Slack app id to install (when multiple are configured)",
+                        "name": "app_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/slack/workspaces": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the Slack workspaces installed for an organization",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "slack"
+                ],
+                "summary": "List org Slack workspaces",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ServiceConnectionResponse"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Connect a Slack workspace to an org from a bot token (Socket Mode / on-prem)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "slack"
+                ],
+                "summary": "Connect a Slack workspace by bot token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Bot token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.connectSlackWorkspaceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/slack/workspaces/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a Slack workspace install from an organization",
+                "tags": [
+                    "slack"
+                ],
+                "summary": "Disconnect an org Slack workspace",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/tools": {
             "get": {
                 "security": [
                     {
@@ -9734,12 +12044,39 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: list streams",
+                "summary": "Helix-org: list available MCP tools",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamsResponse"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.ToolDTO"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/topics": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list topics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.TopicsResponse"
                         }
                     }
                 }
@@ -9759,15 +12096,15 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: create a stream",
+                "summary": "Helix-org: create a topic",
                 "parameters": [
                     {
-                        "description": "Stream spec",
+                        "description": "Topic spec",
                         "name": "payload",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateStreamRequest"
+                            "$ref": "#/definitions/api.CreateTopicRequest"
                         }
                     }
                 ],
@@ -9775,7 +12112,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamDTO"
+                            "$ref": "#/definitions/api.TopicDTO"
                         }
                     },
                     "400": {
@@ -9787,7 +12124,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}": {
+        "/api/v1/orgs/{org}/topics/{id}": {
             "get": {
                 "security": [
                     {
@@ -9800,11 +12137,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: get a stream",
+                "summary": "Helix-org: get a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9814,7 +12151,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamDTO"
+                            "$ref": "#/definitions/api.TopicDTO"
                         }
                     },
                     "404": {
@@ -9840,22 +12177,22 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: update a stream",
+                "summary": "Helix-org: update a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "Stream patch",
+                        "description": "Topic patch",
                         "name": "payload",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.UpdateStreamRequest"
+                            "$ref": "#/definitions/api.UpdateTopicRequest"
                         }
                     }
                 ],
@@ -9863,7 +12200,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamDTO"
+                            "$ref": "#/definitions/api.TopicDTO"
                         }
                     },
                     "400": {
@@ -9889,11 +12226,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: delete a stream",
+                "summary": "Helix-org: delete a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9912,7 +12249,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/events": {
+        "/api/v1/orgs/{org}/topics/{id}/events": {
             "get": {
                 "security": [
                     {
@@ -9925,11 +12262,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: SSE stream of events for one stream",
+                "summary": "Helix-org: SSE topic of events for one topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9945,7 +12282,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/github/install-webhook": {
+        "/api/v1/orgs/{org}/topics/{id}/github/install-webhook": {
             "post": {
                 "security": [
                     {
@@ -9958,11 +12295,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: auto-install the webhook for a github stream",
+                "summary": "Helix-org: auto-install the webhook for a github topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9996,7 +12333,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/github/webhook-status": {
+        "/api/v1/orgs/{org}/topics/{id}/github/webhook-status": {
             "get": {
                 "security": [
                     {
@@ -10009,11 +12346,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: live webhook status for a github stream",
+                "summary": "Helix-org: live webhook status for a github topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10035,7 +12372,161 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/publish": {
+        "/api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: auto-install the webhook for a GitLab topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.InstallGitLabWebhookResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: live webhook status for a GitLab topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitLabWebhookStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/topics/{id}/messages": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/vnd.api+json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a topic's messages (JSON:API, paginated)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based page number (default 1)",
+                        "name": "page[number]",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 50, max 200)",
+                        "name": "page[size]",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.MessagesDocument"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: clear all messages from a topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/topics/{id}/publish": {
             "post": {
                 "security": [
                     {
@@ -10051,11 +12542,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: publish a message to a stream",
+                "summary": "Helix-org: publish a message to a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10085,600 +12576,6 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/tools": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list available MCP tools",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/api.ToolDTO"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/workers": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list workers",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/api.WorkerDTO"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: hire worker",
-                "parameters": [
-                    {
-                        "description": "Hire request",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.HireWorkerRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.HireWorkerResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "501": {
-                        "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/workers/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: get worker detail",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.WorkerDetailDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + env dir + env row, then the worker row. Activations are preserved as audit.",
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: fire worker",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "501": {
-                        "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/workers/{id}/activate": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: manually trigger a worker activation",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "202": {
-                        "description": "Accepted",
-                        "schema": {
-                            "$ref": "#/definitions/api.WorkerActivateDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "501": {
-                        "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/workers/{id}/chat": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: provision a per-worker chat app",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.WorkerChatDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "501": {
-                        "description": "Not Implemented",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/workers/{id}/identity": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: update worker identity",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "New identity content",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.UpdateWorkerIdentityRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/workers/{id}/parents": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: add a worker reporting line (manager)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID (the report)",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Manager worker id",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.AddWorkerParentRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/workers/{id}/parents/{parent_id}": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: remove a worker reporting line (manager)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID (the report)",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Manager worker id",
-                        "name": "parent_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/workers/{id}/role": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: update worker role",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "New role content",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.UpdateWorkerRoleRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/workers/{id}/subscriptions": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list a worker's subscriptions",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.WorkerSubscriptionsResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: subscribe a worker to a stream",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "stream to subscribe to",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.SubscribeWorkerRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.WorkerSubscriptionDTO"
-                        }
-                    },
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.WorkerSubscriptionDTO"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: unsubscribe a worker from a stream",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worker ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Stream ID",
-                        "name": "stream_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -10779,6 +12676,12 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -12267,6 +14170,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/spec-task-agents": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns minimal agent options for starting a project spec task. Helix org-chart agents are excluded.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "List external agents available for project spec tasks",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ProjectSpecTaskAgent"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/startup-script/history": {
             "get": {
                 "security": [
@@ -12467,6 +14425,364 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/vcs-connections": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One entry per distinct VCS provider present among the project's external repos, with the acting user, the account pushes are attributed to, and per-repo verified access. Backs the project board connection lozenge.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project VCS connection status",
+                "operationId": "getProjectVCSConnections",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.VCSConnectionInfo"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Return enable/disable state, hostnames, and recent deploys for a project's web service.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project web service state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ProjectWebServiceResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Toggle web service enable/disable and update container_port. Enabling pre-seeds the default subdomain.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Update project web service state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.PutProjectWebServiceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ProjectWebServiceResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/active-sandbox": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manual deploy primitive — set the sandbox that vhost requests route to.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Point a project web service at a sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Active sandbox request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SetActiveSandboxRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProjectWebServiceState"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/deploy": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Provisions a fresh sandbox, clones the primary repo at the requested SHA, runs .helix/startup.sh, and cuts routing over once it's up.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Trigger an auto-deploy of the project's web service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Deploy request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.DeployWebServiceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebServiceDeploy"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/domains": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Insert an unverified domain row. Verification happens out-of-band via the .well-known endpoint.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Add a custom domain to a project web service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Domain to add",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.AddDomainRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.VHostRoute"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/domains/{domain_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Remove a custom domain from a project web service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Domain row ID",
+                        "name": "domain_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/logs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the tail of the project's web-service startup log (combined stdout/stderr of .helix/startup.sh in the active sandbox) so an authorized user can see why a deploy did or didn't come up. Never exposed on the public web-service host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Get web service deploy/startup logs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ProjectWebServiceLogsResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{projectId}/labels": {
             "get": {
                 "description": "Returns a sorted list of unique labels across all spec tasks in a project",
@@ -12558,7 +14874,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get prompt history entries for the current user",
+                "description": "Get durable prompt delivery state for the current user",
                 "consumes": [
                     "application/json"
                 ],
@@ -12566,16 +14882,21 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PromptHistory"
+                    "PromptQueue"
                 ],
-                "summary": "List prompt history",
+                "summary": "List the prompt delivery queue",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Spec Task ID (required)",
+                        "description": "Spec Task ID (required unless session_id is given)",
                         "name": "spec_task_id",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID for session-scoped queues (required unless spec_task_id is given)",
+                        "name": "session_id",
+                        "in": "query"
                     },
                     {
                         "type": "string",
@@ -12630,121 +14951,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/prompt-history/pinned": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get all pinned prompts for the current user",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "List pinned prompts",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Filter by spec task ID",
-                        "name": "spec_task_id",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.PromptHistoryEntry"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/search": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Search prompts by content",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Search prompts",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Search query",
-                        "name": "q",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Max results (default 50)",
-                        "name": "limit",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.PromptHistoryEntry"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/prompt-history/sync": {
             "post": {
                 "security": [
@@ -12752,7 +14958,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Sync prompt history entries from the frontend (union merge - no deletes)",
+                "description": "Sync durable prompt delivery state from the frontend (union merge - no deletes)",
                 "consumes": [
                     "application/json"
                 ],
@@ -12760,12 +14966,12 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PromptHistory"
+                    "PromptQueue"
                 ],
-                "summary": "Sync prompt history",
+                "summary": "Sync the prompt delivery queue",
                 "parameters": [
                     {
-                        "description": "Prompt history entries to sync",
+                        "description": "Prompt queue entries to sync",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -12809,14 +15015,14 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients",
+                "description": "Soft-deletes a prompt delivery entry so it is removed from the queue and no longer synced to clients",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "PromptHistory"
+                    "PromptQueue"
                 ],
-                "summary": "Delete a prompt history entry",
+                "summary": "Remove a prompt from the delivery queue",
                 "parameters": [
                     {
                         "type": "string",
@@ -12856,198 +15062,6 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/{id}/pin": {
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Pin or unpin a prompt for quick access",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Update prompt pin status",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Prompt ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Pin status",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.PromptPinRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "boolean"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/{id}/tags": {
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Update tags for a prompt",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Update prompt tags",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Prompt ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Tags (JSON array)",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.PromptTagsRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/{id}/use": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Increment usage count when a prompt is reused",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Increment prompt usage",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Prompt ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "boolean"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -13255,6 +15269,87 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/provider-endpoints/{id}/throughput-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get provider throughput aggregated into 30-minute or hourly buckets",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "providers"
+                ],
+                "summary": "Get provider throughput usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "30min",
+                            "hourly"
+                        ],
+                        "type": "string",
+                        "default": "30min",
+                        "description": "Aggregation level",
+                        "name": "aggregation_level",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/provider-endpoints/{id}/users-daily-usage": {
             "get": {
                 "security": [
@@ -13345,430 +15440,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/question-sets": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List question sets for the current user or organization",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "question-sets"
-                ],
-                "summary": "List question sets",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization ID or slug",
-                        "name": "org_id",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.QuestionSet"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new question set",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "question-sets"
-                ],
-                "summary": "Create a new question set",
-                "parameters": [
-                    {
-                        "description": "Question set to create",
-                        "name": "questionSet",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.QuestionSet"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/types.QuestionSet"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/question-sets/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get a question set by ID",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "question-sets"
-                ],
-                "summary": "Get a question set by ID",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Question set ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.QuestionSet"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update a question set",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "question-sets"
-                ],
-                "summary": "Update a question set",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Question set ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Question set to update",
-                        "name": "questionSet",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.QuestionSet"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.QuestionSet"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete a question set",
-                "tags": [
-                    "question-sets"
-                ],
-                "summary": "Delete a question set",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Question set ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/question-sets/{id}/executions": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List executions for the question set",
-                "tags": [
-                    "question-sets"
-                ],
-                "summary": "List question set executions",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Question set ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Offset",
-                        "name": "offset",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Limit",
-                        "name": "limit",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.QuestionSetExecution"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Execute a question set, this is a blocking operation and will return a response for each question in the question set",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "question-sets"
-                ],
-                "summary": "Execute a question set",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Question set ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Request to execute a question set",
-                        "name": "executeQuestionSetRequest",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.ExecuteQuestionSetRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.ExecuteQuestionSetResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/question-sets/{question_set_id}/executions/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get results for a question set execution",
-                "tags": [
-                    "question-sets"
-                ],
-                "summary": "Get question set execution results",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Question set execution ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Format, one of: json (default), markdown",
-                        "name": "format",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.QuestionSetExecution"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/quotas": {
             "get": {
                 "security": [
@@ -13842,7 +15513,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Search across projects, tasks, sessions, prompts, knowledge, repositories, and apps concurrently",
+                "description": "Search across projects, tasks, sessions, knowledge, repositories, and apps concurrently",
                 "consumes": [
                     "application/json"
                 ],
@@ -14717,7 +16388,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Search across projects, tasks, sessions, prompts, and code",
+                "description": "Search across projects, tasks, sessions, and code",
                 "consumes": [
                     "application/json"
                 ],
@@ -14742,7 +16413,7 @@ const docTemplate = `{
                             "type": "string"
                         },
                         "collectionFormat": "csv",
-                        "description": "Entity types to search: projects, tasks, sessions, prompts, code",
+                        "description": "Entity types to search: projects, tasks, sessions, code",
                         "name": "types",
                         "in": "query"
                     },
@@ -14794,11 +16465,19 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List secrets for the user.",
+                "description": "List secrets for the user, or for an organization when organization_id is set.",
                 "tags": [
                     "secrets"
                 ],
                 "summary": "List secrets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name. When set, lists org-owned secrets instead of personal secrets.",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -15292,18 +16971,6 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Question set ID",
-                        "name": "question_set_id",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Question set execution ID",
-                        "name": "question_set_execution_id",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
                         "description": "App ID",
                         "name": "app_id",
                         "in": "query"
@@ -15322,8 +16989,32 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Project grouping scope: project or none",
+                        "name": "project_scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order: created, updated, or last_message",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Filter by session role (e.g. job)",
                         "name": "session_role",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include external agent sessions",
+                        "name": "include_external_agents",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Return only archived sessions instead of only unarchived ones",
+                        "name": "archived",
                         "in": "query"
                     }
                 ],
@@ -15469,6 +17160,171 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/agent-config-applied": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Called by the in-desktop settings-sync daemon after it hot-reloads Zed's config for an agent switch. Delivers the pending handoff to the live Zed thread without waiting for a process restart. Internal coordination endpoint.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Notify that an in-place agent switch's config has been applied in the container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AgentConfigAppliedResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/archive": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Archive a session to hide it from normal session lists, or unarchive it to restore it",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Archive or unarchive a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Archive request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionArchiveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sends cancel_current_turn to the active Zed agent and waits for acknowledgement.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Cancel the current agent turn",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/claude-credentials": {
             "get": {
                 "security": [
@@ -15598,16 +17454,21 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/sessions/{id}/expose": {
-            "get": {
-                "description": "Returns all ports currently exposed from the session's dev container",
+        "/api/v1/sessions/{id}/clear": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes all interactions for a session while preserving the session\nrecord (ID, name, project, owner, model, metadata). For Zed-backed\nsessions the Zed thread is also reset so the agent starts fresh.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "sessions"
                 ],
-                "summary": "List exposed ports for a session",
+                "summary": "Clear a session's conversation",
                 "parameters": [
                     {
                         "type": "string",
@@ -15621,25 +17482,69 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.ListExposedPortsResponse"
+                            "$ref": "#/definitions/types.Session"
                         }
                     },
-                    "401": {
-                        "description": "Unauthorized",
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     },
                     "404": {
-                        "description": "Session not found",
+                        "description": "Not Found",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/codex-credentials": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Get Codex credentials for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CodexAuthCredentials"
                         }
                     }
                 }
             },
-            "post": {
-                "description": "Makes a port from the session's dev container accessible via a public URL",
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Persist credentials refreshed by Codex CLI. Stale refreshes are ignored.",
                 "consumes": [
                     "application/json"
                 ],
@@ -15647,9 +17552,9 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "sessions"
+                    "Codex"
                 ],
-                "summary": "Expose a port from the session's dev container",
+                "summary": "Update Codex credentials for a session",
                 "parameters": [
                     {
                         "type": "string",
@@ -15659,12 +17564,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Port to expose",
-                        "name": "request",
+                        "description": "Refreshed credentials",
+                        "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.ExposePortRequest"
+                            "$ref": "#/definitions/types.CodexAuthCredentials"
                         }
                     }
                 ],
@@ -15672,52 +17577,35 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.ExposePortResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad request",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Session not found",
-                        "schema": {
-                            "type": "string"
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
             }
         },
-        "/api/v1/sessions/{id}/expose/{port}": {
-            "delete": {
-                "description": "Removes public access to a previously exposed port",
+        "/api/v1/sessions/{id}/foreground-thread": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Tells the per-spec-task Zed desktop to open (foreground) the thread that\nbelongs to THIS session, so the streamed desktop tracks the session the\nuser is viewing. A spec task can have multiple sessions/threads sharing one\ndesktop; the chat panel and message routing are already session-scoped, but\nnothing previously told the desktop to follow the selected session — so the\nforegrounded thread could differ from the one messages were sent to. This is\nsession-scoped and never guesses a \"latest\" thread. It no-ops (200) when the\nsession has no thread yet or the desktop WS is not connected, and crucially\nNEVER auto-starts a dev container (foregrounding must not boot a desktop).",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "sessions"
+                    "Sessions"
                 ],
-                "summary": "Unexpose a port from the session's dev container",
+                "summary": "Foreground this session's Zed thread on the desktop",
                 "parameters": [
                     {
                         "type": "string",
                         "description": "Session ID",
                         "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Port number",
-                        "name": "port",
                         "in": "path",
                         "required": true
                     }
@@ -15732,16 +17620,74 @@ const docTemplate = `{
                             }
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     },
                     "404": {
-                        "description": "Session or port not found",
+                        "description": "Not Found",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/fork": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new session with the target agent, seeded with the parent's transcript, and pauses the parent. The parent remains as a frozen checkpoint.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Fork a session to a different agent (fork-and-pause)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Source session ID to fork from",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Target runtime selection",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.ForkSessionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ForkSessionResponse"
                         }
                     }
                 }
@@ -16012,6 +17958,169 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/preview-tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "List session preview tokens",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.VHostRoute"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mints a share-\u003cadj\u003e-\u003cnoun\u003e-\u003c8hex\u003e hostname pointing at the session's container on the given port.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Mint a preview token for a session port",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Port to expose",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.MintPreviewTokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.VHostRoute"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/preview-tokens/{token_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Revoke a session preview token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Token row ID",
+                        "name": "token_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/preview-tokens/{token_id}/rotate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Rotate a session preview token hostname",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Token row ID",
+                        "name": "token_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.VHostRoute"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/rdp-connection": {
             "get": {
                 "security": [
@@ -16051,7 +18160,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the same resume path used by /sessions/{id}/resume. The session's\nZedThreadID is preserved, so Zed reloads the existing thread from the\npersistent threads.db in the workspace volume and the underlying agent\n(claude-code, qwen, etc.) reloads its session from disk — prior\nconversation context is restored. Crashed prompts are reset to pending\nand the queue is kicked so they re-dispatch on the new container.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
+                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the resume path. The conversation thread is PRESERVED when the\nsession's last turn completed cleanly (the common \"reboot to refresh\nthe environment\" case) so context is not lost; it is reset only when\nthe last turn is mid-flight or errored, which signals a possibly\npoisoned thread that would just reproduce the wedge on reattach. The\nworkspace volume persists, so files and the agent's own state survive\nregardless. Crashed prompts are reset to pending and the queue is\nkicked so they re-dispatch on the new container.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
                 "produces": [
                     "application/json"
                 ],
@@ -16351,6 +18460,142 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/switch-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Switch the agent framework on a running session in place",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID to switch the agent on",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Target agent selection",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SwitchAgentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SwitchAgentResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/terminal": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Session terminal websocket",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/v1/sessions/{id}/terminal/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "List session tmux sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SandboxTerminalSessionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/terminal/sessions/{terminal_session}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Delete session tmux session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Terminal session ID",
+                        "name": "terminal_session",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/toc": {
             "get": {
                 "security": [
@@ -16469,6 +18714,40 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/workspace-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Used by the fork-confirm modal so we can show \"N files will be committed \u0026 pushed\" or just proceed silently when the workspace is clean. Aborts gracefully on unreachable containers — the frontend treats that as \"unknown\".",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Check uncommitted / unpushed git state in a session's desktop container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.WorkspaceStatusResponse"
                         }
                     }
                 }
@@ -16815,6 +19094,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Filter by creator or assignee user IDs (comma-separated, OR semantics)",
+                        "name": "participant_ids",
+                        "in": "query"
+                    },
+                    {
                         "type": "boolean",
                         "default": false,
                         "description": "Include archived tasks",
@@ -16832,6 +19117,13 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Filter by labels (comma-separated, AND semantics)",
                         "name": "labels",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "updated",
+                        "description": "Sort order: created, updated, or last_message",
+                        "name": "sort",
                         "in": "query"
                     },
                     {
@@ -18053,6 +20345,102 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{taskId}/execution-config": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the task's current coding identity without exposing Agent secrets. Legacy tasks whose Agent was deleted fall back to their session and interaction snapshots.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get task execution configuration",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskExecutionConfig"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place; code-agent changes start a new ACP thread with normalized prior context.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Update task execution configuration",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Execution configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskExecutionConfigUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskExecutionConfigUpdateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{taskId}/labels": {
             "post": {
                 "description": "Adds a label to a spec task (idempotent - no error if label already exists)",
@@ -18865,7 +21253,7 @@ const docTemplate = `{
                 ],
                 "description": "List all triggers configurations for either user or the org or user within an org",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
                 "summary": "List all triggers configurations for either user or the org or user within an org",
                 "parameters": [
@@ -18900,11 +21288,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Create triggers for the app. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the app",
+                "description": "Create triggers for the agent. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the agent",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
-                "summary": "Create app triggers",
+                "summary": "Create agent triggers",
                 "parameters": [
                     {
                         "description": "Trigger configuration",
@@ -18933,11 +21321,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update triggers for the app, for example to change the cron schedule or enable/disable the trigger",
+                "description": "Update triggers for the agent, for example to change the cron schedule or enable/disable the trigger",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
-                "summary": "Update app triggers",
+                "summary": "Update agent triggers",
                 "parameters": [
                     {
                         "type": "string",
@@ -18971,11 +21359,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Delete triggers for the app",
+                "description": "Delete triggers for the agent",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
-                "summary": "Delete app triggers",
+                "summary": "Delete agent triggers",
                 "parameters": [
                     {
                         "type": "string",
@@ -19002,11 +21390,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update triggers for the app, for example to change the cron schedule or enable/disable the trigger",
+                "description": "Update triggers for the agent, for example to change the cron schedule or enable/disable the trigger",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
-                "summary": "Execute app trigger",
+                "summary": "Execute agent trigger",
                 "parameters": [
                     {
                         "type": "string",
@@ -19035,7 +21423,7 @@ const docTemplate = `{
                 ],
                 "description": "List executions for the trigger",
                 "tags": [
-                    "apps"
+                    "agents"
                 ],
                 "summary": "List trigger executions",
                 "parameters": [
@@ -19719,6 +22107,114 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/users/me/pinned-chats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "List pinned chats",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedChatsResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Pin a chat",
+                "parameters": [
+                    {
+                        "description": "Chat to pin",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.PinChatRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedChatsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Unpin a chat",
+                "parameters": [
+                    {
+                        "description": "Chat to unpin",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.PinChatRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedChatsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/me/pinned-projects": {
             "get": {
                 "security": [
@@ -20340,7 +22836,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "api.AddWorkerParentRequest": {
+        "api.AddBotParentRequest": {
             "type": "object",
             "properties": {
                 "parent_id": {
@@ -20348,22 +22844,176 @@ const docTemplate = `{
                 }
             }
         },
-        "api.CreateRoleRequest": {
+        "api.AgentDetailDTO": {
             "type": "object",
             "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "agent_id": {
+                    "type": "string"
+                },
+                "agent_model": {
+                    "type": "string"
+                },
+                "agent_runtime": {
+                    "type": "string"
+                },
+                "agent_status": {
+                    "description": "AgentStatus is \"running\" when the bot's desktop sandbox is online,\n\"stopped\" otherwise (no session, paused, never activated). Drives\nthe green/grey presence dot on the org chart.",
+                    "type": "string"
+                },
+                "code_agent_credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
                 "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "default_instructions": {
+                    "description": "DefaultInstructions is the built-in seed prompt for this node, when\none exists (currently only the Chief of Staff every org is seeded\nwith). It lets the UI offer \"reset instructions\" and hide that\naffordance for operator-created nodes, which have no default to\nreset to. Detail-only: GET /bots/{id} populates it, the list does\nnot (it would repeat kilobytes of prompt per row).",
+                    "type": "string"
+                },
+                "helix_user_id": {
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
-                "streams": {
+                "identity": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "kind": {
+                    "description": "Kind is \"\" (agent) or \"human\". A human node is a person placeholder,\nnever activated; Identity holds their cross-system handles and\nHelixUserID optionally links them to a Helix org member. Identity is\nomitted for agent bots.",
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is the human-readable display label; empty means the UI falls\nback to ID. Distinct from ID, which is the immutable handle.",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "parent_ids": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
+                "preserve_context": {
+                    "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
+                    "type": "boolean"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
                 "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.AssetDTO": {
+            "type": "object",
+            "properties": {
+                "agent_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/asset.Kind"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "notes_for_agents": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "server": {
+                    "$ref": "#/definitions/api.ServerAssetDTO"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.AssetHealthDTO": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "latency_ms": {
+                    "type": "integer"
+                },
+                "ssh_reachable": {
+                    "type": "boolean"
+                },
+                "tcp_reachable": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "api.AssetLinkRequest": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.AssetLinksResponse": {
+            "type": "object",
+            "properties": {
+                "agent_ids": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -20371,9 +23021,315 @@ const docTemplate = `{
                 }
             }
         },
-        "api.CreateStreamRequest": {
+        "api.AssetsResponse": {
             "type": "object",
             "properties": {
+                "assets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.AssetDTO"
+                    }
+                }
+            }
+        },
+        "api.BotActivateDTO": {
+            "type": "object",
+            "properties": {
+                "activation_id": {
+                    "type": "string"
+                },
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "agent_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotBadge": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotChatDTO": {
+            "type": "object",
+            "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "agent_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotDTO": {
+            "type": "object",
+            "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "agent_id": {
+                    "type": "string"
+                },
+                "agent_model": {
+                    "type": "string"
+                },
+                "agent_runtime": {
+                    "type": "string"
+                },
+                "agent_status": {
+                    "description": "AgentStatus is \"running\" when the bot's desktop sandbox is online,\n\"stopped\" otherwise (no session, paused, never activated). Drives\nthe green/grey presence dot on the org chart.",
+                    "type": "string"
+                },
+                "code_agent_credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "default_instructions": {
+                    "description": "DefaultInstructions is the built-in seed prompt for this node, when\none exists (currently only the Chief of Staff every org is seeded\nwith). It lets the UI offer \"reset instructions\" and hide that\naffordance for operator-created nodes, which have no default to\nreset to. Detail-only: GET /bots/{id} populates it, the list does\nnot (it would repeat kilobytes of prompt per row).",
+                    "type": "string"
+                },
+                "helix_user_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "identity": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "kind": {
+                    "description": "Kind is \"\" (agent) or \"human\". A human node is a person placeholder,\nnever activated; Identity holds their cross-system handles and\nHelixUserID optionally links them to a Helix org member. Identity is\nomitted for agent bots.",
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is the human-readable display label; empty means the UI falls\nback to ID. Distinct from ID, which is the immutable handle.",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "parent_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "preserve_context": {
+                    "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
+                    "type": "boolean"
+                },
+                "project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotDetailDTO": {
+            "type": "object",
+            "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "agent_id": {
+                    "description": "AgentID + ProjectID — see BotChatDTO comments.",
+                    "type": "string"
+                },
+                "bot": {
+                    "$ref": "#/definitions/api.BotDTO"
+                },
+                "project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotSubscriptionDTO": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "topic_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotSubscriptionsResponse": {
+            "type": "object",
+            "properties": {
+                "bot_id": {
+                    "type": "string"
+                },
+                "subscriptions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.BotSubscriptionDTO"
+                    }
+                }
+            }
+        },
+        "api.ChartPositionDTO": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix).",
+                    "type": "string"
+                },
+                "x": {
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            }
+        },
+        "api.ChartPositionsResponse": {
+            "type": "object",
+            "properties": {
+                "positions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.ChartPositionDTO"
+                    }
+                }
+            }
+        },
+        "api.CreateAssetRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/asset.Kind"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "notes_for_agents": {
+                    "type": "string"
+                },
+                "server": {
+                    "$ref": "#/definitions/api.ServerAssetWriteRequest"
+                }
+            }
+        },
+        "api.CreateBotRequest": {
+            "type": "object",
+            "properties": {
+                "code_agent_credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is the human-readable display label (e.g. \"Chief of Staff\").\nOptional; the ID stays the immutable handle.",
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "Owner makes this a manager Bot: it receives the canonical owner\ntool set (every org-graph mutation - create_bot, delete_bot,\nset_bot_content, subscribe, ... - plus the read baseline) so it can\nhire and manage other Nodes. When true, Tools is ignored in favour\nof that set. Used to seed a starter/root Bot for a new org.",
+                    "type": "boolean"
+                },
+                "parent_id": {
+                    "type": "string"
+                },
+                "preserve_context": {
+                    "type": "boolean"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "topics": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.CreateBotResponse": {
+            "type": "object",
+            "properties": {
+                "activation_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.CreateTopicRequest": {
+            "type": "object",
+            "properties": {
+                "as": {
+                    "description": "As is the Bot that creates the topic — the bot whose chat\nthe human is in. Empty leaves the topic unattributed (CreatedBy is\ncosmetic: it only anchors the node on the chart).",
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -20420,13 +23376,13 @@ const docTemplate = `{
                 "source": {
                     "type": "string"
                 },
-                "stream_id": {
-                    "type": "string"
-                },
                 "subject": {
                     "type": "string"
                 },
                 "to": {
+                    "type": "string"
+                },
+                "topic_id": {
                     "type": "string"
                 }
             }
@@ -20439,7 +23395,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "install_url": {
-                    "description": "InstallURL is where the New Stream gate sends the user to install the\napp (https://github.com/apps/\u003cslug\u003e/installations/new). Populated from\nthe created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.",
+                    "description": "InstallURL is where the New Topic gate sends the user to install the\napp (https://github.com/apps/\u003cslug\u003e/installations/new). Populated from\nthe created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.",
                     "type": "string"
                 },
                 "installed": {
@@ -20502,11 +23458,17 @@ const docTemplate = `{
                     "description": "Detail explains a \"unknown\" state (and is empty otherwise).",
                     "type": "string"
                 },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "payload_url": {
                     "type": "string"
                 },
                 "state": {
-                    "description": "State is one of:\n  \"installed\" — a webhook for this stream's payload URL exists on the repo\n  \"missing\"   — GitHub was reachable and has no such webhook (needs install)\n  \"unknown\"   — couldn't determine (no repo / no public URL / no creds /\n                GitHub error); see Detail. The UI falls back to stored state.",
+                    "description": "State is one of:\n  \"installed\" — a webhook for this topic's payload URL exists on the repo\n  \"missing\"   — GitHub was reachable and has no such webhook (needs install)\n  \"unknown\"   — couldn't determine (no repo / no public URL / no creds /\n                GitHub error); see Detail. The UI falls back to stored state.",
                     "type": "string"
                 },
                 "webhook_html_url": {
@@ -20517,34 +23479,26 @@ const docTemplate = `{
                 }
             }
         },
-        "api.HireWorkerRequest": {
+        "api.GitLabWebhookStatusResponse": {
             "type": "object",
             "properties": {
-                "id": {
+                "active": {
+                    "type": "boolean"
+                },
+                "detail": {
                     "type": "string"
                 },
-                "identity_content": {
+                "payload_url": {
                     "type": "string"
                 },
-                "kind": {
+                "state": {
                     "type": "string"
                 },
-                "parent_id": {
+                "webhook_html_url": {
                     "type": "string"
                 },
-                "role_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.HireWorkerResponse": {
-            "type": "object",
-            "properties": {
-                "activation_id": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
+                "webhook_id": {
+                    "type": "integer"
                 }
             }
         },
@@ -20566,19 +23520,175 @@ const docTemplate = `{
                 }
             }
         },
+        "api.InstallGitLabWebhookResponse": {
+            "type": "object",
+            "properties": {
+                "payload_url": {
+                    "type": "string"
+                },
+                "webhook_html_url": {
+                    "type": "string"
+                },
+                "webhook_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "api.MessageAttributes": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "has_message": {
+                    "type": "boolean"
+                },
+                "raw": {
+                    "description": "Raw is the canonical Message envelope JSON exactly as stored — the\nsame shape a processor's ` + "`" + `.Message` + "`" + ` template/filter context sees\n({\"from\":…,\"subject\":…,\"body\":…,\"thread_id\":…,…}). Lets the UI show\noperators which fields are available.",
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "topic_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.MessageResource": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "$ref": "#/definitions/api.MessageAttributes"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.MessagesDocument": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.MessageResource"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/api.MessagesMeta"
+                }
+            }
+        },
+        "api.MessagesMeta": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
         "api.OrgOverview": {
             "type": "object",
             "properties": {
-                "groups": {
+                "bots": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/api.RoleGroup"
+                        "$ref": "#/definitions/api.BotBadge"
                     }
+                }
+            }
+        },
+        "api.ProcessorOutputDTO": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
                 },
-                "roles": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.RoleBadge"
+                "managed_for": {
+                    "description": "ManagedFor is set when this route is auto-managed by a reconciler for\nthe named Worker (the Slack auto-router). Empty for human-authored\nroutes. Read-only — the UI surfaces it; reconcilers own these routes.",
+                    "type": "string"
+                },
+                "match": {
+                    "type": "string"
+                },
+                "owned": {
+                    "type": "boolean"
+                },
+                "topic_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.ProcessorWriteRequest": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "attributes": {
+                            "type": "object",
+                            "properties": {
+                                "config": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                },
+                                "created_by": {
+                                    "type": "string"
+                                },
+                                "input_topic_id": {
+                                    "type": "string"
+                                },
+                                "kind": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "outputs": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/api.ProcessorOutputDTO"
+                                    }
+                                }
+                            }
+                        },
+                        "type": {
+                            "type": "string"
+                        }
                     }
                 }
             }
@@ -20586,10 +23696,17 @@ const docTemplate = `{
         "api.PublishRequest": {
             "type": "object",
             "properties": {
+                "as": {
+                    "description": "As is the Bot the message is sent as — the bot whose chat the\nhuman is in. Empty means human/system-origin (the dispatcher treats\nit as such). There is no global \"owner\" sender any more.",
+                    "type": "string"
+                },
                 "body": {
                     "type": "string"
                 },
                 "subject": {
+                    "type": "string"
+                },
+                "threadId": {
                     "type": "string"
                 },
                 "to": {
@@ -20603,59 +23720,60 @@ const docTemplate = `{
         "api.PublishResponse": {
             "type": "object",
             "properties": {
+                "delivery": {
+                    "$ref": "#/definitions/publishing.DeliveryReceipt"
+                },
                 "event_id": {
                     "type": "string"
                 }
             }
         },
-        "api.RoleBadge": {
+        "api.ServerAssetDTO": {
             "type": "object",
             "properties": {
-                "id": {
+                "address": {
+                    "type": "string"
+                },
+                "auth_type": {
+                    "$ref": "#/definitions/asset.AuthType"
+                },
+                "host_key_fingerprint": {
+                    "type": "string"
+                },
+                "password_configured": {
+                    "type": "boolean"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "public_key": {
+                    "type": "string"
+                },
+                "user": {
                     "type": "string"
                 }
             }
         },
-        "api.RoleDTO": {
+        "api.ServerAssetWriteRequest": {
             "type": "object",
             "properties": {
-                "content": {
+                "address": {
                     "type": "string"
                 },
-                "created_at": {
+                "auth_type": {
+                    "$ref": "#/definitions/asset.AuthType"
+                },
+                "host_key": {
                     "type": "string"
                 },
-                "id": {
+                "password": {
                     "type": "string"
                 },
-                "streams": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
+                "port": {
+                    "type": "integer"
                 },
-                "tools": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "updated_at": {
+                "user": {
                     "type": "string"
-                }
-            }
-        },
-        "api.RoleGroup": {
-            "type": "object",
-            "properties": {
-                "role_id": {
-                    "type": "string"
-                },
-                "workers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.WorkerBadge"
-                    }
                 }
             }
         },
@@ -20671,12 +23789,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "db_path": {
-                    "type": "string"
-                },
-                "envs_dir": {
-                    "type": "string"
-                },
-                "owner": {
                     "type": "string"
                 },
                 "public_url": {
@@ -20713,7 +23825,26 @@ const docTemplate = `{
                 }
             }
         },
-        "api.StreamDTO": {
+        "api.SubscribeBotRequest": {
+            "type": "object",
+            "properties": {
+                "topic_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.ToolDTO": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.TopicDTO": {
             "type": "object",
             "properties": {
                 "can_publish": {
@@ -20761,7 +23892,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.StreamsResponse": {
+        "api.TopicsResponse": {
             "type": "object",
             "properties": {
                 "recent": {
@@ -20770,30 +23901,11 @@ const docTemplate = `{
                         "$ref": "#/definitions/api.EventCard"
                     }
                 },
-                "streams": {
+                "topics": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/api.StreamDTO"
+                        "$ref": "#/definitions/api.TopicDTO"
                     }
-                }
-            }
-        },
-        "api.SubscribeWorkerRequest": {
-            "type": "object",
-            "properties": {
-                "stream_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.ToolDTO": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
                 }
             }
         },
@@ -20809,17 +23921,65 @@ const docTemplate = `{
                 }
             }
         },
-        "api.UpdateRoleRequest": {
+        "api.UpdateAssetRequest": {
             "type": "object",
             "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "notes_for_agents": {
+                    "type": "string"
+                },
+                "server": {
+                    "$ref": "#/definitions/api.UpdateServerAssetRequest"
+                }
+            }
+        },
+        "api.UpdateBotRequest": {
+            "type": "object",
+            "properties": {
+                "code_agent_credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
                 "content": {
                     "type": "string"
                 },
-                "streams": {
+                "identity": {
+                    "description": "Identity is the per-channel handle map for a human node (slack/github/\nemail/…). When present it replaces the stored map; absent leaves it\nunchanged. Only meaningful for kind=human bots.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "preserve_context": {
+                    "type": "boolean"
+                },
+                "project_ids": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
                 },
                 "tools": {
                     "type": "array",
@@ -20829,7 +23989,30 @@ const docTemplate = `{
                 }
             }
         },
-        "api.UpdateStreamRequest": {
+        "api.UpdateServerAssetRequest": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "auth_type": {
+                    "$ref": "#/definitions/asset.AuthType"
+                },
+                "host_key": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "user": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.UpdateTopicRequest": {
             "type": "object",
             "properties": {
                 "description": {
@@ -20843,137 +24026,50 @@ const docTemplate = `{
                 }
             }
         },
-        "api.UpdateWorkerIdentityRequest": {
+        "api.UpsertChartPositionsRequest": {
             "type": "object",
             "properties": {
-                "identity": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.UpdateWorkerRoleRequest": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.WorkerActivateDTO": {
-            "type": "object",
-            "properties": {
-                "activation_id": {
-                    "type": "string"
-                },
-                "agent_app_id": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "session_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.WorkerBadge": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "kind": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.WorkerChatDTO": {
-            "type": "object",
-            "properties": {
-                "agent_app_id": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.WorkerDTO": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "identity_content": {
-                    "type": "string"
-                },
-                "kind": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "parent_ids": {
+                "positions": {
                     "type": "array",
                     "items": {
-                        "type": "string"
-                    }
-                },
-                "role_id": {
-                    "type": "string"
-                },
-                "tools": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/api.ChartPositionDTO"
                     }
                 }
             }
         },
-        "api.WorkerDetailDTO": {
-            "type": "object",
-            "properties": {
-                "agent_app_id": {
-                    "description": "AgentAppID + ProjectID — see WorkerChatDTO comments.",
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "role": {
-                    "description": "Role this Worker holds (nil if the role row is gone).",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/api.RoleDTO"
-                        }
-                    ]
-                },
-                "worker": {
-                    "$ref": "#/definitions/api.WorkerDTO"
-                }
-            }
+        "asset.AuthType": {
+            "type": "string",
+            "enum": [
+                "ssh_key",
+                "password"
+            ],
+            "x-enum-varnames": [
+                "AuthSSHKey",
+                "AuthPassword"
+            ]
         },
-        "api.WorkerSubscriptionDTO": {
+        "asset.Kind": {
+            "type": "string",
+            "enum": [
+                "server"
+            ],
+            "x-enum-varnames": [
+                "KindServer"
+            ]
+        },
+        "asset.Link": {
             "type": "object",
             "properties": {
+                "agent_id": {
+                    "type": "string"
+                },
+                "asset_id": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
-                "stream_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.WorkerSubscriptionsResponse": {
-            "type": "object",
-            "properties": {
-                "subscriptions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.WorkerSubscriptionDTO"
-                    }
-                },
-                "worker_id": {
+                "organization_id": {
                     "type": "string"
                 }
             }
@@ -22149,6 +25245,26 @@ const docTemplate = `{
                 }
             }
         },
+        "publishing.DeliveryReceipt": {
+            "type": "object",
+            "properties": {
+                "destination": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "messageId": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "server.ActivateTrialRequest": {
             "type": "object",
             "properties": {
@@ -22157,6 +25273,10 @@ const docTemplate = `{
                 },
                 "days": {
                     "type": "integer"
+                },
+                "plan": {
+                    "description": "Plan selects what to grant. \"pro\" grants a PAID plan via a PlanOverride\n(no Stripe subscription) — for customers who paid out-of-band (bank\ntransfer). Empty or \"trial\" uses the Stripe trial path (Days applies).",
+                    "type": "string"
                 }
             }
         },
@@ -22174,37 +25294,31 @@ const docTemplate = `{
                 }
             }
         },
-        "server.AgentSandboxesDebugResponse": {
+        "server.AddDomainRequest": {
             "type": "object",
             "properties": {
-                "dev_containers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.DevContainerWithClients"
-                    }
-                },
-                "gpus": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.GPUInfoWithSandbox"
-                    }
-                },
-                "message": {
+                "hostname": {
                     "type": "string"
-                },
-                "sandboxes": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.SandboxInstanceInfo"
-                    }
                 }
             }
         },
-        "server.AppCreateResponse": {
+        "server.AgentConfigAppliedResponse": {
             "type": "object",
             "properties": {
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.AgentCreateResponse": {
+            "type": "object",
+            "properties": {
+                "agent_kind": {
+                    "description": "AgentKind classifies where an agent belongs in the product.",
+                    "type": "string"
+                },
                 "config": {
-                    "$ref": "#/definitions/types.AppConfig"
+                    "$ref": "#/definitions/types.AgentConfig"
                 },
                 "created": {
                     "type": "string"
@@ -22246,6 +25360,70 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.User"
                         }
                     ]
+                }
+            }
+        },
+        "server.AgentSandboxesDebugResponse": {
+            "type": "object",
+            "properties": {
+                "dev_containers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.DevContainerWithClients"
+                    }
+                },
+                "gpus": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.GPUInfoWithSandbox"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "sandboxes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.SandboxInstanceInfo"
+                    }
+                }
+            }
+        },
+        "server.AppClaudeSubscriptionStatus": {
+            "type": "object",
+            "properties": {
+                "connected": {
+                    "description": "owner has a subscription connected at all",
+                    "type": "boolean"
+                },
+                "is_current_user": {
+                    "description": "true when the editor IS the owner",
+                    "type": "boolean"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_validated_at": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "description": "app owner (the likely session owner)",
+                    "type": "string"
+                },
+                "owner_name": {
+                    "description": "human-readable owner (email / full name)",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "subscription_owner_type": {
+                    "description": "\"user\" or \"org\" — where the effective sub resolved",
+                    "type": "string"
+                },
+                "valid": {
+                    "description": "that subscription passed its last liveness probe",
+                    "type": "boolean"
                 }
             }
         },
@@ -22365,6 +25543,31 @@ const docTemplate = `{
                 }
             }
         },
+        "server.CodexLoginSessionResponse": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.CodexPollLoginResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "found": {
+                    "type": "boolean"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
         "server.ConfigurePendingSessionRequest": {
             "type": "object",
             "properties": {
@@ -22380,6 +25583,14 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "org_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.DeployWebServiceRequest": {
+            "type": "object",
+            "properties": {
+                "commit_sha": {
                     "type": "string"
                 }
             }
@@ -22421,6 +25632,9 @@ const docTemplate = `{
                 "ip_address": {
                     "description": "Network info for RevDial/screenshot-server connections",
                     "type": "string"
+                },
+                "memory_mb": {
+                    "type": "integer"
                 },
                 "organization_id": {
                     "type": "string"
@@ -22469,77 +25683,33 @@ const docTemplate = `{
                     "description": "First ~80 chars of original prompt",
                     "type": "string"
                 },
+                "vcpus": {
+                    "type": "integer"
+                },
                 "video_stats": {
                     "$ref": "#/definitions/server.VideoStreamingStats"
                 }
             }
         },
-        "server.ExposePortRequest": {
+        "server.ForkSessionRequest": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string"
+                "auto_commit_uncommitted": {
+                    "description": "AutoCommitUncommitted, when true, runs ` + "`" + `git add -A \u0026\u0026 git commit\n\u0026\u0026 git push` + "`" + ` per dirty repo in the parent's container BEFORE the\nparent is paused. Without this, any uncommitted file edits or\nunpushed commits in the parent's container would be invisible to\nthe child (which boots a fresh clone). Defaults to true at the\nAPI level — pass false explicitly to opt out (loses changes).\nPush failures abort the fork; the parent is NOT paused.",
+                    "type": "boolean"
                 },
-                "port": {
-                    "type": "integer"
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
                 },
-                "protocol": {
-                    "description": "defaults to \"http\"",
+                "helix_app_id": {
                     "type": "string"
                 }
             }
         },
-        "server.ExposePortResponse": {
+        "server.ForkSessionResponse": {
             "type": "object",
             "properties": {
-                "allocated_port": {
-                    "description": "for random port mode",
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "port": {
-                    "type": "integer"
-                },
-                "protocol": {
-                    "type": "string"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "urls": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "server.ExposedPort": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "port": {
-                    "type": "integer"
-                },
-                "protocol": {
-                    "description": "\"http\" or \"tcp\"",
-                    "type": "string"
-                },
-                "status": {
-                    "description": "\"active\", \"inactive\"",
-                    "type": "string"
-                },
-                "url": {
+                "new_session_id": {
                     "type": "string"
                 }
             }
@@ -23551,17 +26721,11 @@ const docTemplate = `{
                 }
             }
         },
-        "server.ListExposedPortsResponse": {
+        "server.MintPreviewTokenRequest": {
             "type": "object",
             "properties": {
-                "exposed_ports": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.ExposedPort"
-                    }
-                },
-                "session_id": {
-                    "type": "string"
+                "port": {
+                    "type": "integer"
                 }
             }
         },
@@ -23639,6 +26803,31 @@ const docTemplate = `{
                 }
             }
         },
+        "server.PinChatRequest": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.PinnedChatsResponse": {
+            "type": "object",
+            "properties": {
+                "pinned_chats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.PinnedChat"
+                    }
+                }
+            }
+        },
         "server.PinnedProjectsResponse": {
             "type": "object",
             "properties": {
@@ -23674,20 +26863,44 @@ const docTemplate = `{
                 }
             }
         },
-        "server.PromptPinRequest": {
+        "server.ProjectWebServiceLogsResponse": {
             "type": "object",
             "properties": {
-                "pinned": {
-                    "type": "boolean"
+                "log": {
+                    "description": "Log is the combined stdout/stderr of the project's startup script — build\noutput, app logs, and the reason a deploy did or didn't come up. Empty\nwhen the service isn't deployed yet.",
+                    "type": "string"
                 }
             }
         },
-        "server.PromptTagsRequest": {
+        "server.ProjectWebServiceResponse": {
             "type": "object",
             "properties": {
-                "tags": {
-                    "description": "JSON array of tags",
+                "acme_challenge_target": {
+                    "description": "ACMEChallengeTarget is the fixed CNAME value customers point\n\"_acme-challenge.\u003ctheir-domain\u003e\" at when the domain is behind a\nproxy/CDN that hides the origin from Let's Encrypt. Empty when the\noperator has not configured delegation (HELIX_VHOST_ACME_CHALLENGE_TARGET).",
                     "type": "string"
+                },
+                "cname_target": {
+                    "description": "CNAMETarget is the hostname customers should add as the value of\ntheir CNAME record when registering a custom domain — i.e. the\ncanonical Helix hostname parsed from SERVER_URL. Empty when the\nvhost feature is not configured on this instance.",
+                    "type": "string"
+                },
+                "deploys": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WebServiceDeploy"
+                    }
+                },
+                "domains": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.VHostRoute"
+                    }
+                },
+                "health": {
+                    "description": "Health is the real, probe-based status of the web service — \"disabled\",\n\"deploying\", \"live\" or \"unhealthy\" — so the UI reflects whether the app\nactually answers, not just the last deploy row (which stays \"live\" long\nafter its container dies).",
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/types.ProjectWebServiceState"
                 }
             }
         },
@@ -23704,6 +26917,17 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.PutProjectWebServiceRequest": {
+            "type": "object",
+            "properties": {
+                "container_port": {
+                    "type": "integer"
+                },
+                "enabled": {
                     "type": "boolean"
                 }
             }
@@ -23835,7 +27059,22 @@ const docTemplate = `{
                 "container_id": {
                     "type": "string"
                 },
+                "gpu_vendor": {
+                    "description": "nvidia | amd | neuron",
+                    "type": "string"
+                },
+                "gpus": {
+                    "description": "per-accelerator inventory",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUStatus"
+                    }
+                },
                 "id": {
+                    "type": "string"
+                },
+                "instance_type": {
+                    "description": "Hardware reported by the sandbox heartbeat — drives the admin UI's\nper-runner architecture display so an operator can pick a compatible\nprofile. InstanceType is empty on bare-metal hosts (e.g. prime).",
                     "type": "string"
                 },
                 "profile_error": {
@@ -23924,10 +27163,7 @@ const docTemplate = `{
         "server.SessionMessageResponse": {
             "type": "object",
             "properties": {
-                "interaction_id": {
-                    "type": "string"
-                },
-                "request_id": {
+                "prompt_id": {
                     "type": "string"
                 }
             }
@@ -23997,6 +27233,23 @@ const docTemplate = `{
                 },
                 "total_turns": {
                     "type": "integer"
+                }
+            }
+        },
+        "server.SetActiveSandboxRequest": {
+            "type": "object",
+            "properties": {
+                "sandbox_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SetOrgPlanRequest": {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "description": "Plan: \"pro\" | \"free\" forces the org's quota tier independent of Stripe\n(for customers who paid out-of-band). \"\" clears the override and reverts\nto the Stripe-derived tier.",
+                    "type": "string"
                 }
             }
         },
@@ -24103,6 +27356,31 @@ const docTemplate = `{
                 }
             }
         },
+        "server.SwitchAgentRequest": {
+            "type": "object",
+            "properties": {
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "helix_app_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SwitchAgentResponse": {
+            "type": "object",
+            "properties": {
+                "agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "helix_app_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
         "server.TaskProgressResponse": {
             "type": "object",
             "properties": {
@@ -24166,6 +27444,18 @@ const docTemplate = `{
                 }
             }
         },
+        "server.UpdateClaudeSubscriptionDelegationRequest": {
+            "description": "Disconnect a Claude subscription",
+            "type": "object",
+            "properties": {
+                "delegated_org_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "server.VideoStreamingStats": {
             "type": "object",
             "properties": {
@@ -24186,10 +27476,81 @@ const docTemplate = `{
                 }
             }
         },
+        "server.WorkspaceRepoStatus": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Error is set when we couldn't determine the status (container\nunreachable, path missing, git command failed). The repo is then\nexcluded from \"dirty\" totals — we don't refuse a fork because we\ncan't see one repo's state.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "repo_id": {
+                    "type": "string"
+                },
+                "uncommitted_files": {
+                    "type": "integer"
+                },
+                "unpushed_commits": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.WorkspaceStatusResponse": {
+            "type": "object",
+            "properties": {
+                "can_save_changes": {
+                    "description": "CanSaveChanges is false when there ARE dirty changes but the\nfork's pre-commit safety net has nowhere viable to push them.\nConcretely: the session has no spec task, or the spec task has\nno branch name set, or the spec task's branch is a protected\nbranch (main / master) that the remote pre-receive hook will\nreject. In any of those cases the frontend should refuse to\noffer \"Fork with auto-commit\" — the user has to fix git state\nmanually (commit/push to a feature branch from the terminal)\nbefore forking, OR explicitly abandon the changes.",
+                    "type": "boolean"
+                },
+                "cannot_save_reason": {
+                    "description": "CannotSaveReason is a human-readable explanation surfaced in\nthe blocking modal. Empty when CanSaveChanges is true.",
+                    "type": "string"
+                },
+                "container_reachable": {
+                    "description": "ContainerReachable=false means we couldn't talk to the desktop\nat all (e.g. it's been reaped). The frontend should treat this\nas \"unknown\" and let the user decide whether to fork anyway.",
+                    "type": "boolean"
+                },
+                "expected_branch": {
+                    "description": "ExpectedBranch is the branch the pre-fork commit will target,\nresolved from the spec task. Empty for sessions without a\nspec task. Exposed so the frontend can say \"will commit to\n\u003cbranch\u003e\" instead of just \"will commit\" — helps the user\nunderstand what's about to happen.",
+                    "type": "string"
+                },
+                "is_dirty": {
+                    "type": "boolean"
+                },
+                "repos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WorkspaceRepoStatus"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "total_dirty": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.addLabelRequest": {
             "type": "object",
             "properties": {
                 "label": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.connectSlackWorkspaceRequest": {
+            "type": "object",
+            "properties": {
+                "app_connection_id": {
+                    "type": "string"
+                },
+                "bot_token": {
                     "type": "string"
                 }
             }
@@ -24348,12 +27709,14 @@ const docTemplate = `{
             "enum": [
                 "",
                 "api",
-                "app"
+                "app",
+                "embed"
             ],
             "x-enum-varnames": [
                 "APIkeytypeNone",
                 "APIkeytypeAPI",
-                "APIkeytypeApp"
+                "APIkeytypeApp",
+                "APIkeytypeEmbed"
             ]
         },
         "types.AccessGrant": {
@@ -24405,6 +27768,18 @@ const docTemplate = `{
             "properties": {
                 "full_name": {
                     "type": "string"
+                },
+                "git_commit_email": {
+                    "type": "string"
+                },
+                "git_commit_name": {
+                    "type": "string"
+                },
+                "pr_footer_template": {
+                    "type": "string"
+                },
+                "reset_pr_footer": {
+                    "type": "boolean"
                 }
             }
         },
@@ -24509,6 +27884,122 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                }
+            }
+        },
+        "types.Agent": {
+            "type": "object",
+            "properties": {
+                "agent_kind": {
+                    "description": "AgentKind classifies where an agent belongs in the product.",
+                    "type": "string"
+                },
+                "config": {
+                    "$ref": "#/definitions/types.AgentConfig"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "global": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "uuid of user ID",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "e.g. user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "Owner user struct, populated by the server for organization views",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.AgentConfig": {
+            "type": "object",
+            "properties": {
+                "allowed_domains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "helix": {
+                    "$ref": "#/definitions/types.AgentHelixConfig"
+                },
+                "secrets": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.AgentHelixConfig": {
+            "type": "object",
+            "properties": {
+                "assistants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantConfig"
+                    }
+                },
+                "avatar": {
+                    "type": "string"
+                },
+                "avatar_content_type": {
+                    "type": "string"
+                },
+                "default_agent_type": {
+                    "description": "Agent configuration",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentType"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": "string"
+                },
+                "external_agent_config": {
+                    "$ref": "#/definitions/types.ExternalAgentConfig"
+                },
+                "external_agent_enabled": {
+                    "type": "boolean"
+                },
+                "external_url": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "triggers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Trigger"
+                    }
                 }
             }
         },
@@ -24642,118 +28133,6 @@ const docTemplate = `{
                 },
                 "type": {
                     "$ref": "#/definitions/types.APIKeyType"
-                }
-            }
-        },
-        "types.App": {
-            "type": "object",
-            "properties": {
-                "config": {
-                    "$ref": "#/definitions/types.AppConfig"
-                },
-                "created": {
-                    "type": "string"
-                },
-                "global": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "owner": {
-                    "description": "uuid of user ID",
-                    "type": "string"
-                },
-                "owner_type": {
-                    "description": "e.g. user, system, org",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OwnerType"
-                        }
-                    ]
-                },
-                "updated": {
-                    "type": "string"
-                },
-                "user": {
-                    "description": "Owner user struct, populated by the server for organization views",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.User"
-                        }
-                    ]
-                }
-            }
-        },
-        "types.AppConfig": {
-            "type": "object",
-            "properties": {
-                "allowed_domains": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "helix": {
-                    "$ref": "#/definitions/types.AppHelixConfig"
-                },
-                "secrets": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "types.AppHelixConfig": {
-            "type": "object",
-            "properties": {
-                "assistants": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AssistantConfig"
-                    }
-                },
-                "avatar": {
-                    "type": "string"
-                },
-                "avatar_content_type": {
-                    "type": "string"
-                },
-                "default_agent_type": {
-                    "description": "Agent configuration",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.AgentType"
-                        }
-                    ]
-                },
-                "description": {
-                    "type": "string"
-                },
-                "external_agent_config": {
-                    "$ref": "#/definitions/types.ExternalAgentConfig"
-                },
-                "external_agent_enabled": {
-                    "type": "boolean"
-                },
-                "external_url": {
-                    "type": "string"
-                },
-                "image": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "triggers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.Trigger"
-                    }
                 }
             }
         },
@@ -24897,6 +28276,10 @@ const docTemplate = `{
                 },
                 "calculator": {
                     "$ref": "#/definitions/types.AssistantCalculator"
+                },
+                "claude_subscription_model": {
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\n\"claude-opus-5\" (the current 1M-context Opus model).",
+                    "type": "string"
                 },
                 "code_agent_credential_type": {
                     "description": "CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.\n\"api_key\" (default/empty): uses an API key routed through the Helix proxy.\n\"subscription\": uses OAuth credentials directly (e.g., Claude subscription).",
@@ -25325,6 +28708,10 @@ const docTemplate = `{
                     "description": "Denormalized for display without joins",
                     "type": "string"
                 },
+                "replied_at": {
+                    "description": "RepliedAt is set when the user answers an org_message inline from the\nnotification bell. It keeps replied messages visible (marked \"Replied\")\nso the user has a record the message came through and was answered.",
+                    "type": "string"
+                },
                 "snoozed_until": {
                     "type": "string"
                 },
@@ -25353,6 +28740,7 @@ const docTemplate = `{
                 "spec_failed",
                 "implementation_failed",
                 "pr_ready",
+                "org_message",
                 "ci_passed",
                 "ci_failed"
             ],
@@ -25362,6 +28750,7 @@ const docTemplate = `{
                 "AttentionEventSpecFailed",
                 "AttentionEventImplementationFailed",
                 "AttentionEventPRReady",
+                "AttentionEventOrgMessage",
                 "AttentionEventCIPassed",
                 "AttentionEventCIFailed"
             ]
@@ -25373,6 +28762,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "dismiss": {
+                    "type": "boolean"
+                },
+                "reply": {
+                    "description": "Reply marks an org_message answered — sets replied_at (and acknowledges),\nkeeping it visible as \"Replied\" instead of dismissing it.",
                     "type": "boolean"
                 },
                 "snoozed_until": {
@@ -25845,6 +29238,13 @@ const docTemplate = `{
                     "description": "\"oauth\" or \"setup_token\"",
                     "type": "string"
                 },
+                "delegated_org_ids": {
+                    "description": "DelegatedOrgIDs lists the organizations whose agent sessions may\nauthenticate with this subscription on the owner's behalf, even when the\nsession itself is owned by someone else (a service account dispatching\nwork for this person — see SpecTask.CredentialOwnerID).\n\nThis is the consent gate. Without it, any member who can create a task\ncould name another user as credential owner and spend their Claude quota.\nEmpty (the default) means the subscription is only ever used for sessions\nits owner owns, which is the pre-existing behaviour.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "id": {
                     "type": "string"
                 },
@@ -25852,6 +29252,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "last_refreshed_at": {
+                    "type": "string"
+                },
+                "last_validated_at": {
+                    "description": "last time the token was liveness-probed against Anthropic",
                     "type": "string"
                 },
                 "name": {
@@ -26203,6 +29607,10 @@ const docTemplate = `{
                     "description": "Provider is the LLM provider name (e.g., \"anthropic\", \"openai\", \"openrouter\")",
                     "type": "string"
                 },
+                "reasoning_effort": {
+                    "description": "ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.\nEmpty means the runtime/model default.",
+                    "type": "string"
+                },
                 "runtime": {
                     "description": "Runtime specifies which code agent runtime to use: \"zed_agent\" or \"qwen_code\"",
                     "allOf": [
@@ -26210,6 +29618,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.CodeAgentRuntime"
                         }
                     ]
+                },
+                "service_tier": {
+                    "description": "ServiceTier controls provider scheduling for runtimes that support it.\nCodex uses \"fast\" for priority processing; empty uses the normal tier.",
+                    "type": "string"
+                },
+                "uses_subscription": {
+                    "description": "UsesSubscription is true when the agent authenticates against the upstream\nprovider with the user's own subscription (Claude Pro/Max, ChatGPT) instead\nof an API key routed through the Helix proxy. It mirrors the assistant's\nCodeAgentCredentialType and is what gates credential injection into the\ncontainer — an api_key agent must never receive subscription credentials,\nbecause the CLI prefers them over the proxy and would silently bypass it.",
+                    "type": "boolean"
                 }
             }
         },
@@ -26235,6 +29651,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CodeAgentOverrides": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string"
+                },
+                "provider_ref": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
+                "service_tier": {
+                    "type": "string"
+                }
+            }
+        },
         "types.CodeAgentRuntime": {
             "type": "string",
             "enum": [
@@ -26253,6 +29686,81 @@ const docTemplate = `{
                 "CodeAgentRuntimeCodexCLI",
                 "CodeAgentRuntimeGooseCode"
             ]
+        },
+        "types.CodexAuthCredentials": {
+            "type": "object",
+            "properties": {
+                "OPENAI_API_KEY": {
+                    "type": "string"
+                },
+                "auth_mode": {
+                    "type": "string"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "tokens": {
+                    "$ref": "#/definitions/types.CodexAuthTokens"
+                }
+            }
+        },
+        "types.CodexAuthTokens": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "account_id": {
+                    "type": "string"
+                },
+                "id_token": {
+                    "type": "string"
+                },
+                "refresh_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CodexSubscription": {
+            "type": "object",
+            "properties": {
+                "account_id": {
+                    "type": "string"
+                },
+                "auth_mode": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_refreshed_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
         },
         "types.CommentQueueStatusResponse": {
             "type": "object",
@@ -26478,6 +29986,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CreateCodexSubscriptionRequest": {
+            "type": "object",
+            "properties": {
+                "credentials": {
+                    "$ref": "#/definitions/types.CodexAuthCredentials"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
+                }
+            }
+        },
         "types.CreatePullRequestRequest": {
             "type": "object",
             "properties": {
@@ -26566,6 +30091,10 @@ const docTemplate = `{
                     "description": "ProjectID optionally associates the sandbox with a project the caller\nbelongs to. Empty means org-scoped only.",
                     "type": "string"
                 },
+                "purpose": {
+                    "description": "Purpose is an optional marker (e.g. \"web-service\") that selects extra\nprovisioning behaviour. Empty for ordinary sandboxes. Not settable via\nthe public REST API — set internally by the web-service controller.",
+                    "type": "string"
+                },
                 "runtime": {
                     "description": "Runtime selects one of the operator-configured runtimes\n(e.g. \"headless-ubuntu\", \"node22\", \"ubuntu-desktop\"). Mutually\nexclusive with Image.",
                     "allOf": [
@@ -26599,6 +30128,10 @@ const docTemplate = `{
                 },
                 "project_id": {
                     "description": "optional, if set, the secret will be available to the specified project",
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "optional, one of \"dev\", \"prod\", \"both\"; defaults to \"dev\"",
                     "type": "string"
                 },
                 "value": {
@@ -26637,6 +30170,13 @@ const docTemplate = `{
                     "description": "For new mode: user-specified prefix (task# appended)",
                     "type": "string"
                 },
+                "code_agent_overrides": {
+                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                },
+                "credential_owner_id": {
+                    "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate this task's agent, for orchestrators dispatching work on a\nhuman's behalf under one service API key. Credential resolution only — the\ntask is still created by, owned by, and attributed to the caller. Ignored\nunless that user has delegated their subscription to this organization.",
+                    "type": "string"
+                },
                 "depends_on": {
                     "description": "Optional: IDs of tasks this task depends on",
                     "type": "array",
@@ -26658,6 +30198,10 @@ const docTemplate = `{
                     "description": "Optional: Skip spec planning, go straight to implementation",
                     "type": "boolean"
                 },
+                "name": {
+                    "description": "Name is the task title. Empty means derive it from the prompt.",
+                    "type": "string"
+                },
                 "priority": {
                     "$ref": "#/definitions/types.SpecTaskPriority"
                 },
@@ -26666,6 +30210,9 @@ const docTemplate = `{
                 },
                 "prompt": {
                     "type": "string"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
                 "type": {
                     "type": "string"
@@ -26752,6 +30299,10 @@ const docTemplate = `{
                     "description": "Webhook URL to POST on completion",
                     "type": "string"
                 },
+                "credential_owner_id": {
+                    "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate the agent this trigger starts. An orchestrator writing triggers\non people's behalf under one service API key sets it so a scheduled run\nauthenticates as the person it acts for, exactly as CreateTaskRequest does\nfor a run dispatched by hand. Credential resolution only: the task is still\ncreated by, owned by, and attributed to the trigger's app owner, and the\nnamed user must have delegated their subscription to this organization or it\nis ignored. Currently honoured by the spec_task action.",
+                    "type": "string"
+                },
                 "emails": {
                     "type": "array",
                     "items": {
@@ -26767,6 +30318,10 @@ const docTemplate = `{
                 "input_file": {
                     "description": "File path in helix-specs worktree to use as prompt (overrides Input)",
                     "type": "string"
+                },
+                "just_do_it_mode": {
+                    "description": "JustDoItMode makes the spec_task action skip spec generation and go straight\nto implementation, exactly as the \"Just Do It\" checkbox does for a task\ndispatched by hand.\n\nIt matters more than it looks. Without it a scheduled run is created in\nspec_generation and parks in spec_review waiting for a human to approve\nspecs — which, for an unattended job that fires at 9am daily, nobody ever\ndoes. Worse, a task that never reaches implementation is never assigned a\nBranchName, and the git pre-receive hook derives its allow-list from exactly\nthat field: the agent is then refused any push except helix-specs (\"This\npush is restricted to: helix-specs\"), so its work cannot land at all. That\nis the mechanism behind \"scheduled runs never do their job\".\n\nDefaults false so existing triggers keep their current behaviour; an\norchestrator scheduling autonomous work should set it true.",
+                    "type": "boolean"
                 },
                 "project_id": {
                     "description": "Target project for spec_task action",
@@ -27004,7 +30559,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "app_config_snapshot": {
-                    "$ref": "#/definitions/types.AppConfig"
+                    "$ref": "#/definitions/types.AgentConfig"
                 },
                 "app_id": {
                     "type": "string"
@@ -27122,28 +30677,6 @@ const docTemplate = `{
                 },
                 "user_id": {
                     "type": "string"
-                }
-            }
-        },
-        "types.ExecuteQuestionSetRequest": {
-            "type": "object",
-            "properties": {
-                "app_id": {
-                    "type": "string"
-                },
-                "question_set_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.ExecuteQuestionSetResponse": {
-            "type": "object",
-            "properties": {
-                "results": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.QuestionResponse"
-                    }
                 }
             }
         },
@@ -27515,11 +31048,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "nvidia",
-                "amd"
+                "amd",
+                "neuron"
             ],
             "x-enum-varnames": [
                 "GPUVendorNVIDIA",
-                "GPUVendorAMD"
+                "GPUVendorAMD",
+                "GPUVendorNeuron"
             ]
         },
         "types.GitHub": {
@@ -28034,6 +31569,14 @@ const docTemplate = `{
                     "description": "AutoWakeCount tracks how many times the auto-wake worker has sent a\nfollow-up \"continue\" prompt to unstick this interaction. Zero means\nthis is a normal user-initiated interaction; non-zero on an\nauto-wake interaction itself records which retry attempt it is.\nSee design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.",
                     "type": "integer"
                 },
+                "code_changes": {
+                    "description": "CodeChanges is the immutable before/after workspace checkpoint summary for\nthis turn. The full patch remains in hidden Git checkpoint refs.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.InteractionCodeChanges"
+                        }
+                    ]
+                },
                 "completed": {
                     "type": "string"
                 },
@@ -28098,7 +31641,7 @@ const docTemplate = `{
                     }
                 },
                 "response_entries": {
-                    "description": "ResponseEntries holds the structured response as an ordered list of typed entries.\nEach entry is either \"text\" (assistant prose) or \"tool_call\" (tool invocation),\npreserving the ordering and boundaries that Zed's internal Vec\u003cAgentThreadEntry\u003e has.\nThis is populated on completion alongside ResponseMessage (flat string, backward compat).\nThe frontend uses this to render entries with the correct component in the correct order.",
+                    "description": "ResponseEntries holds the structured response as an ordered list of typed entries.\nEach entry is \"text\" (assistant prose), \"tool_call\" (tool invocation), or\n\"plan\" (the latest structured plan snapshot),\npreserving the ordering and boundaries that Zed's internal Vec\u003cAgentThreadEntry\u003e has.\nThis is populated on completion alongside ResponseMessage (flat string, backward compat).\nThe frontend uses this to render entries with the correct component in the correct order.",
                     "type": "array",
                     "items": {
                         "type": "integer"
@@ -28176,6 +31719,67 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.Usage"
                 },
                 "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.InteractionCodeChangeFile": {
+            "type": "object",
+            "properties": {
+                "additions": {
+                    "type": "integer"
+                },
+                "binary": {
+                    "type": "boolean"
+                },
+                "deletions": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "old_path": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.InteractionCodeChanges": {
+            "type": "object",
+            "properties": {
+                "after_ref": {
+                    "type": "string"
+                },
+                "before_ref": {
+                    "type": "string"
+                },
+                "captured_at": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.InteractionCodeChangeFile"
+                    }
+                },
+                "patch_hash": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "total_additions": {
+                    "type": "integer"
+                },
+                "total_deletions": {
+                    "type": "integer"
+                },
+                "workspace": {
                     "type": "string"
                 }
             }
@@ -28634,6 +32238,10 @@ const docTemplate = `{
                 "stream": {
                     "type": "boolean"
                 },
+                "time_to_first_token_ms": {
+                    "description": "TimeToFirstTokenMs is the wall time from request start to the first\nstreamed chunk. It isolates provider prefill / cold-start latency from\ngeneration time (a cold or overloaded provider shows a large TTFT while\ngeneration stays normal). 0 means no chunk was received (the call errored\nor was cut before the first token). For non-streaming calls it equals the\ntime to the full response.",
+                    "type": "integer"
+                },
                 "total_cost": {
                     "description": "Prompt + completion + cache read + cache write",
                     "type": "number"
@@ -28943,7 +32551,17 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "supported_reasoning_efforts": {
+                    "description": "SupportedReasoningEfforts lists the effort values the model accepts,\ne.g. [\"high\",\"low\",\"medium\",\"none\",\"xhigh\"]. Empty when unknown.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "supports_reasoning": {
+                    "type": "boolean"
+                },
+                "supports_reasoning_effort": {
                     "type": "boolean"
                 }
             }
@@ -29396,6 +33014,40 @@ const docTemplate = `{
                 }
             }
         },
+        "types.OrgComputeUsage": {
+            "type": "object",
+            "properties": {
+                "billing_enabled": {
+                    "description": "BillingEnabled reports whether compute is actually charged. When false\nthe credits above are historical and nothing new is accruing.",
+                    "type": "boolean"
+                },
+                "daily": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageComputeDailyPoint"
+                    }
+                },
+                "desktop_credits": {
+                    "type": "number"
+                },
+                "headless_credits": {
+                    "type": "number"
+                },
+                "running_sandboxes": {
+                    "description": "RunningSandboxes is a point-in-time count, not a range aggregate.",
+                    "type": "integer"
+                },
+                "sandboxes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageComputeBreakdownRow"
+                    }
+                },
+                "total_credits": {
+                    "type": "number"
+                }
+            }
+        },
         "types.OrgDetails": {
             "type": "object",
             "properties": {
@@ -29434,11 +33086,28 @@ const docTemplate = `{
                 "active_users": {
                     "type": "integer"
                 },
+                "agent_runtime_time_series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageAgentRuntimeTimeSeries"
+                    }
+                },
                 "apps": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.UsageBreakdownRow"
                     }
+                },
+                "cache_savings": {
+                    "type": "number"
+                },
+                "compute": {
+                    "description": "Compute is sandbox runtime spend. It answers the date range and the\nproject filter; the token-shaped filters (model, provider, session)\ndon't apply to a container and leave it untouched.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OrgComputeUsage"
+                        }
+                    ]
                 },
                 "export_apps": {
                     "type": "array",
@@ -29500,6 +33169,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.UsageFilterOption"
                     }
                 },
+                "helix_credits": {
+                    "type": "number"
+                },
                 "metrics": {
                     "type": "array",
                     "items": {
@@ -29533,6 +33205,21 @@ const docTemplate = `{
                 "projects_total": {
                     "type": "integer"
                 },
+                "provider_time_series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageProviderTimeSeries"
+                    }
+                },
+                "providers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageBreakdownRow"
+                    }
+                },
+                "raw_token_cost": {
+                    "type": "number"
+                },
                 "sessions": {
                     "type": "array",
                     "items": {
@@ -29541,6 +33228,9 @@ const docTemplate = `{
                 },
                 "sessions_total": {
                     "type": "integer"
+                },
+                "subscription_savings": {
+                    "type": "number"
                 },
                 "tasks": {
                     "type": "array",
@@ -29885,6 +33575,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PinnedChat": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "pinned_at": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Pricing": {
             "type": "object",
             "properties": {
@@ -30024,6 +33731,10 @@ const docTemplate = `{
                 },
                 "kodit_enabled": {
                     "type": "boolean"
+                },
+                "last_activity_at": {
+                    "description": "LastActivityAt is the latest active task or chat activity for sidebar ordering.",
+                    "type": "string"
                 },
                 "metadata": {
                     "$ref": "#/definitions/types.ProjectMetadata"
@@ -30197,6 +33908,9 @@ const docTemplate = `{
         "types.ProjectApplyRequest": {
             "type": "object",
             "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -30342,6 +34056,9 @@ const docTemplate = `{
                 },
                 "docker_cache_status": {
                     "$ref": "#/definitions/types.DockerCacheState"
+                },
+                "org_members_access": {
+                    "type": "boolean"
                 }
             }
         },
@@ -30409,6 +34126,20 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "types.ProjectSpecTaskAgent": {
+            "type": "object",
+            "properties": {
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },
@@ -30552,6 +34283,34 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ProjectWebServiceState": {
+            "type": "object",
+            "properties": {
+                "active_sandbox_id": {
+                    "type": "string"
+                },
+                "container_port": {
+                    "description": "port the project's web app binds to inside its container",
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "host_device_id": {
+                    "description": "HostDeviceID is the runner the project's web service is pinned to. It is\nrecorded from the web-service sandbox after first provision and surfaced\nfor visibility. Enforcement of the pin lives in the sandbox scheduler's\npersistent-sandbox sticky guard; this column mirrors it for the UI/API.",
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "types.PromptHistoryEntry": {
             "type": "object",
             "properties": {
@@ -30579,25 +34338,13 @@ const docTemplate = `{
                     "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes\nDefault is false: queue mode is the default, interrupt is explicit",
                     "type": "boolean"
                 },
-                "is_template": {
-                    "description": "Saved as a reusable template",
-                    "type": "boolean"
-                },
-                "last_used_at": {
-                    "description": "Last time reused",
-                    "type": "string"
-                },
                 "next_retry_at": {
                     "description": "When to retry (for exponential backoff)",
                     "type": "string"
                 },
-                "organization_id": {
-                    "description": "Organization scope for search",
+                "notify_user_id": {
+                    "description": "NotifyUserID, when set, is the user who should be streamed the agent's\nresponse (e.g. a design-review commenter). At dispatch the queue registers\nrequestToCommenterMapping/sessionToCommenterMapping from this field — the\nsame routing the old direct send set up synchronously.",
                     "type": "string"
-                },
-                "pinned": {
-                    "description": "Library features for prompt reuse",
-                    "type": "boolean"
                 },
                 "project_id": {
                     "description": "For reference, but primary grouping is by spec_task",
@@ -30612,26 +34359,19 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "session_id": {
-                    "description": "Optional - which session this was sent to",
+                    "description": "Which session this was sent to (the delivery unit)",
                     "type": "string"
                 },
                 "spec_task_id": {
+                    "description": "SpecTaskID is nullable: frontend queue-mode messages always carry it, but\nautomated/system and general session sends (e.g. org bots via\nPOST /sessions/{id}/messages) enqueue by SessionID with no spec task.",
                     "type": "string"
                 },
                 "status": {
                     "description": "Status tracks whether this was successfully sent\nValues: \"pending\", \"sent\", \"failed\"",
                     "type": "string"
                 },
-                "tags": {
-                    "description": "JSON array of user-defined tags",
-                    "type": "string"
-                },
                 "updated_at": {
                     "type": "string"
-                },
-                "usage_count": {
-                    "description": "How many times reused",
-                    "type": "integer"
                 },
                 "user_id": {
                     "type": "string"
@@ -30651,14 +34391,6 @@ const docTemplate = `{
                     "description": "If true, interrupts current conversation",
                     "type": "boolean"
                 },
-                "is_template": {
-                    "description": "If true, saved as a reusable template",
-                    "type": "boolean"
-                },
-                "pinned": {
-                    "description": "If true, pinned by user",
-                    "type": "boolean"
-                },
                 "queue_position": {
                     "description": "Position in queue for drag-and-drop ordering",
                     "type": "integer"
@@ -30667,10 +34399,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "type": "string"
-                },
-                "tags": {
-                    "description": "JSON array of tags",
                     "type": "string"
                 },
                 "timestamp": {
@@ -30703,6 +34431,10 @@ const docTemplate = `{
                     }
                 },
                 "project_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "SessionID is used for session-scoped queues (e.g. org-chat / bot sessions\nthat have no spec task). Exactly one of SpecTaskID / SessionID is set.",
                     "type": "string"
                 },
                 "spec_task_id": {
@@ -30831,6 +34563,9 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "icon": {
+                    "type": "string"
                 },
                 "id": {
                     "type": "string"
@@ -31004,6 +34739,42 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PushError": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "description": "VCS account the push was attempted as, e.g. \"@linuxrecruit\"",
+                    "type": "string"
+                },
+                "cause": {
+                    "description": "translated human-readable cause",
+                    "type": "string"
+                },
+                "failed_at": {
+                    "type": "string"
+                },
+                "next_step": {
+                    "description": "translated actionable next step",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "e.g. \"github\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
+                },
+                "raw_message": {
+                    "description": "verbatim provider error",
+                    "type": "string"
+                },
+                "repo": {
+                    "description": "e.g. \"helixml/find-ai\"",
+                    "type": "string"
+                }
+            }
+        },
         "types.PushResponse": {
             "type": "object",
             "properties": {
@@ -31020,136 +34791,6 @@ const docTemplate = `{
                     "type": "boolean"
                 }
             }
-        },
-        "types.Question": {
-            "type": "object",
-            "properties": {
-                "created": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "question": {
-                    "type": "string"
-                },
-                "updated": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.QuestionResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "description": "Error",
-                    "type": "string"
-                },
-                "interaction_id": {
-                    "description": "Interaction ID",
-                    "type": "string"
-                },
-                "question": {
-                    "description": "Original question",
-                    "type": "string"
-                },
-                "question_id": {
-                    "description": "ID of the question",
-                    "type": "string"
-                },
-                "response": {
-                    "description": "Response",
-                    "type": "string"
-                },
-                "session_id": {
-                    "description": "Session ID",
-                    "type": "string"
-                }
-            }
-        },
-        "types.QuestionSet": {
-            "type": "object",
-            "properties": {
-                "created": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "description": "The organization this session belongs to, if any",
-                    "type": "string"
-                },
-                "questions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.Question"
-                    }
-                },
-                "updated": {
-                    "type": "string"
-                },
-                "user_id": {
-                    "description": "Creator of the question set",
-                    "type": "string"
-                }
-            }
-        },
-        "types.QuestionSetExecution": {
-            "type": "object",
-            "properties": {
-                "app_id": {
-                    "type": "string"
-                },
-                "created": {
-                    "type": "string"
-                },
-                "duration_ms": {
-                    "type": "integer"
-                },
-                "error": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "question_set_id": {
-                    "type": "string"
-                },
-                "results": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.QuestionResponse"
-                    }
-                },
-                "status": {
-                    "$ref": "#/definitions/types.QuestionSetExecutionStatus"
-                },
-                "updated": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.QuestionSetExecutionStatus": {
-            "type": "string",
-            "enum": [
-                "pending",
-                "running",
-                "success",
-                "error"
-            ],
-            "x-enum-varnames": [
-                "QuestionSetExecutionStatusPending",
-                "QuestionSetExecutionStatusRunning",
-                "QuestionSetExecutionStatusSuccess",
-                "QuestionSetExecutionStatusError"
-            ]
         },
         "types.QuotaResponse": {
             "type": "object",
@@ -31397,7 +35038,6 @@ const docTemplate = `{
                 "GitRepository",
                 "SpecTask",
                 "Session",
-                "Prompt",
                 "Desktop"
             ],
             "x-enum-varnames": [
@@ -31416,7 +35056,6 @@ const docTemplate = `{
                 "ResourceGitRepository",
                 "ResourceSpecTask",
                 "ResourceSession",
-                "ResourcePrompt",
                 "ResourceDesktop"
             ]
         },
@@ -31719,8 +35358,20 @@ const docTemplate = `{
                     "description": "ProjectID is optional. When set, the sandbox is associated with a\nspecific project for organisational/UI grouping purposes; nothing in the\nlifecycle path branches on it. Empty means org-scoped only.",
                     "type": "string"
                 },
+                "purpose": {
+                    "description": "Purpose is an optional marker describing what the sandbox is used for.\nEmpty for ordinary agent/dev sandboxes. \"web-service\" marks the single\nlong-lived sandbox that hosts a project's web service; the provisioner\nuses it to bind-mount the per-project durable data dir at /data.",
+                    "type": "string"
+                },
                 "runtime": {
                     "$ref": "#/definitions/types.SandboxRuntime"
+                },
+                "session_id": {
+                    "description": "SessionID links the row to the Helix session that owns the container,\nfor sandboxes whose container is provisioned by the external-agent\nexecutor rather than by sandbox.Controller.provision (spec-task\ndesktops, exploratory sessions, subscription desktops). The row exists\nso those containers are metered, quota-checked and visible in the\nSandboxes UI on the same terms as user-created sandboxes.\n\nNon-empty is the discriminator for \"session-backed\": hydra registers\nevery operation for such a container under the session id, so callers\nmust route hydra ops via HydraOpsID() rather than the row id.",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "description": "SpecTaskID is the spec task that owns the session, when there is one.\nDenormalised from the session purely so the Sandboxes list can link back\nto the task without joining through sessions.",
+                    "type": "string"
                 },
                 "started_at": {
                     "type": "string"
@@ -31831,6 +35482,10 @@ const docTemplate = `{
                     "description": "Helix version running on this sandbox (git commit hash or release version)",
                     "type": "string"
                 },
+                "instance_type": {
+                    "description": "InstanceType is the cloud instance type (e.g. \"inf2.8xlarge\", \"g5.xlarge\")\ndetected via the AWS IMDS. Empty on bare-metal hosts (e.g. prime) and any\nnon-AWS environment — the admin UI then just shows the GPU model instead.",
+                    "type": "string"
+                },
                 "privileged_mode_enabled": {
                     "description": "Privileged mode (host Docker access for development)",
                     "type": "boolean"
@@ -31871,7 +35526,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "active_sandboxes": {
-                    "description": "Sandbox capacity",
+                    "description": "Sandbox capacity. MaxSandboxes is set explicitly at auto-register\nand Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS\n(default 20); the gorm default below only applies to rows inserted\nvia paths that don't set the field. Kept aligned with the env-var\ndefault to avoid surprises.",
                     "type": "integer"
                 },
                 "compute_state": {
@@ -31910,6 +35565,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "instance_type": {
+                    "description": "InstanceType is the cloud instance type reported by the sandbox heartbeat\n(e.g. \"inf2.8xlarge\"). Empty on bare-metal / non-AWS hosts.",
+                    "type": "string"
+                },
                 "ip_address": {
                     "description": "IP address of the sandbox",
                     "type": "string"
@@ -31941,7 +35600,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "provider": {
-                    "description": "Provider is the Name() of the compute.Provider that owns this host.\nE.g. \"yellowdog\", \"gcp\", \"lambda\". Empty for self-registered hosts.",
+                    "description": "Provider is the Name() of the compute.Provider that owns this host.\nFor pool-discovery providers this is a composite key baked from the\ndeployment tag, worker tag and instance type (e.g.\n\"yellowdog-helix-development-worker-psamuel-g5-xlarge-164e3a34\"), so it\nneeds the same width as ProviderID. Empty for self-registered hosts.",
                     "type": "string"
                 },
                 "provider_id": {
@@ -31989,6 +35648,17 @@ const docTemplate = `{
                     }
                 },
                 "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SandboxResourceOverrides": {
+            "type": "object",
+            "properties": {
+                "memory_mb": {
+                    "type": "integer"
+                },
+                "vcpus": {
                     "type": "integer"
                 }
             }
@@ -32047,6 +35717,14 @@ const docTemplate = `{
                     "description": "optional, if set, the secret will be available as env var in project sessions",
                     "type": "string"
                 },
+                "scope": {
+                    "description": "Scope controls which environment a project secret is injected into.\nDefaults to \"dev\" so pre-existing secrets keep their original (dev-only)\nbehaviour and dev stays the primary path.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SecretScope"
+                        }
+                    ]
+                },
                 "updated": {
                     "type": "string"
                 },
@@ -32057,6 +35735,19 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "types.SecretScope": {
+            "type": "string",
+            "enum": [
+                "dev",
+                "prod",
+                "both"
+            ],
+            "x-enum-varnames": [
+                "SecretScopeDev",
+                "SecretScopeProd",
+                "SecretScopeBoth"
+            ]
         },
         "types.ServerConfigForFrontend": {
             "type": "object",
@@ -32076,6 +35767,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "deployment_id": {
+                    "type": "string"
+                },
+                "dev_subdomain": {
+                    "description": "DevSubdomain is the base domain used for sandbox preview hostnames.\nEmpty means preview URLs are not configured on this deployment.",
                     "type": "string"
                 },
                 "disable_llm_call_logging": {
@@ -32103,6 +35798,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "organizations_create_enabled_for_non_admins": {
+                    "type": "boolean"
+                },
+                "preview_url_https": {
+                    "description": "PreviewURLHTTPS controls whether generated sandbox preview URLs use\nhttps:// (true) or http:// (false).",
                     "type": "boolean"
                 },
                 "providers_management_enabled": {
@@ -32178,6 +35877,25 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "slack_app_token": {
+                    "type": "string"
+                },
+                "slack_bot_token": {
+                    "type": "string"
+                },
+                "slack_client_id": {
+                    "description": "Slack global app fields (type=slack_app)",
+                    "type": "string"
+                },
+                "slack_client_secret": {
+                    "type": "string"
+                },
+                "slack_ingress_mode": {
+                    "type": "string"
+                },
+                "slack_signing_secret": {
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/types.ServiceConnectionType"
                 }
@@ -32218,6 +35936,18 @@ const docTemplate = `{
                 "has_github_private_key": {
                     "type": "boolean"
                 },
+                "has_slack_app_token": {
+                    "type": "boolean"
+                },
+                "has_slack_bot_token": {
+                    "type": "boolean"
+                },
+                "has_slack_client_secret": {
+                    "type": "boolean"
+                },
+                "has_slack_signing_secret": {
+                    "type": "boolean"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -32236,6 +35966,28 @@ const docTemplate = `{
                 "provider_type": {
                     "$ref": "#/definitions/types.ExternalRepositoryType"
                 },
+                "slack_app_connection_id": {
+                    "type": "string"
+                },
+                "slack_app_id": {
+                    "type": "string"
+                },
+                "slack_bot_user_id": {
+                    "type": "string"
+                },
+                "slack_client_id": {
+                    "description": "Slack (non-sensitive fields + has-secret flags)",
+                    "type": "string"
+                },
+                "slack_ingress_mode": {
+                    "type": "string"
+                },
+                "slack_team_id": {
+                    "type": "string"
+                },
+                "slack_team_name": {
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/types.ServiceConnectionType"
                 },
@@ -32248,11 +36000,15 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "github_app",
-                "ado_service_principal"
+                "ado_service_principal",
+                "slack_app",
+                "slack_workspace"
             ],
             "x-enum-varnames": [
                 "ServiceConnectionTypeGitHubApp",
-                "ServiceConnectionTypeADOServicePrincipal"
+                "ServiceConnectionTypeADOServicePrincipal",
+                "ServiceConnectionTypeSlackApp",
+                "ServiceConnectionTypeSlackWorkspace"
             ]
         },
         "types.ServiceConnectionUpdateRequest": {
@@ -32290,6 +36046,25 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "slack_app_token": {
+                    "type": "string"
+                },
+                "slack_bot_token": {
+                    "type": "string"
+                },
+                "slack_client_id": {
+                    "description": "Slack global app fields (only update if provided)",
+                    "type": "string"
+                },
+                "slack_client_secret": {
+                    "type": "string"
+                },
+                "slack_ingress_mode": {
+                    "type": "string"
+                },
+                "slack_signing_secret": {
+                    "type": "string"
                 }
             }
         },
@@ -32320,6 +36095,10 @@ const docTemplate = `{
         "types.Session": {
             "type": "object",
             "properties": {
+                "archived": {
+                    "description": "Hidden from session lists; see ListSessions for why this is deliberately unindexed.",
+                    "type": "boolean"
+                },
                 "config": {
                     "description": "named config for backward compat",
                     "allOf": [
@@ -32352,6 +36131,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.Interaction"
                     }
+                },
+                "last_message_at": {
+                    "description": "LastMessageAt is selected by list queries that order conversations by the\nnewest conversation turn. It is derived from interactions and is not a DB column.",
+                    "type": "string"
                 },
                 "lora_dir": {
                     "description": "if type == finetune, we record a filestore path to e.g. lora file here\ncurrently the only place you can do inference on a finetune is within the\nsession where the finetune was generated",
@@ -32402,14 +36185,6 @@ const docTemplate = `{
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
                 },
-                "question_set_execution_id": {
-                    "description": "The question set execution this session belongs to, if any",
-                    "type": "string"
-                },
-                "question_set_id": {
-                    "description": "The question set this session belongs to, if any",
-                    "type": "string"
-                },
                 "sandbox_id": {
                     "description": "SandboxID tracks which sandbox instance is running this session's dev container (if any)",
                     "type": "string"
@@ -32430,6 +36205,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SessionArchiveRequest": {
+            "type": "object",
+            "properties": {
+                "archived": {
+                    "type": "boolean"
+                }
+            }
+        },
         "types.SessionChatRequest": {
             "type": "object",
             "properties": {
@@ -32444,6 +36227,10 @@ const docTemplate = `{
                 "assistant_id": {
                     "description": "Which assistant are we speaking to?",
                     "type": "string"
+                },
+                "auto_restart_on_crash": {
+                    "description": "Autonomous surfaces: auto-recover the agent on crash (no human to click Restart)",
+                    "type": "boolean"
                 },
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",
@@ -32490,6 +36277,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.Provider"
                         }
                     ]
+                },
+                "reasoning_effort": {
+                    "description": "Per-session reasoning effort for direct model chats",
+                    "type": "string"
                 },
                 "regenerate": {
                     "description": "If true, we will regenerate the response for the last message",
@@ -32557,6 +36348,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "agent_switched_at": {
+                    "description": "AgentSwitchedAt is set when the agent framework is switched IN PLACE on\nthis same session (no fork / new container) — see\ndesign/tasks/002111_so-we-recently-added-a/design.md. It marks that a\nfork_seed interaction carrying the prior thread's transcript exists on\nTHIS session, so maybePrependTranscript seeds the new Zed thread even\nthough ParentSessionID is empty (the session continues from itself).",
+                    "type": "string"
+                },
                 "agent_type": {
                     "description": "Agent type: \"helix\" or \"zed_external\"",
                     "type": "string"
@@ -32584,6 +36379,13 @@ const docTemplate = `{
                     "description": "which assistant are we talking to?",
                     "type": "string"
                 },
+                "auto_restart_count": {
+                    "type": "integer"
+                },
+                "auto_restart_on_crash": {
+                    "description": "Autonomous crash recovery. Set true at session creation for surfaces with\nno human present to click the in-chat Restart button (spec tasks, org\nworkers). When the external agent crashes mid-turn, the websocket crash\nhandler auto-invokes the canonical restart primitive instead of leaving\nthe session errored+idle. Human desktop sessions leave this false and keep\nthe explicit button. AutoRestartCount bounds consecutive auto-restarts\nwithout an intervening successful turn (anti-storm guard); it is reset to 0\non the next successful completion and lives on the SESSION (not the prompt)\nso ResetCrashedPromptsForSession can't zero the restart budget.",
+                    "type": "boolean"
+                },
                 "avatar": {
                     "type": "string"
                 },
@@ -32609,6 +36411,10 @@ const docTemplate = `{
                 },
                 "container_name": {
                     "description": "Container fields (Hydra executor)",
+                    "type": "string"
+                },
+                "credential_owner_id": {
+                    "description": "CredentialOwnerID mirrors SpecTask.CredentialOwnerID onto the session: the\nuser whose Claude subscription authenticates this session's agent, when\nthat differs from Owner. Affects credential resolution ONLY — Owner still\nowns and is attributed the session. Honoured only with an explicit\ndelegation grant; see ResolveClaudeCredentialOwner.",
                     "type": "string"
                 },
                 "dev_container_id": {
@@ -32672,6 +36478,12 @@ const docTemplate = `{
                     "description": "NEW: External agent status (running, stopped, terminated_idle)",
                     "type": "string"
                 },
+                "forked_at": {
+                    "type": "string"
+                },
+                "forked_at_interaction_id": {
+                    "type": "string"
+                },
                 "gpu_vendor": {
                     "description": "GPU vendor of sandbox running this session (nvidia, amd, intel, none)",
                     "type": "string"
@@ -32683,8 +36495,29 @@ const docTemplate = `{
                     "description": "Index of implementation task this session handles",
                     "type": "integer"
                 },
+                "last_auto_restart_at": {
+                    "type": "string"
+                },
                 "manually_review_questions": {
                     "type": "boolean"
+                },
+                "org_worker_id": {
+                    "description": "OrgWorkerID and RuntimeInstructions are session-scoped bootstrap state for\nhelix-org workers. Hydra materializes the instructions as native agent\nfiles in this session's workspace before starting the desktop. Ordinary\nproject and SpecTask sessions leave both fields empty.",
+                    "type": "string"
+                },
+                "parent_session_id": {
+                    "description": "Fork lineage — set on a session created by forking from a parent.\nSee design/tasks/002081_kickoff-mid-session/design.md.",
+                    "type": "string"
+                },
+                "paused": {
+                    "description": "Pause state — sessions cannot accept new messages while paused.\nPausedReason is the only producer in v1: \"forked_to:\u003cchild_id\u003e\".",
+                    "type": "boolean"
+                },
+                "paused_at": {
+                    "type": "string"
+                },
+                "paused_reason": {
+                    "type": "string"
                 },
                 "paused_screenshot_path": {
                     "description": "Path to saved screenshot when agent is paused",
@@ -32708,8 +36541,14 @@ const docTemplate = `{
                 "rag_settings": {
                     "$ref": "#/definitions/types.RAGSettings"
                 },
+                "reasoning_effort": {
+                    "type": "string"
+                },
                 "render_node": {
                     "description": "GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)",
+                    "type": "string"
+                },
+                "runtime_instructions": {
                     "type": "string"
                 },
                 "session_rag_results": {
@@ -32801,6 +36640,9 @@ const docTemplate = `{
                 "duration_ms": {
                     "type": "integer"
                 },
+                "interaction_id": {
+                    "type": "string"
+                },
                 "output": {
                     "description": "Last interaction's response text",
                     "type": "string"
@@ -32809,7 +36651,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "description": "\"waiting\", \"complete\", \"error\"",
+                    "description": "\"waiting\", \"complete\", \"error\", \"interrupted\"",
                     "type": "string"
                 }
             }
@@ -32861,8 +36703,14 @@ const docTemplate = `{
                 "app_id": {
                     "type": "string"
                 },
+                "archived": {
+                    "type": "boolean"
+                },
                 "created": {
                     "description": "these are all values of the last interaction",
+                    "type": "string"
+                },
+                "last_message_at": {
                     "type": "string"
                 },
                 "metadata": {
@@ -32888,12 +36736,6 @@ const docTemplate = `{
                 },
                 "priority": {
                     "type": "boolean"
-                },
-                "question_set_execution_id": {
-                    "type": "string"
-                },
-                "question_set_id": {
-                    "type": "string"
                 },
                 "session_id": {
                     "type": "string"
@@ -33175,6 +37017,9 @@ const docTemplate = `{
                     "description": "Original project",
                     "type": "string"
                 },
+                "code_agent_overrides": {
+                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                },
                 "completed_at": {
                     "type": "string"
                 },
@@ -33183,6 +37028,10 @@ const docTemplate = `{
                 },
                 "created_by": {
                     "description": "Metadata",
+                    "type": "string"
+                },
+                "credential_owner_id": {
+                    "description": "CredentialOwnerID names the user whose Claude subscription authenticates\nthis task's agent sessions, when that differs from CreatedBy. It changes\nONLY credential resolution — the task and its sessions are still owned by,\nand attributed to, CreatedBy. Nothing \"runs as\" the credential owner.\n\nThis exists for orchestrators (HelixOS) that dispatch every task with one\nservice API key but run work on behalf of different humans: without it the\nservice account's subscription authenticates everyone's bots, so one\nperson's expired token breaks all of them and no one can use their own\nClaude account.\n\nHonoured only when the named user has delegated their subscription to this\norganization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able\nto create a task could spend another user's Claude quota. See\nResolveClaudeCredentialOwner.",
                     "type": "string"
                 },
                 "depends_on": {
@@ -33251,6 +37100,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "last_message_at": {
+                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "type": "string"
+                },
                 "last_prompt_content": {
                     "description": "Last prompt sent to agent (for continue functionality)",
                     "type": "string"
@@ -33262,6 +37115,14 @@ const docTemplate = `{
                 "last_push_commit_hash": {
                     "description": "Git tracking",
                     "type": "string"
+                },
+                "last_push_error": {
+                    "description": "Structured error from the last external (mirror) push. Set when a user-initiated\npush to the external repo fails and refs are rolled back; cleared (nil) on the\nnext successful push. Surfaced on the board so failures aren't silent.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.PushError"
+                        }
+                    ]
                 },
                 "merge_commit_hash": {
                     "description": "Merge commit hash",
@@ -33323,6 +37184,10 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
+                "queue_reason": {
+                    "description": "Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted",
+                    "type": "string"
+                },
                 "rebase_requested_at": {
                     "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
                     "type": "string"
@@ -33338,6 +37203,9 @@ const docTemplate = `{
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
                 },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
                 "sandbox_state": {
                     "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
                     "type": "string"
@@ -33347,7 +37215,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "session_updated_at": {
-                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "description": "When the session was last updated (for active/idle detection)",
                     "type": "string"
                 },
                 "short_title": {
@@ -33579,6 +37447,10 @@ const docTemplate = `{
                     "description": "Optional line number",
                     "type": "integer"
                 },
+                "prompt_id": {
+                    "description": "Link to the prompt_history_entry enqueued for this comment; RequestID/InteractionID are backfilled from it at dispatch",
+                    "type": "string"
+                },
                 "queued_at": {
                     "description": "Database-backed queue for agent processing (restart-resilient)\nQueuedAt is set when comment is submitted for agent processing.\nProcessing order: QueuedAt ASC. Cleared when agent response is received.",
                     "type": "string"
@@ -33776,6 +37648,66 @@ const docTemplate = `{
                 },
                 "review_id": {
                     "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskExecutionConfig": {
+            "type": "object",
+            "properties": {
+                "agent_available": {
+                    "type": "boolean"
+                },
+                "agent_id": {
+                    "type": "string"
+                },
+                "agent_name": {
+                    "type": "string"
+                },
+                "credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "provider_ref": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "service_tier": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskExecutionConfigUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string"
+                },
+                "code_agent_overrides": {
+                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                }
+            }
+        },
+        "types.SpecTaskExecutionConfigUpdateResponse": {
+            "type": "object",
+            "properties": {
+                "agent_thread_restarted": {
+                    "type": "boolean"
+                },
+                "sandbox_resources_applied": {
+                    "type": "boolean"
+                },
+                "task": {
+                    "$ref": "#/definitions/types.SpecTask"
                 }
             }
         },
@@ -34092,6 +38024,9 @@ const docTemplate = `{
                     "description": "Original project",
                     "type": "string"
                 },
+                "code_agent_overrides": {
+                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                },
                 "completed_at": {
                     "type": "string"
                 },
@@ -34100,6 +38035,10 @@ const docTemplate = `{
                 },
                 "created_by": {
                     "description": "Metadata",
+                    "type": "string"
+                },
+                "credential_owner_id": {
+                    "description": "CredentialOwnerID names the user whose Claude subscription authenticates\nthis task's agent sessions, when that differs from CreatedBy. It changes\nONLY credential resolution — the task and its sessions are still owned by,\nand attributed to, CreatedBy. Nothing \"runs as\" the credential owner.\n\nThis exists for orchestrators (HelixOS) that dispatch every task with one\nservice API key but run work on behalf of different humans: without it the\nservice account's subscription authenticates everyone's bots, so one\nperson's expired token breaks all of them and no one can use their own\nClaude account.\n\nHonoured only when the named user has delegated their subscription to this\norganization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able\nto create a task could spend another user's Claude quota. See\nResolveClaudeCredentialOwner.",
                     "type": "string"
                 },
                 "depends_on": {
@@ -34168,6 +38107,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "last_message_at": {
+                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "type": "string"
+                },
                 "last_prompt_content": {
                     "description": "Last prompt sent to agent (for continue functionality)",
                     "type": "string"
@@ -34179,6 +38122,14 @@ const docTemplate = `{
                 "last_push_commit_hash": {
                     "description": "Git tracking",
                     "type": "string"
+                },
+                "last_push_error": {
+                    "description": "Structured error from the last external (mirror) push. Set when a user-initiated\npush to the external repo fails and refs are rolled back; cleared (nil) on the\nnext successful push. Surfaced on the board so failures aren't silent.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.PushError"
+                        }
+                    ]
                 },
                 "merge_commit_hash": {
                     "description": "Merge commit hash",
@@ -34243,6 +38194,10 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
+                "queue_reason": {
+                    "description": "Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted",
+                    "type": "string"
+                },
                 "rebase_requested_at": {
                     "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
                     "type": "string"
@@ -34258,6 +38213,9 @@ const docTemplate = `{
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
                 },
+                "sandbox_resource_overrides": {
+                    "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
                 "sandbox_state": {
                     "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
                     "type": "string"
@@ -34267,7 +38225,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "session_updated_at": {
-                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "description": "When the session was last updated (for active/idle detection)",
                     "type": "string"
                 },
                 "short_title": {
@@ -34609,6 +38567,15 @@ const docTemplate = `{
         "types.SystemSettingsRequest": {
             "type": "object",
             "properties": {
+                "default_new_project_agent_model": {
+                    "type": "string"
+                },
+                "default_new_project_agent_provider": {
+                    "type": "string"
+                },
+                "default_new_project_agent_reasoning_effort": {
+                    "type": "string"
+                },
                 "enforce_quotas": {
                     "type": "boolean"
                 },
@@ -34690,6 +38657,15 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created": {
+                    "type": "string"
+                },
+                "default_new_project_agent_model": {
+                    "type": "string"
+                },
+                "default_new_project_agent_provider": {
+                    "type": "string"
+                },
+                "default_new_project_agent_reasoning_effort": {
                     "type": "string"
                 },
                 "enforce_quotas": {
@@ -35366,6 +39342,9 @@ const docTemplate = `{
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.TriggerExecutionStatus"
                 }
             }
         },
@@ -35411,13 +39390,15 @@ const docTemplate = `{
                 "pending",
                 "running",
                 "success",
-                "error"
+                "error",
+                "skipped"
             ],
             "x-enum-varnames": [
                 "TriggerExecutionStatusPending",
                 "TriggerExecutionStatusRunning",
                 "TriggerExecutionStatusSuccess",
-                "TriggerExecutionStatusError"
+                "TriggerExecutionStatusError",
+                "TriggerExecutionStatusSkipped"
             ]
         },
         "types.TriggerStatus": {
@@ -35505,7 +39486,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "type": {
-                    "description": "\"project\", \"task\", \"session\", \"prompt\"",
+                    "description": "Resource type",
                     "type": "string"
                 },
                 "updated_at": {
@@ -35568,6 +39549,9 @@ const docTemplate = `{
                 "base_url": {
                     "type": "string"
                 },
+                "billing_enabled": {
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -35585,6 +39569,9 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "icon": {
+                    "type": "string"
                 },
                 "models": {
                     "type": "array",
@@ -35667,6 +39654,23 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.UsageAgentRuntimeTimeSeries": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AggregatedUsageMetric"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
                 }
             }
         },
@@ -35765,6 +39769,52 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UsageComputeBreakdownRow": {
+            "type": "object",
+            "properties": {
+                "credits": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pricing_type": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "vcpus": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.UsageComputeDailyPoint": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "desktop": {
+                    "type": "number"
+                },
+                "headless": {
+                    "type": "number"
+                },
+                "total": {
+                    "type": "number"
+                }
+            }
+        },
         "types.UsageFilterOption": {
             "type": "object",
             "properties": {
@@ -35811,6 +39861,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UsageProviderTimeSeries": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AggregatedUsageMetric"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                }
+            }
+        },
         "types.User": {
             "type": "object",
             "properties": {
@@ -35819,11 +39886,19 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "alpha_features": {
-                    "description": "AlphaFeatures lists the feature flags this user has been granted\naccess to. Server-enforced via requireFeature middleware — the\nfrontend uses it only to decide whether to render the entry\npoint. Granted per-user via SQL (no deploy).",
+                    "description": "AlphaFeatures lists feature flags granted to this user.\nGranted per-user via SQL (no deploy).",
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
+                },
+                "api_key_type": {
+                    "description": "APIKeyType is the type of the API key this request authenticated with, when\nit authenticated with one. Carried so the auth middleware can apply the\nper-type restrictions (app keys: chat paths only; embed keys: one spec task).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.APIKeyType"
+                        }
+                    ]
                 },
                 "app_id": {
                     "description": "if the token is associated with an app",
@@ -35845,6 +39920,13 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "full_name": {
+                    "type": "string"
+                },
+                "git_commit_email": {
+                    "type": "string"
+                },
+                "git_commit_name": {
+                    "description": "GitCommitName and GitCommitEmail override the account identity for commits.\nEmpty values inherit FullName/Username and Email respectively.",
                     "type": "string"
                 },
                 "id": {
@@ -35871,6 +39953,14 @@ const docTemplate = `{
                 "pending_admin_credits_on_first_org": {
                     "description": "PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the\n/admin/users/{id}/credits endpoint when the user has no owned org yet.\nConsumed by consumeUserAdminCredits on first owned org, then cleared.\nKept separate from TrialCreditsOnFirstOrg so admins can comp credits\nwithout entangling the grant with trial-state UI or revocation flows.",
                     "type": "number"
+                },
+                "plan_on_first_org": {
+                    "description": "PlanOnFirstOrg, when set (\"pro\"), grants a paid plan override to the\nuser's first owned org's wallet on creation — admin \"Activate\" with a\npaid (non-Stripe) plan for a user who has no org yet. Consumed alongside\nthe trial intent, then cleared.",
+                    "type": "string"
+                },
+                "pr_footer_template": {
+                    "description": "PRFooterTemplate is nullable so nil can inherit the Helix default while an\nexplicit empty string disables the footer.",
+                    "type": "string"
                 },
                 "project_id": {
                     "description": "When running in Helix Code sandbox",
@@ -35983,6 +40073,12 @@ const docTemplate = `{
                     "description": "ColorScheme is the user's preferred UI color scheme: \"light\" or \"dark\".\nEmpty string means follow OS preference. Propagated to the GNOME desktop\n(gsettings color-scheme) and Zed editor inside spec-task sessions owned\nby this user.",
                     "type": "string"
                 },
+                "pinned_chats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.PinnedChat"
+                    }
+                },
                 "pinned_project_ids": {
                     "type": "array",
                     "items": {
@@ -36067,7 +40163,16 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "default_pr_footer": {
+                    "type": "string"
+                },
                 "email": {
+                    "type": "string"
+                },
+                "git_commit_email": {
+                    "type": "string"
+                },
+                "git_commit_name": {
                     "type": "string"
                 },
                 "id": {
@@ -36078,6 +40183,9 @@ const docTemplate = `{
                 },
                 "onboarding_completed": {
                     "type": "boolean"
+                },
+                "pr_footer_template": {
+                    "type": "string"
                 },
                 "token": {
                     "type": "string"
@@ -36185,6 +40293,144 @@ const docTemplate = `{
                 }
             }
         },
+        "types.VCSActingUser": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.VCSConnectionInfo": {
+            "type": "object",
+            "properties": {
+                "acting_user": {
+                    "$ref": "#/definitions/types.VCSActingUser"
+                },
+                "missing_scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                },
+                "pushing_as": {
+                    "$ref": "#/definitions/types.VCSPushingAs"
+                },
+                "repos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.VCSRepoAccess"
+                    }
+                },
+                "state": {
+                    "$ref": "#/definitions/types.VCSConnectionState"
+                }
+            }
+        },
+        "types.VCSConnectionState": {
+            "type": "string",
+            "enum": [
+                "verified",
+                "needs_attention",
+                "disconnected"
+            ],
+            "x-enum-varnames": [
+                "VCSConnectionVerified",
+                "VCSConnectionNeedsAttention",
+                "VCSConnectionDisconnected"
+            ]
+        },
+        "types.VCSPushingAs": {
+            "type": "object",
+            "properties": {
+                "connection_id": {
+                    "description": "OAuthConnection ID (for switch/disconnect)",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "e.g. \"@tonychapman-prog\"",
+                    "type": "string"
+                }
+            }
+        },
+        "types.VCSRepoAccess": {
+            "type": "object",
+            "properties": {
+                "has_access": {
+                    "description": "true if the connection can reach it (or access is unverifiable for this provider)",
+                    "type": "boolean"
+                },
+                "repo": {
+                    "description": "\"owner/repo\"",
+                    "type": "string"
+                },
+                "verified": {
+                    "description": "true if we actually probed the provider (false = optimistic/unverifiable)",
+                    "type": "boolean"
+                }
+            }
+        },
+        "types.VHostRoute": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "hostname": {
+                    "description": "always lowercased",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_default": {
+                    "description": "IsDefault is true for project default subdomains (\u003cslug\u003e.\u003cbase\u003e).\nUser-added custom domains and preview tokens are false.",
+                    "type": "boolean"
+                },
+                "port": {
+                    "description": "destination port inside the container",
+                    "type": "integer"
+                },
+                "rotated_at": {
+                    "type": "string"
+                },
+                "target_id": {
+                    "type": "string"
+                },
+                "target_kind": {
+                    "$ref": "#/definitions/types.VHostTargetKind"
+                },
+                "url": {
+                    "description": "public URL, populated by preview API handlers",
+                    "type": "string"
+                },
+                "verification_token": {
+                    "description": "VerificationToken is only meaningful for custom domains awaiting\nDNS-based verification. Null for default and preview rows.",
+                    "type": "string"
+                },
+                "verified_at": {
+                    "description": "VerifiedAt is non-null once the route is usable. Auto-set for default\nsubdomains and preview tokens; set after DNS verification for custom\ndomains.",
+                    "type": "string"
+                }
+            }
+        },
+        "types.VHostTargetKind": {
+            "type": "string",
+            "enum": [
+                "project_web_service",
+                "sandbox_preview"
+            ],
+            "x-enum-varnames": [
+                "VHostTargetProjectWebService",
+                "VHostTargetSandboxPreview"
+            ]
+        },
         "types.WIPLimits": {
             "type": "object",
             "properties": {
@@ -36213,6 +40459,10 @@ const docTemplate = `{
                 },
                 "org_id": {
                     "description": "If belongs to an organization",
+                    "type": "string"
+                },
+                "plan_override": {
+                    "description": "PlanOverride, when set (\"free\"|\"pro\"), forces the quota tier for this\nwallet regardless of the Stripe subscription — used to grant a paid plan\nto a customer who paid out-of-band (bank transfer, no card / no Stripe).\n\"\" means derive the tier from the Stripe subscription as usual. Stripe\nsync only ever writes the Subscription* fields, never this one, so an\nadmin grant can't be reverted by a webhook.",
                     "type": "string"
                 },
                 "stripe_customer_id": {
@@ -36244,6 +40494,55 @@ const docTemplate = `{
                 }
             }
         },
+        "types.WebServiceDeploy": {
+            "type": "object",
+            "properties": {
+                "commit_sha": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "log_path": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.WebServiceDeployStatus"
+                }
+            }
+        },
+        "types.WebServiceDeployStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "building",
+                "live",
+                "failed",
+                "superseded"
+            ],
+            "x-enum-varnames": [
+                "WebServiceDeployStatusPending",
+                "WebServiceDeployStatusBuilding",
+                "WebServiceDeployStatusLive",
+                "WebServiceDeployStatusFailed",
+                "WebServiceDeployStatusSuperseded"
+            ]
+        },
         "types.WebsiteCrawler": {
             "type": "object",
             "properties": {
@@ -36266,6 +40565,177 @@ const docTemplate = `{
                 },
                 "user_agent": {
                     "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceFileEntry": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.WorkspaceFileResponse": {
+            "type": "object",
+            "properties": {
+                "binary": {
+                    "type": "boolean"
+                },
+                "byte_length": {
+                    "type": "integer"
+                },
+                "content_hash": {
+                    "type": "string"
+                },
+                "contents": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "workspace": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceFilesResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkspaceFileEntry"
+                    }
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "workspace": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceInfo": {
+            "type": "object",
+            "properties": {
+                "current_branch": {
+                    "type": "string"
+                },
+                "has_helix_specs": {
+                    "type": "boolean"
+                },
+                "is_primary": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceReviewResponse": {
+            "type": "object",
+            "properties": {
+                "generated_at": {
+                    "type": "string"
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkspaceReviewSource"
+                    }
+                },
+                "workspace": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceReviewSource": {
+            "type": "object",
+            "properties": {
+                "base_ref": {
+                    "type": "string"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.InteractionCodeChangeFile"
+                    }
+                },
+                "head_ref": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "patch": {
+                    "type": "string"
+                },
+                "patch_hash": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "total_additions": {
+                    "type": "integer"
+                },
+                "total_deletions": {
+                    "type": "integer"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "types.WorkspaceSkillEntry": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WorkspaceSkillsResponse": {
+            "type": "object",
+            "properties": {
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkspaceSkillEntry"
+                    }
+                }
+            }
+        },
+        "types.WorkspacesResponse": {
+            "type": "object",
+            "properties": {
+                "workspaces": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkspaceInfo"
+                    }
                 }
             }
         },
@@ -36340,6 +40810,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.CodeAgentConfig"
                         }
                     ]
+                },
+                "codex_subscription_available": {
+                    "description": "True if user has active ChatGPT credentials for Codex CLI",
+                    "type": "boolean"
                 },
                 "color_scheme": {
                     "description": "Session owner's UI color scheme: \"light\", \"dark\", or \"\" (follow OS). Daemon applies via gsettings to GNOME.",

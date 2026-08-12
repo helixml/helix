@@ -200,8 +200,10 @@ func (suite *OrganizationsRBACTestSuite) TestProjectVisibilityAndRepositoryAcces
 				Name:        "project-rbac-agent-" + uuid.New().String(),
 				Description: "project rbac test agent",
 				Assistants: []types.AssistantConfig{{
-					Name:  "assistant",
-					Model: "openai/gpt-oss-20b",
+					Name:             "assistant",
+					Model:            "openai/gpt-oss-20b",
+					AgentType:        types.AgentTypeZedExternal,
+					CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
 				}},
 			},
 		},
@@ -411,7 +413,7 @@ func apiJSON(t *testing.T, apiKey, method, path string, body any, out any) (int,
 		reader = bytes.NewReader(payload)
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), method, "http://localhost:8080/api/v1"+path, reader)
+	req, err := http.NewRequestWithContext(context.Background(), method, integrationServerURL()+"/api/v1"+path, reader)
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}

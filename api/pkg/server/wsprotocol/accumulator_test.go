@@ -231,6 +231,35 @@ func TestEntriesWithTypes(t *testing.T) {
 	assert.Equal(t, "3", entries[2].MessageID)
 }
 
+func TestEntriesPreserveLatestPlanSnapshot(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("1", "Working on it.", "text")
+	a.AddMessageWithType("plan", `{"steps":[{"step":"Inspect","status":"inProgress"}]}`, "plan")
+	a.AddMessageWithType("plan", `{"steps":[{"step":"Inspect","status":"completed"},{"step":"Build","status":"inProgress"}]}`, "plan")
+
+	entries := a.Entries()
+	require.Len(t, entries, 2)
+	assert.Equal(t, "plan", entries[1].Type)
+	assert.Equal(t, "plan", entries[1].MessageID)
+	assert.JSONEq(t, `{"steps":[{"step":"Inspect","status":"completed"},{"step":"Build","status":"inProgress"}]}`, entries[1].Content)
+	a.Rebuild()
+	assert.Equal(t, "Working on it.", a.Content)
+}
+
+func TestEntriesAcceptEmptyPlanResetInFollowUp(t *testing.T) {
+	previous := &MessageAccumulator{}
+	previous.AddMessageWithType("plan", `{"steps":[{"step":"Old work","status":"inProgress"}]}`, "plan")
+
+	followUp := &MessageAccumulator{}
+	followUp.SetPriorEntries(previous.Entries())
+	followUp.AddMessageWithType("plan", `{"steps":[]}`, "plan")
+
+	entries := followUp.Entries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "plan", entries[0].Type)
+	assert.JSONEq(t, `{"steps":[]}`, entries[0].Content)
+}
+
 func TestEntriesTypeInference(t *testing.T) {
 	// When entry_type is empty (old Zed without entry_type support),
 	// Entries() should infer type from content.

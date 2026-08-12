@@ -2,7 +2,7 @@ import React from 'react'
 import { RouterProvider } from 'react-router5'
 import AllContextProvider from './contexts/all'
 import Layout from './pages/Layout'
-import router, { RenderPage } from './router'
+import router, { useApplicationRoute } from './router'
 import {
   QueryClient,
   QueryClientProvider,
@@ -16,12 +16,20 @@ function AppInner() {
   useAnalyticsInit()
   return (
     <RouterProvider router={router}>
-      <AllContextProvider>
-        <Layout>
-          <RenderPage />
-        </Layout>
-      </AllContextProvider>
+      <ApplicationRoute />
     </RouterProvider>
+  )
+}
+
+function ApplicationRoute() {
+  const appRoute = useApplicationRoute()
+
+  return (
+    <AllContextProvider appRoute={appRoute}>
+      <Layout>
+        {appRoute.render()}
+      </Layout>
+    </AllContextProvider>
   )
 }
 

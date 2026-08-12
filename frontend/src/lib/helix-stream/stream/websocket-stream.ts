@@ -10,7 +10,9 @@ import { StreamSettings } from "../component/settings_menu"
 import { defaultStreamInputConfig, StreamInput } from "./input"
 import { createSupportedVideoFormatsBits, VideoCodecSupport } from "./video"
 import { WsVideoCodec, WsVideoCodecType, codecToWebCodecsString, codecToDisplayName } from "./codecs"
-import { isMobileOrTablet } from "../../../utils/isMobileOrTablet"
+import { isMobileOrTablet, isAppleWebKit } from "../../../utils/isMobileOrTablet"
+import { PlayoutScheduler } from "./playout-scheduler"
+import { WebGLVideoRenderer } from "./webgl-video-renderer"
 import {
   WsMessageType,
   CursorImageData,
@@ -53,7 +55,13 @@ export class WebSocketStream {
 
   // Canvas for rendering
   private canvas: HTMLCanvasElement | null = null
+  // Exactly one of these is set, chosen per platform in setCanvas():
+  //  - canvasCtx (2D, desynchronized): Chrome/Firefox — drawImage(VideoFrame) is a
+  //    zero-copy video-overlay scanout there, buttery at 4K60.
+  //  - videoRenderer (WebGL2): Safari/WebKit — its 2D drawImage(VideoFrame) is not
+  //    GPU-accelerated (per-frame CPU copy → ~4fps at 4K), so it needs the texture path.
   private canvasCtx: CanvasRenderingContext2D | null = null
+  private videoRenderer: WebGLVideoRenderer | null = null
 
   // WebCodecs decoders
   private videoDecoder: VideoDecoder | null = null
@@ -81,8 +89,32 @@ export class WebSocketStream {
 
   // Connection stability tracking - for diagnosing reconnect loops
   private lastOpenTime = 0  // Timestamp when connection was established
-  private connectionStabilityTimer: ReturnType<typeof setTimeout> | null = null
-  private connectionStabilized = false  // True after connection has been stable for 2s
+  private connectionStabilized = false  // True once video has actually been seen
+
+  // True once this connection has delivered a decodable video frame. This — not a
+  // WebSocket that merely opened — is what "the stream works" means, and it is the
+  // ONLY thing allowed to reset the retry budget.
+  //
+  // The 2026-07-28 incident: a finished task's tab was left open for 45 hours and
+  // produced 2383 WebSocket connections, driving 324 GStreamer pipeline
+  // create/destroy cycles, each of which leaked GPU memory. The backoff and the
+  // maxReconnectAttempts give-up below were already here and never fired, because
+  // the socket kept opening successfully — the failure was downstream, in the
+  // video. A 2s "connection stabilized" timer zeroed the counter on every cycle,
+  // so the budget never accumulated and the give-up branch was unreachable.
+  private receivedVideoThisConnection = false
+
+  // Gives up entirely once the retry budget is spent, until the user explicitly
+  // retries. Distinct from `closed`, which means "we were told to stop".
+  private gaveUp = false
+
+  // Set when a reconnect was skipped because the page was hidden; the
+  // visibilitychange handler picks it up when the tab comes back.
+  private reconnectWhenVisible = false
+  private visibilityRecheckId: ReturnType<typeof setInterval> | null = null
+
+  // Set by reconnect() so the next init message is flagged as a user retry.
+  private pendingUserRetry = false
 
   // Page visibility tracking - prevents false stale detection on iOS when page is backgrounded
   private pageVisible = true
@@ -166,11 +198,22 @@ export class WebSocketStream {
   private lastFrameRenderTime = 0                     // When last frame was rendered (for render jitter)
   private receiveIntervalSamples: number[] = []       // Recent intervals between frame arrivals (ms)
   private renderIntervalSamples: number[] = []        // Recent intervals between frame renders (ms)
-  private readonly MAX_JITTER_SAMPLES = 60            // Track ~1 second of frames at 60fps
+  private readonly MAX_JITTER_SAMPLES = 300           // Track ~5 seconds of frames at 60fps (sparkline window)
   private minReceiveIntervalMs = 0                    // Min interval seen in current window
   private maxReceiveIntervalMs = 0                    // Max interval seen in current window
   private minRenderIntervalMs = 0                     // Min render interval seen
   private maxRenderIntervalMs = 0                     // Max render interval seen
+
+  // Adaptive playout buffer. Owns all frame queuing, pacing and dropping, and is
+  // the single authority over what reaches the canvas (see PlayoutScheduler):
+  // decoded frames go in via push(), and exactly one frame per display repaint
+  // comes out via the renderVideoFrame callback. Depth tracks measured receive
+  // jitter and collapses to 0 on input for low latency.
+  private playout = new PlayoutScheduler(
+    (frame) => this.renderVideoFrame(frame),
+    () => { this.framesDropped++ },
+    () => this.receiveIntervalSamples,
+  )
 
   // Adaptive input throttling based on RTT
   // Reduces mouse/scroll event rate when network latency is high to prevent frame queueing
@@ -256,6 +299,9 @@ export class WebSocketStream {
     this.userName = userName
     this.avatarUrl = avatarUrl
     this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
+    // DIAGNOSTIC build marker — confirms the browser loaded the new bundle (not a
+    // cached one). If you don't see this line in the console, you're on stale JS.
+    console.log("%c[helix-stream] PLAYOUT BUILD = coalesce-refactor-v3 (single scheduler)", "color:#0a0;font-weight:bold;font-size:14px")
 
     // Query parameter overrides for decoder testing:
     // ?softdecode=1 - force software decoding (for latency testing)
@@ -440,24 +486,14 @@ export class WebSocketStream {
     this.lastMessageTime = Date.now()
     this.streamConnectedTime = performance.now() // Track when stream connected for frame drift warmup
     this.connectionStabilized = false
+    this.receivedVideoThisConnection = false
 
     // Clear connection timeout - we connected successfully
     this.clearConnectionTimeout()
 
-    // Don't reset reconnectAttempts immediately - wait for connection to stabilize
-    // This prevents rapid connect/disconnect loops from resetting the counter
-    if (this.connectionStabilityTimer) {
-      clearTimeout(this.connectionStabilityTimer)
-    }
-    this.connectionStabilityTimer = setTimeout(() => {
-      this.connectionStabilityTimer = null
-      if (this.connected) {
-        const prevAttempts = this.reconnectAttempts
-        this.reconnectAttempts = 0
-        this.connectionStabilized = true
-        console.log(`[WebSocketStream] Connection stabilized after 2s, reset reconnect counter (was ${prevAttempts})`)
-      }
-    }, 2000)
+    // NOTE: reconnectAttempts is deliberately NOT reset here. An open socket is
+    // not a working stream — see receivedVideoThisConnection. It is reset in
+    // onFirstKeyframe, once video has actually arrived.
 
     this.dispatchInfoEvent({ type: "connected" })
 
@@ -500,11 +536,8 @@ export class WebSocketStream {
       this.closed = true
     }
 
-    // Clear connection stability timer if connection drops before stabilizing
-    if (this.connectionStabilityTimer) {
-      clearTimeout(this.connectionStabilityTimer)
-      this.connectionStabilityTimer = null
-      console.log("[WebSocketStream] Connection dropped before stabilizing (< 2s)")
+    if (!this.receivedVideoThisConnection) {
+      console.log("[WebSocketStream] Connection dropped without ever delivering video")
     }
 
     // Clear connection timeout if it's still running
@@ -528,6 +561,18 @@ export class WebSocketStream {
       // Dispatch event so DesktopStreamViewer knows reconnection was skipped
       // This prevents the UI from getting stuck on "Reconnecting..." forever
       this.dispatchInfoEvent({ type: "reconnectAborted", reason: abortReason, superseded: isSuperseded })
+      return
+    }
+
+    // Don't burn the retry budget while nobody is looking. The incident tab was
+    // a *finished* task left open in a background tab; every retry cost a
+    // GStreamer pipeline create/destroy on the server. Reconnection resumes on
+    // visibilitychange.
+    if (!this.pageVisible) {
+      console.log("[WebSocketStream] Page hidden, deferring reconnect until visible")
+      this.dispatchInfoEvent({ type: "reconnectDeferred", reason: "page hidden" })
+      this.reconnectWhenVisible = true
+      this.startVisibilityRecheck()
       return
     }
 
@@ -562,9 +607,23 @@ export class WebSocketStream {
         this.connect()
       }, delay)
     } else {
+      // Terminal state. Stop connecting entirely and tell the user, rather than
+      // retrying silently forever — every attempt costs a pipeline on the server.
       console.error(`[WebSocketStream] Max reconnection attempts (${this.maxReconnectAttempts}) reached, giving up`)
-      this.dispatchInfoEvent({ type: "error", message: "Connection lost - max reconnection attempts reached" })
+      this.gaveUp = true
+      this.closed = true
+      this.dispatchInfoEvent({ type: "gaveUp", attempts: this.reconnectAttempts })
+      this.dispatchInfoEvent({
+        type: "error",
+        message: `Could not start the video stream after ${this.maxReconnectAttempts} attempts. ` +
+          `The desktop may be out of GPU capacity or still starting up. Click Retry to try again.`,
+      })
     }
+  }
+
+  /** True once the retry budget is spent and only an explicit retry will reconnect. */
+  public hasGivenUp(): boolean {
+    return this.gaveUp
   }
 
   private onError(event: Event) {
@@ -718,6 +777,13 @@ export class WebSocketStream {
       video_supported_formats: supportBits,
     }
 
+    // Tell the server this is a deliberate user retry, not an automatic
+    // reconnect. Only a user retry clears a latched server-side circuit breaker.
+    if (this.pendingUserRetry) {
+      initMessage.user_retry = true
+      this.pendingUserRetry = false
+    }
+
     // Include client_unique_id if provided (enables immediate lobby attachment)
     if (this.clientUniqueId) {
       initMessage.client_unique_id = this.clientUniqueId
@@ -828,6 +894,9 @@ export class WebSocketStream {
       return
     }
 
+    // Drop any frames buffered from a previous decoder generation.
+    this.playout.clear()
+
     // Increment decoder generation to invalidate stale callbacks
     const thisGeneration = ++this.decoderGeneration
     console.log(`[WebSocketStream] Creating decoder generation ${thisGeneration}`)
@@ -897,7 +966,7 @@ export class WebSocketStream {
 
     this.videoDecoder = new VideoDecoder({
       output: (frame: VideoFrame) => {
-        this.renderVideoFrame(frame)
+        this.playout.push(frame)
       },
       error: (e: Error) => {
         // Check if this callback is from a stale decoder (already replaced)
@@ -971,6 +1040,18 @@ export class WebSocketStream {
     }
   }
 
+  /** Keyboard/mouse/touch activity collapses the playout buffer for low latency. */
+  private notifyInteraction() {
+    this.playout.notifyInteraction()
+  }
+
+  // DIAGNOSTIC (temporary): backward-present detection — flash red + log if a
+  // frame's PTS goes older than the last one drawn (a true reorder reaching the
+  // canvas). Also logs the playout depth/state so we can tell reorder from lag.
+  private lastPresentedPtsUs = -1
+  private outOfOrderPresents = 0
+  private _lastLagLogMs = 0
+
   private renderVideoFrame(frame: VideoFrame) {
     // CRITICAL: Prevent rendering after stream is closed
     // This prevents duplicate streams from writing to the same canvas
@@ -979,7 +1060,7 @@ export class WebSocketStream {
       return
     }
 
-    if (!this.canvas || !this.canvasCtx) {
+    if (!this.canvas || (!this.videoRenderer && !this.canvasCtx)) {
       frame.close()
       this.framesDropped++
       return
@@ -999,13 +1080,62 @@ export class WebSocketStream {
         targetHeight = Math.round(targetHeight * scale)
       }
     }
+    // Resize the canvas to the (mobile-capped) frame size — shared by both paths.
     if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
       this.canvas.width = targetWidth
       this.canvas.height = targetHeight
     }
 
-    // Draw frame to canvas
-    this.canvasCtx.drawImage(frame, 0, 0)
+    // DIAGNOSTIC (temporary): detect a backward present (old frame reaching canvas).
+    const _ptsUs = frame.timestamp
+    if (this.lastPresentedPtsUs >= 0 && _ptsUs >= 0 && _ptsUs < this.lastPresentedPtsUs) {
+      this.outOfOrderPresents++
+      console.warn(
+        `[PRESENT-OOO] #${this.outOfOrderPresents} pts BACKWARDS by ` +
+        `${((this.lastPresentedPtsUs - _ptsUs) / 1000).toFixed(1)}ms ` +
+        `(playout depth=${this.playout.bufferMs}ms state=${this.playout.state})`,
+      )
+    }
+    if (_ptsUs >= 0) this.lastPresentedPtsUs = _ptsUs
+
+    // DIAGNOSTIC (temporary): during-drag lag probe. frameAge = how stale the
+    // frame being shown is (now - capture PTS; valid because meta == localhost so
+    // clocks match). If this spikes while dragging, the picture is lagging — and
+    // decodeQ vs playout depth says whether it's the decoder or the buffer.
+    const _nowMs = performance.now()
+    if (_nowMs - this._lastLagLogMs > 400) {
+      this._lastLagLogMs = _nowMs
+      const ageMs = Date.now() - _ptsUs / 1000
+      console.log(
+        `[LAG] frameAge=${ageMs.toFixed(0)}ms decodeQ=${this.videoDecoder?.decodeQueueSize ?? "?"} ` +
+        `playout=${this.playout.bufferMs}ms/${this.playout.state} qLen=${this.playout.queueLength} fps=${this.currentFps}`,
+      )
+    }
+
+    // Draw frame to canvas. A renderer that could not present (lost GPU context)
+    // must not be counted as a paint — that is what let a black canvas look
+    // healthy for minutes.
+    let painted = false
+    if (this.videoRenderer) {
+      painted = this.videoRenderer.draw(frame, targetWidth, targetHeight)
+    } else if (this.canvasCtx) {
+      this.canvasCtx.drawImage(frame, 0, 0)
+      painted = true
+    }
+    if (painted) {
+      this.lastFramePaintedAt = Date.now()
+      this.framesPainted++
+      // A frame reached the screen: the only real proof the stream works, so this
+      // is where the retry budget is refunded.
+      if (!this.receivedVideoThisConnection) {
+        this.receivedVideoThisConnection = true
+        this.connectionStabilized = true
+        if (this.reconnectAttempts > 0) {
+          console.log(`[WebSocketStream] Video painting, reset reconnect counter (was ${this.reconnectAttempts})`)
+        }
+        this.reconnectAttempts = 0
+      }
+    }
     frame.close()
     this.framesDecoded++
 
@@ -1061,6 +1191,14 @@ export class WebSocketStream {
 
   // Track if we've received the first keyframe (needed for decoder to work)
   private receivedFirstKeyframe = false
+
+  // Render watchdog. "videoStarted" fires from the DECODE path, so once decoding
+  // begins nothing else watches whether pixels actually reach the canvas.
+  private lastFramePaintedAt = 0
+  /** Frames that actually reached the canvas (framesDecoded counts attempts). */
+  framesPainted = 0
+  private renderStalled = false
+  private readonly RENDER_STALL_MS = 5000
 
   // Track video enabled state to make setVideoEnabled idempotent
   private _videoEnabled = true
@@ -1237,7 +1375,11 @@ export class WebSocketStream {
       }
       console.log(`[WebSocketStream] First keyframe received (${frameData.length} bytes)`)
       this.receivedFirstKeyframe = true
-      // Notify that video is starting (first frame is being decoded)
+
+      // Notify that video is starting (first frame is being decoded). NOTE: this
+      // is decode, not display — the retry budget is refunded at the paint site,
+      // because a decoded frame that never reaches the canvas is not a working
+      // stream.
       this.dispatchInfoEvent({ type: "videoStarted" })
     }
 
@@ -1513,6 +1655,8 @@ export class WebSocketStream {
   }
 
   private sendInputMessage(type: number, payload: Uint8Array) {
+    // Any keyboard/mouse/touch input collapses the playout buffer for low latency.
+    this.notifyInteraction()
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.warn(`[WebSocketStream] sendInputMessage: WS not ready (ws=${!!this.ws}, state=${this.ws?.readyState}), dropping input type=0x${type.toString(16)}`)
       return
@@ -1917,11 +2061,42 @@ export class WebSocketStream {
   // ============================================================================
 
   setCanvas(canvas: HTMLCanvasElement) {
+    // A canvas hands out one context per type for its lifetime. Re-attaching the
+    // same element (quality-mode switch, reconnect) must therefore REUSE the
+    // existing render target — tearing it down and re-acquiring yields a dead
+    // context that can never draw again.
+    if (this.canvas === canvas && (this.videoRenderer || this.canvasCtx)) {
+      return
+    }
     this.canvas = canvas
-    this.canvasCtx = canvas.getContext("2d", {
-      alpha: false,
-      desynchronized: true, // Lower latency
-    })
+    this.videoRenderer?.dispose()
+    this.videoRenderer = null
+    this.canvasCtx = null
+
+    // Platform-optimized render path (see field comment). Chrome's desynchronized
+    // 2D canvas treats drawImage(VideoFrame) as a zero-copy overlay scanout and is
+    // the fastest path there; Safari/WebKit does NOT GPU-accelerate it (capped ~4fps
+    // at 4K), so WebKit uses the WebGL2 texture path instead.
+    if (isAppleWebKit()) {
+      // No 2D fallback here: this canvas is bound to WebGL2, so getContext("2d")
+      // would return null and every frame would be dropped in silence. If WebGL2
+      // is genuinely unavailable the stream cannot render, and that is reported.
+      try {
+        this.videoRenderer = new WebGLVideoRenderer(canvas)
+      } catch (e) {
+        console.error("[WebSocketStream] WebGL2 renderer init failed:", e)
+        this.dispatchInfoEvent({
+          type: "renderStalled",
+          stalledMs: 0,
+          reason: "noRenderTarget",
+        })
+      }
+    } else {
+      this.canvasCtx = canvas.getContext("2d", {
+        alpha: false,
+        desynchronized: true, // zero-copy low-latency present on Chrome
+      })
+    }
   }
 
   /**
@@ -1998,6 +2173,10 @@ export class WebSocketStream {
     renderJitterMs: string           // "min-max" interval between frames rendering
     avgReceiveIntervalMs: number     // Average receive interval (16.7ms = 60fps)
     avgRenderIntervalMs: number      // Average render interval
+    receiveIntervalSamples: number[] // Rolling window of inter-arrival intervals (for sparkline/burst)
+    renderIntervalSamples: number[]  // Rolling window of inter-render intervals (for sparkline/burst)
+    playoutBufferMs: number          // Current adaptive playout buffer depth (0 while interacting / no jitter)
+    playoutState: 'smoothing' | 'interactive' | 'idle' // why the buffer is at its current depth
     // FPS timestamp
     fpsUpdatedAt: number             // Wall clock timestamp of last FPS update
     // Debug flags
@@ -2076,6 +2255,13 @@ export class WebSocketStream {
       avgRenderIntervalMs: this.renderIntervalSamples.length > 0
         ? Math.round(this.renderIntervalSamples.reduce((a, b) => a + b, 0) / this.renderIntervalSamples.length)
         : 0,
+      // Raw sample arrays for sparkline + burst rendering (snapshot copies, not refs)
+      receiveIntervalSamples: this.receiveIntervalSamples.slice(),
+      renderIntervalSamples: this.renderIntervalSamples.slice(),
+      playoutBufferMs: this.playout.bufferMs,
+      // Why the buffer is at its current depth: 'smoothing' (engaged), 'interactive'
+      // (collapsed for low latency on recent input), or 'idle' (no jitter to buffer).
+      playoutState: this.playout.state,
       // Debug flags
       usingSoftwareDecoder: this.forceSoftwareDecoding,
       // Frame health monitoring (for iOS Safari stall detection)
@@ -2138,9 +2324,46 @@ export class WebSocketStream {
     this.eventTarget.dispatchEvent(event)
   }
 
+  /**
+   * Detect "socket healthy, decoder healthy, nothing on screen". Every silent
+   * black-screen mode ends here: a lost GPU context, no render target at all, or
+   * a present path that has stopped delivering frames to the canvas.
+   */
+  private checkRenderHealth() {
+    if (!this._videoEnabled || !this.receivedFirstKeyframe) return
+    if (this.lastFramePaintedAt === 0) return
+
+    const stalledMs = Date.now() - this.lastFramePaintedAt
+    if (stalledMs < this.RENDER_STALL_MS) {
+      if (this.renderStalled) {
+        this.renderStalled = false
+        this.dispatchInfoEvent({ type: "renderRecovered" })
+      }
+      return
+    }
+    if (this.renderStalled) return
+
+    const reason = this.videoRenderer?.isContextLost()
+      ? "contextLost"
+      : !this.videoRenderer && !this.canvasCtx
+        ? "noRenderTarget"
+        : "notPresenting"
+    this.renderStalled = true
+    console.error(`[WebSocketStream] Render stalled ${stalledMs}ms (${reason})`)
+    this.dispatchInfoEvent({ type: "renderStalled", stalledMs, reason })
+  }
+
   private resetStreamState() {
     // Reset video state
     this.receivedFirstKeyframe = false
+    this.lastFramePaintedAt = 0
+    this.renderStalled = false
+    // A reconnect must not inherit the previous connection's render target state:
+    // close() drops the canvas, and without this the stream would come back up
+    // with nowhere to draw and report success anyway.
+    if (this.canvas && !this.videoRenderer && !this.canvasCtx) {
+      this.setCanvas(this.canvas)
+    }
   }
 
   private cleanupDecoders() {
@@ -2151,6 +2374,36 @@ export class WebSocketStream {
         // Ignore - decoder may already be closed
       }
       this.videoDecoder = null
+    }
+  }
+
+  /**
+   * Poll `document.hidden` while a reconnect is deferred. The visibilitychange
+   * listener alone is not enough: the heartbeat is stopped on disconnect, so if
+   * that one event is ever missed the deferral is never lifted and the stream
+   * stays dead with no way back. This timer is the only thing running then.
+   */
+  private startVisibilityRecheck() {
+    if (this.visibilityRecheckId !== null) return
+    this.visibilityRecheckId = setInterval(() => {
+      if (this.closed || this.connected || !this.reconnectWhenVisible) {
+        this.stopVisibilityRecheck()
+        return
+      }
+      if (!document.hidden) {
+        this.pageVisible = true
+        this.reconnectWhenVisible = false
+        this.stopVisibilityRecheck()
+        console.log("[WebSocketStream] Page visible again (poll), resuming deferred reconnect")
+        this.connect()
+      }
+    }, 2000)
+  }
+
+  private stopVisibilityRecheck() {
+    if (this.visibilityRecheckId !== null) {
+      clearInterval(this.visibilityRecheckId)
+      this.visibilityRecheckId = null
     }
   }
 
@@ -2169,6 +2422,14 @@ export class WebSocketStream {
         console.log("[WebSocketStream] Page became visible, resetting heartbeat timer")
         this.dispatchInfoEvent({ type: "visibility", visible: true })
         this.lastMessageTime = Date.now()
+
+        // Resume a reconnect we deferred while the tab was in the background.
+        if (this.reconnectWhenVisible && !this.closed && !this.connected) {
+          this.reconnectWhenVisible = false
+          this.stopVisibilityRecheck()
+          console.log("[WebSocketStream] Page visible again, resuming deferred reconnect")
+          this.connect()
+        }
       } else if (!this.pageVisible && !wasHidden) {
         this.dispatchInfoEvent({ type: "visibility", visible: false })
       }
@@ -2193,6 +2454,8 @@ export class WebSocketStream {
       if (!this.pageVisible) {
         return
       }
+
+      this.checkRenderHealth()
 
       const now = Date.now()
       const elapsed = now - this.lastMessageTime
@@ -2285,8 +2548,12 @@ export class WebSocketStream {
   reconnect() {
     console.log("[WebSocketStream] Manual reconnect requested")
 
-    // Reset state for fresh connection
+    // Reset state for fresh connection. A user-driven retry is the only thing
+    // that clears the give-up state.
     this.closed = false
+    this.gaveUp = false
+    this.reconnectWhenVisible = false
+    this.pendingUserRetry = true
     this.reconnectAttempts = 0
 
     // Cancel any pending reconnection
@@ -2315,13 +2582,19 @@ export class WebSocketStream {
     // Mark as explicitly closed to prevent reconnection and rendering
     this.closed = true
 
-    // CRITICAL: Clear canvas references FIRST to prevent any further rendering
-    // This must happen before decoder cleanup to ensure no frames are drawn
-    // after close() is called (even if decoder has frames in queue)
-    this.canvas = null
-    this.canvasCtx = null
+    // Drop any buffered playout frames (closes VideoFrames, cancels the rAF loop)
+    this.playout.dispose()
+
+    // The render targets are NOT torn down here. close() is not only terminal —
+    // it also runs for bitrate and quality-mode switches, and the renderer's
+    // lifetime belongs to the canvas element, not to the socket. Rendering after
+    // close() is already prevented by the `closed` flag above. Destroying them
+    // here left a resumed stream with nowhere to draw, and (for WebGL) threw away
+    // the live context-restore handle that recovery depends on. They are released
+    // in setCanvas() when the canvas actually changes.
 
     // Cancel any pending reconnection
+    this.stopVisibilityRecheck()
     if (this.reconnectTimeoutId) {
       clearTimeout(this.reconnectTimeoutId)
       this.reconnectTimeoutId = null

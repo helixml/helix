@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -19,6 +21,7 @@ type SessionMCPBackendSuite struct {
 	ctx       context.Context
 	ctrl      *gomock.Controller
 	mockStore *store.MockStore
+	notifier  *notification.MockNotifier
 	backend   *SessionMCPBackend
 }
 
@@ -30,7 +33,8 @@ func (suite *SessionMCPBackendSuite) SetupTest() {
 	suite.ctx = context.Background()
 	suite.ctrl = gomock.NewController(suite.T())
 	suite.mockStore = store.NewMockStore(suite.ctrl)
-	suite.backend = NewSessionMCPBackend(suite.mockStore)
+	suite.notifier = notification.NewMockNotifier(suite.ctrl)
+	suite.backend = NewSessionMCPBackend(suite.mockStore, suite.notifier)
 }
 
 func (suite *SessionMCPBackendSuite) TearDownTest() {
@@ -94,6 +98,88 @@ func (suite *SessionMCPBackendSuite) testInteractions() []*types.Interaction {
 
 func (suite *SessionMCPBackendSuite) ctxWithSessionID(sessionID string) context.Context {
 	return context.WithValue(suite.ctx, "session_id", sessionID)
+}
+
+func (suite *SessionMCPBackendSuite) recurringTaskContext() context.Context {
+	ctx := suite.ctxWithSessionID("session-123")
+	return context.WithValue(ctx, "user", &types.User{ID: "user-123"})
+}
+
+func (suite *SessionMCPBackendSuite) TestHandleTaskCompleted_Success() {
+	session := suite.testSession()
+	session.Owner = "user-123"
+	session.Metadata.SessionRole = "job"
+	execution := &types.TriggerExecution{ID: "tex-123", SessionID: session.ID, TriggerConfigurationID: "trigger-123"}
+	triggerConfig := &types.TriggerConfiguration{
+		ID: "trigger-123",
+		Trigger: types.Trigger{Cron: &types.CronTrigger{
+			Emails:      []string{"ops@example.com"},
+			CallbackURL: "https://example.com/task-complete",
+		}},
+	}
+
+	suite.mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	suite.mockStore.EXPECT().FinishTriggerExecution(gomock.Any(), session.ID, types.TriggerExecutionStatusSuccess, "Repository inspected").Return(execution, nil)
+	suite.mockStore.EXPECT().GetTriggerConfiguration(gomock.Any(), &store.GetTriggerConfigurationQuery{ID: triggerConfig.ID}).Return(triggerConfig, nil)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, n *types.Notification) error {
+			suite.Equal(types.EventCronTriggerComplete, n.Event)
+			suite.Same(session, n.Session)
+			suite.Equal("Repository inspected", n.Message)
+			suite.True(n.RenderMarkdown)
+			suite.Equal(triggerConfig.Trigger.Cron.Emails, n.Emails)
+			suite.Equal(triggerConfig.Trigger.Cron.CallbackURL, n.CallbackURL)
+			return nil
+		},
+	)
+
+	result, err := suite.backend.handleTaskCompleted(suite.recurringTaskContext(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{"summary": "Repository inspected"}},
+	})
+	suite.NoError(err)
+	suite.False(result.IsError)
+	suite.Contains(result.Content[0].(mcp.TextContent).Text, execution.ID)
+}
+
+func (suite *SessionMCPBackendSuite) TestHandleTaskCompleted_RejectsNonJobSession() {
+	session := suite.testSession()
+	session.Owner = "user-123"
+	session.Metadata.SessionRole = "exploratory"
+	suite.mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+
+	result, err := suite.backend.handleTaskCompleted(suite.recurringTaskContext(), mcp.CallToolRequest{})
+	suite.NoError(err)
+	suite.True(result.IsError)
+}
+
+func (suite *SessionMCPBackendSuite) TestHandleTaskCompleted_NotificationFailureDoesNotReopenTask() {
+	session := suite.testSession()
+	session.Owner = "user-123"
+	session.Metadata.SessionRole = "job"
+	execution := &types.TriggerExecution{ID: "tex-123", SessionID: session.ID, TriggerConfigurationID: "trigger-123"}
+	triggerConfig := &types.TriggerConfiguration{ID: "trigger-123", Trigger: types.Trigger{Cron: &types.CronTrigger{}}}
+
+	suite.mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	suite.mockStore.EXPECT().FinishTriggerExecution(gomock.Any(), session.ID, types.TriggerExecutionStatusSuccess, "Task completed").Return(execution, nil)
+	suite.mockStore.EXPECT().GetTriggerConfiguration(gomock.Any(), &store.GetTriggerConfigurationQuery{ID: triggerConfig.ID}).Return(triggerConfig, nil)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).Return(errors.New("mail transport unavailable"))
+
+	result, err := suite.backend.handleTaskCompleted(suite.recurringTaskContext(), mcp.CallToolRequest{})
+	suite.NoError(err)
+	suite.False(result.IsError)
+	suite.Contains(result.Content[0].(mcp.TextContent).Text, execution.ID)
+}
+
+func (suite *SessionMCPBackendSuite) TestHandleTaskCompleted_RejectsTerminalExecution() {
+	session := suite.testSession()
+	session.Owner = "user-123"
+	session.Metadata.SessionRole = "job"
+	suite.mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	suite.mockStore.EXPECT().FinishTriggerExecution(gomock.Any(), session.ID, types.TriggerExecutionStatusSuccess, "Task completed").Return(nil, store.ErrNotFound)
+
+	result, err := suite.backend.handleTaskCompleted(suite.recurringTaskContext(), mcp.CallToolRequest{})
+	suite.NoError(err)
+	suite.True(result.IsError)
 }
 
 // =============================================================================

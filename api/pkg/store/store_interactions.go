@@ -287,6 +287,91 @@ func (s *PostgresStore) MarkInteractionCompleteIfWaiting(ctx context.Context, in
 	return result.RowsAffected > 0, nil
 }
 
+// MarkInteractionErrorIfWaiting atomically transitions an interaction from
+// Waiting to Error without clobbering a concurrent terminal transition.
+func (s *PostgresStore) MarkInteractionErrorIfWaiting(ctx context.Context, interactionID string, generationID int, reason string) (bool, error) {
+	if interactionID == "" {
+		return false, errors.New("id is required")
+	}
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Updates(map[string]interface{}{
+			"state":     types.InteractionStateError,
+			"error":     sanitize.ForPostgres(reason),
+			"completed": now,
+			"updated":   now,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// ReapWaitingInteractions transitions every interaction still in state=waiting
+// for sessionID to newState (typically interrupted), stamping completed/updated.
+//
+// Used when the external agent that could have completed the turn has gone away
+// — the desktop was idle-stopped, crashed, or is found stopped when a new prompt
+// arrives. A waiting interaction with no live agent will never receive
+// message_completed; left alone it deadlocks the prompt-queue busy-check in
+// processPendingPromptsForIdleSessions (which treats "latest interaction waiting"
+// as "busy, defer") so the desktop is never allowed to resume.
+//
+// This is deliberately different from the auto-wake worker: this bulk operation
+// handles a disconnected session, while auto-wake leaves connected interactions
+// waiting and retries cold-start when no WebSocket has connected.
+//
+// Targeted column UPDATE guarded on state=waiting (not a full-row Save) so it
+// cannot clobber a concurrent streaming write. Returns the reaped interactions
+// (with the new state reflected in the returned copies) so callers can publish
+// frontend updates.
+func (s *PostgresStore) ReapWaitingInteractions(ctx context.Context, sessionID string, newState types.InteractionState, reason string) ([]*types.Interaction, error) {
+	if sessionID == "" {
+		return nil, errors.New("session_id is required")
+	}
+	now := time.Now()
+	var reaped []*types.Interaction
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.
+			Where("session_id = ? AND state = ?", sessionID, types.InteractionStateWaiting).
+			Find(&reaped).Error; err != nil {
+			return err
+		}
+		if len(reaped) == 0 {
+			return nil
+		}
+		if err := tx.Model(&types.Interaction{}).
+			Where("session_id = ? AND state = ?", sessionID, types.InteractionStateWaiting).
+			Updates(map[string]interface{}{
+				"state":     newState,
+				"completed": now,
+				"updated":   now,
+			}).Error; err != nil {
+			return err
+		}
+		for _, in := range reaped {
+			in.State = newState
+			in.Completed = now
+			in.Updated = now
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(reaped) > 0 {
+		log.Info().
+			Str("session_id", sessionID).
+			Int("count", len(reaped)).
+			Str("new_state", string(newState)).
+			Str("reason", reason).
+			Msg("reaped waiting interactions (agent gone)")
+	}
+	return reaped, nil
+}
+
 // UpdateInteractionSummary updates just the summary field of an interaction
 func (s *PostgresStore) UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error {
 	now := time.Now()
@@ -308,6 +393,15 @@ func (s *PostgresStore) DeleteInteraction(ctx context.Context, interactionID str
 	}
 
 	return nil
+}
+
+// ClearSessionInteractions hard-deletes all interactions for a session in a
+// single statement. The session row is untouched. Deleting zero rows is not an
+// error, so this is idempotent on an already-empty session.
+func (s *PostgresStore) ClearSessionInteractions(ctx context.Context, sessionID string) error {
+	return s.gdb.WithContext(ctx).
+		Where("session_id = ?", sessionID).
+		Delete(&types.Interaction{}).Error
 }
 
 // GetLatestInteractionsForSessions returns the newest interaction for each

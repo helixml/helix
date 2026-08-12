@@ -24,6 +24,7 @@ import { TypesProject } from '../../services'
 import type { ServerSimpleSampleProject } from '../../api/api'
 import { useGetProjectUsage } from '../../services/projectService'
 import UsageSparkline, { formatNumber } from '../usage/UsageSparkline'
+import PageSectionHeader from '../system/PageSectionHeader'
 
 interface ProjectsListViewProps {
   projects: TypesProject[]
@@ -152,7 +153,12 @@ const ProjectCard: FC<{
         backgroundColor: 'background.paper',
         border: '1px solid',
         borderColor: isPinned ? 'rgba(167, 139, 250, 0.3)' : 'rgba(0, 0, 0, 0.08)',
-        borderLeft: isPinned ? '3px solid #a78bfa' : '3px solid transparent',
+        borderLeft: isPinned ? '3px solid #a78bfa' : '1px solid',
+        borderLeftColor: isPinned
+          ? '#a78bfa'
+          : lightTheme.isLight
+            ? 'rgba(0, 0, 0, 0.08)'
+            : 'rgba(255, 255, 255, 0.08)',
         borderRadius: 1,
         boxShadow: 'none',
         transition: 'all 0.15s ease-in-out',
@@ -369,21 +375,21 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
         </Alert>
       )}
 
-      {!(projects.length === 0 && !isLoading) && (
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h4" sx={{
-            fontWeight: 700,
-            mb: 1,
-            color: lightTheme.isLight ? 'rgba(0,0,0,0.87)' : 'rgba(255,255,255,0.95)',
-            letterSpacing: '-0.02em',
-          }}>
-            Projects
-          </Typography>
-          <Typography variant="body2" sx={{ color: lightTheme.isLight ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.5)' }}>
-            Each Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
-          </Typography>
-        </Box>
-      )}
+      <PageSectionHeader
+        title="Projects"
+        description="Each Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software."
+        action={
+          <CreateProjectButton
+            onCreateEmpty={onCreateEmpty}
+            onCreateFromSample={onCreateFromSample}
+            sampleProjects={sampleProjects}
+            isCreating={isCreating}
+            variant="contained"
+            color="secondary"
+            size="small"
+          />
+        }
+      />
 
       {projects.length === 0 && !isLoading ? (
         <Box sx={{ textAlign: 'center', py: 8 }}>
@@ -397,14 +403,6 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
             Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
 
           </Typography>
-          <CreateProjectButton
-            onCreateEmpty={onCreateEmpty}
-            onCreateFromSample={onCreateFromSample}
-            sampleProjects={sampleProjects}
-            isCreating={isCreating}
-            variant="contained"
-            color="secondary"
-          />
         </Box>
       ) : (
         <>

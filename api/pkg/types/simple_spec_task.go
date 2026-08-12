@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/datatypes"
@@ -80,19 +82,80 @@ type StartPlanningOptions struct {
 	Timezone string `json:"timezone,omitempty"`
 }
 
+// CodeAgentOverrides customizes the coding model for one SpecTask without
+// mutating the reusable Agent configuration it was created from.
+type CodeAgentOverrides struct {
+	ProviderRef     string `json:"provider_ref,omitempty"`
+	Model           string `json:"model,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	ServiceTier     string `json:"service_tier,omitempty"`
+}
+
+const (
+	DefaultSpecTaskSandboxVCPUs    = 4
+	DefaultSpecTaskSandboxMemoryMB = 8192
+)
+
+// SandboxResourceOverrides is the desired CPU and memory limit for the single
+// desktop container owned by a SpecTask. A nil value resolves to the SpecTask
+// default so legacy tasks and newly-created tasks run with the same limits.
+type SandboxResourceOverrides struct {
+	VCPUs    int `json:"vcpus,omitempty"`
+	MemoryMB int `json:"memory_mb,omitempty"`
+}
+
+func DefaultSpecTaskSandboxResources() *SandboxResourceOverrides {
+	return &SandboxResourceOverrides{
+		VCPUs:    DefaultSpecTaskSandboxVCPUs,
+		MemoryMB: DefaultSpecTaskSandboxMemoryMB,
+	}
+}
+
+func EffectiveSpecTaskSandboxResources(resources *SandboxResourceOverrides) SandboxResourceOverrides {
+	if resources == nil {
+		return *DefaultSpecTaskSandboxResources()
+	}
+	return *resources
+}
+
+func (r SandboxResourceOverrides) ValidPreset() bool {
+	switch r.VCPUs {
+	case 1:
+		return r.MemoryMB == 2048
+	case 4:
+		return r.MemoryMB == 8192
+	case 8:
+		return r.MemoryMB == 16384
+	default:
+		return false
+	}
+}
+
 // Request types
 type CreateTaskRequest struct {
-	ProjectID    string           `json:"project_id"`
-	Prompt       string           `json:"prompt"`
+	ProjectID string `json:"project_id"`
+	Prompt    string `json:"prompt"`
+	// Name is the task title. Empty means derive it from the prompt.
+	Name         string           `json:"name,omitempty"`
 	Type         string           `json:"type"`
 	Priority     SpecTaskPriority `json:"priority"`
 	UserID       string           `json:"user_id"`
-	UserEmail    string           `json:"user_email,omitempty"` // Optional: User email for audit trail
-	AppID        string           `json:"app_id"`               // Optional: Helix agent to use for spec generation
-	JustDoItMode bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
-	AutoStart    bool             `json:"auto_start"`           // Optional: Skip backlog and start immediately, regardless of project auto-start setting
-	DependsOn    []string         `json:"depends_on"`           // Optional: IDs of tasks this task depends on
+	UserEmail    string           `json:"user_email,omitempty"`  // Optional: User email for audit trail
+	AppID        string           `json:"app_id"`                // Optional: Helix agent to use for spec generation
+	JustDoItMode bool             `json:"just_do_it_mode"`       // Optional: Skip spec planning, go straight to implementation
+	AutoStart    bool             `json:"auto_start"`            // Optional: Skip backlog and start immediately, regardless of project auto-start setting
+	DependsOn    []string         `json:"depends_on"`            // Optional: IDs of tasks this task depends on
 	AssigneeID   string           `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
+
+	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+
+	// CredentialOwnerID optionally names the user whose Claude subscription should
+	// authenticate this task's agent, for orchestrators dispatching work on a
+	// human's behalf under one service API key. Credential resolution only — the
+	// task is still created by, owned by, and attributed to the caller. Ignored
+	// unless that user has delegated their subscription to this organization.
+	CredentialOwnerID string `json:"credential_owner_id,omitempty"`
 
 	// Branch configuration
 	BranchMode    BranchMode `json:"branch_mode,omitempty"`    // "new" or "existing" - defaults to "new"
@@ -142,6 +205,9 @@ type SpecTask struct {
 	// NEW: Single Helix Agent for entire workflow (App type in code)
 	HelixAppID string `json:"helix_app_id,omitempty" gorm:"size:255;index"`
 
+	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	// Git repository attachments: REMOVED - now inherited from parent Project
 	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
 
@@ -168,11 +234,13 @@ type SpecTask struct {
 	RepoPullRequests []RepoPR `json:"repo_pull_requests,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Agent activity tracking (computed from session/activity data, not stored)
-	SessionUpdatedAt     *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`     // When the session was last updated (for active/idle detection)
-	AgentWorkState       AgentWorkState `json:"agent_work_state,omitempty" gorm:"-"`       // Current agent work state (idle/working/done) from activity tracking
-	LastPromptContent    string         `json:"last_prompt_content,omitempty" gorm:"-"`    // Last prompt sent to agent (for continue functionality)
-	SandboxState         string         `json:"sandbox_state,omitempty" gorm:"-"`          // "absent", "running", "starting" — derived from session config in listTasks
-	SandboxStatusMessage string         `json:"sandbox_status_message,omitempty" gorm:"-"` // Transient startup message e.g. "Unpacking build cache"
+	LastMessageAt        *time.Time     `json:"last_message_at,omitempty" gorm:"->;-:migration"` // Newest conversation interaction, selected for last-message sorting
+	SessionUpdatedAt     *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`           // When the session was last updated (for active/idle detection)
+	AgentWorkState       AgentWorkState `json:"agent_work_state,omitempty" gorm:"-"`             // Current agent work state (idle/working/done) from activity tracking
+	LastPromptContent    string         `json:"last_prompt_content,omitempty" gorm:"-"`          // Last prompt sent to agent (for continue functionality)
+	SandboxState         string         `json:"sandbox_state,omitempty" gorm:"-"`                // "absent", "running", "starting" — derived from session config in listTasks
+	SandboxStatusMessage string         `json:"sandbox_status_message,omitempty" gorm:"-"`       // Transient startup message e.g. "Unpacking build cache"
+	QueueReason          string         `json:"queue_reason,omitempty" gorm:"-"`                 // Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted
 
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
@@ -199,12 +267,34 @@ type SpecTask struct {
 	MergedAt           *time.Time `json:"merged_at,omitempty"`                 // When merge happened
 	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`         // Merge commit hash
 
+	// Structured error from the last external (mirror) push. Set when a user-initiated
+	// push to the external repo fails and refs are rolled back; cleared (nil) on the
+	// next successful push. Surfaced on the board so failures aren't silent.
+	LastPushError *PushError `json:"last_push_error,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	// Simple tracking
 	EstimatedHours    int        `json:"estimated_hours,omitempty"`
 	PlanningStartedBy string     `json:"planning_started_by,omitempty"` // User who kicked off planning (may differ from CreatedBy)
 	PlanningStartedAt *time.Time `json:"planning_started_at,omitempty"`
 	StartedAt         *time.Time `json:"started_at,omitempty"`
 	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+
+	// CredentialOwnerID names the user whose Claude subscription authenticates
+	// this task's agent sessions, when that differs from CreatedBy. It changes
+	// ONLY credential resolution — the task and its sessions are still owned by,
+	// and attributed to, CreatedBy. Nothing "runs as" the credential owner.
+	//
+	// This exists for orchestrators (HelixOS) that dispatch every task with one
+	// service API key but run work on behalf of different humans: without it the
+	// service account's subscription authenticates everyone's bots, so one
+	// person's expired token breaks all of them and no one can use their own
+	// Claude account.
+	//
+	// Honoured only when the named user has delegated their subscription to this
+	// organization (ClaudeSubscription.DelegatedOrgIDs) — otherwise anyone able
+	// to create a task could spend another user's Claude quota. See
+	// ResolveClaudeCredentialOwner.
+	CredentialOwnerID string `json:"credential_owner_id,omitempty" gorm:"size:255;index"`
 
 	// Metadata
 	CreatedBy string                 `json:"created_by"`
@@ -243,10 +333,63 @@ type SpecTask struct {
 	// NOTE: Use GORM preloading to load these when needed:
 	//   db.Preload("WorkSessions").Preload("ZedThreads").Find(&specTask)
 	// swaggerignore prevents circular reference in swagger generation
-	WorkSessions []SpecTaskWorkSession `json:"work_sessions,omitempty" gorm:"foreignKey:SpecTaskID" swaggerignore:"true"`
-	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID" swaggerignore:"true"`
+	WorkSessions []SpecTaskWorkSession `json:"work_sessions,omitempty" gorm:"foreignKey:SpecTaskID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" swaggerignore:"true"`
+	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" swaggerignore:"true"`
 
 	PlanningOptions StartPlanningOptions `json:"planning_options,omitempty" gorm:"type:jsonb;serializer:json"`
+}
+
+// PushError captures a failed external (mirror) push so the failure is queryable
+// and shown on the task instead of being silently rolled back after the git
+// client already received its 200. Cleared (set to nil) on the next successful push.
+type PushError struct {
+	Provider   ExternalRepositoryType `json:"provider"`    // e.g. "github"
+	Account    string                 `json:"account"`     // VCS account the push was attempted as, e.g. "@linuxrecruit"
+	Repo       string                 `json:"repo"`        // e.g. "helixml/find-ai"
+	RawMessage string                 `json:"raw_message"` // verbatim provider error
+	Cause      string                 `json:"cause"`       // translated human-readable cause
+	NextStep   string                 `json:"next_step"`   // translated actionable next step
+	FailedAt   time.Time              `json:"failed_at"`
+}
+
+// NewPushError builds a PushError, translating the raw provider message into a
+// human-readable cause and next step. The motivating footgun: GitHub returns
+// "404 Repository not found" (not 403) for a private repo the token can't see,
+// which reads as "the repo doesn't exist" when the real cause is that the
+// connected account can't access it. We translate that into an actionable
+// switch-account prompt. Kept generic across providers via simple message matching.
+func NewPushError(provider ExternalRepositoryType, account, repo, rawMessage string, failedAt time.Time) *PushError {
+	pe := &PushError{
+		Provider:   provider,
+		Account:    account,
+		Repo:       repo,
+		RawMessage: rawMessage,
+		FailedAt:   failedAt,
+	}
+	acct := account
+	if acct == "" {
+		acct = "your connected account"
+	}
+	repoName := repo
+	if repoName == "" {
+		repoName = "the repository"
+	}
+	lower := strings.ToLower(rawMessage)
+	switch {
+	case strings.Contains(lower, "not found") || strings.Contains(lower, "404"):
+		pe.Cause = fmt.Sprintf("%s can't access %s. If the repo is private, this account isn't a member.", acct, repoName)
+		pe.NextStep = "Switch to a VCS account that has access to this repo, then retry."
+	case strings.Contains(lower, "forbidden") || strings.Contains(lower, "403") || strings.Contains(lower, "permission"):
+		pe.Cause = fmt.Sprintf("%s doesn't have write permission to %s.", acct, repoName)
+		pe.NextStep = "Switch to an account with write access, or ask an admin to grant it."
+	case strings.Contains(lower, "authentication") || strings.Contains(lower, "401") || strings.Contains(lower, "credentials"):
+		pe.Cause = fmt.Sprintf("Authentication failed for %s.", acct)
+		pe.NextStep = "Reconnect the VCS account, then retry."
+	default:
+		pe.Cause = fmt.Sprintf("Push to %s as %s failed.", repoName, acct)
+		pe.NextStep = "Check the account has access to the repo, or switch accounts, then retry."
+	}
+	return pe
 }
 
 // SampleSpecProject - simplified sample projects with proper spec-driven tasks
@@ -286,20 +429,23 @@ type SpecGeneration struct {
 
 // SpecTaskFilters for filtering spec tasks in queries
 type SpecTaskFilters struct {
-	ProjectID         string         `json:"project_id,omitempty"`
-	Status            SpecTaskStatus `json:"status,omitempty"`
-	UserID            string         `json:"user_id,omitempty"`
-	Type              string         `json:"type,omitempty"`
-	Priority          string         `json:"priority,omitempty"`
-	Limit             int            `json:"limit,omitempty"`
-	Offset            int            `json:"offset,omitempty"`
-	WithDependsOn     bool           `json:"with_depends_on,omitempty"`
-	IncludeArchived   bool           `json:"include_archived,omitempty"`    // If true, include both archived and non-archived
-	ArchivedOnly      bool           `json:"archived_only,omitempty"`       // If true, show only archived tasks
-	DesignDocPath     string         `json:"design_doc_path,omitempty"`     // Filter by exact DesignDocPath (for git push detection)
-	BranchName        string         `json:"branch_name,omitempty"`         // Filter by exact BranchName (for uniqueness check)
-	AgentSessionID    string         `json:"agent_session_id,omitempty"`    // Filter by AgentSessionID (reverse lookup)
-	Labels            []string       `json:"labels,omitempty"`              // Filter tasks that have ALL of these labels (AND semantics)
+	ProjectID          string         `json:"project_id,omitempty"`
+	Status             SpecTaskStatus `json:"status,omitempty"`
+	UserID             string         `json:"user_id,omitempty"`
+	FilterParticipants bool           `json:"filter_participants,omitempty"`
+	ParticipantIDs     []string       `json:"participant_ids,omitempty"` // Created by or assigned to any selected user
+	Type               string         `json:"type,omitempty"`
+	Priority           string         `json:"priority,omitempty"`
+	Limit              int            `json:"limit,omitempty"`
+	Offset             int            `json:"offset,omitempty"`
+	SortBy             string         `json:"sort_by,omitempty"`
+	WithDependsOn      bool           `json:"with_depends_on,omitempty"`
+	IncludeArchived    bool           `json:"include_archived,omitempty"` // If true, include both archived and non-archived
+	ArchivedOnly       bool           `json:"archived_only,omitempty"`    // If true, show only archived tasks
+	DesignDocPath      string         `json:"design_doc_path,omitempty"`  // Filter by exact DesignDocPath (for git push detection)
+	BranchName         string         `json:"branch_name,omitempty"`      // Filter by exact BranchName (for uniqueness check)
+	AgentSessionID     string         `json:"agent_session_id,omitempty"` // Filter by AgentSessionID (reverse lookup)
+	Labels             []string       `json:"labels,omitempty"`           // Filter tasks that have ALL of these labels (AND semantics)
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
@@ -315,6 +461,35 @@ type SpecTaskUpdateRequest struct {
 	KeepAlive        *bool            `json:"keep_alive,omitempty"`         // Pointer to allow explicit false — prevent auto-idle-shutdown
 	DependsOn        []string         `json:"depends_on"`                   // IDs of tasks this task depends on
 	AssigneeID       *string          `json:"assignee_id,omitempty"`        // Pointer to allow clearing (set to empty string to unassign)
+}
+
+// SpecTaskExecutionConfigUpdateRequest replaces either task-level execution
+// override. Omitted fields are left unchanged.
+type SpecTaskExecutionConfigUpdateRequest struct {
+	AgentID                  string                    `json:"agent_id,omitempty"`
+	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty"`
+	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+}
+
+// SpecTaskExecutionConfig describes the task's current coding identity without
+// exposing the reusable Agent or its secrets. AgentAvailable is false when a
+// legacy task points at an Agent that has since been deleted.
+type SpecTaskExecutionConfig struct {
+	AgentID         string                  `json:"agent_id,omitempty"`
+	AgentName       string                  `json:"agent_name,omitempty"`
+	AgentAvailable  bool                    `json:"agent_available"`
+	Runtime         CodeAgentRuntime        `json:"runtime,omitempty"`
+	CredentialType  CodeAgentCredentialType `json:"credential_type,omitempty"`
+	ProviderRef     string                  `json:"provider_ref,omitempty"`
+	Model           string                  `json:"model,omitempty"`
+	ReasoningEffort string                  `json:"reasoning_effort,omitempty"`
+	ServiceTier     string                  `json:"service_tier,omitempty"`
+}
+
+type SpecTaskExecutionConfigUpdateResponse struct {
+	Task                    *SpecTask `json:"task"`
+	AgentThreadRestarted    bool      `json:"agent_thread_restarted"`
+	SandboxResourcesApplied bool      `json:"sandbox_resources_applied"`
 }
 
 type SpecTaskStatus string
@@ -382,8 +557,8 @@ type SpecTaskAttachment struct {
 	Filename      string    `json:"filename" gorm:"size:512;not null"`         // original filename, sanitised
 	MimeType      string    `json:"mime_type" gorm:"size:128;not null"`
 	SizeBytes     int64     `json:"size_bytes" gorm:"not null"`
-	Caption       string    `json:"caption,omitempty" gorm:"size:1024"`   // optional user note
-	FilestorePath string    `json:"-" gorm:"size:1024;not null"`          // absolute filestore path (server-internal)
+	Caption       string    `json:"caption,omitempty" gorm:"size:1024"`     // optional user note
+	FilestorePath string    `json:"-" gorm:"size:1024;not null"`            // absolute filestore path (server-internal)
 	CommittedSHA  string    `json:"committed_sha,omitempty" gorm:"size:64"` // helix-specs commit hash once staged
 	CreatedAt     time.Time `json:"created_at"`
 }
@@ -394,22 +569,22 @@ func (SpecTaskAttachment) TableName() string {
 
 // SpecTask attachment limits
 const (
-	SpecTaskAttachmentMaxBytes   = 10 * 1024 * 1024 // 10 MB per file
-	SpecTaskAttachmentMaxPerTask = 10               // 10 files per task
+	SpecTaskAttachmentMaxBytes   = 100 * 1024 * 1024 // 100 MB per file
+	SpecTaskAttachmentMaxPerTask = 500               // 500 files per task
 )
 
 // SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.
 // Kept narrow on purpose: images the agent can visually read, plus common text formats.
 var SpecTaskAttachmentAllowedMimeTypes = map[string]bool{
-	"image/png":        true,
-	"image/jpeg":       true,
-	"image/gif":        true,
-	"image/webp":       true,
-	"image/svg+xml":    true,
-	"application/pdf":  true,
-	"text/plain":       true,
-	"text/markdown":    true,
-	"text/csv":         true,
+	"image/png":       true,
+	"image/jpeg":      true,
+	"image/gif":       true,
+	"image/webp":      true,
+	"image/svg+xml":   true,
+	"application/pdf": true,
+	"text/plain":      true,
+	"text/markdown":   true,
+	"text/csv":        true,
 }
 
 // SpecTaskExternalAgent represents the external agent (desktop container) for a SpecTask

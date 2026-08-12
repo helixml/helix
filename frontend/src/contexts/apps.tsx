@@ -28,13 +28,14 @@ export interface IAppsQuery {
 }
 
 // Code agent runtime options for zed_external agents
-export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code' | 'goose_code'
+export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code'
 
 // Display names for code agent runtimes (maintainable for future additions)
 export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> = {
   'zed_agent': 'Zed Agent',
   'qwen_code': 'Qwen Code',
   'claude_code': 'Claude Code',
+  'codex_cli': 'Codex',
   'goose_code': 'Goose',
 }
 
@@ -105,6 +106,7 @@ export function getModelDisplayName(modelId: string): string {
 export function generateAgentName(modelId: string, runtime: CodeAgentRuntime): string {
   // Claude Code manages its own model selection
   if (runtime === 'claude_code') return 'Claude Code'
+  if (runtime === 'codex_cli') return 'Codex'
   if (!modelId) return '-'  // Show dash when model not yet selected
   const modelName = getModelDisplayName(modelId)
   const runtimeName = CODE_AGENT_RUNTIME_DISPLAY_NAMES[runtime]
@@ -123,9 +125,12 @@ export interface ICreateAgentParams {
 
   codeAgentRuntime?: CodeAgentRuntime;
   codeAgentCredentialType?: 'api_key' | 'subscription';
+  claudeSubscriptionModel?: string;
+  deferModelSelection?: boolean;
 
   model?: string;
   provider?: string;
+  reasoningEffort?: string;
 
   organizationId?: string;
 
@@ -183,7 +188,7 @@ export const useAppsContext = (): IAppsContext => {
 
     const organizationIdParam = account.organizationTools.organization?.id || ''
 
-    const result = await api.get<IApp[]>(`/api/v1/apps`, {
+    const result = await api.get<IApp[]>(`/api/v1/agents`, {
       params: {
         organization_id: organizationIdParam,
       }
@@ -196,7 +201,7 @@ export const useAppsContext = (): IAppsContext => {
 
   const loadApp = useCallback(async (id: string, showErrors: boolean = true) => {
     if(!id || !orgLoaded) return
-    const result = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
+    const result = await api.get<IApp>(`/api/v1/agents/${id}`, undefined, {
       snackbar: showErrors,
     })
     if(!result || !mountedRef.current) return
@@ -209,7 +214,7 @@ export const useAppsContext = (): IAppsContext => {
       // Use the model from params, or fall back to generation_model if not provided
       const effectiveModel = params.model || params.generationModel || '';
 
-      const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
+      const result = await api.post<Partial<IApp>, IApp>(`/api/v1/agents`, {
         organization_id: params.organizationId || account.organizationTools.organization?.id || '',
         config: {
           helix: {
@@ -225,7 +230,10 @@ export const useAppsContext = (): IAppsContext => {
               agent_mode: false,
               agent_type: params.agentType || 'helix_agent',
               code_agent_runtime: params.agentType === 'zed_external' ? (params.codeAgentRuntime || 'zed_agent') : undefined,
-              code_agent_credential_type: params.agentType === 'zed_external' ? (params.codeAgentCredentialType || 'api_key') : undefined,
+              code_agent_credential_type: params.agentType === 'zed_external'
+                ? (params.deferModelSelection ? undefined : (params.codeAgentCredentialType || 'api_key'))
+                : undefined,
+              claude_subscription_model: params.agentType === 'zed_external' ? params.claudeSubscriptionModel : undefined,
               reasoning_model_provider: params.reasoningModelProvider,
               reasoning_model: params.reasoningModel,
               reasoning_model_effort: params.reasoningModelEffort,
@@ -240,6 +248,7 @@ export const useAppsContext = (): IAppsContext => {
               image: '',
               provider: params.provider || '',
               model: effectiveModel,
+              reasoning_effort: params.reasoningEffort,
               type: SESSION_TYPE_TEXT,
               system_prompt: params.systemPrompt || '',
               apis: [],
@@ -280,7 +289,7 @@ export const useAppsContext = (): IAppsContext => {
 
   const updateApp = useCallback(async (id: string, updatedApp: IAppUpdate): Promise<IApp | undefined> => {
     try {
-      const url = `/api/v1/apps/${id}`;
+      const url = `/api/v1/agents/${id}`;
       console.log("useApps: Request URL:", url);
       const result = await api.put<IAppUpdate, IApp>(url, updatedApp, {}, {
         snackbar: true,
@@ -302,7 +311,7 @@ export const useAppsContext = (): IAppsContext => {
   }, [api, loadApps]);
 
   const deleteApp = useCallback(async (id: string): Promise<boolean | undefined> => {
-    await api.delete(`/api/v1/apps/${id}`, {}, {
+    await api.delete(`/api/v1/agents/${id}`, {}, {
       snackbar: true,
     })
     await loadApps()
@@ -343,4 +352,4 @@ export const AppsContextProvider = ({ children }: { children: ReactNode }) => {
       { children }
     </AppsContext.Provider>
   )
-} 
+}

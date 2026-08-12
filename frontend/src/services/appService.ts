@@ -78,7 +78,7 @@ export function useListApps(orgId: string, options?: { enabled?: boolean }) {
   
   return useQuery({
     queryKey: appListQueryKey(orgId),
-    queryFn: () => apiClient.v1AppsList({ organization_id: orgId }),
+    queryFn: () => apiClient.v1AgentsList({ organization_id: orgId }),
     enabled: options?.enabled ?? true
   })
 }
@@ -89,7 +89,7 @@ export function useGetApp(appId: string, options?: { enabled?: boolean }) {
 
   return useQuery({
     queryKey: appDetailQueryKey(appId),
-    queryFn: () => apiClient.v1AppsDetail(appId),
+    queryFn: () => apiClient.v1AgentsDetail(appId),
     enabled: options?.enabled ?? true
   })
 }
@@ -102,7 +102,7 @@ export function useListAppSteps(appId: string, interactionId: string, options?: 
 
   return useQuery({
     queryKey: appStepsQueryKey(appId, interactionId),
-    queryFn: () => apiClient.v1AppsStepInfoDetail(appId, {interactionId}),
+    queryFn: () => apiClient.v1AgentsStepInfoDetail(appId, {interactionId}),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval
   })
@@ -127,7 +127,7 @@ export function useListAppTriggers(appId: string, options?: { enabled?: boolean,
 
   return useQuery({
     queryKey: appTriggersListQueryKey(appId),
-    queryFn: () => apiClient.v1AppsTriggersDetail(appId),
+    queryFn: () => apiClient.v1AgentsTriggersDetail(appId),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval
   })
@@ -212,7 +212,7 @@ export function useGetAppTriggerStatus(appId: string, triggerType: string, optio
 
   return useQuery({
     queryKey: appTriggerStatusQueryKey(appId, triggerType),
-    queryFn: () => apiClient.v1AppsTriggerStatusDetail(appId, { trigger_type: triggerType }),
+    queryFn: () => apiClient.v1AgentsTriggerStatusDetail(appId, { trigger_type: triggerType }),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval
   })
@@ -239,7 +239,7 @@ export function useUpdateAppAvatar(appId: string) {
       reader.readAsDataURL(file)
       const base64Data = await base64Promise
       
-      return apiClient.v1AppsAvatarCreate(appId, base64Data)
+      return apiClient.v1AgentsAvatarCreate(appId, base64Data)
     },
     onSuccess: () => {
       // Invalidate any cached avatar data
@@ -254,7 +254,7 @@ export function useDeleteAppAvatar(appId: string) {
   const apiClient = api.getApiClient()
 
   return useMutation({
-    mutationFn: () => apiClient.v1AppsAvatarDelete(appId)
+    mutationFn: () => apiClient.v1AgentsAvatarDelete(appId)
   })
 }
 
@@ -265,7 +265,7 @@ export function useGetAppUsage(appId: string, from: string, to: string) {
   return useQuery({
     queryKey: appUsageQueryKey(appId, from, to), 
     queryFn: async () => {
-      const response = await apiClient.v1AppsUsersDailyUsageDetail(appId, { from, to })
+      const response = await apiClient.v1AgentsUsersDailyUsageDetail(appId, { from, to })
       return response.data as unknown as TypesUsersAggregatedUsageMetric[]
     },
   })
@@ -279,7 +279,7 @@ export function useDuplicateApp(orgId: string) {
 
   return useMutation({
     mutationFn: ({ appId, name }: { appId: string; name?: string }) => 
-      apiClient.v1AppsDuplicateCreate(appId, { name }),
+      apiClient.v1AgentsDuplicateCreate(appId, { name }),
     onSuccess: () => {
       // Invalidate the apps list to refresh the UI
       queryClient.invalidateQueries({ queryKey: appListQueryKey(orgId) })
@@ -294,7 +294,7 @@ export function useListAppMemories(appId: string, options?: { enabled?: boolean 
 
   return useQuery({
     queryKey: appMemoriesQueryKey(appId),
-    queryFn: () => apiClient.v1AppsMemoriesDetail(appId),
+    queryFn: () => apiClient.v1AgentsMemoriesDetail(appId),
     enabled: options?.enabled ?? true
   })
 }
@@ -306,7 +306,7 @@ export function useDeleteAppMemory(appId: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (memoryId: string) => apiClient.v1AppsMemoriesDelete(appId, memoryId),
+    mutationFn: (memoryId: string) => apiClient.v1AgentsMemoriesDelete(appId, memoryId),
     onSuccess: () => {
       // Invalidate the memories list to refresh the UI
       queryClient.invalidateQueries({ queryKey: appMemoriesQueryKey(appId) })

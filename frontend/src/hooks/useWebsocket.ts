@@ -38,7 +38,10 @@ export const useWebsocket = (
     const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${session_id}`
 
     const rws = new ReconnectingWebSocket(url, [], {
-      maxRetries: 10,
+      // Never permanently give up: a long offline stretch (laptop asleep, wifi
+      // down) would otherwise burn through a finite retry budget and leave the
+      // socket dead forever, forcing a manual page refresh to resume streaming.
+      maxRetries: Infinity,
       reconnectionDelayGrowFactor: 1.3,
       maxReconnectionDelay: 10000,
       minReconnectionDelay: 1000,
@@ -62,7 +65,20 @@ export const useWebsocket = (
 
     rws.addEventListener('message', messageHandler)
 
+    // After a laptop sleep / wifi switch the socket is often left half-open (the
+    // browser reports it OPEN but no data flows and no 'close' fires). Force a
+    // reconnect when the tab regains focus or the network returns so updates
+    // resume without a manual refresh.
+    const forceReconnectOnResume = () => {
+      if (document.visibilityState === 'visible') rws.reconnect()
+    }
+    const handleOnline = () => rws.reconnect()
+    document.addEventListener('visibilitychange', forceReconnectOnResume)
+    window.addEventListener('online', handleOnline)
+
     return () => {
+      document.removeEventListener('visibilitychange', forceReconnectOnResume)
+      window.removeEventListener('online', handleOnline)
       if (wsRef.current) {
         wsRef.current.removeEventListener('message', messageHandler)
         wsRef.current.close()

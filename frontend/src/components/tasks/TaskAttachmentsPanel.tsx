@@ -102,11 +102,12 @@ const TaskAttachmentsPanel: FC<TaskAttachmentsPanelProps> = ({ taskId, status })
   return (
     <Box
       sx={{
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 1,
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
         p: 2,
         mb: 2,
-        background: 'rgba(255,255,255,0.02)',
+        backgroundColor: 'background.paper',
       }}
     >
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
@@ -142,8 +143,7 @@ const TaskAttachmentsPanel: FC<TaskAttachmentsPanelProps> = ({ taskId, status })
                 borderRadius: 1,
                 fontSize: '0.8125rem',
                 fontWeight: 500,
-                textTransform: 'uppercase',
-                letterSpacing: '0.02857em',
+                textTransform: 'none',
                 cursor: upload.isPending || remaining <= 0 ? 'not-allowed' : 'pointer',
                 userSelect: 'none',
                 '&:hover': {

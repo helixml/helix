@@ -1,8 +1,13 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"syscall"
 	"testing"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -13,6 +18,7 @@ func TestInjectAvailableModels(t *testing.T) {
 		helixSettings   map[string]interface{}
 		wantModel       string
 		wantProvider    string
+		wantEffort      string
 		wantSkipped     bool // true if injection should be skipped (e.g. anthropic built-in)
 	}{
 		{
@@ -30,6 +36,23 @@ func TestInjectAvailableModels(t *testing.T) {
 			},
 			wantModel:    "helix/qwen3:8b",
 			wantProvider: "openai",
+		},
+		{
+			name: "adds explicit none reasoning effort for zed agent",
+			codeAgentConfig: &CodeAgentConfig{
+				Model:           "openai/gpt-5.6-sol",
+				APIType:         "openai",
+				Runtime:         "zed_agent",
+				ReasoningEffort: "none",
+			},
+			helixSettings: map[string]interface{}{
+				"language_models": map[string]interface{}{
+					"openai": map[string]interface{}{},
+				},
+			},
+			wantModel:    "openai/gpt-5.6-sol",
+			wantProvider: "openai",
+			wantEffort:   "none",
 		},
 		{
 			name: "creates provider config if missing",
@@ -200,6 +223,7 @@ func TestInjectAvailableModels(t *testing.T) {
 					if model, ok := m.(AvailableModel); ok {
 						assert.Equal(t, tt.wantModel, model.DisplayName, "display_name should match model name")
 						assert.NotZero(t, model.MaxTokens, "max_tokens should be set")
+						assert.Equal(t, tt.wantEffort, model.ReasoningEffort, "reasoning_effort should match")
 					} else if model, ok := m.(map[string]interface{}); ok {
 						assert.Equal(t, tt.wantModel, model["display_name"], "display_name should match model name")
 						assert.NotNil(t, model["max_tokens"], "max_tokens should be set")
@@ -235,8 +259,7 @@ func TestInjectAvailableModels(t *testing.T) {
 }
 
 // TestMergeAgentBlock_HelixManagedFieldsProtected verifies that the daemon's
-// client-side merge drops user-side overrides for helix-managed agent.* model
-// fields. See deviqon/P1-5-zed-overrides-clobber-helix-default-model.md.
+// client-side merge drops user-side overrides for helix-managed agent fields.
 func TestMergeAgentBlock_HelixManagedFieldsProtected(t *testing.T) {
 	helixAgent := map[string]interface{}{
 		"default_model":          map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
@@ -245,6 +268,7 @@ func TestMergeAgentBlock_HelixManagedFieldsProtected(t *testing.T) {
 		"thread_summary_model":   map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
 		"auto_open_panel":        true,
 		"show_onboarding":        false,
+		"sandbox_permissions":    map[string]interface{}{"allow_unsandboxed": true},
 	}
 
 	t.Run("user override of default_model is dropped", func(t *testing.T) {
@@ -281,6 +305,16 @@ func TestMergeAgentBlock_HelixManagedFieldsProtected(t *testing.T) {
 		}
 	})
 
+	t.Run("sandbox permissions are protected", func(t *testing.T) {
+		userAgent := map[string]interface{}{
+			"sandbox_permissions": map[string]interface{}{"allow_unsandboxed": false},
+		}
+		merged := mergeAgentBlock(helixAgent, userAgent).(map[string]interface{})
+
+		permissions := merged["sandbox_permissions"].(map[string]interface{})
+		assert.Equal(t, true, permissions["allow_unsandboxed"])
+	})
+
 	t.Run("non-model agent fields can still be user-overridden", func(t *testing.T) {
 		userAgent := map[string]interface{}{
 			"default_model":              map[string]interface{}{"provider": "anthropic", "model": "claude"},
@@ -300,13 +334,28 @@ func TestMergeAgentBlock_HelixManagedFieldsProtected(t *testing.T) {
 	})
 }
 
+func TestInjectAgentPermissions(t *testing.T) {
+	settings := map[string]interface{}{
+		"agent": map[string]interface{}{
+			"sandbox_permissions": map[string]interface{}{"allow_unsandboxed": false},
+		},
+	}
+
+	injectAgentPermissions(settings)
+
+	agent := settings["agent"].(map[string]interface{})
+	assert.Equal(t, map[string]interface{}{"allow_unsandboxed": true}, agent["sandbox_permissions"])
+	assert.Equal(t, map[string]interface{}{"default": "allow"}, agent["tool_permissions"])
+}
+
 // TestExtractUserOverrides_AgentDiffSkipsManagedFields verifies that the daemon
-// does not upload changes to helix-managed agent.* model fields.
+// does not upload changes to helix-managed agent fields.
 func TestExtractUserOverrides_AgentDiffSkipsManagedFields(t *testing.T) {
 	helix := map[string]interface{}{
 		"agent": map[string]interface{}{
-			"default_model":   map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
-			"auto_open_panel": true,
+			"default_model":       map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
+			"auto_open_panel":     true,
+			"sandbox_permissions": map[string]interface{}{"allow_unsandboxed": true},
 		},
 	}
 
@@ -315,6 +364,18 @@ func TestExtractUserOverrides_AgentDiffSkipsManagedFields(t *testing.T) {
 			"agent": map[string]interface{}{
 				"default_model":   map[string]interface{}{"provider": "anthropic", "model": "claude-sonnet-4-6-latest"},
 				"auto_open_panel": true,
+			},
+		}
+		got := extractUserOverrides(current, helix)
+		assert.NotContains(t, got, "agent")
+	})
+
+	t.Run("does not upload sandbox permission changes", func(t *testing.T) {
+		current := map[string]interface{}{
+			"agent": map[string]interface{}{
+				"default_model":       map[string]interface{}{"provider": "openai", "model": "numpty/openai/gpt-oss-120b"},
+				"auto_open_panel":     true,
+				"sandbox_permissions": map[string]interface{}{"allow_unsandboxed": false},
 			},
 		}
 		got := extractUserOverrides(current, helix)
@@ -499,4 +560,286 @@ func TestExtractUserOverrides_SkipsHelixOwnedContextServers(t *testing.T) {
 		assert.NotContains(t, cs, "chrome-devtools")
 		assert.Contains(t, cs, "my-custom-mcp")
 	})
+}
+
+// TestQwenCodeAgentServerHasYoloDefaultMode pins the fix for the
+// "qwen-code agents prompt for permission on every edit" bug. Without
+// default_mode: "yolo" on the qwen entry, qwen-code's Session.setMode
+// defaults to ApprovalMode.DEFAULT and every tool call round-trips a
+// session/request_permission to Zed — which nobody clicks in a headless
+// spec-task sandbox, so the agent stalls. claude_code has the equivalent
+// default_mode: "bypassPermissions" entry; this test keeps the two in
+// step. If you remove the default_mode field, this test fails.
+func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
+	d := &SettingsDaemon{
+		codeAgentConfig: &CodeAgentConfig{
+			Runtime: "qwen_code",
+			BaseURL: "http://outer-api:8080/v1",
+			Model:   "nebius/zai-org/GLM-5.1",
+		},
+		userAPIKey: "hl-test-key",
+	}
+
+	cfg := d.generateAgentServerConfig()
+	qwen, ok := cfg["qwen"].(map[string]interface{})
+	assert.True(t, ok, "agent_servers must contain a qwen entry for qwen_code runtime")
+
+	mode, ok := qwen["default_mode"].(string)
+	assert.True(t, ok, "qwen entry must have a default_mode string")
+	assert.Equal(t, "yolo", mode,
+		"qwen default_mode must be \"yolo\" so qwen-code auto-approves tool calls (mirrors claude_code bypassPermissions)")
+
+	// --yolo must also be on the command line: default_mode alone relies on the
+	// IDE issuing session/set_mode, which the pinned Zed builds don't do for
+	// custom agent servers. --yolo guarantees YOLO at qwen startup regardless.
+	args, ok := qwen["args"].([]string)
+	assert.True(t, ok, "qwen entry must have args")
+	assert.Contains(t, args, "--yolo",
+		"qwen args must include --yolo so the ACP session starts in YOLO mode without depending on the IDE")
+}
+
+func TestEnsureCodexNonInteractiveConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "codex", "config.toml")
+	existing := []byte("model = \"gpt-5.6-sol\"\n\n[projects.\"/workspace\"]\ntrust_level = \"trusted\"\n")
+	assert.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	assert.NoError(t, os.WriteFile(path, existing, 0644))
+
+	assert.NoError(t, ensureCodexNonInteractiveConfig(path))
+	data, err := os.ReadFile(path)
+	assert.NoError(t, err)
+	var config map[string]interface{}
+	assert.NoError(t, toml.Unmarshal(data, &config))
+	assert.Equal(t, "never", config["approval_policy"])
+	assert.Equal(t, "danger-full-access", config["sandbox_mode"])
+	assert.Equal(t, "gpt-5.6-sol", config["model"])
+	projects, ok := config["projects"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Contains(t, projects, "/workspace")
+}
+
+func TestCodexAgentServerUsesFullAccess(t *testing.T) {
+	originalPath := CodexConfigPath
+	CodexConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	t.Cleanup(func() { CodexConfigPath = originalPath })
+
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{Runtime: "codex_cli", BaseURL: "http://api/v1"}}
+	cfg := d.generateAgentServerConfig()
+	codex, ok := cfg["codex-acp"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "agent-full-access", codex["default_mode"])
+	env, ok := codex["env"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "agent-full-access", env["INITIAL_AGENT_MODE"])
+
+	data, err := os.ReadFile(CodexConfigPath)
+	assert.NoError(t, err)
+	var persisted map[string]interface{}
+	assert.NoError(t, toml.Unmarshal(data, &persisted))
+	assert.Equal(t, "never", persisted["approval_policy"])
+	assert.Equal(t, "danger-full-access", persisted["sandbox_mode"])
+}
+
+func TestClaudeAgentServerUsesConfiguredReasoningEffort(t *testing.T) {
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{
+		Runtime:         "claude_code",
+		Model:           "claude-opus-4-6",
+		BaseURL:         "http://api",
+		ReasoningEffort: "max",
+	}}
+
+	cfg := d.generateAgentServerConfig()
+	claude, ok := cfg["claude-acp"].(map[string]interface{})
+	assert.True(t, ok)
+	env, ok := claude["env"].(map[string]string)
+	assert.True(t, ok)
+	assert.Equal(t, "max", env["CLAUDE_CODE_EFFORT_LEVEL"])
+}
+
+func TestCodexAgentServerUsesConfiguredReasoningEffort(t *testing.T) {
+	originalPath := CodexConfigPath
+	CodexConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	t.Cleanup(func() { CodexConfigPath = originalPath })
+
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{
+		Runtime:         "codex_cli",
+		BaseURL:         "http://api/v1",
+		ReasoningEffort: "ultra",
+		ServiceTier:     "fast",
+	}}
+
+	cfg := d.generateAgentServerConfig()
+	codex, ok := cfg["codex-acp"].(map[string]interface{})
+	assert.True(t, ok)
+	env, ok := codex["env"].(map[string]interface{})
+	assert.True(t, ok)
+	codexConfig, ok := env["CODEX_CONFIG"].(string)
+	assert.True(t, ok)
+	assert.JSONEq(t, `{"model_reasoning_effort":"ultra","service_tier":"fast"}`, codexConfig)
+}
+
+// TestComputeEffectiveTheme exercises every branch of the helper that decides
+// whether the daemon should write the API-supplied theme or preserve the user's
+// on-disk Zed-UI choice. Covers the structured-theme case (the 002056 hypothesis
+// H1) explicitly — a Zed UI ToggleMode can leave settings.json with
+//
+//	"theme": {"mode":"system","light":"One Light","dark":"Ayu Dark"}
+//
+// which must be replaced with the bare string the API chose; otherwise Zed's
+// in-memory Dynamic{mode:System} state would keep resolving theme via the OS
+// appearance and the user's explicit Helix toggle would never apply.
+func TestComputeEffectiveTheme(t *testing.T) {
+	tests := []struct {
+		name           string
+		apiTheme       string
+		writeFile      bool   // create settings.json
+		fileContent    string // contents (only if writeFile)
+		wantResult     string
+		wantBranch     string
+		wantOnDiskHint string // substring expected in the onDiskRepr log field
+	}{
+		{
+			name:           "empty api theme skips assignment",
+			apiTheme:       "",
+			writeFile:      true,
+			fileContent:    `{"theme":"Ayu Dark"}`,
+			wantResult:     "",
+			wantBranch:     "no_api_theme",
+			wantOnDiskHint: "not_read",
+		},
+		{
+			name:           "missing settings file writes api theme",
+			apiTheme:       "Ayu Dark",
+			writeFile:      false,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "no_existing_file",
+			wantOnDiskHint: "missing",
+		},
+		{
+			name:           "unparseable settings file writes api theme",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    "{not valid json",
+			wantResult:     "Ayu Dark",
+			wantBranch:     "unparseable",
+			wantOnDiskHint: "unparseable",
+		},
+		{
+			name:           "no theme key writes api theme",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"other":"value"}`,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "no_theme_key",
+			wantOnDiskHint: "absent",
+		},
+		{
+			name:           "structured theme is replaced with api string",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"theme":{"mode":"system","light":"One Light","dark":"Ayu Dark"}}`,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "structured_replace",
+			wantOnDiskHint: "mode",
+		},
+		{
+			name:           "empty string theme writes api theme",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"theme":""}`,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "empty_string",
+			wantOnDiskHint: `""`,
+		},
+		{
+			name:           "managed theme is overwritten on toggle",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"theme":"One Light"}`,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "managed_overwrite",
+			wantOnDiskHint: "One Light",
+		},
+		{
+			name:           "managed theme matching api still goes through managed branch",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"theme":"Ayu Dark"}`,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "managed_overwrite",
+			wantOnDiskHint: "Ayu Dark",
+		},
+		{
+			name:           "custom theme is preserved",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"theme":"Solarized Dark"}`,
+			wantResult:     "Solarized Dark",
+			wantBranch:     "preserve_custom",
+			wantOnDiskHint: "Solarized Dark",
+		},
+	}
+
+	origSettingsPath := SettingsPath
+	t.Cleanup(func() { SettingsPath = origSettingsPath })
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			SettingsPath = filepath.Join(dir, "settings.json")
+			if tt.writeFile {
+				err := os.WriteFile(SettingsPath, []byte(tt.fileContent), 0644)
+				assert.NoError(t, err)
+			}
+
+			d := &SettingsDaemon{}
+			gotResult, gotBranch, gotOnDiskRepr := d.computeEffectiveTheme(tt.apiTheme)
+			assert.Equal(t, tt.wantResult, gotResult, "result value")
+			assert.Equal(t, tt.wantBranch, gotBranch, "branch label")
+			assert.Contains(t, gotOnDiskRepr, tt.wantOnDiskHint, "on-disk repr")
+		})
+	}
+}
+
+// TestWriteSettingsPreservesInode is the regression test for the dark<->light
+// "doesn't change back" bug. Zed watches settings.json by inode; the daemon used
+// to write via temp-file + rename, which replaces the inode on every write and
+// kills Zed's inotify watch after the first change. writeSettings must now keep
+// the inode stable across repeated writes so Zed keeps reloading on every toggle.
+func TestWriteSettingsPreservesInode(t *testing.T) {
+	origSettingsPath := SettingsPath
+	t.Cleanup(func() { SettingsPath = origSettingsPath })
+
+	dir := t.TempDir()
+	SettingsPath = filepath.Join(dir, "settings.json")
+
+	inodeOf := func(path string) uint64 {
+		info, err := os.Stat(path)
+		assert.NoError(t, err)
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			t.Fatalf("Sys() is not *syscall.Stat_t")
+		}
+		return st.Ino
+	}
+
+	d := &SettingsDaemon{}
+
+	// First write creates the file.
+	assert.NoError(t, d.writeSettings(map[string]interface{}{"theme": "Ayu Dark"}))
+	firstInode := inodeOf(SettingsPath)
+
+	// Repeated writes (simulating dark<->light<->dark toggles) must keep the SAME
+	// inode and write the correct contents each time.
+	for _, theme := range []string{"One Light", "Ayu Dark", "One Light"} {
+		assert.NoError(t, d.writeSettings(map[string]interface{}{"theme": theme}))
+
+		assert.Equal(t, firstInode, inodeOf(SettingsPath),
+			"settings.json inode must stay stable across writes (theme=%s)", theme)
+
+		data, err := os.ReadFile(SettingsPath)
+		assert.NoError(t, err)
+		var got map[string]interface{}
+		assert.NoError(t, json.Unmarshal(data, &got))
+		assert.Equal(t, theme, got["theme"], "written theme should be readable")
+	}
 }

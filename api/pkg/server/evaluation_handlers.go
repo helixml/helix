@@ -41,20 +41,20 @@ func (s *HelixAPIServer) canAccessEvaluationSuite(ctx context.Context, user *typ
 // @Tags evaluations
 // @Accept json
 // @Produce json
-// @Param app_id path string true "App ID"
+// @Param agent_id path string true "Agent ID"
 // @Param suite body types.EvaluationSuite true "Evaluation suite to create"
 // @Success 201 {object} types.EvaluationSuite
 // @Failure 400 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
-// @Router /api/v1/apps/{app_id}/evaluation-suites [post]
+// @Router /api/v1/agents/{agent_id}/evaluation-suites [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) createEvaluationSuite(_ http.ResponseWriter, req *http.Request) (*types.EvaluationSuite, *system.HTTPError) {
 	ctx := req.Context()
 	user := getRequestUser(req)
-	appID := mux.Vars(req)["app_id"]
+	agentID := mux.Vars(req)["agent_id"]
 
-	app, httpErr := s.getAppForEvaluation(ctx, user, appID)
+	app, httpErr := s.getAppForEvaluation(ctx, user, agentID)
 	if httpErr != nil {
 		return nil, httpErr
 	}
@@ -69,7 +69,7 @@ func (s *HelixAPIServer) createEvaluationSuite(_ http.ResponseWriter, req *http.
 	}
 
 	suite.UserID = user.ID
-	suite.AppID = appID
+	suite.AppID = agentID
 	suite.OrganizationID = app.OrganizationID
 
 	// Ensure question IDs are set
@@ -92,12 +92,12 @@ func (s *HelixAPIServer) createEvaluationSuite(_ http.ResponseWriter, req *http.
 // @Description Get an evaluation suite by ID
 // @Tags evaluations
 // @Produce json
-// @Param app_id path string true "App ID"
+// @Param agent_id path string true "Agent ID"
 // @Param id path string true "Suite ID"
 // @Success 200 {object} types.EvaluationSuite
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
-// @Router /api/v1/apps/{app_id}/evaluation-suites/{id} [get]
+// @Router /api/v1/agents/{agent_id}/evaluation-suites/{id} [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getEvaluationSuite(_ http.ResponseWriter, req *http.Request) (*types.EvaluationSuite, *system.HTTPError) {
 	ctx := req.Context()
@@ -125,14 +125,14 @@ func (s *HelixAPIServer) getEvaluationSuite(_ http.ResponseWriter, req *http.Req
 // @Tags evaluations
 // @Accept json
 // @Produce json
-// @Param app_id path string true "App ID"
+// @Param agent_id path string true "Agent ID"
 // @Param id path string true "Suite ID"
 // @Param suite body types.EvaluationSuite true "Updated suite"
 // @Success 200 {object} types.EvaluationSuite
 // @Failure 400 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
-// @Router /api/v1/apps/{app_id}/evaluation-suites/{id} [put]
+// @Router /api/v1/agents/{agent_id}/evaluation-suites/{id} [put]
 // @Security BearerAuth
 func (s *HelixAPIServer) updateEvaluationSuite(_ http.ResponseWriter, req *http.Request) (*types.EvaluationSuite, *system.HTTPError) {
 	ctx := req.Context()
@@ -180,12 +180,12 @@ func (s *HelixAPIServer) updateEvaluationSuite(_ http.ResponseWriter, req *http.
 // @Summary Delete an evaluation suite
 // @Description Delete an evaluation suite
 // @Tags evaluations
-// @Param app_id path string true "App ID"
+// @Param agent_id path string true "Agent ID"
 // @Param id path string true "Suite ID"
 // @Success 200 {object} map[string]string
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
-// @Router /api/v1/apps/{app_id}/evaluation-suites/{id} [delete]
+// @Router /api/v1/agents/{agent_id}/evaluation-suites/{id} [delete]
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteEvaluationSuite(_ http.ResponseWriter, req *http.Request) (map[string]string, *system.HTTPError) {
 	ctx := req.Context()
@@ -212,27 +212,27 @@ func (s *HelixAPIServer) deleteEvaluationSuite(_ http.ResponseWriter, req *http.
 }
 
 // listEvaluationSuites godoc
-// @Summary List evaluation suites for an app
-// @Description List all evaluation suites for an app
+// @Summary List evaluation suites for an agent
+// @Description List all evaluation suites for an agent
 // @Tags evaluations
 // @Produce json
-// @Param app_id path string true "App ID"
+// @Param agent_id path string true "Agent ID"
 // @Success 200 {array} types.EvaluationSuite
 // @Failure 403 {object} system.HTTPError
-// @Router /api/v1/apps/{app_id}/evaluation-suites [get]
+// @Router /api/v1/agents/{agent_id}/evaluation-suites [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listEvaluationSuites(_ http.ResponseWriter, req *http.Request) ([]*types.EvaluationSuite, *system.HTTPError) {
 	ctx := req.Context()
 	user := getRequestUser(req)
-	appID := mux.Vars(req)["app_id"]
+	agentID := mux.Vars(req)["agent_id"]
 
-	_, httpErr := s.getAppForEvaluation(ctx, user, appID)
+	_, httpErr := s.getAppForEvaluation(ctx, user, agentID)
 	if httpErr != nil {
 		return nil, httpErr
 	}
 
 	suites, err := s.Store.ListEvaluationSuites(ctx, &types.ListEvaluationSuitesRequest{
-		AppID: appID,
+		AppID: agentID,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
@@ -293,21 +293,21 @@ func removeRunListener(runID string, ch chan types.EvaluationRunProgress) {
 // @Tags evaluations
 // @Accept json
 // @Produce json
-// @Param app_id path string true "App ID"
+// @Param agent_id path string true "Agent ID"
 // @Param id path string true "Suite ID"
 // @Success 200 {object} types.EvaluationRun
 // @Failure 400 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
-// @Router /api/v1/apps/{app_id}/evaluation-suites/{id}/runs [post]
+// @Router /api/v1/agents/{agent_id}/evaluation-suites/{id}/runs [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) startEvaluationRun(_ http.ResponseWriter, req *http.Request) (*types.EvaluationRun, *system.HTTPError) {
 	ctx := req.Context()
 	user := getRequestUser(req)
-	appID := mux.Vars(req)["app_id"]
+	agentID := mux.Vars(req)["agent_id"]
 	suiteID := mux.Vars(req)["id"]
 
-	app, httpErr := s.getAppForEvaluation(ctx, user, appID)
+	app, httpErr := s.getAppForEvaluation(ctx, user, agentID)
 	if httpErr != nil {
 		return nil, httpErr
 	}
@@ -330,7 +330,7 @@ func (s *HelixAPIServer) startEvaluationRun(_ http.ResponseWriter, req *http.Req
 
 	run := &types.EvaluationRun{
 		SuiteID:           suiteID,
-		AppID:             appID,
+		AppID:             agentID,
 		UserID:            user.ID,
 		OrganizationID:    app.OrganizationID,
 		Status:            types.EvaluationRunStatusPending,
@@ -364,26 +364,26 @@ func (s *HelixAPIServer) startEvaluationRun(_ http.ResponseWriter, req *http.Req
 // @Description List evaluation runs for a suite
 // @Tags evaluations
 // @Produce json
-// @Param app_id path string true "App ID"
+// @Param agent_id path string true "Agent ID"
 // @Param id path string true "Suite ID"
 // @Success 200 {array} types.EvaluationRun
 // @Failure 403 {object} system.HTTPError
-// @Router /api/v1/apps/{app_id}/evaluation-suites/{id}/runs [get]
+// @Router /api/v1/agents/{agent_id}/evaluation-suites/{id}/runs [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listEvaluationRuns(_ http.ResponseWriter, req *http.Request) ([]*types.EvaluationRun, *system.HTTPError) {
 	ctx := req.Context()
 	user := getRequestUser(req)
-	appID := mux.Vars(req)["app_id"]
+	agentID := mux.Vars(req)["agent_id"]
 	suiteID := mux.Vars(req)["id"]
 
-	_, httpErr := s.getAppForEvaluation(ctx, user, appID)
+	_, httpErr := s.getAppForEvaluation(ctx, user, agentID)
 	if httpErr != nil {
 		return nil, httpErr
 	}
 
 	runs, err := s.Store.ListEvaluationRuns(ctx, &types.ListEvaluationRunsRequest{
 		SuiteID: suiteID,
-		AppID:   appID,
+		AppID:   agentID,
 		Limit:   50,
 	})
 	if err != nil {
@@ -399,19 +399,19 @@ func (s *HelixAPIServer) listEvaluationRuns(_ http.ResponseWriter, req *http.Req
 // @Description Get evaluation run details
 // @Tags evaluations
 // @Produce json
-// @Param app_id path string true "App ID"
+// @Param agent_id path string true "Agent ID"
 // @Param run_id path string true "Run ID"
 // @Success 200 {object} types.EvaluationRun
 // @Failure 404 {object} system.HTTPError
-// @Router /api/v1/apps/{app_id}/evaluation-runs/{run_id} [get]
+// @Router /api/v1/agents/{agent_id}/evaluation-runs/{run_id} [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getEvaluationRun(_ http.ResponseWriter, req *http.Request) (*types.EvaluationRun, *system.HTTPError) {
 	ctx := req.Context()
 	user := getRequestUser(req)
 	runID := mux.Vars(req)["run_id"]
-	appID := mux.Vars(req)["app_id"]
+	agentID := mux.Vars(req)["agent_id"]
 
-	_, httpErr := s.getAppForEvaluation(ctx, user, appID)
+	_, httpErr := s.getAppForEvaluation(ctx, user, agentID)
 	if httpErr != nil {
 		return nil, httpErr
 	}
@@ -431,20 +431,20 @@ func (s *HelixAPIServer) getEvaluationRun(_ http.ResponseWriter, req *http.Reque
 // @Summary Delete an evaluation run
 // @Description Delete an evaluation run
 // @Tags evaluations
-// @Param app_id path string true "App ID"
+// @Param agent_id path string true "Agent ID"
 // @Param run_id path string true "Run ID"
 // @Success 200 {object} map[string]string
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
-// @Router /api/v1/apps/{app_id}/evaluation-runs/{run_id} [delete]
+// @Router /api/v1/agents/{agent_id}/evaluation-runs/{run_id} [delete]
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteEvaluationRun(_ http.ResponseWriter, req *http.Request) (map[string]string, *system.HTTPError) {
 	ctx := req.Context()
 	user := getRequestUser(req)
 	runID := mux.Vars(req)["run_id"]
-	appID := mux.Vars(req)["app_id"]
+	agentID := mux.Vars(req)["agent_id"]
 
-	_, httpErr := s.getAppForEvaluation(ctx, user, appID)
+	_, httpErr := s.getAppForEvaluation(ctx, user, agentID)
 	if httpErr != nil {
 		return nil, httpErr
 	}
@@ -464,9 +464,9 @@ func (s *HelixAPIServer) streamEvaluationRun(w http.ResponseWriter, req *http.Re
 	ctx := req.Context()
 	user := getRequestUser(req)
 	runID := mux.Vars(req)["run_id"]
-	appID := mux.Vars(req)["app_id"]
+	agentID := mux.Vars(req)["agent_id"]
 
-	_, httpErr := s.getAppForEvaluation(ctx, user, appID)
+	_, httpErr := s.getAppForEvaluation(ctx, user, agentID)
 	if httpErr != nil {
 		http.Error(w, httpErr.Message, httpErr.StatusCode)
 		return
@@ -490,12 +490,12 @@ func (s *HelixAPIServer) streamEvaluationRun(w http.ResponseWriter, req *http.Re
 		w.Header().Set("Connection", "keep-alive")
 
 		progress := types.EvaluationRunProgress{
-			RunID:          run.ID,
-			Status:         run.Status,
-			TotalQuestions: run.Summary.TotalQuestions,
+			RunID:           run.ID,
+			Status:          run.Status,
+			TotalQuestions:  run.Summary.TotalQuestions,
 			CurrentQuestion: run.Summary.TotalQuestions,
-			Summary:        &run.Summary,
-			Error:          run.Error,
+			Summary:         &run.Summary,
+			Error:           run.Error,
 		}
 		data, _ := json.Marshal(progress)
 		fmt.Fprintf(w, "data: %s\n\n", data)
@@ -546,12 +546,12 @@ func (s *HelixAPIServer) streamEvaluationRun(w http.ResponseWriter, req *http.Re
 
 // --- Helper ---
 
-func (s *HelixAPIServer) getAppForEvaluation(ctx context.Context, user *types.User, appID string) (*types.App, *system.HTTPError) {
-	if appID == "" {
-		return nil, system.NewHTTPError400("app_id is required")
+func (s *HelixAPIServer) getAppForEvaluation(ctx context.Context, user *types.User, agentID string) (*types.App, *system.HTTPError) {
+	if agentID == "" {
+		return nil, system.NewHTTPError400("agent_id is required")
 	}
 
-	app, err := s.Store.GetAppWithTools(ctx, appID)
+	app, err := s.Store.GetAppWithTools(ctx, agentID)
 	if err != nil {
 		if err == store.ErrNotFound {
 			return nil, system.NewHTTPError404("app not found")

@@ -1,6 +1,6 @@
 // Package store defines the persistence contracts for the org-graph
-// subsystem (workers, positions, roles, streams, events,
-// subscriptions, activations, environments, configs). The concrete
+// subsystem (nodes, topics, events,
+// subscriptions, activations, configs). The concrete
 // implementation lives in the sibling gorm sub-package — dialect-
 // portable GORM, wired against helix's Postgres connection.
 package store
@@ -10,9 +10,11 @@ import (
 	"errors"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/asset"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
+	"github.com/helixml/helix/api/pkg/org/domain/domainevent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
@@ -21,6 +23,12 @@ import (
 // Repos wrap this with %w so callers can errors.Is it.
 var ErrNotFound = errors.New("record not found")
 
+// ErrConflict signals a uniqueness violation (e.g. two rows with the
+// same org-scoped name). Repos wrap it with %w and a human-readable
+// prefix; adapters errors.Is it to map to 409 Conflict instead of
+// leaking the raw driver error.
+var ErrConflict = errors.New("already exists")
+
 // Every store method takes an explicit `orgID string` parameter
 // (except Create/Update, where the org is carried by the domain
 // aggregate). The composite (id, org_id) PK is what lets short
@@ -28,41 +36,30 @@ var ErrNotFound = errors.New("record not found")
 // tenants. ErrNotFound is returned when the (orgID, id) pair doesn't
 // exist — even if the bare id exists under another org.
 
-// Roles persists job descriptions.
-type Roles interface {
-	Create(ctx context.Context, role orgchart.Role) error
-	Get(ctx context.Context, orgID string, id orgchart.RoleID) (orgchart.Role, error)
-	List(ctx context.Context, orgID string) ([]orgchart.Role, error)
-	Update(ctx context.Context, role orgchart.Role) error
-	// Delete removes the role row. Caller is expected to have torn
-	// down dependent workers; the lifecycle service in
-	// application/lifecycle owns the cascade.
-	Delete(ctx context.Context, orgID string, id orgchart.RoleID) error
-}
-
-// Workers persists humans and AIs. Update mutates fields the system
-// allows changing in place — currently just IdentityContent (set at
-// hire by the caller, replaced wholesale by update_identity). Identity
-// is the per-Worker description; the system holds it in the domain
-// rather than on disk so it survives any change in env layout.
+// Nodes persists the org's nodes - the single org-chart aggregate (the
+// merge of the former Role and Worker). A Node carries its own content
+// and tool list (its capability) and is the live participant in the
+// reporting graph. Update replaces the mutable fields (content, tools,
+// topics) wholesale.
 //
-// Delete removes the worker row and structurally cascades the rows
-// that reference it: its subscriptions (worker-anchored) and every
-// reporting line where it is the manager or the report. See the gorm
-// and memory implementations.
-type Workers interface {
-	Create(ctx context.Context, worker orgchart.Worker) error
-	Get(ctx context.Context, orgID string, id orgchart.WorkerID) (orgchart.Worker, error)
-	List(ctx context.Context, orgID string) ([]orgchart.Worker, error)
-	Update(ctx context.Context, worker orgchart.Worker) error
-	Delete(ctx context.Context, orgID string, id orgchart.WorkerID) error
+// Delete removes the node row and structurally cascades the rows that
+// reference it: its subscriptions (node-anchored) and every reporting
+// line where it is the manager or the report. See the gorm and memory
+// implementations.
+type Nodes interface {
+	Create(ctx context.Context, node orgchart.Node) error
+	Get(ctx context.Context, orgID string, id orgchart.NodeID) (orgchart.Node, error)
+	List(ctx context.Context, orgID string) ([]orgchart.Node, error)
+	Update(ctx context.Context, node orgchart.Node) error
+	ClaimAgentApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string) (bool, error)
+	Delete(ctx context.Context, orgID string, id orgchart.NodeID) error
 }
 
 // ReportingLines persists the org's many-to-many reporting graph:
-// each row says ReportID reports to ManagerID. Worker-anchored on both
-// ends — deleting either endpoint Worker drops the line (the gorm
-// store enforces this with ON DELETE CASCADE foreign keys; the memory
-// store mirrors it). The graph is a DAG; cycle prevention lives in the
+// each row says ReportID reports to ManagerID. Node-anchored on both
+// ends - deleting either endpoint Node drops the line (the gorm store
+// enforces this with ON DELETE CASCADE foreign keys; the memory store
+// mirrors it). The graph is a DAG; cycle prevention lives in the
 // add-parent handler, not here.
 type ReportingLines interface {
 	// Add inserts a (manager, report) line. Idempotent: re-adding an
@@ -70,94 +67,140 @@ type ReportingLines interface {
 	Add(ctx context.Context, line orgchart.ReportingLine) error
 	// Remove drops the (report → manager) line. Returns ErrNotFound
 	// when no such line exists.
-	Remove(ctx context.Context, orgID string, reportID, managerID orgchart.WorkerID) error
+	Remove(ctx context.Context, orgID string, reportID, managerID orgchart.NodeID) error
 	// List returns every reporting line in the org.
 	List(ctx context.Context, orgID string) ([]orgchart.ReportingLine, error)
 	// ListManagers returns the managers the given report reports to.
-	ListManagers(ctx context.Context, orgID string, reportID orgchart.WorkerID) ([]orgchart.WorkerID, error)
+	ListManagers(ctx context.Context, orgID string, reportID orgchart.NodeID) ([]orgchart.NodeID, error)
 	// ListReports returns the direct reports of the given manager.
-	ListReports(ctx context.Context, orgID string, managerID orgchart.WorkerID) ([]orgchart.WorkerID, error)
+	ListReports(ctx context.Context, orgID string, managerID orgchart.NodeID) ([]orgchart.NodeID, error)
 }
 
-// WorkerRuntimeState is a sidecar key/value store keyed by
-// (orgID, workerID, backend). Runtime backends (the Helix integration
-// today, future local containers, etc.) write whatever per-Worker
+// NodeRuntimeState is a sidecar key/value store keyed by
+// (orgID, nodeID, backend). Runtime backends (the Helix integration
+// today, future local containers, etc.) write whatever per-Node
 // pointers they need — Helix uses keys like "session_id", "project_id",
 // "agent_app_id", "repo_id" — without forcing the domain to grow a
 // field every time.
 //
 // The "backend" component is a free-form string the runtime owns
 // (e.g. "helix"); helix-org core never reads or writes it.
-type WorkerRuntimeState interface {
-	Get(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string) (map[string]string, error)
-	Set(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend, key, value string) error
-	SetMany(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string, kv map[string]string) error
-	Clear(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string) error
+type NodeRuntimeState interface {
+	Get(ctx context.Context, orgID string, nodeID orgchart.NodeID, backend string) (map[string]string, error)
+	Set(ctx context.Context, orgID string, nodeID orgchart.NodeID, backend, key, value string) error
+	SetMany(ctx context.Context, orgID string, nodeID orgchart.NodeID, backend string, kv map[string]string) error
+	Clear(ctx context.Context, orgID string, nodeID orgchart.NodeID, backend string) error
 }
 
-// Streams persists named event sources. Streams are created explicitly
-// via the create_stream tool. Every Stream carries a Transport — the
+// Topics persists named event sources. Topics are created explicitly
+// via the create_topic tool. Every Topic carries a Transport — the
 // default (TransportLocal) keeps events local and notifies the
 // in-process broadcaster; other transports compose external I/O over
 // the same local store.
-type Streams interface {
-	Create(ctx context.Context, s streaming.Stream) error
-	Get(ctx context.Context, orgID string, id streaming.StreamID) (streaming.Stream, error)
-	List(ctx context.Context, orgID string) ([]streaming.Stream, error)
-	// ListByTransportKind returns every stream whose transport kind
+type Topics interface {
+	Create(ctx context.Context, s streaming.Topic) error
+	Get(ctx context.Context, orgID string, id streaming.TopicID) (streaming.Topic, error)
+	List(ctx context.Context, orgID string) ([]streaming.Topic, error)
+	// ListByTransportKind returns every topic whose transport kind
 	// matches, across every org. Used by background components that
-	// scan tenant boundaries (e.g. the cron stream scheduler) — NOT
+	// scan tenant boundaries (e.g. the cron topic scheduler) — NOT
 	// for any per-tenant request path. Returns an empty slice when no
-	// streams match; never returns ErrNotFound for "no rows".
-	ListByTransportKind(ctx context.Context, kind transport.Kind) ([]streaming.Stream, error)
-	// Update replaces the mutable fields on a Stream: name,
+	// topics match; never returns ErrNotFound for "no rows".
+	ListByTransportKind(ctx context.Context, kind transport.Kind) ([]streaming.Topic, error)
+	// Update replaces the mutable fields on a Topic: name,
 	// description, and the entire transport (kind + config). The
 	// composite (id, orgID) identifies the row; ID, OrganizationID,
 	// CreatedBy and CreatedAt are immutable and ignored. Returns
 	// store.ErrNotFound when the row doesn't exist.
-	Update(ctx context.Context, s streaming.Stream) error
-	// Delete removes a stream row. Composite key (id, orgID). Callers
-	// (REST handler, MCP delete_stream tool when added) are
+	Update(ctx context.Context, s streaming.Topic) error
+	// Delete removes a topic row. Composite key (id, orgID). Callers
+	// (REST handler, MCP delete_topic tool when added) are
 	// responsible for any cascading subscription / role-manifest
-	// cleanup — the Streams repo itself is intentionally narrow.
-	Delete(ctx context.Context, orgID string, id streaming.StreamID) error
+	// cleanup — the Topics repo itself is intentionally narrow.
+	Delete(ctx context.Context, orgID string, id streaming.TopicID) error
 }
 
-// Subscriptions persists (Worker, Stream) links. The triple
-// (orgID, workerID, streamID) is the key — there is no synthetic ID.
-// Subscriptions are WORKER-anchored: firing a Worker drops its
-// subscriptions. The hiring playbook re-subscribes new hires
-// explicitly, which lets two Workers in the same Role consume
-// different streams (specialisation) or only the on-call subset of a
-// role wake up on a given event (load patterns).
+// Subscriptions persists (Bot, Topic) links. The triple
+// (orgID, botID, topicID) is the key — there is no synthetic ID.
+// Subscriptions are BOT-anchored: deleting a Bot drops its
+// subscriptions. Subscriptions are driven explicitly (subscribe /
+// unsubscribe), letting each Bot consume exactly the topics it should.
 type Subscriptions interface {
 	Create(ctx context.Context, sub streaming.Subscription) error
-	Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) error
-	Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error)
-	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error)
-	ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID) ([]streaming.Subscription, error)
+	Delete(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) error
+	Find(ctx context.Context, orgID string, botID orgchart.NodeID, topicID streaming.TopicID) (streaming.Subscription, error)
+	ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID) ([]streaming.Subscription, error)
+	ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) ([]streaming.Subscription, error)
 }
 
-// Events persists entries published on a Stream.
+// Events persists entries published on a Topic.
 type Events interface {
 	Append(ctx context.Context, e streaming.Event) error
-	ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID, limit int) ([]streaming.Event, error)
-	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error)
-	ListSince(ctx context.Context, orgID string, streamIDs []streaming.StreamID, since streaming.EventID, limit int) ([]streaming.Event, error)
-	// ListAll returns events across every Stream in the given org,
-	// newest first. Powers the unified "All streams" activity feed in
+	// DeleteForTopic removes every event belonging to one Topic. Clearing an
+	// already-empty Topic is successful; callers verify the Topic exists before
+	// invoking this repository operation.
+	DeleteForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) error
+	ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error)
+	// PageForTopic returns a window of events on one Topic, newest
+	// first (same ordering as ListForTopic), skipping offset rows and
+	// returning at most limit. Powers page-number pagination of the
+	// REST messages endpoint. offset/limit <= 0 are treated as "no
+	// skip" / "no cap" respectively.
+	PageForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit, offset int) ([]streaming.Event, error)
+	// CountForTopic returns the total number of events on one Topic —
+	// the total-count meta the paginated messages endpoint surfaces,
+	// independent of any page window.
+	CountForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) (int, error)
+	ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID, limit int) ([]streaming.Event, error)
+	ListSince(ctx context.Context, orgID string, topicIDs []streaming.TopicID, since streaming.EventID, limit int) ([]streaming.Event, error)
+	// ListAll returns events across every Topic in the given org,
+	// newest first. Powers the unified "All topics" activity feed in
 	// the UI. If limit <= 0, no limit is applied — callers are
 	// expected to pass a sane cap.
 	ListAll(ctx context.Context, orgID string, limit int) ([]streaming.Event, error)
 }
 
-// Environments persists the per-Worker directory handle. The manager
-// populates the directory before hire; this table just tracks that a
-// directory exists and which Worker owns it.
-type Environments interface {
-	Create(ctx context.Context, env environment.Environment) error
-	Get(ctx context.Context, orgID string, workerID orgchart.WorkerID) (environment.Environment, error)
-	Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID) error
+// Processors persists Processor nodes — the transform/filter boxes
+// interposed on the edge between a Topic and its subscribers. A
+// Processor reads one input Topic (InputTopicID) and writes its
+// auto-provisioned output Topics. ListByInputTopic is the dispatch
+// hot path: on every publish the runner asks "which processors read
+// this topic?".
+type Processors interface {
+	Create(ctx context.Context, p processor.Processor) error
+	Get(ctx context.Context, orgID string, id processor.ProcessorID) (processor.Processor, error)
+	List(ctx context.Context, orgID string) ([]processor.Processor, error)
+	// ListByInputTopic returns every processor in the org whose
+	// InputTopicID matches — the dispatcher's fan-out lookup. Returns
+	// an empty slice when none match; never ErrNotFound for "no rows".
+	ListByInputTopic(ctx context.Context, orgID string, in streaming.TopicID) ([]processor.Processor, error)
+	// Update replaces the mutable fields: name, kind, config, outputs.
+	// Composite (id, orgID) identifies the row; ID, OrganizationID,
+	// CreatedBy, CreatedAt are immutable. Returns ErrNotFound when the
+	// row doesn't exist.
+	Update(ctx context.Context, p processor.Processor) error
+	// Delete removes a processor row. Composite key (id, orgID).
+	// Cascading the auto-created output Topics is the caller's job
+	// (the processors application service), mirroring how Topics.Delete
+	// leaves subscription cleanup to its caller.
+	Delete(ctx context.Context, orgID string, id processor.ProcessorID) error
+}
+
+type Assets interface {
+	Create(ctx context.Context, a asset.Asset) error
+	Get(ctx context.Context, orgID string, id asset.ID) (asset.Asset, error)
+	GetByName(ctx context.Context, orgID, name string) (asset.Asset, error)
+	List(ctx context.Context, orgID string) ([]asset.Asset, error)
+	Update(ctx context.Context, a asset.Asset) error
+	Delete(ctx context.Context, orgID string, id asset.ID) error
+}
+
+type AssetLinks interface {
+	Create(ctx context.Context, link asset.Link) error
+	Delete(ctx context.Context, orgID string, assetID asset.ID, agentID string) error
+	Find(ctx context.Context, orgID string, assetID asset.ID, agentID string) (asset.Link, error)
+	ListForAsset(ctx context.Context, orgID string, assetID asset.ID) ([]asset.Link, error)
+	ListForAgent(ctx context.Context, orgID, agentID string) ([]asset.Link, error)
 }
 
 // Configs persists operational-config rows: transport credentials,
@@ -170,6 +213,26 @@ type Configs interface {
 	Delete(ctx context.Context, orgID, key string) error
 }
 
+// ChartPositions persists free-placed (x, y) canvas coordinates for
+// org-chart nodes (bots, topics, processors, assets). Keyed by
+// (orgID, kind, id). Pure UI layout — the chart falls back to
+// auto-layout when no row exists for a node.
+type ChartPositions interface {
+	// List returns every saved position for the org. Empty slice when
+	// none exist; never ErrNotFound for "no rows".
+	List(ctx context.Context, orgID string) ([]orgchart.ChartPosition, error)
+	// Upsert inserts or replaces the position for (org, kind, id).
+	Upsert(ctx context.Context, pos orgchart.ChartPosition) error
+	// UpsertMany inserts or replaces multiple positions in one call.
+	// Implementations may loop; atomicity is not required.
+	UpsertMany(ctx context.Context, positions []orgchart.ChartPosition) error
+	// Delete removes one position. Returns ErrNotFound when absent.
+	Delete(ctx context.Context, orgID, kind, id string) error
+	// Clear removes every position for the org (reset to auto-layout).
+	// No-op (nil error) when the org has no saved positions.
+	Clear(ctx context.Context, orgID string) error
+}
+
 // Store bundles all repositories a single concrete implementation provides.
 // Handlers and tools depend on the narrower interfaces above; Store is the
 // wiring point.
@@ -179,14 +242,21 @@ type Configs interface {
 // storage boundary is part of the domain package, not a parallel
 // declaration here. Lifted in B5.5.
 type Store struct {
-	Roles              Roles
-	Workers            Workers
-	ReportingLines     ReportingLines
-	WorkerRuntimeState WorkerRuntimeState
-	Streams            Streams
-	Subscriptions      Subscriptions
-	Events             Events
-	Environments       Environments
-	Configs            Configs
-	Activations        activation.Repository
+	Nodes            Nodes
+	ReportingLines   ReportingLines
+	NodeRuntimeState NodeRuntimeState
+	Topics           Topics
+	Subscriptions    Subscriptions
+	Events           Events
+	Configs          Configs
+	Activations      activation.Repository
+	Processors       Processors
+	Assets           Assets
+	AssetLinks       AssetLinks
+	// ChartPositions is the free-placed canvas layout for the org chart UI.
+	ChartPositions ChartPositions
+	// DomainEvents is the append-only decision/audit log (e.g. Slack
+	// thread participation). Typed port defined beside its aggregate,
+	// like Activations.
+	DomainEvents domainevent.Repository
 }

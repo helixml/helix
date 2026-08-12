@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesProviderEndpoint, RequestParams, TypesUpdateProviderEndpoint, ContentType } from '../api/api';
+import {
+  ContentType,
+  RequestParams,
+  TypesAggregatedUsageMetric,
+  TypesProviderEndpoint,
+  TypesUpdateProviderEndpoint,
+  TypesUsersAggregatedUsageMetric,
+} from '../api/api';
 
 export const providersQueryKey = (loadModels: boolean = false, orgId?: string, all?: boolean) => [
   "providers",
@@ -36,6 +43,68 @@ export function useListProviders(options: ListProvidersOptions) {
   });
 }
 
+export const providerUsageQueryKey = (id: string, from?: string, to?: string) => [
+  'providers',
+  'usage',
+  id,
+  from,
+  to,
+]
+
+export function useProviderDailyUsage(id: string, from?: string, to?: string, enabled = true) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: providerUsageQueryKey(id, from, to),
+    queryFn: async (): Promise<TypesAggregatedUsageMetric[]> => {
+      const result = await apiClient.v1ProviderEndpointsDailyUsageDetail(id, { from, to })
+      return result.data
+    },
+    enabled: enabled && Boolean(id),
+  })
+}
+
+export type ProviderThroughputAggregation = '30min' | 'hourly'
+
+export function useProviderThroughputUsage(
+  id: string,
+  from: string | undefined,
+  to: string | undefined,
+  aggregationLevel: ProviderThroughputAggregation,
+  enabled = true,
+) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: [...providerUsageQueryKey(id, from, to), 'throughput', aggregationLevel],
+    queryFn: async (): Promise<TypesAggregatedUsageMetric[]> => {
+      const result = await apiClient.v1ProviderEndpointsThroughputUsageDetail(id, {
+        from,
+        to,
+        aggregation_level: aggregationLevel,
+      })
+      return result.data
+    },
+    enabled: enabled && Boolean(id),
+  })
+}
+
+export function useProviderUsersDailyUsage(id: string, from?: string, to?: string, enabled = true) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: [...providerUsageQueryKey(id, from, to), 'users'],
+    queryFn: async (): Promise<TypesUsersAggregatedUsageMetric[]> => {
+      const result = await apiClient.v1ProviderEndpointsUsersDailyUsageDetail(id, { from, to })
+      return result.data
+    },
+    enabled: enabled && Boolean(id),
+  })
+}
+
 export function useCreateProviderEndpoint() {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -53,6 +122,28 @@ export function useCreateProviderEndpoint() {
       // Invalidate all provider queries (with any combination of params)
       queryClient.invalidateQueries({ queryKey: ['providers'] })
     }
+  });
+}
+
+export interface DetectedProvider {
+  name: string;
+  server_type: string;
+  base_url: string;
+  models: string[];
+}
+
+export function useDetectLocalProviders(enabled: boolean) {
+  return useQuery({
+    queryKey: ['providers', 'detect-local'],
+    queryFn: async (): Promise<DetectedProvider[]> => {
+      const res = await fetch('/api/v1/providers/detect-local');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.providers || [];
+    },
+    enabled,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
   });
 }
 
@@ -81,6 +172,74 @@ export function useUpdateProviderEndpoint() {
       // Invalidate all provider queries (with any combination of params)
       queryClient.invalidateQueries({ queryKey: ['providers'] })
     }
+  });
+}
+
+export interface LocalModel {
+  key: string;
+  type: string;
+  display_name?: string;
+  publisher?: string;
+  architecture?: string;
+  quantization?: { name: string; bits_per_weight: number };
+  size_bytes: number;
+  params_string?: string;
+  max_context_length: number;
+  format?: string;
+  loaded_instances: Array<{ id: string; config?: Record<string, unknown> }>;
+  capabilities?: { vision?: boolean; trained_for_tool_use?: boolean };
+}
+
+export function useLocalModels(endpointId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['providers', 'local-models', endpointId],
+    queryFn: async (): Promise<LocalModel[]> => {
+      if (!endpointId) return [];
+      const res = await fetch(`/api/v1/provider-endpoints/${endpointId}/local-models`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.models || [];
+    },
+    enabled: enabled && !!endpointId,
+    refetchInterval: 5000,
+  });
+}
+
+export function useLoadLocalModel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ endpointId, model, contextLength }: { endpointId: string; model: string; contextLength?: number }) => {
+      const body: Record<string, unknown> = { model };
+      if (contextLength) body.context_length = contextLength;
+      const res = await fetch(`/api/v1/provider-endpoints/${endpointId}/local-models/load`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['providers'] });
+    },
+  });
+}
+
+export function useUnloadLocalModel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ endpointId, model }: { endpointId: string; model: string }) => {
+      const res = await fetch(`/api/v1/provider-endpoints/${endpointId}/local-models/unload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['providers'] });
+    },
   });
 }
 

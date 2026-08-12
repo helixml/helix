@@ -1,4 +1,4 @@
-import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FC, useCallback, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import FormControl from '@mui/material/FormControl'
@@ -9,14 +9,12 @@ import Stack from '@mui/material/Stack'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import '@xterm/xterm/css/xterm.css'
 
 import {
   sandboxTerminalUrl,
   useSandboxTerminalSessions,
 } from '../../services/sandboxesService'
+import PersistentTerminalPane from '../session/PersistentTerminalPane'
 
 interface Props {
   orgId: string
@@ -37,72 +35,74 @@ interface Props {
   fillContainer?: boolean
 }
 
-const sessionStorageKey = (sandboxId: string) => `helix.sandbox.${sandboxId}.terminalSession`
-
-const generateSessionName = (): string => {
-  // crypto.randomUUID is available in modern browsers; fall back to a
-  // timestamp+random string for older environments.
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID().replace(/-/g, '').slice(0, 12)
-  }
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+interface PersistentTerminalSession {
+  name: string
+  attached: boolean
+  windows?: number
+  created?: number
 }
 
-const readStoredSession = (sandboxId: string): string | undefined => {
+interface PersistentTerminalProps {
+  storageKey: string
+  targetId: string
+  running: boolean
+  terminalUrl: (sessionName: string) => string
+  sessions?: PersistentTerminalSession[]
+  unavailableMessage: string
+  newSessionTooltip?: string
+  height?: number | string
+  showControls?: boolean
+  readOnly?: boolean
+  fillContainer?: boolean
+}
+
+const sandboxSessionStorageKey = (sandboxId: string) => `helix.sandbox.${sandboxId}.terminalSession`
+
+const generateSessionName = (): string => {
+  const bytes = crypto.getRandomValues(new Uint8Array(6))
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+const readStoredSession = (storageKey: string): string | undefined => {
   try {
-    const v = window.localStorage.getItem(sessionStorageKey(sandboxId))
+    const v = window.localStorage.getItem(storageKey)
     return v || undefined
   } catch {
     return undefined
   }
 }
 
-const writeStoredSession = (sandboxId: string, name: string) => {
+const writeStoredSession = (storageKey: string, name: string) => {
   try {
-    window.localStorage.setItem(sessionStorageKey(sandboxId), name)
+    window.localStorage.setItem(storageKey, name)
   } catch {
     // ignore — best-effort persistence
   }
 }
 
-// SandboxTerminal renders an xterm.js terminal connected to the sandbox via
-// a websocket. The shell is wrapped server-side in `tmux new-session -A -s
-// helix-<sessionName>`, so reconnects (page refresh, ws drop) reattach to the
-// same tmux session — preserving working dir, scrollback, and any in-flight
-// processes. The session name is persisted in localStorage per-sandbox.
-//
-// When showControls is on, the toolbar lists every existing tmux session in
-// the container so the user can switch between them. A "New session" button
-// creates a fresh one.
-const SandboxTerminal: FC<Props> = ({
-  orgId,
-  sandboxId,
+// PersistentTerminal is transport-independent: callers provide the endpoint,
+// persisted-selection key, and tmux session list for their container type.
+const PersistentTerminal: FC<PersistentTerminalProps> = ({
+  storageKey,
+  targetId,
   running,
+  terminalUrl,
+  sessions = [],
+  unavailableMessage,
+  newSessionTooltip = 'Start a fresh tmux session',
   height = 480,
   showControls = true,
   readOnly = false,
   fillContainer = false,
 }) => {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const termRef = useRef<Terminal | undefined>()
-  const fitRef = useRef<FitAddon | undefined>()
-  const wsRef = useRef<WebSocket | undefined>()
-
   const [sessionName, setSessionName] = useState<string>(() => {
-    const stored = readStoredSession(sandboxId)
+    const stored = readStoredSession(storageKey)
     if (stored) return stored
     const fresh = generateSessionName()
-    writeStoredSession(sandboxId, fresh)
+    writeStoredSession(storageKey, fresh)
     return fresh
   })
-
-  // Poll the existing tmux sessions inside the sandbox so the switcher stays
-  // current as new sessions are created from elsewhere (e.g. a second browser
-  // tab). Only enabled while the sandbox is running and controls are shown.
-  const sessionsQuery = useSandboxTerminalSessions(
-    showControls && running ? orgId : undefined,
-    showControls && running ? sandboxId : undefined,
-  )
+  const websocketUrl = terminalUrl(sessionName)
 
   // Build the dropdown options: every helix-managed session reported by the
   // backend, plus the locally selected one if it hasn't been observed yet
@@ -111,110 +111,27 @@ const SandboxTerminal: FC<Props> = ({
   const sessionOptions = useMemo<string[]>(() => {
     const set = new Set<string>()
     set.add(sessionName)
-    for (const s of sessionsQuery.data?.sessions ?? []) {
+    for (const s of sessions) {
       if (s?.name) set.add(s.name)
     }
     return Array.from(set)
-  }, [sessionName, sessionsQuery.data])
+  }, [sessionName, sessions])
 
   const handleNewSession = useCallback(() => {
     const fresh = generateSessionName()
-    writeStoredSession(sandboxId, fresh)
+    writeStoredSession(storageKey, fresh)
     setSessionName(fresh)
-  }, [sandboxId])
+  }, [storageKey])
 
   const handleSelectSession = useCallback(
     (e: SelectChangeEvent<string>) => {
       const next = e.target.value
       if (!next || next === sessionName) return
-      writeStoredSession(sandboxId, next)
+      writeStoredSession(storageKey, next)
       setSessionName(next)
     },
-    [sandboxId, sessionName],
+    [sessionName, storageKey],
   )
-
-  useEffect(() => {
-    if (!running || !containerRef.current) return
-    const term = new Terminal({
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      fontSize: 13,
-      theme: { background: '#000000' },
-      convertEol: true,
-      cursorBlink: !readOnly,
-      disableStdin: readOnly,
-    })
-    const fit = new FitAddon()
-    term.loadAddon(fit)
-    term.open(containerRef.current)
-    termRef.current = term
-    fitRef.current = fit
-    fit.fit()
-
-    const ws = new WebSocket(sandboxTerminalUrl(orgId, sandboxId, sessionName))
-    ws.binaryType = 'arraybuffer'
-    wsRef.current = ws
-
-    const sendResize = () => {
-      if (ws.readyState !== WebSocket.OPEN) return
-      ws.send(
-        JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows })
-      )
-    }
-
-    ws.onopen = () => {
-      sendResize()
-      if (!readOnly) term.focus()
-    }
-    ws.onmessage = (e) => {
-      if (typeof e.data === 'string') {
-        try {
-          const msg = JSON.parse(e.data)
-          if (msg?.type === 'error') {
-            term.write(`\r\n\x1b[31m${msg.message}\x1b[0m\r\n`)
-          }
-        } catch {
-          term.write(e.data)
-        }
-      } else {
-        term.write(new Uint8Array(e.data as ArrayBuffer))
-      }
-    }
-    ws.onerror = () => {
-      term.write('\r\n\x1b[31mTerminal connection error\x1b[0m\r\n')
-    }
-    ws.onclose = () => {
-      term.write('\r\n\x1b[33mDisconnected.\x1b[0m\r\n')
-    }
-
-    if (!readOnly) {
-      term.onData((data: string) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(new TextEncoder().encode(data))
-        }
-      })
-    }
-
-    const onResize = () => {
-      try {
-        fit.fit()
-        sendResize()
-      } catch {
-        // ignore
-      }
-    }
-    window.addEventListener('resize', onResize)
-
-    return () => {
-      window.removeEventListener('resize', onResize)
-      ws.close()
-      term.dispose()
-      termRef.current = undefined
-      fitRef.current = undefined
-      wsRef.current = undefined
-    }
-    // sessionName is intentionally in the deps so a "New session" click
-    // tears down the old WS + xterm and reconnects against the new tmux session.
-  }, [orgId, sandboxId, running, sessionName, readOnly])
 
   if (!running) {
     return (
@@ -228,7 +145,7 @@ const SandboxTerminal: FC<Props> = ({
         }}
       >
         <Typography variant="body2" color="text.secondary">
-          Sandbox is not running yet — terminal will be available when status is "running".
+          {unavailableMessage}
         </Typography>
       </Box>
     )
@@ -245,16 +162,16 @@ const SandboxTerminal: FC<Props> = ({
       {showControls && (
         <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minHeight: 40 }}>
           <FormControl size="small" sx={{ minWidth: 240 }}>
-            <InputLabel id={`sandbox-${sandboxId}-session-label`}>Session</InputLabel>
+            <InputLabel id={`terminal-${targetId}-session-label`}>Session</InputLabel>
             <Select
-              labelId={`sandbox-${sandboxId}-session-label`}
+              labelId={`terminal-${targetId}-session-label`}
               label="Session"
               value={sessionName}
               onChange={handleSelectSession}
               renderValue={(v) => `helix-${v}`}
             >
               {sessionOptions.map((name) => {
-                const meta = sessionsQuery.data?.sessions?.find((s) => s.name === name)
+                const meta = sessions.find((s) => s.name === name)
                 return (
                   <MenuItem key={name} value={name}>
                     <Stack direction="row" alignItems="center" spacing={1}>
@@ -281,7 +198,7 @@ const SandboxTerminal: FC<Props> = ({
             Reconnects reattach to the selected tmux session.
           </Typography>
           <Box sx={{ flex: 1 }} />
-          <Tooltip title="Start a fresh tmux session in this sandbox">
+          <Tooltip title={newSessionTooltip}>
             <Button
               size="small"
               variant="outlined"
@@ -307,9 +224,46 @@ const SandboxTerminal: FC<Props> = ({
               }),
         }}
       >
-        <Box ref={containerRef} sx={{ width: '100%', height: '100%' }} />
+        <PersistentTerminalPane
+          key={websocketUrl}
+          websocketUrl={websocketUrl}
+          readOnly={readOnly}
+          active={!readOnly}
+        />
       </Box>
     </Stack>
+  )
+}
+
+const SandboxTerminal: FC<Props> = ({
+  orgId,
+  sandboxId,
+  running,
+  height = 480,
+  showControls = true,
+  readOnly = false,
+  fillContainer = false,
+}) => {
+  const sessionsQuery = useSandboxTerminalSessions(
+    showControls && running ? orgId : undefined,
+    showControls && running ? sandboxId : undefined,
+  )
+
+  return (
+    <PersistentTerminal
+      key={sandboxId}
+      storageKey={sandboxSessionStorageKey(sandboxId)}
+      targetId={sandboxId}
+      running={running}
+      terminalUrl={(sessionName) => sandboxTerminalUrl(orgId, sandboxId, sessionName)}
+      sessions={sessionsQuery.data?.sessions}
+      unavailableMessage='Sandbox is not running yet — terminal will be available when status is "running".'
+      newSessionTooltip="Start a fresh tmux session in this sandbox"
+      height={height}
+      showControls={showControls}
+      readOnly={readOnly}
+      fillContainer={fillContainer}
+    />
   )
 }
 

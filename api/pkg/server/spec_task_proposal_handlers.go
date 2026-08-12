@@ -375,7 +375,7 @@ func (s *HelixAPIServer) sendProposalDecisionToAgent(ctx context.Context, task *
 		return fmt.Errorf("failed to build decision prompt: %w", err)
 	}
 	// Proposal decisions are async notifications — not interrupts.
-	if _, _, err := s.sendMessageToSpecTaskAgent(ctx, task, message, "", false); err != nil {
+	if err := s.enqueueSpecTaskAgentMessage(ctx, task, message, false, ""); err != nil {
 		return fmt.Errorf("failed to send decision message to agent: %w", err)
 	}
 	return nil

@@ -30,7 +30,7 @@ export interface ProfileModel {
 
 export interface ProfileGPURequirement {
   count: number;
-  vendor?: "nvidia" | "amd" | "";
+  vendor?: "nvidia" | "amd" | "neuron" | "";
   architectures?: string[];
   model_match?: string;
   min_vram_bytes?: number;
@@ -41,7 +41,7 @@ export interface RunnerProfileSaveRequest {
   name: string;
   description?: string;
   compose_yaml: string;
-  vendor?: "nvidia" | "amd" | "";
+  vendor?: "nvidia" | "amd" | "neuron" | "";
   architectures?: string[];
   model_match?: string;
   min_vram_bytes?: number;

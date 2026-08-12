@@ -151,7 +151,7 @@ func printSessionInfo(session *types.Session) {
 }
 
 func getInteractions(apiURL, token, sessionID string, limit int) ([]*types.Interaction, error) {
-	url := fmt.Sprintf("%s/api/v1/sessions/%s/interactions?limit=%d", apiURL, sessionID, limit)
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/interactions?per_page=%d&order=desc", apiURL, sessionID, limit)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -171,12 +171,12 @@ func getInteractions(apiURL, token, sessionID string, limit int) ([]*types.Inter
 		return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var interactions []*types.Interaction
-	if err := json.NewDecoder(resp.Body).Decode(&interactions); err != nil {
+	var page types.PaginatedInteractions
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
 		return nil, err
 	}
 
-	return interactions, nil
+	return page.Interactions, nil
 }
 
 func printSessionHistory(apiURL, token, sessionID string, count int) error {

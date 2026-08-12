@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -29,6 +30,20 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// recoverGoroutine turns a panic in a detached goroutine into a logged error
+// instead of a process-wide crash (a panic in ANY goroutine kills the whole
+// API binary — every sandbox and web service with it). Guard every fire-and-
+// forget goroutine with this.
+func recoverGoroutine(what string) {
+	if r := recover(); r != nil {
+		log.Error().
+			Interface("panic", r).
+			Str("goroutine", what).
+			Bytes("stack", debug.Stack()).
+			Msg("recovered panic in detached goroutine (would otherwise have crashed the API process)")
+	}
+}
 
 // Controller orchestrates user-facing sandbox lifecycle on top of hydra.
 type Controller struct {
@@ -42,6 +57,11 @@ type Controller struct {
 	// host's hydra. Defaults to hydra.NewRevDialClient(...); tests inject a
 	// fake to capture CreateDevContainer requests.
 	newHydraClient func(hostID string) hydraProvisionClient
+
+	// stopDesktop tears down session-backed containers (spec-task desktops and
+	// friends), which the external-agent executor owns. Injected via
+	// SetDesktopStopper — see controller_session.go.
+	stopDesktop DesktopStopper
 
 	// provisionWG tracks in-flight provision goroutines launched by Create().
 	// Tests use waitProvisions() to wait for them to settle.
@@ -147,6 +167,7 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 		VCPUs:          vcpus,
 		MemoryMB:       memoryMB,
 		Persistent:     req.Persistent,
+		Purpose:        req.Purpose,
 		TimeoutSeconds: timeout,
 		DisplayWidth:   width,
 		DisplayHeight:  height,
@@ -166,6 +187,7 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 	c.provisionWG.Add(1)
 	go func() {
 		defer c.provisionWG.Done()
+		defer recoverGoroutine("sandbox.provision id=" + created.ID)
 		c.provision(context.Background(), created.ID)
 	}()
 
@@ -182,6 +204,12 @@ func (c *Controller) waitProvisions() {
 // Runtimes returns the registered runtime registry. Used by the API layer to
 // expose a discovery endpoint and validate requests synchronously.
 func (c *Controller) Runtimes() *RuntimeRegistry { return c.runtimes }
+
+// RuntimeNames and DefaultRuntimeName expose the discovery slice needed by
+// non-HTTP adapters without leaking RuntimeRegistry through their interfaces.
+func (c *Controller) RuntimeNames() []string { return c.runtimes.Names() }
+
+func (c *Controller) DefaultRuntimeName() string { return c.runtimes.DefaultRuntimeName() }
 
 // Get returns a sandbox by id. Soft-deleted rows are not returned.
 func (c *Controller) Get(ctx context.Context, id string) (*types.Sandbox, error) {
@@ -212,14 +240,49 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 
 	_ = c.store.SetSandboxStatus(ctx, id, types.SandboxStatusStopping, "")
 
+	// Session-backed rows meter a container the external-agent executor
+	// provisioned and registered under the SESSION id. Tearing it down here
+	// with the row id would silently miss, so hand teardown back to the
+	// executor. This is also the path credit exhaustion takes to actually stop
+	// a spec-task desktop.
+	if sandbox.SessionBacked() {
+		if err := c.stopSessionDesktop(ctx, sandbox); err != nil {
+			return err
+		}
+		c.revokeSandboxAPIToken(ctx, sandbox)
+		return c.store.DeleteSandbox(ctx, id)
+	}
+
 	if sandbox.HostDeviceID != "" {
 		hydraClient := c.newHydraClient(sandbox.HostDeviceID)
+		// Detach from the caller's ctx for the hydra teardown. If the
+		// HTTP caller goes away (LB closed connection, user navigated
+		// off, ctx cancelled), the container may still be in mid-tear
+		// on the Runner; we want the delete to finish AND the matching
+		// decrement to fire. Mirrors HydraExecutor.StopDesktop's
+		// context-detachment pattern.
+		teardownCtx, teardownCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer teardownCancel()
 		// Delete container — best effort, log but don't block the row deletion.
-		if _, err := hydraClient.DeleteDevContainer(ctx, sandbox.ID); err != nil {
+		deleteSucceeded := true
+		if _, err := hydraClient.DeleteDevContainer(teardownCtx, sandbox.ID); err != nil {
 			log.Warn().Err(err).Str("sandbox_id", id).Msg("hydra DeleteDevContainer failed; continuing with row deletion")
+			deleteSucceeded = false
+		}
+		// Decrement active_sandboxes on the Runner row to match the
+		// increment that fired in Provision. Mirrors HydraExecutor.StopDesktop:
+		// only decrement when the upstream delete actually succeeded, so a
+		// failed delete leaves the counter high (operator visibility +
+		// avoids creating a phantom free-slot the dispatcher would re-fill).
+		// DiscoverContainersFromSandbox is the recovery path for any drift.
+		if deleteSucceeded {
+			if decErr := c.store.DecrementSandboxContainerCount(teardownCtx, sandbox.HostDeviceID); decErr != nil {
+				log.Warn().Err(decErr).Str("sandbox_id", id).Str("host_device_id", sandbox.HostDeviceID).
+					Msg("Failed to decrement active_sandboxes on Runner after sandbox delete")
+			}
 		}
 		// Forget cached command records on hydra.
-		if err := hydraClient.ForgetSandboxOps(ctx, sandbox.ID); err != nil {
+		if err := hydraClient.ForgetSandboxOps(teardownCtx, sandbox.ID); err != nil {
 			log.Debug().Err(err).Str("sandbox_id", id).Msg("hydra ForgetSandboxOps failed")
 		}
 	}

@@ -23,7 +23,7 @@ use smithay::backend::allocator::Buffer;
 use smithay::backend::drm::{DrmNode, NodeType};
 use smithay::backend::egl::ffi::egl::types::EGLDisplay as RawEGLDisplay;
 use smithay::backend::egl::{EGLDevice, EGLDisplay};
-use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -33,6 +33,12 @@ use waylanddisplaycore::utils::allocator::cuda::{
     EGLImage, GstCudaContext, CAPS_FEATURE_MEMORY_CUDA_MEMORY,
 };
 use waylanddisplaycore::Fourcc as DrmFourcc;
+
+/// How long to wait for the FIRST video frame from the compositor before giving
+/// up. A freshly-started idle headless GNOME desktop can take a couple of seconds
+/// to produce its first ScreenCast buffer; failing at the short keepalive window
+/// tears the pipeline down and surfaces a spurious "Video streaming error".
+const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Convert DRM fourcc to GStreamer VideoFormat.
 /// Uses explicit byte-order formats for consistency across GStreamer versions.
@@ -342,6 +348,9 @@ impl Default for State {
 pub struct PipeWireZeroCopySrc {
     settings: Mutex<Settings>,
     state: Mutex<Option<State>>,
+    // Set by unlock() to interrupt a blocking first-frame wait in create() so
+    // shutdown/flush is prompt; cleared by unlock_stop() and start().
+    flushing: AtomicBool,
 }
 
 impl Default for PipeWireZeroCopySrc {
@@ -349,6 +358,7 @@ impl Default for PipeWireZeroCopySrc {
         Self {
             settings: Mutex::new(Settings::default()),
             state: Mutex::new(None),
+            flushing: AtomicBool::new(false),
         }
     }
 }
@@ -585,6 +595,9 @@ impl ElementImpl for PipeWireZeroCopySrc {
 
 impl BaseSrcImpl for PipeWireZeroCopySrc {
     fn start(&self) -> Result<(), gst::ErrorMessage> {
+        // Fresh start: clear any leftover flush flag from a previous cycle.
+        self.flushing.store(false, Ordering::Relaxed);
+
         let mut state_guard = self.state.lock();
         if state_guard.is_some() {
             return Ok(());
@@ -654,7 +667,23 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                             if settings.cuda_context.is_none() {
                                 settings.cuda_context = Some(Arc::new(std::sync::Mutex::new(ctx)));
                             } else {
-                                std::mem::forget(ctx); // Prevent double-unref
+                                // gst_cuda_ensure_element_context runs a context
+                                // query, and GStreamer answers it by calling our
+                                // set_context() on this very thread — so by the
+                                // time we get here settings.cuda_context is
+                                // ALWAYS already populated on the GNOME+NVIDIA
+                                // path. This is the hot path, not a rare race.
+                                //
+                                // ctx therefore aliases a context pointer we do
+                                // not own (unreffing it would be a double-unref)
+                                // but it does own the GstCudaStream created
+                                // alongside it. mem::forget used to be used here
+                                // to dodge the double-unref; that also leaked the
+                                // stream, and because a stream holds a reference
+                                // on its context, every pipeline left a whole
+                                // CUDA context alive — ~28 MiB of GPU memory and
+                                // ~14 /dev/nvidia0 fds each, forever.
+                                ctx.release_stream_only();
                             }
                         }
                         Err(e) => {
@@ -684,9 +713,14 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                 state.egl_display = Some(egl_display_arc.clone());
                 state.output_mode = OutputMode::Cuda;
 
-                // Create CudaResources for PipeWire thread
-                // CRITICAL: This allows CUDA processing to happen in PipeWire thread
-                // BEFORE returning the buffer to the compositor, preventing race conditions.
+                // DRM render node for allocating the GL-blit persistent buffer.
+                let drm_render_node = DrmNode::from_path(node_path).map_err(|e| {
+                    gst::error_msg!(gst::LibraryError::Init, ("DrmNode from {}: {:?}", node_path, e))
+                })?;
+
+                // Create CudaResources for PipeWire thread. The GL blitter (built
+                // on that thread) uses egl_display + cuda_context + render_node to
+                // import captures cheaply and feed a persistent CUDA-registered buffer.
                 let cuda_resources = CudaResources {
                     egl_display: egl_display_arc,
                     cuda_context: cuda_context.clone(),
@@ -694,6 +728,7 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                         pool: Some(pool),
                         configured: false,
                     })),
+                    render_node: drm_render_node,
                 };
 
                 // Connect to PipeWire with NVIDIA DmaBuf modifiers AND CUDA resources
@@ -750,6 +785,21 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         if let Some(s) = g.take() {
             drop(s);
         }
+        Ok(())
+    }
+
+    // unlock() is called by GStreamer before stop()/flush to interrupt any
+    // blocking create(). Set the flush flag so the first-frame wait loop returns
+    // promptly (within one keepalive interval) instead of holding the streaming
+    // task for up to FIRST_FRAME_TIMEOUT.
+    fn unlock(&self) -> Result<(), gst::ErrorMessage> {
+        self.flushing.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    // unlock_stop() is called after flushing completes to resume normal operation.
+    fn unlock_stop(&self) -> Result<(), gst::ErrorMessage> {
+        self.flushing.store(false, Ordering::Relaxed);
         Ok(())
     }
 
@@ -839,10 +889,6 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
         // Get keepalive time from settings
         let keepalive_time_ms = self.settings.lock().keepalive_time_ms;
 
-        let mut g = self.state.lock();
-        let state = g.as_mut().ok_or(gst::FlowError::Eos)?;
-        let stream = state.stream.as_ref().ok_or(gst::FlowError::Error)?;
-
         // Use keepalive time as timeout if configured, otherwise 30 seconds
         let timeout = if keepalive_time_ms > 0 {
             Duration::from_millis(keepalive_time_ms as u64)
@@ -850,29 +896,100 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             Duration::from_secs(30)
         };
 
-        // Wait for frame from PipeWire with timeout
-        let frame = match stream.recv_frame_timeout(timeout) {
-            Ok(f) => {
-                // Log periodically
-                static FRAME_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let count = FRAME_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if count < 5 || count % 60 == 0 {
-                    eprintln!("[FRAME] Real frame #{}", count);
-                }
-                Some(f)
-            }
-            Err(RecvError::Disconnected) => return Err(gst::FlowError::Eos),
-            Err(RecvError::Timeout) if keepalive_time_ms > 0 => {
-                // Timeout with keepalive enabled - resend last buffer
-                static KEEPALIVE_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let count = KEEPALIVE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if count < 5 || count % 60 == 0 {
-                    eprintln!("[KEEPALIVE] Resending last buffer #{}", count);
-                }
-                None // Signal to use last_buffer
-            }
-            Err(_) => return Err(gst::FlowError::Error),
+        // Whether we already have a buffer to resend during static periods. This
+        // is constant across this create() call (only we set it, after the first
+        // frame), so capture it once up front.
+        let have_last_buffer = {
+            let g = self.state.lock();
+            g.as_ref().ok_or(gst::FlowError::Eos)?.last_buffer.is_some()
         };
+
+        // Wait for a frame from PipeWire. For the FIRST frame (nothing to resend
+        // yet) be patient: a freshly-started idle headless desktop can take a few
+        // seconds to produce its first ScreenCast buffer, and treating that short
+        // wait as fatal used to tear the whole pipeline down and surface as an
+        // opaque "Internal data stream error (-5)". Keep waiting up to
+        // FIRST_FRAME_TIMEOUT so the user gets video instead of an error banner.
+        //
+        // The state lock is taken only for the duration of one bounded recv and
+        // released between iterations, so a long first-frame wait never blocks
+        // stop()/caps(); `flushing` (set by unlock()) breaks out promptly.
+        let mut first_frame_waited = Duration::ZERO;
+        let frame = loop {
+            let recv_result = {
+                let g = self.state.lock();
+                let state = g.as_ref().ok_or(gst::FlowError::Eos)?;
+                let stream = state.stream.as_ref().ok_or(gst::FlowError::Error)?;
+                stream.recv_frame_timeout(timeout)
+                // state lock released here, before we act on the result
+            };
+
+            match recv_result {
+                Ok(f) => {
+                    // Point B: inter-arrival at the GStreamer pull, i.e. after the
+                    // bounded(8) channel (measure-only). Compare with Point A.
+                    crate::metrics::CREATE.lock().tick();
+                    break Some(f);
+                }
+                Err(RecvError::Disconnected) => return Err(gst::FlowError::Eos),
+                Err(RecvError::Error(msg)) => {
+                    // The PipeWire producer thread failed (e.g. EGL import or CUDA
+                    // copy). Surface the concrete message on the bus instead of
+                    // letting it collapse into GStreamer's generic "Internal data
+                    // stream error (-5)".
+                    eprintln!("[PIPEWIRESRC] producer error: {}", msg);
+                    gst::element_error!(
+                        self.obj().upcast_ref::<gst::Element>(),
+                        gst::ResourceError::Read,
+                        ("video capture failed: {}", msg)
+                    );
+                    return Err(gst::FlowError::Error);
+                }
+                Err(RecvError::Timeout) => {
+                    // Interrupt promptly if the element is shutting down/flushing.
+                    if self.flushing.load(Ordering::Relaxed) {
+                        return Err(gst::FlowError::Flushing);
+                    }
+                    if have_last_buffer {
+                        // Steady-state static screen: resend the last buffer below.
+                        break None;
+                    }
+                    if keepalive_time_ms == 0 {
+                        // No keepalive configured: don't loop on the plain 30s
+                        // timeout — preserve the original fail-fast behaviour.
+                        return Err(gst::FlowError::Error);
+                    }
+                    // First frame hasn't arrived yet. Keep waiting until the
+                    // first-frame deadline, then give up with a clear message.
+                    first_frame_waited += timeout;
+                    if first_frame_waited >= FIRST_FRAME_TIMEOUT {
+                        eprintln!(
+                            "[PIPEWIRESRC] no first video frame within {:?}",
+                            first_frame_waited
+                        );
+                        gst::element_error!(
+                            self.obj().upcast_ref::<gst::Element>(),
+                            gst::ResourceError::Read,
+                            (
+                                "no video frame received from the compositor within {}s — the desktop may not be rendering (idle headless session) or ScreenCast is not producing frames",
+                                first_frame_waited.as_secs()
+                            )
+                        );
+                        return Err(gst::FlowError::Error);
+                    }
+                    eprintln!(
+                        "[PIPEWIRESRC] waiting for first video frame... {:?}/{:?}",
+                        first_frame_waited, FIRST_FRAME_TIMEOUT
+                    );
+                    // loop and keep waiting
+                }
+            }
+        };
+
+        // Re-acquire the state lock now that the (potentially long) wait is over,
+        // for frame processing / keepalive resend.
+        let mut g = self.state.lock();
+        let state = g.as_mut().ok_or(gst::FlowError::Eos)?;
 
         // Handle keepalive case - resend last buffer with updated PTS
         if frame.is_none() {
@@ -888,8 +1005,8 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 }
                 return Ok(CreateSuccess::NewBuffer(buf));
             } else {
-                // No last buffer yet, wait for first real frame
-                eprintln!("[KEEPALIVE] No last buffer available, waiting for first frame");
+                // Unreachable in practice: we only break with None when
+                // have_last_buffer was true, and nothing clears last_buffer.
                 return Err(gst::FlowError::Error);
             }
         }
@@ -907,12 +1024,6 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 pts_ns,
             } => {
                 // Buffer is ready to use - CUDA copy already completed before PipeWire buffer was returned
-                static CUDA_BUFFER_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let count = CUDA_BUFFER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if count == 1 || count % 1000 == 0 {
-                    eprintln!("[PIPEWIRESRC] CudaBuffer #{}: {}x{} {:?}", count, width, height, format);
-                }
-
                 let actual_fmt = buffer
                     .meta::<gst_video::VideoMeta>()
                     .map(|m| m.format())

@@ -166,6 +166,97 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointListWithGlobalFromOther
 	assert.Equal(suite.T(), "user-private", userOnly[0].Name)
 }
 
+func (suite *PostgresStoreTestSuite) TestProviderEndpointListOrgScoped() {
+	// Regression test: org-scoped endpoints (endpoint_type='org') must be
+	// returned when the query specifies OwnerType=org. Previously the store
+	// hardcoded the ownership filter to 'user' and org endpoints were invisible.
+	userOwner := "user-" + system.GenerateUUID()
+	orgOwner := "org-" + system.GenerateUUID()
+	adminOwner := "admin-" + system.GenerateUUID()
+
+	endpoints := []*types.ProviderEndpoint{
+		{
+			Name:         "user-endpoint",
+			Owner:        userOwner,
+			OwnerType:    types.OwnerTypeUser,
+			EndpointType: types.ProviderEndpointTypeUser,
+			BaseURL:      "https://user.example.com",
+			APIKey:       "user-key",
+		},
+		{
+			Name:         "org-endpoint",
+			Owner:        orgOwner,
+			OwnerType:    types.OwnerTypeOrg,
+			EndpointType: types.ProviderEndpointTypeOrg,
+			BaseURL:      "https://org.example.com",
+			APIKey:       "org-key",
+		},
+		{
+			Name:         "global-endpoint",
+			Owner:        adminOwner,
+			EndpointType: types.ProviderEndpointTypeGlobal,
+			BaseURL:      "https://global.example.com",
+			APIKey:       "global-key",
+		},
+	}
+
+	for _, e := range endpoints {
+		created, err := suite.db.CreateProviderEndpoint(suite.ctx, e)
+		require.NoError(suite.T(), err)
+		suite.T().Cleanup(func() {
+			err := suite.db.DeleteProviderEndpoint(suite.ctx, created.ID)
+			assert.NoError(suite.T(), err)
+		})
+	}
+
+	suite.T().Run("OrgQueryReturnsOrgPlusGlobal", func(t *testing.T) {
+		listed, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{
+			Owner:      orgOwner,
+			OwnerType:  types.OwnerTypeOrg,
+			WithGlobal: true,
+		})
+		require.NoError(t, err)
+
+		names := make(map[string]bool)
+		for _, ep := range listed {
+			names[ep.Name] = true
+		}
+		assert.True(t, names["org-endpoint"], "org query should include the org-owned endpoint")
+		assert.True(t, names["global-endpoint"], "org query should include the global endpoint")
+		assert.False(t, names["user-endpoint"], "org query must not include the user-owned endpoint")
+		assert.Len(t, listed, 2, "org query should return exactly the org + global endpoints")
+	})
+
+	suite.T().Run("UserQueryReturnsUserPlusGlobal", func(t *testing.T) {
+		listed, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{
+			Owner:      userOwner,
+			OwnerType:  types.OwnerTypeUser,
+			WithGlobal: true,
+		})
+		require.NoError(t, err)
+
+		names := make(map[string]bool)
+		for _, ep := range listed {
+			names[ep.Name] = true
+		}
+		assert.True(t, names["user-endpoint"], "user query should include the user-owned endpoint")
+		assert.True(t, names["global-endpoint"], "user query should include the global endpoint")
+		assert.False(t, names["org-endpoint"], "user query must not include the org-owned endpoint")
+		assert.Len(t, listed, 2, "user query should return exactly the user + global endpoints")
+	})
+
+	suite.T().Run("OrgQueryWithoutGlobalReturnsOrgOnly", func(t *testing.T) {
+		listed, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{
+			Owner:      orgOwner,
+			OwnerType:  types.OwnerTypeOrg,
+			WithGlobal: false,
+		})
+		require.NoError(t, err)
+		require.Len(t, listed, 1, "org query without global should return only the org-owned endpoint")
+		assert.Equal(t, "org-endpoint", listed[0].Name)
+	})
+}
+
 func (suite *PostgresStoreTestSuite) TestProviderEndpointUpdate() {
 	endpoint := &types.ProviderEndpoint{
 		Name:         "update-test-endpoint",
@@ -179,12 +270,15 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointUpdate() {
 	require.NoError(suite.T(), err)
 
 	updatedEndpoint := &types.ProviderEndpoint{
-		ID:           createdEndpoint.ID,
-		Name:         "updated-endpoint",
-		Owner:        createdEndpoint.Owner,
-		EndpointType: types.ProviderEndpointTypeGlobal,
-		BaseURL:      "https://updated.example.com",
-		APIKey:       "updated-key",
+		ID:             createdEndpoint.ID,
+		Name:           "updated-endpoint",
+		Description:    "Updated description",
+		Icon:           "deepseek",
+		Owner:          createdEndpoint.Owner,
+		EndpointType:   types.ProviderEndpointTypeGlobal,
+		BaseURL:        "https://updated.example.com",
+		APIKey:         "updated-key",
+		BillingEnabled: true,
 	}
 
 	updatedEndpoint, err = suite.db.UpdateProviderEndpoint(suite.ctx, updatedEndpoint)
@@ -193,9 +287,12 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointUpdate() {
 	fetchedEndpoint, err := suite.db.GetProviderEndpoint(suite.ctx, &GetProviderEndpointsQuery{ID: createdEndpoint.ID})
 	require.NoError(suite.T(), err)
 	assert.Equal(suite.T(), updatedEndpoint.Name, fetchedEndpoint.Name)
+	assert.Equal(suite.T(), updatedEndpoint.Description, fetchedEndpoint.Description)
+	assert.Equal(suite.T(), updatedEndpoint.Icon, fetchedEndpoint.Icon)
 	assert.Equal(suite.T(), updatedEndpoint.EndpointType, fetchedEndpoint.EndpointType)
 	assert.Equal(suite.T(), updatedEndpoint.BaseURL, fetchedEndpoint.BaseURL)
 	assert.Equal(suite.T(), updatedEndpoint.APIKey, fetchedEndpoint.APIKey)
+	assert.True(suite.T(), fetchedEndpoint.BillingEnabled)
 	assert.NotZero(suite.T(), fetchedEndpoint.Updated)
 
 	// Clean up

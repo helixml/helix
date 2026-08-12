@@ -3,10 +3,10 @@ import {
   Paper,
   Box,
   Chip,
-  IconButton,
   Typography,
   CircularProgress,
   Button,
+  Tooltip,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -26,6 +26,7 @@ interface InlineCommentBubbleProps {
   streamingEntries?: ResponseEntry[]; // Structured entries for streaming
   isStreamingComplete?: boolean; // true = stream done, show content without spinner
   isNarrowViewport?: boolean;
+  unlocated?: boolean; // true = quoted text could not be located in the document
 }
 
 // Number of lines to show when collapsed
@@ -40,6 +41,7 @@ export default function InlineCommentBubble({
   streamingEntries,
   isStreamingComplete = false,
   isNarrowViewport = false,
+  unlocated = false,
 }: InlineCommentBubbleProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -126,9 +128,17 @@ export default function InlineCommentBubble({
         mb={1}
       >
         <Chip label="Comment" size="small" color="primary" />
-        <IconButton size="small" onClick={() => onResolve(comment.id!)} sx={{ color: "success.main" }}>
-          <CheckCircleIcon fontSize="small" />
-        </IconButton>
+        <Tooltip title="Resolve comment">
+          <Button
+            size="small"
+            color="success"
+            onClick={() => onResolve(comment.id!)}
+            startIcon={<CheckCircleIcon fontSize="small" />}
+            sx={{ flexShrink: 0, textTransform: "none" }}
+          >
+            Resolve
+          </Button>
+        </Tooltip>
       </Box>
 
       {comment.quoted_text && (
@@ -151,6 +161,17 @@ export default function InlineCommentBubble({
             : comment.quoted_text}
           "
         </Box>
+      )}
+
+      {unlocated && (
+        <Typography
+          variant="caption"
+          color="warning.main"
+          sx={{ display: "block", mb: 1, fontSize: "0.7rem" }}
+        >
+          ⚠ Couldn't locate the quoted text in the current document — it may have
+          been edited.
+        </Typography>
       )}
 
       <Typography variant="body2" sx={{ mb: 1, fontSize: "0.875rem" }}>

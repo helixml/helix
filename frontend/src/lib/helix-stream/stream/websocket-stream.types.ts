@@ -117,6 +117,16 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "remoteTouch"; touch: RemoteTouchInfo }
   | { type: "selfId"; clientId: number }
   | { type: "reconnectAborted"; reason: string; superseded?: boolean }
+  // Reconnect skipped because the tab is in the background; resumes on visibilitychange.
+  | { type: "reconnectDeferred"; reason: string }
+  // Retry budget exhausted — the stream has stopped connecting and needs an
+  // explicit user retry. Distinct from "reconnecting", which is transient.
+  | { type: "gaveUp"; attempts: number }
   | { type: "videoStarted" }
+  // Frames are arriving and decoding, but nothing is reaching the canvas. Covers
+  // the window after "videoStarted" that no other timeout watches — the user is
+  // looking at a frozen or black rectangle and must be told.
+  | { type: "renderStalled"; stalledMs: number; reason: "contextLost" | "noRenderTarget" | "notPresenting" }
+  | { type: "renderRecovered" }
 >
 export type WsStreamInfoEventListener = (event: WsStreamInfoEvent) => void

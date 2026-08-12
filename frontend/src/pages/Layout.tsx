@@ -12,17 +12,17 @@ import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
 import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
 import MuiSnackbar from "@mui/material/Snackbar";
+import { useDetectLocalProviders, useListProviders } from "../services/providersService";
 
 import Sidebar from "../components/system/Sidebar";
-import SessionsSidebar from "../components/session/SessionsSidebar";
+import ProjectChatSidebar from "../components/session/ProjectChatSidebar";
 import FilesSidebar from "../components/files/FilesSidebar";
 import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
 import AccountSidebar from "../components/account/AccountSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
-import HelixOrgSidebar from "../components/orgs/HelixOrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
-import ProjectsSidebar from "../components/project/ProjectsSidebar";
 import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
 import FullScreenDialog from "../components/dialog/FullScreenDialog";
 import Dashboard from "./Dashboard";
@@ -43,6 +43,14 @@ import { LicenseKeyPrompt } from "../components/LicenseKeyPrompt";
 import FloatingModal from "../components/admin/FloatingModal";
 import { useFloatingModal } from "../contexts/floatingModal";
 import UserOrgSelector from "../components/orgs/UserOrgSelector";
+import {
+  CHAT_SIDEBAR_DEFAULT_WIDTH,
+  CHAT_SIDEBAR_MAX_WIDTH,
+  CHAT_SIDEBAR_MIN_WIDTH,
+  chatSidebarWidthStorageKey,
+  clampChatSidebarWidth,
+  parseChatSidebarWidth,
+} from "../components/session/chatSidebarWidth";
 
 import useRouter from "../hooks/useRouter";
 import useAccount from "../hooks/useAccount";
@@ -51,12 +59,21 @@ import useThemeConfig from "../hooks/useThemeConfig";
 import useIsBigScreen from "../hooks/useIsBigScreen";
 import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
+import { LIGHT_SIDEBAR_COLORS } from "../styles/themeTokens";
+import { TOOLBAR_HEIGHT } from "../config";
+import { usesFocusedAgentDetails } from "../utils/apps";
+import { ChatSidebarProvider } from "../contexts/chatSidebar";
+import {
+  chatSidebarCollapsedStorageKey,
+  parseChatSidebarCollapsed,
+} from "../components/session/chatSidebarVisibility";
 
 // Admin and Connected Services are rendered as full-screen dialog overlays
 // so the user stays within their current org-scoped URL
 const SettingsDialogs: FC = () => {
   const { activeDialog, dialogOptions, closeDialog } = useSettingsDialog()
   const [adminTab, setAdminTab] = useState('llm_calls')
+  const [adminProviderId, setAdminProviderId] = useState<string | undefined>()
   const [accountTab, setAccountTab] = useState('general')
   const [projectSettingsTab, setProjectSettingsTab] = useState('general')
 
@@ -64,8 +81,9 @@ const SettingsDialogs: FC = () => {
   React.useEffect(() => {
     if (activeDialog === 'admin' && dialogOptions.tab) {
       setAdminTab(dialogOptions.tab)
+      setAdminProviderId(dialogOptions.tab === 'providers' ? dialogOptions.providerId : undefined)
     }
-  }, [activeDialog, dialogOptions.tab])
+  }, [activeDialog, dialogOptions.providerId, dialogOptions.tab])
 
   // When opening project settings with a specific tab, set it
   React.useEffect(() => {
@@ -78,6 +96,7 @@ const SettingsDialogs: FC = () => {
   React.useEffect(() => {
     if (!activeDialog) {
       setAdminTab('llm_calls')
+      setAdminProviderId(undefined)
       setAccountTab('general')
       setProjectSettingsTab('general')
     }
@@ -86,8 +105,29 @@ const SettingsDialogs: FC = () => {
   // Sync admin tab to URL so refresh preserves the current tab
   const handleAdminTabChange = React.useCallback((tab: string) => {
     setAdminTab(tab)
+    if (tab !== 'providers') {
+      setAdminProviderId(undefined)
+    }
     const url = new URL(window.location.href)
     url.searchParams.set('dialog_tab', tab)
+    if (tab !== 'providers') {
+      url.searchParams.delete('dialog_provider_id')
+      url.searchParams.delete('dialog_provider_from')
+      url.searchParams.delete('dialog_provider_to')
+    }
+    window.history.replaceState({}, '', url.toString())
+  }, [])
+
+  const handleAdminProviderChange = React.useCallback((providerId?: string) => {
+    setAdminProviderId(providerId)
+    const url = new URL(window.location.href)
+    if (providerId) {
+      url.searchParams.set('dialog_provider_id', providerId)
+    } else {
+      url.searchParams.delete('dialog_provider_id')
+      url.searchParams.delete('dialog_provider_from')
+      url.searchParams.delete('dialog_provider_to')
+    }
     window.history.replaceState({}, '', url.toString())
   }, [])
 
@@ -116,7 +156,12 @@ const SettingsDialogs: FC = () => {
             <AdminPanelSidebar activeTab={adminTab} onTabChange={handleAdminTabChange} />
           </Box>
           <Box sx={{ flex: 1, overflow: 'auto' }}>
-            <Dashboard tab={adminTab} initialSessionFilter={dialogOptions.sessionFilter} />
+            <Dashboard
+              tab={adminTab}
+              initialSessionFilter={dialogOptions.sessionFilter}
+              providerId={adminProviderId}
+              onProviderChange={handleAdminProviderChange}
+            />
           </Box>
         </Box>
       </FullScreenDialog>
@@ -257,11 +302,119 @@ const Layout: FC<{
   const account = useAccount();
   const apps = useApps();
   const floatingModal = useFloatingModal();
+  const orgId = router.params.org_id || "";
+  const sidebarWidthStorageKey = chatSidebarWidthStorageKey(orgId);
+  const sidebarCollapsedStorageKey = chatSidebarCollapsedStorageKey(orgId);
+  const defaultChatSidebarWidth = themeConfig.drawerWidth || CHAT_SIDEBAR_DEFAULT_WIDTH;
+  const [chatSidebarWidth, setChatSidebarWidth] = useState(() => {
+    try {
+      return parseChatSidebarWidth(
+        window.localStorage.getItem(sidebarWidthStorageKey),
+        defaultChatSidebarWidth,
+      );
+    } catch {
+      return clampChatSidebarWidth(defaultChatSidebarWidth);
+    }
+  });
+  const [isResizingChatSidebar, setIsResizingChatSidebar] = useState(false);
+  const [chatSidebarCollapsed, setChatSidebarCollapsed] = useState(() => {
+    try {
+      return parseChatSidebarCollapsed(window.localStorage.getItem(sidebarCollapsedStorageKey));
+    } catch {
+      return false;
+    }
+  });
+  const chatSidebarWidthRef = useRef(chatSidebarWidth);
   const [showVersionBanner, setShowVersionBanner] = useState(true);
+  const [showLocalProviderBanner, setShowLocalProviderBanner] = useState(true);
+  const { data: detectedProviders } = useDetectLocalProviders(!!account.user);
+  const { data: allProviders } = useListProviders({ enabled: !!account.user });
+  const unconnectedLocal = useMemo(() => {
+    if (!detectedProviders || !allProviders) return [];
+    return detectedProviders.filter(
+      dp => !allProviders.some(e => e.name === dp.server_type)
+    );
+  }, [detectedProviders, allProviders]);
   const [licenseGracePeriodExpired, setLicenseGracePeriodExpired] =
     useState(false);
   const licenseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const userMenuHeight = useUserMenuHeight();
+
+  useEffect(() => {
+    try {
+      setChatSidebarCollapsed(parseChatSidebarCollapsed(
+        window.localStorage.getItem(sidebarCollapsedStorageKey),
+      ));
+    } catch {
+      setChatSidebarCollapsed(false);
+    }
+  }, [sidebarCollapsedStorageKey]);
+
+  const setChatSidebarCollapsedAndPersist = (collapsed: boolean) => {
+    setChatSidebarCollapsed(collapsed);
+    try {
+      window.localStorage.setItem(sidebarCollapsedStorageKey, String(collapsed));
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  };
+
+  useEffect(() => {
+    try {
+      const storedWidth = window.localStorage.getItem(sidebarWidthStorageKey);
+      const nextWidth = parseChatSidebarWidth(storedWidth, defaultChatSidebarWidth);
+      chatSidebarWidthRef.current = nextWidth;
+      setChatSidebarWidth(nextWidth);
+    } catch {
+      const nextWidth = clampChatSidebarWidth(defaultChatSidebarWidth);
+      chatSidebarWidthRef.current = nextWidth;
+      setChatSidebarWidth(nextWidth);
+    }
+  }, [sidebarWidthStorageKey, defaultChatSidebarWidth]);
+
+  useEffect(() => {
+    chatSidebarWidthRef.current = chatSidebarWidth;
+  }, [chatSidebarWidth]);
+
+  useEffect(() => {
+    if (!isResizingChatSidebar) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const nextWidth = clampChatSidebarWidth(event.clientX, defaultChatSidebarWidth);
+      chatSidebarWidthRef.current = nextWidth;
+      setChatSidebarWidth(nextWidth);
+    };
+    const handlePointerUp = () => {
+      try {
+        window.localStorage.setItem(sidebarWidthStorageKey, String(chatSidebarWidthRef.current));
+      } catch {
+        // Persistence is optional when browser storage is unavailable.
+      }
+      setIsResizingChatSidebar(false);
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [defaultChatSidebarWidth, isResizingChatSidebar, sidebarWidthStorageKey]);
+
+  const persistChatSidebarWidth = (nextWidth: number) => {
+    const width = clampChatSidebarWidth(nextWidth, defaultChatSidebarWidth);
+    chatSidebarWidthRef.current = width;
+    setChatSidebarWidth(width);
+    try {
+      window.localStorage.setItem(sidebarWidthStorageKey, String(width));
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  };
   // Check if license is required (not mac-desktop AND (invalid license OR unknown deployment))
   const licenseRequired = useMemo(() => {
     return (
@@ -397,9 +550,29 @@ const Layout: FC<{
   const resourceType =
     router.params.resource_type || (router.params.app_id ? "apps" : "chat");
 
+  // Hide secondary context sidebar on helix-org routes (nav is in the top
+  // AppBar; chat is an in-page left rail). Still show the 64px org rail.
+  const isHelixOrgRoute =
+    typeof router.name === "string" && router.name.startsWith("helix_org_");
+  const isProjectsIndex =
+    router.name === "org_projects" &&
+    (!router.params.tab || router.params.tab === "projects");
+  const isConversationRoute = ["org_chat", "org_chat-task", "org_session", "org_new"].includes(
+    router.name,
+  );
+  const routedAgent = router.params.app_id
+    ? apps.apps.find((candidate) => candidate.id === router.params.app_id)
+    : undefined;
+  const isFocusedAgentRoute = router.name === "org_agent" && (
+    !routedAgent || usesFocusedAgentDetails(routedAgent)
+  );
+
   // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer
   const shouldShowSidebar =
     router.meta.drawer &&
+    !isHelixOrgRoute &&
+    !isProjectsIndex &&
+    !isFocusedAgentRoute &&
     !(router.name === "org_new" && router.params.app_id);
 
   if (shouldShowSidebar) {
@@ -415,7 +588,7 @@ const Layout: FC<{
    * This flexible sidebar system allows different routes to show different sidebar content:
    * - 'app': Shows AppSidebar for agent navigation
    * - 'org_*': Shows OrgSidebar for organization management
-   * - default: Shows SessionsSidebar for most routes
+   * - default: Shows ProjectChatSidebar for most routes
    *
    * To add a new context-specific sidebar:
    * 1. Create your sidebar component (e.g., FilesSidebar)
@@ -427,18 +600,21 @@ const Layout: FC<{
   function getSidebarForRoute(routeName: string, onOpenSession: () => void) {
     switch (routeName) {
       case "org_projects":
-        return <ProjectsSidebar />;
+        return <OrgSidebar />;
 
       case "helix_org_root":
       case "helix_org_chart":
-      case "helix_org_roles":
-      case "helix_org_role_detail":
-      case "helix_org_workers":
-      case "helix_org_worker_detail":
+      case "helix_org_bots":
+      case "helix_org_bot_detail":
+      case "helix_org_human_detail":
       case "helix_org_settings":
-      case "helix_org_streams":
-      case "helix_org_stream_detail":
-        return <HelixOrgSidebar />;
+      case "helix_org_topics":
+      case "helix_org_assets":
+      case "helix_org_topic_detail":
+      case "helix_org_processor_detail":
+        // Nav lives in the top AppBar (HelixOrgTopNav); chat is a left rail
+        // inside HelixOrgShell — no middle ContextSidebar.
+        return null;
 
       case "org_agent":
         // Individual app pages use the new context sidebar for agent navigation
@@ -452,6 +628,7 @@ const Layout: FC<{
       case "org_usage":
       case "org_api_keys":
       case "org_providers":
+      case "org_provider_detail":
       case "team_people":
         // Organization management pages use the org context sidebar
         return <OrgSidebar />;
@@ -460,8 +637,15 @@ const Layout: FC<{
         return <FilesSidebar onOpenFile={() => {}} />;
 
       default:
-        // Default to SessionsMenu for most routes
-        return <SessionsSidebar onOpenSession={onOpenSession} />;
+        return (
+          <ProjectChatSidebar
+            onCollapse={() => {
+              if (isBigScreen) setChatSidebarCollapsedAndPersist(true);
+              else account.setMobileMenuOpen(false);
+            }}
+            onOpenSession={onOpenSession}
+          />
+        );
     }
   }
 
@@ -483,8 +667,15 @@ const Layout: FC<{
     );
   }
 
+  const desktopChatSidebarCollapsed = isBigScreen && isConversationRoute && chatSidebarCollapsed;
+  const visibleChatSidebarWidth = desktopChatSidebarCollapsed ? 64 : chatSidebarWidth;
+
   return (
-    <>
+    <ChatSidebarProvider
+      collapsed={desktopChatSidebarCollapsed}
+      collapse={() => setChatSidebarCollapsedAndPersist(true)}
+      expand={() => setChatSidebarCollapsedAndPersist(false)}
+    >
       <MuiSnackbar
         open={showVersionBanner && hasNewVersion}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
@@ -505,6 +696,31 @@ const Layout: FC<{
             here
           </a>
           .
+        </Alert>
+      </MuiSnackbar>
+      <MuiSnackbar
+        open={showLocalProviderBanner && unconnectedLocal.length > 0}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          severity="success"
+          onClose={() => setShowLocalProviderBanner(false)}
+          sx={{ width: "100%", bgcolor: "rgba(0,232,145,0.95)", color: "#000", "& .MuiAlert-icon": { color: "#000" } }}
+          action={
+            <Button
+              size="small"
+              onClick={() => {
+                const orgId = account.organizationTools.organizations?.[0]?.id || account.organizationTools.organizations?.[0]?.name;
+                if (orgId) router.navigate("org_providers", { org_id: orgId });
+                setShowLocalProviderBanner(false);
+              }}
+              sx={{ color: "#000", fontWeight: 600, textTransform: "none", border: "1px solid rgba(0,0,0,0.3)", "&:hover": { bgcolor: "rgba(0,0,0,0.1)" } }}
+            >
+              Connect
+            </Button>
+          }
+        >
+          {unconnectedLocal.map(dp => dp.name).join(" and ")} detected on this machine with local AI models ready to use
         </Alert>
       </MuiSnackbar>
       <Box
@@ -532,15 +748,17 @@ const Layout: FC<{
           onClose={() => account.setMobileMenuOpen(false)}
           PaperProps={{
             sx: {
-              background: lightTheme.backgroundColor,
-              backgroundColor: lightTheme.backgroundColor,
+              background: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.background : lightTheme.backgroundColor,
+              backgroundColor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.background : lightTheme.backgroundColor,
               // For mobile (temporary), let MUI handle positioning (fixed)
               // For desktop (permanent), use relative positioning
               position: isBigScreen ? "relative" : undefined,
               whiteSpace: "nowrap",
               width: shouldShowSidebar
                 ? isBigScreen
-                  ? themeConfig.drawerWidth
+                  ? isConversationRoute
+                    ? visibleChatSidebarWidth
+                    : themeConfig.drawerWidth
                   : themeConfig.smallDrawerWidth
                 : 64,
               boxSizing: "border-box",
@@ -552,7 +770,9 @@ const Layout: FC<{
               // Sidebar.tsx for the secondary nav's content column only.
               // Use dvh (dynamic viewport height) for iOS Safari compatibility.
               height: isBigScreen ? "100%" : "100dvh",
-              overflowY: "auto", // Both columns scroll together
+              // The primary rail must remain viewport-anchored. Secondary
+              // navigation owns its scrolling inside SlideMenuContainer.
+              overflowY: "hidden",
               display: "flex",
               flexDirection: "row",
               padding: 0,
@@ -567,7 +787,9 @@ const Layout: FC<{
               display: "flex",
               flexDirection: "row",
               height: "100%",
+              minHeight: 0,
               width: "100%",
+              overflow: "hidden",
             }}
           >
             {/* Always show UserOrgSelector - it will handle compact/expanded modes internally */}
@@ -576,7 +798,9 @@ const Layout: FC<{
                 minWidth: 64,
                 width: 64,
                 maxWidth: 64,
-                minHeight: "fit-content", // Natural height based on content
+                height: "100%",
+                minHeight: 0,
+                flexShrink: 0,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -585,22 +809,26 @@ const Layout: FC<{
                 py: 0,
                 ...(shouldShowSidebar
                   ? {
-                      borderRight: lightTheme.border,
-                      bgcolor: lightTheme.backgroundColor,
+                      borderRight: lightTheme.isLight ? `1px solid ${LIGHT_SIDEBAR_COLORS.border}` : lightTheme.border,
+                      bgcolor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.background : lightTheme.backgroundColor,
                     }
                   : {
-                      bgcolor: lightTheme.backgroundColor,
+                      bgcolor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.background : lightTheme.backgroundColor,
                     }),
               }}
             >
-              <UserOrgSelector sidebarVisible={shouldShowSidebar} />
+              <UserOrgSelector
+                sidebarVisible={shouldShowSidebar && !isConversationRoute}
+              />
             </Box>
-            {shouldShowSidebar && (
+            {shouldShowSidebar && !desktopChatSidebarCollapsed && (
               <Box
                 sx={{
                   flex: 1,
                   minWidth: 0,
-                  minHeight: "fit-content", // Natural height based on content
+                  height: "100%",
+                  minHeight: 0,
+                  overflow: "hidden",
                   display: "flex",
                   flexDirection: "column",
                 }}
@@ -609,6 +837,64 @@ const Layout: FC<{
               </Box>
             )}
           </Box>
+          {isBigScreen && shouldShowSidebar && isConversationRoute && !desktopChatSidebarCollapsed && (
+            <Box
+              data-chat-sidebar-resize-handle
+              role="separator"
+              aria-label="Resize chat sessions list"
+              aria-orientation="vertical"
+              aria-valuemin={CHAT_SIDEBAR_MIN_WIDTH}
+              aria-valuemax={CHAT_SIDEBAR_MAX_WIDTH}
+              aria-valuenow={chatSidebarWidth}
+              tabIndex={0}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                setIsResizingChatSidebar(true);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  persistChatSidebarWidth(chatSidebarWidth - 16);
+                } else if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  persistChatSidebarWidth(chatSidebarWidth + 16);
+                } else if (event.key === "Home") {
+                  event.preventDefault();
+                  persistChatSidebarWidth(CHAT_SIDEBAR_MIN_WIDTH);
+                } else if (event.key === "End") {
+                  event.preventDefault();
+                  persistChatSidebarWidth(CHAT_SIDEBAR_MAX_WIDTH);
+                }
+              }}
+              sx={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 3,
+                width: 8,
+                cursor: "col-resize",
+                touchAction: "none",
+                display: "flex",
+                justifyContent: "flex-end",
+                outline: "none",
+                "&::after": {
+                  content: '""',
+                  display: "block",
+                  width: isResizingChatSidebar ? 2 : 1,
+                  height: "100%",
+                  backgroundColor: isResizingChatSidebar
+                    ? lightTheme.highlightColor
+                    : "transparent",
+                  transition: "background-color 120ms ease, width 120ms ease",
+                },
+                "&:hover::after, &:focus-visible::after": {
+                  backgroundColor: lightTheme.isLight ? "rgba(0,0,0,0.28)" : "rgba(255,255,255,0.32)",
+                },
+              }}
+            />
+          )}
         </Drawer>
         <Box
           component="main"
@@ -624,6 +910,19 @@ const Layout: FC<{
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
+            ...(isBigScreen && shouldShowSidebar && {
+              "& [data-page-toolbar]": {
+                height: TOOLBAR_HEIGHT,
+                minHeight: TOOLBAR_HEIGHT,
+              },
+              "& [data-page-toolbar] > .MuiAppBar-root": {
+                position: "fixed",
+                left: isConversationRoute ? visibleChatSidebarWidth : 64,
+                right: 0,
+                width: "auto",
+                zIndex: (theme) => theme.zIndex.drawer + 1,
+              },
+            }),
           }}
         >
           <Box
@@ -632,9 +931,13 @@ const Layout: FC<{
               flexGrow: 1,
               backgroundColor: lightTheme.backgroundColor,
               height: "100%",
-              minHeight: "100%",
+              minHeight: 0,
               minWidth: 0,
               overflow: "hidden",
+              // Flex column so full-height pages (helix-org shell, etc.) can
+              // size their children with flex:1 / height:100%.
+              display: "flex",
+              flexDirection: "column",
             }}
           >
             {account.loggingOut ? (
@@ -715,7 +1018,7 @@ const Layout: FC<{
       {licenseRequired && (
         <LicenseKeyPrompt gracePeriodExpired={licenseGracePeriodExpired} />
       )}
-    </>
+    </ChatSidebarProvider>
   );
 };
 

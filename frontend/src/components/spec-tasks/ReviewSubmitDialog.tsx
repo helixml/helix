@@ -6,6 +6,7 @@ import {
   TextField,
   Button,
   Box,
+  CircularProgress,
 } from '@mui/material'
 
 interface ReviewSubmitDialogProps {
@@ -50,8 +51,13 @@ export default function ReviewSubmitDialog({
           color={decision === 'approve' ? 'success' : 'warning'}
           onClick={onSubmit}
           disabled={isSubmitting}
+          startIcon={
+            isSubmitting ? <CircularProgress size={16} color="inherit" /> : undefined
+          }
         >
-          {decision === 'approve' ? 'Approve' : 'Submit Feedback'}
+          {isSubmitting
+            ? decision === 'approve' ? 'Approving…' : 'Submitting…'
+            : decision === 'approve' ? 'Approve' : 'Submit Feedback'}
         </Button>
       </Box>
     </Dialog>

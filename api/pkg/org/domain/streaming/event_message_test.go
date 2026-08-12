@@ -42,7 +42,7 @@ func TestNewMessageEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("streaming.NewMessageEvent: %v", err)
 	}
-	if e.ID != "e-1" || e.StreamID != "s-dm" || e.Source != "w-alice" {
+	if e.ID != "e-1" || e.TopicID != "s-dm" || e.Source != "w-alice" {
 		t.Fatalf("event fields wrong: %+v", e)
 	}
 	parsed, err := e.Message()

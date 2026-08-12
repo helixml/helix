@@ -20,11 +20,16 @@ func (s *PostgresStore) CreateAttentionEvent(ctx context.Context, event *types.A
 	if event.UserID == "" {
 		return nil, fmt.Errorf("user ID is required")
 	}
-	if event.ProjectID == "" {
-		return nil, fmt.Errorf("project ID is required")
-	}
-	if event.SpecTaskID == "" {
-		return nil, fmt.Errorf("spec task ID is required")
+	// ProjectID / SpecTaskID are required for spec-task events but empty for
+	// org_message events (a bot messaging a person has no task). The columns
+	// are NOT NULL but empty string is a valid non-null value.
+	if event.EventType != types.AttentionEventOrgMessage {
+		if event.ProjectID == "" {
+			return nil, fmt.Errorf("project ID is required")
+		}
+		if event.SpecTaskID == "" {
+			return nil, fmt.Errorf("spec task ID is required")
+		}
 	}
 	if event.EventType == "" {
 		return nil, fmt.Errorf("event type is required")
@@ -81,24 +86,30 @@ func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organiz
 
 	mineFilter := ""
 	if filters.MineOnly {
-		// Assignee takes priority; fall back to created_by when no assignee is set.
-		mineFilter = "AND spec_task_id IN (" +
+		// Task events: mine when I'm the assignee (priority) or the creator.
+		// Org messages have no spec task but are addressed straight at this user
+		// (the outer user_id = ? already scopes them), so an ask_human sent to me
+		// is always "mine" — include every event that has no spec task.
+		mineFilter = "AND (spec_task_id = '' OR spec_task_id IN (" +
 			"SELECT id FROM spec_tasks " +
 			"WHERE assignee_id = ? " +
-			"OR ((assignee_id IS NULL OR assignee_id = '') AND created_by = ?))"
+			"OR ((assignee_id IS NULL OR assignee_id = '') AND created_by = ?)))"
 		args = append(args, userID, userID)
 	}
 
+	// Dedup key: spec_task_id for task events, but fall back to the event id for
+	// org_messages (which have an empty spec_task_id) so every org_message is
+	// kept — otherwise DISTINCT ON collapses them all into the single latest one.
 	result := s.gdb.WithContext(ctx).Raw(`
 		SELECT * FROM (
-			SELECT DISTINCT ON (spec_task_id) *
+			SELECT DISTINCT ON (COALESCE(NULLIF(spec_task_id, ''), id)) *
 			FROM attention_events
 			WHERE user_id = ?
 			  AND dismissed_at IS NULL
 			  AND (snoozed_until IS NULL OR snoozed_until < ?)
 			  `+orgFilter+`
 			  `+mineFilter+`
-			ORDER BY spec_task_id, created_at DESC
+			ORDER BY COALESCE(NULLIF(spec_task_id, ''), id), created_at DESC
 		) AS deduped
 		ORDER BY created_at DESC
 	`, args...).Scan(&events)
@@ -130,6 +141,11 @@ func (s *PostgresStore) UpdateAttentionEvent(ctx context.Context, id string, upd
 		now := time.Now()
 		updates["acknowledged_at"] = &now
 	}
+	if update.Reply {
+		now := time.Now()
+		updates["replied_at"] = &now
+		updates["acknowledged_at"] = &now
+	}
 	if update.SnoozedUntil != nil {
 		updates["snoozed_until"] = update.SnoozedUntil
 	}
@@ -148,10 +164,17 @@ func (s *PostgresStore) UpdateAttentionEvent(ctx context.Context, id string, upd
 			return fmt.Errorf("failed to fetch attention event for dismiss: %w", err)
 		}
 		now := time.Now()
-		result := s.gdb.WithContext(ctx).
-			Model(&types.AttentionEvent{}).
-			Where("spec_task_id = ? AND user_id = ?", event.SpecTaskID, event.UserID).
-			Update("dismissed_at", &now)
+		q := s.gdb.WithContext(ctx).Model(&types.AttentionEvent{})
+		if event.SpecTaskID != "" {
+			// Task events: dismiss the whole task's group so deduplicated older
+			// events don't resurface after the cache invalidates.
+			q = q.Where("spec_task_id = ? AND user_id = ?", event.SpecTaskID, event.UserID)
+		} else {
+			// org_messages have no spec task — dismiss only this one, not every
+			// org_message for the user.
+			q = q.Where("id = ?", id)
+		}
+		result := q.Update("dismissed_at", &now)
 		if result.Error != nil {
 			return fmt.Errorf("failed to dismiss attention events: %w", result.Error)
 		}

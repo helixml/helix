@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// ResourceSearch - searches across projects, spec tasks, sessions, prompts, knowledge, repositories, apps (agents)
+// ResourceSearch searches across projects, spec tasks, sessions, knowledge, repositories, and agents.
 // Launches the search in parallel for each resource type and returns the results
 func (s *PostgresStore) ResourceSearch(ctx context.Context, req *types.ResourceSearchRequest) (*types.ResourceSearchResponse, error) {
 	if req.Limit == 0 {
@@ -23,7 +23,6 @@ func (s *PostgresStore) ResourceSearch(ctx context.Context, req *types.ResourceS
 			types.ResourceProject,
 			types.ResourceSpecTask,
 			types.ResourceSession,
-			types.ResourcePrompt,
 			types.ResourceKnowledge,
 			types.ResourceGitRepository,
 			types.ResourceApplication,
@@ -53,8 +52,6 @@ func (s *PostgresStore) ResourceSearch(ctx context.Context, req *types.ResourceS
 				items, err = s.searchSpecTasks(ctx, query, req)
 			case types.ResourceSession:
 				items, err = s.searchSessions(ctx, query, req)
-			case types.ResourcePrompt:
-				items, err = s.searchPrompts(ctx, query, req)
 			case types.ResourceKnowledge:
 				items, err = s.searchKnowledge(ctx, query, req)
 			case types.ResourceGitRepository:
@@ -158,6 +155,7 @@ func (s *PostgresStore) searchSessions(ctx context.Context, query string, req *t
 		Preload("Interactions", func(db *gorm.DB) *gorm.DB {
 			return db.Order("created ASC").Limit(1)
 		}).
+		Where("archived = false OR archived IS NULL").
 		Where("LOWER(name) LIKE ?", query+"%")
 
 	if req.OrganizationID != "" {
@@ -183,40 +181,6 @@ func (s *PostgresStore) searchSessions(ctx context.Context, query string, req *t
 			ResourceName:        sess.Name,
 			ResourceDescription: "",
 			Contents:            contents,
-		})
-	}
-	return results, nil
-}
-
-func (s *PostgresStore) searchPrompts(ctx context.Context, query string, req *types.ResourceSearchRequest) ([]types.ResourceSearchResult, error) {
-	var prompts []*types.PromptHistoryEntry
-	q := s.gdb.WithContext(ctx).Model(&types.PromptHistoryEntry{})
-
-	if req.OrganizationID != "" {
-		q = q.Where("organization_id = ?", req.OrganizationID)
-	} else {
-		q = q.Where("user_id = ? AND (organization_id = '' OR organization_id IS NULL)", req.UserID)
-	}
-
-	q = q.Where("LOWER(content) LIKE ?", "%"+query+"%")
-
-	err := q.Limit(req.Limit).Find(&prompts).Error
-	if err != nil {
-		return nil, err
-	}
-
-	results := make([]types.ResourceSearchResult, 0, len(prompts))
-	for _, p := range prompts {
-		desc := p.Content
-		if len(desc) > 100 {
-			desc = desc[:100] + "..."
-		}
-		results = append(results, types.ResourceSearchResult{
-			ResourceType:        types.ResourcePrompt,
-			ResourceID:          p.ID,
-			ResourceName:        desc,
-			ResourceDescription: "",
-			Contents:            p.Content,
 		})
 	}
 	return results, nil

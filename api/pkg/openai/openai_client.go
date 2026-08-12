@@ -367,39 +367,7 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 		return models[i].ID < models[j].ID
 	})
 
-	// Hack to workaround that OpenAI returns models like dall-e-3, which we
-	// can't send chat completion requests to. Use a rough heuristic to
-	// filter out models we can't use.
-
-	// Check if any model starts with "gpt-"
-	hasGPTModel := false
-	for _, m := range models {
-		if strings.HasPrefix(m.ID, "gpt-") {
-			hasGPTModel = true
-			break
-		}
-	}
-
-	// If there's a GPT model, filter out non-GPT models (but keep embedding models)
-	if hasGPTModel {
-		filteredModels := make([]types.OpenAIModel, 0)
-		for _, m := range models {
-			if strings.HasPrefix(m.ID, "text-embedding-") {
-				m.Type = "embed"
-				filteredModels = append(filteredModels, m)
-			} else if strings.HasPrefix(m.ID, "gpt-") || strings.HasPrefix(m.ID, "o3") || strings.HasPrefix(m.ID, "o1") || strings.HasPrefix(m.ID, "o4") {
-				// Add the type chat. This is needed
-				// for UI to correctly allow filtering
-				m.Type = "chat"
-
-				// Set the context length
-				m.ContextLength = getOpenAIModelContextLength(m.ID)
-
-				filteredModels = append(filteredModels, m)
-			}
-		}
-		models = filteredModels
-	}
+	models = applyOpenAIDallEFilter(models, c.baseURL)
 
 	// Set the enabled field to true if the model is in the list of allowed models
 	for i := range models {
@@ -407,6 +375,50 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 	}
 
 	return models, nil
+}
+
+// isOpenAIProvider reports whether the base URL points at OpenAI proper (as
+// opposed to any OpenAI-compatible aggregator like Scaleway, Together, Groq).
+func isOpenAIProvider(baseURL string) bool {
+	return strings.Contains(baseURL, "api.openai.com")
+}
+
+// applyOpenAIDallEFilter works around OpenAI returning models such as dall-e-3
+// on /models that can't take chat completions. It ONLY applies to real
+// api.openai.com endpoints. Other OpenAI-compatible providers legitimately
+// serve non-gpt models (llama, qwen, mistral, glm, ...) and must be returned
+// untouched, even when their catalogue happens to include a gpt-prefixed id
+// like gpt-oss-120b. Previously the mere presence of a gpt- model triggered the
+// filter for any provider, collapsing a full catalogue down to that one model.
+func applyOpenAIDallEFilter(models []types.OpenAIModel, baseURL string) []types.OpenAIModel {
+	if !isOpenAIProvider(baseURL) {
+		return models
+	}
+
+	hasGPTModel := false
+	for _, m := range models {
+		if strings.HasPrefix(m.ID, "gpt-") {
+			hasGPTModel = true
+			break
+		}
+	}
+	if !hasGPTModel {
+		return models
+	}
+
+	filteredModels := make([]types.OpenAIModel, 0)
+	for _, m := range models {
+		if strings.HasPrefix(m.ID, "text-embedding-") {
+			m.Type = "embed"
+			filteredModels = append(filteredModels, m)
+		} else if strings.HasPrefix(m.ID, "gpt-") || strings.HasPrefix(m.ID, "o3") || strings.HasPrefix(m.ID, "o1") || strings.HasPrefix(m.ID, "o4") {
+			// Type chat is needed for the UI to correctly allow filtering.
+			m.Type = "chat"
+			m.ContextLength = getOpenAIModelContextLength(m.ID)
+			filteredModels = append(filteredModels, m)
+		}
+	}
+	return filteredModels
 }
 
 func (c *RetryableClient) listOpenAIModels(ctx context.Context) ([]types.OpenAIModel, error) {
@@ -740,9 +752,16 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 
 		// Handle 429 and 529 errors
 		if resp.StatusCode == 429 {
+			// Log the body, not just the status. OpenAI returns 429 both for
+			// ordinary throttling ("rate_limit_exceeded") and for an account
+			// with no credit left ("insufficient_quota") — indistinguishable
+			// from the status code alone, and the difference is the difference
+			// between "retry later" and "nobody can run inference until this
+			// account is topped up".
 			log.Warn().
 				Str("url", req.URL.String()).
 				Int("status_code", resp.StatusCode).
+				Str("body", peekResponseBody(resp)).
 				Msg("Received 429 Too Many Requests")
 
 			c.rateLimiter.Handle429Error(resp.Header)
@@ -754,15 +773,54 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 			log.Warn().
 				Str("url", req.URL.String()).
 				Int("status_code", resp.StatusCode).
+				Str("body", peekResponseBody(resp)).
 				Msg("Received 529 Overloaded")
 
 			// For 529 errors, we can also use the same backoff logic as 429
 			c.rateLimiter.Handle429Error(resp.Header)
 			// Return the 529 error so retry logic can handle it
 		}
+
+		// The provider accepted the request, so the backoff ladder has done its
+		// job — reset it. Without this the ladder only ever climbs, and a single
+		// 429 hours ago would still be throttling healthy traffic.
+		//
+		// Only 2xx counts as acceptance. A 500/502/503 is not the provider
+		// coping: an overloaded one alternating 503 and 429 would otherwise be
+		// knocked back to the base rung on every other response.
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			c.rateLimiter.HandleSuccess()
+		}
 	}
 
 	return resp, err
+}
+
+// peekErrorBodyLimit bounds how much of an upstream error body we read for
+// logging. Provider error payloads are small; anything larger is not a
+// diagnostic, it is log spam.
+const peekErrorBodyLimit = 2048
+
+// peekResponseBody returns the start of resp.Body for logging and leaves the
+// body fully readable by the caller — the response is handed back to go-openai,
+// which still needs to parse the error out of it.
+func peekResponseBody(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, peekErrorBodyLimit))
+	if err != nil && len(body) == 0 {
+		return fmt.Sprintf("<unreadable: %v>", err)
+	}
+	// Splice the consumed prefix back in front of whatever is left.
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{
+		Reader: io.MultiReader(bytes.NewReader(body), resp.Body),
+		Closer: resp.Body,
+	}
+	return strings.TrimSpace(string(body))
 }
 
 // reasoningFieldMapper wraps a response body and rewrites the "reasoning"

@@ -1,5 +1,7 @@
 import { ReactNode } from 'react'
 
+import type { IApplicationRoute } from '../router'
+
 import {
   RouterContextProvider,
 } from './router'
@@ -46,9 +48,15 @@ import {
   VideoStreamProvider,
 } from './VideoStreamContext'
 
-const AllContextProvider = ({ children }: { children: ReactNode }) => {
+const AllContextProvider = ({
+  appRoute,
+  children,
+}: {
+  appRoute: IApplicationRoute,
+  children: ReactNode,
+}) => {
   return (
-    <RouterContextProvider>
+    <RouterContextProvider appRoute={appRoute}>
       <SnackbarContextProvider>
         <LoadingContextProvider>
           <ThemeProviderWrapper>

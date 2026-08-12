@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,19 +54,22 @@ type ModelSubstitution struct {
 	Reason           string `json:"reason"`
 }
 
-// AppCreateResponse extends the App type with additional creation metadata
-type AppCreateResponse struct {
-	*types.App
+// AgentCreateResponse extends the App type with additional creation metadata
+type AgentCreateResponse struct {
+	*types.Agent
 	ModelSubstitutions []ModelSubstitution `json:"model_substitutions,omitempty"`
 }
 
+// Deprecated: use AgentCreateResponse.
+type AppCreateResponse = AgentCreateResponse
+
 // applyModelSubstitutions applies model substitutions to the app configuration
 // Returns a list of substitutions that were made
-func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.App, modelClasses []ModelClass) ([]ModelSubstitution, error) {
+func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.Agent, modelClasses []ModelClass) ([]ModelSubstitution, error) {
 	var substitutions []ModelSubstitution
 
-	// Use the org-aware endpoint list so an org agent referencing the user's
-	// personal provider still finds it (mirrors validateProvidersAndModels).
+	// Use the app-scoped endpoint list so organization agents only consider
+	// organization and global providers.
 	availableEndpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
 	if err != nil {
 		log.Error().
@@ -123,6 +128,9 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 					Msg("Skipping substitution for empty provider or model")
 				return
 			}
+			if app.OrganizationID != "" && strings.HasPrefix(originalProvider, system.ProviderEndpointPrefix) && !providerKnown(originalProvider) {
+				return
+			}
 
 			substitute := s.findModelSubstitution(originalProvider, originalModel, modelClasses, providerKnown)
 			if substitute != nil {
@@ -171,15 +179,7 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			}
 		}
 
-		// Apply substitutions for all model fields
-
-		// Main provider/model
-		applySubstitution("provider/model", assistant.Provider, assistant.Model,
-			func(p string) { assistant.Provider = p },
-			func(m string) { assistant.Model = m })
-
-		// Agent mode model fields
-		if assistant.IsAgentMode() {
+		if assistant.AgentType == types.AgentTypeHelixAgent {
 			// Reasoning model
 			applySubstitution("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel,
 				func(p string) { assistant.ReasoningModelProvider = p },
@@ -199,10 +199,29 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			applySubstitution("small_generation_model", assistant.SmallGenerationModelProvider, assistant.SmallGenerationModel,
 				func(p string) { assistant.SmallGenerationModelProvider = p },
 				func(m string) { assistant.SmallGenerationModel = m })
+		} else {
+			// Main provider/model for non-agent assistants.
+			applySubstitution("provider/model", assistant.Provider, assistant.Model,
+				func(p string) { assistant.Provider = p },
+				func(m string) { assistant.Model = m })
 		}
 	}
 
 	return substitutions, nil
+}
+
+func normalizeHelixAgentAssistantSpecs(app *types.Agent) {
+	if app == nil {
+		return
+	}
+	for idx := range app.Config.Helix.Assistants {
+		assistant := &app.Config.Helix.Assistants[idx]
+		if assistant.AgentType != types.AgentTypeHelixAgent {
+			continue
+		}
+		assistant.Provider = ""
+		assistant.Model = ""
+	}
 }
 
 // findModelSubstitution finds the first available model from the alternatives list.
@@ -235,15 +254,15 @@ func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel s
 	return nil
 }
 
-// listApps godoc
-// @Summary List apps
-// @Description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
-// @Tags    apps
-// @Success 200 {array} types.App
+// listAgents godoc
+// @Summary List agents
+// @Description List agents for the user. Agents are pre-configured to spawn sessions with specific tools and config.
+// @Tags    agents
+// @Success 200 {array} types.Agent
 // @Param organization_id query string false "Organization ID"
-// @Router /api/v1/apps [get]
+// @Router /api/v1/agents [get]
 // @Security BearerAuth
-func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*types.App, *system.HTTPError) {
+func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*types.Agent, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
 	orgID := r.URL.Query().Get("organization_id") // If filtering for a specific organization
@@ -268,7 +287,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	}
 
 	// remove global apps from the list in case this is the admin user who created the global app
-	nonGlobalUserApps := []*types.App{}
+	nonGlobalUserApps := []*types.Agent{}
 	for _, app := range userApps {
 		if !app.Global {
 			nonGlobalUserApps = append(nonGlobalUserApps, app)
@@ -289,7 +308,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	return filteredApps, nil
 }
 
-func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.App) []*types.App {
+func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.Agent) []*types.Agent {
 	userMap := make(map[string]*types.User)
 
 	for _, app := range apps {
@@ -319,7 +338,7 @@ func (s *HelixAPIServer) populateAppOwner(ctx context.Context, apps []*types.App
 }
 
 // listOrganizationApps lists apps for an organization based on the user's access grants
-func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.User, orgID string) ([]*types.App, *system.HTTPError) {
+func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.User, orgID string) ([]*types.Agent, *system.HTTPError) {
 	orgMembership, err := s.authorizeOrgMember(ctx, user, orgID)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
@@ -338,7 +357,7 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 	}
 
 	// Non-owners only see apps they have access to (direct access or via project)
-	var authorizedApps []*types.App
+	var authorizedApps []*types.Agent
 	for _, app := range apps {
 		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
 			continue
@@ -349,16 +368,30 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 	return authorizedApps, nil
 }
 
-// createApp godoc
-// @Summary Create new app
-// @Description Create new app. Helix apps are configured with tools and knowledge. Supports both legacy format and new structured format with YAML config.
-// @Tags    apps
+func isSpecTaskSelectableAgent(app *types.Agent) bool {
+	return app != nil && app.AgentKind == types.AgentKindCoding
+}
 
-// @Success 200 {object} AppCreateResponse
-// @Param request    body types.App true "Request body with app configuration. Can be legacy App format or structured format with organization_id, global, and yaml_config fields.")
-// @Router /api/v1/apps [post]
+func requireAgentKind(app *types.Agent, expectedKind, surface string) error {
+	if app == nil {
+		return fmt.Errorf("agent is required")
+	}
+	if app.AgentKind != expectedKind {
+		return fmt.Errorf("%s requires agent kind %q, got %q", surface, expectedKind, app.AgentKind)
+	}
+	return nil
+}
+
+// createAgent godoc
+// @Summary Create new agent
+// @Description Create new agent. Helix agents are configured with tools and knowledge. Supports both legacy format and new structured format with YAML config.
+// @Tags    agents
+
+// @Success 200 {object} AgentCreateResponse
+// @Param request    body types.Agent true "Request body with agent configuration. Can be legacy Agent format or structured format with organization_id, global, and yaml_config fields.")
+// @Router /api/v1/agents [post]
 // @Security BearerAuth
-func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*AppCreateResponse, *system.HTTPError) {
+func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*AgentCreateResponse, *system.HTTPError) {
 	user := getRequestUser(r)
 	ctx := r.Context()
 
@@ -375,7 +408,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 		ModelClasses   []ModelClass           `json:"model_classes"`
 	}
 
-	var app *types.App
+	var app *types.Agent
 	var modelClasses []ModelClass
 
 	// Try structured format first
@@ -387,10 +420,10 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 		}
 
 		// Build the app structure
-		app = &types.App{
+		app = &types.Agent{
 			OrganizationID: structuredReq.OrganizationID,
 			Global:         structuredReq.Global,
-			Config: types.AppConfig{
+			Config: types.AgentConfig{
 				Helix:          *helixConfig,
 				Secrets:        make(map[string]string),
 				AllowedDomains: []string{},
@@ -465,6 +498,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 			Msg("No model classes provided, skipping substitution")
 	}
 
+	normalizeHelixAgentAssistantSpecs(app)
+	if err := s.applyDefaultNewProjectAgentConfig(ctx, app); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
 	err = s.validateProvidersAndModels(ctx, user, app)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
@@ -506,7 +544,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 		}
 	}
 
-	var created *types.App
+	var created *types.Agent
 
 	err = s.validateTriggers(app.Config.Helix.Triggers)
 	if err != nil {
@@ -517,6 +555,8 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
+	// Agent kind is assigned by the creation path, not by API callers.
+	app.AgentKind = ""
 
 	// Validate and default tools
 	for idx := range app.Config.Helix.Assistants {
@@ -573,15 +613,80 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return &AppCreateResponse{
-		App:                created,
+	return &AgentCreateResponse{
+		Agent:              created,
 		ModelSubstitutions: modelSubstitutions,
 	}, nil
 }
 
+func needsDefaultNewProjectAgentConfig(app *types.Agent) bool {
+	if app == nil {
+		return false
+	}
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.GetAgentType() == types.AgentTypeZedExternal &&
+			!assistant.CodeAgentCredentialType.IsSubscription() &&
+			assistant.Provider == "" && assistant.Model == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *HelixAPIServer) applyDefaultNewProjectAgentConfig(ctx context.Context, app *types.Agent) error {
+	if !needsDefaultNewProjectAgentConfig(app) {
+		return nil
+	}
+
+	settings, err := s.Store.GetSystemSettings(ctx)
+	if err != nil {
+		return fmt.Errorf("get default new project agent configuration: %w", err)
+	}
+	return applyDefaultNewProjectAgentConfig(settings, app)
+}
+
+func applyDefaultNewProjectAgentConfig(settings *types.SystemSettings, app *types.Agent) error {
+	if !needsDefaultNewProjectAgentConfig(app) {
+		return nil
+	}
+	if settings == nil || settings.DefaultNewProjectAgentProvider == "" || settings.DefaultNewProjectAgentModel == "" {
+		return errors.New("default new project agent provider and model are not configured in Admin > System Settings")
+	}
+
+	effort := settings.DefaultNewProjectAgentReasoningEffort
+	if effort == "" {
+		effort = types.ReasoningEffortNone
+	}
+	if !types.ValidReasoningEffort(effort) {
+		return fmt.Errorf("invalid default new project agent reasoning effort %q", effort)
+	}
+
+	for idx := range app.Config.Helix.Assistants {
+		assistant := &app.Config.Helix.Assistants[idx]
+		if assistant.GetAgentType() != types.AgentTypeZedExternal ||
+			assistant.CodeAgentCredentialType.IsSubscription() ||
+			assistant.Provider != "" || assistant.Model != "" {
+			continue
+		}
+		assistant.CodeAgentCredentialType = types.CodeAgentCredentialTypeAPIKey
+		assistant.Provider = settings.DefaultNewProjectAgentProvider
+		assistant.Model = settings.DefaultNewProjectAgentModel
+		if assistant.ReasoningEffort == "" {
+			assistant.ReasoningEffort = effort
+		}
+	}
+	return nil
+}
+
 // validateProvidersAndModels checks if the provider and model are valid. Provider
 // can be empty, however model is required
-func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *types.User, app *types.App) error {
+func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *types.User, app *types.Agent) error {
+	for _, assistant := range app.Config.Helix.Assistants {
+		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+			return fmt.Errorf("assistant %q: %w", assistant.Name, err)
+		}
+	}
+
 	endpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
 	if err != nil {
 		log.Error().
@@ -613,22 +718,31 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		Msg("Available providers during validation")
 
 	// Helper function to validate a provider/model pair
-	validateProviderModel := func(fieldName, provider, model string, assistantName string, isAgentMode bool) error {
+	validateProviderModel := func(fieldName, provider, model string, assistantName string, allowEmptyProvider bool) error {
 		if provider == "" && model == "" {
 			return nil // Both empty is ok
 		}
 
-		if model == "" && !isAgentMode {
+		if provider == "" && !allowEmptyProvider {
 			log.Error().
 				Str("user_id", user.ID).
 				Str("assistant_name", assistantName).
 				Str("field_name", fieldName).
-				Msg("Validation failed: assistant has no model and is not in agent mode")
+				Msg("Validation failed: assistant has no provider")
+			return fmt.Errorf("assistant '%s' must have a provider for %s", assistantName, fieldName)
+		}
+
+		if model == "" {
+			log.Error().
+				Str("user_id", user.ID).
+				Str("assistant_name", assistantName).
+				Str("field_name", fieldName).
+				Msg("Validation failed: assistant has no model")
 			return fmt.Errorf("assistant '%s' must have a model for %s", assistantName, fieldName)
 		}
 
-		// If provider set, check if we have it
-		if provider != "" && !isAgentMode {
+		// If provider set, check if we have it.
+		if provider != "" {
 			if !providerKnown(provider) {
 				log.Error().
 					Str("user_id", user.ID).
@@ -637,6 +751,9 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 					Str("provider", provider).
 					Int("available_endpoints", len(endpoints)).
 					Msg("Validation failed: provider not available")
+				if app.OrganizationID != "" {
+					return errors.New(types.OrganizationProviderUnavailableMessage)
+				}
 				return fmt.Errorf("provider '%s' is not available for %s", provider, fieldName)
 			}
 		}
@@ -656,6 +773,10 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 			Str("agent_type", string(assistant.GetAgentType())).
 			Msg("Validating individual assistant")
 
+		if assistant.AgentType == types.AgentTypeHelixAgent && (assistant.Provider != "" || assistant.Model != "") {
+			return fmt.Errorf("helix_agent assistant '%s' must not set top-level provider/model; use reasoning_model_provider, generation_model_provider, small_reasoning_model_provider, and small_generation_model_provider", assistant.Name)
+		}
+
 		if assistant.CodeAgentRuntime != "" && assistant.CodeAgentCredentialType == types.CodeAgentCredentialTypeAPIKey {
 			// Provider and model are only required in explicit API key mode,
 			// where the agent routes through the Helix proxy.
@@ -670,13 +791,13 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		}
 
 		// Validate main provider/model
-		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, assistant.IsAgentMode())
+		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, true)
 		if err != nil {
 			return err
 		}
 
 		// If in agent mode, validate all agent mode model fields
-		if assistant.IsAgentMode() {
+		if assistant.AgentType == types.AgentTypeHelixAgent {
 			// Validate reasoning model
 			err := validateProviderModel("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel, assistant.Name, false)
 			if err != nil {
@@ -730,7 +851,7 @@ func (s *HelixAPIServer) validateTriggers(triggers []types.Trigger) error {
 }
 
 // ensureKnowledge creates or updates knowledge config in the database
-func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) error {
+func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.Agent) error {
 	var knowledge []*types.AssistantKnowledge
 
 	// Get knowledge for all assistants
@@ -888,7 +1009,7 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 }
 
 // ensureTriggerConfigurations ensures that the trigger configurations for the app are created in the database
-func (s *HelixAPIServer) ensureTriggerConfigurations(ctx context.Context, app *types.App) error {
+func (s *HelixAPIServer) ensureTriggerConfigurations(ctx context.Context, app *types.Agent) error {
 	// Check if we already have a trigger configuration for this app
 	existingTriggers, err := s.Store.ListTriggerConfigurations(ctx, &store.ListTriggerConfigurationsQuery{
 		AppID: app.ID,
@@ -910,7 +1031,7 @@ func (s *HelixAPIServer) ensureTriggerConfigurations(ctx context.Context, app *t
 	return nil
 }
 
-func (s *HelixAPIServer) ensureAzureDevOpsTrigger(ctx context.Context, existingTriggers []*types.TriggerConfiguration, app *types.App, trigger types.Trigger) error {
+func (s *HelixAPIServer) ensureAzureDevOpsTrigger(ctx context.Context, existingTriggers []*types.TriggerConfiguration, app *types.Agent, trigger types.Trigger) error {
 	// Check if we already have this config
 	for _, t := range existingTriggers {
 		if t.Trigger.AzureDevOps != nil && t.Trigger.AzureDevOps.Enabled {
@@ -949,26 +1070,16 @@ func determineInitialState(source types.KnowledgeSource) types.KnowledgeState {
 	return types.KnowledgeStatePending
 }
 
-// what the user can change about a github app fromm the frontend
-type AppUpdatePayload struct {
-	Name           string            `json:"name"`
-	Description    string            `json:"description"`
-	ActiveTools    []string          `json:"active_tools"`
-	Secrets        map[string]string `json:"secrets"`
-	AllowedDomains []string          `json:"allowed_domains"`
-	Global         bool              `json:"global"`
-}
+// getAgent godoc
+// @Summary Get agent by ID
+// @Description Get agent by ID.
+// @Tags    agents
 
-// getApp godoc
-// @Summary Get app by ID
-// @Description Get app by ID.
-// @Tags    apps
-
-// @Success 200 {object} types.App
-// @Param id path string true "App ID"
-// @Router /api/v1/apps/{id} [get]
+// @Success 200 {object} types.Agent
+// @Param id path string true "Agent ID"
+// @Router /api/v1/agents/{id} [get]
 // @Security BearerAuth
-func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+func (s *HelixAPIServer) getAgent(_ http.ResponseWriter, r *http.Request) (*types.Agent, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
 
@@ -984,31 +1095,36 @@ func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
-
 	return app, nil
 }
 
-// updateApp godoc
-// @Summary Update an existing app
-// @Description Update existing app
-// @Tags    apps
+// updateAgent godoc
+// @Summary Update an existing agent
+// @Description Update existing agent
+// @Tags    agents
 
-// @Success 200 {object} types.App
-// @Param request    body types.App true "Request body with app configuration.")
+// @Success 200 {object} types.Agent
+// @Param request    body types.Agent true "Request body with agent configuration.")
 // @Param id path string true "Tool ID"
-// @Router /api/v1/apps/{id} [put]
+// @Router /api/v1/agents/{id} [put]
 // @Security BearerAuth
-func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*types.Agent, *system.HTTPError) {
 	user := getRequestUser(r)
 
-	var update types.App
+	var update types.Agent
 	err := json.NewDecoder(r.Body).Decode(&update)
 	if err != nil {
 		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 2, error: %s", err))
 	}
 
+	id := getID(r)
+	if update.ID != "" && update.ID != id {
+		return nil, system.NewHTTPError400("app ID in request body does not match URL")
+	}
+	update.ID = id
+
 	// Getting existing app
-	existing, err := s.Store.GetApp(r.Context(), update.ID)
+	existing, err := s.Store.GetApp(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
@@ -1025,11 +1141,29 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	update.Owner = existing.Owner
 	update.OwnerType = existing.OwnerType
 	update.Created = existing.Created
+	update.AgentKind = existing.AgentKind
 
 	err = s.authorizeUserToApp(r.Context(), user, existing, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+
+	if s.helixOrg != nil && s.helixOrg.store != nil && existing.OrganizationID != "" {
+		bots, listErr := s.helixOrg.store.Nodes.List(r.Context(), existing.OrganizationID)
+		if listErr != nil {
+			return nil, system.NewHTTPError500(listErr.Error())
+		}
+		for _, bot := range bots {
+			if bot.AgentID == existing.ID {
+				if len(update.Config.Helix.Assistants) != 1 {
+					return nil, system.NewHTTPError400("org-linked agent must contain exactly one assistant")
+				}
+				update.Config.Helix.Assistants[0].Name = update.Config.Helix.Name
+			}
+		}
+	}
+
+	normalizeHelixAgentAssistantSpecs(&update)
 
 	err = s.validateProvidersAndModels(r.Context(), user, &update)
 	if err != nil {
@@ -1092,20 +1226,19 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
-
 	return updated, nil
 }
 
-// deleteApp godoc
-// @Summary Delete app
-// @Description Delete app.
-// @Tags    apps
+// deleteAgent godoc
+// @Summary Delete agent
+// @Description Delete agent.
+// @Tags    agents
 
 // @Success 200
-// @Param id path string true "App ID"
-// @Router /api/v1/apps/{id} [delete]
+// @Param id path string true "Agent ID"
+// @Router /api/v1/agents/{id} [delete]
 // @Security BearerAuth
-func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+func (s *HelixAPIServer) deleteAgent(_ http.ResponseWriter, r *http.Request) (*types.Agent, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
 
@@ -1124,33 +1257,51 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	if s.helixOrg != nil && s.helixOrg.store != nil && s.helixOrg.lifecycle != nil && existing.OrganizationID != "" {
+		bots, listErr := s.helixOrg.store.Nodes.List(r.Context(), existing.OrganizationID)
+		if listErr != nil {
+			return nil, system.NewHTTPError500(listErr.Error())
+		}
+		for _, bot := range bots {
+			if bot.AgentID == id {
+				if keepKnowledge {
+					return nil, system.NewHTTPError400("keep_knowledge is not supported when deleting an org-linked agent")
+				}
+				if deleteErr := s.helixOrg.lifecycle.Delete(r.Context(), existing.OrganizationID, bot.ID); deleteErr != nil {
+					return nil, system.NewHTTPError500(deleteErr.Error())
+				}
+				return existing, nil
+			}
+		}
+	}
+	if err := s.deleteAppData(r.Context(), id, keepKnowledge); err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	return existing, nil
+}
 
+func (s *HelixAPIServer) deleteAppData(ctx context.Context, id string, keepKnowledge bool) error {
 	if !keepKnowledge {
-		knowledge, err := s.Store.ListKnowledge(r.Context(), &store.ListKnowledgeQuery{
+		knowledge, err := s.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
 			AppID: id,
 		})
 		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
+			return err
 		}
 
 		for _, k := range knowledge {
-			err = s.Store.DeleteKnowledge(r.Context(), k.ID)
+			err = s.Store.DeleteKnowledge(ctx, k.ID)
 			if err != nil {
-				return nil, system.NewHTTPError500(err.Error())
+				return err
 			}
 		}
 	}
 
-	err = s.Store.DeleteApp(r.Context(), id)
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
-	}
-
-	return existing, nil
+	return s.Store.DeleteApp(ctx, id)
 }
 
 // getAppOAuthTokenEnv retrieves OAuth tokens for the app
-func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.User, appRecord *types.App) map[string]string {
+func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.User, appRecord *types.Agent) map[string]string {
 	oauthTokens := make(map[string]string)
 
 	// Skip if OAuth manager is not available
@@ -1299,11 +1450,11 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 
 // appRunAPIAction godoc
 // @Summary Run an API action
-// @Description Runs an API action for an app
+// @Description Runs an API action for an agent
 // @Accept json
 // @Produce json
 // @Param request body types.RunAPIActionRequest true "Request"
-// @Router /api/v1/apps/{id}/api-actions [post]
+// @Router /api/v1/agents/{id}/api-actions [post]
 // @Success 200 {object} types.RunAPIActionResponse
 // @Failure 400 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
@@ -1385,19 +1536,19 @@ func (s *HelixAPIServer) appRunAPIAction(_ http.ResponseWriter, r *http.Request)
 }
 
 // getAppUsage godoc
-// @Summary Get app usage
-// @Description Get app daily usage
+// @Summary Get agent usage
+// @Description Get agent daily usage
 // @Accept json
 // @Produce json
-// @Tags    apps
-// @Param   id path string true "App ID"
+// @Tags    agents
+// @Param   id path string true "Agent ID"
 // @Param   from query string false "Start date"
 // @Param   to query string false "End date"
 // @Success 200 {array} types.AggregatedUsageMetric
 // @Failure 400 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
-// @Router /api/v1/apps/{id}/daily-usage [get]
+// @Router /api/v1/agents/{id}/daily-usage [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getAppDailyUsage(_ http.ResponseWriter, r *http.Request) ([]*types.AggregatedUsageMetric, *system.HTTPError) {
 	user := getRequestUser(r)
@@ -1443,19 +1594,19 @@ func (s *HelixAPIServer) getAppDailyUsage(_ http.ResponseWriter, r *http.Request
 }
 
 // getAppUsersDailyUsage godoc
-// @Summary Get app users daily usage
-// @Description Get app users daily usage
+// @Summary Get agent users daily usage
+// @Description Get agent users daily usage
 // @Accept json
 // @Produce json
-// @Tags    apps
-// @Param   id path string true "App ID"
+// @Tags    agents
+// @Param   id path string true "Agent ID"
 // @Param   from query string false "Start date"
 // @Param   to query string false "End date"
 // @Success 200 {array} types.AggregatedUsageMetric
 // @Failure 400 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
-// @Router /api/v1/apps/{id}/users-daily-usage [get]
+// @Router /api/v1/agents/{id}/users-daily-usage [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getAppUsersDailyUsage(_ http.ResponseWriter, r *http.Request) ([]*types.UsersAggregatedUsageMetric, *system.HTTPError) {
 	user := getRequestUser(r)
@@ -1504,12 +1655,12 @@ func (s *HelixAPIServer) getAppUsersDailyUsage(_ http.ResponseWriter, r *http.Re
 }
 
 // getAppUserAccess godoc
-// @Summary Get current user's access level for an app
-// @Description Returns the access rights the current user has for this app
-// @Tags    apps
+// @Summary Get current user's access level for an agent
+// @Description Returns the access rights the current user has for this agent
+// @Tags    agents
 // @Success 200 {object} types.UserAppAccessResponse
-// @Param id path string true "App ID"
-// @Router /api/v1/apps/{id}/user-access [get]
+// @Param id path string true "Agent ID"
+// @Router /api/v1/agents/{id}/user-access [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request) (*types.UserAppAccessResponse, *system.HTTPError) {
 	// Get current user and app ID
@@ -1589,19 +1740,19 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 }
 
 // uploadAppAvatar godoc
-// @Summary Upload app avatar
-// @Description Upload a base64 encoded image as the app's avatar
-// @Tags    apps
+// @Summary Upload agent avatar
+// @Description Upload a base64 encoded image as the agent's avatar
+// @Tags    agents
 // @Accept  text/plain
 // @Produce json
-// @Param id path string true "App ID"
+// @Param id path string true "Agent ID"
 // @Param image body string true "Base64 encoded image data"
 // @Success 200
 // @Failure 400 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
-// @Router /api/v1/apps/{id}/avatar [post]
+// @Router /api/v1/agents/{id}/avatar [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
@@ -1667,7 +1818,7 @@ func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request
 	}
 
 	// Update app config with avatar URL and content type
-	app.Config.Helix.Avatar = fmt.Sprintf("/api/v1/apps/%s/avatar", id)
+	app.Config.Helix.Avatar = fmt.Sprintf("/api/v1/agents/%s/avatar", id)
 	app.Config.Helix.AvatarContentType = contentType
 	_, err = s.Store.UpdateApp(r.Context(), app)
 	if err != nil {
@@ -1679,13 +1830,13 @@ func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request
 }
 
 // getAppTriggerStatus godoc
-// @Summary Get app trigger status
-// @Description Get the status of a specific trigger type for an app
-// @Tags    apps
+// @Summary Get agent trigger status
+// @Description Get the status of a specific trigger type for an agent
+// @Tags    agents
 // @Success 200 {object} types.TriggerStatus
-// @Param id path string true "App ID"
+// @Param id path string true "Agent ID"
 // @Param trigger_type query string true "Trigger type (e.g., slack)"
-// @Router /api/v1/apps/{id}/trigger-status [get]
+// @Router /api/v1/agents/{id}/trigger-status [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getAppTriggerStatus(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
@@ -1722,16 +1873,16 @@ func (s *HelixAPIServer) getAppTriggerStatus(rw http.ResponseWriter, r *http.Req
 }
 
 // deleteAppAvatar godoc
-// @Summary Delete app avatar
-// @Description Delete the app's avatar image
-// @Tags    apps
+// @Summary Delete agent avatar
+// @Description Delete the agent's avatar image
+// @Tags    agents
 // @Produce json
-// @Param id path string true "App ID"
+// @Param id path string true "Agent ID"
 // @Success 200
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
-// @Router /api/v1/apps/{id}/avatar [delete]
+// @Router /api/v1/agents/{id}/avatar [delete]
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
@@ -1779,14 +1930,14 @@ func (s *HelixAPIServer) deleteAppAvatar(rw http.ResponseWriter, r *http.Request
 }
 
 // getAppAvatar godoc
-// @Summary Get app avatar
-// @Description Get the app's avatar image
-// @Tags    apps
+// @Summary Get agent avatar
+// @Description Get the agent's avatar image
+// @Tags    agents
 // @Produce image/*
-// @Param id path string true "App ID"
+// @Param id path string true "Agent ID"
 // @Success 200 {file} binary "Avatar image data"
 // @Failure 404 {object} system.HTTPError
-// @Router /api/v1/apps/{id}/avatar [get]
+// @Router /api/v1/agents/{id}/avatar [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	id := getID(r)
@@ -1840,10 +1991,13 @@ func (s *HelixAPIServer) downloadAndExtractZipToKnowledge(ctx context.Context, z
 		Str("destination_path", knowledgeStorePath).
 		Msg("Starting zip file download and extraction")
 
-	// Download the zip file with a timeout
-	client := &http.Client{
-		Timeout: 10 * time.Minute, // Allow up to 10 minutes for large zip files
+	if err := validateSeedZipURL(zipURL); err != nil {
+		return fmt.Errorf("rejected seed zip URL: %w", err)
 	}
+
+	// Use the SSRF-safe client so any DNS rebind or redirect to a blocked
+	// address is rejected at dial time, not just at the URL string level.
+	client := newSafeFetchClient(10 * time.Minute)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", zipURL, nil)
 	if err != nil {
@@ -1976,16 +2130,16 @@ func (s *HelixAPIServer) extractZipFile(ctx context.Context, file *zip.File, bas
 }
 
 // duplicateApp godoc
-// @Summary Duplicate app
-// @Description duplicate app.
-// @Tags    apps
+// @Summary Duplicate agent
+// @Description duplicate agent.
+// @Tags    agents
 
 // @Success 200
-// @Param id path string true "App ID"
-// @Param name query string false "Optional new name for the app"
-// @Router /api/v1/apps/{id}/duplicate [post]
+// @Param id path string true "Agent ID"
+// @Param name query string false "Optional new name for the agent"
+// @Router /api/v1/agents/{id}/duplicate [post]
 // @Security BearerAuth
-func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*types.Agent, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
 
@@ -2006,24 +2160,30 @@ func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*
 	app.Owner = user.ID
 	app.OwnerType = user.Type
 	app.Updated = time.Now()
+	app.AgentKind = ""
 
 	app.Config.Helix.Name = r.URL.Query().Get("name")
+	normalizeHelixAgentAssistantSpecs(app)
+	for _, assistant := range app.Config.Helix.Assistants {
+		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+			return nil, system.NewHTTPError400(err.Error())
+		}
+	}
 
 	app, err = s.Store.CreateApp(r.Context(), app)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
-
 	return app, nil
 }
 
 // listAppMemories godoc
-// @Summary List app memories
-// @Description List memories for a specific app and user
+// @Summary List agent memories
+// @Description List memories for a specific agent and user
 // @Tags    memories
 // @Produce json
 // @Success 200 {array} types.Memory
-// @Router /api/v1/apps/{id}/memories [get]
+// @Router /api/v1/agents/{id}/memories [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listAppMemories(_ http.ResponseWriter, r *http.Request) ([]*types.Memory, *system.HTTPError) {
 	appID := getID(r)
@@ -2056,14 +2216,14 @@ func (s *HelixAPIServer) listAppMemories(_ http.ResponseWriter, r *http.Request)
 }
 
 // deleteAppMemory godoc
-// @Summary Delete app memory
-// @Description Delete a specific memory for an app and user
+// @Summary Delete agent memory
+// @Description Delete a specific memory for an agent and user
 // @Tags    memories
 // @Produce json
 // @Success 200
-// @Param id path string true "App ID"
+// @Param id path string true "Agent ID"
 // @Param memory_id path string true "Memory ID"
-// @Router /api/v1/apps/{id}/memories/{memory_id} [delete]
+// @Router /api/v1/agents/{id}/memories/{memory_id} [delete]
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteAppMemory(_ http.ResponseWriter, r *http.Request) (*types.Memory, *system.HTTPError) {
 	appID := getID(r)
@@ -2111,4 +2271,91 @@ func (s *HelixAPIServer) deleteAppMemory(_ http.ResponseWriter, r *http.Request)
 	return &types.Memory{
 		ID: memoryID,
 	}, nil
+}
+
+// validateSeedZipURL does the cheap up-front URL checks: parseable, scheme is
+// http(s), host is present. The real SSRF defence is at dial time - see
+// newSafeFetchClient. Doing only the cheap checks here keeps the error path
+// fast for obviously-bad input (file://, empty host) without duplicating the
+// IP block list that the dialer enforces anyway.
+func validateSeedZipURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parse url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("scheme %q not allowed (only http/https)", u.Scheme)
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("missing host")
+	}
+	return nil
+}
+
+// newSafeFetchClient returns an http.Client that refuses to dial loopback,
+// link-local, or cloud-instance-metadata addresses. Knowledge seed URLs come
+// from caller-supplied app config; without this guard, a tenant could point
+// the API process at `127.0.0.1` (probe internal services) or
+// `169.254.169.254` (exfiltrate IAM credentials on cloud-hosted Helix).
+//
+// We deliberately allow other RFC1918 ranges - downloadAndExtractZipToKnowledge
+// is documented as supporting air-gapped deployments seeding from internal
+// mirrors. If an operator needs stricter egress control, that belongs at the
+// network layer.
+//
+// Enforcement is at dial time, not URL parse time, so it survives:
+//   - DNS rebinding (each Dial does its own resolution)
+//   - HTTP redirects to blocked addresses (each followed redirect dials)
+//   - Obscure IPv4 literals like 2130706433 or 0x7f.0.0.1 (the resolved IP is
+//     checked, not the literal string in the URL)
+func newSafeFetchClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			// Reject if ANY resolved address is unsafe - a multi-A-record
+			// hostname that includes a blocked IP gets rejected outright
+			// rather than trying to pick a "safe" one (which would still
+			// leak DNS to the attacker).
+			for _, ip := range ips {
+				if !isSafeFetchIP(ip.IP) {
+					return nil, fmt.Errorf("blocked dial: host %s resolves to %s", host, ip.IP)
+				}
+			}
+			// Pin to the first resolved IP we already checked - prevents the
+			// http stack from doing its own second lookup that could return
+			// a different (unsafe) IP between our check and the actual dial.
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+}
+
+// isSafeFetchIP returns false for any address the seed-zip fetcher must not
+// reach. Centralised so the deny set is one list, not scattered.
+func isSafeFetchIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return false
+	}
+	// Cloud instance metadata endpoints. 169.254.169.254 is already covered
+	// by IsLinkLocalUnicast on most stacks but we match explicitly so the
+	// intent is greppable, and to cover the IPv4-mapped IPv6 form.
+	if ip.Equal(net.ParseIP("169.254.169.254")) {
+		return false
+	}
+	if ip.Equal(net.ParseIP("fd00:ec2::254")) {
+		return false
+	}
+	return true
 }

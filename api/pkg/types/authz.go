@@ -220,6 +220,10 @@ type User struct {
 	TokenType TokenType `json:"token_type"`
 	// if the ID of the user is contained in the env setting
 	Admin bool `json:"admin"`
+	// APIKeyType is the type of the API key this request authenticated with, when
+	// it authenticated with one. Carried so the auth middleware can apply the
+	// per-type restrictions (app keys: chat paths only; embed keys: one spec task).
+	APIKeyType APIKeyType `json:"api_key_type" gorm:"-"`
 	// if the token is associated with an app
 	AppID          string `json:"app_id"`
 	ProjectID      string `json:"project_id" gorm:"-"`      // When running in Helix Code sandbox
@@ -233,6 +237,14 @@ type User struct {
 	Email    string    `json:"email"`
 	Username string    `json:"username"`
 	FullName string    `json:"full_name"`
+
+	// GitCommitName and GitCommitEmail override the account identity for commits.
+	// Empty values inherit FullName/Username and Email respectively.
+	GitCommitName  string `json:"git_commit_name"`
+	GitCommitEmail string `json:"git_commit_email"`
+	// PRFooterTemplate is nullable so nil can inherit the Helix default while an
+	// explicit empty string disables the footer.
+	PRFooterTemplate *string `json:"pr_footer_template" gorm:"type:text"`
 
 	AuthProvider AuthProvider `json:"auth_provider"`
 
@@ -253,6 +265,12 @@ type User struct {
 	TrialDaysOnFirstOrg    *int     `json:"trial_days_on_first_org,omitempty"`
 	TrialCreditsOnFirstOrg *float64 `json:"trial_credits_on_first_org,omitempty"`
 
+	// PlanOnFirstOrg, when set ("pro"), grants a paid plan override to the
+	// user's first owned org's wallet on creation — admin "Activate" with a
+	// paid (non-Stripe) plan for a user who has no org yet. Consumed alongside
+	// the trial intent, then cleared.
+	PlanOnFirstOrg *string `json:"plan_on_first_org,omitempty"`
+
 	// PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
 	// /admin/users/{id}/credits endpoint when the user has no owned org yet.
 	// Consumed by consumeUserAdminCredits on first owned org, then cleared.
@@ -271,10 +289,8 @@ type User struct {
 	// Updated (throttled) from auth middleware so the column isn't hammered on every request.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 
-	// AlphaFeatures lists the feature flags this user has been granted
-	// access to. Server-enforced via requireFeature middleware — the
-	// frontend uses it only to decide whether to render the entry
-	// point. Granted per-user via SQL (no deploy).
+	// AlphaFeatures lists feature flags granted to this user.
+	// Granted per-user via SQL (no deploy).
 	AlphaFeatures pq.StringArray `gorm:"type:text[];default:'{}'" json:"alpha_features"`
 }
 
@@ -421,15 +437,23 @@ type UserGuidelinesResponse struct {
 }
 
 type UserConfig struct {
-	StripeSubscriptionActive bool     `json:"stripe_subscription_active"`
-	StripeCustomerID         string   `json:"stripe_customer_id"`
-	StripeSubscriptionID     string   `json:"stripe_subscription_id"`
-	PinnedProjectIDs         []string `json:"pinned_project_ids,omitempty"`
+	StripeSubscriptionActive bool         `json:"stripe_subscription_active"`
+	StripeCustomerID         string       `json:"stripe_customer_id"`
+	StripeSubscriptionID     string       `json:"stripe_subscription_id"`
+	PinnedProjectIDs         []string     `json:"pinned_project_ids,omitempty"`
+	PinnedChats              []PinnedChat `json:"pinned_chats,omitempty"`
 	// ColorScheme is the user's preferred UI color scheme: "light" or "dark".
 	// Empty string means follow OS preference. Propagated to the GNOME desktop
 	// (gsettings color-scheme) and Zed editor inside spec-task sessions owned
 	// by this user.
 	ColorScheme string `json:"color_scheme,omitempty"`
+}
+
+type PinnedChat struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	ProjectID string    `json:"project_id,omitempty"`
+	PinnedAt  time.Time `json:"pinned_at"`
 }
 
 // UpdateUserColorSchemeRequest is the request body for setting a user's color scheme.
@@ -498,7 +522,6 @@ const (
 	ResourceGitRepository         Resource = "GitRepository"
 	ResourceSpecTask              Resource = "SpecTask"
 	ResourceSession               Resource = "Session"
-	ResourcePrompt                Resource = "Prompt"
 	ResourceDesktop               Resource = "Desktop"
 )
 

@@ -46,6 +46,9 @@ func ApplyOptions(db *gorm.DB, opts ...store.Option) *gorm.DB {
 	if l := q.Limit(); l > 0 {
 		db = db.Limit(l)
 	}
+	if o := q.Offset(); o > 0 {
+		db = db.Offset(o)
+	}
 	return db
 }
 

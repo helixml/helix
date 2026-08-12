@@ -18,6 +18,19 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// CommentTimerNoResponseMessage is the AgentResponse stamped onto a comment
+// when the 2-minute response timer fires without the agent producing any
+// content. It must be a stable string because finalizeCommentResponse keys
+// off it to recognise a stale timer-stamp and overwrite it with a late
+// real response.
+const CommentTimerNoResponseMessage = "[Agent did not respond - try sending your comment again]"
+
+// commentResponseTimeout is how long we wait for the agent to respond to a
+// queued review comment before the backstop timer fires. The timer is a
+// best-effort safety net behind finalizeCommentResponse (which fires on the
+// message_completed event); see handleCommentTimeout for the decision tree.
+const commentResponseTimeout = 2 * time.Minute
+
 // Design Review Handlers - Simple versions
 
 // ResumeCommentQueueProcessing resumes processing of any queued comments after server restart.
@@ -28,19 +41,30 @@ import (
 func (s *HelixAPIServer) ResumeCommentQueueProcessing(ctx context.Context) {
 	log.Info().Msg("🔄 Resuming comment queue processing after startup...")
 
-	// Step 1: Reset any comments that were mid-processing when server crashed
+	// Find all sessions with pending comments up front — used both for terminal
+	// reconciliation and for triggering processing.
+	sessionIDs, err := s.Store.GetSessionsWithPendingComments(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get sessions with pending comments")
+		return
+	}
+
+	// Step 1a: Reconcile comments whose agent interaction already COMPLETED but
+	// were never finalized (their message_completed never mapped back). These must
+	// be finalized — not blindly reset — otherwise the bulk reset below would clear
+	// their request_id and the queue would re-send an already-answered comment.
+	for _, sessionID := range sessionIDs {
+		s.reconcileStuckInFlightComment(ctx, sessionID)
+	}
+
+	// Step 1b: Reset any comments still stuck mid-processing (request_id set, no
+	// response, interaction NOT terminal — a genuine crash mid-flight). Clearing
+	// request_id lets them be re-sent on the next processing pass.
 	resetCount, err := s.Store.ResetStuckComments(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to reset stuck comments")
 	} else if resetCount > 0 {
 		log.Info().Int64("count", resetCount).Msg("✅ Reset stuck comments (were mid-processing during crash)")
-	}
-
-	// Step 2: Find all sessions with pending comments and trigger processing
-	sessionIDs, err := s.Store.GetSessionsWithPendingComments(ctx)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get sessions with pending comments")
-		return
 	}
 
 	if len(sessionIDs) == 0 {
@@ -295,14 +319,14 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		switch specTask.Status {
 		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision, types.TaskStatusSpecGeneration:
 			// Before advancing to implementation, validate the approver has
-			// GitHub OAuth so their credentials can be used for commits and
+			// provider OAuth so their credentials can be used for commits and
 			// push. Mirrors the check in approveSpecs/approveImplementation —
 			// the UI goes through this endpoint, so omitting the check here
 			// lets an approver without OAuth silently drive the task to
 			// implementation and commits would then fall back to the creator.
 			if project, projErr := s.Store.GetProject(ctx, specTask.ProjectID); projErr == nil && project.DefaultRepoID != "" {
 				if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
-					if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+					if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
 						var oauthErr *services.OAuthRequiredError
 						if errors.As(err, &oauthErr) {
 							writeResponse(w, map[string]interface{}{
@@ -376,7 +400,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		// interrupt=true: reviewer-driven feedback should preempt any in-flight agent turn,
 		// matching the comment-queue semantic.
 		message := services.BuildRevisionInstructionPrompt(specTask, req.OverallComment)
-		_, _, err = s.sendMessageToSpecTaskAgent(ctx, specTask, message, user.ID, true)
+		err = s.enqueueSpecTaskAgentMessage(ctx, specTask, message, true, user.ID)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -680,9 +704,9 @@ func (s *HelixAPIServer) getDesignReviewCommentQueueStatus(w http.ResponseWriter
 	queuedCommentIDs := s.GetCommentQueueForSession(sessionID)
 
 	response := &types.CommentQueueStatusResponse{
-		CurrentCommentID:  currentCommentID,
-		QueuedCommentIDs:  queuedCommentIDs,
-		AgentSessionID: sessionID,
+		CurrentCommentID: currentCommentID,
+		QueuedCommentIDs: queuedCommentIDs,
+		AgentSessionID:   sessionID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -738,6 +762,20 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 		return
 	}
 	if isProcessing {
+		// A comment is marked in-flight (request_id set). Normally we skip to avoid
+		// interleaving agent responses. But a comment can get stuck in-flight forever
+		// if its message_completed event never maps back to it — e.g. the agent
+		// coalesced several re-sends under a different request_id, the completion was
+		// missed/duplicated, or a restart lost the in-memory mapping. In that case the
+		// linked interaction is already terminal but finalizeCommentResponse never ran,
+		// so request_id stays set and blocks the whole session's comment queue.
+		//
+		// Reconcile before skipping: if the in-flight comment's interaction is terminal,
+		// finalize it now (copies the response, clears the marker, advances the queue).
+		if s.reconcileStuckInFlightComment(ctx, sessionID) {
+			// finalizeCommentResponse already triggered the next queue item.
+			return
+		}
 		log.Debug().
 			Str("session_id", sessionID).
 			Msg("Comment already being processed (database check), skipping")
@@ -807,46 +845,199 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 	}
 
 	// Comment sent successfully - start timeout to handle agent not responding
-	// 2 minute timeout for agent to respond to the comment
-	const commentResponseTimeout = 2 * time.Minute
-	s.sessionCommentMutex.Lock()
-	// Cancel any existing timeout for this session
-	if existingTimer := s.sessionCommentTimeout[sessionID]; existingTimer != nil {
-		existingTimer.Stop()
-	}
-	commentID := comment.ID
-	s.sessionCommentTimeout[sessionID] = time.AfterFunc(commentResponseTimeout, func() {
-		log.Warn().
-			Str("session_id", sessionID).
-			Str("comment_id", commentID).
-			Msg("Comment response timeout - agent did not respond within 2 minutes")
-
-		// Re-fetch comment from database to check current state
-		currentComment, fetchErr := s.Store.GetSpecTaskDesignReviewComment(ctx, commentID)
-		if fetchErr != nil {
-			log.Error().Err(fetchErr).Str("comment_id", commentID).Msg("Failed to fetch comment for timeout check")
-			return
-		}
-
-		// Only mark as timed out if still processing (RequestID set and no response)
-		if currentComment.RequestID != "" && currentComment.AgentResponse == "" {
-			currentComment.AgentResponse = "[Agent did not respond - try sending your comment again]"
-			currentComment.RequestID = ""
-			currentComment.QueuedAt = nil
-			if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, currentComment); updateErr != nil {
-				log.Error().Err(updateErr).Str("comment_id", commentID).Msg("Failed to update timed-out comment")
-			}
-
-			// Process next comment in queue
-			go s.processNextCommentInQueue(ctx, sessionID)
-		}
-	})
-	s.sessionCommentMutex.Unlock()
+	s.armCommentTimer(sessionID, comment.ID)
 
 	log.Info().
 		Str("session_id", sessionID).
 		Str("comment_id", comment.ID).
 		Msg("Comment sent to agent, started 2-minute response timeout")
+}
+
+// armCommentTimer (re)arms the per-session backstop timer for a comment. It
+// cancels any existing timer for the session and schedules handleCommentTimeout
+// to run after commentResponseTimeout. A fresh context.Background() is used for
+// the timer body because the originating HTTP request context may already be
+// cancelled by the time the timer fires.
+func (s *HelixAPIServer) armCommentTimer(sessionID, commentID string) {
+	s.sessionCommentMutex.Lock()
+	defer s.sessionCommentMutex.Unlock()
+	if existingTimer := s.sessionCommentTimeout[sessionID]; existingTimer != nil {
+		existingTimer.Stop()
+	}
+	s.sessionCommentTimeout[sessionID] = time.AfterFunc(commentResponseTimeout, func() {
+		s.handleCommentTimeout(context.Background(), sessionID, commentID)
+	})
+}
+
+// reconcileStuckInFlightComment detects a comment that is marked in-flight
+// (request_id set) for a session but whose linked agent interaction has already
+// reached a terminal state without finalizeCommentResponse ever running. This
+// happens when the message_completed event for the turn never maps back to the
+// comment's request_id (the agent coalesced several re-sends under a different
+// request_id, the completion was missed/duplicated, or a restart lost the
+// in-memory mapping). Left alone, such a zombie blocks the session's comment
+// queue forever.
+//
+// If a stuck comment is found and reconciled it is finalized (response copied
+// from the interaction, request_id/queued_at cleared, next queued comment
+// processed) and true is returned. A genuinely in-flight comment whose
+// interaction is still waiting/streaming is left untouched and false is returned.
+func (s *HelixAPIServer) reconcileStuckInFlightComment(ctx context.Context, sessionID string) bool {
+	inFlight, err := s.Store.GetPendingCommentByAgentSessionID(ctx, sessionID)
+	if err != nil || inFlight == nil {
+		return false
+	}
+	if inFlight.InteractionID == "" {
+		// No linked interaction — we can't prove the agent finished, so treat it as
+		// genuinely in flight and leave it for the backstop timer / re-send path.
+		return false
+	}
+	interaction, ierr := s.Store.GetInteraction(ctx, inFlight.InteractionID)
+	if ierr != nil || interaction == nil {
+		return false
+	}
+	terminal := interaction.State == types.InteractionStateComplete ||
+		interaction.State == types.InteractionStateInterrupted ||
+		interaction.State == types.InteractionStateError
+	if !terminal {
+		// Agent is still working on this comment — correct to wait.
+		return false
+	}
+	log.Warn().
+		Str("session_id", sessionID).
+		Str("comment_id", inFlight.ID).
+		Str("interaction_id", inFlight.InteractionID).
+		Str("interaction_state", string(interaction.State)).
+		Str("request_id", inFlight.RequestID).
+		Msg("🩹 [HELIX] Reconciling stuck in-flight comment: interaction is terminal but was never finalized — finalizing now to unblock the queue")
+	if err := s.finalizeCommentResponse(ctx, inFlight.RequestID); err != nil {
+		log.Error().Err(err).
+			Str("comment_id", inFlight.ID).
+			Msg("Failed to finalize stuck in-flight comment during reconciliation")
+		return false
+	}
+	return true
+}
+
+// handleCommentTimeout is the body of the per-comment 2-minute response timer.
+// It runs on the timer's goroutine when the timer fires. It is exposed as a
+// method (rather than living inline as a closure) so it can be unit-tested
+// without spinning a real time.AfterFunc.
+//
+// The decision tree is:
+//   - If the comment is no longer being processed (RequestID cleared) or
+//     already has a real response: nothing to do.
+//   - If the linked interaction has any streamed content OR is in a terminal
+//     state (complete / interrupted / error): the agent IS responding — skip
+//     the error stamp and let finalizeCommentResponse copy the content over
+//     when message_completed eventually arrives. This is the fix for the
+//     "agent is taking longer than 2 minutes to produce a long answer"
+//     false-positive that previously stamped the error onto the comment.
+//   - Otherwise the agent genuinely produced nothing: stamp the error so the
+//     user sees a clear "try again" signal, then process the next queued
+//     comment.
+func (s *HelixAPIServer) handleCommentTimeout(ctx context.Context, sessionID, commentID string) {
+	log.Warn().
+		Str("session_id", sessionID).
+		Str("comment_id", commentID).
+		Msg("Comment response timeout - agent did not respond within 2 minutes")
+
+	currentComment, fetchErr := s.Store.GetSpecTaskDesignReviewComment(ctx, commentID)
+	if fetchErr != nil {
+		log.Error().Err(fetchErr).Str("comment_id", commentID).Msg("Failed to fetch comment for timeout check")
+		return
+	}
+
+	// Already resolved (request done OR a real response landed): nothing to do.
+	if currentComment.RequestID == "" || currentComment.AgentResponse != "" {
+		return
+	}
+
+	// Check whether the agent is actively making progress on the linked
+	// interaction. During streaming the response content lives on the
+	// interaction row (ResponseMessage / ResponseEntries), not on the comment
+	// — comment.AgentResponse is only populated when message_completed fires.
+	// So an empty AgentResponse by itself does not prove the agent has been
+	// silent.
+	if currentComment.InteractionID != "" {
+		interaction, ierr := s.Store.GetInteraction(ctx, currentComment.InteractionID)
+		if ierr == nil && interaction != nil {
+			agentText := types.TextFromInteraction(interaction)
+			terminal := interaction.State == types.InteractionStateComplete ||
+				interaction.State == types.InteractionStateInterrupted ||
+				interaction.State == types.InteractionStateError
+			if terminal {
+				// The agent is DONE but finalizeCommentResponse never ran — its
+				// message_completed didn't map back to this comment (coalesced
+				// re-sends, missed/duplicate completion, restart). Don't just defer:
+				// finalize here so the comment gets its response and the queue is
+				// unblocked. Without this the comment stays in-flight forever and
+				// every later comment for this session is silently never delivered.
+				log.Warn().
+					Str("session_id", sessionID).
+					Str("comment_id", commentID).
+					Str("interaction_id", interaction.ID).
+					Str("interaction_state", string(interaction.State)).
+					Int("interaction_response_len", len(agentText)).
+					Msg("🩹 Comment timer: interaction is terminal but was never finalized — finalizing now to unblock the queue")
+				if err := s.finalizeCommentResponse(ctx, currentComment.RequestID); err != nil {
+					log.Error().Err(err).
+						Str("comment_id", commentID).
+						Str("request_id", currentComment.RequestID).
+						Msg("Comment timer: failed to finalize terminal interaction")
+				}
+				return
+			}
+			if agentText != "" {
+				// Non-terminal but has content. Distinguish a long answer that is
+				// still actively streaming (defer + re-check) from one that has
+				// stalled mid-stream because the agent died (finalize with what we
+				// have, otherwise the queue is blocked forever). The interaction's
+				// Updated timestamp tells them apart: a live stream keeps bumping it.
+				if time.Since(interaction.Updated) > commentResponseTimeout {
+					log.Warn().
+						Str("session_id", sessionID).
+						Str("comment_id", commentID).
+						Str("interaction_id", interaction.ID).
+						Time("interaction_updated", interaction.Updated).
+						Msg("🩹 Comment timer: interaction stalled mid-stream (no updates for a full window) — finalizing partial response to unblock the queue")
+					if err := s.finalizeCommentResponse(ctx, currentComment.RequestID); err != nil {
+						log.Error().Err(err).
+							Str("comment_id", commentID).
+							Msg("Comment timer: failed to finalize stalled interaction")
+					}
+					return
+				}
+				// Still streaming — re-arm the timer and re-check rather than
+				// deferring indefinitely to a finalize that may never arrive.
+				log.Info().
+					Str("session_id", sessionID).
+					Str("comment_id", commentID).
+					Str("interaction_id", interaction.ID).
+					Int("interaction_response_len", len(agentText)).
+					Msg("⏭️  Comment timer: agent still streaming — re-arming timer to re-check")
+				s.armCommentTimer(sessionID, commentID)
+				return
+			}
+		} else if ierr != nil {
+			log.Warn().Err(ierr).
+				Str("comment_id", commentID).
+				Str("interaction_id", currentComment.InteractionID).
+				Msg("Comment timer: failed to load linked interaction, falling through to error stamp")
+		}
+	}
+
+	// Genuine no-response: agent produced nothing, interaction has no content
+	// and is still waiting. Surface the error so the user can retry.
+	currentComment.AgentResponse = CommentTimerNoResponseMessage
+	currentComment.RequestID = ""
+	currentComment.QueuedAt = nil
+	if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, currentComment); updateErr != nil {
+		log.Error().Err(updateErr).Str("comment_id", commentID).Msg("Failed to update timed-out comment")
+		return
+	}
+
+	go s.processNextCommentInQueue(ctx, sessionID)
 }
 
 // findConnectedSessionForSpecTask finds an active WebSocket connection for a spec task
@@ -964,22 +1155,8 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 	}
 
 	// Load project repositories.
-	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: agent.ProjectID,
-	})
-	if err == nil && len(projectRepos) > 0 {
-		agent.RepositoryIDs = make([]string, 0, len(projectRepos))
-		for _, repo := range projectRepos {
-			if repo.ID != "" {
-				agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
-			}
-		}
-		project, err := s.Store.GetProject(ctx, agent.ProjectID)
-		if err == nil && project != nil && project.DefaultRepoID != "" {
-			agent.PrimaryRepositoryID = project.DefaultRepoID
-		} else if len(projectRepos) > 0 {
-			agent.PrimaryRepositoryID = projectRepos[0].ID
-		}
+	if err := s.attachProjectContext(ctx, agent, agent.ProjectID); err != nil {
+		return fmt.Errorf("attach project context: %w", err)
 	}
 
 	// Get display settings from app config.
@@ -1061,40 +1238,52 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	// Build prompt for agent using the shared helper
 	promptText := services.BuildCommentPrompt(specTask, comment)
 
-	// Send via the unified helper, notifying the commenter of responses.
-	// interactionID is returned directly — avoids the fragile session-based queue
-	// lookup that breaks when the connected session differs from AgentSessionID
-	// (e.g. after Zed thread compaction creates a new work session).
-	// interrupt=true: a design-review comment is reactive feedback that should preempt
-	// any in-flight agent turn so the latest input takes priority over stale work.
-	requestID, interactionID, err := s.sendMessageToSpecTaskAgent(ctx, specTask, promptText, comment.CommentedBy, true)
+	// Enqueue onto the session-scoped prompt queue (the single sender path).
+	// interrupt=true: a design-review comment is reactive feedback that should
+	// preempt any in-flight agent turn so the latest input takes priority.
+	// comment.CommentedBy is carried as notifyUserID so the response streams to
+	// the commenter.
+	//
+	// We persist the comment↔prompt link BEFORE nudging the poller (persist +
+	// explicit nudge, not the auto-nudging enqueue) so there is no race where the
+	// async dispatch runs before the link exists. We also stamp comment.RequestID
+	// with the prompt id as a placeholder: the comment queue's in-flight guard
+	// (GetNextQueuedCommentForSession / IsCommentBeingProcessedForSession) keys
+	// off request_id being non-empty, so this stops a second comment dispatching
+	// concurrently in the window before dispatch. backfillCommentLinkageForPrompt
+	// overwrites RequestID/InteractionID with the real interaction id at dispatch,
+	// which is what finalizeCommentResponse / streaming look up.
+	if specTask.AgentSessionID == "" {
+		return fmt.Errorf("cannot send comment to agent: spec task %s has no agent session", specTask.ID)
+	}
+	promptID, err := s.persistQueuedPrompt(ctx, specTask.AgentSessionID, promptText, true, comment.CommentedBy, specTask.ID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("spec_task_id", specTask.ID).
 			Str("comment_id", comment.ID).
-			Msg("Failed to send comment to agent via websocket")
+			Msg("Failed to enqueue comment for agent")
 		return err
 	}
 
-	// Store both IDs on the comment: requestID links to message_completed for finalization,
-	// interactionID lets finalizeCommentResponse copy the streamed response at completion time.
-	comment.RequestID = requestID
-	comment.InteractionID = interactionID
-
+	comment.PromptID = promptID
+	comment.RequestID = promptID // placeholder; backfilled to the interaction id at dispatch
 	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
 		log.Error().
 			Err(err).
 			Str("comment_id", comment.ID).
-			Msg("Failed to update comment with request_id")
-		// Continue anyway - the comment was sent, just won't have response linking
+			Msg("Failed to link comment to queued prompt")
+		// Continue anyway - the prompt is enqueued; without the link the response
+		// just won't finalize onto the comment.
 	}
+
+	s.nudgeSessionQueue(specTask.AgentSessionID)
 
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("comment_id", comment.ID).
-		Str("request_id", requestID).
-		Msg("Sent design review comment to agent via websocket (with response mapping)")
+		Str("prompt_id", promptID).
+		Msg("Enqueued design review comment for agent (interrupt=true, response mapping via prompt link)")
 
 	return nil
 }
@@ -1227,10 +1416,19 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
 	}
 
-	// If the comment doesn't have an AgentResponse yet, try to populate it from the interaction.
-	// The message_added events update the interaction's ResponseMessage but not the comment's
-	// AgentResponse directly. We need to copy it over at finalization time.
-	if comment.AgentResponse == "" && comment.InteractionID != "" {
+	// If the comment doesn't have a real AgentResponse yet, try to populate it
+	// from the interaction. The message_added events update the interaction's
+	// ResponseMessage but not the comment's AgentResponse directly — we copy
+	// it over at finalization time.
+	//
+	// We also treat the literal timer-stamped error string as "no real
+	// response" so a late message_completed can repair a comment that the
+	// 2-minute timer had pessimistically marked as failed. Without this, the
+	// timer error sticks even when the agent later delivers a perfectly good
+	// answer.
+	needsPopulation := comment.AgentResponse == "" || comment.AgentResponse == CommentTimerNoResponseMessage
+	hadStaleTimerError := comment.AgentResponse == CommentTimerNoResponseMessage
+	if needsPopulation && comment.InteractionID != "" {
 		interaction, interactionErr := s.Store.GetInteraction(ctx, comment.InteractionID)
 		if interactionErr == nil {
 			text := types.TextFromInteraction(interaction)
@@ -1239,17 +1437,25 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 				comment.AgentResponseEntries = interaction.ResponseEntries
 				now := time.Now()
 				comment.AgentResponseAt = &now
-				log.Info().
-					Str("comment_id", comment.ID).
-					Str("interaction_id", comment.InteractionID).
-					Int("response_length", len(text)).
-					Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+				if hadStaleTimerError {
+					log.Warn().
+						Str("comment_id", comment.ID).
+						Str("interaction_id", comment.InteractionID).
+						Int("response_length", len(text)).
+						Msg("🔁 [HELIX] Overwriting stale 'agent did not respond' timer-stamp with real agent response from interaction")
+				} else {
+					log.Info().
+						Str("comment_id", comment.ID).
+						Str("interaction_id", comment.InteractionID).
+						Int("response_length", len(text)).
+						Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+				}
 			}
 		}
 	}
 
-	// If we still don't have a response AND we have a session, try the latest interaction
-	if comment.AgentResponse == "" {
+	// If we still don't have a real response AND we have a session, try the latest interaction
+	if comment.AgentResponse == "" || comment.AgentResponse == CommentTimerNoResponseMessage {
 		s.populateAgentResponseFromSession(ctx, comment)
 	}
 
@@ -1498,100 +1704,52 @@ func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTa
 		Msg("✅ Design review backfilled successfully from git")
 }
 
-// sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
-// It handles: finding connected session, generating request ID, setting up response routing, and sending.
-// If no session is connected, sendChatMessageToExternalAgent persists the interaction; the no-WS path
-// triggers autoStartDevContainerForSession and pickupWaitingInteraction delivers on reconnect.
-// Returns (requestID, interactionID, error). Both IDs are needed by callers that track comment responses.
-//
-// interrupt=true tells the agent to cancel its current turn before processing this message. Use it for
-// reactive feedback (design-review comments, request-changes flows). Use false for system-driven
-// instructions (approval kickoff, post-merge push/rebase) that should respect the agent's queue.
-func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
-	ctx context.Context,
-	specTask *types.SpecTask,
-	message string,
-	notifyUserID string, // Optional: user to notify of responses (e.g., commenter). Empty = no extra notification
-	interrupt bool,
-) (string, string, error) {
-	// Find a connected session for this spec task, falling back to AgentSessionID.
-	// If no session is connected, sendChatMessageToExternalAgent will still create
-	// the interaction. sendCommandToExternalAgent will fail and trigger auto-start;
-	// pickupWaitingInteraction delivers the message when the agent reconnects.
-	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
-	if err != nil {
-		if specTask.AgentSessionID == "" {
-			return "", "", fmt.Errorf("no connected session and no planning session ID: %w", err)
-		}
-		log.Info().
-			Str("spec_task_id", specTask.ID).
-			Str("agent_session_id", specTask.AgentSessionID).
-			Msg("No connected session, falling back to planning session ID — auto-start will be triggered on send")
-		sessionID = specTask.AgentSessionID
+// backfillCommentLinkageForPrompt links a design-review comment to the
+// interaction the queue just created for its prompt. The comment path enqueues
+// with comment.PromptID set but does not know the interaction/request id until
+// dispatch; this sets comment.RequestID and comment.InteractionID (both equal
+// the interaction id on the queue path) so the existing comment finalize /
+// streaming / timeout / reconcile machinery — which keys off those fields —
+// works unchanged. No-op for non-comment prompts (the lookup returns nothing).
+func (s *HelixAPIServer) backfillCommentLinkageForPrompt(ctx context.Context, promptID, requestID, interactionID string) {
+	if promptID == "" {
+		return
 	}
-
-	return s.sendMessageToSession(ctx, sessionID, message, notifyUserID, interrupt)
-}
-
-// sendMessageToSession is the session-scoped helper for delivering a message to an external agent.
-// It generates a request ID, optionally registers a notify-user mapping for response routing, and
-// calls sendChatMessageToExternalAgent — which persists a Waiting interaction even when no agent
-// WebSocket is connected. If the WS is absent, ErrNoExternalAgentWS is returned wrapped: callers
-// should treat that as "queued, will deliver on reconnect" via pickupWaitingInteraction, not a
-// hard failure. The interactionID is returned even in that case so the caller can correlate
-// responses on /api/v1/ws/user.
-func (s *HelixAPIServer) sendMessageToSession(
-	ctx context.Context,
-	sessionID string,
-	message string,
-	notifyUserID string,
-	interrupt bool,
-) (string, string, error) {
-	_ = ctx // session lookup is delegated to sendChatMessageToExternalAgent
-
-	requestID := "req_" + system.GenerateUUID()
-
-	if notifyUserID != "" {
-		s.contextMappingsMutex.Lock()
-		if s.requestToCommenterMapping == nil {
-			s.requestToCommenterMapping = make(map[string]string)
-		}
-		s.requestToCommenterMapping[requestID] = notifyUserID
-		if s.sessionToCommenterMapping == nil {
-			s.sessionToCommenterMapping = make(map[string]string)
-		}
-		s.sessionToCommenterMapping[sessionID] = notifyUserID
-		s.contextMappingsMutex.Unlock()
+	comment, err := s.Store.GetCommentByPromptID(ctx, promptID)
+	if err != nil || comment == nil {
+		// Normal for non-comment prompts (CI, push, bots, user sends).
+		return
 	}
-
-	interactionID, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt)
-	if err != nil {
-		// ErrNoExternalAgentWS means the interaction was persisted but no WS was connected.
-		// pickupWaitingInteraction will deliver it on reconnect — surface as success to
-		// the caller, who already has the interactionID for response correlation.
-		if errors.Is(err, ErrNoExternalAgentWS) {
-			log.Info().
-				Str("session_id", sessionID).
-				Str("interaction_id", interactionID).
-				Str("request_id", requestID).
-				Msg("✉️  Queued message for session — no WS connected, will deliver on reconnect")
-			return requestID, interactionID, nil
-		}
-
-		if notifyUserID != "" {
-			s.contextMappingsMutex.Lock()
-			delete(s.requestToCommenterMapping, requestID)
-			s.contextMappingsMutex.Unlock()
-		}
-		return "", "", fmt.Errorf("failed to send message via WebSocket: %w", err)
+	if comment.RequestID == requestID && comment.InteractionID == interactionID {
+		return
 	}
-
+	comment.RequestID = requestID
+	comment.InteractionID = interactionID
+	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
+		log.Error().Err(err).
+			Str("comment_id", comment.ID).
+			Str("prompt_id", promptID).
+			Str("request_id", requestID).
+			Msg("Failed to backfill comment linkage at dispatch — comment response may not finalize")
+		return
+	}
 	log.Info().
-		Str("session_id", sessionID).
-		Str("interaction_id", interactionID).
+		Str("comment_id", comment.ID).
+		Str("prompt_id", promptID).
 		Str("request_id", requestID).
-		Msg("✅ Sent message to session agent via WebSocket")
-
-	return requestID, interactionID, nil
+		Str("interaction_id", interactionID).
+		Msg("🔗 [HELIX] Backfilled design-review comment linkage from queued prompt dispatch")
 }
 
+// enqueueSpecTaskAgentMessage is the spec-task-shaped SpecTaskMessageEnqueuer:
+// it enqueues onto the session-scoped prompt queue for the task's canonical
+// planning session. Delivery is async (the poller dispatches when idle, or
+// cancels-then-sends for interrupt=true) — this is the single sender path that
+// replaces the old immediate direct dispatch.
+func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string) error {
+	if task.AgentSessionID == "" {
+		return fmt.Errorf("cannot enqueue message: spec task %s has no agent session", task.ID)
+	}
+	_, err := s.enqueueAgentMessage(ctx, task.AgentSessionID, message, interrupt, notifyUserID, task.ID)
+	return err
+}

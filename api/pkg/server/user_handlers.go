@@ -688,3 +688,100 @@ func (s *HelixAPIServer) getPinnedProjects(_ http.ResponseWriter, r *http.Reques
 	}
 	return &PinnedProjectsResponse{PinnedProjectIDs: ids}, nil
 }
+
+type PinnedChatsResponse struct {
+	PinnedChats []types.PinnedChat `json:"pinned_chats"`
+}
+
+type PinChatRequest struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	ProjectID string `json:"project_id,omitempty"`
+}
+
+// getPinnedChats godoc
+// @Summary List pinned chats
+// @Tags Users
+// @Produce json
+// @Success 200 {object} PinnedChatsResponse
+// @Security BearerAuth
+// @Router /api/v1/users/me/pinned-chats [get]
+func (s *HelixAPIServer) getPinnedChats(_ http.ResponseWriter, r *http.Request) (*PinnedChatsResponse, *system.HTTPError) {
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: getRequestUser(r).ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+	return &PinnedChatsResponse{PinnedChats: userMeta.Config.PinnedChats}, nil
+}
+
+// pinChat godoc
+// @Summary Pin a chat
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param request body PinChatRequest true "Chat to pin"
+// @Success 200 {object} PinnedChatsResponse
+// @Failure 400 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/users/me/pinned-chats [post]
+func (s *HelixAPIServer) pinChat(_ http.ResponseWriter, r *http.Request) (*PinnedChatsResponse, *system.HTTPError) {
+	var request PinChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		return nil, system.NewHTTPError400("invalid request body")
+	}
+	if request.ID == "" || (request.Kind != "session" && request.Kind != "spec-task") {
+		return nil, system.NewHTTPError400("id and a valid kind are required")
+	}
+
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: getRequestUser(r).ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+	pins := make([]types.PinnedChat, 0, len(userMeta.Config.PinnedChats)+1)
+	pins = append(pins, types.PinnedChat{ID: request.ID, Kind: request.Kind, ProjectID: request.ProjectID, PinnedAt: time.Now().UTC()})
+	for _, pin := range userMeta.Config.PinnedChats {
+		if pin.ID != request.ID || pin.Kind != request.Kind {
+			pins = append(pins, pin)
+		}
+	}
+	userMeta.Config.PinnedChats = pins
+	if _, err := s.Store.UpdateUserMeta(r.Context(), *userMeta); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update user meta: %v", err))
+	}
+	return &PinnedChatsResponse{PinnedChats: pins}, nil
+}
+
+// unpinChat godoc
+// @Summary Unpin a chat
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param request body PinChatRequest true "Chat to unpin"
+// @Success 200 {object} PinnedChatsResponse
+// @Failure 400 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/users/me/pinned-chats [delete]
+func (s *HelixAPIServer) unpinChat(_ http.ResponseWriter, r *http.Request) (*PinnedChatsResponse, *system.HTTPError) {
+	var request PinChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		return nil, system.NewHTTPError400("invalid request body")
+	}
+	if request.ID == "" || (request.Kind != "session" && request.Kind != "spec-task") {
+		return nil, system.NewHTTPError400("id and a valid kind are required")
+	}
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: getRequestUser(r).ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+	pins := userMeta.Config.PinnedChats[:0]
+	for _, pin := range userMeta.Config.PinnedChats {
+		if pin.ID != request.ID || pin.Kind != request.Kind {
+			pins = append(pins, pin)
+		}
+	}
+	userMeta.Config.PinnedChats = pins
+	if _, err := s.Store.UpdateUserMeta(r.Context(), *userMeta); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update user meta: %v", err))
+	}
+	return &PinnedChatsResponse{PinnedChats: pins}, nil
+}

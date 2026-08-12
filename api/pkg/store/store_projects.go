@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -89,6 +90,10 @@ func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery
 		return nil, fmt.Errorf("error listing projects: %w", err)
 	}
 
+	if err := s.populateProjectLastActivity(ctx, projects); err != nil {
+		return nil, fmt.Errorf("error populating project activity: %w", err)
+	}
+
 	if req.IncludeStats {
 		err = s.populateProjectStats(ctx, projects)
 		if err != nil {
@@ -97,6 +102,70 @@ func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery
 	}
 
 	return projects, nil
+}
+
+type projectActivityRow struct {
+	ProjectID      string     `gorm:"column:project_id"`
+	LastActivityAt *time.Time `gorm:"column:last_activity_at"`
+}
+
+func (s *PostgresStore) populateProjectLastActivity(ctx context.Context, projects []*types.Project) error {
+	projectIDs := make([]string, 0, len(projects))
+	for _, project := range projects {
+		if project != nil && project.ID != "" {
+			projectIDs = append(projectIDs, project.ID)
+		}
+	}
+	if len(projectIDs) == 0 {
+		return nil
+	}
+
+	var rows []projectActivityRow
+	err := s.gdb.WithContext(ctx).Raw(`
+		SELECT project_id, MAX(activity_at) AS last_activity_at
+		FROM (
+			SELECT sessions.project_id,
+				MAX(COALESCE(
+					(SELECT MAX(interactions.created)
+					 FROM interactions
+					 WHERE interactions.session_id = sessions.id),
+					sessions.created
+				)) AS activity_at
+			FROM sessions
+			WHERE sessions.project_id IN ?
+				AND sessions.deleted_at IS NULL
+				AND (sessions.archived = false OR sessions.archived IS NULL)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM spec_tasks archived_task
+					WHERE archived_task.archived = true
+						AND (
+							archived_task.agent_session_id = sessions.id
+							OR archived_task.id = COALESCE(sessions.config->>'spec_task_id', '')
+						)
+				)
+			GROUP BY sessions.project_id
+			UNION ALL
+			SELECT project_id, MAX(created_at) AS activity_at
+			FROM spec_tasks
+			WHERE project_id IN ?
+				AND (archived = false OR archived IS NULL)
+			GROUP BY project_id
+		) AS project_activity
+		GROUP BY project_id
+	`, projectIDs, projectIDs).Scan(&rows).Error
+	if err != nil {
+		return err
+	}
+
+	activityByProjectID := make(map[string]*time.Time, len(rows))
+	for _, row := range rows {
+		activityByProjectID[row.ProjectID] = row.LastActivityAt
+	}
+	for _, project := range projects {
+		project.LastActivityAt = activityByProjectID[project.ID]
+	}
+	return nil
 }
 
 // ListProjectsWithActiveGoldenBuild returns projects where at least one sandbox

@@ -62,12 +62,13 @@ func NewTestServer(s store.Store, ps pubsub.PubSub) *HelixAPIServer {
 		contextMappings:             make(map[string]string),
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
+		interactionDispatchClaims:   make(map[string]dispatchClaim),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
-		streamingContexts:          make(map[string]*streamingContext),
+		streamingContexts:           make(map[string]*streamingContext),
 		streamingRateLimiter:        make(map[string]time.Time),
 		activeStreamProxies:         make(map[string]*activeStreamProxy),
 	}
@@ -113,9 +114,12 @@ func paceChatMessage(sessionID string) {
 	}
 }
 
-// SendChatMessage sends a chat message through the production code path,
-// creating an interaction and sending the WebSocket command. This is the
-// same path used by sendMessageToSpecTaskAgent.
+// SendChatMessage sends a chat message via the low-level
+// sendChatMessageToExternalAgent primitive (creates an interaction with the
+// caller-supplied request_id and sends the WebSocket command). This is a
+// TEST-HARNESS entry point for the WebSocket-sync e2e server, which needs to
+// supply its own request_id and assert routing on it. Production sends go
+// through the session-scoped prompt queue, not this path.
 //
 // Defaults interrupt=false to preserve historical behaviour for the cross-repo
 // e2e test server (zed-repo). Use SendChatMessageWithInterrupt for tests that
@@ -130,6 +134,26 @@ func (s *HelixAPIServer) SendChatMessage(sessionID, message, requestID string) e
 func (s *HelixAPIServer) SendChatMessageWithInterrupt(sessionID, message, requestID string, interrupt bool) error {
 	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt)
 	return err
+}
+
+// EnqueueQueuedPrompt drives the PRODUCTION send path used by all agent
+// messaging: it enqueues a prompt onto the session-scoped prompt queue and
+// drains it synchronously (dispatch when idle, or defer / cancel-then-send per
+// interrupt), exactly as processPendingPromptsForSession does in production.
+//
+// Unlike SendChatMessage (the low-level primitive), this exercises
+// enqueueAgentMessage → processPendingPromptsForSession → processPromptQueue /
+// processInterruptPrompt → sendQueuedPromptToSession. The WS-sync e2e uses it to
+// validate the real production queue behaviour (busy-defer and interrupt) against
+// a live Zed binary. Returns the queue-entry (prompt) id. The drain is
+// synchronous so tests observe the outcome deterministically without polling.
+func (s *HelixAPIServer) EnqueueQueuedPrompt(sessionID, message string, interrupt bool) (string, error) {
+	promptID, err := s.persistQueuedPrompt(context.Background(), sessionID, message, interrupt, "", "")
+	if err != nil {
+		return "", err
+	}
+	s.processPendingPromptsForSession(context.Background(), sessionID)
+	return promptID, nil
 }
 
 // ConnectedAgentIDs returns the IDs of all currently connected agents.

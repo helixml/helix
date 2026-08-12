@@ -12,21 +12,21 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-func TestStreamsRoundTripAndByName(t *testing.T) {
+func TestTopicsRoundTripAndByName(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	st, err := streaming.NewStream("s-general", "general", "all-hands", "w-owner", now, transport.Transport{}, "org-test")
+	st, err := streaming.NewTopic("s-general", "general", "all-hands", "w-owner", now, transport.Transport{}, "org-test")
 	if err != nil {
-		t.Fatalf("NewStream: %v", err)
+		t.Fatalf("NewTopic: %v", err)
 	}
-	if err := s.Streams.Create(ctx, st); err != nil {
+	if err := s.Topics.Create(ctx, st); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	gotByID, err := s.Streams.Get(ctx, "org-test", "s-general")
+	gotByID, err := s.Topics.Get(ctx, "org-test", "s-general")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestStreamsRoundTripAndByName(t *testing.T) {
 	}
 }
 
-func TestSubscriptionsUniquePositionStream(t *testing.T) {
+func TestSubscriptionsUniquePositionTopic(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
@@ -51,14 +51,14 @@ func TestSubscriptionsUniquePositionStream(t *testing.T) {
 
 	dup, _ := streaming.NewSubscription("p-1", "s-1", now, "org-test")
 	if err := s.Subscriptions.Create(ctx, dup); err == nil {
-		t.Fatalf("Create duplicate (position,stream) should fail")
+		t.Fatalf("Create duplicate (position,topic) should fail")
 	}
 
 	found, err := s.Subscriptions.Find(ctx, "org-test", "p-1", "s-1")
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
-	if found.WorkerID != "p-1" || found.StreamID != "s-1" {
+	if found.NodeID != "p-1" || found.TopicID != "s-1" {
 		t.Fatalf("subscription = %+v", found)
 	}
 
@@ -71,27 +71,23 @@ func TestSubscriptionsUniquePositionStream(t *testing.T) {
 	}
 }
 
-func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
+func TestEventsListForBotViaSubscriptions(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 	base := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	// Subscriptions are worker-anchored. Seed w-1 and subscribe
-	// w-1 → s-a; ListForWorker(w-1) joins events on subscribed
-	// streams.
-	role, _ := orgchart.NewRole("r-test", "# Test", nil, nil, base, "org-test")
-	if err := s.Roles.Create(ctx, role); err != nil {
-		t.Fatalf("Create role: %v", err)
-	}
-	worker, err := orgchart.NewAIWorker("w-1", "r-test", "# w-1", "org-test")
+	// Subscriptions are bot-anchored. Seed b-1 and subscribe
+	// b-1 → s-a; ListForBot(b-1) joins events on subscribed
+	// topics.
+	bot, err := orgchart.NewNode("b-1", "# b-1", nil, base, "org-test")
 	if err != nil {
-		t.Fatalf("new worker: %v", err)
+		t.Fatalf("new bot: %v", err)
 	}
-	if err := s.Workers.Create(ctx, worker); err != nil {
-		t.Fatalf("create worker: %v", err)
+	if err := s.Nodes.Create(ctx, bot); err != nil {
+		t.Fatalf("create bot: %v", err)
 	}
-	sub, _ := streaming.NewSubscription("w-1", "s-a", base, "org-test")
+	sub, _ := streaming.NewSubscription("b-1", "s-a", base, "org-test")
 	if err := s.Subscriptions.Create(ctx, sub); err != nil {
 		t.Fatalf("Create subscription: %v", err)
 	}
@@ -105,9 +101,9 @@ func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
 		}
 	}
 
-	got, err := s.Events.ListForWorker(ctx, "org-test", "w-1", 0)
+	got, err := s.Events.ListForBot(ctx, "org-test", "b-1", 0)
 	if err != nil {
-		t.Fatalf("ListForWorker: %v", err)
+		t.Fatalf("ListForBot: %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("got %d events, want 2 (only s-a visible)", len(got))
@@ -116,22 +112,22 @@ func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
 		t.Fatalf("order wrong: %v", []streaming.EventID{got[0].ID, got[1].ID})
 	}
 
-	limited, err := s.Events.ListForWorker(ctx, "org-test", "w-1", 1)
+	limited, err := s.Events.ListForBot(ctx, "org-test", "b-1", 1)
 	if err != nil {
-		t.Fatalf("ListForWorker limit: %v", err)
+		t.Fatalf("ListForBot limit: %v", err)
 	}
 	if len(limited) != 1 || limited[0].ID != "e-3" {
 		t.Fatalf("limit result = %v", limited)
 	}
 }
 
-func TestEventsListSinceAcrossStreams(t *testing.T) {
+func TestEventsListSinceAcrossTopics(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 	base := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	// Three streams, four events, interleaved across s-a and s-b plus
+	// Three topics, four events, interleaved across s-a and s-b plus
 	// one on s-other (which the caller will exclude).
 	for _, e := range []struct {
 		id, st, body string
@@ -143,14 +139,14 @@ func TestEventsListSinceAcrossStreams(t *testing.T) {
 		{"e-4", "s-a", "second on a", 4 * time.Second},
 		{"e-5", "s-b", "second on b", 5 * time.Second},
 	} {
-		ev, _ := streaming.NewEvent(streaming.EventID(e.id), streaming.StreamID(e.st), "w-owner", e.body, base.Add(e.offset), "org-test")
+		ev, _ := streaming.NewEvent(streaming.EventID(e.id), streaming.TopicID(e.st), "w-owner", e.body, base.Add(e.offset), "org-test")
 		if err := s.Events.Append(ctx, ev); err != nil {
 			t.Fatalf("Append %s: %v", e.id, err)
 		}
 	}
 
 	// since="" returns all matching events oldest-first.
-	all, err := s.Events.ListSince(ctx, "org-test", []streaming.StreamID{"s-a", "s-b"}, "", 0)
+	all, err := s.Events.ListSince(ctx, "org-test", []streaming.TopicID{"s-a", "s-b"}, "", 0)
 	if err != nil {
 		t.Fatalf("ListSince: %v", err)
 	}
@@ -169,8 +165,8 @@ func TestEventsListSinceAcrossStreams(t *testing.T) {
 	}
 
 	// since=e-2 returns only events strictly newer than e-2 on the
-	// matching streams.
-	tail, err := s.Events.ListSince(ctx, "org-test", []streaming.StreamID{"s-a", "s-b"}, "e-2", 0)
+	// matching topics.
+	tail, err := s.Events.ListSince(ctx, "org-test", []streaming.TopicID{"s-a", "s-b"}, "e-2", 0)
 	if err != nil {
 		t.Fatalf("ListSince since: %v", err)
 	}
@@ -178,7 +174,7 @@ func TestEventsListSinceAcrossStreams(t *testing.T) {
 		t.Fatalf("since=e-2 result = %v", tail)
 	}
 
-	// Empty stream set returns nothing.
+	// Empty topic set returns nothing.
 	empty, err := s.Events.ListSince(ctx, "org-test", nil, "", 0)
 	if err != nil {
 		t.Fatalf("ListSince empty: %v", err)
@@ -188,7 +184,7 @@ func TestEventsListSinceAcrossStreams(t *testing.T) {
 	}
 
 	// Unknown since falls through to "no lower bound".
-	full, err := s.Events.ListSince(ctx, "org-test", []streaming.StreamID{"s-a"}, "e-stale", 0)
+	full, err := s.Events.ListSince(ctx, "org-test", []streaming.TopicID{"s-a"}, "e-stale", 0)
 	if err != nil {
 		t.Fatalf("ListSince stale: %v", err)
 	}

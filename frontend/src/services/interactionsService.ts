@@ -19,7 +19,7 @@ export function useListAppInteractions(appId: string, session: string, interacti
   return useQuery({
     queryKey: appInteractionsQueryKey(appId, session, interaction, feedback,page, pageSize),
     queryFn: async () => {
-      const response = await apiClient.v1AppsInteractionsDetail(appId, { session, interaction, feedback, page, pageSize })
+      const response = await apiClient.v1AgentsInteractionsDetail(appId, { session, interaction, feedback, page, pageSize })
       return response.data
     },
     enabled: options?.enabled ?? true,

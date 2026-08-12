@@ -2,11 +2,37 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
 )
+
+// defaultMaxPromptQueueRetries bounds how many times the queue will auto-retry a
+// single failed prompt before the selectors stop picking it up. Without this cap,
+// GetNext*Prompt re-selects any `status='failed'` row forever once next_retry_at
+// passes (backoff capped at 30s) — so a prompt that fails on a wedged ACP thread
+// re-dispatches indefinitely (see design/2026-06-15-wedged-acp-thread-autowake-flood.md).
+// This is a pure runaway guard: terminal wedges are crash-marked earlier (which
+// pins next_retry_at to a far-future sentinel and excludes the row regardless of
+// this cap), so in normal operation a prompt never reaches it.
+//
+// Override with HELIX_MAX_PROMPT_QUEUE_RETRIES.
+const defaultMaxPromptQueueRetries = 20
+
+// maxPromptQueueRetries returns the configured per-prompt queue retry cap. Read
+// per call so operators can tune live without redeploying.
+func maxPromptQueueRetries() int {
+	if raw := os.Getenv("HELIX_MAX_PROMPT_QUEUE_RETRIES"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultMaxPromptQueueRetries
+}
 
 // SyncPromptHistory syncs prompt history entries from the frontend
 // For new entries: creates them with all frontend fields
@@ -24,12 +50,6 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		interrupt := false
 		if entry.Interrupt != nil {
 			interrupt = *entry.Interrupt
-		}
-
-		// Default pinned to false if not specified
-		pinned := false
-		if entry.Pinned != nil {
-			pinned = *entry.Pinned
 		}
 
 		// Check if entry already exists
@@ -52,8 +72,6 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 				Status:        entry.Status,
 				Interrupt:     interrupt,
 				QueuePosition: entry.QueuePosition,
-				Pinned:        pinned,
-				Tags:          entry.Tags,
 				CreatedAt:     createdAt,
 				UpdatedAt:     time.Now(),
 			}
@@ -82,10 +100,18 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		}
 	}
 
-	// Return all non-deleted entries for this user+spec_task so client can merge
+	// Return all non-deleted entries so the client can merge. Scope by spec_task
+	// (spec-task queue) or by session (org-chat / bot session queue with no spec
+	// task) depending on which the request carries.
+	scoped := s.gdb.WithContext(ctx).
+		Where("user_id = ? AND deleted_at IS NULL", userID)
+	if req.SpecTaskID != "" {
+		scoped = scoped.Where("spec_task_id = ?", req.SpecTaskID)
+	} else {
+		scoped = scoped.Where("session_id = ?", req.SessionID)
+	}
 	var allEntries []types.PromptHistoryEntry
-	err := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND spec_task_id = ? AND deleted_at IS NULL", userID, req.SpecTaskID).
+	err := scoped.
 		Order("created_at DESC").
 		Limit(100). // Reasonable limit
 		Find(&allEntries).Error
@@ -99,6 +125,20 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		Existing: updated, // Number of existing entries that were updated
 		Entries:  allEntries,
 	}, nil
+}
+
+// CreatePromptHistoryEntry inserts a single prompt history entry. This is the
+// server-side enqueue primitive used by automated/system and general session
+// sends (the frontend uses SyncPromptHistory instead). The BeforeCreate hook
+// stamps timestamps.
+func (s *PostgresStore) CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) error {
+	if entry.ID == "" {
+		return fmt.Errorf("prompt history entry ID is required")
+	}
+	if entry.SessionID == "" {
+		return fmt.Errorf("prompt history entry SessionID is required")
+	}
+	return s.gdb.WithContext(ctx).Create(entry).Error
 }
 
 // GetPromptHistoryEntry returns a single prompt history entry by ID
@@ -128,13 +168,13 @@ func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID stri
 		WHERE id = (
 			SELECT id FROM prompt_history_entries
 			WHERE session_id = ? AND interrupt = false AND deleted_at IS NULL
-			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			AND (status = 'pending' OR (status = 'failed' AND retry_count < ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))
 			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING *
-	`, sessionID, now).Scan(&entry)
+	`, sessionID, maxPromptQueueRetries(), now).Scan(&entry)
 
 	if result.Error != nil {
 		return nil, result.Error
@@ -159,13 +199,13 @@ func (s *PostgresStore) GetAnyPendingPrompt(ctx context.Context, sessionID strin
 		WHERE id = (
 			SELECT id FROM prompt_history_entries
 			WHERE session_id = ? AND deleted_at IS NULL
-			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			AND (status = 'pending' OR (status = 'failed' AND retry_count < ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))
 			ORDER BY interrupt DESC, COALESCE(queue_position, 999999) ASC, created_at ASC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING *
-	`, sessionID, now).Scan(&entry)
+	`, sessionID, maxPromptQueueRetries(), now).Scan(&entry)
 
 	if result.Error != nil {
 		return nil, result.Error
@@ -190,13 +230,13 @@ func (s *PostgresStore) GetNextInterruptPrompt(ctx context.Context, sessionID st
 		WHERE id = (
 			SELECT id FROM prompt_history_entries
 			WHERE session_id = ? AND interrupt = true AND deleted_at IS NULL
-			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			AND (status = 'pending' OR (status = 'failed' AND retry_count < ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))
 			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING *
-	`, sessionID, now).Scan(&entry)
+	`, sessionID, maxPromptQueueRetries(), now).Scan(&entry)
 
 	if result.Error != nil {
 		return nil, result.Error
@@ -214,6 +254,24 @@ func (s *PostgresStore) ListPromptHistoryBySpecTask(ctx context.Context, specTas
 	var entries []*types.PromptHistoryEntry
 	err := s.gdb.WithContext(ctx).
 		Where("spec_task_id = ? AND deleted_at IS NULL", specTaskID).
+		Order("created_at ASC").
+		Find(&entries).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return entries, nil
+}
+
+// ListPromptHistoryBySession returns all non-deleted prompt history entries for
+// a session. Used by the session-scoped queue processor to decide whether the
+// session has pending interrupt vs queue prompts (the claim/dispatch selectors
+// are session-scoped already).
+func (s *PostgresStore) ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error) {
+	var entries []*types.PromptHistoryEntry
+	err := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND deleted_at IS NULL", sessionID).
 		Order("created_at ASC").
 		Find(&entries).Error
 
@@ -501,58 +559,6 @@ func (s *PostgresStore) ListPromptHistory(ctx context.Context, userID string, re
 	}, nil
 }
 
-// UpdatePromptPin sets the pinned status of a prompt
-func (s *PostgresStore) UpdatePromptPin(ctx context.Context, promptID string, pinned bool) error {
-	return s.gdb.WithContext(ctx).
-		Model(&types.PromptHistoryEntry{}).
-		Where("id = ?", promptID).
-		Update("pinned", pinned).
-		Error
-}
-
-// UpdatePromptTags updates the tags of a prompt (JSON array string)
-func (s *PostgresStore) UpdatePromptTags(ctx context.Context, promptID string, tags string) error {
-	return s.gdb.WithContext(ctx).
-		Model(&types.PromptHistoryEntry{}).
-		Where("id = ?", promptID).
-		Update("tags", tags).
-		Error
-}
-
-// ListPinnedPrompts returns all pinned prompts for a user in a spec task
-func (s *PostgresStore) ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error) {
-	var entries []*types.PromptHistoryEntry
-	query := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND pinned = ?", userID, true)
-
-	if specTaskID != "" {
-		query = query.Where("spec_task_id = ?", specTaskID)
-	}
-
-	err := query.
-		Order("created_at DESC").
-		Find(&entries).Error
-
-	if err != nil {
-		return nil, err
-	}
-
-	return entries, nil
-}
-
-// IncrementPromptUsage increments usage count and updates last_used_at
-func (s *PostgresStore) IncrementPromptUsage(ctx context.Context, promptID string) error {
-	now := time.Now()
-	return s.gdb.WithContext(ctx).
-		Model(&types.PromptHistoryEntry{}).
-		Where("id = ?", promptID).
-		Updates(map[string]interface{}{
-			"usage_count":  s.gdb.Raw("usage_count + 1"),
-			"last_used_at": now,
-		}).
-		Error
-}
-
 // DeletePromptHistoryEntry soft-deletes a prompt history entry by setting deleted_at.
 // Deleted entries are excluded from queue processing and sync responses.
 func (s *PostgresStore) DeletePromptHistoryEntry(ctx context.Context, id string) error {
@@ -564,27 +570,7 @@ func (s *PostgresStore) DeletePromptHistoryEntry(ctx context.Context, id string)
 		Error
 }
 
-// SearchPrompts searches prompts by content using ILIKE (case-insensitive)
-func (s *PostgresStore) SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-
-	var entries []*types.PromptHistoryEntry
-	err := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND content ILIKE ?", userID, "%"+query+"%").
-		Order("pinned DESC, usage_count DESC, created_at DESC").
-		Limit(limit).
-		Find(&entries).Error
-
-	if err != nil {
-		return nil, err
-	}
-
-	return entries, nil
-}
-
-// UnifiedSearch searches across projects, tasks, sessions, and prompts
+// UnifiedSearch searches across Helix resources.
 func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error) {
 	if req.Limit <= 0 {
 		req.Limit = 10
@@ -596,7 +582,7 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 	// Determine which types to search
 	searchTypes := req.Types
 	if len(searchTypes) == 0 {
-		searchTypes = []string{"projects", "tasks", "sessions", "prompts", "knowledge", "repositories", "agents"}
+		searchTypes = []string{"projects", "tasks", "sessions", "knowledge", "repositories", "agents"}
 	}
 
 	for _, searchType := range searchTypes {
@@ -753,39 +739,6 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 						Metadata:    meta,
 						CreatedAt:   sess.Created.Format(time.RFC3339),
 						UpdatedAt:   sess.Updated.Format(time.RFC3339),
-					})
-				}
-			}
-
-		case "prompts":
-			// Search prompt history
-			var prompts []*types.PromptHistoryEntry
-			query := s.gdb.WithContext(ctx).
-				Where("user_id = ? AND content ILIKE ?", userID, searchQuery).
-				Limit(req.Limit).
-				Order("pinned DESC, created_at DESC")
-
-			if err := query.Find(&prompts).Error; err == nil {
-				for _, p := range prompts {
-					meta := map[string]string{
-						"status":    p.Status,
-						"projectId": p.ProjectID,
-						"taskId":    p.SpecTaskID,
-					}
-					if p.Pinned {
-						meta["pinned"] = "true"
-					}
-
-					results = append(results, types.UnifiedSearchResult{
-						Type:        "prompt",
-						ID:          p.ID,
-						Title:       truncateText(p.Content, 80),
-						Description: truncateText(p.Content, 200),
-						URL:         "/tasks/" + p.SpecTaskID,
-						Icon:        "prompt",
-						Metadata:    meta,
-						CreatedAt:   p.CreatedAt.Format(time.RFC3339),
-						UpdatedAt:   p.UpdatedAt.Format(time.RFC3339),
 					})
 				}
 			}

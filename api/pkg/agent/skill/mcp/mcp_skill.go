@@ -171,15 +171,16 @@ func buildParameters(inputSchema mcp.ToolInputSchema) jsonschema.Definition {
 	}
 
 	// Always ensure we return an object type schema with properties
-	// This is required by the OpenAI function calling API
-	// Even if the MCP tool doesn't specify a type, we must return "object"
+	// This is required by the OpenAI/Anthropic function calling API: the
+	// parameters object MUST declare "type": "object" even when the tool
+	// takes no arguments. Setting it only when properties exist makes
+	// zero-argument MCP tools serialize without a type, which the model API
+	// rejects with `tools.N.function.parameters.type: Field required`,
+	// poisoning the entire tools array for the request.
 	result := jsonschema.Definition{
+		Type:       jsonschema.Object,
 		Properties: properties,
 		Required:   required,
-	}
-
-	if len(result.Properties) > 0 {
-		result.Type = jsonschema.Object
 	}
 
 	log.Debug().
@@ -190,31 +191,52 @@ func buildParameters(inputSchema mcp.ToolInputSchema) jsonschema.Definition {
 	return result
 }
 
+// resolveSchemaType returns the effective scalar JSON Schema type from a
+// `type` value that may be either a string or a nullable union such as
+// ["array","null"] / ["null","array"]. It returns the first non-"null"
+// string member; for a plain string it returns that string; otherwise "".
+// This lets array (and other) parameters declared with the union form
+// survive conversion instead of falling back to "string".
+func resolveSchemaType(raw any) string {
+	switch v := raw.(type) {
+	case string:
+		return v
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" && s != "null" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
 // convertMapToDefinition recursively converts a map[string]any to jsonschema.Definition
 func convertMapToDefinition(data map[string]any) jsonschema.Definition {
 	def := jsonschema.Definition{}
 
-	// Handle type - ensure we always have a valid type
-	if typeVal, ok := data["type"].(string); ok && typeVal != "" {
-		switch typeVal {
-		case "string":
-			def.Type = jsonschema.String
-		case "integer":
-			def.Type = jsonschema.Integer
-		case "number":
-			def.Type = jsonschema.Number
-		case "boolean":
-			def.Type = jsonschema.Boolean
-		case "array":
-			def.Type = jsonschema.Array
-		case "object":
-			def.Type = jsonschema.Object
-		default:
-			def.Type = jsonschema.String // fallback for unknown types
-		}
-	} else {
-		// If no type is specified or it's empty, default to string
+	// Handle type - ensure we always have a valid type. `type` may be a
+	// scalar ("array") or a JSON Schema nullable union (["array","null"]),
+	// the shape reflection-based generators emit for slice/pointer fields.
+	// resolveSchemaType picks the effective non-null member so an array
+	// parameter survives as an array instead of collapsing to the string
+	// fallback below (which is what published create_bot's `tools`/`topics`
+	// as `type:"string"` and made them uncallable with a real JSON array).
+	switch resolveSchemaType(data["type"]) {
+	case "string":
 		def.Type = jsonschema.String
+	case "integer":
+		def.Type = jsonschema.Integer
+	case "number":
+		def.Type = jsonschema.Number
+	case "boolean":
+		def.Type = jsonschema.Boolean
+	case "array":
+		def.Type = jsonschema.Array
+	case "object":
+		def.Type = jsonschema.Object
+	default:
+		def.Type = jsonschema.String // fallback for missing/unknown types
 	}
 
 	// Handle title (convert to description if no description exists)

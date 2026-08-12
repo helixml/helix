@@ -1,4 +1,4 @@
-// workerChatSession resolves a Worker's per-Worker project "Human Desktop"
+// workerChatSession resolves a Worker's per-Worker project "Project Desktop"
 // session — the single long-lived exploratory session that IS the chat
 // surface (Zed ⇄ Claude Code). Two entry points, deliberately split by
 // their side effects:
@@ -54,7 +54,7 @@ export async function ensureRunningWorkerSession(
     await api.resumeSession(session.id)
   }
   if (!session?.id) {
-    throw new Error('failed to open Human Desktop session')
+    throw new Error('failed to open Project Desktop session')
   }
   return session.id
 }

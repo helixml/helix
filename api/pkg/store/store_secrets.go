@@ -20,30 +20,40 @@ func (s *PostgresStore) CreateSecret(ctx context.Context, secret *types.Secret) 
 		return nil, fmt.Errorf("owner not specified")
 	}
 
+	if secret.Scope == "" {
+		secret.Scope = types.SecretScopeDev
+	}
+
 	secret.Created = time.Now()
 	secret.Updated = secret.Created
 
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Uniqueness is scoped per (owner, project_id, app_id, name) so the same
 		// name can be reused across different projects or apps for the same owner.
-		var existingSecret types.Secret
+		// Within that, the same name may also be reused across non-overlapping
+		// environment scopes (e.g. a "dev" and a "prod" secret) — but a "both"
+		// secret overlaps every environment, so it collides with any scope.
+		var existingSecrets []types.Secret
 		if err := tx.Where(
 			"owner = ? AND name = ? AND project_id = ? AND app_id = ?",
 			secret.Owner, secret.Name, secret.ProjectID, secret.AppID,
-		).First(&existingSecret).Error; err == nil {
-			scope := "this owner"
-			switch {
-			case secret.ProjectID != "":
-				scope = "this project"
-			case secret.AppID != "":
-				scope = "this app"
-			}
-			return fmt.Errorf("a secret with the name '%s' already exists for %s", secret.Name, scope)
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		).Find(&existingSecrets).Error; err != nil {
 			return err
 		}
+		for i := range existingSecrets {
+			if scopesOverlap(existingSecrets[i].Scope, secret.Scope) {
+				scope := "this owner"
+				switch {
+				case secret.ProjectID != "":
+					scope = "this project"
+				case secret.AppID != "":
+					scope = "this app"
+				}
+				return fmt.Errorf("a secret with the name '%s' already exists for %s in the %s environment", secret.Name, scope, secret.Scope)
+			}
+		}
 
-		// If no existing secret found, create the new one
+		// If no overlapping secret found, create the new one
 		return tx.Create(secret).Error
 	})
 	if err != nil {
@@ -140,4 +150,17 @@ func (s *PostgresStore) DeleteSecret(ctx context.Context, id string) error {
 		return err
 	}
 	return nil
+}
+
+// scopesOverlap reports whether two secret scopes share at least one
+// environment, in which case two secrets with the same name would collide.
+// An empty scope is treated as the default ("dev").
+func scopesOverlap(a, b types.SecretScope) bool {
+	if a == "" {
+		a = types.SecretScopeDev
+	}
+	if b == "" {
+		b = types.SecretScopeDev
+	}
+	return a == types.SecretScopeBoth || b == types.SecretScopeBoth || a == b
 }

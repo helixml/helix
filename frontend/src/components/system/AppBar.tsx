@@ -20,6 +20,7 @@ const AppBar: React.FC<{
   height?: number,
   px?: number,
   title?: string | React.ReactNode,
+  leadingContent?: React.ReactNode,
   leftContent?: React.ReactNode,
   onOpenDrawer?: () => void,
   children?: React.ReactNode,
@@ -27,6 +28,7 @@ const AppBar: React.FC<{
   height = TOOLBAR_HEIGHT,
   px = 3,
   title,
+  leadingContent,
   leftContent,
   onOpenDrawer,
   children,
@@ -42,6 +44,7 @@ const AppBar: React.FC<{
       sx={{
         height,
         borderBottom: lightTheme.border,
+        backgroundColor: lightTheme.backgroundColor,
         width: '100%',
       }}
     >
@@ -77,6 +80,13 @@ const AppBar: React.FC<{
                 >
                   <Menu size={24} />
                 </IconButton>
+              </Cell>
+            )
+          }
+          {
+            leadingContent && (
+              <Cell sx={{ flexShrink: 0, mr: 1 }}>
+                { leadingContent }
               </Cell>
             )
           }

@@ -24,16 +24,16 @@ export const useUserMenuHeight = () => {
     let retryTimer: ReturnType<typeof setTimeout> | null = null
 
     const findOverlayFor = (menu: HTMLElement): HTMLElement | null => {
-      let parent: HTMLElement | null = menu.parentElement
-      while (parent) {
-        const cs = window.getComputedStyle(parent)
+      let el: HTMLElement | null = menu
+      while (el) {
+        const cs = window.getComputedStyle(el)
         if (
           (cs.position === 'absolute' || cs.position === 'fixed') &&
           cs.bottom === '0px'
         ) {
-          return parent
+          return el
         }
-        parent = parent.parentElement
+        el = el.parentElement
       }
       return null
     }

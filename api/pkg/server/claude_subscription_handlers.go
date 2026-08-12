@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -146,14 +147,155 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		return nil, system.NewHTTPError500("failed to create subscription: " + err.Error())
 	}
 
+	// Liveness-probe the freshly connected credentials so Status reflects reality
+	// instead of an unconditional "active". A dead token is caught here rather
+	// than at the first agent turn.
+	created = apiServer.revalidateClaudeSubscription(req.Context(), created)
+	if cleanupErr := apiServer.cleanupSubscriptionLoginSessionsForOwner(req.Context(), user.ID, claudeLoginSessionName, claudeLoginSessionProvider); cleanupErr != nil {
+		log.Warn().Err(cleanupErr).Str("user_id", user.ID).Msg("failed to clean up completed Claude login sessions")
+	}
+
 	log.Info().
 		Str("subscription_id", created.ID).
 		Str("owner_id", ownerID).
 		Str("owner_type", string(ownerType)).
 		Str("credential_type", credentialType).
+		Str("status", created.Status).
 		Msg("Created Claude subscription")
 
 	return created, nil
+}
+
+// revalidateClaudeSubscription liveness-probes a subscription's stored token and
+// persists the outcome (Status, LastError, LastValidatedAt). A ProbeInconclusive
+// result (network error, or an oauth token that is expired-but-refreshable)
+// leaves the existing Status untouched — we never downgrade a subscription to
+// "error" on an ambiguous signal. Returns the updated row (or the input on
+// failure to persist).
+func (apiServer *HelixAPIServer) revalidateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) *types.ClaudeSubscription {
+	if sub == nil {
+		return sub
+	}
+	result, detail := anthropic.ValidateSubscription(ctx, sub)
+	now := time.Now()
+	switch result {
+	case anthropic.ProbeValid:
+		sub.Status = "active"
+		sub.LastError = ""
+		sub.LastValidatedAt = &now
+	case anthropic.ProbeInvalid:
+		sub.Status = "error"
+		sub.LastError = detail
+		sub.LastValidatedAt = &now
+	case anthropic.ProbeInconclusive:
+		// Leave Status/LastError as-is; record that we tried.
+		sub.LastValidatedAt = &now
+		log.Debug().Str("subscription_id", sub.ID).Str("detail", detail).Msg("Claude subscription probe inconclusive")
+	}
+	updated, err := apiServer.Store.UpdateClaudeSubscription(ctx, sub)
+	if err != nil {
+		log.Warn().Err(err).Str("subscription_id", sub.ID).Msg("failed to persist Claude subscription validation result")
+		return sub
+	}
+	return updated
+}
+
+// claudeSubscriptionStatusMaxAge bounds how stale a persisted validation result
+// can be before the owner-status endpoint re-probes. Keeps the settings display
+// honest without hammering Anthropic on every render.
+const claudeSubscriptionStatusMaxAge = 5 * time.Minute
+
+// AppClaudeSubscriptionStatus reports whether the account whose Claude
+// subscription would authenticate an app's sessions (the app owner) actually has
+// a working subscription connected. Backs the "whose subscription" callout and
+// the cross-user warning in agent settings.
+type AppClaudeSubscriptionStatus struct {
+	Connected             bool       `json:"connected"`                         // owner has a subscription connected at all
+	Valid                 bool       `json:"valid"`                             // that subscription passed its last liveness probe
+	OwnerID               string     `json:"owner_id"`                          // app owner (the likely session owner)
+	OwnerName             string     `json:"owner_name"`                        // human-readable owner (email / full name)
+	IsCurrentUser         bool       `json:"is_current_user"`                   // true when the editor IS the owner
+	SubscriptionOwnerType string     `json:"subscription_owner_type,omitempty"` // "user" or "org" — where the effective sub resolved
+	Status                string     `json:"status,omitempty"`
+	LastValidatedAt       *time.Time `json:"last_validated_at,omitempty"`
+	LastError             string     `json:"last_error,omitempty"`
+}
+
+// @Summary Get the Claude subscription status for an agent's owner
+// @Description Reports whether the agent owner (whose subscription authenticates the agent's sessions) has a working Claude subscription
+// @Tags Claude
+// @Produce json
+// @Param id path string true "Agent ID"
+// @Success 200 {object} AppClaudeSubscriptionStatus
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/agents/{id}/claude-subscription-status [get]
+func (apiServer *HelixAPIServer) getAppClaudeSubscriptionStatus(_ http.ResponseWriter, req *http.Request) (*AppClaudeSubscriptionStatus, *system.HTTPError) {
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("authentication required")
+	}
+
+	app, err := apiServer.Store.GetApp(req.Context(), getID(req))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	if err := apiServer.authorizeUserToApp(req.Context(), user, app, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	status := &AppClaudeSubscriptionStatus{
+		OwnerID:       app.Owner,
+		OwnerName:     apiServer.displayNameForUser(req.Context(), app.Owner),
+		IsCurrentUser: app.Owner == user.ID,
+	}
+
+	// Resolve the subscription exactly as a session owned by the app owner would
+	// (user-level first, then the app's org).
+	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(req.Context(), app.Owner, app.OrganizationID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return status, nil // not connected
+		}
+		return nil, system.NewHTTPError500("failed to resolve subscription: " + err.Error())
+	}
+
+	// Re-probe if we've never validated it or the last result is stale.
+	if sub.LastValidatedAt == nil || time.Since(*sub.LastValidatedAt) > claudeSubscriptionStatusMaxAge {
+		sub = apiServer.revalidateClaudeSubscription(req.Context(), sub)
+	}
+
+	status.Connected = true
+	status.Valid = sub.Status == "active"
+	status.SubscriptionOwnerType = string(sub.OwnerType)
+	status.Status = sub.Status
+	status.LastValidatedAt = sub.LastValidatedAt
+	status.LastError = sub.LastError
+	return status, nil
+}
+
+// displayNameForUser returns a human-readable label for a user id, preferring
+// email then full name then the raw id. Best-effort — never errors.
+func (apiServer *HelixAPIServer) displayNameForUser(ctx context.Context, userID string) string {
+	if userID == "" {
+		return ""
+	}
+	u, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil || u == nil {
+		return userID
+	}
+	if u.Email != "" {
+		return u.Email
+	}
+	if u.FullName != "" {
+		return u.FullName
+	}
+	return userID
 }
 
 // @Summary List Claude subscriptions
@@ -246,6 +388,83 @@ func (apiServer *HelixAPIServer) getClaudeSubscription(_ http.ResponseWriter, re
 // @Failure 404 {object} system.HTTPError
 // @Security BearerAuth
 // @Router /api/v1/claude-subscriptions/{id} [delete]
+// UpdateClaudeSubscriptionDelegationRequest sets which organizations may run
+// agents on this subscription for its owner.
+type UpdateClaudeSubscriptionDelegationRequest struct {
+	DelegatedOrgIDs []string `json:"delegated_org_ids"`
+}
+
+// @Summary Set which orgs may use a Claude subscription for delegated agent runs
+// @Description Grant (or revoke) permission for an organization's orchestrated agents to authenticate as the subscription owner. Only the subscription owner may change this.
+// @Tags Claude
+// @Accept json
+// @Produce json
+// @Param id path string true "Subscription ID"
+// @Param body body UpdateClaudeSubscriptionDelegationRequest true "Delegated organizations"
+// @Success 200 {object} types.ClaudeSubscription
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/claude-subscriptions/{id}/delegation [put]
+func (apiServer *HelixAPIServer) updateClaudeSubscriptionDelegation(_ http.ResponseWriter, req *http.Request) (*types.ClaudeSubscription, *system.HTTPError) {
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("authentication required")
+	}
+
+	sub, err := apiServer.Store.GetClaudeSubscription(req.Context(), mux.Vars(req)["id"])
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("subscription not found")
+		}
+		return nil, system.NewHTTPError500("failed to get subscription: " + err.Error())
+	}
+
+	// Delegation lends out the owner's own Claude quota, so ONLY the owner may
+	// grant it — not an org admin, not the person who would benefit.
+	if sub.OwnerType != types.OwnerTypeUser || sub.OwnerID != user.ID {
+		return nil, system.NewHTTPError403("only the subscription owner can change delegation")
+	}
+
+	var body UpdateClaudeSubscriptionDelegationRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+	}
+
+	// You can only delegate to an org you actually belong to.
+	memberships, err := apiServer.Store.ListOrganizationMemberships(req.Context(), &store.ListOrganizationMembershipsQuery{UserID: user.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to resolve org memberships: " + err.Error())
+	}
+	member := make(map[string]bool, len(memberships))
+	for _, m := range memberships {
+		member[m.OrganizationID] = true
+	}
+	granted := make([]string, 0, len(body.DelegatedOrgIDs))
+	for _, orgID := range body.DelegatedOrgIDs {
+		if !member[orgID] {
+			return nil, system.NewHTTPError403("not a member of organization " + orgID)
+		}
+		granted = append(granted, orgID)
+	}
+
+	sub.DelegatedOrgIDs = granted
+	updated, err := apiServer.Store.UpdateClaudeSubscription(req.Context(), sub)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to update subscription: " + err.Error())
+	}
+
+	log.Info().
+		Str("subscription_id", sub.ID).
+		Str("owner_id", sub.OwnerID).
+		Strs("delegated_org_ids", granted).
+		Msg("Updated Claude subscription delegation")
+
+	return updated, nil
+}
+
 func (apiServer *HelixAPIServer) deleteClaudeSubscription(_ http.ResponseWriter, req *http.Request) (map[string]string, *system.HTTPError) {
 	user := getRequestUser(req)
 	if user == nil {
@@ -301,16 +520,18 @@ type ClaudeModel struct {
 // @Router /api/v1/claude-subscriptions/models [get]
 func (apiServer *HelixAPIServer) listClaudeModels(_ http.ResponseWriter, req *http.Request) ([]*ClaudeModel, *system.HTTPError) {
 	models := []*ClaudeModel{
-		{ID: "claude-opus-4-6", Name: "Claude Opus 4.6", Description: "Most capable Claude model"},
-		{ID: "claude-sonnet-4-5-latest", Name: "Claude Sonnet 4.5", Description: "Best balance of speed and capability"},
-		{ID: "claude-haiku-4-5-latest", Name: "Claude Haiku 4.5", Description: "Fastest Claude model"},
+		{ID: "claude-opus-5", Name: "Claude Opus 5 (1M context)", Description: "Recommended Opus model with a 1M-token context window"},
+		{ID: "claude-fable-5", Name: "Claude Fable 5 (1M context)", Description: "Most capable generally available Claude model"},
+		{ID: "claude-opus-4-8", Name: "Claude Opus 4.8 (1M context)", Description: "Previous Opus model with a 1M-token context window"},
+		{ID: "sonnet", Name: "Claude Sonnet (latest)", Description: "Best balance of speed and capability"},
+		{ID: "haiku", Name: "Claude Haiku (latest)", Description: "Fastest Claude model"},
 	}
 	return models, nil
 }
 
 // SessionClaudeCredentialsResponse returns credentials in the appropriate format.
 type SessionClaudeCredentialsResponse struct {
-	CredentialType string                       `json:"credential_type"`            // "oauth" or "setup_token"
+	CredentialType string                        `json:"credential_type"` // "oauth" or "setup_token"
 	OAuthCreds     *types.ClaudeOAuthCredentials `json:"oauth_credentials,omitempty"`
 	SetupToken     string                        `json:"setup_token,omitempty"`
 }
@@ -346,8 +567,10 @@ func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWrit
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	orgID := session.OrganizationID
-	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, orgID)
+	// Resolve exactly as the desktop does, so a delegated credential owner is
+	// honoured here too — and so a refresh pushed back lands on the SAME
+	// subscription that was handed out, not the session owner's.
+	sub, err := apiServer.Store.GetSessionClaudeSubscription(ctx, session)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("no Claude subscription found for session owner")
@@ -436,8 +659,10 @@ func (apiServer *HelixAPIServer) updateSessionClaudeCredentials(_ http.ResponseW
 	}
 
 	// Look up the effective subscription for this session's owner
-	orgID := session.OrganizationID
-	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, orgID)
+	// Resolve exactly as the desktop does, so a delegated credential owner is
+	// honoured here too — and so a refresh pushed back lands on the SAME
+	// subscription that was handed out, not the session owner's.
+	sub, err := apiServer.Store.GetSessionClaudeSubscription(ctx, session)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("no Claude subscription found for session owner")
@@ -514,20 +739,20 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 	// Create a minimal session for the login flow
 	session := &types.Session{
 		ID:             system.GenerateSessionID(),
-		Name:           "Claude Login",
+		Name:           claudeLoginSessionName,
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Mode:           types.SessionModeInference,
 		Type:           types.SessionTypeText,
-		Provider:       "anthropic",
+		Provider:       claudeLoginSessionProvider,
 		ModelName:      "external_agent",
 		Owner:          user.ID,
 		OwnerType:      types.OwnerTypeUser,
 		OrganizationID: orgID,
 		Metadata: types.SessionMetadata{
-			Stream:       true,
-			AgentType:    "zed_external",
-			SessionRole:  "exploratory",
+			Stream:      true,
+			AgentType:   "zed_external",
+			SessionRole: "exploratory",
 		},
 	}
 
@@ -616,6 +841,9 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 	}
 	if session.Owner != user.ID {
 		return nil, system.NewHTTPError403("access denied")
+	}
+	if !isTemporarySubscriptionLoginSession(session, claudeLoginSessionName, claudeLoginSessionProvider) {
+		return nil, system.NewHTTPError404("login session not found")
 	}
 
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)

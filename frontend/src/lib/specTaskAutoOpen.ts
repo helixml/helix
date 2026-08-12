@@ -13,3 +13,6 @@ export const addAutoOpenedSpecTask = (id: string): void => {
   set.add(id);
   sessionStorage.setItem(AUTO_OPENED_KEY, JSON.stringify([...set]));
 };
+
+export const shouldAutoOpenSpecTaskReview = (routeName: string): boolean =>
+  routeName !== "org_chat-task";

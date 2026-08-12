@@ -217,7 +217,7 @@ export const useApp = (appId: string) => {
     
     try {
       // Fetch the app directly by ID
-      const loadedApp = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
+      const loadedApp = await api.get<IApp>(`/api/v1/agents/${id}`, undefined, {
         snackbar: showErrors,
       })
 
@@ -392,6 +392,10 @@ export const useApp = (appId: string) => {
       assistants[0].code_agent_credential_type = updates.code_agent_credential_type
     }
 
+    if (updates.claude_subscription_model !== undefined) {
+      assistants[0].claude_subscription_model = updates.claude_subscription_model
+    }
+
     if (updates.goose_recipe_repo_url !== undefined) {
       assistants[0].goose_recipe_repo_url = updates.goose_recipe_repo_url
     }
@@ -538,7 +542,7 @@ export const useApp = (appId: string) => {
     setIsAppSaving(true)
     
     try {
-      const savedApp = await api.put<IApp>(`/api/v1/apps/${app.id}`, app)
+      const savedApp = await api.put<IApp>(`/api/v1/agents/${app.id}`, app)
       if (!savedApp) {
         return
       }
@@ -555,22 +559,36 @@ export const useApp = (appId: string) => {
     }
   }, [api, snackbar, apps, isLoadingProviders, validateApp])
   
+  const pendingUpdatesRef = useRef<Partial<IAppFlatState>>({})
+  const flushScheduledRef = useRef(false)
+  const appRef = useRef(app)
+  appRef.current = app
+
   /**
-   * Saves the app from the flat state
-   * @param updates - The updates to apply
-   * @param opts - Options for the save operation
+   * Saves the app from the flat state.
+   * Concurrent calls within the same tick are merged into a single PUT
+   * so that rapid-fire model-picker auto-selects don't clobber each other.
    */
   const saveFlatApp = useCallback(async (updates: Partial<IAppFlatState>, opts: { quiet?: boolean, forceSave?: boolean } = {}) => {
-    if (!app) return
-    
-    // If forceSave isn't explicitly set and it's not safe to save, log warning and return
+    if (!appRef.current) return
+
     if (isLoadingProviders && !opts.forceSave) {
       console.warn('Attempted to save app before models/providers fully loaded. saveFlatApp operation blocked for safety.')
       return
     }
-    
-    await saveApp(mergeFlatStateIntoApp(app, updates), opts)
-  }, [app, saveApp, mergeFlatStateIntoApp, isLoadingProviders])
+
+    Object.assign(pendingUpdatesRef.current, updates)
+
+    if (!flushScheduledRef.current) {
+      flushScheduledRef.current = true
+      await Promise.resolve()
+      flushScheduledRef.current = false
+      const merged = pendingUpdatesRef.current
+      pendingUpdatesRef.current = {}
+      if (!appRef.current) return
+      await saveApp(mergeFlatStateIntoApp(appRef.current, merged), opts)
+    }
+  }, [saveApp, mergeFlatStateIntoApp, isLoadingProviders])
 
   /**
    * 
@@ -795,7 +813,7 @@ export const useApp = (appId: string) => {
     }
     
     try {
-      const grants = await api.get<IAccessGrant[]>(`/api/v1/apps/${appId}/access-grants`, {}, { snackbar: false })
+      const grants = await api.get<IAccessGrant[]>(`/api/v1/agents/${appId}/access-grants`, {}, { snackbar: false })
       setAccessGrants(grants || [])
     } catch (error) {
       console.error('Failed to load access grants:', error)
@@ -814,7 +832,7 @@ export const useApp = (appId: string) => {
     try {
       setIsAppSaving(true)
       // Explicitly specify both the request and response types
-      const newGrant = await api.post<CreateAccessGrantRequest, IAccessGrant>(`/api/v1/apps/${appId}/access-grants`, request)
+      const newGrant = await api.post<CreateAccessGrantRequest, IAccessGrant>(`/api/v1/agents/${appId}/access-grants`, request)
       
       if (!newGrant) {
         return null
@@ -844,7 +862,7 @@ export const useApp = (appId: string) => {
     try {
       setIsAppSaving(true)
 
-      await api.delete(`/api/v1/apps/${appId}/access-grants/${grantId}`)
+      await api.delete(`/api/v1/agents/${appId}/access-grants/${grantId}`)
       
       // Refresh the list of access grants
       await loadAccessGrants()

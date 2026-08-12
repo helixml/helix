@@ -20,6 +20,7 @@ import {
   TypesTokenType,
   TypesAssistantAPI,
   TypesAssistantZapier,
+  TypesOpenAIModel,
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -84,6 +85,10 @@ export const TEXT_DATA_PREP_DISPLAY_STAGES: ITextDataPrepStage[] = [
 export type IAgentType = 'helix_basic' | 'helix_agent' | 'zed_external'
 export const AGENT_TYPE_HELIX_AGENT: IAgentType = 'helix_agent'
 export const AGENT_TYPE_ZED_EXTERNAL: IAgentType = 'zed_external'
+
+export const AGENT_KIND_HELIX = 'helix_agent'
+export const AGENT_KIND_CODING = 'coding_agent'
+export const AGENT_KIND_ORG = 'org_agent'
 
 export interface IExternalAgentConfig {
   workspace_dir?: string
@@ -567,6 +572,12 @@ export interface IAssistantConfig {
    */
   code_agent_credential_type?: 'api_key' | 'subscription';
   /**
+   * ClaudeSubscriptionModel is the Anthropic model used when code_agent_runtime is
+   * 'claude_code' and code_agent_credential_type is 'subscription'. Empty defaults to
+   * 'claude-opus-4-6'.
+   */
+  claude_subscription_model?: string;
+  /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
    */
@@ -764,6 +775,7 @@ export interface IApp {
   owner: string;
   owner_type: IOwnerType;
   user?: IUser;
+  agent_kind: string;
 }
 
 export interface IAppUpdate {
@@ -804,6 +816,7 @@ export interface IAppFlatState {
   small_generation_model_provider?: string
   code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli' | 'goose_code'
   code_agent_credential_type?: 'api_key' | 'subscription'
+  claude_subscription_model?: string
   goose_recipe_repo_url?: string
   goose_recipes?: IAssistantGooseRecipe[]
   context_limit?: number
@@ -955,6 +968,7 @@ export interface ISessionChatRequest {
   tools?: string[],
   provider?: string,
   model?: string,
+  reasoning_effort?: string,
   rag_source_id?: string,
   lora_id?: string,
   interrupt?: boolean, // If true, interrupt current agent work; if false, queue after current work completes
@@ -990,8 +1004,9 @@ export interface IProviderEndpoint {
   updated: string
   name: string
   description: string
+  icon?: string
   models?: string[]
-  available_models?: string[] 
+  available_models?: TypesOpenAIModel[]
   endpoint_type: IProviderEndpointType
   owner: string
   owner_type: IOwnerType
@@ -1098,4 +1113,3 @@ export interface IAppCreateResponse {
   owner_type: IOwnerType;
   model_substitutions?: IModelSubstitution[]
 }
-

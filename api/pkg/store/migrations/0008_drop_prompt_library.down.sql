@@ -1,0 +1,2 @@
+-- No-op rollback. The prompt library has been removed from the application;
+-- recreating unused metadata columns would not restore the feature.

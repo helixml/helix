@@ -237,7 +237,7 @@ func (s *HelixAPIServer) runSandboxCommand(rw http.ResponseWriter, r *http.Reque
 	}
 
 	req := &hydra.ExecRequest{
-		SandboxID:      sb.ID,
+		SandboxID:      sb.HydraOpsID(),
 		CmdID:          system.GenerateSandboxCommandID(),
 		Cmd:            body.Cmd,
 		Args:           body.Args,
@@ -247,7 +247,7 @@ func (s *HelixAPIServer) runSandboxCommand(rw http.ResponseWriter, r *http.Reque
 		Detached:       body.Detached,
 		TimeoutSeconds: body.TimeoutSeconds,
 	}
-	resp, err := client.RunSandboxCommand(r.Context(), sb.ID, req)
+	resp, err := client.RunSandboxCommand(r.Context(), sb.HydraOpsID(), req)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -275,7 +275,7 @@ func (s *HelixAPIServer) listSandboxCommands(rw http.ResponseWriter, r *http.Req
 		http.Error(rw, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	resp, err := client.ListSandboxCommands(r.Context(), sb.ID)
+	resp, err := client.ListSandboxCommands(r.Context(), sb.HydraOpsID())
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -305,7 +305,7 @@ func (s *HelixAPIServer) getSandboxCommand(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 	cmdID := mux.Vars(r)["cmd_id"]
-	resp, err := client.GetSandboxCommand(r.Context(), sb.ID, cmdID)
+	resp, err := client.GetSandboxCommand(r.Context(), sb.HydraOpsID(), cmdID)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusNotFound)
 		return
@@ -339,7 +339,7 @@ func (s *HelixAPIServer) streamSandboxCommandLogs(rw http.ResponseWriter, r *htt
 	stream := r.URL.Query().Get("stream")
 	follow := r.URL.Query().Get("follow") == "1"
 
-	body, err := client.StreamSandboxCommandLogs(r.Context(), sb.ID, cmdID, stream, follow)
+	body, err := client.StreamSandboxCommandLogs(r.Context(), sb.HydraOpsID(), cmdID, stream, follow)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -387,7 +387,7 @@ func (s *HelixAPIServer) killSandboxCommand(rw http.ResponseWriter, r *http.Requ
 		return
 	}
 	cmdID := mux.Vars(r)["cmd_id"]
-	if err := client.KillSandboxCommand(r.Context(), sb.ID, cmdID, r.URL.Query().Get("signal")); err != nil {
+	if err := client.KillSandboxCommand(r.Context(), sb.HydraOpsID(), cmdID, r.URL.Query().Get("signal")); err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -425,7 +425,7 @@ func (s *HelixAPIServer) sandboxFile(rw http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		data, err := client.ReadSandboxFile(r.Context(), sb.ID, path)
+		data, err := client.ReadSandboxFile(r.Context(), sb.HydraOpsID(), path)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -448,14 +448,14 @@ func (s *HelixAPIServer) sandboxFile(rw http.ResponseWriter, r *http.Request) {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := client.WriteSandboxFile(r.Context(), sb.ID, path, body, mode); err != nil {
+		if err := client.WriteSandboxFile(r.Context(), sb.HydraOpsID(), path, body, mode); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		rw.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
 		recursive := r.URL.Query().Get("recursive") == "1"
-		if err := client.DeleteSandboxFile(r.Context(), sb.ID, path, recursive); err != nil {
+		if err := client.DeleteSandboxFile(r.Context(), sb.HydraOpsID(), path, recursive); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -486,7 +486,7 @@ func (s *HelixAPIServer) listSandboxFiles(rw http.ResponseWriter, r *http.Reques
 		http.Error(rw, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	resp, err := client.ListSandboxFiles(r.Context(), sb.ID, r.URL.Query().Get("path"))
+	resp, err := client.ListSandboxFiles(r.Context(), sb.HydraOpsID(), r.URL.Query().Get("path"))
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -516,7 +516,14 @@ func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request
 		http.Error(rw, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+	s.openPersistentTerminal(rw, r, client, sb.HydraOpsID(), "", "")
+}
 
+// openPersistentTerminal bridges a browser terminal to a development
+// container and attaches it to a named tmux session. Both user-created
+// sandboxes and external-agent sessions use this path; only their authorization
+// and Hydra routing differ.
+func (s *HelixAPIServer) openPersistentTerminal(rw http.ResponseWriter, r *http.Request, client *hydra.RevDialClient, targetID, workingDirectory, prompt string) {
 	wsConn, err := sandboxTerminalUpgrader.Upgrade(rw, r, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("sandbox terminal upgrade failed")
@@ -545,12 +552,39 @@ func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request
 		// -D detaches every *other* client first, so each browser reconnect
 		// leaves exactly one tmux client alive — without -D, ps would show
 		// orphaned `tmux: client` processes piling up after every WS drop.
+		workingDirectoryCommand := ""
+		newSessionWorkingDirectory := ""
+		newSessionShell := ""
+		fallbackShell := "/bin/bash -l"
+		if workingDirectory != "" {
+			quotedWorkingDirectory := strconv.Quote(workingDirectory)
+			workingDirectoryCommand = "cd " + quotedWorkingDirectory + "\n"
+			newSessionWorkingDirectory = " -c " + quotedWorkingDirectory
+		}
+		if prompt != "" {
+			rcPath := "/tmp/helix-terminal-bashrc-" + session
+			rcBody := []byte(`# Helix task terminal prompt. Auto-generated.
+if [ -f "$HOME/.bashrc" ]; then
+  . "$HOME/.bashrc"
+fi
+PROMPT_COMMAND=
+PS1=` + strconv.Quote(prompt) + `
+`)
+			if err := client.WriteSandboxFile(r.Context(), targetID, rcPath, rcBody, 0o644); err != nil {
+				writeWSError(wsConn, "failed to install terminal prompt: "+err.Error())
+				return
+			}
+			quotedRCPath := strconv.Quote(rcPath)
+			newSessionShell = " /bin/bash --rcfile " + quotedRCPath + " -i"
+			fallbackShell = "/bin/bash --rcfile " + quotedRCPath + " -i"
+		}
 		scriptBody := []byte(`#!/bin/sh
 # Helix per-session terminal attach. Auto-generated; safe to re-create.
 # Sandbox runtime images are normally pre-baked with tmux by the host's
 # overlay-build step (hydra.EnsureSandboxRuntimeImage), so the install path
 # below is just a fallback for hosts where prep was skipped or failed.
 set -e
+` + workingDirectoryCommand + `
 if ! command -v tmux >/dev/null 2>&1; then
   echo "tmux not pre-installed; attempting in-container install (prep image likely unavailable)" >&2
   if command -v apt-get >/dev/null 2>&1; then
@@ -561,20 +595,23 @@ if ! command -v tmux >/dev/null 2>&1; then
   fi
 fi
 if command -v tmux >/dev/null 2>&1; then
-  exec tmux new-session -A -D -s helix-` + session + `
+  tmux has-session -t helix-` + session + ` 2>/dev/null || tmux new-session -d -s helix-` + session + newSessionWorkingDirectory + newSessionShell + `
+  tmux set-option -t helix-` + session + ` status off
+  tmux set-option -t helix-` + session + ` mouse on
+  exec tmux attach-session -d -t helix-` + session + `
 fi
 echo "tmux not available — falling back to bash (session will not persist across reconnects)" >&2
-exec /bin/bash -l
+exec ` + fallbackShell + `
 `)
-		if err := client.WriteSandboxFile(r.Context(), sb.ID, scriptPath, scriptBody, 0o755); err != nil {
-			wsConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"failed to install attach script: `+jsonEscapeString(err.Error())+`"}`))
+		if err := client.WriteSandboxFile(r.Context(), targetID, scriptPath, scriptBody, 0o755); err != nil {
+			writeWSError(wsConn, "failed to install attach script: "+err.Error())
 			return
 		}
 		shell = scriptPath
 	}
-	hydraConn, err := client.OpenSandboxTerminal(r.Context(), sb.ID, shell)
+	hydraConn, err := client.OpenSandboxTerminal(r.Context(), targetID, shell)
 	if err != nil {
-		wsConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"`+jsonEscapeString(err.Error())+`"}`))
+		writeWSError(wsConn, err.Error())
 		return
 	}
 	defer hydraConn.Close()
@@ -636,10 +673,12 @@ func (s *HelixAPIServer) sandboxScreenshot(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 	// The desktop container registers a RevDial endpoint as
-	// `desktop-{HELIX_SESSION_ID}` — for sandboxes, HELIX_SESSION_ID is the
-	// sandbox id, so we dial `desktop-{sbx_…}` and forward an HTTP GET to
-	// localhost:9876/screenshot (the in-container desktop-bridge port).
-	runnerID := fmt.Sprintf("desktop-%s", sb.ID)
+	// `desktop-{HELIX_SESSION_ID}`. For controller-managed sandboxes
+	// HELIX_SESSION_ID is the sandbox id; for session-backed rows (spec-task
+	// desktops) it is the Helix session id — HydraOpsID() picks the right one.
+	// We dial it and forward an HTTP GET to localhost:9876/screenshot (the
+	// in-container desktop-bridge port).
+	runnerID := fmt.Sprintf("desktop-%s", sb.HydraOpsID())
 	conn, err := s.connman.Dial(r.Context(), runnerID)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("desktop bridge not connected: %v", err), http.StatusServiceUnavailable)
@@ -835,6 +874,10 @@ func (s *HelixAPIServer) sandboxTerminalSessions(rw http.ResponseWriter, r *http
 		http.Error(rw, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+	s.listPersistentTerminalSessions(rw, r, client, sb.HydraOpsID())
+}
+
+func (s *HelixAPIServer) listPersistentTerminalSessions(rw http.ResponseWriter, r *http.Request, client *hydra.RevDialClient, targetID string) {
 	out := SandboxTerminalSessionsResponse{Sessions: []SandboxTerminalSession{}}
 
 	// Wrap in /bin/sh so we can short-circuit cleanly when tmux isn't installed
@@ -844,8 +887,8 @@ func (s *HelixAPIServer) sandboxTerminalSessions(rw http.ResponseWriter, r *http
 	// (`exec: "tmux": executable file not found in $PATH`) which spammed the
 	// dockerd log. The shell exits 0 with empty output in that case, and the
 	// loop below correctly produces an empty session list.
-	res, err := client.RunSandboxCommand(r.Context(), sb.ID, &hydra.ExecRequest{
-		SandboxID: sb.ID,
+	res, err := client.RunSandboxCommand(r.Context(), targetID, &hydra.ExecRequest{
+		SandboxID: targetID,
 		Cmd:       "/bin/sh",
 		Args: []string{
 			"-c",
@@ -858,7 +901,7 @@ func (s *HelixAPIServer) sandboxTerminalSessions(rw http.ResponseWriter, r *http
 		// "no server running" / "tmux: command not found" both surface as
 		// non-2xx from hydra. Treat as empty list — the UI will just show "no
 		// sessions yet" which is the right thing.
-		log.Debug().Err(err).Str("sandbox_id", sb.ID).Msg("tmux list-sessions returned no usable result")
+		log.Debug().Err(err).Str("terminal_target_id", targetID).Msg("tmux list-sessions returned no usable result")
 		writeJSON(rw, http.StatusOK, out)
 		return
 	}
@@ -894,6 +937,31 @@ func (s *HelixAPIServer) sandboxTerminalSessions(rw http.ResponseWriter, r *http
 		out.Sessions = append(out.Sessions, row)
 	}
 	writeJSON(rw, http.StatusOK, out)
+}
+
+func (s *HelixAPIServer) deletePersistentTerminalSession(rw http.ResponseWriter, r *http.Request, client *hydra.RevDialClient, targetID, terminalSession string) {
+	if !isSafeSandboxSessionName(terminalSession) {
+		http.Error(rw, "invalid terminal session id", http.StatusBadRequest)
+		return
+	}
+
+	_, err := client.RunSandboxCommand(r.Context(), targetID, &hydra.ExecRequest{
+		SandboxID: targetID,
+		Cmd:       "/bin/sh",
+		Args: []string{
+			"-c",
+			`command -v tmux >/dev/null 2>&1 && tmux kill-session -t "helix-$1" 2>/dev/null || true`,
+			"helix-terminal",
+			terminalSession,
+		},
+		Detached:       false,
+		TimeoutSeconds: 5,
+	})
+	if err != nil {
+		http.Error(rw, "failed to delete terminal session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rw.WriteHeader(http.StatusNoContent)
 }
 
 // resolveURLOrgID reads the {org_id} URL segment and returns the actual
@@ -958,14 +1026,18 @@ func writeJSON(rw http.ResponseWriter, status int, body interface{}) {
 	_ = json.NewEncoder(rw).Encode(body)
 }
 
-// jsonEscapeString returns a JSON-safe inner string (no surrounding quotes).
-func jsonEscapeString(s string) string {
-	b, err := json.Marshal(s)
+// writeWSError sends a structured error frame on the websocket. We marshal a
+// struct rather than splicing strings into a JSON literal so the message field
+// is always validly escaped - error strings from upstream callers can contain
+// quotes, backslashes, or control characters that would otherwise break out of
+// the surrounding JSON.
+func writeWSError(wsConn *websocket.Conn, message string) {
+	b, err := json.Marshal(struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	}{Type: "error", Message: message})
 	if err != nil {
-		return ""
+		return
 	}
-	if len(b) < 2 {
-		return ""
-	}
-	return string(b[1 : len(b)-1])
+	_ = wsConn.WriteMessage(websocket.TextMessage, b)
 }

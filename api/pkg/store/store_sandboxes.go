@@ -18,6 +18,7 @@ type ListSandboxesQuery struct {
 	Owner          string
 	Status         types.SandboxStatus
 	HostDeviceID   string
+	SessionID      string
 	IncludeDeleted bool
 }
 
@@ -98,6 +99,9 @@ func (s *PostgresStore) ListSandboxes(ctx context.Context, q *ListSandboxesQuery
 		}
 		if q.HostDeviceID != "" {
 			query = query.Where("host_device_id = ?", q.HostDeviceID)
+		}
+		if q.SessionID != "" {
+			query = query.Where("session_id = ?", q.SessionID)
 		}
 		if !q.IncludeDeleted {
 			query = query.Where("deleted_at IS NULL")
@@ -185,6 +189,56 @@ func (s *PostgresStore) SetSandboxContainer(ctx context.Context, id string, host
 		"host_device_id": hostDeviceID,
 		"container_id":   containerID,
 		"updated_at":     time.Now(),
+	})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetSandboxBySession returns the live sandbox row that meters the container
+// owned by a Helix session, or ErrNotFound when the session has none.
+func (s *PostgresStore) GetSandboxBySession(ctx context.Context, sessionID string) (*types.Sandbox, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session id not specified")
+	}
+	var sb types.Sandbox
+	err := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND deleted_at IS NULL", sessionID).
+		Order("created_at DESC").
+		First(&sb).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &sb, nil
+}
+
+// SetSandboxResources records a new CPU/memory allocation after the runtime
+// has actually been resized.
+//
+// Callers must settle any outstanding billing at the previous core count
+// first — billing multiplies the whole unbilled window by the row's current
+// VCPUs, so updating the allocation before flushing would retroactively
+// reprice already-elapsed usage. See sandbox.Controller.ResizeSession.
+func (s *PostgresStore) SetSandboxResources(ctx context.Context, id string, vcpus, memoryMB int) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+	if vcpus <= 0 || memoryMB <= 0 {
+		return fmt.Errorf("vcpus and memory_mb must be positive")
+	}
+	// Column is `v_cpus`, not `vcpus` — GORM's naming strategy splits the
+	// leading acronym in the VCPUs field name.
+	res := s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{
+		"v_cpus":     vcpus,
+		"memory_mb":  memoryMB,
+		"updated_at": time.Now(),
 	})
 	if res.Error != nil {
 		return res.Error

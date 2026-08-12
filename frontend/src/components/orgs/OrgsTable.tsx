@@ -30,6 +30,7 @@ import {
 
 import useRouter from '../../hooks/useRouter'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
+import { orgLandingRoute } from '../../utils/organizations'
 
 const formatDate = (dateStr?: string): string => {
   if (!dateStr) return '-'
@@ -182,7 +183,7 @@ const OrgCard: FC<{
         }}
         onClick={() => {
           localStorage.setItem(SELECTED_ORG_STORAGE_KEY, org.name || '')
-          router.navigate('org_projects', { org_id: org.name })
+          router.navigate(orgLandingRoute(), { org_id: org.name })
         }}
       >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 1 }}>
@@ -312,11 +313,9 @@ const OrgsTable: FC<{
 
       {loading ? (
         <Grid container spacing={{ xs: 2, sm: 3 }}>
-          {[0, 1, 2].map((i) => (
-            <Grid item xs={12} sm={6} lg={4} key={i}>
-              <Skeleton variant="rectangular" height={160} sx={{ borderRadius: 1 }} />
-            </Grid>
-          ))}
+          <Grid item xs={12} sm={6} lg={4}>
+            <Skeleton variant="rectangular" height={160} sx={{ borderRadius: 1 }} />
+          </Grid>
         </Grid>
       ) : data.length === 0 ? (
         <Box sx={{ textAlign: 'center', py: 8 }}>

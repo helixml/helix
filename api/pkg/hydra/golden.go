@@ -854,11 +854,13 @@ func GCOrphanedSessionDirs(activeSessions map[string]bool) (int, int64, error) {
 			continue
 		}
 
-		// Only clean up dirs that haven't been active in over a week.
-		// If there's no .last-active marker (pre-existing dir), don't
-		// GC it — it'll get a marker next time the container runs or stops.
-		age := sessionLastActiveAge(dir)
-		if age == 0 || age < maxAge {
+		// Only clean up dirs that haven't been active in over a week. Use the
+		// newer of the dir mtime and the .last-active marker (fileCopyDirAge):
+		// a marker-less dir (pre-marker, or a crashed/unclean stop) falls back
+		// to the dir mtime rather than being skipped forever — the bug that
+		// leaked old file-copy docker-data dirs indefinitely.
+		age := fileCopyDirAge(dir)
+		if age < maxAge {
 			continue
 		}
 

@@ -17,10 +17,11 @@ import {
   Button,
   Tooltip,
   Select,
-  FormControl,
-  InputLabel,
   CircularProgress,
+  Menu,
   MenuItem,
+  ListItemIcon,
+  ListItemText,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -29,34 +30,33 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Switch,
-  FormControlLabel,
-  Checkbox,
   Autocomplete,
+  ClickAwayListener,
 } from "@mui/material";
+import type { Theme } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import EditIcon from "@mui/icons-material/Edit";
 import PlayArrow from "@mui/icons-material/PlayArrow";
-import Description from "@mui/icons-material/Description";
-import SaveIcon from "@mui/icons-material/Save";
-import CancelIcon from "@mui/icons-material/Cancel";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import StopIcon from "@mui/icons-material/Stop";
 import LaunchIcon from "@mui/icons-material/Launch";
-import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
-import CloudUploadIcon from "@mui/icons-material/CloudUpload";
-import VerticalSplitIcon from "@mui/icons-material/VerticalSplit";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import UndoIcon from "@mui/icons-material/Undo";
-import LockIcon from "@mui/icons-material/Lock";
-import LockOpenIcon from "@mui/icons-material/LockOpen";
-import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
+import {
+  TypesCodeAgentOverrides,
+  TypesSandboxResourceOverrides,
+  TypesSpecTaskStatus,
+} from "../../api/api";
 import ExternalAgentDesktopViewer, {
   useSandboxState,
 } from "../external-agent/ExternalAgentDesktopViewer";
 import DiffViewer from "./DiffViewer";
+import TaskSessionPlaceholder from "./TaskSessionPlaceholder";
+import {
+  subscriptionRequirementFromTask,
+  subscriptionRequirementMessage,
+} from "./taskLaunchFailure";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import PendingProposalsPanel from "../specTask/PendingProposalsPanel";
@@ -67,16 +67,17 @@ import useApi from "../../hooks/useApi";
 import useRouter from "../../hooks/useRouter";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType } from "../../utils/oauthProviders";
+import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import useApps from "../../hooks/useApps";
+import { deriveDisplaySettings } from "../../services/externalAgentDisplay";
 import { useStreaming } from "../../contexts/streaming";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   useGetSession,
   GET_SESSION_QUERY_KEY,
 } from "../../services/sessionService";
-import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from "../../types";
+import { selectCodingAgents } from "../../utils/apps";
 import {
   useUpdateSpecTask,
   useSpecTask,
@@ -86,6 +87,8 @@ import {
   useProjectLabels,
   useAddLabel,
   useRemoveLabel,
+  useGetSpecTaskExecutionConfig,
+  useUpdateSpecTaskExecutionConfig,
 } from "../../services/specTaskService";
 import {
   useGetProject,
@@ -94,36 +97,110 @@ import {
 import { useMoveToBacklog } from "../../services/specTaskWorkflowService";
 import { getUserById } from "../../services/userService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
-import AgentDropdown from "../agent/AgentDropdown";
+import SpecTaskShareDialog from "./SpecTaskShareDialog";
+import AssigneeSelector from "./AssigneeSelector";
+import OrganizationUserAvatar, { resolveOrganizationUser } from "../widgets/OrganizationUserAvatar";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
-import RobustPromptInput from "../common/RobustPromptInput";
 import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
-import EmbeddedSessionView, {
-  EmbeddedSessionViewHandle,
-} from "../session/EmbeddedSessionView";
+import AgentChat from "../session/AgentChat";
+import { getChatColors } from "../session/chatStyles";
+import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
+import SharePreviewSection from "./SharePreviewSection";
+import SandboxBrowser from "./SandboxBrowser";
+import SpecTaskLaunchWindow, {
+  getSpecTaskLaunchPhase,
+} from "./SpecTaskLaunchWindow";
+import TaskChatMetadata from "./TaskChatMetadata";
 import {
   Panel,
   Group as PanelGroup,
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
 import useLightTheme from "../../hooks/useLightTheme";
 import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
 import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
 import {
-  SlidersHorizontal,
-  GitCompare,
-  MonitorPlay,
+  FileText,
+  PanelLeft,
+  PanelRight,
   Wand2,
-  Copy,
+  Share,
 } from "lucide-react";
+import SpecTaskViewToolbar, {
+  TaskView,
+  ToolbarDensity,
+} from "./SpecTaskViewToolbar";
 
 import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
+import { loadPanelLayout, savePanelLayout } from "../../lib/panelLayoutStorage";
+import SpecTaskTerminalDrawer from "./SpecTaskTerminalDrawer";
+import {
+  isSpecTaskTerminalToggleShortcut,
+  loadSpecTaskTerminalDrawerState,
+  saveSpecTaskTerminalDrawerState,
+} from "./specTaskTerminalDrawerState";
+
+const SPEC_TASK_CHAT_PANEL_IDS = ["spec-task-chat", "spec-task-content"] as const;
+const SPEC_TASK_CHAT_LAYOUT_KEY = "helix.specTaskChat.layout";
+const taskToolbarIconButtonSx = {
+  width: 30,
+  height: 30,
+  minWidth: 30,
+  minHeight: 30,
+  p: 0.75,
+  flexShrink: 0,
+  color: "text.secondary",
+  "& svg": {
+    width: 18,
+    height: 18,
+  },
+  "&:hover": {
+    color: "text.primary",
+    backgroundColor: "action.hover",
+  },
+  '&[aria-pressed="true"]': {
+    backgroundColor: "action.selected",
+  },
+} as const;
+
+const taskDetailsSectionSx = {
+  border: "1px solid",
+  borderColor: "divider",
+  borderRadius: 2,
+  backgroundColor: "background.paper",
+  p: 2,
+} as const;
+
+const taskActionButtonSx = {
+  fontSize: "0.75rem",
+  textTransform: "none",
+} as const;
+
+const taskDetailsTextSx = {
+  color: (theme: Theme) => getChatColors(theme).assistantForeground,
+  fontSize: "0.875rem",
+  lineHeight: 1.625,
+} as const;
+
+const taskDetailsTextFieldSx = {
+  "& .MuiInputBase-input": taskDetailsTextSx,
+} as const;
+
+type TaskTextField = "name" | "description";
+type TaskTextSaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface SpecTaskDetailContentProps {
   taskId: string;
+  /** Keep standalone task content inset while allowing sibling drawers to span the workspace. */
+  padContent?: boolean;
+  /** Whether tasks awaiting spec review should open the review automatically. */
+  autoOpenReview?: boolean;
+  /** Replace route close with reversible content-panel collapse. */
+  allowContentCollapse?: boolean;
   onClose?: () => void;
   /** Called when user clicks "Review Spec" - if provided, opens in workspace pane instead of navigating */
   onOpenReview?: (
@@ -134,7 +211,7 @@ interface SpecTaskDetailContentProps {
   /** Called when task is archived - parent should close all tabs showing this task */
   onTaskArchived?: (taskId: string) => void;
   /**
-   * Whether to sync the active view (chat/desktop/changes/details) with the URL `view` query param.
+   * Whether to sync the active view (chat/desktop/browser/changes/details) with the URL `view` query param.
    * Defaults to true. Set to false when this component is rendered inside a multi-panel container
    * (e.g. TabsView split-screen) where each panel must own its view independently — otherwise all
    * visible instances mirror the same URL param.
@@ -144,6 +221,9 @@ interface SpecTaskDetailContentProps {
 
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
+  padContent = false,
+  autoOpenReview = true,
+  allowContentCollapse = false,
   onClose,
   onOpenReview,
   onTaskArchived,
@@ -155,26 +235,36 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const streaming = useStreaming();
   const apps = useApps();
   const updateSpecTask = useUpdateSpecTask();
+  const updateExecutionConfig = useUpdateSpecTaskExecutionConfig(taskId);
+  const autoSaveSpecTask = useUpdateSpecTask();
   const moveToBacklogMutation = useMoveToBacklog(taskId);
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  // OAuth flow is needed when a user without GitHub OAuth tries to start
-  // planning — the backend returns 422 with error=oauth_required, and we
-  // drop them into the GitHub connect flow before they retry.
+  // OAuth flow is needed when a user lacks the repository provider connection.
   const { startOAuthFlow } = useOAuthFlow();
   const { data: oauthProviders } = useListOAuthProviders();
-  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
 
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: "md" });
   const lightTheme = useLightTheme();
+  const savedSpecTaskChatLayout = loadPanelLayout(
+    SPEC_TASK_CHAT_LAYOUT_KEY,
+    SPEC_TASK_CHAT_PANEL_IDS,
+  );
+  const lastExpandedContentSizeRef = useRef(
+    savedSpecTaskChatLayout?.["spec-task-content"] ?? 50,
+  );
 
   // Fetch task data
   const { data: task } = useSpecTask(taskId, {
     enabled: !!taskId,
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   });
+  const { data: currentExecutionConfig } = useGetSpecTaskExecutionConfig(
+    taskId,
+    !!task?.helix_app_id || !!task?.agent_session_id,
+  );
   const { data: projectTasks = [] } = useSpecTasks({
     projectId: task?.project_id,
     withDependsOn: true,
@@ -209,87 +299,155 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     !!task?.project_id,
   );
 
-  const defaultBranchName = useMemo(() => {
-    const defaultRepo = projectRepositories.find(
+  const primaryRepository = useMemo(
+    () => projectRepositories.find(
       (r) => r.id === project?.default_repo_id,
-    );
-    return defaultRepo?.default_branch || "main";
-  }, [projectRepositories, project?.default_repo_id]);
+    ),
+    [projectRepositories, project?.default_repo_id],
+  );
 
-  // Edit mode state
-  const [isEditMode, setIsEditMode] = useState(false);
+  const defaultBranchName = useMemo(() => {
+    return primaryRepository?.default_branch || "main";
+  }, [primaryRepository?.default_branch]);
+
+  // Name and description edit independently and save when focus leaves the field.
+  const [editingTextField, setEditingTextField] =
+    useState<TaskTextField | null>(null);
   const [editFormData, setEditFormData] = useState({
     name: "",
     description: "",
-    priority: "",
-    dependsOnTaskIds: [] as string[],
   });
+  const [textSaveStatus, setTextSaveStatus] = useState<
+    Record<TaskTextField, TaskTextSaveStatus>
+  >({ name: "idle", description: "idle" });
+  const textSaveInFlightRef = useRef<Set<TaskTextField>>(new Set());
 
-  // Prompt/description is editable before spec review (backlog, queued_spec_generation, spec_generation)
-  // After spec review, the spec title becomes the name and prompt becomes read-only
-  const isPromptEditable = [
-    TypesSpecTaskStatus.TaskStatusBacklog,
-    TypesSpecTaskStatus.TaskStatusQueuedSpecGeneration,
-    TypesSpecTaskStatus.TaskStatusSpecGeneration,
-  ].includes(task?.status as TypesSpecTaskStatus);
+  // Name and description are task metadata, so their editability should not
+  // depend on the task's workflow stage.
+  const isTaskDetailsEditable = Boolean(task && !task.archived);
 
-  // Agent selection state
-  const [selectedAgent, setSelectedAgent] = useState("");
-  const [updatingAgent, setUpdatingAgent] = useState(false);
+  useEffect(() => {
+    if (editingTextField) return;
+    setEditFormData({
+      name: task?.user_short_title || task?.name || "",
+      description: task?.description || task?.original_prompt || "",
+    });
+  }, [
+    editingTextField,
+    task?.user_short_title,
+    task?.name,
+    task?.description,
+    task?.original_prompt,
+  ]);
+
+  const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<HTMLElement | null>(null);
+  const orgMembers = account.organizationTools.organization?.memberships || [];
+  const assignedUser = resolveOrganizationUser(task?.assignee_id, orgMembers, account.user);
 
   // Start planning state - prevents double-click
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
 
   // Chat panel collapse state - when true, uses mobile-style tab layout even on desktop
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [contentCollapsed, setContentCollapsed] = useState(false);
+  const contentPanelRef = useRef<PanelImperativeHandle>(null);
+  const collapseContentAfterSplitRef = useRef(false);
 
-  // Sort apps: zed_external agents first, then others
-  const sortedApps = useMemo(() => {
+  const collapseContentPanel = useCallback(() => {
+    if (chatCollapsed) {
+      collapseContentAfterSplitRef.current = true;
+      setChatCollapsed(false);
+      return;
+    }
+    const currentSize = contentPanelRef.current?.getSize().asPercentage;
+    if (currentSize && currentSize > 0) {
+      lastExpandedContentSizeRef.current = currentSize;
+    }
+    contentPanelRef.current?.collapse();
+  }, [chatCollapsed]);
+
+  const showContentPanel = useCallback(() => {
+    const panel = contentPanelRef.current;
+    if (!panel) return;
+    const restoredSize = lastExpandedContentSizeRef.current || 50;
+    panel.expand();
+    panel.resize(`${restoredSize}%`);
+  }, []);
+
+  useEffect(() => {
+    if (chatCollapsed || !collapseContentAfterSplitRef.current) return;
+    collapseContentAfterSplitRef.current = false;
+    contentPanelRef.current?.collapse();
+  }, [chatCollapsed]);
+
+  const [terminalDrawerState, setTerminalDrawerState] = useState(() =>
+    loadSpecTaskTerminalDrawerState(taskId),
+  );
+
+  useEffect(() => {
+    setTerminalDrawerState(loadSpecTaskTerminalDrawerState(taskId));
+  }, [taskId]);
+
+  const toggleTerminalDrawer = useCallback(() => {
+    setTerminalDrawerState((current) => {
+      const next = { ...current, open: !current.open };
+      saveSpecTaskTerminalDrawerState(taskId, next);
+      return next;
+    });
+  }, [taskId]);
+
+  const setTerminalDrawerHeight = useCallback((height: number) => {
+    setTerminalDrawerState((current) => {
+      const next = { ...current, height };
+      saveSpecTaskTerminalDrawerState(taskId, next);
+      return next;
+    });
+  }, [taskId]);
+
+  const closeTerminalDrawer = useCallback(() => {
+    setTerminalDrawerState((current) => {
+      const next = { ...current, open: false };
+      saveSpecTaskTerminalDrawerState(taskId, next);
+      return next;
+    });
+  }, [taskId]);
+
+  // Spec tasks can only select coding agents.
+  const eligibleApps = useMemo(() => {
     if (!apps.apps) return [];
-    const zedExternalApps = apps.apps.filter(
-      (app) =>
-        app.config?.helix?.assistants?.some(
-          (a) => a.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-        ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL,
-    );
-    const otherApps = apps.apps.filter(
-      (app) =>
-        !app.config?.helix?.assistants?.some(
-          (a) => a.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-        ) && app.config?.helix?.default_agent_type !== AGENT_TYPE_ZED_EXTERNAL,
-    );
-    return [...zedExternalApps, ...otherApps];
+    return selectCodingAgents(apps.apps);
   }, [apps.apps]);
+
+  const handleAgentModelChange = useCallback(async (
+    agentId: string,
+    codeAgentOverrides: TypesCodeAgentOverrides,
+  ) => {
+    const result = await updateExecutionConfig.mutateAsync({
+      agent_id: agentId,
+      code_agent_overrides: codeAgentOverrides,
+    });
+    snackbar.success(
+      result?.agent_thread_restarted
+        ? "Coding configuration updated — a new agent thread is starting"
+        : "Coding configuration updated",
+    );
+  }, [updateExecutionConfig, snackbar]);
+
+  const handleSandboxResourcesChange = useCallback(async (sandboxResourceOverrides: TypesSandboxResourceOverrides) => {
+    const result = await updateExecutionConfig.mutateAsync({
+      sandbox_resource_overrides: sandboxResourceOverrides,
+    });
+    snackbar.success(
+      result?.sandbox_resources_applied
+        ? "Running sandbox resized"
+        : "Sandbox size will apply when the task starts",
+    );
+  }, [updateExecutionConfig, snackbar]);
 
   // Get display settings from the task's app configuration
   const displaySettings = useMemo(() => {
-    if (!task?.helix_app_id || !apps.apps) {
-      return { width: 1920, height: 1080, fps: 60 };
-    }
-    const taskApp = apps.apps.find((a) => a.id === task.helix_app_id);
-    const config = taskApp?.config?.helix?.external_agent_config;
-    if (!config) {
-      return { width: 1920, height: 1080, fps: 60 };
-    }
-
-    let width = config.display_width || 1920;
-    let height = config.display_height || 1080;
-    if (config.resolution === "5k") {
-      width = 5120;
-      height = 2880;
-    } else if (config.resolution === "4k") {
-      width = 3840;
-      height = 2160;
-    } else if (config.resolution === "1080p") {
-      width = 1920;
-      height = 1080;
-    }
-
-    return {
-      width,
-      height,
-      fps: config.display_refresh_rate || 60,
-    };
+    const taskApp = apps.apps?.find((a) => a.id === task?.helix_app_id);
+    return deriveDisplaySettings(taskApp);
   }, [task?.helix_app_id, apps.apps]);
 
   // Check if the task's app uses Claude Code with subscription credentials
@@ -309,13 +467,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     return getTokenExpiryStatus(sub.access_token_expires_at);
   }, [task?.helix_app_id, apps.apps, claudeSubscriptions]);
 
-  // Sync selected agent when task changes
-  useEffect(() => {
-    if (task?.helix_app_id) {
-      setSelectedAgent(task.helix_app_id);
-    }
-  }, [task?.helix_app_id]);
-
   // Load apps on mount
   useEffect(() => {
     apps.loadApps();
@@ -323,7 +474,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
   // Initialize from URL query param 'view' if present (only when syncing with URL)
-  const getInitialView = (): "chat" | "desktop" | "changes" | "details" => {
+  const getInitialView = (): TaskView => {
     if (!syncViewWithUrl) {
       return "desktop";
     }
@@ -331,7 +482,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (
       viewParam === "chat" ||
       viewParam === "desktop" ||
+      viewParam === "browser" ||
       viewParam === "changes" ||
+      viewParam === "files" ||
       viewParam === "details"
     ) {
       return viewParam;
@@ -342,9 +495,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     const isMobile = window.matchMedia("(max-width: 899.95px)").matches;
     return isMobile ? "chat" : "desktop";
   };
-  const [currentView, setCurrentView] = useState<
-    "chat" | "desktop" | "changes" | "details"
-  >(getInitialView);
+  const [currentView, setCurrentView] = useState<TaskView>(getInitialView);
   const [clientUniqueId, setClientUniqueId] = useState<string>("");
 
   // Sync currentView with URL query param (only when syncing with URL).
@@ -357,7 +508,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       viewParam &&
       (viewParam === "chat" ||
         viewParam === "desktop" ||
+        viewParam === "browser" ||
         viewParam === "changes" ||
+        viewParam === "files" ||
         viewParam === "details")
     ) {
       if (viewParam !== currentView) {
@@ -368,7 +521,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Update URL when view changes (only when syncing with URL)
   const handleViewChange = useCallback(
-    (newView: "chat" | "desktop" | "changes" | "details" | null) => {
+    (newView: TaskView | null) => {
       if (newView && newView !== currentView) {
         setCurrentView(newView);
         if (syncViewWithUrl) {
@@ -379,8 +532,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     [currentView, router, syncViewWithUrl],
   );
 
-  // Ref for EmbeddedSessionView to trigger scroll on height changes
-  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null);
 
   // Design review state
   const [docViewerOpen, setDocViewerOpen] = useState(false);
@@ -421,6 +572,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     task?.public_design_docs ?? false,
   );
   const [updatingPublic, setUpdatingPublic] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   // Sync public state when task data changes
   useEffect(() => {
@@ -429,7 +581,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task?.public_design_docs]);
 
-  const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
+  // Points at the unauthenticated, server-rendered public viewer
+  // (subRouter route GET /api/v1/spec-tasks/{id}/view). The /api/v1 prefix is
+  // required — without it the URL hits the SPA and forces an OIDC login.
+  const publicLink = `${window.location.origin}/api/v1/spec-tasks/${taskId}/view`;
 
   const handlePublicToggle = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -437,7 +592,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     const newValue = event.target.checked;
     setUpdatingPublic(true);
     try {
-      await api.put(`/api/v1/spec-tasks/${taskId}`, {
+      await api.getApiClient().v1SpecTasksUpdate(taskId, {
         public_design_docs: newValue,
       });
       setIsPublicDesignDocs(newValue);
@@ -451,28 +606,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   };
 
-  const copyPublicLink = async () => {
-    try {
-      await navigator.clipboard.writeText(publicLink);
-      snackbar.success("Link copied to clipboard!");
-    } catch (err) {
-      snackbar.error("Failed to copy link");
-    }
-  };
-
   // Fetch clone groups where this task was the source
   const { data: cloneGroups } = useCloneGroups(taskId);
-
-  const dependencyTaskOptions = useMemo(
-    () =>
-      projectTasks.filter(
-        (projectTask) =>
-          !!projectTask.id &&
-          projectTask.id !== task?.id &&
-          projectTask.status !== TypesSpecTaskStatus.TaskStatusDone,
-      ),
-    [projectTasks, task?.id],
-  );
 
   const currentTaskDependencies = useMemo(
     () =>
@@ -482,43 +617,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       [],
     [projectTasks, task?.id, task?.depends_on],
   );
-
-  const dependencyTaskLookup = useMemo(() => {
-    const tasksForLookup = [
-      ...dependencyTaskOptions,
-      ...currentTaskDependencies,
-    ];
-    return new Map(
-      tasksForLookup
-        .filter((projectTask) => !!projectTask.id)
-        .map((projectTask) => [projectTask.id, projectTask]),
-    );
-  }, [dependencyTaskOptions, currentTaskDependencies]);
-
-  const selectedDependencyTasks = useMemo(
-    () =>
-      editFormData.dependsOnTaskIds
-        .map((taskDependencyId) => dependencyTaskLookup.get(taskDependencyId))
-        .filter(
-          (projectTask): projectTask is NonNullable<typeof projectTask> =>
-            !!projectTask,
-        ),
-    [editFormData.dependsOnTaskIds, dependencyTaskLookup],
-  );
-
-  // Initialize edit form data when task changes
-  useEffect(() => {
-    if (task && isEditMode) {
-      setEditFormData({
-        name: task.name || "",
-        description: task.description || task.original_prompt || "",
-        priority: task.priority || "medium",
-        dependsOnTaskIds: currentTaskDependencies
-          .map((dependencyTask) => dependencyTask.id || "")
-          .filter((dependencyTaskId) => !!dependencyTaskId),
-      });
-    }
-  }, [task, isEditMode, currentTaskDependencies]);
 
   // Check if task is completed/merged - container is shut down so desktop view won't work
   const isTaskCompleted = task?.status === "done" || task?.merged_to_main;
@@ -542,12 +640,35 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = selectedThreadSessionId || task?.agent_session_id;
 
+  useEffect(() => {
+    const handleTerminalShortcut = (event: KeyboardEvent) => {
+      if (!activeSessionId || !isSpecTaskTerminalToggleShortcut(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setTerminalDrawerState((current) => {
+        const next = { ...current, open: !current.open };
+        saveSpecTaskTerminalDrawerState(taskId, next);
+        return next;
+      });
+    };
+    window.addEventListener("keydown", handleTerminalShortcut);
+    return () => window.removeEventListener("keydown", handleTerminalShortcut);
+  }, [activeSessionId, taskId]);
+
   // Track sandbox/desktop state for stop/start buttons
   const {
     isRunning: isDesktopRunning,
     isPaused: isDesktopPaused,
     isStarting: isDesktopStarting,
+    hasDesktopLifecycleState,
   } = useSandboxState(activeSessionId || "");
+
+  const launchPhase = getSpecTaskLaunchPhase({
+    status: task?.status,
+    queueReason: task?.queue_reason,
+    activeSessionId,
+    hasDesktopLifecycleState,
+  });
 
   // When the task is queued for planning, the backend hasn't created the session yet (or the
   // agent_session_id still points to a previously-stopped session). In either case, suppress
@@ -601,10 +722,53 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || "", {
     enabled: !!activeSessionId,
+    refetchInterval: 3000,
   });
   const sessionData = sessionResponse?.data;
+
+  // Keep the streamed Zed desktop foregrounded on the thread of the session the
+  // user is actually viewing. A spec task can have multiple sessions/threads
+  // sharing ONE desktop; the chat panel and message routing are session-scoped,
+  // but selecting a thread previously only re-bound the chat panel — nothing told
+  // the desktop to open that session's thread. So the desktop could show one
+  // thread while messages went to another ("opened != sent-to") with no session
+  // switch. Driving this off the derived activeSessionId covers both thread
+  // selectors and initial mount. Backend no-ops (and never auto-starts a
+  // container) when the desktop isn't connected. See
+  // design/2026-06-22-zed-open-thread-send-mismatch.md.
+  const foregroundThread = useMutation({
+    mutationFn: (sessionId: string) =>
+      api.getApiClient().v1SessionsForegroundThreadCreate(sessionId),
+  });
+  const isSessionPaused = !!sessionData?.config?.paused;
+  useEffect(() => {
+    if (!activeSessionId) return;
+    if (!isDesktopRunning) return; // nothing to foreground; also avoids waking a stopped desktop
+    if (isSessionPaused) return;
+    // foregroundThread.mutate is a stable React Query fn; per frontend/CLAUDE.md
+    // the dependency array carries only the primitives that should retrigger this.
+    foregroundThread.mutate(activeSessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, isDesktopRunning, isSessionPaused]);
+
   const taskMetadataError =
     typeof task?.metadata?.error === "string" ? task.metadata.error : "";
+
+  // A launch refused for a missing subscription is not retryable: send the user
+  // to the provider login instead of offering a start button that fails again.
+  const subscriptionRequirement = subscriptionRequirementFromTask(
+    task?.metadata as Record<string, unknown> | undefined,
+  );
+  const desktopStartupMessage = subscriptionRequirement
+    ? subscriptionRequirementMessage(subscriptionRequirement)
+    : taskMetadataError;
+  const connectSubscriptionLabel = subscriptionRequirement
+    ? `Connect ${subscriptionRequirement.label}`
+    : undefined;
+  const connectSubscription = useCallback(() => {
+    const organizationId = project?.organization_id;
+    if (organizationId) router.navigate("org_providers", { org_id: organizationId });
+  }, [project?.organization_id, router]);
 
   // Sync justDoItMode when task changes
   useEffect(() => {
@@ -677,25 +841,26 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        // Backend returns 422 + oauth_required when the planner has no
-        // GitHub OAuth connection. Drop into the connect flow so the user
-        // can retry without hitting a dead-end error.
+        // Open the matching provider connection flow on OAuth enforcement.
         if (
           response.status === 422 &&
           errorData?.error === "oauth_required"
         ) {
-          if (gitHubProvider?.id) {
-            snackbar.info("Connect GitHub to start planning this task.");
+          const providerType = errorData?.provider_type === "gitlab" ? "gitlab" : "github";
+          const providerName = providerType === "gitlab" ? "GitLab" : "GitHub";
+          const oauthProvider = findOAuthProviderForType(oauthProviders, providerType);
+          if (oauthProvider?.id) {
+            snackbar.info(`Connect ${providerName} to start planning this task.`);
             startOAuthFlow({
-              providerId: gitHubProvider.id,
-              scopes: ["repo"],
+              providerId: oauthProvider.id,
+              scopes: vcsScopesForProvider(oauthProvider.type, oauthProvider.name),
               onSuccess: () => {
                 snackbar.success(
-                  "GitHub connected. Click Start Planning again to continue.",
+                  `${providerName} connected. Click Start Planning again to continue.`,
                 );
               },
               onError: (oauthError) => {
-                snackbar.error(`GitHub connection failed: ${oauthError}`);
+                snackbar.error(`${providerName} connection failed: ${oauthError}`);
               },
             });
           } else {
@@ -703,14 +868,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             // error message is PR-centric and actionless for this user, so
             // override it with admin-direction guidance.
             snackbar.error(
-              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
+              `${providerName} OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.`,
             );
           }
           return;
         }
         throw new Error(
-          errorData.error ||
-            errorData.message ||
+          errorData.message ||
+            errorData.error ||
             `Failed to start planning: ${response.statusText}`,
         );
       }
@@ -735,13 +900,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     setRestartConfirmOpen(false);
 
     try {
-      snackbar.info("Stopping agent session...");
-      await api
-        .getApiClient()
-        .v1SessionsStopExternalAgentDelete(activeSessionId);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      snackbar.info("Starting new agent session...");
-      await api.getApiClient().v1SessionsResumeCreate(activeSessionId);
+      snackbar.info("Restarting agent session...");
+      // Single backend call: the restart-agent endpoint tears down the
+      // desktop container and recreates it (preserving thread context and
+      // resetting crashed prompts). No frontend stop/sleep/resume dance.
+      await api.getApiClient().v1SessionsRestartAgentCreate(activeSessionId);
       queryClient.invalidateQueries({
         queryKey: GET_SESSION_QUERY_KEY(activeSessionId),
       });
@@ -752,7 +915,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     } finally {
       setIsRestarting(false);
     }
-  }, [activeSessionId, isRestarting, api, snackbar]);
+  }, [activeSessionId, isRestarting, api, snackbar, queryClient]);
 
   // Handle session stop
   const handleStopSession = useCallback(async () => {
@@ -844,73 +1007,118 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task?.id, justDoItMode, updatingJustDoIt, updateSpecTask, snackbar]);
 
-  // Handle agent change
-  const handleAgentChange = useCallback(
-    async (newAgentId: string) => {
-      if (!task?.id || updatingAgent || newAgentId === selectedAgent) return;
-
-      setUpdatingAgent(true);
-      const previousAgent = selectedAgent;
-      setSelectedAgent(newAgentId);
+  const handleAssigneeChange = useCallback(
+    async (userId: string | null) => {
+      if (!task?.id || updateSpecTask.isPending) return;
 
       try {
         await updateSpecTask.mutateAsync({
           taskId: task.id,
-          updates: { helix_app_id: newAgentId },
+          updates: { assignee_id: userId || "" },
         });
-        snackbar.success("Agent updated");
+        snackbar.success(userId ? "Assignee updated" : "Task unassigned");
       } catch (err) {
-        console.error("Failed to update agent:", err);
-        snackbar.error("Failed to update agent");
-        setSelectedAgent(previousAgent);
-      } finally {
-        setUpdatingAgent(false);
+        console.error("Failed to update assignee:", err);
+        snackbar.error("Failed to update assignee");
       }
     },
-    [task?.id, selectedAgent, updatingAgent, updateSpecTask, snackbar],
+    [task?.id, updateSpecTask.isPending, updateSpecTask, snackbar],
   );
 
-  // Handle edit mode
-  const handleEditToggle = useCallback(() => {
-    setIsEditMode(true);
-  }, []);
+  const handleTextFieldEdit = (field: TaskTextField) => {
+    if (!task || !isTaskDetailsEditable) return;
 
-  const handleCancelEdit = useCallback(() => {
-    setIsEditMode(false);
-    if (task) {
-      setEditFormData({
-        name: task.name || "",
-        description: task.description || task.original_prompt || "",
-        priority: task.priority || "medium",
-        dependsOnTaskIds: currentTaskDependencies
-          .map((dependencyTask) => dependencyTask.id || "")
-          .filter((dependencyTaskId) => !!dependencyTaskId),
-      });
-      setJustDoItMode(task.just_do_it_mode ?? false);
-    }
-  }, [task, currentTaskDependencies]);
+    setEditFormData((current) => ({
+      ...current,
+      [field]:
+        field === "name"
+          ? task.user_short_title || task.name || ""
+          : task.description || task.original_prompt || "",
+    }));
+    setTextSaveStatus((current) => ({ ...current, [field]: "idle" }));
+    setEditingTextField(field);
+  };
 
-  const handleSaveEdit = useCallback(async () => {
+  const handleTextFieldCancel = (field: TaskTextField) => {
+    const currentValue =
+      field === "name"
+        ? task?.user_short_title || task?.name || ""
+        : task?.description || task?.original_prompt || "";
+    setEditFormData((current) => ({ ...current, [field]: currentValue }));
+    setTextSaveStatus((current) => ({ ...current, [field]: "idle" }));
+    setEditingTextField((current) => (current === field ? null : current));
+  };
+
+  const handleTextFieldBlur = async (field: TaskTextField) => {
     if (!task?.id) return;
 
-    try {
-      await updateSpecTask.mutateAsync({
-        taskId: task.id,
-        updates: {
-          name: editFormData.name,
-          description: editFormData.description,
-          priority: editFormData.priority as TypesSpecTaskPriority,
-          just_do_it_mode: justDoItMode,
-          depends_on: editFormData.dependsOnTaskIds,
-        },
-      });
-      setIsEditMode(false);
-      snackbar.success("Task updated successfully");
-    } catch (err) {
-      console.error("Failed to update task:", err);
-      snackbar.error("Failed to update task");
+    if (textSaveInFlightRef.current.has(field)) {
+      setEditingTextField((current) => (current === field ? null : current));
+      return;
     }
-  }, [task?.id, editFormData, justDoItMode, updateSpecTask, snackbar]);
+
+    const currentValue =
+      field === "name"
+        ? task.user_short_title || task.name || ""
+        : task.description || task.original_prompt || "";
+    const nextValue =
+      field === "name"
+        ? editFormData.name.trim()
+        : editFormData.description;
+
+    if (field === "name" && !nextValue) {
+      setEditFormData((current) => ({ ...current, name: currentValue }));
+      setTextSaveStatus((current) => ({ ...current, name: "error" }));
+      setEditingTextField((current) => (current === field ? null : current));
+      snackbar.error("Task name cannot be empty");
+      return;
+    }
+
+    // Leaving the field ends editing immediately. Persistence continues in the
+    // background and its state is shown alongside the field label.
+    setEditingTextField((current) => (current === field ? null : current));
+
+    if (nextValue === currentValue) {
+      setTextSaveStatus((current) => ({ ...current, [field]: "idle" }));
+      return;
+    }
+
+    setTextSaveStatus((current) => ({ ...current, [field]: "saving" }));
+    textSaveInFlightRef.current.add(field);
+    try {
+      await autoSaveSpecTask.mutateAsync({
+        taskId: task.id,
+        updates:
+          field === "name"
+            ? { name: nextValue, user_short_title: nextValue }
+            : { description: nextValue },
+      });
+      setTextSaveStatus((current) => ({ ...current, [field]: "saved" }));
+    } catch (err) {
+      console.error(`Failed to auto-save task ${field}:`, err);
+      setEditFormData((current) => ({
+        ...current,
+        [field]: currentValue,
+      }));
+      setTextSaveStatus((current) => ({ ...current, [field]: "error" }));
+      snackbar.error(`Failed to save task ${field}`);
+    } finally {
+      textSaveInFlightRef.current.delete(field);
+    }
+  };
+
+  const getTextSaveHelper = (field: TaskTextField) => {
+    switch (textSaveStatus[field]) {
+      case "saving":
+        return "Saving…";
+      case "saved":
+        return "Saved";
+      case "error":
+        return "Not saved";
+      default:
+        return "Saves when you leave the field";
+    }
+  };
 
   // Handle review spec navigation
   const handleReviewSpec = useCallback(async () => {
@@ -946,14 +1154,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task?.id, task?.name, task?.project_id, onOpenReview, account]);
 
-  // Auto-open spec review when task is in spec_review or spec_revision status
-  // and design docs are available - triggers once per SPA session per task ID.
-  // handleReviewSpec itself writes to sessionStorage before the async call, so returning
-  // to chat (which remounts this component) never re-triggers the auto-open.
+  // Auto-open spec review when enabled and the task is ready for review.
+  // The Chat task route disables this so selecting a task preserves the Chat context.
+  // handleReviewSpec writes to sessionStorage before the async call, limiting auto-open
+  // to once per SPA session per task ID in views where it remains enabled.
   // The spec_approved_at guard prevents bouncing the user back to the review page in the
   // brief window between approval and the cached task.status transitioning away from spec_review.
   useEffect(() => {
     if (
+      autoOpenReview &&
       task?.id &&
       !getAutoOpenedSpecTasks().has(task.id) &&
       !task?.spec_approved_at &&
@@ -964,7 +1173,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     ) {
       handleReviewSpec();
     }
-  }, [task?.id, task?.status, task?.spec_approved_at, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
+  }, [autoOpenReview, task?.id, task?.status, task?.spec_approved_at, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
 
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {
@@ -1080,9 +1289,75 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     onTaskArchived,
   ]);
 
+  const renderTaskActions = (
+    variant: "inline" | "stacked",
+    density: ToolbarDensity = "comfortable",
+  ) => {
+    if (!task) return null;
+
+    return (
+      <SpecTaskActionButtons
+        density={density}
+        task={{
+          id: task.id || "",
+          status: task.status || "",
+          design_docs_pushed_at: task.design_docs_pushed_at,
+          repo_pull_requests: task.repo_pull_requests,
+          base_branch: task.base_branch,
+          branch_name: task.branch_name,
+          archived: task.archived,
+          just_do_it_mode: justDoItMode,
+          agent_session_id: task.agent_session_id,
+          metadata: task.metadata as { error?: string },
+          last_push_at: task.last_push_at,
+        }}
+        variant={variant}
+        onStartPlanning={handleStartPlanning}
+        onReviewSpec={handleReviewSpec}
+        onReject={(shiftKey) => {
+          if (shiftKey) {
+            performArchive();
+          } else {
+            setArchiveConfirmOpen(true);
+          }
+        }}
+        hasExternalRepo={projectRepositories.some(
+          (repository) =>
+            repository.is_external ||
+            repository.external_type ||
+            repository.external_url,
+        )}
+        externalRepoType={projectRepositories.find(
+          (repository) => repository.external_type,
+        )?.external_type}
+        isStartingPlanning={isStartingPlanning}
+        isArchiving={isArchiving}
+      />
+    );
+  };
+
   // Render the details content (used in both desktop left panel and mobile/no-session view)
   const renderDetailsContent = () => (
-    <>
+    <Box sx={{ containerType: "inline-size", maxWidth: 1180, mx: "auto" }}>
+      {/* Queued task block reason — explains why a queued task hasn't started yet
+          (WIP capacity / dependency). Recomputed server-side each read, so it
+          clears automatically as the queue drains. */}
+      {(task?.status === "queued_spec_generation" ||
+        task?.status === "queued_implementation") &&
+        task?.queue_reason && (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              Waiting to start
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ display: "block", color: "text.secondary" }}
+            >
+              {task.queue_reason}
+            </Typography>
+          </Alert>
+        )}
+
       {/* Completed task message */}
       {isTaskCompleted && (
         <Alert severity="success" sx={{ mb: 3 }}>
@@ -1113,114 +1388,303 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Alert>
       )}
 
-      {/* Description */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-          Description
-        </Typography>
-        {isEditMode ? (
-          <TextField
-            fullWidth
-            multiline
-            minRows={4}
-            maxRows={20}
-            value={editFormData.description}
-            onChange={(e) =>
-              setEditFormData((prev) => ({
-                ...prev,
-                description: e.target.value,
-              }))
-            }
-            autoFocus
-            placeholder="Task description"
-          />
-        ) : (
-          <Box
-            onClick={isPromptEditable ? handleEditToggle : undefined}
-            sx={{
-              cursor: isPromptEditable ? "pointer" : "default",
-              borderRadius: 1,
-              mx: -1,
-              px: 1,
-              py: 0.5,
-              transition: "background-color 0.15s ease",
-              "&:hover": isPromptEditable
-                ? {
-                    backgroundColor: "action.hover",
-                  }
-                : {},
-            }}
-          >
-            <Typography
-              variant="body1"
-              sx={{
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                overflow: "visible",
-              }}
-            >
-              {task?.description ||
-                task?.original_prompt ||
-                "No description provided"}
+      {!activeSessionId && task?.status === "backlog" && (
+        <Box
+          sx={{
+            ...taskDetailsSectionSx,
+            mb: 2,
+            p: { xs: 2, sm: 2.5 },
+            display: "flex",
+            flexDirection: { xs: "column", sm: "row" },
+            alignItems: { xs: "stretch", sm: "center" },
+            justifyContent: "space-between",
+            gap: 2,
+            borderColor: "warning.main",
+            backgroundColor: "action.hover",
+          }}
+        >
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              {justDoItMode ? "Ready for implementation" : "Ready for planning"}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {justDoItMode
+                ? "Launch the selected agent to begin implementing this task."
+                : "Start a planning session to turn this task into an implementation-ready spec."}
             </Typography>
           </Box>
-        )}
-      </Box>
-
-      {task?.id && (
-        <TaskAttachmentsPanel
-          taskId={task.id}
-          status={task.status as TypesSpecTaskStatus}
-        />
+          <Box
+            sx={{
+              width: { xs: "100%", sm: 240 },
+              flexShrink: 0,
+              "& .MuiButton-root": {
+                minHeight: 40,
+                fontWeight: 600,
+                textTransform: "none",
+              },
+            }}
+          >
+            {renderTaskActions("stacked")}
+          </Box>
+        </Box>
       )}
 
-      <Divider sx={{ my: 2 }} />
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr)",
+          gap: 2,
+          alignItems: "start",
+          "@container (min-width: 520px)": {
+            gridTemplateColumns: "minmax(0, 1.45fr) minmax(210px, 0.9fr)",
+          },
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            minWidth: 0,
+            "& > .MuiBox-root": { mb: 0 },
+          }}
+        >
+          {/* Task name and description */}
+          <Box sx={taskDetailsSectionSx}>
+            <Box
+              sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}
+            >
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Task name
+              </Typography>
+              {editingTextField !== "name" &&
+                textSaveStatus.name !== "idle" && (
+                  <Typography
+                    variant="caption"
+                    color={
+                      textSaveStatus.name === "error"
+                        ? "error.main"
+                        : "text.secondary"
+                    }
+                  >
+                    {getTextSaveHelper("name")}
+                  </Typography>
+                )}
+            </Box>
+            {editingTextField === "name" ? (
+              <ClickAwayListener
+                onClickAway={() => void handleTextFieldBlur("name")}
+              >
+                <Box>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={editFormData.name}
+                    onChange={(e) => {
+                      setEditFormData((current) => ({
+                        ...current,
+                        name: e.target.value,
+                      }));
+                      setTextSaveStatus((current) => ({
+                        ...current,
+                        name: "idle",
+                      }));
+                    }}
+                    onBlur={() => void handleTextFieldBlur("name")}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.querySelector("input")?.blur();
+                      } else if (event.key === "Escape") {
+                        handleTextFieldCancel("name");
+                      }
+                    }}
+                    error={textSaveStatus.name === "error"}
+                    helperText={getTextSaveHelper("name")}
+                    autoFocus
+                    placeholder="Task name"
+                    sx={taskDetailsTextFieldSx}
+                  />
+                </Box>
+              </ClickAwayListener>
+            ) : (
+              <Box
+                role={isTaskDetailsEditable ? "button" : undefined}
+                tabIndex={isTaskDetailsEditable ? 0 : undefined}
+                onClick={() => handleTextFieldEdit("name")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleTextFieldEdit("name");
+                  }
+                }}
+                sx={{
+                  cursor: isTaskDetailsEditable ? "text" : "default",
+                  borderRadius: 1,
+                  mx: -1,
+                  px: 1,
+                  py: 0.5,
+                  "&:hover": isTaskDetailsEditable
+                    ? { backgroundColor: "action.hover" }
+                    : {},
+                }}
+              >
+                <Typography variant="body2" sx={taskDetailsTextSx}>
+                  {textSaveStatus.name === "saving" ||
+                  textSaveStatus.name === "saved"
+                    ? editFormData.name.trim()
+                    : task?.user_short_title || task?.name || "Untitled task"}
+                </Typography>
+              </Box>
+            )}
+
+            <Divider sx={{ my: 2 }} />
+
+            <Box
+              sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}
+            >
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Description
+              </Typography>
+              {editingTextField !== "description" &&
+                textSaveStatus.description !== "idle" && (
+                  <Typography
+                    variant="caption"
+                    color={
+                      textSaveStatus.description === "error"
+                        ? "error.main"
+                        : "text.secondary"
+                    }
+                  >
+                    {getTextSaveHelper("description")}
+                  </Typography>
+                )}
+            </Box>
+            {editingTextField === "description" ? (
+              <ClickAwayListener
+                onClickAway={() => void handleTextFieldBlur("description")}
+              >
+                <Box>
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={4}
+                    maxRows={20}
+                    value={editFormData.description}
+                    onChange={(e) => {
+                      setEditFormData((prev) => ({
+                        ...prev,
+                        description: e.target.value,
+                      }));
+                      setTextSaveStatus((current) => ({
+                        ...current,
+                        description: "idle",
+                      }));
+                    }}
+                    onBlur={() => void handleTextFieldBlur("description")}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        handleTextFieldCancel("description");
+                      }
+                    }}
+                    error={textSaveStatus.description === "error"}
+                    helperText={getTextSaveHelper("description")}
+                    placeholder="Task description"
+                    sx={taskDetailsTextFieldSx}
+                  />
+                </Box>
+              </ClickAwayListener>
+            ) : (
+              <Box
+                role={isTaskDetailsEditable ? "button" : undefined}
+                tabIndex={isTaskDetailsEditable ? 0 : undefined}
+                onClick={() => handleTextFieldEdit("description")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleTextFieldEdit("description");
+                  }
+                }}
+                sx={{
+                  cursor: isTaskDetailsEditable ? "text" : "default",
+                  borderRadius: 1,
+                  mx: -1,
+                  px: 1,
+                  py: 0.5,
+                  transition: "background-color 0.15s ease",
+                  "&:hover": isTaskDetailsEditable
+                    ? {
+                        backgroundColor: "action.hover",
+                      }
+                    : {},
+                }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{
+                    ...taskDetailsTextSx,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    overflow: "visible",
+                  }}
+                >
+                  {textSaveStatus.description === "saving" ||
+                  textSaveStatus.description === "saved"
+                    ? editFormData.description
+                    : task?.description ||
+                      task?.original_prompt ||
+                      "No description provided"}
+                </Typography>
+              </Box>
+            )}
+          </Box>
+
+          {task?.id && (
+            <TaskAttachmentsPanel
+              taskId={task.id}
+              status={task.status as TypesSpecTaskStatus}
+            />
+          )}
+
+          {/* Share preview URLs — only meaningful once a session exists */}
+          {activeSessionId && (
+            <Box
+              sx={{
+                ...taskDetailsSectionSx,
+                "& > .MuiBox-root": { mb: 0 },
+              }}
+            >
+              <SharePreviewSection sessionId={activeSessionId} />
+            </Box>
+          )}
+        </Box>
+
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            minWidth: 0,
+          }}
+        >
+          <Box sx={{ ...taskDetailsSectionSx, p: 1.5 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5 }}>
+              Task setup
+            </Typography>
 
       {/* Priority */}
-      <Box sx={{ mb: 4 }}>
-        {isEditMode ? (
-          <FormControl fullWidth size="small">
-            <InputLabel>Priority</InputLabel>
-            <Select
-              value={editFormData.priority}
-              onChange={(e) =>
-                setEditFormData((prev) => ({
-                  ...prev,
-                  priority: e.target.value,
-                }))
-              }
-              label="Priority"
-            >
-              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityCritical}>
-                Critical
-              </MenuItem>
-              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityHigh}>
-                High
-              </MenuItem>
-              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityMedium}>
-                Medium
-              </MenuItem>
-              <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityLow}>
-                Low
-              </MenuItem>
-            </Select>
-          </FormControl>
-        ) : (
-          <>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-              Priority
-            </Typography>
-            <Chip
-              label={task?.priority || "Medium"}
-              color={getPriorityColor(task?.priority)}
-              size="small"
-            />
-          </>
-        )}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Priority
+        </Typography>
+        <Chip
+          label={task?.priority || "Medium"}
+          color={getPriorityColor(task?.priority)}
+          size="small"
+        />
       </Box>
 
       {/* Labels */}
-      <Box sx={{ mb: 4 }}>
+      <Box sx={{ mb: 2 }}>
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
           Labels
         </Typography>
@@ -1297,123 +1761,105 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         />
       </Box>
 
-      <Box sx={{ mb: 4 }}>
-        {isEditMode ? (
-          <Autocomplete
-            multiple
-            options={dependencyTaskOptions}
-            value={selectedDependencyTasks}
-            onChange={(_, selectedTasks) =>
-              setEditFormData((prev) => ({
-                ...prev,
-                dependsOnTaskIds: selectedTasks
-                  .map((selectedTask) => selectedTask.id || "")
-                  .filter((dependencyTaskId) => !!dependencyTaskId),
-              }))
-            }
-            isOptionEqualToValue={(option, value) => option.id === value.id}
-            getOptionLabel={(dependencyTask) =>
-              dependencyTask.name ||
-              dependencyTask.short_title ||
-              dependencyTask.description ||
-              dependencyTask.original_prompt ||
-              dependencyTask.id ||
-              "Untitled task"
-            }
-            filterSelectedOptions
-            clearOnBlur={false}
-            renderInput={(params) => (
-              <TextField
-                {...params}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Depends on
+        </Typography>
+        {currentTaskDependencies.length > 0 ? (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+            {currentTaskDependencies.map((dependencyTask) => (
+              <Chip
+                key={dependencyTask.id}
                 size="small"
-                label="Depends on"
-                placeholder="Search and select tasks"
+                clickable={!!dependencyTask.id && !!task?.project_id}
+                onClick={() => {
+                  if (!dependencyTask.id || !task?.project_id) {
+                    return;
+                  }
+                  account.orgNavigate("project-task-detail", {
+                    id: task.project_id,
+                    taskId: dependencyTask.id,
+                  });
+                }}
+                label={
+                  dependencyTask.name ||
+                  dependencyTask.short_title ||
+                  `Task #${dependencyTask.task_number || "?"}`
+                }
               />
-            )}
-            renderOption={(props, option) => (
-              <li {...props} key={option.id}>
-                <Box
-                  sx={{ display: "flex", flexDirection: "column", py: 0.25 }}
-                >
-                  <Typography variant="body2">
-                    {option.name ||
-                      option.short_title ||
-                      `Task #${option.task_number || "?"}`}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {`#${option.task_number || "?"} • ${option.status || "unknown"}`}
-                  </Typography>
-                </Box>
-              </li>
-            )}
-          />
+            ))}
+          </Box>
         ) : (
-          <>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-              Depends on
-            </Typography>
-            {currentTaskDependencies.length > 0 ? (
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-                {currentTaskDependencies.map((dependencyTask) => (
-                  <Chip
-                    key={dependencyTask.id}
-                    size="small"
-                    clickable={!!dependencyTask.id && !!task?.project_id}
-                    onClick={() => {
-                      if (!dependencyTask.id || !task?.project_id) {
-                        return;
-                      }
-                      account.orgNavigate("project-task-detail", {
-                        id: task.project_id,
-                        taskId: dependencyTask.id,
-                      });
-                    }}
-                    label={
-                      dependencyTask.name ||
-                      dependencyTask.short_title ||
-                      `Task #${dependencyTask.task_number || "?"}`
-                    }
-                  />
-                ))}
-              </Box>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                No task dependencies
-              </Typography>
-            )}
-          </>
+          <Typography variant="body2" color="text.secondary">
+            No task dependencies
+          </Typography>
         )}
       </Box>
 
-      {isEditMode && (
-        <Box sx={{ mb: 4 }}>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={justDoItMode}
-                onChange={(e) => setJustDoItMode(e.target.checked)}
-                size="small"
-              />
-            }
-            label="Skip planning (go straight to implementation)"
+      {/* Assignee */}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Assignee
+        </Typography>
+        <Button
+          variant="outlined"
+          fullWidth
+          disabled={updateSpecTask.isPending || !isTaskDetailsEditable}
+          onClick={(event) => setAssigneeAnchorEl(event.currentTarget)}
+          sx={{
+            justifyContent: "flex-start",
+            textTransform: "none",
+            color: "text.primary",
+            minHeight: 40,
+            px: 1.25,
+            gap: 1,
+          }}
+        >
+          <OrganizationUserAvatar
+            userId={task?.assignee_id}
+            members={orgMembers}
+            currentUser={account.user}
+            size={24}
+            fontSize="0.7rem"
+            iconSize={20}
           />
-        </Box>
-      )}
+          <Typography variant="body2" noWrap>
+            {assignedUser?.full_name ||
+              assignedUser?.username ||
+              assignedUser?.email ||
+              "Unassigned"}
+          </Typography>
+        </Button>
+        <AssigneeSelector
+          assigneeId={task?.assignee_id}
+          members={orgMembers}
+          currentUser={account.user}
+          onAssigneeChange={handleAssigneeChange}
+          isLoading={updateSpecTask.isPending}
+          anchorEl={assigneeAnchorEl}
+          onClose={() => setAssigneeAnchorEl(null)}
+        />
+      </Box>
 
       {/* Agent Selection */}
       <Box sx={{ mb: 2 }}>
-        <AgentDropdown
-          value={selectedAgent}
-          onChange={handleAgentChange}
-          agents={sortedApps}
-          label="Agent"
-          disabled={updatingAgent}
-          size="small"
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Execution
+        </Typography>
+        <SpecTaskExecutionControls
+          agents={eligibleApps}
+          selectedAgentId={task?.helix_app_id || ""}
+          codeAgentOverrides={task?.code_agent_overrides}
+          currentExecutionConfig={currentExecutionConfig}
+          sandboxResourceOverrides={task?.sandbox_resource_overrides}
+          onAgentModelChange={handleAgentModelChange}
+          onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+          disabled={updateExecutionConfig.isPending || !!task?.archived}
         />
       </Box>
 
       {/* Timestamps */}
-      <Box sx={{ mt: 3 }}>
+      <Box sx={{ mt: 2 }}>
         {task?.created_by && (
           <Typography variant="caption" color="text.secondary" display="block">
             Author: {authorDisplay}
@@ -1537,17 +1983,38 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Box>
       )}
 
+          </Box>
+
       {/* Debug Info */}
-      <Divider sx={{ my: 2 }} />
-      <Box sx={{ mt: 2, p: 2, bgcolor: lightTheme.isLight ? "grey.100" : "grey.900", borderRadius: 1 }}>
-        <Typography
-          variant="caption"
-          color={lightTheme.isLight ? "grey.700" : "grey.400"}
-          display="block"
-          gutterBottom
+      <Box
+        component="details"
+        sx={{
+          ...taskDetailsSectionSx,
+          p: 0,
+          overflow: "hidden",
+          bgcolor: lightTheme.isLight ? "grey.50" : "grey.900",
+          "&[open] > summary": {
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          },
+        }}
+      >
+        <Box
+          component="summary"
+          sx={{
+            px: 1.5,
+            py: 1.25,
+            cursor: "pointer",
+            color: "text.secondary",
+            fontSize: "0.8125rem",
+            fontWeight: 600,
+            userSelect: "none",
+            "&:hover": { color: "text.primary" },
+          }}
         >
-          Debug Information
-        </Typography>
+          Debug information
+        </Box>
+        <Box sx={{ p: 1.5 }}>
         <Typography
           variant="caption"
           color={lightTheme.isLight ? "grey.800" : "grey.300"}
@@ -1636,66 +2103,43 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             Render: {sessionData.config.render_node}
           </Typography>
         )}
+        </Box>
+      </Box>
 
-        {/* Public Design Docs Toggle */}
-        <Divider sx={{ my: 2 }} />
+        <Box sx={{ ...taskDetailsSectionSx, p: 1.5 }}>
+        {/* Share Design Docs */}
         <Box
           sx={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 1,
             mb: 0.5,
           }}
         >
           <Box>
             <Typography variant="subtitle2">Share Design Docs</Typography>
             <Typography variant="caption" color="text.secondary">
-              Anyone with the link can view
+              {isPublicDesignDocs
+                ? "Anyone with the link can view"
+                : "Only people with project access can view"}
             </Typography>
           </Box>
-          <Switch
-            checked={isPublicDesignDocs}
-            onChange={handlePublicToggle}
-            disabled={updatingPublic}
+          <Button
             size="small"
-          />
-        </Box>
-        {isPublicDesignDocs && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              mb: 1,
-              p: 1,
-              bgcolor: "action.hover",
-              borderRadius: 1,
-            }}
+            variant="outlined"
+            startIcon={<Share size={14} />}
+            onClick={() => setShareDialogOpen(true)}
+            sx={{ ...taskActionButtonSx, ml: "auto" }}
           >
-            <Typography
-              variant="caption"
-              sx={{
-                flex: 1,
-                fontFamily: "monospace",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                color: "text.secondary",
-              }}
-            >
-              {publicLink}
-            </Typography>
-            <Tooltip title="Copy link">
-              <IconButton size="small" onClick={copyPublicLink}>
-                <Copy size={14} />
-              </IconButton>
-            </Tooltip>
-          </Box>
-        )}
+            Share
+          </Button>
+        </Box>
 
         {/* Move to Backlog button */}
         {canMoveToBacklog && (
-          <Box sx={{ mt: 2 }}>
+          <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
             <Button
               size="small"
               variant="outlined"
@@ -1709,7 +2153,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               }
               onClick={() => moveToBacklogMutation.mutate()}
               disabled={moveToBacklogMutation.isPending}
-              sx={{ fontSize: "0.75rem" }}
+              sx={taskActionButtonSx}
             >
               {moveToBacklogMutation.isPending
                 ? "Moving..."
@@ -1719,7 +2163,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         )}
 
         {/* Archive button */}
-        <Box sx={{ mt: 2 }}>
+        <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
           <Tooltip title="Hold Shift to skip confirmation">
             <Button
               size="small"
@@ -1734,15 +2178,78 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               }
               onClick={handleArchiveClick}
               disabled={isArchiving || task?.archived}
-              sx={{ fontSize: "0.75rem" }}
+              sx={taskActionButtonSx}
             >
               {isArchiving ? "Archiving..." : "Archive Task"}
             </Button>
           </Tooltip>
         </Box>
       </Box>
-    </>
+        </Box>
+      </Box>
+    </Box>
   );
+
+  const taskChatMetadata = task?.project_id ? (
+    <TaskChatMetadata
+      projectName={project?.name}
+      onOpenProject={() => account.orgNavigate("project-specs", { id: task.project_id })}
+      primaryRepository={primaryRepository}
+      branchName={task.branch_name}
+      pullRequests={task.repo_pull_requests}
+    />
+  ) : undefined;
+
+  // Task-level actions that live in the toolbar's overflow menu alongside the
+  // desktop controls that fold into it on narrow layouts.
+  const renderTaskMenuItems = (closeMenu: () => void) => {
+    const items: React.ReactNode[] = [];
+    if (task?.design_docs_pushed_at) {
+      items.push(
+        <MenuItem
+          key="share-design-docs"
+          onClick={() => {
+            closeMenu();
+            setShareDialogOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <Share size={18} />
+          </ListItemIcon>
+          <ListItemText>Share Design Docs</ListItemText>
+        </MenuItem>,
+        <MenuItem
+          key="clone-task"
+          onClick={() => {
+            closeMenu();
+            setShowCloneDialog(true);
+          }}
+        >
+          <ListItemIcon>
+            <Wand2 size={18} />
+          </ListItemIcon>
+          <ListItemText>Clone Task</ListItemText>
+        </MenuItem>,
+      );
+    }
+    if (task?.clone_group_id) {
+      items.push(
+        <MenuItem
+          key="clone-group"
+          onClick={() => {
+            closeMenu();
+            setSelectedCloneGroupId(task.clone_group_id || null);
+          }}
+        >
+          <ListItemIcon>
+            <AccountTree sx={{ fontSize: 18 }} />
+          </ListItemIcon>
+          <ListItemText>View Batch Clone Progress</ListItemText>
+        </MenuItem>,
+      );
+    }
+    return items.length > 0 ? items : null;
+  };
 
   if (!task) {
     return (
@@ -1803,17 +2310,40 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
+          px: padContent ? { xs: 0, sm: 3 } : 0,
         }}
       >
         {/* Desktop layout: left panel (chat always visible) + right panel (content toggleable) */}
         {/* When chatCollapsed is true, use mobile-style tab layout even on desktop */}
-        {activeSessionId && isBigScreen && !chatCollapsed ? (
+        {launchPhase ? (
+          <SpecTaskLaunchWindow
+            phase={launchPhase}
+            mode={task.just_do_it_mode ? "implementation" : "planning"}
+            queueReason={task.queue_reason}
+            onMoveToBacklog={
+              launchPhase === "queued"
+                ? () => moveToBacklogMutation.mutate()
+                : undefined
+            }
+            isMovingToBacklog={moveToBacklogMutation.isPending}
+          />
+        ) : activeSessionId && isBigScreen && !chatCollapsed ? (
           <PanelGroup
+            key="spec-task-chat-layout"
             orientation="horizontal"
+            defaultLayout={savedSpecTaskChatLayout ?? { "spec-task-chat": 50, "spec-task-content": 50 }}
+            onLayoutChange={(layout) => {
+              // A collapsed panel is transient UI state; retain the last useful
+              // split so restoring or reloading does not produce a zero-width pane.
+              if (layout["spec-task-chat"] > 0 && layout["spec-task-content"] > 0) {
+                lastExpandedContentSizeRef.current = layout["spec-task-content"];
+                savePanelLayout(SPEC_TASK_CHAT_LAYOUT_KEY, layout, SPEC_TASK_CHAT_PANEL_IDS);
+              }
+            }}
             style={{ height: "100%", flex: 1 }}
           >
             {/* Left: Chat panel - always visible on desktop */}
-            <Panel defaultSize={30} minSize={15} style={{ overflow: "hidden" }}>
+            <Panel id="spec-task-chat" defaultSize="50%" minSize="15%" style={{ overflow: "hidden" }}>
               <Box
                 sx={{
                   height: "100%",
@@ -1837,10 +2367,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   }}
                 >
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
-                    {/* Chat / Spec tab strip */}
-                    {task?.design_docs_pushed_at ? (
+                    {/* Spec is the only alternate view; the surrounding panel is already chat. */}
+                    {task?.design_docs_pushed_at && (
                       <ToggleButtonGroup
-                        value="chat"
+                        value={null}
                         exclusive
                         onChange={(_, val) => {
                           if (val === "spec") handleReviewSpec();
@@ -1864,39 +2394,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           },
                         }}
                       >
-                        <ToggleButton value="chat" disableRipple={false}>
-                          Chat
-                        </ToggleButton>
                         <ToggleButton value="spec" disableRipple={false}>
-                          <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                          <FileText size={14} style={{ marginRight: 4 }} />
                           Spec
-                        </ToggleButton>
-                      </ToggleButtonGroup>
-                    ) : (
-                      <ToggleButtonGroup
-                        value="chat"
-                        exclusive
-                        size="small"
-                        sx={{
-                          flexShrink: 0,
-                          "& .MuiToggleButton-root": {
-                            px: 1.25,
-                            py: 0.25,
-                            fontSize: "0.8rem",
-                            fontWeight: 500,
-                            textTransform: "none",
-                            border: "1px solid",
-                            borderColor: "divider",
-                            color: "text.secondary",
-                            "&.Mui-selected": {
-                              color: "text.primary",
-                              backgroundColor: "action.selected",
-                            },
-                          },
-                        }}
-                      >
-                        <ToggleButton value="chat" disableRipple disabled sx={{ '&.Mui-disabled': { color: 'text.primary', borderColor: 'divider' } }}>
-                          Chat
                         </ToggleButton>
                       </ToggleButtonGroup>
                     )}
@@ -1948,57 +2448,74 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       );
                     })()}
                   </Box>
-                  <Tooltip title="Collapse chat panel">
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        setChatCollapsed(true);
-                        // Switch to desktop view when collapsing chat
-                        if (currentView === "chat") {
-                          handleViewChange("desktop");
-                        }
-                      }}
-                      sx={{ p: 0.25, flexShrink: 0 }}
-                    >
-                      <ChevronLeftIcon sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </Tooltip>
+                  {contentCollapsed ? (
+                    <Tooltip title="Show task panel">
+                      <IconButton
+                        size="small"
+                        aria-label="Show task panel"
+                        onClick={showContentPanel}
+                        sx={taskToolbarIconButtonSx}
+                      >
+                        <PanelRight size={18} />
+                      </IconButton>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip title="Collapse chat panel">
+                      <IconButton
+                        size="small"
+                        aria-label="Collapse chat panel"
+                        onClick={() => {
+                          setChatCollapsed(true);
+                          // Switch to desktop view when collapsing chat
+                          if (currentView === "chat") {
+                            handleViewChange("desktop");
+                          }
+                        }}
+                        sx={taskToolbarIconButtonSx}
+                      >
+                        <PanelLeft size={18} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </Box>
-                <EmbeddedSessionView
-                  ref={sessionViewRef}
+                <AgentChat
                   sessionId={activeSessionId}
+                  specTaskId={task.id}
+                  projectId={task.project_id}
+                  enableInteractionDebugCopy
+                  onWillSend={handleWillSend}
+                  leadingActions={(
+                    <SpecTaskExecutionControls
+                      agents={eligibleApps}
+                      selectedAgentId={task.helix_app_id || ""}
+                      codeAgentOverrides={task.code_agent_overrides}
+                      currentExecutionConfig={currentExecutionConfig}
+                      sandboxResourceOverrides={task.sandbox_resource_overrides}
+                      onAgentModelChange={handleAgentModelChange}
+                      onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+                      disabled={updateExecutionConfig.isPending}
+                      compact
+                    />
+                  )}
+                  footerContent={taskChatMetadata}
+                  placeholder={
+                    sessionData?.config?.paused
+                      ? "This session is paused — open the forked child to keep chatting"
+                      : "Send message to agent..."
+                  }
+                  disabled={!!sessionData?.config?.paused}
                 />
-                <Box sx={{ p: 1.5, flexShrink: 0 }}>
-                  <RobustPromptInput
-                    sessionId={activeSessionId}
-                    specTaskId={task.id}
-                    projectId={task.project_id}
-                    apiClient={api.getApiClient()}
-                    onSend={async (message: string, interrupt?: boolean) => {
-                      await streaming.NewInference({
-                        type: SESSION_TYPE_TEXT,
-                        message,
-                        sessionId: activeSessionId,
-                        interrupt: interrupt ?? true,
-                      });
-                    }}
-                    onWillSend={handleWillSend}
-                    onHeightChange={() =>
-                      sessionViewRef.current?.scrollToBottom()
-                    }
-                    placeholder="Send message to agent..."
-                  />
-                </Box>
               </Box>
             </Panel>
 
             {/* Resize handle */}
             <PanelResizeHandle
               style={{
-                width: 6,
+                width: contentCollapsed ? 0 : 6,
                 background: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.08)',
-                cursor: "col-resize",
+                cursor: contentCollapsed ? "default" : "col-resize",
                 transition: "background 0.15s",
+                overflow: "hidden",
               }}
             >
               <div
@@ -2013,7 +2530,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             </PanelResizeHandle>
 
             {/* Right: Content panel - switches between desktop/changes/details */}
-            <Panel defaultSize={70} minSize={25} style={{ overflow: "hidden" }}>
+            <Panel
+              id="spec-task-content"
+              defaultSize="50%"
+              minSize="25%"
+              collapsible={allowContentCollapse}
+              collapsedSize={0}
+              panelRef={contentPanelRef}
+              onResize={(size) => setContentCollapsed(size.asPercentage === 0)}
+              style={{ overflow: "hidden" }}
+            >
               <Box
                 sx={{
                   height: "100%",
@@ -2023,283 +2549,37 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 }}
               >
                 {/* View toggle header - above content area only */}
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    px: 1.5,
-                    py: 0.75,
-                    minHeight: 40,
-                    borderBottom: "1px solid",
-                    borderColor: "divider",
-                    backgroundColor: "background.paper",
-                    gap: 1,
-                  }}
-                >
-                  {/* Left: View toggle icons */}
-                  <ToggleButtonGroup
-                    value={currentView}
-                    exclusive
-                    onChange={(_, newView) => handleViewChange(newView)}
-                    size="small"
-                    sx={{
-                      "& .MuiToggleButton-root": {
-                        py: 0.4,
-                        px: 0.8,
-                        minWidth: 62,
-                        border: "none",
-                        borderRadius: "4px !important",
-                        textTransform: "none",
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        gap: 0.2,
-                        "&.Mui-selected": {
-                          backgroundColor: "action.selected",
-                        },
-                      },
-                    }}
-                  >
-                    <ToggleButton value="desktop" aria-label="Desktop view">
-                      <MonitorPlay size={18} />
-                      <Typography
-                        sx={{
-                          fontSize: "0.65rem",
-                          lineHeight: 1,
-                          fontWeight: 400,
-                          textTransform: "none",
-                        }}
-                      >
-                        Desktop
-                      </Typography>
-                    </ToggleButton>
-                    <ToggleButton value="changes" aria-label="Changes view">
-                      <GitCompare size={18} />
-                      <Typography
-                        sx={{
-                          fontSize: "0.65rem",
-                          lineHeight: 1,
-                          fontWeight: 400,
-                          textTransform: "none",
-                        }}
-                      >
-                        File Diff
-                      </Typography>
-                    </ToggleButton>
-                    <ToggleButton value="details" aria-label="Details view">
-                      <SlidersHorizontal size={18} />
-                      <Typography
-                        sx={{
-                          fontSize: "0.65rem",
-                          lineHeight: 1,
-                          fontWeight: 400,
-                          textTransform: "none",
-                        }}
-                      >
-                        Details
-                      </Typography>
-                    </ToggleButton>
-                  </ToggleButtonGroup>
-
-                  {/* Status-specific action buttons */}
-                  <SpecTaskActionButtons
-                    task={{
-                      id: task.id || "",
-                      status: task.status || "",
-                      design_docs_pushed_at: task.design_docs_pushed_at,
-                      repo_pull_requests: task.repo_pull_requests,
-                      base_branch: task.base_branch,
-                      branch_name: task.branch_name,
-                      archived: task.archived,
-                      just_do_it_mode: justDoItMode,
-                      agent_session_id: task.agent_session_id,
-                      metadata: task.metadata as { error?: string },
-                      last_push_at: task.last_push_at,
-                    }}
-                    variant="inline"
-                    onStartPlanning={handleStartPlanning}
-                    onReviewSpec={handleReviewSpec}
-                    onReject={(shiftKey) => {
-                      if (shiftKey) {
-                        performArchive();
-                      } else {
-                        setArchiveConfirmOpen(true);
-                      }
-                    }}
-                    hasExternalRepo={projectRepositories.some(
-                      (r) => r.is_external || r.external_type || r.external_url,
-                    )}
-                    externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
-                    isStartingPlanning={isStartingPlanning}
-                    isArchiving={isArchiving}
-                  />
-
-                  {/* Spacer */}
-                  <Box sx={{ flex: 1 }} />
-
-                  {/* Right: Action buttons */}
-                  <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                    {isEditMode ? (
-                      <>
-                        <Button
-                          size="small"
-                          startIcon={<CancelIcon />}
-                          onClick={handleCancelEdit}
-                          sx={{ fontSize: "0.75rem" }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="small"
-                          color="secondary"
-                          startIcon={<SaveIcon />}
-                          onClick={handleSaveEdit}
-                          disabled={updateSpecTask.isPending}
-                          sx={{ fontSize: "0.75rem" }}
-                        >
-                          Save
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        {task.status ===
-                          TypesSpecTaskStatus.TaskStatusBacklog && (
-                          <Tooltip title="Edit task">
-                            <IconButton size="small" onClick={handleEditToggle}>
-                              <EditIcon sx={{ fontSize: 18 }} />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {task.design_docs_pushed_at && (
-                          <Tooltip title="Clone task to other projects">
-                            <IconButton
-                              size="small"
-                              onClick={() => setShowCloneDialog(true)}
-                            >
-                              <Wand2 size={16} />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {task.clone_group_id && (
-                          <Tooltip title="View batch clone progress">
-                            <IconButton
-                              size="small"
-                              onClick={() =>
-                                setSelectedCloneGroupId(
-                                  task.clone_group_id || null,
-                                )
-                              }
-                              sx={{ color: "primary.main" }}
-                            >
-                              <AccountTree sx={{ fontSize: 16 }} />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {/* Show Start button when desktop is paused */}
-                        {effectiveIsDesktopPaused && (
-                          <Tooltip title="Start desktop">
-                            <IconButton
-                              size="small"
-                              onClick={handleStartSession}
-                              disabled={isStarting || isDesktopStarting}
-                              color="success"
-                            >
-                              {isStarting || isDesktopStarting ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                <PlayArrow sx={{ fontSize: 18 }} />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {/* Show Stop button when desktop is running */}
-                        {isDesktopRunning && (
-                          <Tooltip title="Stop desktop">
-                            <IconButton
-                              size="small"
-                              onClick={() => setStopConfirmOpen(true)}
-                              disabled={isStopping}
-                              color="error"
-                            >
-                              {isStopping ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                <StopIcon sx={{ fontSize: 18 }} />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {/* Show Restart button only when desktop is running */}
-                        {isDesktopRunning && (
-                          <Tooltip title="Restart agent session">
-                            <IconButton
-                              size="small"
-                              onClick={() => setRestartConfirmOpen(true)}
-                              disabled={isRestarting}
-                              color="warning"
-                            >
-                              {isRestarting ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                <RestartAltIcon sx={{ fontSize: 18 }} />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {/* Show Keep Alive toggle when desktop is running */}
-                        {isDesktopRunning && (
-                          <Tooltip
-                            title={
-                              task.keep_alive
-                                ? "Keep Alive ON — won't auto-sleep"
-                                : "Keep Alive OFF — will auto-sleep when idle"
-                            }
-                          >
-                            <IconButton
-                              size="small"
-                              onClick={handleToggleKeepAlive}
-                              disabled={updateSpecTask.isPending}
-                              sx={{
-                                color: task.keep_alive
-                                  ? "success.main"
-                                  : "text.secondary",
-                              }}
-                            >
-                              {task.keep_alive ? (
-                                <LockIcon sx={{ fontSize: 18 }} />
-                              ) : (
-                                <LockOpenIcon sx={{ fontSize: 18 }} />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {/* Show Upload button only when desktop is running */}
-                        {isDesktopRunning && (
-                          <Tooltip title="Upload files to sandbox">
-                            <IconButton
-                              size="small"
-                              onClick={handleUploadClick}
-                              disabled={isUploading}
-                              color="primary"
-                            >
-                              {isUploading ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                <CloudUploadIcon sx={{ fontSize: 18 }} />
-                              )}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </>
-                    )}
-                    {onClose && (
-                      <IconButton size="small" onClick={onClose}>
-                        <CloseIcon sx={{ fontSize: 18 }} />
-                      </IconButton>
-                    )}
-                  </Box>
-                </Box>
+                <SpecTaskViewToolbar
+                  currentView={currentView}
+                  onViewChange={handleViewChange}
+                  hasSession
+                  renderActions={(density) =>
+                    renderTaskActions("inline", density)
+                  }
+                  onToggleTerminal={toggleTerminalDrawer}
+                  terminalOpen={terminalDrawerState.open}
+                  showStart={effectiveIsDesktopPaused}
+                  onStart={handleStartSession}
+                  startBusy={isStarting || isDesktopStarting}
+                  showStop={isDesktopRunning}
+                  onStop={() => setStopConfirmOpen(true)}
+                  stopBusy={isStopping}
+                  showRestart={isDesktopRunning}
+                  onRestart={() => setRestartConfirmOpen(true)}
+                  restartBusy={isRestarting}
+                  showKeepAlive={isDesktopRunning}
+                  keepAlive={task.keep_alive}
+                  onToggleKeepAlive={handleToggleKeepAlive}
+                  keepAliveBusy={updateSpecTask.isPending}
+                  showUpload={isDesktopRunning}
+                  onUpload={handleUploadClick}
+                  uploadBusy={isUploading}
+                  renderMenuItems={renderTaskMenuItems}
+                  onCollapsePanel={
+                    allowContentCollapse ? collapseContentPanel : undefined
+                  }
+                  onClosePanel={allowContentCollapse ? undefined : onClose}
+                />
 
                 {/* Pending agent proposals (PR / sub-task / mark-complete) */}
                 {task.id && (
@@ -2312,68 +2592,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     is already visible in the left panel */}
                 {(currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (
-                    <Box
-                      sx={{
-                        flex: 1,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        p: 4,
-                      }}
-                    >
-                      <Alert severity="success" sx={{ maxWidth: 400 }}>
-                        <Typography
-                          variant="h6"
-                          sx={{ fontWeight: 500, mb: 1 }}
-                        >
-                          Task finished
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          This task has been merged to the default branch.
-                        </Typography>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={
-                            isStarting || isDesktopStarting ? (
-                              <CircularProgress size={16} />
-                            ) : (
-                              <PlayArrow />
-                            )
-                          }
-                          onClick={handleStartSession}
-                          disabled={isStarting || isDesktopStarting}
-                          sx={{ mt: 2 }}
-                        >
-                          {isStarting || isDesktopStarting
-                            ? "Starting..."
-                            : "Start Desktop"}
-                        </Button>
-                      </Alert>
-                    </Box>
+                    <TaskSessionPlaceholder
+                      tone="finished"
+                      title="Task finished"
+                      description="This task has been merged to the default branch. Its sandbox is stopped."
+                      onStart={handleStartSession}
+                      starting={isStarting || isDesktopStarting}
+                    />
                   ) : isTaskArchived ? (
-                    <Box
-                      sx={{
-                        flex: 1,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        p: 4,
-                      }}
-                    >
-                      <Alert severity="warning" sx={{ maxWidth: 400 }}>
-                        <Typography
-                          variant="h6"
-                          sx={{ fontWeight: 500, mb: 1 }}
-                        >
-                          Task rejected
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          This task has been archived. The agent session has
-                          ended.
-                        </Typography>
-                      </Alert>
-                    </Box>
+                    <TaskSessionPlaceholder
+                      tone="archived"
+                      title="Task rejected"
+                      description="This task has been archived. The agent session has ended."
+                    />
                   ) : (
                     <ExternalAgentDesktopViewer
                       sessionId={activeSessionId}
@@ -2383,19 +2614,64 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       displayWidth={displaySettings.width}
                       displayHeight={displaySettings.height}
                       displayFps={displaySettings.fps}
-                      startupErrorMessage={taskMetadataError}
+                      startupErrorMessage={desktopStartupMessage}
+                      connectSubscriptionLabel={connectSubscriptionLabel}
+                      onConnectSubscription={connectSubscription}
                       initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                     />
                   ))}
-                {currentView === "changes" && (
+                {currentView === "browser" &&
+                  (isTaskArchived ? (
+                    <TaskSessionPlaceholder
+                      tone="archived"
+                      title="Task rejected"
+                      description="This task has been archived. The agent session has ended."
+                    />
+                  ) : effectiveIsDesktopPaused ? (
+                    <TaskSessionPlaceholder
+                      tone={isTaskCompleted ? "finished" : "paused"}
+                      title={isTaskCompleted ? "Task finished" : "Desktop not running"}
+                      description={
+                        isTaskCompleted
+                          ? "This task has been merged to the default branch. Start the desktop to preview its web apps."
+                          : "Start the desktop to preview a localhost web app from this sandbox."
+                      }
+                      detail={desktopStartupMessage}
+                      onStart={handleStartSession}
+                      starting={isStarting || isDesktopStarting}
+                    />
+                  ) : (
+                    <SandboxBrowser sessionId={activeSessionId} />
+                  ))}
+                {(currentView === "changes" || currentView === "files") && (
                   <DiffViewer
                     sessionId={activeSessionId}
                     baseBranch={defaultBranchName}
                     pollInterval={3000}
+                    primarySurface={currentView === "files" ? "files" : "changes"}
+                    onPrimarySurfaceChange={handleViewChange}
+                    onStartDesktop={handleStartSession}
+                    connectSubscriptionLabel={connectSubscriptionLabel}
+                    onConnectSubscription={connectSubscription}
+                    desktopUnavailableDetail={desktopStartupMessage}
+                    desktopRunning={!effectiveIsDesktopPaused}
+                    isDesktopStarting={isStarting || isDesktopStarting}
+                    desktopUnavailableTitle={isTaskCompleted ? "Task finished" : undefined}
+                    desktopUnavailableDescription={
+                      isTaskCompleted
+                        ? "This task has been merged to the default branch. Start the desktop to review its workspace."
+                        : undefined
+                    }
                   />
                 )}
                 {currentView === "details" && (
-                  <Box sx={{ flex: 1, overflow: "auto", p: 3 }}>
+                  <Box
+                    sx={{
+                      flex: 1,
+                      overflow: "auto",
+                      p: { xs: 1.5, sm: 2 },
+                    }}
+                  >
                     {renderDetailsContent()}
                   </Box>
                 )}
@@ -2405,296 +2681,50 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         ) : (
           <>
             {/* Mobile layout OR no active session: single view at a time */}
-            {/* View toggle header for mobile/no-session */}
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                flexWrap: "wrap",
-                px: 1,
-                py: 0.5,
-                borderBottom: "1px solid",
-                borderColor: "divider",
-                backgroundColor: "background.paper",
-                gap: 0.5,
-                minHeight: "auto",
-              }}
-            >
-              {/* Left: View toggle icons */}
-              <ToggleButtonGroup
-                value={currentView}
-                exclusive
-                onChange={(_, newView) => handleViewChange(newView)}
-                size="small"
-                sx={{
-                  flexShrink: 0,
-                  "& .MuiToggleButton-root": {
-                    py: 0.35,
-                    px: 0.7,
-                    minWidth: 56,
-                    border: "none",
-                    borderRadius: "4px !important",
-                    textTransform: "none",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: 0.15,
-                    "&.Mui-selected": {
-                      backgroundColor: "action.selected",
-                    },
-                  },
-                }}
-              >
-                {/* Chat tab - only on mobile when there's an active session */}
-                {activeSessionId && (
-                  <ToggleButton value="chat" aria-label="Chat view">
-                    <ForumOutlinedIcon sx={{ fontSize: 18 }} />
-                    <Typography
-                      sx={{
-                        fontSize: "0.65rem",
-                        lineHeight: 1,
-                        fontWeight: 400,
-                        textTransform: "none",
-                      }}
-                    >
-                      Chat
-                    </Typography>
-                  </ToggleButton>
-                )}
-                {activeSessionId && (
-                  <ToggleButton value="desktop" aria-label="Desktop view">
-                    <MonitorPlay size={18} />
-                    <Typography
-                      sx={{
-                        fontSize: "0.65rem",
-                        lineHeight: 1,
-                        fontWeight: 400,
-                        textTransform: "none",
-                      }}
-                    >
-                      Desktop
-                    </Typography>
-                  </ToggleButton>
-                )}
-                {activeSessionId && (
-                  <ToggleButton value="changes" aria-label="Changes view">
-                    <GitCompare size={18} />
-                    <Typography
-                      sx={{
-                        fontSize: "0.65rem",
-                        lineHeight: 1,
-                        fontWeight: 400,
-                        textTransform: "none",
-                      }}
-                    >
-                      File Diff
-                    </Typography>
-                  </ToggleButton>
-                )}
-                <ToggleButton value="details" aria-label="Details view">
-                  <SlidersHorizontal size={18} />
-                  <Typography
-                    sx={{
-                      fontSize: "0.65rem",
-                      lineHeight: 1,
-                      fontWeight: 400,
-                      textTransform: "none",
-                    }}
-                  >
-                    Details
-                  </Typography>
-                </ToggleButton>
-              </ToggleButtonGroup>
-
-              {/* Restore split view button - only on desktop when chat is collapsed */}
-              {isBigScreen && chatCollapsed && (
-                <Tooltip title="Restore split view">
-                  <IconButton
-                    size="small"
-                    onClick={() => setChatCollapsed(false)}
-                    sx={{ ml: 0.5 }}
-                  >
-                    <VerticalSplitIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </Tooltip>
-              )}
-
-              {/* Status-specific action buttons */}
-              <SpecTaskActionButtons
-                task={{
-                  id: task.id || "",
-                  status: task.status || "",
-                  design_docs_pushed_at: task.design_docs_pushed_at,
-                  repo_pull_requests: task.repo_pull_requests,
-                  base_branch: task.base_branch,
-                  branch_name: task.branch_name,
-                  archived: task.archived,
-                  just_do_it_mode: justDoItMode,
-                  agent_session_id: task.agent_session_id,
-                  metadata: task.metadata as { error?: string },
-                  last_push_at: task.last_push_at,
-                }}
-                variant="inline"
-                onStartPlanning={handleStartPlanning}
-                onReviewSpec={handleReviewSpec}
-                onReject={(shiftKey) => {
-                  if (shiftKey) {
-                    performArchive();
-                  } else {
-                    setArchiveConfirmOpen(true);
-                  }
-                }}
-                hasExternalRepo={projectRepositories.some(
-                  (r) => r.is_external || r.external_type || r.external_url,
-                )}
-                externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
-                isStartingPlanning={isStartingPlanning}
-                isArchiving={isArchiving}
+            {/* A toolbar is useful only when there are multiple session views. */}
+            {activeSessionId && (
+              <SpecTaskViewToolbar
+                currentView={currentView}
+                onViewChange={handleViewChange}
+                hasSession
+                showChatTab
+                renderActions={(density) =>
+                  renderTaskActions("inline", density)
+                }
+                onToggleTerminal={toggleTerminalDrawer}
+                terminalOpen={terminalDrawerState.open}
+                showStart={effectiveIsDesktopPaused}
+                onStart={handleStartSession}
+                startBusy={isStarting || isDesktopStarting}
+                showStop={isDesktopRunning}
+                onStop={() => setStopConfirmOpen(true)}
+                stopBusy={isStopping}
+                showRestart={isDesktopRunning}
+                onRestart={() => setRestartConfirmOpen(true)}
+                restartBusy={isRestarting}
+                showKeepAlive={isDesktopRunning}
+                keepAlive={task.keep_alive}
+                onToggleKeepAlive={handleToggleKeepAlive}
+                keepAliveBusy={updateSpecTask.isPending}
+                showUpload={isDesktopRunning}
+                onUpload={handleUploadClick}
+                uploadBusy={isUploading}
+                renderMenuItems={renderTaskMenuItems}
+                onRestoreSplit={
+                  isBigScreen && chatCollapsed
+                    ? () => setChatCollapsed(false)
+                    : undefined
+                }
+                onCollapsePanel={
+                  allowContentCollapse && isBigScreen
+                    ? collapseContentPanel
+                    : undefined
+                }
+                onClosePanel={
+                  allowContentCollapse && isBigScreen ? undefined : onClose
+                }
               />
-
-              {/* Spacer - hidden on very small screens to allow wrapping */}
-              <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 8 } }} />
-
-              {/* Right: Action buttons */}
-              <Box
-                sx={{
-                  display: "flex",
-                  gap: 0.25,
-                  alignItems: "center",
-                  flexShrink: 0,
-                }}
-              >
-                {isEditMode ? (
-                  <>
-                    <Button
-                      size="small"
-                      startIcon={<CancelIcon />}
-                      onClick={handleCancelEdit}
-                      sx={{ fontSize: "0.75rem" }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="small"
-                      color="secondary"
-                      startIcon={<SaveIcon />}
-                      onClick={handleSaveEdit}
-                      disabled={updateSpecTask.isPending}
-                      sx={{ fontSize: "0.75rem" }}
-                    >
-                      Save
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    {task.status === TypesSpecTaskStatus.TaskStatusBacklog && (
-                      <Tooltip title="Edit task">
-                        <IconButton size="small" onClick={handleEditToggle}>
-                          <EditIcon sx={{ fontSize: 18 }} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {task.design_docs_pushed_at && (
-                      <Tooltip title="Clone task to other projects">
-                        <IconButton
-                          size="small"
-                          onClick={() => setShowCloneDialog(true)}
-                        >
-                          <Wand2 size={16} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {task.clone_group_id && (
-                      <Tooltip title="View batch clone progress">
-                        <IconButton
-                          size="small"
-                          onClick={() =>
-                            setSelectedCloneGroupId(task.clone_group_id || null)
-                          }
-                          sx={{ color: "primary.main" }}
-                        >
-                          <AccountTree sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {/* Show Start button when desktop is paused */}
-                    {activeSessionId && effectiveIsDesktopPaused && (
-                      <Tooltip title="Start desktop">
-                        <IconButton
-                          size="small"
-                          onClick={handleStartSession}
-                          disabled={isStarting || isDesktopStarting}
-                          color="success"
-                        >
-                          {isStarting || isDesktopStarting ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <PlayArrow sx={{ fontSize: 18 }} />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {/* Show Stop button when desktop is running */}
-                    {activeSessionId && isDesktopRunning && (
-                      <Tooltip title="Stop desktop">
-                        <IconButton
-                          size="small"
-                          onClick={() => setStopConfirmOpen(true)}
-                          disabled={isStopping}
-                          color="error"
-                        >
-                          {isStopping ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <StopIcon sx={{ fontSize: 18 }} />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {/* Show Restart button only when desktop is running */}
-                    {activeSessionId && isDesktopRunning && (
-                      <Tooltip title="Restart agent session">
-                        <IconButton
-                          size="small"
-                          onClick={() => setRestartConfirmOpen(true)}
-                          disabled={isRestarting}
-                          color="warning"
-                        >
-                          {isRestarting ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <RestartAltIcon sx={{ fontSize: 18 }} />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {/* Show Upload button only when desktop is running */}
-                    {activeSessionId && isDesktopRunning && (
-                      <Tooltip title="Upload files to sandbox">
-                        <IconButton
-                          size="small"
-                          onClick={handleUploadClick}
-                          disabled={isUploading}
-                          color="primary"
-                        >
-                          {isUploading ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <CloudUploadIcon sx={{ fontSize: 18 }} />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                  </>
-                )}
-                {onClose && (
-                  <IconButton size="small" onClick={onClose}>
-                    <CloseIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
-                )}
-              </Box>
-            </Box>
+            )}
 
             {/* Chat View - mobile only */}
             {activeSessionId && currentView === "chat" && (
@@ -2761,41 +2791,33 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     </Box>
                   );
                 })()}
-                <EmbeddedSessionView
-                  ref={sessionViewRef}
+                <AgentChat
                   sessionId={activeSessionId}
-                />
-                <Box
-                  sx={{
-                    p: 1.5,
-                    flexShrink: 0,
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 1,
-                  }}
-                >
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <RobustPromptInput
-                      sessionId={activeSessionId}
-                      specTaskId={task.id}
-                      projectId={task.project_id}
-                      apiClient={api.getApiClient()}
-                      onSend={async (message: string, interrupt?: boolean) => {
-                        await streaming.NewInference({
-                          type: SESSION_TYPE_TEXT,
-                          message,
-                          sessionId: activeSessionId,
-                          interrupt: interrupt ?? true,
-                        });
-                      }}
-                      onWillSend={handleWillSend}
-                      onHeightChange={() =>
-                        sessionViewRef.current?.scrollToBottom()
-                      }
-                      placeholder="Send message to agent..."
+                  specTaskId={task.id}
+                  projectId={task.project_id}
+                  enableInteractionDebugCopy
+                  onWillSend={handleWillSend}
+                  leadingActions={(
+                    <SpecTaskExecutionControls
+                      agents={eligibleApps}
+                      selectedAgentId={task.helix_app_id || ""}
+                      codeAgentOverrides={task.code_agent_overrides}
+                      currentExecutionConfig={currentExecutionConfig}
+                      sandboxResourceOverrides={task.sandbox_resource_overrides}
+                      onAgentModelChange={handleAgentModelChange}
+                      onSandboxResourceOverridesChange={handleSandboxResourcesChange}
+                      disabled={updateExecutionConfig.isPending}
+                      compact
                     />
-                  </Box>
-                </Box>
+                  )}
+                  footerContent={taskChatMetadata}
+                  placeholder={
+                    sessionData?.config?.paused
+                      ? "This session is paused — open the forked child to keep chatting"
+                      : "Send message to agent..."
+                  }
+                  disabled={!!sessionData?.config?.paused}
+                />
               </Box>
             )}
 
@@ -2810,62 +2832,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 }}
               >
                 {isTaskCompleted && isDesktopPaused ? (
-                  <Box
-                    sx={{
-                      flex: 1,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      p: 4,
-                    }}
-                  >
-                    <Alert severity="success" sx={{ maxWidth: 400 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
-                        Task finished
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        This task has been merged to the default branch.
-                      </Typography>
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={
-                          isStarting || isDesktopStarting ? (
-                            <CircularProgress size={16} />
-                          ) : (
-                            <PlayArrow />
-                          )
-                        }
-                        onClick={handleStartSession}
-                        disabled={isStarting || isDesktopStarting}
-                        sx={{ mt: 2 }}
-                      >
-                        {isStarting || isDesktopStarting
-                          ? "Starting..."
-                          : "Start Desktop"}
-                      </Button>
-                    </Alert>
-                  </Box>
+                  <TaskSessionPlaceholder
+                    tone="finished"
+                    title="Task finished"
+                    description="This task has been merged to the default branch. Its sandbox is stopped."
+                    onStart={handleStartSession}
+                    starting={isStarting || isDesktopStarting}
+                  />
                 ) : isTaskArchived ? (
-                  <Box
-                    sx={{
-                      flex: 1,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      p: 4,
-                    }}
-                  >
-                    <Alert severity="warning" sx={{ maxWidth: 400 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 500, mb: 1 }}>
-                        Task rejected
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        This task has been archived. The agent session has
-                        ended.
-                      </Typography>
-                    </Alert>
-                  </Box>
+                  <TaskSessionPlaceholder
+                    tone="archived"
+                    title="Task rejected"
+                    description="This task has been archived. The agent session has ended."
+                  />
                 ) : (
                   <ExternalAgentDesktopViewer
                     sessionId={activeSessionId}
@@ -2875,33 +2854,101 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     displayWidth={displaySettings.width}
                     displayHeight={displaySettings.height}
                     displayFps={displaySettings.fps}
-                    startupErrorMessage={taskMetadataError}
+                    startupErrorMessage={desktopStartupMessage}
+                    connectSubscriptionLabel={connectSubscriptionLabel}
+                    onConnectSubscription={connectSubscription}
                     initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                   />
                 )}
               </Box>
             )}
 
-            {/* Changes View - mobile */}
-            {activeSessionId && currentView === "changes" && (
+            {/* Browser View - mobile */}
+            {activeSessionId && currentView === "browser" && (
+              <Box
+                sx={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  minHeight: 0,
+                  overflow: "hidden",
+                }}
+              >
+                {isTaskArchived ? (
+                  <TaskSessionPlaceholder
+                    tone="archived"
+                    title="Task rejected"
+                    description="This task has been archived. The agent session has ended."
+                  />
+                ) : effectiveIsDesktopPaused ? (
+                  <TaskSessionPlaceholder
+                    tone={isTaskCompleted ? "finished" : "paused"}
+                    title={isTaskCompleted ? "Task finished" : "Desktop not running"}
+                    description={
+                      isTaskCompleted
+                        ? "This task has been merged to the default branch. Start the desktop to preview its web apps."
+                        : "Start the desktop to preview a localhost web app from this sandbox."
+                    }
+                    detail={desktopStartupMessage}
+                    onStart={handleStartSession}
+                    starting={isStarting || isDesktopStarting}
+                  />
+                ) : (
+                  <SandboxBrowser sessionId={activeSessionId} />
+                )}
+              </Box>
+            )}
+
+            {/* Workspace review - mobile */}
+            {activeSessionId && (currentView === "changes" || currentView === "files") && (
               <Box sx={{ flex: 1, overflow: "hidden" }}>
                 <DiffViewer
                   sessionId={activeSessionId}
                   baseBranch={defaultBranchName}
                   pollInterval={3000}
+                  primarySurface={currentView === "files" ? "files" : "changes"}
+                  onPrimarySurfaceChange={handleViewChange}
+                  onStartDesktop={handleStartSession}
+                  connectSubscriptionLabel={connectSubscriptionLabel}
+                  onConnectSubscription={connectSubscription}
+                  desktopUnavailableDetail={desktopStartupMessage}
+                  desktopRunning={!effectiveIsDesktopPaused}
+                  isDesktopStarting={isStarting || isDesktopStarting}
+                  desktopUnavailableTitle={isTaskCompleted ? "Task finished" : undefined}
+                  desktopUnavailableDescription={
+                    isTaskCompleted
+                      ? "This task has been merged to the default branch. Start the desktop to review its workspace."
+                      : undefined
+                  }
                 />
               </Box>
             )}
 
             {/* Details View - mobile/no session */}
             {currentView === "details" && (
-              <Box sx={{ flex: 1, overflow: "auto", p: 3 }}>
+              <Box
+                sx={{
+                  flex: 1,
+                  overflow: "auto",
+                  p: { xs: 1.5, sm: 2 },
+                }}
+              >
                 {renderDetailsContent()}
               </Box>
             )}
           </>
         )}
       </Box>
+
+      {terminalDrawerState.open && activeSessionId && (
+        <SpecTaskTerminalDrawer
+          sessionId={activeSessionId}
+          running={isDesktopRunning}
+          height={terminalDrawerState.height}
+          onHeightChange={setTerminalDrawerHeight}
+          onClose={closeTerminalDrawer}
+        />
+      )}
 
       {/* Restart Session Confirmation */}
       <Dialog
@@ -2963,6 +3010,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         taskId={taskId}
         taskName={task?.name || ""}
         sourceProjectId={task?.project_id || ""}
+      />
+
+      <SpecTaskShareDialog
+        open={shareDialogOpen}
+        onClose={() => setShareDialogOpen(false)}
+        shareUrl={publicLink}
+        isPublic={isPublicDesignDocs}
+        updating={updatingPublic}
+        onToggle={handlePublicToggle}
       />
 
       {/* Clone Group Progress Dialog */}

@@ -47,6 +47,7 @@ import useTheme from '@mui/material/styles/useTheme'
 
 interface AccessManagementProps {
   appId: string;
+  resourceLabel?: string;
   accessGrants: TypesAccessGrant[];
   isLoading: boolean;
   isReadOnly: boolean;
@@ -60,6 +61,7 @@ interface AccessManagementProps {
 
 const AccessManagement: React.FC<AccessManagementProps> = ({
   appId,
+  resourceLabel = 'agent',
   accessGrants,
   isLoading,
   isReadOnly,
@@ -558,7 +560,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                 No users have been granted access
               </Typography>
               <Typography variant="body2">
-                Add users to grant them access to this agent.
+                Add users to grant them access to this {resourceLabel}.
               </Typography>
             </Box>
           ) : (
@@ -850,7 +852,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                 No teams have been granted access
               </Typography>
               <Typography variant="body2">
-                Add teams to grant them access to this agent.
+                Add teams to grant them access to this {resourceLabel}.
               </Typography>
             </Box>
           ) : (

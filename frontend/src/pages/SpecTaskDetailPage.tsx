@@ -17,6 +17,7 @@ import { useSpecTask } from "../services/specTaskService";
 import { useGetProject } from "../services";
 import useAccount from "../hooks/useAccount";
 import { cacheTaskName } from "../lib/navHistory";
+import { shouldAutoOpenSpecTaskReview } from "../lib/specTaskAutoOpen";
 
 /**
  * SpecTaskDetailPage - Standalone page for viewing spec task details
@@ -32,6 +33,7 @@ const SpecTaskDetailPage: FC = () => {
 
   const projectId = route.params.id as string;
   const taskId = route.params.taskId as string;
+  const isChatView = route.name === "org_chat-task";
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
@@ -131,7 +133,7 @@ const SpecTaskDetailPage: FC = () => {
       ]}
       orgBreadcrumbs={true}
       showDrawerButton={true}
-      topbarContent={
+      topbarContent={!isChatView && (
         <Stack
           direction="row"
           spacing={2}
@@ -152,17 +154,22 @@ const SpecTaskDetailPage: FC = () => {
             </IconButton>
           </Tooltip>
         </Stack>
-      }
+      )}
     >
       <Box sx={{ display: "flex", flex: 1, overflow: "hidden", height: "calc(100vh - 120px)" }}>
         <Box
           sx={{
             flex: 1,
             overflow: "auto",
-            px: { xs: 0, sm: 3 },
           }}
         >
-          <SpecTaskDetailContent taskId={taskId} onClose={handleBack} />
+          <SpecTaskDetailContent
+            taskId={taskId}
+            onClose={handleBack}
+            allowContentCollapse={isChatView}
+            padContent
+            autoOpenReview={shouldAutoOpenSpecTaskReview(route.name)}
+          />
         </Box>
 
         {/* Slide-in new spec task panel */}

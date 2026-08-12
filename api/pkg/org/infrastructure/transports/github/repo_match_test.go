@@ -8,16 +8,16 @@ func TestBranchAllowed(t *testing.T) {
 		branch   string
 		want     bool
 	}{
-		{nil, "main", true},               // no filter → all branches
-		{[]string{"*"}, "main", true},      // wildcard → all branches
-		{[]string{"*"}, "feature/x", true}, // wildcard → all branches
-		{[]string{"main"}, "", true},       // non-branch event → unfiltered
-		{[]string{"main"}, "main", true},   // exact
-		{[]string{"main"}, "MAIN", true},   // case-insensitive
-		{[]string{"main"}, "dev", false},   // exact miss
-		{[]string{"release/*"}, "release/1.2", true},  // prefix glob
-		{[]string{"release/*"}, "release", true},      // glob matches bare prefix
-		{[]string{"release/*"}, "releases/x", false},  // not a child of release/
+		{nil, "main", true},                                // no filter → all branches
+		{[]string{"*"}, "main", true},                      // wildcard → all branches
+		{[]string{"*"}, "feature/x", true},                 // wildcard → all branches
+		{[]string{"main"}, "", true},                       // non-branch event → unfiltered
+		{[]string{"main"}, "main", true},                   // exact
+		{[]string{"main"}, "MAIN", true},                   // case-insensitive
+		{[]string{"main"}, "dev", false},                   // exact miss
+		{[]string{"release/*"}, "release/1.2", true},       // prefix glob
+		{[]string{"release/*"}, "release", true},           // glob matches bare prefix
+		{[]string{"release/*"}, "releases/x", false},       // not a child of release/
 		{[]string{"main", "release/*"}, "release/9", true}, // any-of
 		{[]string{"main"}, "feature/x", false},
 	}

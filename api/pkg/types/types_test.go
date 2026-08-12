@@ -7,6 +7,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSandboxInstanceCanHostSandbox(t *testing.T) {
+	cases := []struct {
+		name   string
+		vendor string
+		render string
+		want   bool
+	}{
+		{"nvidia gpu", "nvidia", "/dev/dri/renderD128", true},
+		{"amd gpu", "amd", "/dev/dri/renderD128", true},
+		{"intel gpu", "intel", "/dev/dri/renderD128", true},
+		{"neuron excluded", "neuron", "", false},
+		{"none excluded", "none", "", false},
+		{"software render excluded", "nvidia", "SOFTWARE", false},
+		{"unreported treated as capable", "", "", true},
+	}
+	for _, tc := range cases {
+		s := &SandboxInstance{GPUVendor: tc.vendor, RenderNode: tc.render}
+		if got := s.CanHostSandbox(); got != tc.want {
+			t.Errorf("%s: CanHostSandbox()=%v want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func Test_SessionChatRequest_PlainString(t *testing.T) {
 	request := &SessionChatRequest{
 		Messages: []*Message{

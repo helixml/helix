@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,13 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// exploratorySessionStartTimeout bounds the detached context used to launch an
+// exploratory ("Project Desktop") session's desktop container off the request
+// path. Container provisioning is normally a few seconds but can be slower on a
+// cold sandbox; the timeout is generous so a legitimately slow boot is not cut
+// short, while still guaranteeing the goroutine's context is eventually freed.
+const exploratorySessionStartTimeout = 10 * time.Minute
 
 // listProjects godoc
 // @Summary List projects
@@ -295,6 +303,66 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	return project, nil
 }
 
+// listProjectSpecTaskAgents godoc
+// @Summary List external agents available for project spec tasks
+// @Description Returns minimal agent options for starting a project spec task. Helix org-chart agents are excluded.
+// @Tags Projects
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {array} types.ProjectSpecTaskAgent
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/spec-task-agents [get]
+func (s *HelixAPIServer) listProjectSpecTaskAgents(_ http.ResponseWriter, r *http.Request) ([]types.ProjectSpecTaskAgent, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	project, err := s.Store.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+	if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// Reuse listOrganizationApps so this endpoint inherits the same access-grant
+	// filtering the agent list elsewhere applies: non-owners only see apps they
+	// are actually granted. Listing the org's apps directly would let any project
+	// member enumerate — and then start a task on — agents they cannot access,
+	// because createTaskFromPrompt authorizes the project but not the app id.
+	apps, httpErr := s.listOrganizationApps(ctx, user, project.OrganizationID)
+	if httpErr != nil {
+		return nil, httpErr
+	}
+
+	agents := make([]types.ProjectSpecTaskAgent, 0, len(apps))
+	for _, app := range apps {
+		if !isSpecTaskSelectableAgent(app) {
+			continue
+		}
+		name := app.Config.Helix.Name
+		if name == "" && len(app.Config.Helix.Assistants) > 0 {
+			name = app.Config.Helix.Assistants[0].Name
+		}
+		runtime := types.CodeAgentRuntimeZedAgent
+		if len(app.Config.Helix.Assistants) > 0 && app.Config.Helix.Assistants[0].CodeAgentRuntime != "" {
+			runtime = app.Config.Helix.Assistants[0].CodeAgentRuntime
+		}
+		agents = append(agents, types.ProjectSpecTaskAgent{
+			ID:               app.ID,
+			Name:             name,
+			CodeAgentRuntime: runtime,
+		})
+	}
+	sort.Slice(agents, func(i, j int) bool {
+		return strings.ToLower(agents[i].Name) < strings.ToLower(agents[j].Name)
+	})
+	return agents, nil
+}
+
 // createProject godoc
 // @Summary Create project
 // @Description Create a new project
@@ -305,6 +373,7 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 // @Success 200 {object} types.Project
 // @Failure 400 {object} system.HTTPError
 // @Failure 401 {object} system.HTTPError
+// @Failure 409 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
 // @Router /api/v1/projects [post]
@@ -320,6 +389,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	// Validate required fields
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		return nil, system.NewHTTPError400("project name is required")
 	}
@@ -359,6 +429,9 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	if err := s.authorizeUserToApp(r.Context(), user, defaultApp, types.ActionGet); err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	if err := requireAgentKind(defaultApp, types.AgentKindCoding, "project spec tasks"); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 
 	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
 	if err != nil {
@@ -374,8 +447,8 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// Deduplicate project name within the workspace (org or personal)
-	// Build a set of existing names and add (1), (2), etc. if needed
+	// Project names must be unique within the workspace. Return a conflict instead
+	// of silently renaming the project so callers can show a useful inline error.
 	var existingProjects []*types.Project
 	var listErr error
 	if req.OrganizationID != "" {
@@ -388,23 +461,12 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		})
 	}
 	if listErr != nil {
-		log.Warn().Err(listErr).Msg("failed to list projects for name deduplication (continuing)")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to check project name: %s", listErr))
 	}
 
-	existingNames := make(map[string]bool)
-	for _, p := range existingProjects {
-		existingNames[p.Name] = true
+	if projectNameExists(existingProjects, req.Name) {
+		return nil, system.NewHTTPError409(fmt.Sprintf("a project named %q already exists", req.Name))
 	}
-
-	// Auto-increment name if it already exists: MyProject -> MyProject (1) -> MyProject (2)
-	baseName := req.Name
-	uniqueName := baseName
-	suffix := 1
-	for existingNames[uniqueName] {
-		uniqueName = fmt.Sprintf("%s (%d)", baseName, suffix)
-		suffix++
-	}
-	req.Name = uniqueName
 
 	project := &types.Project{
 		OrganizationID:    req.OrganizationID,
@@ -533,6 +595,16 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	return created, nil
 }
 
+func projectNameExists(projects []*types.Project, name string) bool {
+	normalizedName := strings.TrimSpace(name)
+	for _, project := range projects {
+		if strings.EqualFold(strings.TrimSpace(project.Name), normalizedName) {
+			return true
+		}
+	}
+	return false
+}
+
 // updateProject godoc
 // @Summary Update project
 // @Description Update an existing project
@@ -574,6 +646,32 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	for _, selection := range []struct {
+		field string
+		appID *string
+	}{
+		{field: "default_helix_app_id", appID: req.DefaultHelixAppID},
+		{field: "project_manager_helix_app_id", appID: req.ProjectManagerHelixAppID},
+		{field: "pull_request_reviewer_helix_app_id", appID: req.PullRequestReviewerHelixAppID},
+	} {
+		if selection.appID == nil || *selection.appID == "" {
+			continue
+		}
+		app, appErr := s.Store.GetApp(r.Context(), *selection.appID)
+		if appErr != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid %s: agent not found", selection.field))
+		}
+		if app.OrganizationID != "" && app.OrganizationID != project.OrganizationID {
+			return nil, system.NewHTTPError400(fmt.Sprintf("%s must be in the same organization as the project", selection.field))
+		}
+		if appErr := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet); appErr != nil {
+			return nil, system.NewHTTPError403(appErr.Error())
+		}
+		if appErr := requireAgentKind(app, types.AgentKindCoding, "project agent configuration"); appErr != nil {
+			return nil, system.NewHTTPError400(appErr.Error())
+		}
 	}
 
 	// Apply updates
@@ -648,6 +746,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		// AutoWarmDockerCache is a bool — always apply from the request
 		// since it's user-controlled.
 		project.Metadata.AutoWarmDockerCache = req.Metadata.AutoWarmDockerCache
+		if req.Metadata.OrgMembersAccess {
+			project.Metadata.OrgMembersAccess = true
+		}
 		// DockerCacheStatus is managed exclusively by GoldenBuildService — never overwrite from API request.
 	}
 	// Skills can be set directly (nil means "don't update")
@@ -1465,29 +1566,31 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				return s.addUserAPITokenToAgent(hookCtx, a, userID)
 			}
 
-			agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
-			if err != nil {
-				log.Error().
-					Err(err).
+			// Launch the desktop asynchronously and return immediately so the
+			// client can jump straight to the Project Desktop page, which shows
+			// its own connecting state while the container boots. Container
+			// launch can take several seconds; blocking the response here is the
+			// reason the button used to give no feedback "until it actually
+			// starts". Mirrors the spec-task provisioning pattern (StartDesktop
+			// runs in a goroutine off the request path). The frontend polls the
+			// exploratory-session endpoint, so it picks up the refreshed
+			// lobby ID/PIN once StartDesktop completes.
+			bgCtx, cancel := detachContext(r.Context(), exploratorySessionStartTimeout)
+			go func() {
+				defer cancel()
+				if _, err := s.externalAgentExecutor.StartDesktop(bgCtx, zedAgent); err != nil {
+					log.Error().
+						Err(err).
+						Str("session_id", existingSession.ID).
+						Msg("Failed to restart exploratory session (async)")
+					return
+				}
+				log.Info().
 					Str("session_id", existingSession.ID).
-					Msg("Failed to restart exploratory session")
-				return nil, system.NewHTTPError500(fmt.Sprintf("failed to restart exploratory session: %v", err))
-			}
+					Msg("Exploratory session lobby restarted successfully (async)")
+			}()
 
-			log.Info().
-				Str("session_id", existingSession.ID).
-				Str("lobby_id", agentResp.DevContainerID).
-				Msg("Exploratory session lobby restarted successfully")
-
-			// Reload session from database to get updated lobby ID/PIN
-			// StartDesktop updates session metadata in DB, so we need fresh data
-			updatedSession, err := s.Store.GetSession(r.Context(), existingSession.ID)
-			if err != nil {
-				log.Error().Err(err).Str("session_id", existingSession.ID).Msg("Failed to reload session after restart")
-				return existingSession, nil // Return stale session rather than failing
-			}
-
-			return updatedSession, nil
+			return existingSession, nil
 		}
 
 		// Session exists and lobby is running - return as-is
@@ -1622,24 +1725,35 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		return s.addUserAPITokenToAgent(hookCtx, a, exploratoryUserID)
 	}
 
-	// Start the desktop agent
-	agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
-	if err != nil {
-		log.Error().
-			Err(err).
+	// Launch the desktop agent asynchronously and return the freshly created
+	// session immediately. Container launch can take several seconds, and
+	// blocking the HTTP response on it is what left the "Open Project Desktop"
+	// button with no feedback until the desktop was fully up. By returning now,
+	// the client can navigate straight to the Project Desktop page, which shows
+	// its own connecting state while the container boots. Mirrors the spec-task
+	// provisioning pattern (StartDesktop runs in a goroutine off the request
+	// path). Activity tracking happens inside StartDesktop.
+	bgCtx, cancel := detachContext(r.Context(), exploratorySessionStartTimeout)
+	go func() {
+		defer cancel()
+		if _, err := s.externalAgentExecutor.StartDesktop(bgCtx, zedAgent); err != nil {
+			log.Error().
+				Err(err).
+				Str("session_id", createdSession.ID).
+				Str("project_id", projectID).
+				Msg("Failed to launch exploratory agent (async)")
+			return
+		}
+		log.Info().
 			Str("session_id", createdSession.ID).
 			Str("project_id", projectID).
-			Msg("Failed to launch exploratory agent")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to start exploratory agent: %v", err))
-	}
-
-	// Activity tracking now happens in StartDesktop for all desktop agent types
+			Msg("Exploratory session desktop launched (async)")
+	}()
 
 	log.Info().
 		Str("session_id", createdSession.ID).
 		Str("project_id", projectID).
-		Str("dev_container_id", agentResp.DevContainerID).
-		Msg("Exploratory session created successfully")
+		Msg("Exploratory session created successfully (desktop launching asynchronously)")
 
 	return createdSession, nil
 }
@@ -2769,12 +2883,13 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		// When omitted, a plain chat agent (helix_basic) is created.
 		agentType, codeRuntime := projectAgentRuntimeToTypes(agentSpec.Runtime)
 
-		// Default to api_key when the spec doesn't say otherwise. Only
-		// claude_code can legitimately carry "subscription"; everything else
+		// Default to api_key when the spec doesn't say otherwise. Claude Code
+		// and Codex can legitimately carry "subscription"; everything else
 		// must be api_key so GenerateZedMCPConfig writes agent.default_model
 		// (start-zed-helix.sh greps for that literal key before launching Zed).
 		credType := types.CodeAgentCredentialTypeAPIKey
-		if agentSpec.Credentials == "subscription" && codeRuntime == types.CodeAgentRuntimeClaudeCode {
+		if agentSpec.Credentials == "subscription" &&
+			(codeRuntime == types.CodeAgentRuntimeClaudeCode || codeRuntime == types.CodeAgentRuntimeCodexCLI) {
 			credType = types.CodeAgentCredentialTypeSubscription
 		}
 
@@ -2818,6 +2933,9 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			assistant.Browser = types.AssistantBrowser{Enabled: agentSpec.Tools.Browser}
 			assistant.Calculator = types.AssistantCalculator{Enabled: agentSpec.Tools.Calculator}
 		}
+		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("invalid agent configuration: %v", err))
+		}
 
 		appHelixConfig := types.AppHelixConfig{
 			Name:             agentSpec.Name,
@@ -2836,17 +2954,55 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		}
 
 		var agentApp *types.App
-		if project.DefaultHelixAppID != "" {
+		if req.AgentAppID != "" {
+			linkedAgentApp, getErr := s.Store.GetApp(r.Context(), req.AgentAppID)
+			if getErr != nil {
+				return nil, system.NewHTTPError400(fmt.Sprintf("failed to get linked agent app: %v", getErr))
+			}
+			agentApp = linkedAgentApp
+			if agentApp.OrganizationID != orgID {
+				return nil, system.NewHTTPError400("linked agent app belongs to another organization")
+			}
+			if len(agentApp.Config.Helix.Assistants) != 1 {
+				return nil, system.NewHTTPError400("org-linked agent app must contain exactly one assistant")
+			}
+			project.DefaultHelixAppID = agentApp.ID
+			if err := s.Store.UpdateProject(r.Context(), project); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to link agent app to project: %v", err))
+			}
+		} else if project.DefaultHelixAppID != "" {
 			agentApp, _ = s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
 		}
 
-		if agentApp != nil {
+		if req.AgentAppID != "" {
+			agentAppID = agentApp.ID
+		} else if agentApp != nil {
+			// Apply only owns name/runtime/provider/model/credentials/tools/
+			// display/goose. User-edited skill config (MCPs, APIs, Zapier, …)
+			// lives on the agent app via the Skills UI and must survive
+			// re-apply — org-bot activation/restart calls ApplyProject on
+			// every start, and wholesale-replacing Config.Helix used to wipe
+			// those entries (so macroplane/etc. vanished after restart).
+			if len(agentApp.Config.Helix.Assistants) > 0 {
+				preserveAssistantSkillsFromExisting(&assistant, agentApp.Config.Helix.Assistants[0], agentSpec.Tools != nil)
+				appHelixConfig.Assistants = []types.AssistantConfig{assistant}
+			}
+			// Same for display settings: only overwrite when the apply
+			// spec supplied them; otherwise keep the operator's values.
+			if agentSpec.Display == nil && agentApp.Config.Helix.ExternalAgentConfig != nil {
+				appHelixConfig.ExternalAgentConfig = agentApp.Config.Helix.ExternalAgentConfig
+			}
 			agentApp.Config.Helix = appHelixConfig
 			if _, err := s.Store.UpdateApp(r.Context(), agentApp); err != nil {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to update agent app: %v", err))
 			}
 			agentAppID = agentApp.ID
 		} else {
+			// AgentKind is left to the store's classifier: an apply spec always
+			// produces a zed_external agent, so it lands as coding_agent and the
+			// project can run spec tasks. Org-bot projects are not special-cased
+			// here — the helix-org runtime reclassifies its own agent app to
+			// org_agent after apply (see inProcHelixClient.ApplyProject).
 			agentApp = &types.App{
 				ID:             system.GenerateUUID(),
 				Owner:          user.ID,
@@ -2872,6 +3028,68 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		Created:    wasCreated,
 		AgentAppID: agentAppID,
 	}, nil
+}
+
+// preserveAssistantSkillsFromExisting copies skill / prompt fields from an
+// existing assistant onto the apply-built assistant. ProjectAgentSpec does
+// not declare MCPs, APIs, Zapier, knowledge, system prompt, etc. — those are
+// configured out-of-band (Skills UI, agent settings). Without this merge,
+// every ApplyProject update zeros them.
+//
+// toolsFromSpec is true when agentSpec.Tools was non-nil, in which case the
+// apply path already set Browser/WebSearch/Calculator and those values win.
+func preserveAssistantSkillsFromExisting(dst *types.AssistantConfig, src types.AssistantConfig, toolsFromSpec bool) {
+	if dst == nil {
+		return
+	}
+	dst.MCPs = src.MCPs
+	dst.APIs = src.APIs
+	dst.Zapier = src.Zapier
+	dst.Email = src.Email
+	dst.AzureDevOps = src.AzureDevOps
+	dst.ProjectManager = src.ProjectManager
+	dst.Knowledge = src.Knowledge
+	dst.Tools = src.Tools
+	dst.SystemPrompt = src.SystemPrompt
+	dst.Description = src.Description
+	dst.Avatar = src.Avatar
+	dst.Image = src.Image
+	dst.ConversationStarters = src.ConversationStarters
+	dst.Memory = src.Memory
+	dst.ContextLimit = src.ContextLimit
+	dst.Temperature = src.Temperature
+	dst.PresencePenalty = src.PresencePenalty
+	dst.FrequencyPenalty = src.FrequencyPenalty
+	dst.TopP = src.TopP
+	dst.MaxTokens = src.MaxTokens
+	dst.ReasoningEffort = src.ReasoningEffort
+	dst.RAGSourceID = src.RAGSourceID
+	dst.LoraID = src.LoraID
+	dst.IsActionableTemplate = src.IsActionableTemplate
+	dst.IsActionableHistoryLength = src.IsActionableHistoryLength
+	dst.Tests = src.Tests
+	// Reasoning / small model slots are not owned by ProjectAgentSpec
+	// (org-bot apply only mirrors generation_model for zed_external).
+	// Keep operator-tuned values.
+	if dst.ReasoningModel == "" && src.ReasoningModel != "" {
+		dst.ReasoningModel = src.ReasoningModel
+		dst.ReasoningModelProvider = src.ReasoningModelProvider
+		dst.ReasoningModelEffort = src.ReasoningModelEffort
+	}
+	if dst.SmallReasoningModel == "" && src.SmallReasoningModel != "" {
+		dst.SmallReasoningModel = src.SmallReasoningModel
+		dst.SmallReasoningModelProvider = src.SmallReasoningModelProvider
+		dst.SmallReasoningModelEffort = src.SmallReasoningModelEffort
+	}
+	if dst.SmallGenerationModel == "" && src.SmallGenerationModel != "" {
+		dst.SmallGenerationModel = src.SmallGenerationModel
+		dst.SmallGenerationModelProvider = src.SmallGenerationModelProvider
+	}
+	if !toolsFromSpec {
+		dst.WebSearch = src.WebSearch
+		dst.Browser = src.Browser
+		dst.Calculator = src.Calculator
+	}
 }
 
 // synthesizeStartupScript builds a shell script from declarative startup fields

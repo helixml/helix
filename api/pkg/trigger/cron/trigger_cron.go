@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -33,14 +34,24 @@ type ExternalAgentStarter interface {
 	StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error)
 }
 
+// SpecTaskCreatorProvider resolves the spec task creator when a job actually fires.
+// The scheduler starts before the API server has constructed the
+// SpecDrivenTaskService, so the creator MUST be resolved late — capturing it at
+// construction time captures nil and every spec_task trigger silently no-ops.
+type SpecTaskCreatorProvider func() SpecTaskCreator
+
+// ExternalAgentStarterProvider resolves the external agent starter at fire time,
+// for the same reason as SpecTaskCreatorProvider.
+type ExternalAgentStarterProvider func() ExternalAgentStarter
+
 type Cron struct {
-	cfg                   *config.ServerConfig
-	store                 store.Store
-	notifier              notification.Notifier
-	controller            *controller.Controller
-	specTaskCreator       SpecTaskCreator
-	externalAgentStarter  ExternalAgentStarter
-	cron                  gocron.Scheduler
+	cfg                  *config.ServerConfig
+	store                store.Store
+	notifier             notification.Notifier
+	controller           *controller.Controller
+	specTaskCreator      SpecTaskCreatorProvider
+	externalAgentStarter ExternalAgentStarterProvider
+	cron                 gocron.Scheduler
 }
 
 func NextRun(cron *types.CronTrigger) time.Time {
@@ -99,10 +110,17 @@ func extractTimezoneFromCron(schedule string) string {
 	return ""
 }
 
-func New(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller, specTaskCreator SpecTaskCreator, externalAgentStarter ExternalAgentStarter) (*Cron, error) {
+func New(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller, specTaskCreator SpecTaskCreatorProvider, externalAgentStarter ExternalAgentStarterProvider) (*Cron, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
+	}
+
+	if specTaskCreator == nil {
+		return nil, fmt.Errorf("spec task creator provider is required")
+	}
+	if externalAgentStarter == nil {
+		return nil, fmt.Errorf("external agent starter provider is required")
 	}
 
 	return &Cron{
@@ -373,18 +391,30 @@ func (c *Cron) createOrDeleteCronApps(ctx context.Context, cronApps []*cronApp, 
 
 func (c *Cron) getCronAppTask(ctx context.Context, cronApp *cronApp) gocron.Task {
 	return gocron.NewTask(func() {
-		log.Info().
-			Str("app_id", cronApp.App.ID).
-			Msg("running app cron job")
-
-		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, c.specTaskCreator, c.externalAgentStarter, cronApp.App, cronApp.UserID, cronApp.ID, cronApp.Trigger, cronApp.Name)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to execute cron task")
-			return
-		}
-
-		log.Info().Msg("cron task completed")
+		c.runCronApp(ctx, cronApp)
 	})
+}
+
+// runCronApp executes one scheduled job. Split out of getCronAppTask so the
+// late-resolution of specTaskCreator/externalAgentStarter is directly testable.
+func (c *Cron) runCronApp(ctx context.Context, cronApp *cronApp) {
+	log.Info().
+		Str("app_id", cronApp.App.ID).
+		Str("trigger_id", cronApp.ID).
+		Msg("running app cron job")
+
+	// Resolved here, not at construction time: the scheduler starts before the
+	// API server wires these in.
+	_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, c.specTaskCreator(), c.externalAgentStarter(), cronApp.App, cronApp.UserID, cronApp.ID, cronApp.Trigger, cronApp.Name)
+	if err != nil {
+		log.Error().Err(err).
+			Str("app_id", cronApp.App.ID).
+			Str("trigger_id", cronApp.ID).
+			Msg("failed to execute cron task")
+		return
+	}
+
+	log.Info().Msg("cron task completed")
 }
 
 func (c *Cron) listApps(ctx context.Context) ([]*types.App, error) {
@@ -429,10 +459,14 @@ func getCronJobSchedule(job gocron.Job) string {
 	return currentSchedule
 }
 
-func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, specTaskCreator SpecTaskCreator, externalAgentStarter ExternalAgentStarter, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, specTaskCreator SpecTaskCreator, externalAgentStarter ExternalAgentStarter, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (*types.TriggerExecuteResponse, error) {
 	// Handle spec_task action: create a spec task instead of running a session
 	if trigger.Action == "spec_task" {
-		return executeSpecTaskAction(ctx, str, specTaskCreator, notifier, a, userID, triggerID, trigger, sessionName)
+		content, err := executeSpecTaskAction(ctx, str, specTaskCreator, notifier, a, userID, triggerID, trigger, sessionName)
+		if err != nil {
+			return nil, err
+		}
+		return &types.TriggerExecuteResponse{Content: content, Status: types.TriggerExecutionStatusSuccess}, nil
 	}
 
 	// Resolve prompt: use InputFile from helix-specs worktree if set, otherwise Input
@@ -446,24 +480,63 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		}
 	}
 
-	// Handle external agent sessions (non-blocking)
-	if trigger.AgentType == "zed_external" {
-		return executeExternalAgentCronTask(ctx, str, externalAgentStarter, notifier, a, userID, triggerID, trigger, sessionName, promptText)
+	// Tasks-page triggers omit AgentType and ProjectID. Infer the runtime from
+	// the selected agent so they take the same path as an interactive chat.
+	if cronAgentType(a, trigger) == types.AgentTypeZedExternal {
+		sessionID, err := executeExternalAgentCronTask(ctx, str, externalAgentStarter, notifier, a, userID, triggerID, trigger, sessionName, promptText)
+		if err != nil {
+			return nil, err
+		}
+		status := types.TriggerExecutionStatusRunning
+		if sessionID == "" {
+			status = types.TriggerExecutionStatusSkipped
+		}
+		return &types.TriggerExecuteResponse{SessionID: sessionID, Status: status}, nil
 	}
 
-	// Default action: run a blocking session (existing behavior)
+	// Default action: run a blocking session. Reserve the trigger before
+	// creating the session so blocking agents obey the same overlap policy as
+	// external agents.
+	sessionID := system.GenerateSessionID()
+	execution, started, err := reserveCronExecution(ctx, str, triggerID, sessionName, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("reserve blocking agent trigger execution: %w", err)
+	}
+	if !started {
+		log.Info().
+			Str("app_id", a.ID).
+			Str("trigger_id", triggerID).
+			Str("execution_id", execution.ID).
+			Msg("skipped blocking agent cron execution because the previous execution is still running")
+		return &types.TriggerExecuteResponse{Status: types.TriggerExecutionStatusSkipped}, nil
+	}
+
+	startedAt := execution.Created
+	if startedAt.IsZero() {
+		startedAt = time.Now()
+	}
+	markFailed := func(taskErr error) error {
+		execution.Status = types.TriggerExecutionStatusError
+		execution.Error = taskErr.Error()
+		execution.DurationMs = time.Since(startedAt).Milliseconds()
+		if _, updateErr := str.UpdateTriggerExecution(ctx, execution); updateErr != nil {
+			return fmt.Errorf("%w; failed to mark trigger execution failed: %v", taskErr, updateErr)
+		}
+		return taskErr
+	}
+
 	app, err := str.GetAppWithTools(ctx, a.ID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("app_id", a.ID).
 			Msg("failed to get app")
-		return "", err
+		return nil, markFailed(err)
 	}
 
 	// Prepare new session
 	session := &types.Session{
-		ID:             system.GenerateSessionID(),
+		ID:             sessionID,
 		Name:           sessionName,
 		Created:        time.Now(),
 		Updated:        time.Now(),
@@ -488,7 +561,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Err(err).
 			Str("app_id", app.ID).
 			Msg("failed to create session")
-		return "", err
+		return nil, markFailed(err)
 	}
 
 	user, err := str.GetUser(ctx, &store.GetUserQuery{
@@ -500,29 +573,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Str("app_id", app.ID).
 			Str("user_id", userID).
 			Msg("failed to get user")
-		return "", err
-	}
-
-	// Create execution
-	execution := &types.TriggerExecution{
-		ID:                     system.GenerateUUID(),
-		Name:                   sessionName,
-		TriggerConfigurationID: triggerID,
-		Created:                time.Now(),
-		Updated:                time.Now(),
-		Status:                 types.TriggerExecutionStatusRunning,
-		SessionID:              session.ID,
-	}
-
-	startedAt := time.Now()
-
-	execution, err = str.CreateTriggerExecution(ctx, execution)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("app_id", app.ID).
-			Msg("failed to create trigger execution")
-		return "", fmt.Errorf("failed to create trigger execution: %w", err)
+		return nil, markFailed(err)
 	}
 
 	resp, err := ctrl.RunBlockingSession(ctx, &controller.RunSessionRequest{
@@ -554,21 +605,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 				Msg("failed to send failure notification")
 		}
 
-		// Update execution with error
-		execution.Status = types.TriggerExecutionStatusError
-		execution.Error = err.Error()
-		execution.DurationMs = time.Since(startedAt).Milliseconds()
-
-		execution, err = str.UpdateTriggerExecution(ctx, execution)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", app.ID).
-				Str("execution_id", execution.ID).
-				Msg("failed to update execution")
-		}
-
-		return "", err
+		return nil, markFailed(err)
 	}
 
 	responseText := types.TextFromInteraction(resp)
@@ -609,24 +646,66 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Str("app_id", app.ID).
 		Msg("app cron job completed")
 
-	return responseText, nil
+	return &types.TriggerExecuteResponse{
+		SessionID: session.ID,
+		Content:   responseText,
+		Status:    types.TriggerExecutionStatusSuccess,
+	}, nil
 }
 
 func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter ExternalAgentStarter, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string, promptText string) (string, error) {
-	if starter == nil {
-		return "", fmt.Errorf("external agent starter not configured, cannot create zed_external cron session")
+	sessionID := system.GenerateSessionID()
+	execution, started, err := reserveCronExecution(ctx, str, triggerID, sessionName, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("reserve external agent trigger execution: %w", err)
+	}
+	if !started {
+		log.Info().
+			Str("app_id", a.ID).
+			Str("trigger_id", triggerID).
+			Str("execution_id", execution.ID).
+			Msg("skipped external agent cron execution because the previous execution is still running")
+		return "", nil
 	}
 
-	projectID := trigger.ProjectID
-	if projectID == "" {
-		return "", fmt.Errorf("project_id is required for zed_external cron triggers")
+	fail := func(taskErr error) (string, error) {
+		execution.Status = types.TriggerExecutionStatusError
+		execution.Error = taskErr.Error()
+		execution.DurationMs = time.Since(execution.Created).Milliseconds()
+		if _, updateErr := str.UpdateTriggerExecution(ctx, execution); updateErr != nil {
+			log.Error().Err(updateErr).Str("execution_id", execution.ID).Msg("failed to mark external agent cron execution as failed")
+		}
+		if notifyErr := notifier.Notify(ctx, &types.Notification{
+			Event:       types.EventCronTriggerFailed,
+			Message:     taskErr.Error(),
+			Emails:      trigger.Emails,
+			CallbackURL: trigger.CallbackURL,
+		}); notifyErr != nil {
+			log.Error().Err(notifyErr).Msg("failed to send failure notification")
+		}
+		return "", taskErr
+	}
+
+	if starter == nil {
+		return fail(fmt.Errorf("external agent starter not configured, cannot create zed_external cron session"))
+	}
+
+	projectID, err := externalAgentProjectID(ctx, str, a, userID, trigger.ProjectID)
+	if err != nil {
+		return fail(err)
 	}
 
 	session, err := starter.StartExternalAgentSession(ctx, &types.SessionChatRequest{
-		ProjectID:   projectID,
-		AgentType:   "zed_external",
-		SessionRole: "job",
-		CallbackURL: trigger.CallbackURL,
+		AppID:               a.ID,
+		SessionID:           sessionID,
+		AssistantID:         "0",
+		OrganizationID:      a.OrganizationID,
+		ProjectID:           projectID,
+		AgentType:           string(types.AgentTypeZedExternal),
+		ExternalAgentConfig: a.Config.Helix.ExternalAgentConfig,
+		SessionRole:         "job",
+		CallbackURL:         trigger.CallbackURL,
+		SystemPrompt:        prompts.RecurringTaskSystemPrompt(),
 		Messages: []*types.Message{
 			{
 				Role:    "user",
@@ -636,32 +715,11 @@ func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter 
 	}, userID)
 	if err != nil {
 		log.Error().Err(err).Str("app_id", a.ID).Msg("failed to start external agent cron session")
-
-		notifyErr := notifier.Notify(ctx, &types.Notification{
-			Event:       types.EventCronTriggerFailed,
-			Message:     err.Error(),
-			Emails:      trigger.Emails,
-			CallbackURL: trigger.CallbackURL,
-		})
-		if notifyErr != nil {
-			log.Error().Err(notifyErr).Msg("failed to send failure notification")
-		}
-		return "", err
+		return fail(err)
 	}
 
-	// Create execution record
-	execution := &types.TriggerExecution{
-		ID:                     system.GenerateUUID(),
-		Name:                   sessionName,
-		TriggerConfigurationID: triggerID,
-		Created:                time.Now(),
-		Updated:                time.Now(),
-		Status:                 types.TriggerExecutionStatusRunning,
-		SessionID:              session.ID,
-	}
-	_, err = str.CreateTriggerExecution(ctx, execution)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to create trigger execution for external agent")
+	if session.ID != sessionID {
+		return fail(fmt.Errorf("external agent starter returned session %s, expected %s", session.ID, sessionID))
 	}
 
 	log.Info().
@@ -670,6 +728,65 @@ func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter 
 		Msg("external agent cron session started")
 
 	return session.ID, nil
+}
+
+func reserveCronExecution(ctx context.Context, str store.Store, triggerID, sessionName, sessionID string) (*types.TriggerExecution, bool, error) {
+	return str.CreateTriggerExecutionUnlessRunning(ctx, &types.TriggerExecution{
+		ID:                     system.GenerateTriggerExecutionID(),
+		Name:                   sessionName,
+		TriggerConfigurationID: triggerID,
+		Status:                 types.TriggerExecutionStatusRunning,
+		SessionID:              sessionID,
+	})
+}
+
+func cronAgentType(app *types.App, trigger *types.CronTrigger) types.AgentType {
+	if trigger != nil && trigger.AgentType != "" {
+		return types.AgentType(trigger.AgentType)
+	}
+	if app == nil {
+		return ""
+	}
+	if len(app.Config.Helix.Assistants) > 0 && app.Config.Helix.Assistants[0].AgentType != "" {
+		return app.Config.Helix.Assistants[0].AgentType
+	}
+	return app.Config.Helix.DefaultAgentType
+}
+
+func externalAgentProjectID(ctx context.Context, str store.Store, app *types.App, userID, configuredProjectID string) (string, error) {
+	if configuredProjectID != "" {
+		return configuredProjectID, nil
+	}
+	if app == nil {
+		return "", fmt.Errorf("cannot resolve project for external agent: app is required")
+	}
+
+	query := &store.ListProjectsQuery{OrganizationID: app.OrganizationID}
+	if app.OrganizationID == "" {
+		query.UserID = userID
+	}
+	projects, err := str.ListProjects(ctx, query)
+	if err != nil {
+		return "", fmt.Errorf("failed to list projects for external agent %s: %w", app.ID, err)
+	}
+
+	var projectID string
+	for _, project := range projects {
+		if project.DefaultHelixAppID != app.ID &&
+			project.ProjectManagerHelixAppID != app.ID &&
+			project.PullRequestReviewerHelixAppID != app.ID {
+			continue
+		}
+		if projectID != "" {
+			return "", fmt.Errorf("multiple projects reference external agent %s; project_id is required", app.ID)
+		}
+		projectID = project.ID
+	}
+	if projectID == "" {
+		return "", fmt.Errorf("no project references external agent %s; project_id is required", app.ID)
+	}
+
+	return projectID, nil
 }
 
 func readInputFile(ctx context.Context, str store.Store, trigger *types.CronTrigger) (string, error) {
@@ -706,15 +823,10 @@ func readInputFile(ctx context.Context, str store.Store, trigger *types.CronTrig
 }
 
 func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator SpecTaskCreator, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
-	if specTaskCreator == nil {
-		return "", fmt.Errorf("spec task creator not configured, cannot execute spec_task action")
-	}
-
-	if trigger.ProjectID == "" {
-		return "", fmt.Errorf("project_id is required for spec_task action")
-	}
-
-	// Create execution record
+	// Create execution record FIRST, before any validation, so a misconfigured
+	// trigger leaves a visible failed execution rather than disappearing. A fire
+	// that records nothing is indistinguishable from a fire that never happened —
+	// that is how a dead scheduler went unnoticed for months.
 	execution := &types.TriggerExecution{
 		ID:                     system.GenerateUUID(),
 		Name:                   sessionName,
@@ -731,45 +843,39 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 		return "", fmt.Errorf("failed to create trigger execution: %w", err)
 	}
 
+	if specTaskCreator == nil {
+		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, triggerID, trigger.Emails,
+			fmt.Errorf("spec task creator not configured, cannot execute spec_task action"))
+	}
+
+	if trigger.ProjectID == "" {
+		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, triggerID, trigger.Emails,
+			fmt.Errorf("project_id is required for spec_task action"))
+	}
+
 	task, err := specTaskCreator.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
 		ProjectID: trigger.ProjectID,
 		Prompt:    trigger.Input,
 		UserID:    userID,
+		// Scheduled triggers explicitly want the task to run at the scheduled
+		// time, so skip backlog regardless of project AutoStartBacklogTasks.
+		AutoStart: true,
+		// A scheduled run must authenticate as the same person a hand-dispatched
+		// one does. Without this the agent falls back to the app owner — one
+		// service account for the whole fleet, so one expired token breaks every
+		// schedule at once and nobody can run their own agent on their own
+		// subscription. Empty keeps the old behaviour; the delegation check
+		// downstream still decides whether the grant actually exists.
+		CredentialOwnerID: trigger.CredentialOwnerID,
+		// Skip spec generation when the trigger asks for it. An unattended run
+		// left in spec_review waits forever for an approval nobody gives, and —
+		// because BranchName is only assigned on the transition to implementation
+		// — it is also refused every git push except helix-specs. See the note on
+		// CronTrigger.JustDoItMode.
+		JustDoItMode: trigger.JustDoItMode,
 	})
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("app_id", a.ID).
-			Str("project_id", trigger.ProjectID).
-			Msg("failed to create spec task from cron trigger")
-
-		// Send failure notification
-		notifyErr := notifier.Notify(ctx, &types.Notification{
-			Event:   types.EventCronTriggerFailed,
-			Message: err.Error(),
-			Emails:  trigger.Emails,
-		})
-		if notifyErr != nil {
-			log.Error().
-				Err(notifyErr).
-				Str("app_id", a.ID).
-				Msg("failed to send failure notification for spec task")
-		}
-
-		// Update execution with error
-		execution.Status = types.TriggerExecutionStatusError
-		execution.Error = err.Error()
-		execution.DurationMs = time.Since(startedAt).Milliseconds()
-
-		_, updateErr := str.UpdateTriggerExecution(ctx, execution)
-		if updateErr != nil {
-			log.Error().
-				Err(updateErr).
-				Str("execution_id", execution.ID).
-				Msg("failed to update execution")
-		}
-
-		return "", err
+		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, triggerID, trigger.Emails, err)
 	}
 
 	output := fmt.Sprintf("Created spec task %s: %s", task.ID, task.Name)
@@ -807,4 +913,40 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 		Msg("spec task cron job completed")
 
 	return output, nil
+}
+
+// recordSpecTaskFailure marks the execution failed, notifies, and returns cause so
+// the caller can propagate it. Every spec_task failure path goes through here so a
+// fire that produced no task always leaves a row explaining why.
+func recordSpecTaskFailure(ctx context.Context, str store.Store, notifier notification.Notifier, execution *types.TriggerExecution, startedAt time.Time, a *types.App, triggerID string, emails []string, cause error) error {
+	log.Error().
+		Err(cause).
+		Str("app_id", a.ID).
+		Str("trigger_id", triggerID).
+		Msg("failed to create spec task from cron trigger")
+
+	if err := notifier.Notify(ctx, &types.Notification{
+		Event:   types.EventCronTriggerFailed,
+		Message: cause.Error(),
+		Emails:  emails,
+	}); err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", a.ID).
+			Str("trigger_id", triggerID).
+			Msg("failed to send failure notification for spec task")
+	}
+
+	execution.Status = types.TriggerExecutionStatusError
+	execution.Error = cause.Error()
+	execution.DurationMs = time.Since(startedAt).Milliseconds()
+
+	if _, err := str.UpdateTriggerExecution(ctx, execution); err != nil {
+		log.Error().
+			Err(err).
+			Str("execution_id", execution.ID).
+			Msg("failed to update execution")
+	}
+
+	return cause
 }

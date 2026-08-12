@@ -28,6 +28,51 @@ const (
 
 // POST https://app.helix.ml/v1/chat/completions
 
+// agentToolNudge is appended to the system prompt of any tool-enabled chat
+// completion. Some models (e.g. GLM) narrate a plan and return finish_reason
+// "stop" with no tool call; the Zed agent reads "no tool call" as end-of-turn
+// and hands control back to the user, who then has to prod it. Claude chains
+// planning into the tool call in one turn, so it never strands the user. This
+// directive pushes narrate-then-stop models to act in the same turn.
+const agentToolNudge = "You have tools available. When you state an action you are about to take, call the corresponding tool in the same turn. Never end your turn with only a plan, a description of what you will do next, or a question about whether to proceed. If any work remains, call a tool. Stop only when the task is complete or you genuinely need input from the user."
+
+// injectAgentToolNudge appends agentToolNudge to the request's system prompt,
+// scoped to tool-enabled requests whose model name matches one of nudgeModels
+// (case-insensitive substrings of models confirmed to narrate-then-stop). A
+// request with no tools cannot act via a tool, so the directive would be noise.
+// It merges into an existing leading system message when that message uses plain
+// string content, otherwise it prepends a fresh system message (go-openai
+// rejects a message that sets both Content and MultiContent).
+func injectAgentToolNudge(req *openai.ChatCompletionRequest, nudgeModels []string) {
+	if len(req.Tools) == 0 {
+		return
+	}
+	model := strings.ToLower(req.Model)
+	matched := false
+	for _, m := range nudgeModels {
+		if m != "" && strings.Contains(model, strings.ToLower(m)) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return
+	}
+	if len(req.Messages) > 0 &&
+		req.Messages[0].Role == openai.ChatMessageRoleSystem &&
+		len(req.Messages[0].MultiContent) == 0 {
+		if req.Messages[0].Content != "" {
+			req.Messages[0].Content += "\n\n"
+		}
+		req.Messages[0].Content += agentToolNudge
+		return
+	}
+	req.Messages = append([]openai.ChatCompletionMessage{{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: agentToolNudge,
+	}}, req.Messages...)
+}
+
 // createChatCompletion godoc
 // @Summary Stream responses for chat
 // @Description Creates a model response for the given chat conversation.
@@ -65,6 +110,8 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	injectAgentToolNudge(&chatCompletionRequest, s.Cfg.Inference.AgentToolNudgeModels)
 
 	ownerID := user.ID
 	if user.TokenType == types.TokenTypeRunner {
@@ -125,6 +172,20 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 				chatCompletionRequest.Model = modelWithoutPrefix
 			}
 			// If not a known provider, treat the whole string as the model name (e.g., "meta-llama/Model")
+		}
+	}
+
+	// Last-resort: resolve the owning provider with a live model-list fetch.
+	// findProviderWithModel above only reads the model cache, which is warmed
+	// lazily by /v1/models and the picker. On a cold cache an unprefixed model
+	// id (e.g. one a downstream Helix forwarded after stripping its provider
+	// prefix) has nothing to match and would fall through to the default
+	// provider and 500. This only runs when both cache lookup and prefix
+	// parsing failed, so prefixed / cache-warm requests are unaffected.
+	if validatedProvider == "" {
+		if foundProvider, bareModel := s.resolveModelProviderLive(r.Context(), chatCompletionRequest.Model, ownerID, user.OrganizationID); foundProvider != "" {
+			validatedProvider = foundProvider
+			chatCompletionRequest.Model = bareModel
 		}
 	}
 
@@ -208,7 +269,6 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		}
 
 		ctx = oai.SetContextAppID(ctx, app.ID)
-		ctx = oai.SetContextOrganizationID(ctx, options.OrganizationID)
 
 		log.Debug().Str("app_id", options.AppID).Msg("using app_id from request")
 
@@ -228,6 +288,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 
 	ctx = oai.SetContextAppID(ctx, options.AppID)
+	ctx = oai.SetContextOrganizationID(ctx, options.OrganizationID)
 
 	// Non-streaming request returns the response immediately
 	if !chatCompletionRequest.Stream {
@@ -376,18 +437,20 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 				residue = modelName[len(globalProvider)+1:]
 			}
 			cacheKey := fmt.Sprintf("%s:%s", globalProvider, types.OwnerTypeSystem)
-			if cached, found := s.cache.Get(cacheKey); found {
-				var cachedModels []types.OpenAIModel
-				if err := json.Unmarshal([]byte(cached), &cachedModels); err == nil {
-					for _, m := range cachedModels {
-						if m.ID == modelName || m.ID == residue {
-							log.Debug().
-								Str("model", modelName).
-								Str("provider", string(globalProvider)).
-								Str("bare_model", residue).
-								Msg("found full model name in global provider's cached model list")
-							return string(globalProvider), residue
-						}
+			// Read via loadCachedModels: the cache stores the wrapped
+			// cachedModels{Models,FetchedAt} payload (the only writer is
+			// refreshProviderModels). Unmarshalling raw into []OpenAIModel
+			// here silently failed for every dynamically-fetched provider,
+			// so this lookup only ever matched static model lists.
+			if cm, found := s.loadCachedModels(cacheKey); found {
+				for _, m := range cm.Models {
+					if m.ID == modelName || m.ID == residue {
+						log.Debug().
+							Str("model", modelName).
+							Str("provider", string(globalProvider)).
+							Str("bare_model", residue).
+							Msg("found full model name in global provider's cached model list")
+						return string(globalProvider), residue
 					}
 				}
 			}
@@ -436,20 +499,18 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 		}
 
 		// First check the cached model list (dynamically fetched from provider's /v1/models)
-		// This is where the UI gets its model list from
+		// This is where the UI gets its model list from. Read via loadCachedModels
+		// to match the wrapped cachedModels{} payload format the writer uses.
 		cacheKey := fmt.Sprintf("%s:%s", provider.Name, provider.Owner)
-		if cached, found := s.cache.Get(cacheKey); found {
-			var cachedModels []types.OpenAIModel
-			if err := json.Unmarshal([]byte(cached), &cachedModels); err == nil {
-				for _, m := range cachedModels {
-					if m.ID == modelName || m.ID == residue {
-						log.Debug().
-							Str("model", modelName).
-							Str("provider", provider.Name).
-							Str("bare_model", residue).
-							Msg("found full model name in provider's cached model list")
-						return provider.Name, residue
-					}
+		if cm, found := s.loadCachedModels(cacheKey); found {
+			for _, m := range cm.Models {
+				if m.ID == modelName || m.ID == residue {
+					log.Debug().
+						Str("model", modelName).
+						Str("provider", provider.Name).
+						Str("bare_model", residue).
+						Msg("found full model name in provider's cached model list")
+					return provider.Name, residue
 				}
 			}
 		}

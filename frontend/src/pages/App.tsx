@@ -1,14 +1,17 @@
 import React, { FC, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
+import ChatOutlinedIcon from '@mui/icons-material/ChatOutlined'
 
 import Typography from '@mui/material/Typography'
-import { useTheme } from '@mui/material/styles'
 
 
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
+import AgentInfoPanel from '../components/app/AgentInfoPanel'
 import AppearanceSettings from '../components/app/AppearanceSettings'
 import AccessManagement from '../components/app/AccessManagement'
 import CodeExamples from '../components/app/CodeExamples'
@@ -32,19 +35,42 @@ import EvaluationTab from '../components/app/EvaluationTab'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
 import Skills from '../components/app/Skills'
+import OrgAgentSettings from '../components/app/OrgAgentSettings'
+import FocusedAgentDetails from '../components/app/FocusedAgentDetails'
 import MemoriesManagement from '../components/app/MemoriesManagement'
+import HelixOrgTopNav from '../components/helix-org/HelixOrgTopNav'
+import {
+  useActivateBot,
+  useListHelixOrgBotDetails,
+  useListHelixOrgBots,
+} from '../services/helixOrgService'
+import { AGENT_TYPE_ZED_EXTERNAL } from '../types'
+import { isOrgAgent, usesFocusedAgentDetails } from '../utils/apps'
 
 const App: FC = () => {
   const account = useAccount()  
   const api = useApi()
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
-  const theme = useTheme()
-  const {
-    params,
-  } = useRouter()
+  const router = useRouter()
+  const { params } = router
 
   const appTools = useApp(params.app_id)
+  const appIsOrgAgent = isOrgAgent(appTools.app)
+  const { data: orgAgents = [], isLoading: orgAgentsLoading } = useListHelixOrgBots({
+    enabled: appIsOrgAgent,
+  })
+  const orgAgentDetails = useListHelixOrgBotDetails(
+    orgAgents.map((agent) => agent.id).filter((id): id is string => !!id),
+    { enabled: appIsOrgAgent },
+  )
+  const linkedOrgAgentDetail = orgAgentDetails.find(
+    (detail) => (detail?.agent_id ?? detail?.agent_app_id) === params.app_id,
+  )
+  const linkedOrgAgent = linkedOrgAgentDetail?.bot
+  const orgAgentDetailLoading = orgAgentsLoading
+    || (orgAgents.length > 0 && orgAgentDetails.some((detail) => !detail))
+  const activateOrgAgent = useActivateBot()
   // Get user access information from appTools
   const { userAccess } = appTools
 
@@ -56,13 +82,19 @@ const App: FC = () => {
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
   
-  // Get tab from URL params instead of local state
-  const tabValue = params.tab || 'appearance';
+  const legacyGeneralTabs = ['settings', 'instructions', 'appearance']
+  const tabValue = !params.tab || legacyGeneralTabs.includes(params.tab) ? 'general' : params.tab
+
+  useEffect(() => {
+    if (params.tab && legacyGeneralTabs.includes(params.tab)) {
+      router.mergeParams({ tab: 'general' })
+    }
+  }, [params.tab])
 
   useEffect(() => {
     const checkAccess = async () => {
       try {
-        const result = await api.getApiClient().v1AppsDetail(params.app_id)        
+        const result = await api.getApiClient().v1AgentsDetail(params.app_id)
         if (!result) {
           setIsAccessDenied(true)
         }
@@ -82,6 +114,28 @@ const App: FC = () => {
   if (!appTools.app) return null
 
   const isReadOnly = appTools.isReadOnly || !appTools.isSafeToSave
+  const appIsFocusedAgent = usesFocusedAgentDetails(appTools.app)
+
+  const openChat = async () => {
+    if (!linkedOrgAgent?.id) {
+      account.orgNavigate('new', { app_id: appTools.id, resource_type: 'apps' })
+      return
+    }
+    if (!params.org_id) return
+    try {
+      const result = await activateOrgAgent.mutateAsync(linkedOrgAgent.id)
+      let sessionID = result.session_id
+      if (!sessionID) {
+        if (!result.project_id) throw new Error('failed to open agent chat')
+        const response = await api.getApiClient().v1ProjectsExploratorySessionCreate(result.project_id)
+        sessionID = response.data?.id
+      }
+      if (!sessionID) throw new Error('failed to open agent chat')
+      router.navigate('org_session', { org_id: params.org_id, session_id: sessionID })
+    } catch (error: any) {
+      snackbar.error(error?.response?.data?.error ?? error?.message ?? 'failed to open agent chat')
+    }
+  }
 
   return (
     <Page
@@ -96,6 +150,20 @@ const App: FC = () => {
           title: appTools.flatApp?.name || 'Agent',
         }
       ]}
+      topbarContent={(
+        <>
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={activateOrgAgent.isPending ? <CircularProgress size={16} /> : <ChatOutlinedIcon />}
+            onClick={() => void openChat()}
+            disabled={activateOrgAgent.isPending || (appIsOrgAgent && !linkedOrgAgent)}
+          >
+            Open chat
+          </Button>
+          <HelixOrgTopNav />
+        </>
+      )}
     >
       <Container
         maxWidth="xl"
@@ -105,26 +173,112 @@ const App: FC = () => {
       >
         <Box sx={{ width: '100%', pl: 2, pr: 2, mt: 2 }}>
           <Grid container>
-            {/* Tab Content - Full Width */}
             <Grid item xs={12} sx={{
-              backgroundColor: lightTheme.panelColor,
               p: 0,
               mt: 2,
               mb: 2,
-              borderRadius: 2,
-              boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)',
             }}>
-              <Box sx={{ width: '100%', p: 0, pl: 4 }}>
+              <Box sx={{ width: '100%' }}>
                 <Grid container spacing={0}>
-                  {tabValue === 'usage' ? (
+                  {appIsFocusedAgent && appTools.flatApp ? (
+                    <Grid item xs={12} sx={{ pb: 8 }}>
+                      <FocusedAgentDetails
+                        agentID={appTools.id}
+                        app={appTools.flatApp}
+                        kind={appIsOrgAgent ? 'org' : 'coding'}
+                        onUpdate={appTools.saveFlatApp}
+                        onCanonicalUpdate={() => appTools.loadApp(appTools.id)}
+                        readOnly={isReadOnly}
+                        showErrors={appTools.showErrors}
+                        isAdmin={account.admin}
+                        orgAgentDetail={linkedOrgAgentDetail}
+                        orgAgentDetailLoading={orgAgentDetailLoading}
+                        accessManagement={userAccess?.isAdmin ? (
+                          <AccessManagement
+                            appId={appTools.id}
+                            accessGrants={appTools.accessGrants}
+                            isLoading={false}
+                            isReadOnly={isReadOnly}
+                            onCreateGrant={appTools.createAccessGrant}
+                            onDeleteGrant={appTools.deleteAccessGrant}
+                          />
+                        ) : undefined}
+                      />
+                    </Grid>
+                  ) : tabValue === 'general' ? (
+                    <Grid item xs={12} sx={{ pb: 8 }}>
+                      <Grid container spacing={4}>
+                        <Grid item xs={12} md={8}>
+                          {appTools.flatApp && (
+                            <AppSettings
+                              id={appTools.id}
+                              app={appTools.flatApp}
+                              onUpdate={appTools.saveFlatApp}
+                              readOnly={isReadOnly}
+                              showErrors={appTools.showErrors}
+                              isAdmin={account.admin}
+                              section="general"
+                              generalAside={(
+                                <AppearanceSettings
+                                  app={appTools.flatApp}
+                                  onUpdate={appTools.saveFlatApp}
+                                  readOnly={isReadOnly}
+                                  id={appTools.id}
+                                  section="avatar"
+                                />
+                              )}
+                            />
+                          )}
+                          {appTools.flatApp && (
+                            <AppearanceSettings
+                              app={appTools.flatApp}
+                              onUpdate={appTools.saveFlatApp}
+                              readOnly={isReadOnly}
+                              showErrors={appTools.showErrors}
+                              id={appTools.id}
+                              section="conversation-starters"
+                            />
+                          )}
+                          {appIsOrgAgent && (
+                            <OrgAgentSettings
+                              agentID={appTools.id}
+                              section="runtime"
+                              readOnly={isReadOnly}
+                              detail={linkedOrgAgentDetail}
+                            />
+                          )}
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          <AgentInfoPanel app={appTools.app} orgAgent={linkedOrgAgent} />
+                        </Grid>
+                      </Grid>
+                    </Grid>
+                  ) : tabValue === 'runtime' ? (
+                    <Grid item xs={12} sx={{ pb: 8 }}>
+                      <Box sx={{ maxWidth: 960 }}>
+                        {appTools.flatApp && (
+                          <AppSettings
+                            id={appTools.id}
+                            app={appTools.flatApp}
+                            onUpdate={appTools.saveFlatApp}
+                            readOnly={isReadOnly}
+                            showErrors={appTools.showErrors}
+                            isAdmin={account.admin}
+                            section="runtime"
+                            hideAgentType={appIsOrgAgent}
+                          />
+                        )}
+                      </Box>
+                    </Grid>
+                  ) : tabValue === 'usage' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                      <Box>
                         <AppUsage appId={appTools.id} />
                       </Box>
                     </Grid>
                   ) : tabValue === 'skills' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                      <Box>
                         { appTools.flatApp && (
                           <Skills
                             app={appTools.flatApp}
@@ -132,11 +286,14 @@ const App: FC = () => {
                             onUpdate={appTools.saveFlatApp}
                           />
                         )}
+                        {appIsOrgAgent && (
+                          <OrgAgentSettings agentID={appTools.id} section="tools" readOnly={isReadOnly} />
+                        )}
                       </Box>
                     </Grid>
                   ) : tabValue === 'tests' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                      <Box>
                         { appTools.flatApp && (
                           <TestsEditor
                             app={appTools.flatApp}
@@ -148,13 +305,13 @@ const App: FC = () => {
                     </Grid>
                   ) : tabValue === 'evaluation' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                      <Box>
                         <EvaluationTab appId={appTools.id} />
                       </Box>
                     </Grid>
                   ) : tabValue === 'memories' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                      <Box>
                         <MemoriesManagement 
                           appId={appTools.id} 
                           memory={appTools.flatApp?.memory || false}
@@ -165,7 +322,7 @@ const App: FC = () => {
                     </Grid>
                   ) : tabValue === 'developers' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                      <Box>
                         <DevelopersSection
                           schema={appTools.appSchema}
                           setSchema={appTools.setAppSchema}
@@ -177,7 +334,7 @@ const App: FC = () => {
                     </Grid>
                   ) : tabValue === 'mcp' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                      <Box>
                         <IdeIntegrationSection
                           appId={appTools.id}
                         />
@@ -185,7 +342,10 @@ const App: FC = () => {
                     </Grid>
                   ) : tabValue === 'triggers' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                      <Box sx={{ maxWidth: 1100 }}>
+                        {appIsOrgAgent && (
+                          <OrgAgentSettings agentID={appTools.id} section="subscriptions" readOnly={isReadOnly} />
+                        )}
                         <Triggers
                           app={appTools.flatApp || {}}
                           appId={appTools.id}
@@ -197,58 +357,29 @@ const App: FC = () => {
                     </Grid>                  
                   ) : tabValue === 'access' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: 2, mr: 3 }}>
-                        <AccessManagement
-                          appId={appTools.id}
-                          accessGrants={appTools.accessGrants}
-                          isLoading={false}
-                          isReadOnly={isReadOnly}
-                          onCreateGrant={appTools.createAccessGrant}
-                          onDeleteGrant={appTools.deleteAccessGrant}
-                        />
+                      <Box sx={{ mt: 2, maxWidth: 1100 }}>
+                        {appIsOrgAgent && (
+                          <OrgAgentSettings agentID={appTools.id} section="access" readOnly={isReadOnly} />
+                        )}
+                        {userAccess?.isAdmin && (
+                          <AccessManagement
+                            appId={appTools.id}
+                            accessGrants={appTools.accessGrants}
+                            isLoading={false}
+                            isReadOnly={isReadOnly}
+                            onCreateGrant={appTools.createAccessGrant}
+                            onDeleteGrant={appTools.deleteAccessGrant}
+                          />
+                        )}
                       </Box>
                     </Grid>
                   ) : (
                     <>
-                      <Grid item xs={12} md={6} sx={{
-                        borderRight: '1px solid #303047',
-                        overflow: 'auto',
+                      <Grid item xs={12} md={appTools.flatApp?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL && tabValue !== 'apikeys' ? 12 : 6} sx={{
                         pb: 8,
-                        minHeight: 'calc(100vh - 120px)', // Ensure minimum height minus header
-                        ...lightTheme.scrollbar
+                        minHeight: 'calc(100vh - 120px)'
                       }}>
-                        <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
-                          {appTools.flatApp && (
-                            <Box sx={{ display: tabValue === 'appearance' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
-                              <AppearanceSettings
-                                app={appTools.flatApp}
-                                onUpdate={appTools.saveFlatApp}
-                                readOnly={isReadOnly}
-                                showErrors={appTools.showErrors}
-                                id={appTools.id}
-                              />
-                            </Box>
-                          )}
-
-                          {appTools.flatApp && (
-                            <Box sx={{
-                              display: tabValue === 'settings' ? 'block' : 'none',
-                              height: 'calc(100vh - 200px)',
-                              overflow: 'auto',
-                              ...lightTheme.scrollbar,
-                              pb: 4
-                            }}>
-                              <AppSettings
-                                id={appTools.id}
-                                app={appTools.flatApp}
-                                onUpdate={appTools.saveFlatApp}
-                                readOnly={isReadOnly}
-                                showErrors={appTools.showErrors}
-                                isAdmin={account.admin}
-                              />
-                            </Box>
-                          )}
-
+                        <Box>
                           <Box sx={{ display: tabValue === 'knowledge' ? 'block' : 'none', height: '100%', overflow: 'auto', mr: 2 }}>
                             <Typography variant="h6" sx={{ mb: 2, mt: 2 }}>
                               Knowledge Sources
@@ -279,10 +410,9 @@ const App: FC = () => {
                           </Box>
                         </Box>
                       </Grid>
-                      {/* For API keys section show  */}
                       {tabValue === 'apikeys' ? (
                         <CodeExamples apiKey={account.appApiKeys[0]?.key || ''} />
-                      ) : (
+                      ) : appTools.flatApp?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL ? null : (
                         <PreviewPanel
                           appId={appTools.id}
                           loading={appTools.isInferenceLoading}

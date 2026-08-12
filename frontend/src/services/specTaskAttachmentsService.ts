@@ -7,7 +7,7 @@ import useApi from '../hooks/useApi'
 
 const SPEC_TASK_ATTACHMENTS_KEY = 'spec-task-attachments'
 
-export const SPEC_TASK_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024 // 10 MB
+export const SPEC_TASK_ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024 // 100 MB
 export const SPEC_TASK_ATTACHMENT_MAX_PER_TASK = 10
 
 export const SPEC_TASK_ATTACHMENT_ACCEPTED_MIME: Record<string, string[]> = {

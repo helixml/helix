@@ -16,6 +16,7 @@ import DarkDialog from '../components/dialog/DarkDialog'
 import GeneralSettings from '../components/account/GeneralSettings'
 import ApiKeysSettings from '../components/account/ApiKeysSettings'
 import ChatSettings from '../components/account/ChatSettings'
+import GitConfigSettings from '../components/account/GitConfigSettings'
 
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
@@ -93,6 +94,7 @@ const Account: FC<AccountProps> = ({ tab = 'general' }) => {
               <GeneralSettings onOpenPasswordDialog={() => setPasswordDialogOpen(true)} />
             )}
             {tab === 'chat' && <ChatSettings />}
+            {tab === 'git_config' && <GitConfigSettings />}
             {tab === 'api_keys' && <ApiKeysSettings />}
           </Box>
         </Box>

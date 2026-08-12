@@ -85,6 +85,17 @@ type SessionFileManager interface {
 	DownloadFolder(remotePath string, localPath string) error
 }
 
+type ReasoningConfig struct {
+	SupportsReasoningEffort bool `json:"supports_reasoning_effort"`
+	// SupportedReasoningEfforts lists the effort values the model accepts.
+	// Models in the GPT-5 family accept "none", and for those an explicit
+	// "none" is meaningfully different from omitting the parameter: omitting
+	// it makes the provider apply DefaultReasoningEffort, which on some models
+	// (gpt-5.6-*) makes the request incompatible with function tools.
+	SupportedReasoningEfforts []string `json:"supported_reasoning_efforts"`
+	DefaultReasoningEffort    string   `json:"default_reasoning_effort"`
+}
+
 type ModelInfoResponse struct { //nolint:revive
 	Data []ModelInfoData `json:"data"`
 }
@@ -112,7 +123,7 @@ type ModelInfoData struct { //nolint:revive
 	Router              any              `json:"router"`
 	WarningMessage      string           `json:"warning_message"`
 	Permaslug           string           `json:"permaslug"`
-	ReasoningConfig     any              `json:"reasoning_config"`
+	ReasoningConfig     *ReasoningConfig `json:"reasoning_config"`
 	Features            any              `json:"features"`
 	Endpoint            struct {
 		ID            string `json:"id"`

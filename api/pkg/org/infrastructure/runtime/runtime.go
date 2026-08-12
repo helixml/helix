@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -23,7 +24,7 @@ import (
 // Spawner runs an AI Worker's agent process for a single activation
 // and BLOCKS until the process exits. The triggers slice tells the
 // Spawner (and through it, the agent) why this activation is happening
-// — first hire, or one or more events on subscribed Streams that
+// — first hire, or one or more events on subscribed Topics that
 // arrived while a previous activation was running. The Dispatcher
 // coalesces bursts so the slice is usually length 1, but the agent
 // must handle longer slices when traffic queues up.
@@ -34,24 +35,17 @@ import (
 //
 // The zero value — nil — means "no process will be spawned", which
 // is correct for tests and for HumanWorker activations.
-type Spawner func(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, triggers []activation.Trigger) error
+type Spawner func(ctx context.Context, orgID string, workerID orgchart.NodeID, triggers []activation.Trigger) error
 
-// WorkspaceSync mirrors the canonical Role and Identity content of a
-// Worker into wherever that Worker's runtime reads them at activation
-// time. Tools (update_role, update_identity) call MirrorFile after
-// persisting to the DB so the next activation sees fresh content
-// without waiting for the spawner's projection step.
+// WorkspaceSync mirrors a Worker-scoped artifact into its runtime workspace.
 //
-// `name` is a logical filename for this Worker — typically "role.md"
-// or "identity.md". The backend maps the name to its own on-target
+// `name` is a logical filename for this Worker. The backend maps the name to its own on-target
 // layout; callers must NOT include backend-specific path prefixes
 // (no "workers/<id>/.context/...", no "job/..."). The mapping today
 // (helix runtime, the sole concrete impl):
 //
 //   - workers/<workerID>/.context/<name> on the helix-specs branch
-//     of the Worker's per-Worker repo (matches what
-//     `WorkerProject.republishWorkerFiles` writes and what the
-//     activation mandate tells the agent to `git pull` and `cat`)
+//     of the Worker's per-Worker repo
 //
 // `name` must be a clean, single-segment-or-relative filename — no
 // leading slash, no "..", no escape from the Worker's namespace.
@@ -61,9 +55,9 @@ type Spawner func(ctx context.Context, orgID string, workerID orgchart.WorkerID,
 // are safe no-ops — implementations skip the mirror and return nil.
 //
 // Naming: see ADR-0001 §7 — MirrorFile, not PublishFile. "Publish"
-// is reserved for the MCP-tool sense ("append an Event to a Stream").
+// is reserved for the MCP-tool sense ("append an Event to a Topic").
 type WorkspaceSync interface {
-	MirrorFile(ctx context.Context, orgID string, workerID orgchart.WorkerID, name, content, message string) error
+	MirrorFile(ctx context.Context, orgID string, workerID orgchart.NodeID, name, content, message string) error
 }
 
 // NoopWorkspaceSync is a WorkspaceSync that does nothing. Useful for
@@ -71,7 +65,7 @@ type WorkspaceSync interface {
 type NoopWorkspaceSync struct{}
 
 // MirrorFile is the no-op WorkspaceSync: ignore the call and return nil.
-func (NoopWorkspaceSync) MirrorFile(_ context.Context, _ string, _ orgchart.WorkerID, _, _, _ string) error {
+func (NoopWorkspaceSync) MirrorFile(_ context.Context, _ string, _ orgchart.NodeID, _, _, _ string) error {
 	return nil
 }
 
@@ -112,7 +106,7 @@ func ValidateWorkspaceName(name string) error {
 // SaveHiringUser call returns a wrapped error). Document the trade-off
 // at the call site.
 type HireHook interface {
-	OnHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, hiringUserID string) error
+	OnHire(ctx context.Context, orgID string, workerID orgchart.NodeID, hiringUserID string) error
 }
 
 // NoopHireHook is a HireHook that does nothing. Useful for
@@ -121,7 +115,7 @@ type HireHook interface {
 type NoopHireHook struct{}
 
 // OnHire is the no-op HireHook: ignore the call and return nil.
-func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.WorkerID, _ string) error {
+func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.NodeID, _ string) error {
 	return nil
 }
 
@@ -132,7 +126,7 @@ func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.WorkerID, _ s
 //
 // Implementations key by orgID + workerID (the operator-facing
 // identifier on the org chart); the helix runtime impl resolves
-// worker→projectID via WorkerRuntimeState internally so MCP tool
+// worker→projectID via NodeRuntimeState internally so MCP tool
 // callers never see project IDs. Other runtimes (claude, dev) plug
 // in NoopProjectConfig — the configure_worker_project tool reports
 // "not supported on this runtime" when invoked.
@@ -142,8 +136,14 @@ func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.WorkerID, _ s
 // configure_worker_project for partial updates from chat
 // ("change the startup script but leave skills alone").
 type ProjectConfig interface {
-	GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID) (ProjectConfigSnapshot, error)
-	UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID, patch ProjectConfigPatch) (ProjectConfigSnapshot, error)
+	GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.NodeID) (ProjectConfigSnapshot, error)
+	UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.NodeID, patch ProjectConfigPatch) (ProjectConfigSnapshot, error)
+	// ListWorkerProjectSecrets returns the worker's project secrets as a
+	// name→value map, read live so a secret added after the container
+	// booted is visible without a restart. Backs the list_secrets tool:
+	// the agent reads these and exports the ones it needs, the same way
+	// mint_credential feeds gh/git tokens into the shell.
+	ListWorkerProjectSecrets(ctx context.Context, orgID string, workerID orgchart.NodeID) (map[string]string, error)
 }
 
 // ProjectConfigSnapshot is the read shape returned by
@@ -173,14 +173,371 @@ type ProjectConfigPatch struct {
 // clear "not configured" error rather than corrupt data.
 type NoopProjectConfig struct{}
 
-func (NoopProjectConfig) GetWorkerProjectConfig(_ context.Context, _ string, _ orgchart.WorkerID) (ProjectConfigSnapshot, error) {
+func (NoopProjectConfig) GetWorkerProjectConfig(_ context.Context, _ string, _ orgchart.NodeID) (ProjectConfigSnapshot, error) {
 	return ProjectConfigSnapshot{}, ErrProjectConfigUnsupported
 }
 
-func (NoopProjectConfig) UpdateWorkerProjectConfig(_ context.Context, _ string, _ orgchart.WorkerID, _ ProjectConfigPatch) (ProjectConfigSnapshot, error) {
+func (NoopProjectConfig) UpdateWorkerProjectConfig(_ context.Context, _ string, _ orgchart.NodeID, _ ProjectConfigPatch) (ProjectConfigSnapshot, error) {
 	return ProjectConfigSnapshot{}, ErrProjectConfigUnsupported
+}
+
+func (NoopProjectConfig) ListWorkerProjectSecrets(_ context.Context, _ string, _ orgchart.NodeID) (map[string]string, error) {
+	return nil, ErrProjectConfigUnsupported
 }
 
 // ErrProjectConfigUnsupported is what the noop impl returns. Tools
 // translate it into a friendly snackbar / MCP error.
 var ErrProjectConfigUnsupported = errors.New("project config access not wired on this runtime")
+
+// SpecTasks is the port the org MCP spec-task tools use to manage the
+// spec tasks in a Worker's own Helix project. Its verbs mirror the
+// actions a human project manager performs in the UI — create, review,
+// approve, request changes, open PRs — rather than generic CRUD.
+//
+// Implementations key by orgID + workerID; the helix runtime impl
+// resolves worker→projectID via WorkerRuntimeState internally. Every verb
+// also takes an optional projectID: empty means "the Worker's own
+// project" (the original behaviour — a Worker managing its own tasks); a
+// non-empty projectID targets another project the caller manages, and the
+// impl MUST assert that project belongs to the caller's org (a hard
+// cross-org block) before acting. This is what lets an org-wide project
+// manager Bot drive spec tasks across several projects in its org. Other
+// runtimes plug in NoopSpecTasks, and the tools surface
+// ErrSpecTasksUnsupported.
+type SpecTasks interface {
+	// Create makes a new spec task in the target project (status
+	// backlog). Mirrors the REST create-from-prompt path.
+	Create(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID string, in CreateSpecTaskInput) (SpecTaskView, error)
+	// List returns the target project's spec tasks, optionally filtered.
+	List(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID string, filter ListSpecTasksFilter) ([]SpecTaskView, error)
+	// Get returns one spec task; it must belong to the target project.
+	Get(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
+	// Update changes a task's editable metadata without bypassing its
+	// lifecycle workflow.
+	Update(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string, in UpdateSpecTaskInput) (SpecTaskView, error)
+	// StartPlanning begins spec generation (or queues implementation
+	// when the task is in skip-planning / just-do-it mode).
+	StartPlanning(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
+	// StopAgent stops the task's running desktop, if any. It leaves the task
+	// and session records intact so work can be resumed.
+	StopAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
+	// ReviewSpec returns the generated requirements/design/tasks for the
+	// caller to review before approving or requesting changes.
+	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecReviewView, error)
+	// ApproveSpec approves the generated spec, advancing the task toward
+	// implementation.
+	ApproveSpec(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
+	// RequestChanges sends the spec back for revision with a comment.
+	RequestChanges(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID, comment string) (SpecTaskView, error)
+	// CreatePullRequests tells the system the code is good and to open
+	// the pull request(s) — one per repo attached to the project. It
+	// does NOT merge/approve on GitHub.
+	CreatePullRequests(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
+}
+
+// CreateSpecTaskInput is the create shape. Only Name and Description are
+// required; the rest mirror the optional fields the Optimus skill /
+// REST create accept.
+type CreateSpecTaskInput struct {
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Type           string   `json:"type,omitempty"`     // feature | bug | refactor (default feature)
+	Priority       string   `json:"priority,omitempty"` // low | medium | high | critical (default medium)
+	OriginalPrompt string   `json:"original_prompt,omitempty"`
+	SkipPlanning   bool     `json:"skip_planning,omitempty"`
+	DependsOn      []string `json:"depends_on,omitempty"`
+}
+
+// UpdateSpecTaskInput is the safe metadata-edit surface. Lifecycle state
+// changes use the dedicated start/review/approve/stop verbs instead.
+type UpdateSpecTaskInput struct {
+	Name         *string   `json:"name,omitempty"`
+	Description  *string   `json:"description,omitempty"`
+	Type         *string   `json:"type,omitempty"`
+	Priority     *string   `json:"priority,omitempty"`
+	SkipPlanning *bool     `json:"skip_planning,omitempty"`
+	DependsOn    *[]string `json:"depends_on,omitempty"`
+}
+
+// ListSpecTasksFilter narrows a List call. Empty fields = no filter.
+type ListSpecTasksFilter struct {
+	Status   string `json:"status,omitempty"`
+	Priority string `json:"priority,omitempty"`
+	Type     string `json:"type,omitempty"`
+}
+
+// SpecTaskView is the tool-facing projection of a spec task. Append-only
+// from the JSON wire format so existing tool clients keep working.
+type SpecTaskView struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description,omitempty"`
+	Status       string            `json:"status"`
+	Priority     string            `json:"priority,omitempty"`
+	Type         string            `json:"type,omitempty"`
+	BranchName   string            `json:"branch_name,omitempty"`
+	PullRequests []PullRequestView `json:"pull_requests,omitempty"`
+}
+
+// PullRequestView is one PR opened for a task's repo. CreatePullRequests
+// can produce several (one per attached repo).
+type PullRequestView struct {
+	RepositoryName string `json:"repository_name,omitempty"`
+	URL            string `json:"url,omitempty"`
+	State          string `json:"state,omitempty"`
+}
+
+// SpecReviewView is the read shape for ReviewSpec — the generated spec
+// documents plus the task's current status so the reviewer has context.
+type SpecReviewView struct {
+	TaskID       string `json:"task_id"`
+	Status       string `json:"status"`
+	Requirements string `json:"requirements,omitempty"`
+	Design       string `json:"design,omitempty"`
+	Tasks        string `json:"tasks,omitempty"`
+}
+
+// NoopSpecTasks satisfies SpecTasks without doing anything — the default
+// for tools.Deps so production paths that don't wire a real impl don't
+// crash. Every verb returns ErrSpecTasksUnsupported.
+type NoopSpecTasks struct{}
+
+func (NoopSpecTasks) Create(_ context.Context, _ string, _ orgchart.NodeID, _ string, _ CreateSpecTaskInput) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) List(_ context.Context, _ string, _ orgchart.NodeID, _ string, _ ListSpecTasksFilter) ([]SpecTaskView, error) {
+	return nil, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) Get(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) Update(_ context.Context, _ string, _ orgchart.NodeID, _, _ string, _ UpdateSpecTaskInput) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) StopAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecReviewView, error) {
+	return SpecReviewView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) ApproveSpec(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) RequestChanges(_ context.Context, _ string, _ orgchart.NodeID, _, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) CreatePullRequests(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+
+// ErrSpecTasksUnsupported is what the noop impl returns. Tools translate
+// it into a friendly MCP error.
+var ErrSpecTasksUnsupported = errors.New("spec task access not wired on this runtime")
+
+// Projects is the port the org MCP project-discovery tools use to list
+// and read the Helix projects in the caller's org — so an org-wide
+// project-manager Bot can discover which projects exist before deciding
+// which to manage. Reads are ALWAYS scoped to the caller's org: List
+// returns only that org's projects, and Get asserts the project belongs
+// to the org (a project id from another tenant returns an error, never
+// another org's data). Other runtimes plug in NoopProjects and the tools
+// surface ErrProjectsUnsupported.
+type Projects interface {
+	// List returns the projects in the caller's org.
+	List(ctx context.Context, orgID string) ([]ProjectView, error)
+	// Get returns one project by id; it must belong to the caller's org.
+	Get(ctx context.Context, orgID, projectID string) (ProjectView, error)
+}
+
+// ProjectView is the tool-facing projection of a Helix project. Append-only
+// from the JSON wire format so existing tool clients keep working.
+type ProjectView struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Description    string `json:"description,omitempty"`
+	Status         string `json:"status,omitempty"`
+	DefaultRepoID  string `json:"default_repo_id,omitempty"`
+	DefaultAgentID string `json:"default_helix_app_id,omitempty"`
+}
+
+// NoopProjects satisfies Projects without doing anything — the default for
+// tools.Deps so production paths that don't wire a real impl don't crash.
+type NoopProjects struct{}
+
+func (NoopProjects) List(_ context.Context, _ string) ([]ProjectView, error) {
+	return nil, ErrProjectsUnsupported
+}
+func (NoopProjects) Get(_ context.Context, _, _ string) (ProjectView, error) {
+	return ProjectView{}, ErrProjectsUnsupported
+}
+
+// ErrProjectsUnsupported is what the noop impl returns. Tools translate it
+// into a friendly MCP error.
+var ErrProjectsUnsupported = errors.New("project access not wired on this runtime")
+
+// Sandboxes is the port the org MCP sandbox tools use to manage standalone
+// Sandboxes API containers in the caller's organization. Implementations must
+// scope every row by orgID and derive the human owner for Create from the
+// authenticated caller/runtime state rather than accepting it as tool input.
+type Sandboxes interface {
+	ListRuntimes(ctx context.Context) (SandboxRuntimeCatalog, error)
+	List(ctx context.Context, orgID, projectID string) ([]SandboxView, error)
+	Get(ctx context.Context, orgID, sandboxID string) (SandboxView, error)
+	Create(ctx context.Context, orgID string, botID orgchart.NodeID, in CreateSandboxInput) (SandboxView, error)
+	Update(ctx context.Context, orgID, sandboxID string, in UpdateSandboxInput) (SandboxView, error)
+	Delete(ctx context.Context, orgID, sandboxID string) error
+	OpenTerminal(ctx context.Context, orgID, sandboxID, shell string) (SandboxTerminal, error)
+}
+
+// SandboxTerminal is the message-oriented interactive terminal transport used
+// by the native SSH proxy. Implementations preserve binary stdin/stdout frames
+// and JSON text control frames (resize, error, exit) from the sandbox runtime.
+type SandboxTerminal interface {
+	ReadMessage() (messageType int, data []byte, err error)
+	WriteMessage(messageType int, data []byte) error
+	Close() error
+}
+
+type SandboxRuntimeCatalog struct {
+	Runtimes       []string `json:"runtimes"`
+	DefaultRuntime string   `json:"default_runtime"`
+}
+
+type CreateSandboxInput struct {
+	Name           string            `json:"name,omitempty"`
+	Runtime        string            `json:"runtime,omitempty"`
+	Image          string            `json:"image,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
+	VCPUs          int               `json:"vcpus,omitempty"`
+	MemoryMB       int               `json:"memory_mb,omitempty"`
+	DisplayWidth   int               `json:"display_width,omitempty"`
+	DisplayHeight  int               `json:"display_height,omitempty"`
+	DisplayFPS     int               `json:"display_fps,omitempty"`
+	ProjectID      string            `json:"project_id,omitempty"`
+	Persistent     bool              `json:"persistent,omitempty"`
+}
+
+type UpdateSandboxInput struct {
+	Name           *string            `json:"name,omitempty"`
+	TimeoutSeconds *int               `json:"timeout_seconds,omitempty"`
+	Tags           *map[string]string `json:"tags,omitempty"`
+}
+
+// SandboxView intentionally excludes environment variables: list/get tool
+// results are fed back into an LLM transcript, so echoing sandbox secrets by
+// default would turn routine inventory into credential disclosure.
+type SandboxView struct {
+	ID             string            `json:"id"`
+	Name           string            `json:"name,omitempty"`
+	OrganizationID string            `json:"organization_id"`
+	ProjectID      string            `json:"project_id,omitempty"`
+	Owner          string            `json:"owner"`
+	Runtime        string            `json:"runtime"`
+	Image          string            `json:"image,omitempty"`
+	Status         string            `json:"status"`
+	StatusMessage  string            `json:"status_message,omitempty"`
+	VCPUs          int               `json:"vcpus"`
+	MemoryMB       int               `json:"memory_mb"`
+	Persistent     bool              `json:"persistent"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+	StartedAt      *time.Time        `json:"started_at,omitempty"`
+	StoppedAt      *time.Time        `json:"stopped_at,omitempty"`
+	ExpiresAt      *time.Time        `json:"expires_at,omitempty"`
+}
+
+type NoopSandboxes struct{}
+
+func (NoopSandboxes) ListRuntimes(_ context.Context) (SandboxRuntimeCatalog, error) {
+	return SandboxRuntimeCatalog{}, ErrSandboxesUnsupported
+}
+func (NoopSandboxes) List(_ context.Context, _, _ string) ([]SandboxView, error) {
+	return nil, ErrSandboxesUnsupported
+}
+func (NoopSandboxes) Get(_ context.Context, _, _ string) (SandboxView, error) {
+	return SandboxView{}, ErrSandboxesUnsupported
+}
+func (NoopSandboxes) Create(_ context.Context, _ string, _ orgchart.NodeID, _ CreateSandboxInput) (SandboxView, error) {
+	return SandboxView{}, ErrSandboxesUnsupported
+}
+func (NoopSandboxes) Update(_ context.Context, _, _ string, _ UpdateSandboxInput) (SandboxView, error) {
+	return SandboxView{}, ErrSandboxesUnsupported
+}
+func (NoopSandboxes) Delete(_ context.Context, _, _ string) error {
+	return ErrSandboxesUnsupported
+}
+func (NoopSandboxes) OpenTerminal(_ context.Context, _, _, _ string) (SandboxTerminal, error) {
+	return nil, ErrSandboxesUnsupported
+}
+
+var ErrSandboxesUnsupported = errors.New("sandbox access not wired on this runtime")
+
+// Repositories is the port the org MCP repository tools use to list the
+// Helix git repositories in the caller's org and attach/detach them on a
+// Bot's project so that Bot's sandbox can clone and work in them.
+//
+// List is always org-scoped. Attach/Detach/ListForBot resolve the Bot's
+// Helix project via runtime state (a Bot with no project yet — never
+// activated — returns ErrBotProjectNotReady). Other runtimes plug in
+// NoopRepositories and the tools surface ErrRepositoriesUnsupported.
+type Repositories interface {
+	// List returns every git repository belonging to the org.
+	List(ctx context.Context, orgID string) ([]RepoView, error)
+	// ListForBot returns the repositories currently attached to the Bot's
+	// Helix project. Primary is marked when the project default_repo_id
+	// matches.
+	ListForBot(ctx context.Context, orgID string, botID orgchart.NodeID) ([]RepoView, error)
+	// AttachToBot attaches an org repository to the Bot's project.
+	// primary=true also sets it as the project's default/primary repo.
+	AttachToBot(ctx context.Context, orgID string, botID orgchart.NodeID, repoID string, primary bool) ([]RepoView, error)
+	// DetachFromBot removes a repository from the Bot's project.
+	DetachFromBot(ctx context.Context, orgID string, botID orgchart.NodeID, repoID string) ([]RepoView, error)
+}
+
+// RepoView is the tool-facing projection of a Helix git repository.
+// Append-only from the JSON wire format.
+type RepoView struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	CloneURL      string `json:"clone_url,omitempty"`
+	ExternalURL   string `json:"external_url,omitempty"`
+	ExternalType  string `json:"external_type,omitempty"`
+	IsExternal    bool   `json:"is_external,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	// Primary is only meaningful when the view is returned for a Bot
+	// (ListForBot / Attach / Detach): true when this repo is the project's
+	// default_repo_id.
+	Primary bool `json:"primary,omitempty"`
+}
+
+// NoopRepositories is the default for tools.Deps so unwired runtimes
+// don't crash.
+type NoopRepositories struct{}
+
+func (NoopRepositories) List(_ context.Context, _ string) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+func (NoopRepositories) ListForBot(_ context.Context, _ string, _ orgchart.NodeID) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+func (NoopRepositories) AttachToBot(_ context.Context, _ string, _ orgchart.NodeID, _ string, _ bool) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+func (NoopRepositories) DetachFromBot(_ context.Context, _ string, _ orgchart.NodeID, _ string) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+
+// ErrRepositoriesUnsupported is what the noop impl returns.
+var ErrRepositoriesUnsupported = errors.New("repository access not wired on this runtime")
+
+// ErrBotProjectNotReady means the Bot has no Helix project yet (typically
+// never activated). Tools surface a clear "activate the bot first" message.
+var ErrBotProjectNotReady = errors.New("bot has no helix project yet — activate it first")

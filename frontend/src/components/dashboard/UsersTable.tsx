@@ -468,7 +468,7 @@ const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
                 {isCloud && !trialActiveOrStashed(menuUser) && (
                     <MenuItem onClick={handleActivateTrial}>
                         <ListItemIcon><CardGiftcardIcon fontSize="small" /></ListItemIcon>
-                        <ListItemText>Activate trial</ListItemText>
+                        <ListItemText>Activate</ListItemText>
                     </MenuItem>
                 )}
                 {isCloud && trialActiveOrStashed(menuUser) && (

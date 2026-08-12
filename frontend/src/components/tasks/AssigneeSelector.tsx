@@ -15,14 +15,15 @@ import {
 } from '@mui/material'
 import { Search, UserX, User } from 'lucide-react'
 import { TypesOrganizationMembership, TypesUser } from '../../api/api'
+import OrganizationUserAvatar, { resolveOrganizationUser } from '../widgets/OrganizationUserAvatar'
 
 interface AssigneeSelectorProps {
   /** Currently assigned user ID (empty string or undefined for unassigned) */
   assigneeId?: string
   /** List of organization members to choose from */
   members: TypesOrganizationMembership[]
-  /** The logged-in user's ID — will be sorted to the top of the list */
-  currentUserId?: string
+  /** The logged-in user — used to resolve their avatar before memberships finish loading */
+  currentUser?: TypesUser
   /** Callback when assignee is changed */
   onAssigneeChange: (userId: string | null) => void
   /** Whether the mutation is in progress */
@@ -41,7 +42,7 @@ interface AssigneeSelectorProps {
 const AssigneeSelector: FC<AssigneeSelectorProps> = ({
   assigneeId,
   members,
-  currentUserId,
+  currentUser,
   onAssigneeChange,
   isLoading = false,
   anchorEl,
@@ -54,7 +55,7 @@ const AssigneeSelector: FC<AssigneeSelectorProps> = ({
     const query = searchQuery.trim().toLowerCase()
     const filtered = query
       ? members.filter((member) => {
-          const user = member.user as TypesUser | undefined
+          const user = resolveOrganizationUser(member.user_id, members, currentUser)
           if (!user) return false
           const name = user.full_name || user.username || ''
           const email = user.email || ''
@@ -62,29 +63,18 @@ const AssigneeSelector: FC<AssigneeSelectorProps> = ({
         })
       : members
 
-    if (!currentUserId) return filtered
+    if (!currentUser?.id) return filtered
     return [...filtered].sort((a, b) => {
-      if (a.user_id === currentUserId) return -1
-      if (b.user_id === currentUserId) return 1
+      if (a.user_id === currentUser.id) return -1
+      if (b.user_id === currentUser.id) return 1
       return 0
     })
-  }, [members, searchQuery, currentUserId])
+  }, [members, searchQuery, currentUser?.id])
 
   // Get display name for a user
   const getDisplayName = (user: TypesUser | undefined): string => {
     if (!user) return 'Unknown User'
     return user.full_name || user.username || user.email || 'Unknown User'
-  }
-
-  // Get initials for avatar
-  const getInitials = (user: TypesUser | undefined): string => {
-    if (!user) return '?'
-    const name = user.full_name || user.username || user.email || ''
-    const parts = name.split(' ')
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-    }
-    return name.slice(0, 2).toUpperCase()
   }
 
   const handleSelect = (userId: string | null) => {
@@ -192,8 +182,8 @@ const AssigneeSelector: FC<AssigneeSelectorProps> = ({
 
           {/* Filtered members */}
           {filteredMembers.map((member) => {
-            const user = member.user as TypesUser | undefined
             const userId = member.user_id || ''
+            const user = resolveOrganizationUser(userId, members, currentUser)
             const isSelected = assigneeId === userId
 
             return (
@@ -207,16 +197,13 @@ const AssigneeSelector: FC<AssigneeSelectorProps> = ({
                 sx={{ py: 1 }}
               >
                 <ListItemAvatar sx={{ minWidth: 40 }}>
-                  <Avatar
-
-                    sx={{
-                      width: 28,
-                      height: 28,
-                      fontSize: '0.75rem',
-                    }}
-                  >
-                    {getInitials(user)}
-                  </Avatar>
+                  <OrganizationUserAvatar
+                    userId={userId}
+                    members={members}
+                    currentUser={currentUser}
+                    size={28}
+                    fontSize="0.75rem"
+                  />
                 </ListItemAvatar>
                 <ListItemText
                   primary={getDisplayName(user)}

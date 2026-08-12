@@ -15,9 +15,84 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-gst/go-glib/glib"
 	"github.com/go-gst/go-gst/gst"
 	"github.com/go-gst/go-gst/gst/app"
 )
+
+// ============================================================================
+// go-gst object ownership
+// ============================================================================
+//
+// Every go-gst constructor hands back a Go wrapper that owns a C reference and
+// releases it from a runtime finalizer:
+//
+//	glib.Take / TransferNone  ref_sinks a floating object (or refs a non-floating
+//	                          one) => net refcount 1, owned by the Go wrapper
+//	glib.TransferFull         adopts the caller's ref, owned by the Go wrapper
+//
+// Relying on those finalizers is what leaked the GPU. Go's GC sizes an object by
+// its Go footprint — a few hundred bytes — while the C object behind it pins a
+// CUDA context, an NVENC session and a handful of /dev/nvidia0 fds. There is
+// never enough Go heap pressure to make the collector care, so the finalizers
+// effectively never run and the GPU resources accumulate forever.
+//
+// So: this package owns every go-gst object it acquires and releases all of them
+// explicitly. The two helpers below are the only correct way to do that. Both
+// disarm the finalizer *before* dropping the ref — otherwise the collector runs
+// g_object_unref a second time on memory we already freed, which is a
+// use-after-free (observed as "g_object_unref: assertion 'G_IS_OBJECT (object)'
+// failed" followed by SIGSEGV inside runtime.runFinalizers).
+//
+// The finalizer for GstObject-derived types (pipeline, element, bus, clock) lives
+// on the embedded *glib.Object, so that exact pointer has to reach SetFinalizer;
+// passing the outer *gst.Pipeline silently does nothing. GstSample and GstBuffer
+// are not GObjects and carry their finalizer on the go-gst wrapper itself.
+
+// releaseGObject drops our reference to a GstObject-derived wrapper immediately.
+// obj must be the embedded *glib.Object — see gobjectOf.
+func releaseGObject(obj *glib.Object) {
+	if obj == nil {
+		return
+	}
+	runtime.SetFinalizer(obj, nil)
+	obj.Unref()
+}
+
+// gobjectOf digs the embedded *glib.Object out of a gst.Object. Every
+// GstObject-derived go-gst type embeds one of these, and it is where go-glib
+// installs the finalizer.
+func gobjectOf(o *gst.Object) *glib.Object {
+	if o == nil || o.InitiallyUnowned == nil {
+		return nil
+	}
+	return o.InitiallyUnowned.Object
+}
+
+// releaseSample drops our reference to a GstSample immediately. Samples come out
+// of appsink at the frame rate, each one holding a GstBuffer and its GstMemory —
+// on the zero-copy path that memory is CUDA memory backed by a DMA-BUF fd, so
+// leaving these to the GC is what kept whole CUDA contexts alive after their
+// pipeline was gone.
+func releaseSample(s *gst.Sample) {
+	if s == nil {
+		return
+	}
+	runtime.SetFinalizer(s, nil)
+	s.Unref()
+}
+
+// releaseBuffer drops our reference to a GstBuffer immediately.
+// Sample.GetBuffer() is documented as "unsafe none" but go-gst takes a ref and
+// arms a finalizer anyway, so the caller owns a reference whether it wants one or
+// not.
+func releaseBuffer(b *gst.Buffer) {
+	if b == nil {
+		return
+	}
+	runtime.SetFinalizer(b, nil)
+	b.Unref()
+}
 
 // gstInitOnce ensures GStreamer is initialized only once
 var gstInitOnce sync.Once
@@ -29,10 +104,6 @@ var gstInitOnce sync.Once
 // NOTE: With SharedVideoSource, only ONE pipeline is created per PipeWire node,
 // so this mutex mainly protects against the rare case of concurrent session starts.
 var pipelineCreateMu sync.Mutex
-
-// activePipelineCount tracks how many pipelines are currently running.
-// Used for logging/debugging.
-var activePipelineCount atomic.Int32
 
 // InitGStreamer initializes the GStreamer library. Safe to call multiple times.
 func InitGStreamer() {
@@ -61,14 +132,25 @@ type GstPipelineOptions struct {
 
 // GstPipeline wraps a GStreamer pipeline with appsink for video capture
 type GstPipeline struct {
-	pipeline      *gst.Pipeline
-	appsink       *app.Sink
+	pipeline *gst.Pipeline
+	appsink  *app.Sink
+	// appsinkElem is the *gst.Element returned by GetElementByName. That call is
+	// transfer-full, so we own a reference on the appsink that has to be released
+	// explicitly; app.SinkFromElement is only a cast and does not take another.
+	appsinkElem *gst.Element
+	// bus is the pipeline bus, acquired once in Start(). GetPipelineBus is
+	// transfer-full and caches the wrapper on the Pipeline, so we own exactly one
+	// reference no matter how often it is called.
+	bus *gst.Bus
+	// busDone is closed by watchBus when it returns, so Stop() can be sure nobody
+	// is still polling the bus before releasing it.
+	busDone       chan struct{}
 	frameCh       chan VideoFrame
 	errorCh       chan error // Channel for pipeline errors (GPU OOM, encoder failures, etc.)
 	running       atomic.Bool
 	stopOnce      sync.Once
 	pipelineID    string     // For logging
-	realtimeClock *gst.Clock // Kept to prevent GC if we create a custom clock
+	realtimeClock *gst.Clock // Custom clock, if one was forced onto the pipeline
 
 	// baseTimeNs is the pipeline's base_time in nanoseconds since epoch (only valid with realtime clock).
 	// Used to convert PTS (running time) to wall clock: captureTime = baseTimeNs + PTS
@@ -79,6 +161,13 @@ type GstPipeline struct {
 	// Frame drop tracking for diagnostics
 	framesReceived atomic.Uint64 // Frames received from appsink
 	framesDropped  atomic.Uint64 // Frames dropped due to full channel
+
+	// Encoder-output cadence measurement (appsink callback, BEFORE the Go
+	// channels) — isolates encoder jitter from Go-side channel/scheduling jitter.
+	// Only touched in onNewSample (single GStreamer streaming thread), no lock.
+	appsinkLastSample time.Time
+	appsinkIntervalUs []int64
+	appsinkLastLog    time.Time
 }
 
 // NewGstPipeline creates a new GStreamer pipeline from a pipeline string.
@@ -120,21 +209,25 @@ func NewGstPipelineWithOptions(pipelineStr string, opts GstPipelineOptions) (*Gs
 	elem, err := pipeline.GetElementByName("videosink")
 	if err != nil {
 		pipeline.SetState(gst.StateNull)
+		releaseGObject(gobjectOf(pipeline.Object))
 		return nil, fmt.Errorf("failed to get videosink element: %w", err)
 	}
 
 	appsink := app.SinkFromElement(elem)
 	if appsink == nil {
+		releaseGObject(gobjectOf(elem.Object))
 		pipeline.SetState(gst.StateNull)
+		releaseGObject(gobjectOf(pipeline.Object))
 		return nil, fmt.Errorf("videosink element is not an appsink")
 	}
 
 	g := &GstPipeline{
-		pipeline:   pipeline,
-		appsink:    appsink,
-		frameCh:    make(chan VideoFrame, 8), // Buffer a few frames
-		errorCh:    make(chan error, 1),      // Buffer 1 error (only care about first fatal error)
-		pipelineID: fmt.Sprintf("gst-%p", pipeline),
+		pipeline:    pipeline,
+		appsink:     appsink,
+		appsinkElem: elem,
+		frameCh:     make(chan VideoFrame, 8), // Buffer a few frames
+		errorCh:     make(chan error, 1),      // Buffer 1 error (only care about first fatal error)
+		pipelineID:  fmt.Sprintf("gst-%p", pipeline),
 	}
 
 	// Force the pipeline to use a realtime clock if requested.
@@ -143,7 +236,7 @@ func NewGstPipelineWithOptions(pipelineStr string, opts GstPipelineOptions) (*Gs
 	if opts.UseRealtimeClock {
 		clock, err := gst.NewSystemClock(gst.ClockTypeRealtime)
 		if err != nil {
-			pipeline.SetState(gst.StateNull)
+			g.Stop()
 			return nil, fmt.Errorf("failed to create realtime clock: %w", err)
 		}
 		pipeline.ForceClock(clock.Clock)
@@ -201,7 +294,14 @@ func (g *GstPipeline) Start(ctx context.Context) error {
 	newCount := activePipelineCount.Add(1)
 	fmt.Printf("[GST_PIPELINE] Pipeline %s started (active pipelines: %d)\n", g.pipelineID, newCount)
 
-	// Monitor for EOS and errors
+	// Acquire the bus here rather than inside watchBus so its lifetime is owned by
+	// the pipeline, not by whichever goroutine happened to touch it first.
+	// GetPipelineBus is transfer-full: this reference is ours to release in Stop().
+	g.bus = g.pipeline.GetPipelineBus()
+
+	// Monitor for EOS and errors. busDone lets Stop() wait for this goroutine to
+	// stop touching the bus before the bus is released.
+	g.busDone = make(chan struct{})
 	go g.watchBus(ctx)
 
 	return nil
@@ -213,15 +313,45 @@ func (g *GstPipeline) onNewSample(sink *app.Sink) gst.FlowReturn {
 		return gst.FlowEOS
 	}
 
+	// Encoder-output interval (appsink callback, before any Go channel). This is
+	// the cadence the encoder produces frames at — compare to B.create (encoder
+	// input) to isolate encoder jitter, and to the Go send loop to isolate
+	// Go-channel jitter.
+	{
+		now := time.Now()
+		if !g.appsinkLastSample.IsZero() {
+			g.appsinkIntervalUs = append(g.appsinkIntervalUs, now.Sub(g.appsinkLastSample).Microseconds())
+		}
+		g.appsinkLastSample = now
+		if g.appsinkLastLog.IsZero() {
+			g.appsinkLastLog = now
+		}
+		if now.Sub(g.appsinkLastLog) >= 5*time.Second && len(g.appsinkIntervalUs) > 0 {
+			p50, p95, p99, mx, burst := percentilesMsFromUs(g.appsinkIntervalUs)
+			fmt.Printf("[METRIC] ENC.appsink  n=%d p50=%d p95=%d p99=%d max=%d burst<8ms=%d\n",
+				len(g.appsinkIntervalUs), p50, p95, p99, mx, burst)
+			g.appsinkIntervalUs = g.appsinkIntervalUs[:0]
+			g.appsinkLastLog = now
+		}
+	}
+
 	sample := sink.PullSample()
 	if sample == nil {
 		return gst.FlowOK
 	}
+	// PullSample is transfer-full and GetBuffer takes a ref of its own. Both are
+	// released here rather than by the GC: on the zero-copy path each buffer holds
+	// CUDA memory imported from a DMA-BUF, so a deferred release means a
+	// /dev/nvidia0 fd and megabytes of GPU memory held for an unbounded time —
+	// long enough to keep the whole CUDA context alive after the pipeline is gone.
+	// Deferred in acquisition order so the LIFO unwind is unmap, buffer, sample.
+	defer releaseSample(sample)
 
 	buffer := sample.GetBuffer()
 	if buffer == nil {
 		return gst.FlowOK
 	}
+	defer releaseBuffer(buffer)
 
 	// Map buffer to read data
 	mapInfo := buffer.Map(gst.MapRead)
@@ -243,6 +373,23 @@ func (g *GstPipeline) onNewSample(sink *app.Sink) gst.FlowReturn {
 	if ptsDur != nil {
 		pts = uint64(ptsDur.Microseconds())
 		ptsNs = int64(*ptsDur) // Duration in nanoseconds
+	} else {
+		// No buffer PTS (GST_CLOCK_TIME_NONE). This happens in real capture paths:
+		// ext-image-copy-capture provides no compositor timestamp, and the zerocopy
+		// path's set_pts() in pipewiresrc/imp.rs is silently skipped when the pooled
+		// GstBuffer is not uniquely owned (buffer.get_mut() == None). Without a PTS
+		// the browser feeds timestamp=0 into every EncodedVideoChunk, so every
+		// decoded VideoFrame has timestamp 0 and the client's PlayoutScheduler can
+		// neither order/dedupe frames nor measure timing — bursty/out-of-order
+		// delivery (e.g. under CPU load) then shows stale/out-of-order frames.
+		//
+		// Synthesize a monotonic wall-clock PTS. The appsink callback runs in
+		// pipeline (capture) order, so time.Now() here is monotonic and reflects
+		// true frame order; UnixMicro() is the same unit/scale the zerocopy path
+		// emits when its set_pts DOES run (wall-clock microseconds), so the client's
+		// drift math stays consistent. Note: a *valid* PTS of 0 (first frame of a
+		// running-time stream) keeps ptsDur != nil and is intentionally left alone.
+		pts = uint64(time.Now().UnixMicro())
 	}
 
 	// Check if this is a keyframe
@@ -296,7 +443,11 @@ func (g *GstPipeline) onNewSample(sink *app.Sink) gst.FlowReturn {
 
 // watchBus monitors the GStreamer bus for errors and EOS
 func (g *GstPipeline) watchBus(ctx context.Context) {
-	bus := g.pipeline.GetPipelineBus()
+	// Signals Stop() that nothing is polling the bus any more, so it is safe to
+	// release it.
+	defer close(g.busDone)
+
+	bus := g.bus
 	if bus == nil {
 		return
 	}
@@ -304,7 +455,7 @@ func (g *GstPipeline) watchBus(ctx context.Context) {
 	for g.running.Load() {
 		select {
 		case <-ctx.Done():
-			g.Stop()
+			g.stop(true)
 			return
 		default:
 		}
@@ -348,14 +499,15 @@ func (g *GstPipeline) watchBus(ctx context.Context) {
 func (g *GstPipeline) handleBusMessage(msg *gst.Message) {
 	switch msg.Type() {
 	case gst.MessageEOS:
-		g.Stop()
+		g.stop(true)
 	case gst.MessageError:
 		gerr := msg.ParseError()
 		if gerr != nil {
 			// Log error with full debug info - helps diagnose pipeline failures
 			errMsg := gerr.Error()
+			debugStr := gerr.DebugString()
 			fmt.Printf("[GST_PIPELINE] Error: %s\n", errMsg)
-			if debugStr := gerr.DebugString(); debugStr != "" {
+			if debugStr != "" {
 				fmt.Printf("[GST_PIPELINE] Debug: %s\n", debugStr)
 			}
 			// Log the element that produced the error
@@ -364,8 +516,9 @@ func (g *GstPipeline) handleBusMessage(msg *gst.Message) {
 				fmt.Printf("[GST_PIPELINE] Source: %s\n", srcName)
 			}
 
-			// Create a user-friendly error message for common failures
-			userErr := g.createUserFriendlyError(errMsg, srcName)
+			// Create a user-friendly error message for common failures, with the
+			// raw technical detail appended so it can be surfaced in the UI.
+			userErr := g.createUserFriendlyError(errMsg, debugStr, srcName)
 			// Non-blocking send to error channel (only first error matters)
 			select {
 			case g.errorCh <- userErr:
@@ -374,7 +527,7 @@ func (g *GstPipeline) handleBusMessage(msg *gst.Message) {
 				// Channel full - first error already captured
 			}
 		}
-		g.Stop()
+		g.stop(true)
 	case gst.MessageWarning:
 		gwarn := msg.ParseWarning()
 		if gwarn != nil {
@@ -395,16 +548,36 @@ func (g *GstPipeline) Frames() <-chan VideoFrame {
 }
 
 // Stop stops the pipeline and closes the frame channel.
-// This explicitly unrefs the GStreamer pipeline to immediately free GPU resources
-// (CUDA contexts, NVENC sessions, DMA-BUF allocations). Without explicit Unref,
-// these resources would only be freed when Go's GC collects the pipeline object,
-// which may never happen since Go's GC doesn't know about GPU memory pressure.
+//
+// Every GStreamer object this pipeline acquired is released here, explicitly and
+// in reverse acquisition order, so the C-side objects — and with them the CUDA
+// context, NVENC session and DMA-BUF fds — are gone by the time Stop() returns.
+// Nothing is left to a GC finalizer: see the ownership notes at the top of this
+// file for why that is not an option for GPU-backed objects.
 func (g *GstPipeline) Stop() {
+	g.stop(false)
+}
+
+// stop is the implementation of Stop. fromBusGoroutine is true when called from
+// watchBus (on EOS, a fatal error, or context cancellation); in that case we must
+// not wait for watchBus to finish, because we *are* watchBus.
+func (g *GstPipeline) stop(fromBusGoroutine bool) {
 	g.stopOnce.Do(func() {
 		// Only decrement active count if Start() had succeeded (set running=true).
 		// Without this check, Stop() on a pipeline that failed to start would
 		// drive the counter negative.
 		wasRunning := g.running.Swap(false)
+
+		// watchBus polls the bus with a 100ms timeout and exits once running is
+		// false. Wait for it before releasing the bus, otherwise the poll would
+		// touch freed memory.
+		if !fromBusGoroutine && g.busDone != nil {
+			select {
+			case <-g.busDone:
+			case <-time.After(5 * time.Second):
+				fmt.Printf("[GST_PIPELINE] WARNING: bus watcher for %s did not exit within 5s, releasing bus anyway\n", g.pipelineID)
+			}
+		}
 
 		if g.pipeline != nil {
 			// SetState(Null) is async — child elements (nvh264enc, pipewiresrc, etc.)
@@ -421,15 +594,46 @@ func (g *GstPipeline) Stop() {
 				fmt.Printf("[GST_PIPELINE] FATAL: pipeline stuck (GetState returned %v after 5s), exiting to let restart loop recover\n", ret)
 				os.Exit(1)
 			}
-			// Explicitly unref to free GPU resources (CUDA contexts, NVENC sessions)
-			// immediately rather than waiting for Go's GC finalizer.
-			// The go-gst TransferNone/Take wrapper adds its own ref+finalizer, so
-			// this Unref releases our usage ref; the GC finalizer releases the other.
-			g.pipeline.Unref()
-			g.pipeline = nil
+		}
+
+		// Clear the appsink callbacks. go-gst stashes the SinkCallbacks struct in a
+		// process-global map (gopointer.Save) and only drops it when GStreamer
+		// invokes the GDestroyNotify — which happens when the callbacks are replaced
+		// or the appsink is disposed. Replacing them here releases the entry, and
+		// with it the closure over this *GstPipeline.
+		if g.appsink != nil {
+			g.appsink.SetCallbacks(&app.SinkCallbacks{})
+		}
+
+		// Release the bus. Flushing first drops any messages still queued; every one
+		// of them holds a reference on the element that posted it, which on a real
+		// capture pipeline means nvh264enc and pipewirezerocopysrc.
+		if g.bus != nil {
+			g.bus.SetFlushing(true)
+			releaseGObject(gobjectOf(g.bus.Object))
+			g.bus = nil
+		}
+
+		// Release the appsink reference taken by GetElementByName (transfer-full).
+		if g.appsinkElem != nil {
+			releaseGObject(gobjectOf(g.appsinkElem.Object))
+			g.appsinkElem = nil
 		}
 		g.appsink = nil
-		g.realtimeClock = nil
+
+		// Release the forced clock, if we created one.
+		if g.realtimeClock != nil {
+			releaseGObject(gobjectOf(g.realtimeClock.Object))
+			g.realtimeClock = nil
+		}
+
+		// Finally the pipeline itself. gst_parse_launch returns a floating
+		// reference that go-gst ref-sinks, so this is the last one and dropping it
+		// disposes the pipeline and every element in it.
+		if g.pipeline != nil {
+			releaseGObject(gobjectOf(g.pipeline.Object))
+			g.pipeline = nil
+		}
 
 		if wasRunning {
 			remaining := activePipelineCount.Add(-1)
@@ -459,31 +663,57 @@ func (g *GstPipeline) Errors() <-chan error {
 	return g.errorCh
 }
 
-// createUserFriendlyError converts GStreamer error messages into user-friendly text.
-// Common errors like "NV_ENC_ERR_OUT_OF_MEMORY" become actionable messages.
-func (g *GstPipeline) createUserFriendlyError(errMsg, srcElement string) error {
-	// Map common GStreamer/NVENC errors to user-friendly messages
+// createUserFriendlyError converts GStreamer error messages into user-friendly
+// text, then appends a compact technical-detail block after a blank-line
+// delimiter ("\n\n"). The frontend renders the first paragraph prominently and
+// everything after the delimiter as smaller, monospaced technical detail, so the
+// underlying failure (element, raw error, GStreamer debug string) is diagnosable
+// from the UI instead of being flattened to a generic sentence.
+func (g *GstPipeline) createUserFriendlyError(errMsg, debugStr, srcElement string) error {
+	friendly := friendlyVideoError(errMsg)
+
+	// Assemble the technical detail: source element + raw error, plus the
+	// GStreamer debug string, which carries the element path and reason code
+	// (e.g. "gst_base_src_loop (): ... reason error (-5)") or — once the
+	// zero-copy source posts a descriptive error — the concrete cause such as a
+	// first-frame timeout.
+	tech := strings.TrimSpace(errMsg)
+	if srcElement != "" {
+		tech = srcElement + ": " + tech
+	}
+	if d := strings.TrimSpace(debugStr); d != "" {
+		tech = tech + "\n" + d
+	}
+	const maxTech = 600
+	if len(tech) > maxTech {
+		tech = tech[:maxTech] + "…"
+	}
+	if tech == "" {
+		return fmt.Errorf("%s", friendly)
+	}
+	return fmt.Errorf("%s\n\n%s", friendly, tech)
+}
+
+// friendlyVideoError maps common GStreamer/NVENC errors to a short human-readable
+// sentence. The technical detail is appended separately by createUserFriendlyError.
+func friendlyVideoError(errMsg string) string {
 	switch {
 	case containsIgnoreCase(errMsg, "NV_ENC_ERR_OUT_OF_MEMORY") || containsIgnoreCase(errMsg, "out of memory"):
-		return fmt.Errorf("GPU out of memory - too many sessions running. Please close some browser tabs or stop unused sessions.")
+		return "GPU out of memory - too many sessions running. Please close some browser tabs or stop unused sessions."
 	case containsIgnoreCase(errMsg, "NV_ENC_ERR_NO_ENCODE_DEVICE"):
-		return fmt.Errorf("No GPU encoder available. The GPU may be in use by another process.")
+		return "No GPU encoder available. The GPU may be in use by another process."
 	case containsIgnoreCase(errMsg, "NV_ENC_ERR"):
-		return fmt.Errorf("GPU encoder error: %s. Try closing other sessions.", errMsg)
+		return "GPU encoder error. Try closing other sessions."
 	case containsIgnoreCase(errMsg, "Could not get EOS"):
-		return fmt.Errorf("Video pipeline stopped unexpectedly. Please try reconnecting.")
+		return "Video pipeline stopped unexpectedly. Please try reconnecting."
 	case containsIgnoreCase(errMsg, "Resource not found"):
-		return fmt.Errorf("Video source not available. The session may have ended.")
+		return "Video source not available. The session may have ended."
 	case containsIgnoreCase(errMsg, "Permission denied"):
-		return fmt.Errorf("Permission denied accessing video source.")
-	case containsIgnoreCase(errMsg, "Internal data stream error"):
-		return fmt.Errorf("Video streaming error. Please try reconnecting.")
+		return "Permission denied accessing video source."
 	default:
-		// For unknown errors, include the source element for debugging
-		if srcElement != "" {
-			return fmt.Errorf("Video error from %s: %s", srcElement, errMsg)
-		}
-		return fmt.Errorf("Video error: %s", errMsg)
+		// Includes the first-frame-timeout case and the generic "Internal data
+		// stream error" — the specific cause rides along in the technical detail.
+		return "Video streaming error. Please try reconnecting."
 	}
 }
 
@@ -526,8 +756,12 @@ func diagnoseGPUEncoderFailure(pipelineStr string, parseErr error) error {
 				"(GStreamer error: %v)", elemName, parseErr)
 		}
 		// Element created fine — issue is something else (e.g., genuinely bad property name).
-		// Clean up the test element.
+		// Clean up the test element. SetState alone is not enough: the element holds
+		// a CUDA context, and this runs on every parse failure — i.e. exactly when
+		// the GPU is already under pressure — so leaking it here compounds the very
+		// problem being diagnosed.
 		testElem.SetState(gst.StateNull)
+		releaseGObject(gobjectOf(testElem.Object))
 		return nil
 	}
 	return nil

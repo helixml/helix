@@ -76,6 +76,34 @@ func (suite *UsageMetricsTestSuite) TestCreateAndGetUsageMetrics() {
 	suite.Len(metrics, 15, "Should have 15 metrics total")
 }
 
+func (suite *UsageMetricsTestSuite) TestCreateUsageMetricIdempotentBySource() {
+	appID := "test-" + system.GenerateAppID()
+	metric := &types.UsageMetric{
+		AppID:       appID,
+		Source:      types.UsageMetricSourceACP,
+		SourceID:    appID + ":int_test",
+		UsageKnown:  true,
+		TotalTokens: 100,
+	}
+
+	first, err := suite.db.CreateUsageMetric(suite.ctx, metric)
+	suite.NoError(err)
+	second, err := suite.db.CreateUsageMetric(suite.ctx, &types.UsageMetric{
+		AppID:       appID,
+		Source:      types.UsageMetricSourceACP,
+		SourceID:    appID + ":int_test",
+		UsageKnown:  true,
+		TotalTokens: 200,
+	})
+	suite.NoError(err)
+	suite.Equal(first.ID, second.ID)
+	suite.Equal(100, second.TotalTokens)
+
+	metrics, err := suite.db.GetAppUsageMetrics(suite.ctx, appID, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	suite.NoError(err)
+	suite.Len(metrics, 1)
+}
+
 func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 	appID := "test-" + system.GenerateAppID()
 
@@ -124,6 +152,85 @@ func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 	suite.Equal(0, dailyMetrics[2].PromptTokens)   // March 6th
 	suite.Equal(100, dailyMetrics[3].PromptTokens) // March 7th
 	suite.Equal(0, dailyMetrics[4].PromptTokens)   // March 8th
+}
+
+func (suite *UsageMetricsTestSuite) TestProviderDailyUsageCountsLLMCalls() {
+	providerID := "provider-" + system.GenerateID()
+	interactionID := "interaction-" + system.GenerateID()
+	day := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	suite.T().Cleanup(func() {
+		err := suite.db.gdb.WithContext(suite.ctx).
+			Where("provider = ?", providerID).
+			Delete(&types.UsageMetric{}).Error
+		suite.NoError(err)
+	})
+
+	for i := 0; i < 2; i++ {
+		_, err := suite.db.CreateUsageMetric(suite.ctx, &types.UsageMetric{
+			Created:          day.Add(time.Duration(i) * time.Minute),
+			Provider:         providerID,
+			InteractionID:    interactionID,
+			CompletionTokens: 10,
+			TotalTokens:      20,
+		})
+		suite.Require().NoError(err)
+	}
+
+	metrics, err := suite.db.GetProviderDailyUsageMetrics(
+		suite.ctx,
+		providerID,
+		day.Add(-time.Hour),
+		day.Add(24*time.Hour),
+	)
+	suite.Require().NoError(err)
+
+	var got *types.AggregatedUsageMetric
+	for _, metric := range metrics {
+		if metric.Date.Equal(day) {
+			got = metric
+			break
+		}
+	}
+	suite.Require().NotNil(got)
+	suite.Equal(2, got.TotalRequests, "each usage metric is one LLM call, even within one interaction")
+}
+
+func (suite *UsageMetricsTestSuite) TestProviderUsageThirtyMinuteBuckets() {
+	providerID := "provider-" + system.GenerateID()
+	start := time.Date(2026, 8, 11, 10, 0, 0, 0, time.UTC)
+	suite.T().Cleanup(func() {
+		err := suite.db.gdb.WithContext(suite.ctx).
+			Where("provider = ?", providerID).
+			Delete(&types.UsageMetric{}).Error
+		suite.NoError(err)
+	})
+
+	for _, metric := range []*types.UsageMetric{
+		{Created: start.Add(5 * time.Minute), Provider: providerID, CompletionTokens: 10, TotalTokens: 10, DurationMs: 100},
+		{Created: start.Add(20 * time.Minute), Provider: providerID, CompletionTokens: 20, TotalTokens: 20, DurationMs: 300},
+		{Created: start.Add(40 * time.Minute), Provider: providerID, CompletionTokens: 40, TotalTokens: 40, DurationMs: 200},
+	} {
+		_, err := suite.db.CreateUsageMetric(suite.ctx, metric)
+		suite.Require().NoError(err)
+	}
+
+	metrics, err := suite.db.GetAggregatedUsageMetrics(suite.ctx, &GetAggregatedUsageMetricsQuery{
+		AggregationLevel: AggregationLevel30Min,
+		Provider:         providerID,
+		From:             start,
+		To:               start.Add(time.Hour),
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(metrics, 3)
+
+	suite.True(metrics[0].Date.Equal(start))
+	suite.Equal(2, metrics[0].TotalRequests)
+	suite.Equal(30, metrics[0].CompletionTokens)
+	suite.InDelta(200, metrics[0].LatencyMs, 0.001)
+	suite.True(metrics[1].Date.Equal(start.Add(30 * time.Minute)))
+	suite.Equal(1, metrics[1].TotalRequests)
+	suite.True(metrics[2].Date.Equal(start.Add(time.Hour)))
+	suite.Zero(metrics[2].TotalRequests)
 }
 
 func (suite *UsageMetricsTestSuite) TestGetAggregatedUsageMetrics_IncludesCacheFields() {
@@ -215,9 +322,9 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_PaginatesAndExportsAl
 		{ID: "spt_" + system.GenerateID(), Name: "Low task", ProjectID: projects[2].ID, UserID: users[2].ID, OrganizationID: orgID},
 	}
 	sessions := []types.Session{
-		{ID: "ses_" + system.GenerateID(), Name: "High session", Created: from.Add(2 * time.Hour), Updated: from.Add(3 * time.Hour), OrganizationID: orgID, ProjectID: projects[0].ID, ParentApp: apps[0].ID, Owner: users[0].ID},
-		{ID: "ses_" + system.GenerateID(), Name: "Middle session", Created: from.AddDate(0, 0, 1), Updated: from.AddDate(0, 0, 1).Add(time.Hour), OrganizationID: orgID, ProjectID: projects[1].ID, ParentApp: apps[1].ID, Owner: users[1].ID},
-		{ID: "ses_" + system.GenerateID(), Name: "Low session", Created: from.AddDate(0, 0, 2), Updated: from.AddDate(0, 0, 2).Add(time.Hour), OrganizationID: orgID, ProjectID: projects[2].ID, ParentApp: apps[2].ID, Owner: users[2].ID},
+		{ID: "ses_" + system.GenerateID(), Name: "High session", Created: from.Add(2 * time.Hour), Updated: from.Add(3 * time.Hour), OrganizationID: orgID, ProjectID: projects[0].ID, ParentApp: apps[0].ID, Owner: users[0].ID, Metadata: types.SessionMetadata{CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI}},
+		{ID: "ses_" + system.GenerateID(), Name: "Middle session", Created: from.AddDate(0, 0, 1), Updated: from.AddDate(0, 0, 1).Add(time.Hour), OrganizationID: orgID, ProjectID: projects[1].ID, ParentApp: apps[1].ID, Owner: users[1].ID, Metadata: types.SessionMetadata{CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode}},
+		{ID: "ses_" + system.GenerateID(), Name: "Low session", Created: from.AddDate(0, 0, 2), Updated: from.AddDate(0, 0, 2).Add(time.Hour), OrganizationID: orgID, ProjectID: projects[2].ID, ParentApp: apps[2].ID, Owner: users[2].ID, Metadata: types.SessionMetadata{CodeAgentRuntime: types.CodeAgentRuntimeZedAgent}},
 	}
 	suite.insertOrgUsageDimensions(users, projects, apps, tasks, sessions)
 	cronTask := suite.insertTriggerConfiguration(orgID, users[0].ID, apps[0].ID, "High cron task")
@@ -283,6 +390,9 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_PaginatesAndExportsAl
 	suite.Equal(3, resp.ActiveProjects)
 	suite.Equal(3, resp.ActiveApps)
 	suite.Equal(3, resp.ActiveSessions)
+	suite.Require().Len(resp.AgentRuntimeTimeSeries, 3)
+	suite.Equal(types.CodeAgentRuntimeCodexCLI, resp.AgentRuntimeTimeSeries[0].Runtime)
+	suite.Equal("Codex", resp.AgentRuntimeTimeSeries[0].Name)
 
 	suite.EqualValues(3, resp.ProjectsTotal)
 	suite.Require().Len(resp.Projects, 1)

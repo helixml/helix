@@ -51,6 +51,7 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
       case TypesTriggerExecutionStatus.TriggerExecutionStatusRunning:
         return '#F59E0B';
       case TypesTriggerExecutionStatus.TriggerExecutionStatusPending:
+      case TypesTriggerExecutionStatus.TriggerExecutionStatusSkipped:
         return '#6B7280';
       default:
         return '#6B7280';
@@ -77,10 +78,15 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
 
   // Helper function to get duration text
   const getDurationText = (execution: TypesTriggerExecution) => {
+    if (execution.status === TypesTriggerExecutionStatus.TriggerExecutionStatusSkipped) {
+      return 'Skipped';
+    }
     const duration = formatDuration(execution.created, execution.updated, execution.status);
     
     if (execution.status === TypesTriggerExecutionStatus.TriggerExecutionStatusRunning) {
       return `Running for ${duration}`;
+    } else if (execution.status === TypesTriggerExecutionStatus.TriggerExecutionStatusError) {
+      return `Failed after ${duration}`;
     } else {
       return `Ran for ${duration}`;
     }
@@ -91,7 +97,7 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
     if (!execution.session_id) return undefined;
     const org = account.organizationTools.organization;
     if (org) {
-      return `/orgs/${org.name}/session/${execution.session_id}`;
+      return `/orgs/${org.name}/chat/session/${execution.session_id}`;
     }
     return `/session/${execution.session_id}`;
   };
@@ -206,6 +212,20 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
                   <Typography variant="caption" sx={{ color: '#A0AEC0' }}>
                     {formatDate(execution.created)} · {getDurationText(execution)}
                   </Typography>
+
+                  {execution.error && (
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        display: 'block',
+                        color: execution.status === TypesTriggerExecutionStatus.TriggerExecutionStatusError ? '#EF4444' : '#A0AEC0',
+                        mt: 0.5,
+                        wordBreak: 'break-word'
+                      }}
+                    >
+                      {execution.error}
+                    </Typography>
+                  )}
                 </Box>
               </Box>
               );
@@ -221,4 +241,4 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
   );
 };
 
-export default ExecutionsHistory; 
+export default ExecutionsHistory;

@@ -24,83 +24,174 @@ import (
 
 // fakeHelixClient is a deterministic stand-in for Client.
 type fakeHelixClient struct {
-	mu             sync.Mutex
-	startCalls     int32
-	sendCalls      int32
-	outputCalls    int32
-	subscribeCalls int32
-	startSessionID string
-	sessionOwner   string // returned by SessionOwner; the transcript bridge subscribes to this owner's pubsub topic
-	startErr       error
-	sendErr        error
-	outputs        []types.SessionOutputResponse
-	updatesFactory func() <-chan types.WebsocketEvent
-	lastStartReq   StartChatRequest
-	lastSendSID    string
-	lastSendBody   string
+	mu                 sync.Mutex
+	startCalls         int32
+	sendCalls          int32
+	outputCalls        int32
+	subscribeCalls     int32
+	startSessionID     string
+	sessionOwner       string // returned by SessionOwner; the transcript bridge subscribes to this owner's pubsub topic
+	exploratorySession string // returned by ExploratorySession; the mirror polls this to track the worker's current session
+	startErr           error
+	sendErr            error
+	outputs            []types.SessionOutputResponse
+	updatesFactory     func() <-chan types.WebsocketEvent
+	lastStartParams    StartSessionParams
+	lastSendSID        string
+	lastSendBody       string
+	clearCalls         int32
+	lastClearSID       string
+	syncCalls          int32
+	lastSyncSID        string
+	lastSessionName    string
+	lastWorkerID       string
+	lastInstructions   string
+	syncedBeforeClear  bool
+	// clearedBeforeSend records whether ClearSession ran before the
+	// first SendMessage, so tests can assert the activation clears the
+	// prior conversation ahead of dispatching the new prompt.
+	clearedBeforeSend bool
+	clearErr          error
+	outputErr         error
+	preserveEmptyIDs  bool
+	// startBlock, when non-nil, blocks StartSession until the channel
+	// closes or the caller's context is done — lets tests verify that
+	// the spawner's SessionStartupTimeout actually bounds session
+	// creation. nil means StartSession returns immediately.
+	startBlock <-chan struct{}
 }
 
-func (f *fakeHelixClient) StartChatWithStatus(_ context.Context, req StartChatRequest) (types.Session, bool, error) {
+func (f *fakeHelixClient) StartSession(ctx context.Context, params StartSessionParams) (string, error) {
 	atomic.AddInt32(&f.startCalls, 1)
 	f.mu.Lock()
-	f.lastStartReq = req
+	f.lastStartParams = params
+	block := f.startBlock
 	f.mu.Unlock()
-	return types.Session{ID: f.startSessionID}, false, f.startErr
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	if f.startErr != nil {
+		return "", f.startErr
+	}
+	return f.startSessionID, nil
+}
+
+func (f *fakeHelixClient) SendMessage(_ context.Context, sessionID, prompt string) error {
+	atomic.AddInt32(&f.sendCalls, 1)
+	f.mu.Lock()
+	f.lastSendSID = sessionID
+	f.lastSendBody = prompt
+	f.mu.Unlock()
+	return f.sendErr
+}
+
+func (f *fakeHelixClient) ClearSession(_ context.Context, sessionID string) error {
+	atomic.AddInt32(&f.clearCalls, 1)
+	f.mu.Lock()
+	f.lastClearSID = sessionID
+	// The clear must precede the prompt dispatch — if no SendMessage has
+	// run yet, this clear happened first.
+	if atomic.LoadInt32(&f.sendCalls) == 0 {
+		f.clearedBeforeSend = true
+	}
+	clearErr := f.clearErr
+	f.mu.Unlock()
+	return clearErr
+}
+
+func (f *fakeHelixClient) SyncAgentProfile(_ context.Context, sessionID, sessionName, workerID, instructions string) error {
+	atomic.AddInt32(&f.syncCalls, 1)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastSyncSID = sessionID
+	f.lastSessionName = sessionName
+	f.lastWorkerID = workerID
+	f.lastInstructions = instructions
+	if atomic.LoadInt32(&f.clearCalls) == 0 {
+		f.syncedBeforeClear = true
+	}
+	return nil
 }
 
 func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionOutputResponse, error) {
+	if f.outputErr != nil {
+		return types.SessionOutputResponse{}, f.outputErr
+	}
 	i := int(atomic.AddInt32(&f.outputCalls, 1)) - 1
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	var out types.SessionOutputResponse
 	if i >= len(f.outputs) {
-		return f.outputs[len(f.outputs)-1], nil
+		out = f.outputs[len(f.outputs)-1]
+	} else {
+		out = f.outputs[i]
 	}
-	return f.outputs[i], nil
+	if out.InteractionID == "" && !f.preserveEmptyIDs {
+		if atomic.LoadInt32(&f.sendCalls) == 0 {
+			out.InteractionID = "int-prior"
+		} else {
+			out.InteractionID = "int-current"
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeHelixClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
 func (f *fakeHelixClient) SessionOwner(_ context.Context, _ string) (string, error) {
 	return f.sessionOwner, nil
 }
+
+// exploratorySession + setExploratory back the Mirror's session
+// resolver. The mirror polls this to track the worker as its session
+// changes; tests flip it to simulate session churn.
+func (f *fakeHelixClient) setExploratory(sid string) {
+	f.mu.Lock()
+	f.exploratorySession = sid
+	f.mu.Unlock()
+}
+func (f *fakeHelixClient) ExploratorySession(_ context.Context, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.exploratorySession, nil
+}
 func (f *fakeHelixClient) ServerStatus(_ context.Context) (ServerStatus, error) {
 	return ServerStatus{MaxConcurrentDesktops: 0, ActiveConcurrentDesktops: 0}, nil
 }
 
-func newHelixTestStore(t *testing.T) (*store.Store, orgchart.WorkerID) {
+func newHelixTestStore(t *testing.T) (*store.Store, orgchart.NodeID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	role, _ := orgchart.NewRole("r-eng", "# Role: Engineer", nil, nil, time.Now().UTC(), "org-test")
-	if err := s.Roles.Create(ctx, role); err != nil {
-		t.Fatalf("role: %v", err)
+	bot, _ := orgchart.NewNode("w-eng", "# Role: Engineer", nil, time.Now().UTC(), "org-test")
+	if err := s.Nodes.Create(ctx, bot); err != nil {
+		t.Fatalf("bot: %v", err)
 	}
-	worker, _ := orgchart.NewAIWorker("w-eng", "r-eng", "# Persona", "org-test")
-	if err := s.Workers.Create(ctx, worker); err != nil {
-		t.Fatalf("worker: %v", err)
-	}
-	return s, worker.ID()
+	return s, bot.ID
 }
 
 func newHelixCfg(t *testing.T, fc SpawnerClient, s *store.Store) SpawnerConfig {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return SpawnerConfig{
-		Client:            fc,
-		ProjectService:    newFakeProjectService(),
-		Workspace:         NewWorkspace(newFakeGitForProject(), s, "helix-specs", "helix-org", "ho@example.com"),
-		PubSub:            newFakePubSub(),
-		Snapshotter:       NoopSessionPreamble{},
-		HelixOrgURL:       "http://helix-org:8081",
-		Provider:          "openai",
-		Model:             "gpt-4o-mini",
-		ActivationTimeout: 2 * time.Second,
-		MaxInflight:       2,
-		PollInitial:       time.Millisecond,
-		PollMax:           5 * time.Millisecond,
-		Logger:            logger,
-		Store:             s,
-		Now:               func() time.Time { return time.Now().UTC() },
-		NewID:             func() string { return "id" },
+		Client:                 fc,
+		ProjectService:         newFakeProjectService(),
+		PubSub:                 newFakePubSub(),
+		Snapshotter:            NoopSessionPreamble{},
+		Provider:               "openai",
+		Model:                  "gpt-4o-mini",
+		SessionStartupTimeout:  2 * time.Second,
+		ActivationRunawayGuard: 2 * time.Second,
+		MaxInflight:            2,
+		PollInitial:            time.Millisecond,
+		PollMax:                5 * time.Millisecond,
+		Logger:                 logger,
+		Store:                  s,
+		Now:                    func() time.Time { return time.Now().UTC() },
+		NewID:                  func() string { return "id" },
 	}
 }
 
@@ -112,12 +203,16 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
 		t.Errorf("StartChat calls: %d", got)
+	}
+	// First activation has no prior session, so there is nothing to clear.
+	if got := atomic.LoadInt32(&fc.clearCalls); got != 0 {
+		t.Errorf("ClearSession called %d times on a first activation; a fresh StartSession has no prior context to wipe", got)
 	}
 	state, err := LoadState(context.Background(), s, "org-test", wid)
 	if err != nil {
@@ -128,27 +223,29 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	}
 	// The Worker should have its per-project IDs persisted from the
 	// fake's ApplyProject response.
-	if state.ProjectID != "prj_test" || state.AgentAppID != "app_test" {
-		t.Errorf("project IDs not persisted: project=%q agent_app=%q", state.ProjectID, state.AgentAppID)
+	if state.ProjectID != "prj_test" || state.AgentID != "app_test" {
+		t.Errorf("project IDs not persisted: project=%q agent_app=%q", state.ProjectID, state.AgentID)
 	}
-	// StartChat must point at the per-Worker project, not at any
+	// StartSession must point at the per-Worker project, not at any
 	// global one.
-	if fc.lastStartReq.ProjectID != "prj_test" {
-		t.Errorf("StartChat ProjectID = %q (want prj_test)", fc.lastStartReq.ProjectID)
+	if fc.lastStartParams.ProjectID != "prj_test" {
+		t.Errorf("StartSession ProjectID = %q (want prj_test)", fc.lastStartParams.ProjectID)
 	}
-	if fc.lastStartReq.AppID != "app_test" {
-		t.Errorf("StartChat AppID = %q (want app_test)", fc.lastStartReq.AppID)
+	if fc.lastStartParams.AppID != "app_test" {
+		t.Errorf("StartSession AppID = %q (want app_test)", fc.lastStartParams.AppID)
+	}
+	if fc.lastStartParams.Name != "w-eng" {
+		t.Errorf("StartSession Name = %q (want w-eng)", fc.lastStartParams.Name)
+	}
+	if fc.lastStartParams.WorkerID != "w-eng" {
+		t.Errorf("StartSession WorkerID = %q (want w-eng)", fc.lastStartParams.WorkerID)
+	}
+	if !strings.Contains(fc.lastStartParams.Instructions, "=== Instructions ===\n# Role: Engineer") {
+		t.Errorf("StartSession instructions = %q", fc.lastStartParams.Instructions)
 	}
 }
 
-// TestSpawnerAttachesHelixOrgMCPEveryActivation pins the bug-fix
-// invariant: the helix-org MCP is re-attached to the Worker's agent
-// app on every activation, after ensureProject runs. helix's project-
-// apply path wholesale-replaces Config.Helix on update, so without
-// this re-attach the MCP is gone from the second activation onward
-// and the desktop runtime boots without the helix-org tools — the
-// regression behind /workers/<id>/mcp not appearing in Zed.
-func TestSpawnerAttachesHelixOrgMCPEveryActivation(t *testing.T) {
+func TestSpawnerSpecsMandateRemainsFullOverride(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
 	fc := &fakeHelixClient{
@@ -156,50 +253,160 @@ func TestSpawnerAttachesHelixOrgMCPEveryActivation(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	cfg := newHelixCfg(t, fc, s)
-	cfg.MCPAuthBearer = "k_service"
+	cfg.SpecsMandate = "Operator policy: keep replies concise."
 	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	instructions := fc.lastStartParams.Instructions
+	if !strings.Contains(instructions, "Operator policy: keep replies concise.") {
+		t.Fatalf("runtime instructions missing mandate override: %q", instructions)
+	}
+	if strings.Contains(instructions, "# Role: Engineer") {
+		t.Fatalf("explicit mandate must remain a full override: %q", instructions)
+	}
+	if strings.Contains(fc.lastStartParams.Prompt, "Operator policy") || strings.Contains(fc.lastStartParams.Prompt, "You are Bot") {
+		t.Fatalf("activation prompt contains durable instructions: %q", fc.lastStartParams.Prompt)
+	}
+}
+
+func TestSpawnerEmbedsFreshBotContentByDefault(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	sp := Spawner(newHelixCfg(t, fc, s))
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn 1: %v", err)
 	}
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent}}); err != nil {
+	bot, err := s.Nodes.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatalf("get bot: %v", err)
+	}
+	if err := s.Nodes.Update(context.Background(), bot.WithContent("# Role: Principal Engineer")); err != nil {
+		t.Fatalf("update bot: %v", err)
+	}
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-role"}}); err != nil {
 		t.Fatalf("spawn 2: %v", err)
 	}
-	svc := cfg.ProjectService.(*fakeProjectService)
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
-	// Two activations should mean two UpdateAppConfig calls for the
-	// MCP attach (one per activation, after ensureProject). The
-	// helix-side apply path clobbers the MCP list each time so this
-	// must NOT be debounced.
-	if svc.updateAppCalls != 2 {
-		t.Errorf("UpdateAppConfig calls = %d, want 2 (one MCP re-attach per activation)", svc.updateAppCalls)
+	fc.mu.Lock()
+	followUp := fc.lastSendBody
+	instructions := fc.lastInstructions
+	lastSyncSID := fc.lastSyncSID
+	lastSessionName := fc.lastSessionName
+	lastWorkerID := fc.lastWorkerID
+	syncedBeforeClear := fc.syncedBeforeClear
+	fc.mu.Unlock()
+	if !strings.Contains(instructions, "=== Instructions ===\n# Role: Principal Engineer") {
+		t.Fatalf("runtime instructions did not use fresh Bot.Content: %q", instructions)
 	}
-	mcp := findMCP(svc.updateAppLastCfg, HelixOrgMCPName)
-	if mcp == nil {
-		t.Fatalf("last UpdateApp missing helix MCP entry: %+v", svc.updateAppLastCfg)
+	if strings.Contains(followUp, "Principal Engineer") || strings.Contains(followUp, "You are Bot") {
+		t.Fatalf("follow-up prompt contains durable instructions: %q", followUp)
 	}
-	if !strings.HasSuffix(mcp.URL, "/workers/w-eng/mcp") {
-		t.Errorf("MCP URL = %q, want /workers/w-eng/mcp suffix", mcp.URL)
+	if got := atomic.LoadInt32(&fc.syncCalls); got != 1 || lastSyncSID != "ses_new" {
+		t.Fatalf("warm instruction sync = (%d, %q), want (1, ses_new)", got, lastSyncSID)
 	}
-	if mcp.Headers["Authorization"] != "Bearer k_service" {
-		t.Errorf("MCP fallback bearer not applied; Authorization = %q", mcp.Headers["Authorization"])
+	if lastSessionName != "w-eng" {
+		t.Fatalf("warm session name = %q, want w-eng", lastSessionName)
+	}
+	if lastWorkerID != "w-eng" {
+		t.Fatalf("warm worker ID = %q, want w-eng", lastWorkerID)
+	}
+	if !syncedBeforeClear {
+		t.Fatal("warm instruction sync must happen before ClearSession resets the ACP thread")
+	}
+	for _, staleBootstrap := range []string{"agent.md", "git pull", "git worktree", "cat ~/work"} {
+		if strings.Contains(followUp, staleBootstrap) {
+			t.Errorf("follow-up prompt contains stale bootstrap %q: %q", staleBootstrap, followUp)
+		}
+	}
+}
+
+func TestSpawnerUsesLinkedAgentInstructions(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	bot, err := s.Nodes.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Nodes.Update(context.Background(), bot.WithAgentID("app_test")); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.ProjectService.(*fakeProjectService).appConfig = types.AppConfig{Helix: types.AppHelixConfig{
+		Name: "Engineer",
+		Assistants: []types.AssistantConfig{{
+			Name:         "Engineer",
+			SystemPrompt: "# Canonical agent instructions",
+		}},
+	}}
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	instructions := fc.lastStartParams.Instructions
+	if !strings.Contains(instructions, "=== Instructions ===\n# Canonical agent instructions") {
+		t.Fatalf("runtime instructions did not use linked Agent instructions: %q", instructions)
+	}
+	if strings.Contains(instructions, "# Role: Engineer") {
+		t.Fatalf("runtime instructions used legacy Bot.Content: %q", instructions)
+	}
+}
+
+func TestSpawnerReadsBotAfterProjectEnsure(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	project := cfg.ProjectService.(*fakeProjectService)
+	project.applyStarted = make(chan struct{}, 1)
+	project.applyContinue = make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
+	}()
+	<-project.applyStarted
+	bot, err := s.Nodes.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		close(project.applyContinue)
+		t.Fatalf("get bot: %v", err)
+	}
+	if err := s.Nodes.Update(context.Background(), bot.WithContent("# Role: Updated During Ensure")); err != nil {
+		close(project.applyContinue)
+		t.Fatalf("update bot: %v", err)
+	}
+	close(project.applyContinue)
+	if err := <-result; err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	instructions := fc.lastStartParams.Instructions
+	if !strings.Contains(instructions, "# Role: Updated During Ensure") {
+		t.Fatalf("runtime instructions used role read before project ensure: %q", instructions)
 	}
 }
 
 // TestBridgeRendersEntryPatchEvents verifies that the bridge's
-// EntryStream callback produces the same line shapes the claude
+// EntryTopic callback produces the same line shapes the claude
 // bridge emits — assistant text, tool_use, tool_result.
 func TestBridgeRendersEntryPatchEvents(t *testing.T) {
 	t.Parallel()
 	var got []string
 	b := newBridge(func(s string) { got = append(got, s) })
-	b.stream.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
+	b.topic.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: "hi", PatchOffset: 0},
 	}})
-	b.stream.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
+	b.topic.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 1, MessageID: "t1", Type: "tool_call", Patch: `{"x":1}`, ToolName: "publish", ToolStatus: "Completed"},
 	}})
-	b.stream.Flush()
+	b.topic.Flush()
 	if len(got) < 3 {
 		t.Fatalf("expected ≥3 events, got %d: %v", len(got), got)
 	}
@@ -237,19 +444,156 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	// The first StartChatWithStatus call (resume) carries the existing
-	// SessionID. The session pointer in the store must remain unchanged.
+	// A follow-up with a persisted session sends via SendMessage to the
+	// existing session — no fresh StartSession, no churn. The session
+	// pointer must remain unchanged.
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	if fc.lastStartReq.SessionID != "ses_existing" {
-		t.Errorf("StartChatRequest.SessionID = %q (want ses_existing) — resume must target persisted session", fc.lastStartReq.SessionID)
+	if fc.lastSendSID != "ses_existing" {
+		t.Errorf("SendMessage sessionID = %q (want ses_existing) — follow-up must target persisted session", fc.lastSendSID)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
+		t.Errorf("StartSession called %d times; a follow-up must reuse the session, not create a fresh one", got)
+	}
+	// The persisted session must be cleared exactly once, and before the
+	// prompt is dispatched, so the worker turn starts on a fresh context
+	// window rather than re-using the prior (potentially huge) transcript.
+	if got := atomic.LoadInt32(&fc.clearCalls); got != 1 {
+		t.Errorf("ClearSession called %d times; a follow-up must clear the session exactly once before re-activation", got)
+	}
+	if fc.lastClearSID != "ses_existing" {
+		t.Errorf("ClearSession sessionID = %q (want ses_existing) — must clear the persisted session", fc.lastClearSID)
+	}
+	if !fc.clearedBeforeSend {
+		t.Error("ClearSession must run BEFORE SendMessage — otherwise the new prompt lands on the old context window")
 	}
 	state, _ := LoadState(context.Background(), s, "org-test", wid)
 	if state.SessionID != "ses_existing" {
-		t.Errorf("session pointer changed to %q; resume must NOT open a fresh session", state.SessionID)
+		t.Errorf("session pointer changed to %q; follow-up must NOT open a fresh session", state.SessionID)
+	}
+}
+
+// TestSpawnerPreservesContextWhenBotOptsIn pins the opt-out: a Bot with
+// PreserveContext=true must NOT have its session wiped on re-activation,
+// so its conversation accumulates across triggers. The follow-up still
+// targets the persisted session (no churn), it just isn't cleared first.
+func TestSpawnerPreservesContextWhenBotOptsIn(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	// Flip the bot to preserve context across triggers.
+	bot, err := s.Nodes.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatalf("get bot: %v", err)
+	}
+	if err := s.Nodes.Update(context.Background(), bot.WithPreserveContext(true)); err != nil {
+		t.Fatalf("update bot: %v", err)
+	}
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_existing"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID: "ses_existing",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	sp := Spawner(newHelixCfg(t, fc, s))
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if got := atomic.LoadInt32(&fc.clearCalls); got != 0 {
+		t.Errorf("ClearSession called %d times; a PreserveContext bot must keep its context across triggers", got)
+	}
+	if fc.lastSendSID != "ses_existing" {
+		t.Errorf("SendMessage sessionID = %q (want ses_existing) — follow-up must still target the persisted session", fc.lastSendSID)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
+		t.Errorf("StartSession called %d times; a preserve-context follow-up must reuse the warm session", got)
+	}
+}
+
+// TestSpawnerClearsSessionOnReactivationOnly drives two activations of
+// the same Worker through the real Spawner closure and pins the
+// context-hygiene contract end to end: the first activation opens a
+// fresh session and clears nothing; the second re-uses that persisted
+// session but clears it first, so each worker turn starts on a fresh
+// context window instead of accumulating one ever-growing transcript.
+func TestSpawnerClearsSessionOnReactivationOnly(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	sp := Spawner(newHelixCfg(t, fc, s))
+
+	// First activation: no persisted session → fresh StartSession, no clear.
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn 1: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.clearCalls); got != 0 {
+		t.Fatalf("first activation cleared %d times; a fresh session has no prior context to wipe", got)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
+		t.Fatalf("first activation StartSession calls = %d, want 1", got)
+	}
+
+	// Second activation: the persisted session is cleared before the new
+	// prompt is sent, and the same warm session is re-used (no churn).
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-2"}}); err != nil {
+		t.Fatalf("spawn 2: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.clearCalls); got != 1 {
+		t.Errorf("second activation cleared %d times, want 1", got)
+	}
+	fc.mu.Lock()
+	clearSID, sendSID := fc.lastClearSID, fc.lastSendSID
+	fc.mu.Unlock()
+	if clearSID != "ses_new" {
+		t.Errorf("ClearSession sessionID = %q, want ses_new (the persisted session)", clearSID)
+	}
+	if sendSID != "ses_new" {
+		t.Errorf("SendMessage sessionID = %q, want ses_new — re-activation must re-use the warm session", sendSID)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
+		t.Errorf("StartSession calls = %d after two activations; the second must re-use the session, not open a fresh one", got)
+	}
+}
+
+// TestSpawnerClearFailureAbortsActivation pins fail-fast behaviour: if
+// the pre-activation clear errors we must NOT silently fall through and
+// dispatch the prompt onto the stale, oversized context — the whole
+// point of the clear. The activation returns the error instead.
+func TestSpawnerClearFailureAbortsActivation(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_existing"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID: "ses_existing",
+		clearErr:       errors.New("boom"),
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	sp := Spawner(newHelixCfg(t, fc, s))
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}})
+	if err == nil {
+		t.Fatal("expected activation to fail when the pre-activation clear errors")
+	}
+	if !strings.Contains(err.Error(), "clear session") {
+		t.Errorf("error %q does not mention the clear failure", err)
+	}
+	if got := atomic.LoadInt32(&fc.sendCalls); got != 0 {
+		t.Errorf("SendMessage called %d times after a failed clear; the prompt must NOT land on the stale context", got)
 	}
 }
 
@@ -268,7 +612,7 @@ func TestSpawnerRefusesWhenDesktopQuotaExceeded(t *testing.T) {
 	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
 	cfg.Client = fc
 	sp := Spawner(cfg)
-	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil {
 		t.Fatal("expected error when quota exhausted")
 	}
@@ -290,56 +634,6 @@ func (f *quotaFullFakeClient) ServerStatus(_ context.Context) (ServerStatus, err
 	return ServerStatus{MaxConcurrentDesktops: 2, ActiveConcurrentDesktops: 2}, nil
 }
 
-// TestSpawnerColdStartReQueues verifies that when StartChatWithStatus
-// reports hadStreamErr=true on the fresh open, EnsureAndSend re-issues
-// the same prompt against the same session ID (belt-and-braces — the
-// original race that made this critical was fixed in Helix; this
-// retry is the fallback).
-func TestSpawnerColdStartReQueues(t *testing.T) {
-	t.Parallel()
-	s, wid := newHelixTestStore(t)
-	fc := &coldStartFakeClient{
-		fakeHelixClient: fakeHelixClient{
-			startSessionID: "ses_new",
-			outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
-		},
-		hadWSError: true,
-	}
-	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
-	cfg.Client = fc
-	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	// Two StartChatWithStatus calls: the fresh open and the retry on
-	// the same session. (Cold-start retry replaced the older
-	// SendSessionMessage path in EnsureAndSend.)
-	if got := atomic.LoadInt32(&fc.startCalls); got < 2 {
-		t.Errorf("StartChat calls: %d (want >=2 — fresh open + cold-start retry)", got)
-	}
-	// Retry targets the freshly-opened session.
-	fc.mu.Lock()
-	defer fc.mu.Unlock()
-	if fc.lastStartReq.SessionID != "ses_new" {
-		t.Errorf("retry SessionID = %q (want ses_new — retry on same session)", fc.lastStartReq.SessionID)
-	}
-}
-
-// coldStartFakeClient overrides StartChatWithStatus to return
-// hadWSError=true, simulating Helix's "no agent WS yet" race.
-type coldStartFakeClient struct {
-	fakeHelixClient
-	hadWSError bool
-}
-
-func (f *coldStartFakeClient) StartChatWithStatus(_ context.Context, req StartChatRequest) (types.Session, bool, error) {
-	atomic.AddInt32(&f.startCalls, 1)
-	f.mu.Lock()
-	f.lastStartReq = req
-	f.mu.Unlock()
-	return types.Session{ID: f.startSessionID}, f.hadWSError, f.startErr
-}
-
 func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
@@ -348,11 +642,147 @@ func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "waiting"}},
 	}
 	cfg := newHelixCfg(t, fc, s)
-	cfg.ActivationTimeout = 30 * time.Millisecond
+	// ActivationRunawayGuard bounds pollUntilDone. With the session
+	// stuck in "waiting", the runaway guard fires and the spawner
+	// returns context.DeadlineExceeded.
+	cfg.ActivationRunawayGuard = 30 * time.Millisecond
 	sp := Spawner(cfg)
-	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline error, got %v", err)
+	}
+}
+
+func TestSpawnerReleasesQueueWhenRestartDeletesSession(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_deleted",
+		outputErr:      fmt.Errorf("poll: %w", ErrSessionNotFound),
+	}
+	cfg := newHelixCfg(t, fc, s)
+	sp := Spawner(cfg)
+
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}}); err != nil {
+		t.Fatalf("deleted session should end the superseded activation cleanly: %v", err)
+	}
+}
+
+func TestSpawnerIgnoresPreviousInterruptedInteraction(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj-existing", "app-existing", "repo-existing"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses-existing"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID: "ses-existing",
+		outputs: []types.SessionOutputResponse{
+			{InteractionID: "int-old", Status: "interrupted"},
+			{InteractionID: "int-old", Status: "interrupted"},
+			{InteractionID: "int-new", Status: "waiting"},
+			{InteractionID: "int-new", Status: "complete", Output: "ok"},
+		},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.outputCalls); got < 4 {
+		t.Fatalf("poll returned on the previous interrupted interaction; output calls = %d", got)
+	}
+}
+
+func TestSpawnerReleasesQueueWhenStoppedInteractionDisappears(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj-existing", "app-existing", "repo-existing"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses-existing"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID:   "ses-existing",
+		preserveEmptyIDs: true,
+		outputs: []types.SessionOutputResponse{
+			{InteractionID: "int-old", Status: "complete"},
+			{InteractionID: "int-new", Status: "waiting"},
+			{InteractionID: "", Status: "complete"},
+		},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.outputCalls); got < 3 {
+		t.Fatalf("poll did not observe the stopped interaction disappear; output calls = %d", got)
+	}
+}
+
+// TestSpawnerSessionStartupTimeoutBoundsStartup pins the split between
+// SessionStartupTimeout and ActivationRunawayGuard for startup work.
+// A hanging StartSession must fire SessionStartupTimeout long before
+// the runaway guard would. Regression test for the conflated
+// ActivationTimeout that used to bound both phases.
+func TestSpawnerSessionStartupTimeoutBoundsStartup(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	never := make(chan struct{}) // never closed
+	fc := &fakeHelixClient{
+		startSessionID: "ses_x",
+		startBlock:     never,
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.SessionStartupTimeout = 30 * time.Millisecond
+	cfg.ActivationRunawayGuard = 10 * time.Second // intentionally much larger
+
+	sp := Spawner(cfg)
+	start := time.Now()
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
+	elapsed := time.Since(start)
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline error from SessionStartupTimeout, got %v", err)
+	}
+	// SessionStartupTimeout was 30ms; if the bigger runaway guard had
+	// bounded startup we'd see this elapsed time >>1s.
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("startup phase took %s — SessionStartupTimeout did not bound it (runaway guard fired instead?)", elapsed)
+	}
+}
+
+// TestSpawnerPollPhaseNotBoundedBySessionStartupTimeout pins the other
+// half of the split: with SessionStartupTimeout=30ms and a fast
+// startup, a session stuck in "waiting" must keep polling until the
+// runaway guard fires, NOT exit at the old 30ms ActivationTimeout
+// boundary. This is the regression that caused decoy interactions —
+// the lane releasing on a stale startup timer while the session is
+// still being polled.
+func TestSpawnerPollPhaseNotBoundedBySessionStartupTimeout(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_x",
+		outputs:        []types.SessionOutputResponse{{Status: "waiting"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.SessionStartupTimeout = 30 * time.Millisecond
+	cfg.ActivationRunawayGuard = 300 * time.Millisecond
+
+	sp := Spawner(cfg)
+	start := time.Now()
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
+	elapsed := time.Since(start)
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline error from runaway guard, got %v", err)
+	}
+	// If startup-timeout were still bounding polling we'd see ~30ms.
+	// The runaway guard is 300ms; expect the deadline to land near it.
+	if elapsed < 200*time.Millisecond {
+		t.Fatalf("poll phase exited after %s — SessionStartupTimeout bounded the poll loop, not the runaway guard", elapsed)
 	}
 }
 
@@ -370,7 +800,7 @@ func TestSpawnerSemaphoreSerialises(t *testing.T) {
 
 	cfg := newHelixCfg(t, fc, s)
 	cfg.MaxInflight = 1
-	cfg.ActivationTimeout = time.Second
+	cfg.ActivationRunawayGuard = time.Second
 
 	wrapped := &concurrencyClient{inner: fc, gate: gate, inflight: &inflight, peak: &peak}
 	cfg.Client = wrapped
@@ -381,7 +811,7 @@ func TestSpawnerSemaphoreSerialises(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+			_ = sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 		}()
 	}
 	time.Sleep(20 * time.Millisecond)
@@ -401,7 +831,10 @@ type concurrencyClient struct {
 	peak     *int32
 }
 
-func (c *concurrencyClient) StartChatWithStatus(ctx context.Context, req StartChatRequest) (types.Session, bool, error) {
+// track records peak concurrency then blocks on the gate, so the test
+// can hold multiple activations in-flight at once and assert the
+// spawner's semaphore caps them.
+func (c *concurrencyClient) track() func() {
 	cur := atomic.AddInt32(c.inflight, 1)
 	for {
 		p := atomic.LoadInt32(c.peak)
@@ -409,9 +842,26 @@ func (c *concurrencyClient) StartChatWithStatus(ctx context.Context, req StartCh
 			break
 		}
 	}
-	defer atomic.AddInt32(c.inflight, -1)
 	<-c.gate
-	return c.inner.StartChatWithStatus(ctx, req)
+	return func() { atomic.AddInt32(c.inflight, -1) }
+}
+
+func (c *concurrencyClient) StartSession(ctx context.Context, params StartSessionParams) (string, error) {
+	defer c.track()()
+	return c.inner.StartSession(ctx, params)
+}
+
+func (c *concurrencyClient) SendMessage(ctx context.Context, sessionID, prompt string) error {
+	defer c.track()()
+	return c.inner.SendMessage(ctx, sessionID, prompt)
+}
+
+func (c *concurrencyClient) ClearSession(ctx context.Context, sessionID string) error {
+	return c.inner.ClearSession(ctx, sessionID)
+}
+
+func (c *concurrencyClient) SyncAgentProfile(context.Context, string, string, string, string) error {
+	return nil
 }
 
 func (c *concurrencyClient) ServerStatus(ctx context.Context) (ServerStatus, error) {
@@ -430,54 +880,50 @@ func (c *concurrencyClient) SessionOwner(ctx context.Context, sid string) (strin
 	return c.inner.SessionOwner(ctx, sid)
 }
 
-// TestSpawnerPublishesTranscriptViaEntryStream verifies the bridge
-// subscribes via pubsub.GetSessionQueue, feeds frames through
-// EntryStream, and republishes settled events as activation Stream
-// events.
-func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
+// An activation Ensure()s the mirror, so a turn arriving on the session
+// AFTER the activation returns (e.g. inline chat) is still captured.
+func TestSpawnerEnsuresSessionMirror(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
+	// Steady state: project + session persisted, so the activation
+	// resumes ses_y and the spawner Ensures the mirror up front.
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_y"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
 
 	ps := newFakePubSub()
 	fc := &fakeHelixClient{
-		startSessionID: "ses_y",
-		// The session is owned by a real user; helix publishes its
-		// updates to that owner's pubsub topic. The bridge must resolve
-		// the owner (via SessionOwner) and subscribe there — subscribing
-		// with an empty owner is the regression this test guards.
-		sessionOwner: "u-owner",
-		// Several waiting outputs so the bridge has time to consume
-		// the pubsub frames before pollUntilDone terminates.
-		outputs: []types.SessionOutputResponse{
-			{Status: "waiting"}, {Status: "waiting"}, {Status: "complete", Output: "ok"},
-		},
+		sessionOwner:       "u-owner",
+		exploratorySession: "ses_y",
+		outputs:            []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	cfg := newHelixCfg(t, fc, s)
 	cfg.PubSub = ps
-	cfg.PollInitial = 80 * time.Millisecond
-	cfg.ActivationTimeout = 2 * time.Second
-	// Unique IDs so each publishActivationEvent insert succeeds.
 	var idCounter int32
 	cfg.NewID = func() string { return fmt.Sprintf("e-%d", atomic.AddInt32(&idCounter, 1)) }
+	cfg.Mirror = NewMirror(context.Background(), MirrorConfig{
+		PubSub: ps, Snapshotter: NoopSessionPreamble{}, Client: fc,
+		ExploratorySession: fc.ExploratorySession,
+		Store:              s, Logger: cfg.Logger, NewID: cfg.NewID, Now: cfg.Now,
+		PollInterval: 15 * time.Millisecond,
+	})
 	sp := Spawner(cfg)
 
-	// Drive the activation in a goroutine so we can publish frames
-	// after the bridge has subscribed.
-	done := make(chan error, 1)
-	go func() {
-		done <- sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
-	}()
-
-	// Wait for the bridge to subscribe (handlers map populated).
-	deadline := time.Now().Add(2 * time.Second)
-	topic := pubsub.GetSessionQueue("u-owner", "ses_y")
-	for time.Now().Before(deadline) {
-		if ps.handlerCount(topic) > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
+		t.Fatalf("spawn: %v", err)
 	}
 
+	// The activation has returned, but the spawner registered the worker
+	// with the mirror, which now tracks its session. A turn arriving on
+	// that session from another surface (the inline chat) must still be
+	// captured.
+	topic := pubsub.GetSessionQueue("u-owner", "ses_y")
+	if !waitForHandlers(ps, topic, 1) {
+		t.Fatal("spawner did not leave a live mirror subscription for the session")
+	}
 	patch, _ := json.Marshal(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: "hi there"},
 	}})
@@ -485,81 +931,46 @@ func TestSpawnerPublishesTranscriptViaEntryStream(t *testing.T) {
 	complete, _ := json.Marshal(types.WebsocketEvent{Interaction: &types.Interaction{State: "complete"}})
 	ps.publish(t, topic, complete)
 
-	if err := <-done; err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-
-	events, err := s.Events.ListForStream(context.Background(), "org-test", activation.StreamID(wid), 100)
-	if err != nil {
-		t.Fatalf("list events: %v", err)
-	}
-	var sawAssistant bool
-	for _, e := range events {
-		msg, err := e.Message()
-		if err != nil {
-			continue
-		}
-		if strings.Contains(msg.Body, "assistant: hi there") {
-			sawAssistant = true
-		}
-	}
-	if !sawAssistant {
-		t.Fatalf("activation stream missing transcript line; events: %+v", events)
+	if !waitForSegment(t, s, wid, "assistant: hi there") {
+		t.Fatal("post-activation session turn not mirrored to the transcript")
 	}
 }
 
-// TestSpawnerOpensFreshOnStaleSession: when the persisted session ID
-// resume fails (Helix reports hadStreamErr), the spawner opens a
-// fresh session and persists the new ID.
-func TestSpawnerOpensFreshOnStaleSession(t *testing.T) {
+// A follow-up must never churn to a fresh session: SendMessage is
+// fire-and-forget and Helix auto-resumes a downed desktop on the same
+// session, so the persisted pointer stays intact.
+func TestSpawnerFollowUpSurvivesDownDesktop(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
 	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
 		t.Fatalf("save project: %v", err)
 	}
-	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_stale"); err != nil {
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_existing"); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
-	fc := &staleSessionFake{
-		fakeHelixClient: fakeHelixClient{
-			startSessionID: "ses_fresh",
-			outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
-		},
+	fc := &fakeHelixClient{
+		startSessionID: "ses_should_not_be_used",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
-	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
-	cfg.Client = fc
-	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
+	sp := Spawner(newHelixCfg(t, fc, s))
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	state, _ := LoadState(context.Background(), s, "org-test", wid)
-	if state.SessionID != "ses_fresh" {
-		t.Errorf("session pointer = %q, want ses_fresh (stale resume must fall through to fresh)", state.SessionID)
+	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
+		t.Errorf("StartSession called %d times; a follow-up must never create a fresh session (no churn)", got)
 	}
-}
-
-// staleSessionFake reports hadStreamErr=true when a resume call is
-// made (SessionID != "") — simulating Helix's "session no longer
-// running" signal. Fresh opens (SessionID empty) succeed normally.
-type staleSessionFake struct {
-	fakeHelixClient
-}
-
-func (f *staleSessionFake) StartChatWithStatus(_ context.Context, req StartChatRequest) (types.Session, bool, error) {
-	atomic.AddInt32(&f.startCalls, 1)
-	f.mu.Lock()
-	f.lastStartReq = req
-	f.mu.Unlock()
-	hadErr := req.SessionID != "" // resume path → "session no longer running"
-	return types.Session{ID: f.startSessionID}, hadErr, f.startErr
+	state, _ := LoadState(context.Background(), s, "org-test", wid)
+	if state.SessionID != "ses_existing" {
+		t.Errorf("session pointer = %q, want ses_existing (follow-up must keep the same session)", state.SessionID)
+	}
 }
 
 // TestSpawnerRecordsActivationRowOnSuccess pins B5.6 — the Spawner
 // MUST create an activation row at start and complete it with
 // StatusOK at end, so the audit/replay surface stays in sync with
-// the transcript stream. The id derives from cfg.NewID with the
-// "a-" prefix; StartedAt/EndedAt come from cfg.Now; TranscriptStreamID
-// is the canonical StreamID derivation; Outcome.Status reflects the
+// the transcript topic. The id derives from cfg.NewID with the
+// "a-" prefix; StartedAt/EndedAt come from cfg.Now; TranscriptID
+// is the canonical TopicID derivation; Outcome.Status reflects the
 // Spawner's return value.
 func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 	t.Parallel()
@@ -569,7 +980,7 @@ func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 	rows, err := s.Activations.ListForWorker(context.Background(), "org-test", wid, 10)
@@ -586,8 +997,8 @@ func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 	if a.ID != activation.ID("a-id") {
 		t.Errorf("row.ID = %q, want a-id (from NewID stub)", a.ID)
 	}
-	if a.TranscriptStreamID != activation.StreamID(wid) {
-		t.Errorf("row.TranscriptStreamID = %q, want %q", a.TranscriptStreamID, activation.StreamID(wid))
+	if a.TranscriptID != activation.TranscriptID(wid) {
+		t.Errorf("row.TranscriptID = %q, want %q", a.TranscriptID, activation.TranscriptID(wid))
 	}
 	if !a.IsCompleted() {
 		t.Fatalf("row not marked completed; EndedAt = %v", a.EndedAt)
@@ -597,83 +1008,6 @@ func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 	}
 	if a.Outcome.Error != "" {
 		t.Errorf("Outcome.Error = %q, want empty on success", a.Outcome.Error)
-	}
-}
-
-// TestSpawnerRunsRegisteredSecretInjectors pins the
-// transport→spawner secret-injection plumbing. When the spawner is
-// configured with one or more SpawnSecretInjector instances, every
-// activation must call each one and upsert the returned secrets as
-// project secrets so the desktop container's runtime can surface
-// them as env vars.
-//
-// Pin via the github-shaped case (GH_TOKEN), but the spawner has
-// no GitHub awareness — the injector is just a generic
-// SpawnSecretInjectorFunc, exactly like Postmark or any future
-// transport would register.
-func TestSpawnerRunsRegisteredSecretInjectors(t *testing.T) {
-	t.Parallel()
-	s, wid := newHelixTestStore(t)
-	fc := &fakeHelixClient{
-		startSessionID: "ses_new",
-		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
-	}
-	cfg := newHelixCfg(t, fc, s)
-	cfg.SecretInjectors = []SpawnSecretInjector{
-		SpawnSecretInjectorFunc{
-			Label: "github",
-			Fn: func(_ context.Context, orgID string) (map[string]string, error) {
-				if orgID != "org-test" {
-					t.Errorf("injector got orgID = %q, want org-test", orgID)
-				}
-				return map[string]string{"GH_TOKEN": "gho_token_abc"}, nil
-			},
-		},
-	}
-	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	svc := cfg.ProjectService.(*fakeProjectService)
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
-	if svc.putSecretLast["GH_TOKEN"] != "gho_token_abc" {
-		t.Errorf("GH_TOKEN secret = %q, want %q (set keys: %v)", svc.putSecretLast["GH_TOKEN"], "gho_token_abc", svc.putSecretLast)
-	}
-}
-
-// TestSpawnerSkipsInjectorReturningEmptyMap pins the degraded-mode
-// path: an injector returning an empty map (e.g. "operator hasn't
-// connected this transport's auth yet") must NOT cause the
-// spawner to upsert an empty secret. That would shadow any
-// pre-existing value in the sandbox container.
-func TestSpawnerSkipsInjectorReturningEmptyMap(t *testing.T) {
-	t.Parallel()
-	s, wid := newHelixTestStore(t)
-	fc := &fakeHelixClient{
-		startSessionID: "ses_new",
-		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
-	}
-	cfg := newHelixCfg(t, fc, s)
-	cfg.SecretInjectors = []SpawnSecretInjector{
-		SpawnSecretInjectorFunc{
-			Label: "github",
-			Fn: func(_ context.Context, _ string) (map[string]string, error) {
-				// Mirror the github injector's "no OAuth wired yet"
-				// behaviour: nil map, no error.
-				return nil, nil
-			},
-		},
-	}
-	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	svc := cfg.ProjectService.(*fakeProjectService)
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
-	if _, set := svc.putSecretLast["GH_TOKEN"]; set {
-		t.Errorf("GH_TOKEN should NOT be set when injector returns empty; got %q", svc.putSecretLast["GH_TOKEN"])
 	}
 }
 
@@ -687,9 +1021,9 @@ func TestSpawnerRecordsActivationRowOnError(t *testing.T) {
 		startErr: errors.New("desktop quota exceeded"),
 	}
 	cfg := newHelixCfg(t, fc, s)
-	cfg.ActivationTimeout = time.Second
+	cfg.SessionStartupTimeout = time.Second
 	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err == nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err == nil {
 		t.Fatal("spawn: nil error, want quota error")
 	}
 	rows, err := s.Activations.ListForWorker(context.Background(), "org-test", wid, 10)
@@ -708,5 +1042,52 @@ func TestSpawnerRecordsActivationRowOnError(t *testing.T) {
 	}
 	if a.Outcome.Error == "" {
 		t.Error("Outcome.Error empty on error path")
+	}
+}
+
+// TestSpawnerHonorsSharedSemaphore pins the mechanism that replaced the
+// cross-tenant-leaking cached spawner
+// (design/2026-06-09-org-multitenancy-spawner-leak.md).
+//
+// The old host wrapper cached ONE inner Spawner (and so one org's
+// frozen OrgID) to share a single inflight cap. The fix
+// rebuilds a per-org SpawnerConfig every activation and instead shares
+// the cap via SpawnerConfig.Sem. If Spawner ignores cfg.Sem and mints
+// its own semaphore from MaxInflight, the global cap is silently lost.
+//
+// Here we inject a shared semaphore whose only slot is already taken.
+// A correct Spawner blocks on it and returns the context error without
+// starting a session; a Spawner that ignored cfg.Sem would sail past
+// and call StartChat.
+func TestSpawnerHonorsSharedSemaphore(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	sem := make(chan struct{}, 1)
+	sem <- struct{}{} // occupy the only slot — no inflight budget left
+	cfg.Sem = sem
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := Spawner(cfg)(ctx, "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded while the shared semaphore is full, got %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
+		t.Fatalf("StartChat fired %d times despite a full shared semaphore — Spawner ignored cfg.Sem and the global inflight cap is lost", got)
+	}
+
+	// Free the slot; the next activation must now proceed to completion,
+	// proving the gate was the semaphore and nothing else.
+	<-sem
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("activation with a free shared-semaphore slot must succeed, got %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
+		t.Fatalf("StartChat calls = %d, want 1 after the slot freed", got)
 	}
 }

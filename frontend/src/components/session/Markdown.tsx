@@ -10,12 +10,8 @@ import React, {
 import { useTheme } from "@mui/material/styles";
 import Box from "@mui/material/Box";
 import Markdown from "react-markdown";
-import { Prism as SyntaxHighlighterTS } from "react-syntax-highlighter";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-// you can change the theme by picking one from here
-// https://react-syntax-highlighter.github.io/react-syntax-highlighter/demo/prism.html
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { TypesSession } from "../../api/api";
 
 import DOMPurify from "dompurify";
@@ -23,15 +19,16 @@ import DOMPurify from "dompurify";
 // Import the new Citation component
 import Citation, { Excerpt } from "./Citation";
 import StreamingIndicator from "./StreamingIndicator";
-import IconButton from "@mui/material/IconButton";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import Tooltip from "@mui/material/Tooltip";
 import ThinkingWidget from "./ThinkingWidget";
 
 // Import chat stats collector for performance monitoring
 import { getGlobalStatsCollector } from "./ChatStatsOverlay";
-
-const SyntaxHighlighter = SyntaxHighlighterTS as any;
+import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import { getChatColors } from "./chatStyles";
+import MarkdownTable from "./MarkdownTable";
+import MarkdownCodeBlock from "./MarkdownCodeBlock";
+import ChangedFileIcon from "./ChangedFileIcon";
+import { parseWorkspaceFileReference } from "../common/workspaceFileReferences";
 
 export interface MessageProcessorOptions {
   session: TypesSession;
@@ -763,89 +760,9 @@ export interface InteractionMarkdownProps {
   isStreaming: boolean;
   onFilterDocument?: (docId: string) => void;
   compactThinking?: boolean;
+  renderThinkingWidget?: boolean;
+  renderContent?: boolean;
 }
-
-// Add this new component for the code block with copy button
-/**
- * Memoized code block component to prevent unnecessary re-renders during streaming.
- * This is a key performance optimization - code blocks don't change once rendered,
- * so we can skip re-rendering them when other content updates.
- */
-const CodeBlockWithCopy: FC<{ children: string; language?: string }> =
-  React.memo(({ children, language }) => {
-    const [copied, setCopied] = useState(false);
-    const theme = useTheme();
-
-    const handleCopy = useCallback(async () => {
-      try {
-        await navigator.clipboard.writeText(children);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } catch (err) {
-        console.error("Failed to copy text: ", err);
-      }
-    }, [children]);
-
-    // Memoize the processed children string to avoid recalculation
-    const processedChildren = useMemo(
-      () => String(children).replace(/\n$/, ""),
-      [children],
-    );
-
-    return (
-      <Box sx={{ position: "relative" }}>
-        <Box sx={{ position: "absolute", right: 8, top: 8, zIndex: 1 }}>
-          <Tooltip title={copied ? "Copied!" : "Copy code"}>
-            <IconButton
-              onClick={handleCopy}
-              size="small"
-              sx={{
-                backgroundColor:
-                  theme.palette.mode === "light"
-                    ? "rgba(255, 255, 255, 0.1)"
-                    : "rgba(0, 0, 0, 0.1)",
-                "&:hover": {
-                  backgroundColor:
-                    theme.palette.mode === "light"
-                      ? "rgba(255, 255, 255, 0.2)"
-                      : "rgba(0, 0, 0, 0.2)",
-                },
-                "& .MuiSvgIcon-root": {
-                  color:
-                    theme.palette.mode === "light"
-                      ? "rgba(0, 0, 0, 0.6)"
-                      : "rgba(255, 255, 255, 0.6)",
-                },
-              }}
-            >
-              <ContentCopyIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-        <Box
-          sx={{
-            overflowY: "clip",
-            overflowX: "auto",
-          }}
-        >
-          <SyntaxHighlighter
-            language={language}
-            style={oneDark}
-            PreTag="div"
-            customStyle={{
-              margin: 0,
-              overflow: "visible",
-            }}
-          >
-            {processedChildren}
-          </SyntaxHighlighter>
-        </Box>
-      </Box>
-    );
-  });
-
-// Display name for React DevTools debugging
-CodeBlockWithCopy.displayName = "CodeBlockWithCopy";
 
 // Throttle interval for streaming updates (ms)
 const STREAMING_THROTTLE_MS = 150;
@@ -865,8 +782,11 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   isStreaming = false,
   onFilterDocument,
   compactThinking = false,
+  renderThinkingWidget = true,
+  renderContent = true,
 }) => {
   const theme = useTheme();
+  const chatColors = getChatColors(theme);
   const [processedContent, setProcessedContent] = useState<string>("");
   const [citationData, setCitationData] = useState<{
     excerpts: Excerpt[];
@@ -1023,11 +943,31 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
     };
   }, [text, isStreaming, processContent]);
 
+  const hasVisibleContent =
+    (renderContent && processedContent.trim().length > 0) ||
+    (renderThinkingWidget && Boolean(thinkingWidgetContent?.trim())) ||
+    Boolean(citationData?.excerpts?.length);
+
   return (
     <>
       <Box
+        data-chat-markdown
+        data-chat-markdown-visible={hasVisibleContent ? "true" : undefined}
         sx={{
-          fontSize: "0.9rem",
+          fontSize: "0.875rem",
+          lineHeight: 1.625,
+          "& .interactionMessage > *": {
+            marginTop: 0,
+            marginBottom: 0,
+          },
+          "& .interactionMessage > * + *": {
+            marginTop: 1.75,
+          },
+          // Empty response entries remain in the DOM, but must not receive
+          // spacing of their own.
+          "& + [data-chat-markdown][data-chat-markdown-visible='true']": {
+            marginTop: 1.75,
+          },
           "& pre": {
             padding: "1em",
             borderRadius: "4px",
@@ -1040,15 +980,19 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           },
           "& code": {
             backgroundColor: "transparent",
-            fontSize: "0.9rem",
+            fontSize: "0.875rem",
+            fontFamily: APP_MONO_FONT_FAMILY,
           },
           "& :not(pre) > code": {
-            backgroundColor: theme.palette.mode === "light" ? "#ccc" : "#333",
-            padding: "0",
-            borderRadius: "3px",
+            backgroundColor: chatColors.inlineCodeSurface,
+            color: chatColors.inlineCodeForeground,
+            border: `1px solid ${chatColors.inlineCodeBorder}`,
+            padding: "0.1rem 0.35rem",
+            borderRadius: "0.375rem",
+            fontSize: "0.75rem",
           },
           "& a": {
-            color: theme.palette.mode === "light" ? "#333" : "#bbb",
+            color: theme.palette.mode === "light" ? "#333" : "inherit",
           },
 
           "& .doc-citation": {
@@ -1084,38 +1028,72 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
               textDecoration: "none",
             },
           },
+          "& .chat-markdown-table-container": {
+            maxWidth: "100%",
+            margin: "1rem 0",
+          },
+          "& .chat-markdown-table-scroll": {
+            maxWidth: "100%",
+            overflowX: "auto",
+            scrollbarWidth: "thin",
+          },
+          "& .chat-markdown-table-footer": {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            minHeight: "24px",
+            marginTop: "0.5rem",
+          },
+          "& .chat-markdown-table-action": {
+            width: "24px",
+            height: "24px",
+            borderRadius: "6px",
+            color: chatColors.subtle,
+            "&:hover": {
+              color: chatColors.foreground,
+              backgroundColor: theme.palette.mode === "dark"
+                ? "rgba(255, 255, 255, 0.06)"
+                : "rgba(0, 0, 0, 0.05)",
+            },
+          },
           "& table": {
             borderCollapse: "collapse",
             width: "100%",
-            margin: "1em 0",
-            fontSize: "0.9em",
-            borderRadius: "8px",
-            overflow: "hidden",
-            boxShadow:
-              theme.palette.mode === "light"
-                ? "0 2px 8px rgba(0, 0, 0, 0.1)"
-                : "0 2px 8px rgba(0, 0, 0, 0.3)",
+            minWidth: "max-content",
+            margin: 0,
+            overflowWrap: "normal",
+            wordBreak: "normal",
+            fontSize: "0.75rem",
           },
           "& th, & td": {
-            border: `1px solid ${theme.palette.mode === "light" ? "#e0e0e0" : "#444"}`,
-            padding: "12px 16px",
+            padding: "0.45rem 0.75rem",
             textAlign: "left",
+            border: 0,
           },
-          "& th": {
-            backgroundColor:
-              theme.palette.mode === "light" ? "#f8f9fa" : "#23272f",
+          "& thead th": {
+            borderBottom: `1px solid ${chatColors.tableDivider}`,
+            paddingTop: "0.55rem",
+            paddingBottom: "0.55rem",
             fontWeight: "600",
-            color: theme.palette.mode === "light" ? "#333" : "#fff",
-            borderBottom: `2px solid ${theme.palette.mode === "light" ? "#dee2e6" : "#444"}`,
+            whiteSpace: "nowrap",
           },
-          "& td": {
-            backgroundColor:
-              theme.palette.mode === "light" ? "#fff" : "transparent",
+          "& tbody td": {
+            borderBottom: `1px solid ${chatColors.tableDivider}`,
+          },
+          "& .chat-markdown-table-container[data-expanded='false'] th, & .chat-markdown-table-container[data-expanded='false'] td": {
+            overflow: "hidden",
+            maxWidth: "24rem",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          },
+          "& .chat-markdown-table-container[data-expanded='true'] td": {
+            maxWidth: "24rem",
+            overflowWrap: "anywhere",
           },
           display: "flow-root",
         }}
       >
-        {thinkingWidgetContent && (
+        {renderThinkingWidget && thinkingWidgetContent && (
           <ThinkingWidget
             text={thinkingWidgetContent}
             isStreaming={isStreaming}
@@ -1132,7 +1110,9 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
               ragResults={session?.config?.session_rag_results || []}
             />
           )}
-        <MemoizedMarkdownRenderer processedContent={processedContent} />
+        {renderContent && (
+          <MemoizedMarkdownRenderer processedContent={processedContent} />
+        )}
         {showBlinker && isStreaming && <StreamingIndicator />}
       </Box>
     </>
@@ -1152,19 +1132,36 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
       () => ({
         code(props: any) {
           const { children, className, node, ref, ...rest } = props;
-          const match = /language-(\w+)/.exec(className || "");
-          return match ? (
-            <CodeBlockWithCopy language={match[1]}>
-              {String(children).replace(/\n$/, "")}
-            </CodeBlockWithCopy>
-          ) : (
+          return (
             <code {...rest} className={className}>
               {children}
             </code>
           );
         },
+        pre(props: any) {
+          const { children, node, ref, ...rest } = props;
+          const childNodes = React.Children.toArray(children);
+          const child = childNodes.length === 1 ? childNodes[0] : null;
+          if (!React.isValidElement<{ children?: React.ReactNode; className?: string }>(child)) {
+            return <pre {...rest}>{children}</pre>;
+          }
+          const className = child.props.className || "";
+          const language = /(?:^|\s)language-([^\s]+)/.exec(className)?.[1] || "text";
+          return (
+            <MarkdownCodeBlock language={language}>
+              {String(child.props.children ?? "")}
+            </MarkdownCodeBlock>
+          );
+        },
         a(props: any) {
           const { node, href, target, children, ...rest } = props;
+          const label = React.Children.toArray(children)
+            .filter((child): child is string | number => typeof child === "string" || typeof child === "number")
+            .join("");
+          const workspacePath = parseWorkspaceFileReference(href, label);
+          if (workspacePath) {
+            return <WorkspaceFileReference path={workspacePath} label={label} />;
+          }
           // Internal action links (filter mentions, doc-group links) use
           // href="#" and have JS click handlers — leave them alone. Same
           // for in-page anchors like [Top](#section).
@@ -1195,6 +1192,12 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
             </a>
           );
         },
+        table(props: any) {
+          const { node, children, ...rest } = props;
+          return (
+            <MarkdownTable {...rest}>{children}</MarkdownTable>
+          );
+        },
       }),
       [],
     );
@@ -1216,6 +1219,39 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
 );
 
 MemoizedMarkdownRenderer.displayName = "MemoizedMarkdownRenderer";
+
+const WorkspaceFileReference: FC<{ path: string; label: string }> = ({ path, label }) => {
+  const theme = useTheme();
+  const colors = getChatColors(theme);
+  return (
+    <Box
+      component="span"
+      title={path}
+      data-workspace-file-reference={path}
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.5,
+        maxWidth: "100%",
+        px: 0.625,
+        py: "1px",
+        border: `1px solid ${colors.inlineCodeBorder}`,
+        borderRadius: "5px",
+        bgcolor: colors.inlineCodeSurface,
+        color: colors.inlineCodeForeground,
+        fontFamily: APP_MONO_FONT_FAMILY,
+        fontSize: "0.75rem",
+        lineHeight: 1.5,
+        verticalAlign: "text-bottom",
+      }}
+    >
+      <ChangedFileIcon path={path} darkMode={theme.palette.mode === "dark"} size={13} />
+      <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {label}
+      </Box>
+    </Box>
+  );
+};
 
 function processBasicContent(text: string): string {
   // Implement basic processing logic here

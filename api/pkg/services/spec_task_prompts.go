@@ -54,6 +54,14 @@ Create exactly 3 files in /home/retro/work/helix-specs/design/tasks/{{.TaskDirNa
 2. design.md - Architecture + key decisions
 3. tasks.md - Checklist of implementation tasks using [ ] format
 
+## Open Questions (requirements.md)
+
+End ` + "`requirements.md`" + ` with an ` + "`## Open Questions`" + ` section listing any genuine
+questions or uncertain assumptions you have for the user - anything you would
+otherwise have to guess. This surfaces guesses so the user can correct them at
+review time instead of them silently becoming the spec. Only list real
+uncertainties; if there are none, write "None".
+
 ## CRITICAL: Title Format
 
 Each of the three files MUST start with an H1 in this exact format:
@@ -91,12 +99,18 @@ cd /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}
 # Create requirements.md, design.md, tasks.md here
 
 cd /home/retro/work/helix-specs
-git add -A && git commit -m "Design docs for {{.TaskName}}" && git push origin helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "Design docs for {{.TaskName}}"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 ` + "```" + `
 
-If push fails (another agent pushed first):
+If the push is rejected because another agent pushed first, resolve the shared-branch race:
 ` + "```bash" + `
-git pull origin helix-specs --rebase && git push origin helix-specs
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 ` + "```" + `
 
 ## tasks.md Format

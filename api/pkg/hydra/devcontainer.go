@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -106,6 +107,27 @@ func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer)
 		}
 	}()
 
+	// Disk-pressure emergency-brake monitor: polls the ZFS pool's free percent
+	// on a faster interval and gracefully stops (not deletes) all running dev
+	// containers if free space drops to or below the stop threshold, protecting
+	// the pool from ENOSPC corruption.
+	go dm.runDiskPressureMonitor()
+
+	// Return freed XFS blocks to the ZFS pool. The `discard` mount option only
+	// trims a freshly-mounted XFS and can't reclaim already-freed blocks, and
+	// operators may mount /container-docker without discard at all — so warn if
+	// so, and periodically fstrim the parent + mounted zvols as a backstop.
+	warnIfContainerDockerLacksDiscard()
+	go func() {
+		time.Sleep(10 * time.Minute) // don't compete with startup I/O
+		TrimContainerDockerStorage()
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			TrimContainerDockerStorage()
+		}
+	}()
+
 	return dm
 }
 
@@ -202,76 +224,182 @@ func resolveRegistryImageWithBase(image string, baseDir string) string {
 	return ref
 }
 
-// tryRecoverImage attempts to pull a missing desktop image from available registries.
-// It tries the production registry (.ref file), then the local shared registry.
-// Returns true if the image was recovered and is available for container creation.
-func (dm *DevContainerManager) tryRecoverImage(ctx context.Context, dockerClient *client.Client, resolvedImage, originalImage string) bool {
-	log.Warn().
-		Str("resolved_image", resolvedImage).
-		Str("original_image", originalImage).
-		Msg("Image missing from Docker — attempting recovery")
+// imageRecoveryClient is the minimum Docker client surface tryRecoverImage
+// needs. The real *client.Client satisfies it; tests substitute a fake.
+type imageRecoveryClient interface {
+	ImagePull(ctx context.Context, refStr string, options dockertypes.ImagePullOptions) (io.ReadCloser, error)
+	ImageTag(ctx context.Context, source, target string) error
+	ImageInspectWithRaw(ctx context.Context, imageID string) (dockertypes.ImageInspect, []byte, error)
+}
 
-	// Extract image name without tag for looking up registry sources
+// pullStatus matches the JSON status messages emitted by Docker's image-pull
+// stream. ImagePull only returns a Go error for setup failures (bad ref,
+// transport). The interesting failures, "no space left on device",
+// "manifest unknown", "denied", 5xx from the registry, are reported as
+// JSON messages with a non-empty Error / ErrorDetail.Message. Code that
+// drains the stream without decoding it silently treats those as success.
+type pullStatus struct {
+	Status      string `json:"status"`
+	Error       string `json:"error"`
+	ErrorDetail struct {
+		Message string `json:"message"`
+	} `json:"errorDetail"`
+}
+
+// drainPullStream decodes the JSON message stream from ImagePull. Returns
+// an error if any message reports a pull failure (Error or
+// ErrorDetail.Message populated). Returns nil on a clean EOF.
+func drainPullStream(r io.Reader) error {
+	dec := json.NewDecoder(r)
+	for {
+		var msg pullStatus
+		if err := dec.Decode(&msg); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("decode pull status: %w", err)
+		}
+		if msg.Error != "" {
+			return fmt.Errorf("pull failed: %s", msg.Error)
+		}
+		if msg.ErrorDetail.Message != "" {
+			return fmt.Errorf("pull failed: %s", msg.ErrorDetail.Message)
+		}
+	}
+}
+
+// buildRecoveryPullSources returns the ordered list of registry refs to try
+// when recovering a missing image. Priority:
+//  1. Production registry ref (<refDir>/<image>.ref, e.g.
+//     ghcr.io/helixml/helix-ubuntu:VERSION)
+//  2. Local shared registry via host (registryHost)
+//  3. Local shared registry via DNS name (registry:5000)
+func buildRecoveryPullSources(originalImage, refDir, registryHost string) []string {
 	imageName := originalImage
 	if idx := strings.LastIndex(originalImage, ":"); idx != -1 {
 		imageName = originalImage[:idx]
 	}
 
-	// Build list of registry sources to try, in priority order:
-	// 1. Production registry ref (.ref file, e.g., ghcr.io/helixml/helix-ubuntu:VERSION)
-	// 2. Local shared registry (registry:5000/IMAGE:TAG)
-	var pullSources []string
+	var sources []string
 
-	// Check for production registry ref
-	refFile := filepath.Join("/opt/images", imageName+".ref")
+	refFile := filepath.Join(refDir, imageName+".ref")
 	if refData, err := os.ReadFile(refFile); err == nil {
 		ref := strings.TrimSpace(string(refData))
 		if ref != "" {
-			// Replace the tag with the requested version
 			tag := imageTag(originalImage)
 			if baseRef := strings.LastIndex(ref, ":"); baseRef != -1 && tag != "" {
 				ref = ref[:baseRef] + ":" + tag
 			}
-			pullSources = append(pullSources, ref)
+			sources = append(sources, ref)
 		}
 	}
 
-	// Try the local shared registry
-	registryHost := GetRegistryHost()
 	if registryHost != "" {
-		pullSources = append(pullSources, registryHost+"/"+originalImage)
+		sources = append(sources, registryHost+"/"+originalImage)
 	}
-	// Also try the DNS name (works when registry is on the same Docker network)
-	pullSources = append(pullSources, "registry:5000/"+originalImage)
+	sources = append(sources, "registry:5000/"+originalImage)
 
-	for _, source := range pullSources {
+	return sources
+}
+
+// tryRecoverImage attempts to pull a missing desktop image from available registries.
+// It tries the production registry (.ref file), then the local shared registry.
+// Returns true if the image was recovered and is verified present locally under
+// the expected name.
+func (dm *DevContainerManager) tryRecoverImage(ctx context.Context, dockerClient *client.Client, resolvedImage, originalImage string) bool {
+	sources := buildRecoveryPullSources(originalImage, "/opt/images", GetRegistryHost())
+	return recoverImageFromSources(ctx, dockerClient, sources, resolvedImage, originalImage)
+}
+
+// recoverImageFromSources is the testable core of tryRecoverImage. It walks
+// the supplied sources in order, attempting a pull + tag + verify for each.
+// The first source that ends with originalImage present locally wins.
+//
+// This is where the three previously-silent failure modes are surfaced:
+//  1. ImagePull JSON stream errors (e.g. "no space left on device") are
+//     decoded and returned as errors, not discarded.
+//  2. ImageTag errors are captured and logged with source/target refs,
+//     and treated as "this source did not work, try the next one".
+//  3. ImageInspectWithRaw confirms the image is actually present locally
+//     before we report success. Without this, a partially-extracted pull
+//     would let the caller log "recovered" then fail again on
+//     ContainerCreate with the same "No such image" message.
+func recoverImageFromSources(ctx context.Context, dockerClient imageRecoveryClient, sources []string, resolvedImage, originalImage string) bool {
+	log.Warn().
+		Str("resolved_image", resolvedImage).
+		Str("original_image", originalImage).
+		Strs("sources", sources).
+		Msg("Image missing from Docker, attempting recovery")
+
+	for _, source := range sources {
 		log.Info().Str("source", source).Msg("Trying recovery pull")
+
 		pullOut, pullErr := dockerClient.ImagePull(ctx, source, dockertypes.ImagePullOptions{})
 		if pullErr != nil {
-			log.Debug().Err(pullErr).Str("source", source).Msg("Recovery pull failed, trying next source")
+			log.Warn().Err(pullErr).Str("source", source).Msg("Recovery pull setup failed, trying next source")
 			continue
 		}
-		// Drain the pull output to completion
-		_, _ = io.Copy(io.Discard, pullOut)
+		streamErr := drainPullStream(pullOut)
 		pullOut.Close()
+		if streamErr != nil {
+			log.Error().Err(streamErr).Str("source", source).Msg("Recovery pull reported error in stream, trying next source")
+			continue
+		}
 
-		// Tag as the expected local name so the container creation succeeds
+		// Tag the pulled image under the expected local names so
+		// ContainerCreate finds it. Capture errors instead of swallowing
+		// them: a failed tag means this source did not actually land
+		// the image we need.
+		tagFailed := false
 		if source != resolvedImage {
-			_ = dockerClient.ImageTag(ctx, source, resolvedImage)
+			if err := dockerClient.ImageTag(ctx, source, resolvedImage); err != nil {
+				log.Warn().Err(err).
+					Str("source", source).
+					Str("target", resolvedImage).
+					Msg("ImageTag failed during recovery, trying next source")
+				tagFailed = true
+			}
 		}
-		if source != originalImage {
-			_ = dockerClient.ImageTag(ctx, source, originalImage)
+		if !tagFailed && source != originalImage {
+			if err := dockerClient.ImageTag(ctx, source, originalImage); err != nil {
+				log.Warn().Err(err).
+					Str("source", source).
+					Str("target", originalImage).
+					Msg("ImageTag failed during recovery, trying next source")
+				tagFailed = true
+			}
 		}
+		if tagFailed {
+			continue
+		}
+
+		// Verify the image is actually present under the name
+		// ContainerCreate will look up. Without this, a pull that
+		// "succeeded" with cached "Already exists" layers but never
+		// finished extracting (e.g. disk full) would still report
+		// recovery success, and the very next ContainerCreate would
+		// fail with the same misleading "No such image".
+		inspect, _, inspectErr := dockerClient.ImageInspectWithRaw(ctx, originalImage)
+		if inspectErr != nil {
+			log.Error().Err(inspectErr).
+				Str("source", source).
+				Str("image", originalImage).
+				Msg("Image not present locally after pull+tag, trying next source")
+			continue
+		}
+
 		log.Info().
-			Str("image", resolvedImage).
+			Str("image", originalImage).
+			Str("resolved_image", resolvedImage).
 			Str("source", source).
+			Strs("local_tags", inspect.RepoTags).
 			Msg("Image recovered successfully")
 		return true
 	}
 
 	log.Error().
 		Str("image", resolvedImage).
-		Strs("sources_tried", pullSources).
+		Strs("sources_tried", sources).
 		Msg("Failed to recover image from any registry source")
 	return false
 }
@@ -285,6 +413,15 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		if err := validateImageVersion(req.Image); err != nil {
 			return nil, err
 		}
+	}
+
+	// Disk-pressure admission control: refuse to start new dev containers when
+	// the ZFS pool's free space is critically low (≤ refuse threshold). This
+	// protects the pool from hitting 0% free, which would cause ENOSPC → XFS
+	// corruption → Postgres/git faults. Fail-open: an unknowable measurement
+	// returns nil and allows the start.
+	if err := checkDiskPressureForStart(); err != nil {
+		return nil, err
 	}
 
 	// Resolve registry-based image ref if available
@@ -326,6 +463,20 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Image:    resolvedImage,
 		Hostname: req.Hostname,
 		Env:      dm.buildEnv(req),
+		// Stamp the session id as a label so hydra can re-adopt the container
+		// (with the exact session id, no name-prefix guessing) after a hydra
+		// restart. Covers both spec-task (ses_*) and sandbox-API (sbx_*)
+		// containers — the latter were previously orphaned on restart.
+		Labels: map[string]string{
+			containerSessionIDLabel: req.SessionID,
+		},
+	}
+	// Stamp persistent (web-service) containers so the boot-time stopped-container
+	// reaper (sandbox/04-start-dockerd.sh) skips them — otherwise a reboot could
+	// delete the container in the window before dockerd's restart policy brings
+	// it back, forcing the slow full-redeploy recovery path.
+	if req.Persistent {
+		containerConfig.Labels[containerPersistentLabel] = "true"
 	}
 	if len(req.Entrypoint) > 0 {
 		containerConfig.Entrypoint = req.Entrypoint
@@ -366,6 +517,9 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		} else {
 			log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
 		}
+	}
+	if err := materializeWorkspaceFiles(req.Mounts, req.WorkspaceFiles); err != nil {
+		return nil, fmt.Errorf("materialize workspace files: %w", err)
 	}
 
 	// Apply a timeout for the Docker operations that follow. This is separate
@@ -634,6 +788,56 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}, nil
 }
 
+func materializeWorkspaceFiles(mounts []MountConfig, files map[string][]byte) error {
+	if len(files) == 0 {
+		return nil
+	}
+	var workspaceRoot string
+	for _, mount := range mounts {
+		if mount.Type != "volume" && mount.Destination == "/home/retro/work" {
+			workspaceRoot = mount.Source
+			break
+		}
+	}
+	if workspaceRoot == "" {
+		return errors.New("workspace bind mount not found")
+	}
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		return fmt.Errorf("create workspace root: %w", err)
+	}
+	for name, content := range files {
+		if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
+			return fmt.Errorf("invalid workspace filename %q", name)
+		}
+		tmp, err := os.CreateTemp(workspaceRoot, ".helix-bootstrap-*")
+		if err != nil {
+			return fmt.Errorf("create temporary file for %s: %w", name, err)
+		}
+		tmpPath := tmp.Name()
+		cleanup := func() {
+			tmp.Close()
+			_ = os.Remove(tmpPath)
+		}
+		if err := tmp.Chmod(0o644); err != nil {
+			cleanup()
+			return fmt.Errorf("chmod temporary file for %s: %w", name, err)
+		}
+		if _, err := tmp.Write(content); err != nil {
+			cleanup()
+			return fmt.Errorf("write temporary file for %s: %w", name, err)
+		}
+		if err := tmp.Close(); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("close temporary file for %s: %w", name, err)
+		}
+		if err := os.Rename(tmpPath, filepath.Join(workspaceRoot, name)); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("install %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
 // buildEnv builds environment variables for the container
 func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string {
 	env := make([]string, len(req.Env))
@@ -834,12 +1038,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		},
 	}
 	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
-	if req.VCPUs > 0 {
-		resources.NanoCPUs = int64(req.VCPUs) * 1_000_000_000
-	}
-	if req.MemoryMB > 0 {
-		resources.Memory = int64(req.MemoryMB) * 1024 * 1024
-	}
+	resources.NanoCPUs, resources.Memory, resources.MemorySwap = sandboxResourceLimits(req.VCPUs, req.MemoryMB)
 
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
@@ -849,17 +1048,41 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		Resources:   resources,
 	}
 
+	// Persistent dev containers (hosted web services) must survive a host
+	// reboot or inner-dockerd restart. unless-stopped makes dockerd bring the
+	// container back automatically on start — so the common outage (reboot /
+	// dockerd bounce) self-heals in seconds with /data and image cache intact,
+	// bypassing the slow provision-fresh-sandbox + full-rebuild recovery path.
+	if req.Persistent {
+		hostConfig.RestartPolicy = container.RestartPolicy{Name: "unless-stopped"}
+	}
+
 	// Only add explicit capabilities when not in privileged mode
 	// (privileged mode already grants all capabilities)
 	if !req.Privileged {
 		hostConfig.CapAdd = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 	}
 
-	// Add ExtraHosts so the container can resolve "api" hostname.
-	// The container is on bridge network but needs to reach the API
-	// on the helix_* Docker network. We resolve "api" from the sandbox's
-	// perspective and add it as an extra host entry.
-	hostConfig.ExtraHosts = dm.buildExtraHosts()
+	// Resolve "api"/"outer-api" via the sandbox dns-proxy instead of pinning a
+	// concrete IP into /etc/hosts. The proxy (sandbox/dns-proxy, bound on the
+	// bridge gateway) forwards to the outer Docker DNS and re-resolves on every
+	// query, so a recreated `api` container is picked up automatically. The old
+	// ExtraHosts pin baked the IP at creation time and went stale on any API
+	// restart, stranding surviving desktops forever (#2641). /etc/hosts entries
+	// take precedence over DNS, so the pin also *shadowed* this dynamic path —
+	// hence we drop it entirely and point the resolver at the proxy.
+	//
+	// Only do this on the default bridge (the standard desktop path). Host
+	// networking shares the sandbox's resolver already, and an explicit custom
+	// network is the caller's responsibility.
+	if networkMode == "bridge" {
+		if gw := dm.sandboxDNSGateway(); gw != "" {
+			hostConfig.DNS = []string{gw}
+		}
+	} else {
+		// Non-bridge (e.g. host) keeps the legacy behaviour for now.
+		hostConfig.ExtraHosts = dm.buildExtraHosts()
+	}
 
 	// Build mounts
 	mounts, err := dm.buildMounts(req)
@@ -869,6 +1092,17 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	hostConfig.Mounts = mounts
 
 	return hostConfig, nil
+}
+
+func sandboxResourceLimits(vcpus, memoryMB int) (nanoCPUs, memory, memorySwap int64) {
+	if vcpus > 0 {
+		nanoCPUs = int64(vcpus) * 1_000_000_000
+	}
+	if memoryMB > 0 {
+		memory = int64(memoryMB) * 1024 * 1024
+		memorySwap = memory * 2
+	}
+	return nanoCPUs, memory, memorySwap
 }
 
 // resolveDockerDataDir determines the host path for a session's /var/lib/docker mount.
@@ -1080,8 +1314,37 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 	return mounts, nil
 }
 
+// sandboxDNSGateway returns the address of the sandbox dns-proxy that desktop
+// containers should use as their resolver: the gateway of this dockerd's default
+// bridge. The sandbox's dockerd uses pool 10.(212+depth).0.0/16 (see
+// sandbox/04-start-dockerd.sh) and the dns-proxy binds the .0.1 gateway of the
+// first /24 (see sandbox/05-start-dns-proxy.sh), so the address is
+// 10.(212+depth).0.1. Returns "" if the depth is implausible.
+//
+// NOTE: the dns-proxy startup script currently hard-codes 10.213.0.1 (depth 1),
+// so resolution via the proxy is only wired for the standard (non-nested) sandbox
+// today; deeper nesting needs the proxy bind made depth-aware to match.
+func (dm *DevContainerManager) sandboxDNSGateway() string {
+	depth := 1
+	if depthStr := os.Getenv("HELIX_DOCKER_DEPTH"); depthStr != "" {
+		if d, err := strconv.Atoi(depthStr); err == nil && d >= 1 {
+			depth = d
+		}
+	}
+	octet := 212 + depth
+	if octet > 255 {
+		return ""
+	}
+	return fmt.Sprintf("10.%d.0.1", octet)
+}
+
 // buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")
 // so the desktop container can reach services on the helix compose network.
+//
+// DEPRECATED for the default-bridge desktop path: this pins a concrete IP at
+// container-creation time, which goes stale on any API restart (#2641). The
+// bridge path now resolves "api"/"outer-api" dynamically via the dns-proxy
+// (see sandboxDNSGateway). Retained only for the non-bridge fallback.
 func (dm *DevContainerManager) buildExtraHosts() []string {
 	var extraHosts []string
 
@@ -1141,13 +1404,13 @@ func enumerateDRMDevices(targetDriver string) []drmDevice {
 // tests can stand up a synthetic /sys/class/drm tree.
 //
 // This is the function with the actual PCI walk:
-//   1. Glob `<devRoot>/dri/renderD*` to find render nodes (compute path).
-//   2. For each render node, look up `<sysfsRoot>/class/drm/<base>/device`
-//      to get the PCI BDF and driver name.
-//   3. Filter to targetDriver if set.
-//   4. For each matching render node, find the sibling card device by
-//      walking `<sysfsRoot>/class/drm/card*/device` and matching BDF.
-//   5. Sort the resulting list by PCI BDF.
+//  1. Glob `<devRoot>/dri/renderD*` to find render nodes (compute path).
+//  2. For each render node, look up `<sysfsRoot>/class/drm/<base>/device`
+//     to get the PCI BDF and driver name.
+//  3. Filter to targetDriver if set.
+//  4. For each matching render node, find the sibling card device by
+//     walking `<sysfsRoot>/class/drm/card*/device` and matching BDF.
+//  5. Sort the resulting list by PCI BDF.
 //
 // A render node with no sibling card device is still returned (cards
 // are display-only nodes; some headless compute GPUs have no card device).
@@ -1392,6 +1655,36 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 			Int("nv_drm_devs", len(nvDRM)).
 			Int("explicit_dev_mounts", len(hostConfig.Devices)).
 			Msg("Configured NVIDIA GPU passthrough")
+
+	case "neuron":
+		// AWS Neuron (Inferentia2 / Trainium): mount the /dev/neuron*
+		// device nodes into the nested Docker. All neuronx silicon
+		// presents the same device-node family — one node per Neuron core
+		// (/dev/neuron0, /dev/neuron1, ...). The count varies by instance
+		// type (2 on inf2.xlarge, 16 on inf2.48xlarge, 16 on trn1.32xlarge,
+		// ...), so glob rather than hardcode and the same arm covers every
+		// inf2 SKU and Trainium. The Neuron driver lives on the host (AWS
+		// Neuron DLC AMI); we only pass the device nodes through. No
+		// container runtime, no /dev/kfd, no DRM render node — Neuron has
+		// no display path.
+		//
+		// ponytail: glob covers every inf2/trn SKU; per-core pinning
+		// (gpuIndex) is not wired — add when multi-tenant Neuron packing
+		// on one host is needed (one model per pool in v1, so unused).
+		neuronDevs, _ := filepath.Glob("/dev/neuron*")
+		if len(neuronDevs) == 0 {
+			log.Warn().Msg("neuron passthrough: no /dev/neuron* nodes found in outer container; inner serving stack will not see the accelerator")
+		}
+		for _, dev := range neuronDevs {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		log.Debug().Strs("neuron_devs", neuronDevs).Msg("Configured Neuron device passthrough")
 
 	case "amd":
 		// AMD: mount /dev/kfd (shared across all AMD GPUs — always
@@ -1736,6 +2029,101 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 	}
 }
 
+// ReconcileGC reconciles on-disk ephemeral resources (session zvols and
+// per-task/session workspace dirs) against the DB-derived live-set supplied by
+// the API, reaping anything orphaned and past the grace period.
+//
+// The DB live-set is the durable source of truth (it survives reboots). As
+// extra protection we UNION in the session IDs of currently-running containers
+// from hydra's in-memory map, so an in-flight session whose row hasn't been
+// observed by the API yet is never reaped.
+func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileResponse {
+	liveSessions := make(map[string]bool, len(req.LiveSessionIDs))
+	for _, id := range req.LiveSessionIDs {
+		liveSessions[id] = true
+	}
+	liveSpecTasks := make(map[string]bool, len(req.LiveSpecTaskIDs))
+	for _, id := range req.LiveSpecTaskIDs {
+		liveSpecTasks[id] = true
+	}
+
+	// Union in currently-running container session IDs (belt-and-braces).
+	dm.mu.RLock()
+	for sessionID := range dm.containers {
+		liveSessions[sessionID] = true
+	}
+	dm.mu.RUnlock()
+
+	grace := time.Duration(req.GracePeriodSeconds) * time.Second
+
+	var resp GCReconcileResponse
+
+	// Measure reclaimed space cheaply as the pool-free delta around the reaping
+	// calls (captures both zvol + workspace reclamation in O(1)) — never a
+	// per-directory `du` sweep, which serialises into a 10+ minute backlog that
+	// blocks the reaper ticker. Dry-run frees nothing, so skip the measurement
+	// entirely and keep it fast.
+	var before int64
+	if !req.DryRun {
+		before, _ = poolFreeBytes()
+	}
+
+	// Heal the legacy inverted topology where a golden zvol is itself a clone of
+	// an ended session's zvol (making that session zvol an unreapable
+	// clone-origin that leaks old snapshots forever). Promote such goldens to
+	// true roots FIRST, so the now-detached session roots fall to the orphan
+	// reaper below in the same pass. Metadata-only; in dry-run we only report.
+	resp.GoldensFlattened = FlattenInvertedGoldens(req.DryRun)
+
+	zReaped, zSkipped := ReconcileOrphanZvols(liveSessions, grace, req.DryRun)
+	resp.ZvolsReaped = zReaped
+	resp.ZvolsSkipped = zSkipped
+
+	wReaped, wSkipped := ReconcileOrphanWorkspaces(liveSessions, liveSpecTasks, grace, req.DryRun)
+	resp.WorkspacesReaped = wReaped
+	resp.WorkspacesSkipped = wSkipped
+
+	// Reap file-copy per-session docker-data dirs for dead sessions. The zvol
+	// reaper above only covers ZFS hosts; on file-copy hosts (ZFS unavailable)
+	// the inner docker storage lives in these dirs, and nothing durable reaped
+	// them before — they leaked indefinitely.
+	fReaped, fSkipped := ReconcileOrphanFileCopyDirs(liveSessions, grace, req.DryRun)
+	resp.FileCopyDirsReaped = fReaped
+	resp.FileCopyDirsSkipped = fSkipped
+
+	if !req.DryRun {
+		// Prune golden snapshots the flatten just absorbed plus any other stale
+		// no-clone snapshots (>7d). Frees the old generations the dead session
+		// roots used to pin. Safe: never touches snapshots with live clones.
+		GCStaleSnapshots()
+
+		// Ignore measurement errors → 0. Pool free can also move for unrelated
+		// reasons; clamp to a non-negative delta.
+		if after, err := poolFreeBytes(); err == nil {
+			if delta := after - before; delta > 0 {
+				resp.BytesFreed = delta
+			}
+		}
+	}
+
+	log.Info().
+		Bool("dry_run", req.DryRun).
+		Dur("grace", grace).
+		Int("live_sessions", len(liveSessions)).
+		Int("live_spec_tasks", len(liveSpecTasks)).
+		Int("zvols_reaped", len(resp.ZvolsReaped)).
+		Int("zvols_skipped", len(resp.ZvolsSkipped)).
+		Int("workspaces_reaped", len(resp.WorkspacesReaped)).
+		Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
+		Int("filecopy_dirs_reaped", len(resp.FileCopyDirsReaped)).
+		Int("filecopy_dirs_skipped", len(resp.FileCopyDirsSkipped)).
+		Int("goldens_flattened", len(resp.GoldensFlattened)).
+		Int64("bytes_freed", resp.BytesFreed).
+		Msg("GC_RECONCILE completed")
+
+	return resp
+}
+
 // GetDevContainer returns the status of a dev container
 func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID string) (*DevContainerResponse, error) {
 	dm.mu.RLock()
@@ -1746,16 +2134,39 @@ func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID st
 		return nil, fmt.Errorf("dev container not found for session: %s", sessionID)
 	}
 
-	// Optionally refresh status from Docker
+	// Refresh status AND IP from Docker. The container's IP can change across
+	// a container restart; a stale cached IP causes "no route to host" 502s on
+	// the proxy path. Since the proxy calls GetDevContainer on every request,
+	// refreshing the IP here keeps routing correct without any retry logic.
+	var vcpus, memoryMB int
 	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
 	if err == nil {
 		defer dockerClient.Close()
 		inspect, err := dockerClient.ContainerInspect(ctx, dc.ContainerID)
 		if err == nil {
+			status := DevContainerStatusStopped
 			if inspect.State.Running {
-				dc.Status = DevContainerStatusRunning
-			} else {
-				dc.Status = DevContainerStatusStopped
+				status = DevContainerStatusRunning
+			}
+			ip := ""
+			for _, network := range inspect.NetworkSettings.Networks {
+				if network.IPAddress != "" {
+					ip = network.IPAddress
+					break
+				}
+			}
+			if ip == "" {
+				ip = inspect.NetworkSettings.IPAddress
+			}
+			dm.mu.Lock()
+			dc.Status = status
+			if ip != "" {
+				dc.IPAddress = ip
+			}
+			dm.mu.Unlock()
+			if inspect.HostConfig != nil {
+				vcpus = int(inspect.HostConfig.NanoCPUs / 1_000_000_000)
+				memoryMB = int(inspect.HostConfig.Memory / (1024 * 1024))
 			}
 		}
 	}
@@ -1767,6 +2178,70 @@ func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID st
 		Status:        dc.Status,
 		IPAddress:     dc.IPAddress,
 		ContainerType: dc.ContainerType,
+		VCPUs:         vcpus,
+		MemoryMB:      memoryMB,
+	}, nil
+}
+
+// UpdateDevContainerResources changes cgroup CPU and memory limits without
+// recreating the container. Memory reductions are refused while current usage
+// is above 90% of the requested limit to avoid an immediate OOM kill.
+func (dm *DevContainerManager) UpdateDevContainerResources(ctx context.Context, sessionID string, req *UpdateDevContainerResourcesRequest) (*DevContainerResourcesResponse, error) {
+	dm.mu.RLock()
+	dc, exists := dm.containers[sessionID]
+	dm.mu.RUnlock()
+	if !exists {
+		return nil, fmt.Errorf("dev container not found for session: %s", sessionID)
+	}
+
+	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+	}
+	defer dockerClient.Close()
+
+	inspect, err := dockerClient.ContainerInspect(ctx, dc.ContainerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+	requestedNanoCPUs, requestedMemory, requestedMemorySwap := sandboxResourceLimits(req.VCPUs, req.MemoryMB)
+	if requestedMemory == 0 {
+		requestedMemorySwap = -1
+	}
+	if requestedMemory > 0 && inspect.HostConfig != nil && (inspect.HostConfig.Memory == 0 || requestedMemory < inspect.HostConfig.Memory) {
+		statsResp, statsErr := dockerClient.ContainerStatsOneShot(ctx, dc.ContainerID)
+		if statsErr != nil {
+			return nil, fmt.Errorf("failed to read memory usage before resize: %w", statsErr)
+		}
+		defer statsResp.Body.Close()
+		var stats dockertypes.Stats
+		if err := json.NewDecoder(statsResp.Body).Decode(&stats); err != nil {
+			return nil, fmt.Errorf("failed to decode memory usage before resize: %w", err)
+		}
+		if stats.MemoryStats.Usage > uint64(requestedMemory*9/10) {
+			return nil, fmt.Errorf("cannot reduce memory to %d MB while the container is using %d MB", req.MemoryMB, stats.MemoryStats.Usage/(1024*1024))
+		}
+	}
+
+	_, err = dockerClient.ContainerUpdate(ctx, dc.ContainerID, container.UpdateConfig{
+		Resources: container.Resources{
+			NanoCPUs:   requestedNanoCPUs,
+			Memory:     requestedMemory,
+			MemorySwap: requestedMemorySwap,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update container resources: %w", err)
+	}
+
+	updated, err := dockerClient.ContainerInspect(ctx, dc.ContainerID)
+	if err != nil {
+		return nil, fmt.Errorf("resources updated but verification failed: %w", err)
+	}
+	return &DevContainerResourcesResponse{
+		SessionID: sessionID,
+		VCPUs:     int(updated.HostConfig.NanoCPUs / 1_000_000_000),
+		MemoryMB:  int(updated.HostConfig.Memory / (1024 * 1024)),
 	}, nil
 }
 
@@ -1818,58 +2293,63 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 
 	recoveredCount := 0
 	for _, c := range containers {
-		// Check if this looks like a Helix dev container
-		// Container names are like "/sway-external-ses_xxx" or "/ubuntu-external-ses_xxx"
-		for _, name := range c.Names {
-			name = strings.TrimPrefix(name, "/")
-			if strings.Contains(name, "-external-") {
-				// Extract session ID from container name
-				// Format: {type}-external-{session_id_suffix}
-				parts := strings.Split(name, "-external-")
-				if len(parts) == 2 {
-					sessionIDSuffix := parts[1]
-					sessionID := "ses_" + sessionIDSuffix
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
 
-					// Determine container type from prefix
-					containerType := DevContainerTypeSway
-					if strings.HasPrefix(name, "ubuntu") {
-						containerType = DevContainerTypeUbuntu
-					}
-
-					// Get container IP
-					ipAddress := ""
-					for _, net := range c.NetworkSettings.Networks {
-						ipAddress = net.IPAddress
-						break
-					}
-
-					dc := &DevContainer{
-						SessionID:     sessionID,
-						ContainerID:   c.ID,
-						ContainerName: name,
-						Status:        DevContainerStatusRunning,
-						IPAddress:     ipAddress,
-						ContainerType: containerType,
-						CreatedAt:     time.Unix(c.Created, 0),
-						DockerSocket:  dockerSocket,
-					}
-
-					dm.mu.Lock()
-					dm.containers[sessionID] = dc
-					dm.mu.Unlock()
-
-					// Start streaming logs for recovered container
-					go dm.streamContainerLogs(context.Background(), c.ID, name, dockerSocket)
-
-					recoveredCount++
-					log.Info().
-						Str("session_id", sessionID).
-						Str("container_id", c.ID[:12]).
-						Str("container_name", name).
-						Msg("Recovered dev container from Docker")
+		// Prefer the helix.session_id label — it carries the exact session id
+		// and covers BOTH spec-task (ses_*) and sandbox-API (sbx_*) containers.
+		// The latter (web-service hosting) were previously orphaned on restart
+		// because the name-based fallback below only matches "*-external-*".
+		sessionID := c.Labels[containerSessionIDLabel]
+		if sessionID == "" {
+			// Legacy fallback for containers created before the label existed:
+			// names like "ubuntu-external-<suffix>" → "ses_<suffix>".
+			for _, n := range c.Names {
+				n = strings.TrimPrefix(n, "/")
+				if parts := strings.Split(n, "-external-"); len(parts) == 2 {
+					sessionID = "ses_" + parts[1]
+					name = n
+					break
 				}
 			}
 		}
+		if sessionID == "" {
+			continue // not a Helix dev container
+		}
+
+		// Get container IP (fresh from this list — survives container restarts).
+		ipAddress := ""
+		for _, net := range c.NetworkSettings.Networks {
+			ipAddress = net.IPAddress
+			break
+		}
+
+		dc := &DevContainer{
+			SessionID:     sessionID,
+			ContainerID:   c.ID,
+			ContainerName: name,
+			Status:        DevContainerStatusRunning,
+			IPAddress:     ipAddress,
+			ContainerType: containerTypeForName(name),
+			CreatedAt:     time.Unix(c.Created, 0),
+			DockerSocket:  dockerSocket,
+		}
+
+		dm.mu.Lock()
+		dm.containers[sessionID] = dc
+		dm.mu.Unlock()
+
+		// Start streaming logs for recovered container
+		go dm.streamContainerLogs(context.Background(), c.ID, name, dockerSocket)
+
+		recoveredCount++
+		log.Info().
+			Str("session_id", sessionID).
+			Str("container_id", c.ID[:12]).
+			Str("container_name", name).
+			Msg("Recovered dev container from Docker")
 	}
 
 	if recoveredCount > 0 {
@@ -1877,6 +2357,20 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 	}
 
 	return nil
+}
+
+// containerTypeForName infers a DevContainerType from a container name for
+// recovery. Sandbox-API containers (sbx-*) are treated as headless; only the
+// container id/IP matter for proxy/exec, so this is best-effort.
+func containerTypeForName(name string) DevContainerType {
+	switch {
+	case strings.HasPrefix(name, "ubuntu"):
+		return DevContainerTypeUbuntu
+	case strings.HasPrefix(name, "sway"):
+		return DevContainerTypeSway
+	default:
+		return DevContainerTypeHeadless
+	}
 }
 
 // getDesktopVersion reads the version file for the given container type.

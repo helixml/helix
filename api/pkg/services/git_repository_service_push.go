@@ -55,8 +55,13 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 	if branchName == "" {
 		return fmt.Errorf("branch name is required")
 	}
+	if actingUserID != "" {
+		if err := s.ValidateUserOAuth(ctx, gitRepo, actingUserID); err != nil {
+			return err
+		}
+	}
 
-	// Get credentials for the external URL — use acting user's OAuth when available
+	// Get credentials for the external URL using the acting user's OAuth.
 	username, password := s.getCredentialsForRepo(ctx, gitRepo, actingUserID)
 	authType := "none"
 	if password != "" {

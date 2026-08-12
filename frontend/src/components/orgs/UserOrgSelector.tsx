@@ -12,7 +12,6 @@ import {
   Bot,
   Clock,
   Container,
-  Server,
   Settings,
   ChevronsUp,
   ChevronsDown,
@@ -23,7 +22,6 @@ import {
   LogIn,
   FileText,
   HelpCircle,
-  FileQuestionMark,
   MessageCircle,
   Kanban,
   Network,
@@ -44,7 +42,13 @@ import { styled, keyframes } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
 import { TypesAuthProvider } from '../../api/api'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
+import { orgLandingRoute } from '../../utils/organizations'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
+import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
+import {
+  isNavigationRouteActive,
+  isOrgProjectSettingsRoute,
+} from './UserOrgSelector.logic'
 
 // Shimmer animation for login button
 const shimmer = keyframes`
@@ -105,24 +109,27 @@ interface NavButtonProps {
 const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label }) => {
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
-  const activeText = isLight ? '#000' : '#E2E8F0'
-  // Light mode = "looking at a cheap iPad in direct sunlight" — go max
-  // contrast. Inactive icons + labels are near-black so they survive glare.
-  const inactiveText = isLight ? '#000' : '#A0AEC0'
-  const activeBg = isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(226, 232, 240, 0.15)'
-  const activeBorder = isLight ? 'rgba(0, 0, 0, 0.30)' : 'rgba(226, 232, 240, 0.3)'
+  const activeText = isLight ? LIGHT_SIDEBAR_COLORS.foreground : '#E2E8F0'
+  const inactiveText = isLight ? LIGHT_SIDEBAR_COLORS.icon : '#A0AEC0'
+  const activeBg = isLight ? LIGHT_SIDEBAR_COLORS.rowSelected : 'rgba(226, 232, 240, 0.15)'
+  const activeBorder = isLight ? LIGHT_SIDEBAR_COLORS.border : 'rgba(226, 232, 240, 0.3)'
   const hoverBg = isLight
-    ? (isActive ? 'rgba(0, 0, 0, 0.16)' : 'rgba(0, 0, 0, 0.08)')
+    ? (isActive ? LIGHT_SIDEBAR_COLORS.rowSelected : LIGHT_SIDEBAR_COLORS.rowHover)
     : (isActive ? 'rgba(226, 232, 240, 0.2)' : 'rgba(226, 232, 240, 0.1)')
-  const labelInactive = isLight ? '#000' : '#6B7280'
+  const labelInactive = isLight ? LIGHT_SIDEBAR_COLORS.mutedForeground : '#6B7280'
   return (
     <Tooltip title={tooltip} placement="right">
       <Box
         onClick={onClick}
+        data-compact-nav-item={label}
+        aria-current={isActive ? 'page' : undefined}
         sx={{
           mt: 1,
-          width: AVATAR_SIZE + 8,
-          height: AVATAR_SIZE + 8,
+          width: 52,
+          height: 56,
+          px: 0.5,
+          py: 0.5,
+          boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -132,13 +139,11 @@ const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label
           backgroundColor: isActive ? activeBg : 'transparent',
           borderRadius: 1,
           border: isActive ? `1px solid ${activeBorder}` : '1px solid transparent',
-          transform: isActive ? 'scale(1.05)' : 'scale(1)',
           '&:hover': {
             color: activeText,
-            transform: isActive ? 'scale(1.08)' : 'scale(1.1)',
             backgroundColor: hoverBg,
           },
-          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: 'color 150ms ease, background-color 150ms ease, border-color 150ms ease',
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -146,13 +151,18 @@ const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label
         </Box>
         <Typography
           variant="caption"
+          data-compact-nav-label={label}
           sx={{
             fontSize: '0.65rem',
             color: isActive ? activeText : labelInactive,
             textAlign: 'center',
-            lineHeight: 1,
-            mt: 0.8,
-            fontWeight: isActive ? 'bold' : (isLight ? 600 : 'normal'),
+            lineHeight: 1.05,
+            mt: 0.75,
+            fontWeight: isLight ? 500 : (isActive ? 600 : 400),
+            width: '100%',
+            whiteSpace: 'normal',
+            overflowWrap: 'normal',
+            wordBreak: 'normal',
           }}
         >
           {label}
@@ -261,15 +271,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   }, [])
 
   const isActive = (path: string | string[]) => {
-    const routeName = router.name
-    const paths = Array.isArray(path) ? path : [path]
-    return paths.some(p =>
-      routeName === p ||
-      routeName === 'org_' + p ||
-      routeName.startsWith(p + '-') ||
-      routeName.startsWith('org_' + p + '-')
-    )
+    return isNavigationRouteActive(router.name, path)
   }
+  const isOrgProjectSettings = isOrgProjectSettingsRoute(router.name, router.params.tab)
 
 
   // Auto-select first org when no org is saved in localStorage
@@ -282,15 +286,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     if (!firstAccessibleOrg) return
     const firstOrgSlug = firstAccessibleOrg.name
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, firstOrgSlug)
-    const useRouteName = router.name.startsWith('org_') ? router.name : 'org_projects'
-    const useParams = Object.assign({}, router.params, { org_id: firstOrgSlug })
-    router.navigate(useRouteName, useParams)
+    router.navigate(orgLandingRoute(), { org_id: firstOrgSlug })
   }, [listOrgs, account.user])
 
   // Handle org select, also remember the last org user has been in
   const handleOrgSelect = (orgSlug: string) => {
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
-    router.navigate('org_projects', { org_id: orgSlug })
+    router.navigate(orgLandingRoute(), { org_id: orgSlug })
     setDialogOpen(false)
   }
 
@@ -383,34 +385,29 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     postNavigateTo()
   }
 
-  const helixOrgEnabled = account.user?.alpha_features?.includes('helix-org') ?? false
-
   // Navigation buttons configuration
   const navigationButtons = useMemo(() => {
     const baseButtons = [
       {
+        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
+        tooltip: "AI chat assistant",
+        isActive: isActive(['chat', 'session']),
+        onClick: () => orgNavigateTo('chat'),
+        label: "Chat",
+      },
+      {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
         tooltip: "View projects",
-        isActive: isActive(['spec-tasks', 'projects', 'project']),
+        isActive: !isOrgProjectSettings && isActive(['spec-tasks', 'projects', 'project']),
         onClick: handleProjectsClick,
         label: "Projects",
       },
-      // Helix Org overview. Alpha-gated: only rendered for users granted
-      // the 'helix-org' alpha_features flag. Slots in right under
-      // Projects so it sits with the other primary org-level surfaces.
-      ...(helixOrgEnabled ? [{
+      {
         icon: <Network size={NAV_BUTTON_SIZE} />,
         tooltip: "View org chart",
         isActive: router.name.startsWith('helix_org'),
         onClick: handleHelixOrgClick,
-        label: "Org",
-      }] : []),
-      {
-        icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
-        tooltip: "AI chat assistant",
-        isActive: isActive('chat'),
-        onClick: () => orgNavigateTo('chat'),
-        label: "Chat",
+        label: "Chart",
       },
       {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
@@ -419,13 +416,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: () => orgNavigateTo('agents'),
         label: "Agents",
       },
-      {
-        icon: <FileQuestionMark size={NAV_BUTTON_SIZE} />,
-        tooltip: "View Q&A",
-        isActive: isActive('qa'),
-        onClick: () => orgNavigateTo('qa'),
-        label: "Q&A",
-      },
+      // Q&A now lives in the org Settings sub-nav (OrgSidebar -> Agent Q&A);
+      // no longer a top-level rail entry.
       {
         icon: <Clock size={NAV_BUTTON_SIZE} />,
         tooltip: "View tasks",
@@ -450,17 +442,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       // },
     ]
 
-    // Only show Providers menu item if providers management is enabled
-    // Admins manage inference providers via the admin panel, not here
-    if (account.serverConfig.providers_management_enabled) {
-      baseButtons.push({
-        icon: <Server size={NAV_BUTTON_SIZE} />,
-        tooltip: "View model providers",
-        isActive: isActive('providers'),
-        onClick: () => orgNavigateTo('providers'),
-        label: "Providers",
-      })
-    }
+    // Providers is intentionally omitted from the rail: the same page is
+    // reachable from Settings (OrgSidebar -> org_providers).
 
     // Add org settings button when we have an org context.
     // Highlights for any of the grouped admin pages (general, members,
@@ -471,7 +454,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         {
           icon: <Settings size={NAV_BUTTON_SIZE} />,
           tooltip: "Organization settings",
-          isActive: isActive([
+          isActive: isOrgProjectSettings || isActive([
             'org_general',
             'org_settings',
             'org_people',
@@ -479,6 +462,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             'org_billing',
             'org_usage',
             'org_api_keys',
+            'org_providers',
+            'org_provider_detail',
           ]),
           onClick: () => orgNavigateTo('org_general', { org_id: currentOrgSlug }),
           label: "Settings",
@@ -487,7 +472,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled, helixOrgEnabled, router.name])
+  }, [isActive, isOrgProjectSettings, currentOrgSlug, router.name])
 
   const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
 
@@ -628,7 +613,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         sx={{
           width: 48,
           height: 48,
-          bgcolor: compactExpanded ? 'primary.dark' : '#1a1a1a',
+          bgcolor: compactExpanded ? 'primary.dark' : 'transparent',
           color: '#fff',
           fontWeight: 'bold',
           fontSize: '1.5rem',

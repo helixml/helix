@@ -2,18 +2,23 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	helixorgconfig "github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/server/helixorg"
+	helixstore "github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // TestBuildHelixOrgSpawnerConfig_WiresProjectService is the regression
@@ -37,28 +42,28 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 
 	orgStore := orggorm.GetOrgTestDB(t)
 	reg := helixorgconfig.New(orgStore.Configs)
-	registerHelixOrgConfigSpecs(reg)
+	helixorg.RegisterConfigSpecs(reg)
 
 	const orgID = "org-test"
-	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`, orgchart.WorkerID("")))
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`, orgchart.WorkerID("")))
+	store := helixstore.NewMockStore(gomock.NewController(t))
+	store.EXPECT().GetOrganization(gomock.Any(), &helixstore.GetOrganizationQuery{ID: orgID}).
+		Return(&types.Organization{ID: orgID, Owner: "usr-owner"}, nil)
 
-	_, _, projectSvc, _ := newInProcTestSetup(t)
-	hub := streamhub.New(pubsub.NewNoop())
+	_, _, projectSvc, _, _ := newInProcTestSetup(t)
+	hub := wakebus.New(pubsub.NewNoop())
 	logger := slog.Default()
 
-	cfg, err := buildHelixOrgSpawnerConfig(
-		ctx, orgID, reg, nil,
-		nil,        // spawnerClient — not exercised here
-		projectSvc, // projectSvc — the field we're pinning
-		orgStore,
-		hub,
-		pubsub.NewNoop(), // PubSub — required since spawner.bridge.run calls SubscribeSessionUpdates
-		logger,
-		nil, // secretInjectors — not exercised here
-		func() string { return "id" },
-		func() time.Time { return time.Unix(0, 0).UTC() },
-	)
+	cfg, err := buildHelixOrgSpawnerConfig(ctx, orgID, spawnerDeps{
+		Cfg:        reg,
+		HelixStore: store,
+		ProjectSvc: projectSvc, // the field we're pinning
+		OrgStore:   orgStore,
+		Hub:        hub,
+		PubSub:     pubsub.NewNoop(), // required: spawner.bridge.run calls SubscribeSessionUpdates
+		Logger:     logger,
+		NewID:      func() string { return "id" },
+		Now:        func() time.Time { return time.Unix(0, 0).UTC() },
+	})
 	require.NoError(t, err)
 	require.NotNil(t, cfg.ProjectService, "ProjectService must be wired — its absence used to nil-deref WorkerProject.Ensure at project.go:156")
 	// Same pointer round-tripped — confirms the builder copies the
@@ -66,67 +71,88 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	require.Same(t, projectSvc, cfg.ProjectService.(*inProcHelixClient))
 }
 
-// TestBuildHelixOrgSpawnerConfig_WiresSecretInjectors pins the
-// transport→spawner wiring. The host (helix_org.go) builds a slice
-// of SpawnSecretInjector instances — one per transport that wants
-// to push secrets — and passes them through to the spawner config.
-// The spawner iterates them on every activation. Without this
-// assertion the host could silently drop the injectors at the
-// boundary; workers would land in their desktops without their
-// per-transport secrets (GH_TOKEN, etc.) and the failure would
-// surface as a confusing "gh not authenticated" deep in the
-// runtime.
-func TestBuildHelixOrgSpawnerConfig_WiresSecretInjectors(t *testing.T) {
+type mcpRepairProjectService struct {
+	runtimehelix.ProjectService
+	config      types.AppConfig
+	badApp      string
+	badAppError error
+	updated     types.AppConfig
+	updatedIDs  []string
+}
+
+func (s *mcpRepairProjectService) GetAppConfig(_ context.Context, appID string) (types.AppConfig, error) {
+	if appID == s.badApp {
+		return types.AppConfig{}, s.badAppError
+	}
+	return s.config, nil
+}
+
+func (s *mcpRepairProjectService) UpdateAppConfig(_ context.Context, appID string, config types.AppConfig) error {
+	s.updated = config
+	s.updatedIDs = append(s.updatedIDs, appID)
+	return nil
+}
+
+func TestRemoveLegacyHelixOrgMCPs_UpdatesLinkedApps(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+	const orgID = "org-test"
 
 	orgStore := orggorm.GetOrgTestDB(t)
-	reg := helixorgconfig.New(orgStore.Configs)
-	registerHelixOrgConfigSpecs(reg)
+	worker, err := orgchart.NewNode("b-worker", "worker", nil, time.Now().UTC(), orgID)
+	require.NoError(t, err)
+	worker = worker.WithAgentID("app-worker")
+	require.NoError(t, orgStore.Nodes.Create(ctx, worker))
 
+	svc := &mcpRepairProjectService{config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{MCPs: []types.AssistantMCP{{Name: "helix"}, {Name: "other", URL: "stdio://other"}}}},
+	}}}
+
+	require.NoError(t, removeLegacyHelixOrgMCPs(ctx, orgID, orgStore, svc))
+	require.Equal(t, []types.AssistantMCP{{Name: "other", URL: "stdio://other"}}, svc.updated.Helix.Assistants[0].MCPs)
+}
+
+func TestRemoveLegacyHelixOrgMCPs_ContinuesPastMissingApp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
 	const orgID = "org-test"
-	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`, orgchart.WorkerID("")))
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`, orgchart.WorkerID("")))
 
-	_, _, projectSvc, _ := newInProcTestSetup(t)
-	hub := streamhub.New(pubsub.NewNoop())
-
-	// Stand up a single fake injector whose Name/InjectSecrets the
-	// test can interrogate after round-tripping through the
-	// builder.
-	var called int
-	injectors := []runtimehelix.SpawnSecretInjector{
-		runtimehelix.SpawnSecretInjectorFunc{
-			Label: "test-transport",
-			Fn: func(_ context.Context, gotOrg string) (map[string]string, error) {
-				called++
-				require.Equal(t, orgID, gotOrg)
-				return map[string]string{"TEST_SECRET": "round-trip-ok"}, nil
-			},
-		},
+	orgStore := orggorm.GetOrgTestDB(t)
+	for _, worker := range []struct{ id, appID string }{{"b-bad", "app-bad"}, {"b-good", "app-good"}} {
+		node, err := orgchart.NewNode(worker.id, "worker", nil, time.Now().UTC(), orgID)
+		require.NoError(t, err)
+		require.NoError(t, orgStore.Nodes.Create(ctx, node.WithAgentID(worker.appID)))
+	}
+	svc := &mcpRepairProjectService{
+		badApp:      "app-bad",
+		badAppError: helixstore.ErrNotFound,
+		config:      types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{MCPs: []types.AssistantMCP{{Name: "helix"}}}}}},
 	}
 
-	cfg, err := buildHelixOrgSpawnerConfig(
-		ctx, orgID, reg, nil,
-		nil,
-		projectSvc,
-		orgStore,
-		hub,
-		pubsub.NewNoop(),
-		slog.Default(),
-		injectors,
-		func() string { return "id" },
-		func() time.Time { return time.Unix(0, 0).UTC() },
-	)
-	require.NoError(t, err)
-	require.Len(t, cfg.SecretInjectors, 1, "SecretInjectors must be wired — without it the worker desktop has no transport-injected secrets")
-	require.Equal(t, "test-transport", cfg.SecretInjectors[0].Name(), "injector identity must round-trip")
-	// Round-trip a call to confirm it's the host-provided one, not
-	// some intermediate wrapper that drops the value.
-	got, ierr := cfg.SecretInjectors[0].InjectSecrets(ctx, orgID)
-	require.NoError(t, ierr)
-	require.Equal(t, "round-trip-ok", got["TEST_SECRET"])
-	require.Equal(t, 1, called)
+	require.NoError(t, removeLegacyHelixOrgMCPs(ctx, orgID, orgStore, svc))
+	require.Equal(t, []string{"app-good"}, svc.updatedIDs)
+}
+
+func TestRemoveLegacyHelixOrgMCPs_ReturnsTransientAppFailure(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const orgID = "org-test"
+
+	orgStore := orggorm.GetOrgTestDB(t)
+	for _, worker := range []struct{ id, appID string }{{"b-bad", "app-bad"}, {"b-good", "app-good"}} {
+		node, err := orgchart.NewNode(worker.id, "worker", nil, time.Now().UTC(), orgID)
+		require.NoError(t, err)
+		require.NoError(t, orgStore.Nodes.Create(ctx, node.WithAgentID(worker.appID)))
+	}
+	svc := &mcpRepairProjectService{
+		badApp:      "app-bad",
+		badAppError: errors.New("database unavailable"),
+		config:      types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{MCPs: []types.AssistantMCP{{Name: "helix"}}}}}},
+	}
+
+	err := removeLegacyHelixOrgMCPs(ctx, orgID, orgStore, svc)
+	require.ErrorContains(t, err, "database unavailable")
+	require.Equal(t, []string{"app-good"}, svc.updatedIDs)
 }
 
 // TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService pins the
@@ -140,23 +166,20 @@ func TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService(t *testing.T) {
 
 	orgStore := orggorm.GetOrgTestDB(t)
 	reg := helixorgconfig.New(orgStore.Configs)
-	registerHelixOrgConfigSpecs(reg)
+	helixorg.RegisterConfigSpecs(reg)
 
 	const orgID = "org-test"
-	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`, orgchart.WorkerID("")))
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`, orgchart.WorkerID("")))
 
-	_, err := buildHelixOrgSpawnerConfig(
-		ctx, orgID, reg, nil,
-		nil, // spawnerClient
-		nil, // projectSvc — explicitly nil
-		orgStore, streamhub.New(pubsub.NewNoop()),
-		pubsub.NewNoop(),
-		slog.Default(),
-		nil, // secretInjectors
-		func() string { return "id" },
-		func() time.Time { return time.Unix(0, 0).UTC() },
-	)
+	_, err := buildHelixOrgSpawnerConfig(ctx, orgID, spawnerDeps{
+		Cfg: reg,
+		// ProjectSvc explicitly nil — the case under test.
+		OrgStore: orgStore,
+		Hub:      wakebus.New(pubsub.NewNoop()),
+		PubSub:   pubsub.NewNoop(),
+		Logger:   slog.Default(),
+		NewID:    func() string { return "id" },
+		Now:      func() time.Time { return time.Unix(0, 0).UTC() },
+	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ProjectService is required")
 }

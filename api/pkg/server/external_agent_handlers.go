@@ -12,8 +12,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -23,7 +25,6 @@ import (
 	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/types"
 )
-
 
 // authorizeDesktopID resolves an id to either a Helix session or a sandbox
 // and verifies the caller has access. The desktop-bridge inside the
@@ -142,7 +143,7 @@ func (apiServer *HelixAPIServer) subscriptionEnvForSession(ctx context.Context, 
 	if !asst.CodeAgentCredentialType.IsSubscription() {
 		return nil
 	}
-	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+	sub, err := apiServer.Store.GetSessionClaudeSubscription(ctx, session)
 	if err != nil || sub.Status != "active" {
 		log.Warn().Str("session_id", session.ID).Str("owner", session.Owner).
 			Msg("claude_code subscription mode but no active Claude subscription found for session owner")
@@ -364,81 +365,6 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	res.Header().Set("Content-Type", contentType)
 	res.Write(imageData) //nolint:errcheck
 
-}
-
-// getExternalAgentVideoStats handles GET /api/v1/external-agents/{sessionID}/video/stats
-// Returns video streaming statistics including per-client buffer usage
-func (apiServer *HelixAPIServer) getExternalAgentVideoStats(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	// Get the Helix session to verify ownership
-	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for video stats")
-		http.Error(res, "Session not found", http.StatusNotFound)
-		return
-	}
-
-	// Verify ownership (or admin access)
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
-	if err != nil {
-		http.Error(res, err.Error(), http.StatusForbidden)
-		return
-	}
-
-	// Try RevDial connection to desktop container
-	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
-	if err != nil {
-		log.Error().Err(err).Str("runner_id", runnerID).Str("session_id", sessionID).Msg("Failed to connect to sandbox via RevDial for video stats")
-		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
-		return
-	}
-	defer revDialConn.Close()
-
-	// Send HTTP request over RevDial tunnel
-	httpReq, err := http.NewRequest("GET", "http://localhost:9876/video/stats", nil)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to create video stats request")
-		http.Error(res, "Failed to create video stats request", http.StatusInternalServerError)
-		return
-	}
-
-	// Write request to RevDial connection
-	if err := httpReq.Write(revDialConn); err != nil {
-		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
-		http.Error(res, "Failed to send video stats request", http.StatusInternalServerError)
-		return
-	}
-
-	// Read response from RevDial connection
-	statsResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to read video stats response from RevDial")
-		http.Error(res, "Failed to read video stats response", http.StatusInternalServerError)
-		return
-	}
-	defer statsResp.Body.Close()
-
-	// Check response status
-	if statsResp.StatusCode != http.StatusOK {
-		errorBody, _ := io.ReadAll(statsResp.Body)
-		log.Error().Int("status", statsResp.StatusCode).Str("session_id", sessionID).Str("error_body", string(errorBody)).Msg("Video stats server returned error")
-		http.Error(res, "Failed to retrieve video stats from container", statsResp.StatusCode)
-		return
-	}
-
-	// Return JSON response directly
-	res.Header().Set("Content-Type", "application/json")
-	res.WriteHeader(http.StatusOK)
-	io.Copy(res, statsResp.Body)
 }
 
 // @Summary Execute command in sandbox
@@ -871,124 +797,6 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		Msg("Successfully set clipboard in external agent container")
 }
 
-// @Summary Send input events to sandbox
-// @Description Send keyboard and mouse input events to the remote desktop. Supports single events or batches.
-// @Tags ExternalAgents
-// @Accept json
-// @Produce json
-// @Param sessionID path string true "Session ID"
-// @Param input body object true "Input event(s). Single event: {type, keycode, state} or batch: {events: [...]}"
-// @Success 200 {object} object "success response with processed count"
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 503 {object} system.HTTPError
-// @Router /api/v1/external-agents/{sessionID}/input [post]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) sendInputToSandbox(res http.ResponseWriter, req *http.Request) {
-	log.Info().Str("path", req.URL.Path).Str("method", req.Method).Msg("🔧 sendInputToSandbox handler called")
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	// Get the Helix session to verify ownership
-	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for input")
-		http.Error(res, "Session not found", http.StatusNotFound)
-		return
-	}
-
-	// Verify ownership
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
-	if err != nil {
-		http.Error(res, err.Error(), http.StatusForbidden)
-		return
-	}
-
-	// Get container name using executor
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	_, err = apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container for input")
-		http.Error(res, "External agent container not found", http.StatusNotFound)
-		return
-	}
-
-	// Read input content from request body
-	inputContent, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to read input request body")
-		http.Error(res, "Failed to read input content", http.StatusBadRequest)
-		return
-	}
-
-	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
-	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("runner_id", runnerID).
-			Str("session_id", sessionID).
-			Msg("Failed to connect to sandbox via RevDial for input")
-		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
-		return
-	}
-	defer revDialConn.Close()
-
-	// Send HTTP POST request over RevDial tunnel
-	httpReq, err := http.NewRequest("POST", "http://localhost:9876/input", bytes.NewReader(inputContent))
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to create input request")
-		http.Error(res, "Failed to create input request", http.StatusInternalServerError)
-		return
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	if err := httpReq.Write(revDialConn); err != nil {
-		log.Error().Err(err).Msg("Failed to write input request to RevDial")
-		http.Error(res, "Failed to send input request", http.StatusInternalServerError)
-		return
-	}
-
-	inputResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to read input response from RevDial")
-		http.Error(res, "Failed to read input response", http.StatusInternalServerError)
-		return
-	}
-	defer inputResp.Body.Close()
-
-	// Read and forward response
-	respBody, err := io.ReadAll(inputResp.Body)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to read input response body")
-		http.Error(res, "Failed to read input response", http.StatusInternalServerError)
-		return
-	}
-
-	// Forward status and body
-	res.Header().Set("Content-Type", "application/json")
-	res.WriteHeader(inputResp.StatusCode)
-	res.Write(respBody)
-
-	log.Trace().
-		Str("session_id", sessionID).
-		Int("input_size", len(inputContent)).
-		Int("status", inputResp.StatusCode).
-		Msg("Input event(s) sent to sandbox")
-}
-
 // @Summary Upload file to sandbox
 // @Description Upload a file to the sandbox incoming folder (~/work/incoming/). Files can be dragged and dropped onto the sandbox viewer to upload them.
 // @Tags ExternalAgents
@@ -1023,8 +831,8 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		return
 	}
 
-	// Verify ownership
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	// Uploading mutates the agent workspace, so read-only access is insufficient.
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionUpdate)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusForbidden)
 		return
@@ -1037,29 +845,33 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 	}
 
 	_, err = apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container for file upload")
-		http.Error(res, "External agent container not found", http.StatusNotFound)
-		return
-	}
-
-	// Read the multipart body to forward it
-	bodyBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to read upload request body")
-		http.Error(res, "Failed to read file", http.StatusBadRequest)
-		return
+	waitForDesktop := err != nil
+	if waitForDesktop {
+		if session.Metadata.AgentType != "zed_external" {
+			http.Error(res, "only external agent sessions accept workspace uploads", http.StatusBadRequest)
+			return
+		}
+		if session.Metadata.ExternalAgentStatus != "starting" {
+			log.Info().
+				Str("session_id", sessionID).
+				Msg("Starting stopped external agent for chat attachment upload")
+			if _, resumeErr := apiServer.resumeSessionInternal(req.Context(), user, session); resumeErr != nil {
+				log.Error().Err(resumeErr).Str("session_id", sessionID).Msg("Failed to start external agent for file upload")
+				http.Error(res, fmt.Sprintf("failed to start agent for upload: %v", resumeErr), http.StatusServiceUnavailable)
+				return
+			}
+		}
 	}
 
 	log.Info().
 		Str("session_id", sessionID).
-		Int("body_size", len(bodyBytes)).
+		Int64("body_size", req.ContentLength).
 		Str("content_type", req.Header.Get("Content-Type")).
 		Msg("Uploading file to sandbox via RevDial")
 
 	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	revDialConn, err := apiServer.dialDesktopForUpload(req.Context(), runnerID, waitForDesktop)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -1071,16 +883,19 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 	}
 	defer revDialConn.Close()
 
-	// Send HTTP POST request over RevDial tunnel
-	// Important: preserve the Content-Type header with multipart boundary
-	httpReq, err := http.NewRequest("POST", "http://localhost:9876/upload", bytes.NewReader(bodyBytes))
+	// Stream the multipart body through RevDial. Buffering the entire request in
+	// API memory is unnecessary and becomes expensive for PDFs and other large
+	// chat assets. Preserve the query string as well: chat uploads explicitly set
+	// open_file_manager=false and dropping it made every paste open Files in the
+	// agent desktop.
+	httpReq, err := http.NewRequestWithContext(req.Context(), http.MethodPost, desktopUploadURL(req.URL.RawQuery), req.Body)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create upload request")
 		http.Error(res, "Failed to create upload request", http.StatusInternalServerError)
 		return
 	}
 	httpReq.Header.Set("Content-Type", req.Header.Get("Content-Type"))
-	httpReq.ContentLength = int64(len(bodyBytes))
+	httpReq.ContentLength = req.ContentLength
 
 	if err := httpReq.Write(revDialConn); err != nil {
 		log.Error().Err(err).Msg("Failed to write upload request to RevDial")
@@ -1123,6 +938,126 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		Str("session_id", sessionID).
 		Str("response", string(respBody)).
 		Msg("Successfully uploaded file to sandbox")
+}
+
+func (apiServer *HelixAPIServer) dialDesktopForUpload(ctx context.Context, runnerID string, waitForDesktop bool) (net.Conn, error) {
+	if !waitForDesktop {
+		return apiServer.connman.Dial(ctx, runnerID)
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		conn, err := apiServer.connman.Dial(waitCtx, runnerID)
+		if err == nil {
+			return conn, nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("desktop bridge did not become ready: %w", waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func desktopUploadURL(rawQuery string) string {
+	return (&url.URL{
+		Scheme:   "http",
+		Host:     "localhost:9876",
+		Path:     "/upload",
+		RawQuery: rawQuery,
+	}).String()
+}
+
+// @Summary Read an uploaded chat attachment
+// @Description Streams one file from the external agent's incoming attachment directory.
+// @Tags ExternalAgents
+// @Produce application/octet-stream
+// @Param sessionID path string true "Session ID"
+// @Param name query string true "Uploaded attachment filename"
+// @Success 200 {file} binary
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/file [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getExternalAgentFile(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	sessionID := mux.Vars(req)["sessionID"]
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+	if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet); err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	filename := req.URL.Query().Get("name")
+	if !validWorkspaceAttachmentFilename(filename) {
+		http.Error(res, "invalid attachment filename", http.StatusBadRequest)
+		return
+	}
+
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		http.Error(res, "Sandbox not connected", http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	httpReq, err := http.NewRequestWithContext(req.Context(), http.MethodGet, desktopFileURL(filename), nil)
+	if err != nil {
+		http.Error(res, "Failed to create attachment request", http.StatusInternalServerError)
+		return
+	}
+	if err := httpReq.Write(revDialConn); err != nil {
+		http.Error(res, "Failed to request attachment", http.StatusBadGateway)
+		return
+	}
+
+	fileResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		http.Error(res, "Failed to read attachment response", http.StatusBadGateway)
+		return
+	}
+	defer fileResp.Body.Close()
+
+	for _, header := range []string{"Content-Type", "Content-Length", "Content-Disposition", "Last-Modified", "Cache-Control", "X-Content-Type-Options"} {
+		if value := fileResp.Header.Get(header); value != "" {
+			res.Header().Set(header, value)
+		}
+	}
+	res.WriteHeader(fileResp.StatusCode)
+	if _, err := io.Copy(res, fileResp.Body); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to stream chat attachment")
+	}
+}
+
+func validWorkspaceAttachmentFilename(filename string) bool {
+	return filename != "" && filename != "." && filename != ".." &&
+		!strings.ContainsAny(filename, `/\\`)
+}
+
+func desktopFileURL(filename string) string {
+	return (&url.URL{
+		Scheme:   "http",
+		Host:     "localhost:9876",
+		Path:     "/file",
+		RawQuery: url.Values{"name": []string{filename}}.Encode(),
+	}).String()
 }
 
 // ConfigurePendingSessionRequest is the request body for configuring a pending session
@@ -1568,128 +1503,13 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		Msg("Stream WebSocket connection closed")
 }
 
-// @Summary Get file diff from container
-// @Description Returns git diff information from the running desktop container.
-// @Description Shows changes between the current working directory and base branch,
-// @Description including uncommitted changes.
-// @Tags ExternalAgents
-// @Produce json
-// @Param sessionID path string true "Session ID"
-// @Param base query string false "Base branch to compare against (default: main)"
-// @Param include_content query bool false "Include full diff content for each file (default: false)"
-// @Param path query string false "Filter to specific file path"
-// @Param workspace query string false "Name of the workspace/repo to diff (optional, defaults to first found)"
-// @Param helix_specs query bool false "If true, diff the helix-specs branch uncommitted changes instead"
-// @Success 200 {object} object "Diff response with files list"
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 503 {object} system.HTTPError
-// @Router /api/v1/external-agents/{sessionID}/diff [get]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) getExternalAgentDiff(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	// Get the Helix session to verify ownership
-	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for diff")
-		http.Error(res, "Session not found", http.StatusNotFound)
-		return
-	}
-
-	// Verify ownership
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
-	if err != nil {
-		http.Error(res, err.Error(), http.StatusForbidden)
-		return
-	}
-
-	// Try RevDial connection to desktop container (registered as "desktop-{session_id}")
-	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("runner_id", runnerID).
-			Str("session_id", sessionID).
-			Msg("Failed to connect to sandbox via RevDial for diff")
-		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
-		return
-	}
-	defer revDialConn.Close()
-
-	// Build the diff URL with query parameters
-	diffURL := "http://localhost:9876/diff"
-	if req.URL.RawQuery != "" {
-		diffURL += "?" + req.URL.RawQuery
-	}
-
-	// Send HTTP request over RevDial tunnel
-	httpReq, err := http.NewRequest("GET", diffURL, nil)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to create diff request")
-		http.Error(res, "Failed to create diff request", http.StatusInternalServerError)
-		return
-	}
-
-	// Write request to RevDial connection
-	if err := httpReq.Write(revDialConn); err != nil {
-		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
-		http.Error(res, "Failed to send diff request", http.StatusInternalServerError)
-		return
-	}
-
-	// Read response from RevDial connection
-	diffResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to read diff response from RevDial")
-		http.Error(res, "Failed to read diff response", http.StatusInternalServerError)
-		return
-	}
-	defer diffResp.Body.Close()
-
-	// Check response status
-	if diffResp.StatusCode != http.StatusOK {
-		errorBody, _ := io.ReadAll(diffResp.Body)
-		log.Error().
-			Int("status", diffResp.StatusCode).
-			Str("session_id", sessionID).
-			Str("error_body", string(errorBody)).
-			Msg("Diff server returned error")
-		http.Error(res, "Failed to get diff from container", diffResp.StatusCode)
-		return
-	}
-
-	// Return JSON directly
-	res.Header().Set("Content-Type", "application/json")
-	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	res.WriteHeader(http.StatusOK)
-
-	// Stream the diff JSON from container to response
-	_, err = io.Copy(res, diffResp.Body)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to stream diff data")
-		return
-	}
-
-	log.Debug().Str("session_id", sessionID).Msg("Successfully retrieved diff from container")
-}
-
 // @Summary Get workspaces from container
 // @Description Returns a list of git workspaces (repositories) in the container.
 // @Description Each workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.
 // @Tags ExternalAgents
 // @Produce json
 // @Param sessionID path string true "Session ID"
-// @Success 200 {object} object "Workspaces response with list of repos"
+// @Success 200 {object} types.WorkspacesResponse
 // @Failure 401 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError

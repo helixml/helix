@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -376,6 +377,140 @@ func TestAdminDeleteUser(t *testing.T) {
 				require.NotNil(t, result)
 				assert.Equal(t, "user deleted successfully", result["message"])
 				assert.Equal(t, tt.targetUserID, result["user_id"])
+			}
+		})
+	}
+}
+
+// The point of this endpoint is that an orchestrator stops putting a whole fleet
+// of people's agents on one shared account. These pin the three properties that
+// makes safe: only an admin may call it, the key really is owned by the target
+// user (not the caller), and it will not conjure an identity for someone who is
+// not already a Helix user — the boundary that still holds once the orchestrator
+// calling it is web-facing and anyone can sign up there.
+func TestAdminMintUserAPIKey(t *testing.T) {
+	admin := &types.User{ID: "admin-123", Email: "admin@example.com", Admin: true}
+
+	tests := []struct {
+		name           string
+		caller         *types.User
+		targetUserID   string
+		keyName        string
+		setupMocks     func(*store.MockStore)
+		expectedStatus int
+		expectedError  string
+		expectedKey    string
+	}{
+		{
+			name:         "mints a key owned by the target user",
+			caller:       admin,
+			targetUserID: "user-456",
+			keyName:      "helixos",
+			setupMocks: func(mockStore *store.MockStore) {
+				mockStore.EXPECT().
+					GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-456"}).
+					Return(&types.User{ID: "user-456", Email: "chris@helix.ml"}, nil)
+				mockStore.EXPECT().
+					ListAPIKeys(gomock.Any(), gomock.Any()).
+					Return([]*types.ApiKey{}, nil)
+				mockStore.EXPECT().
+					CreateAPIKey(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, key *types.ApiKey) (*types.ApiKey, error) {
+						// The whole point: owned by them, not by the admin who asked.
+						assert.Equal(t, "user-456", key.Owner)
+						assert.Equal(t, "helixos", key.Name)
+						// Real key material, generated for us rather than left empty
+						// (the store rejects an unset Key).
+						assert.NotEmpty(t, key.Key)
+						key.Key = "hl-minted"
+						return key, nil
+					})
+			},
+			expectedStatus: http.StatusOK,
+			expectedKey:    "hl-minted",
+		},
+		{
+			name:         "re-minting the same name returns the existing key",
+			caller:       admin,
+			targetUserID: "user-456",
+			keyName:      "helixos",
+			setupMocks: func(mockStore *store.MockStore) {
+				mockStore.EXPECT().
+					GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-456"}).
+					Return(&types.User{ID: "user-456"}, nil)
+				mockStore.EXPECT().
+					ListAPIKeys(gomock.Any(), gomock.Any()).
+					Return([]*types.ApiKey{
+						{Key: "hl-existing", Name: "helixos", Owner: "user-456"},
+						{Key: "hl-other", Name: "cli", Owner: "user-456"},
+					}, nil)
+				// No CreateAPIKey: minting on every login must not pile up live
+				// credentials.
+			},
+			expectedStatus: http.StatusOK,
+			expectedKey:    "hl-existing",
+		},
+		{
+			name:           "non-admin is refused",
+			caller:         &types.User{ID: "user-789", Admin: false},
+			targetUserID:   "user-456",
+			keyName:        "helixos",
+			setupMocks:     func(_ *store.MockStore) {},
+			expectedStatus: http.StatusForbidden,
+			expectedError:  "only admins can mint API keys for other users",
+		},
+		{
+			name:         "will not mint for someone who is not a Helix user",
+			caller:       admin,
+			targetUserID: "signed-up-elsewhere",
+			keyName:      "helixos",
+			setupMocks: func(mockStore *store.MockStore) {
+				mockStore.EXPECT().
+					GetUser(gomock.Any(), &store.GetUserQuery{ID: "signed-up-elsewhere"}).
+					Return(nil, store.ErrNotFound)
+			},
+			expectedStatus: http.StatusNotFound,
+			expectedError:  "user not found",
+		},
+		{
+			name:           "name is required",
+			caller:         admin,
+			targetUserID:   "user-456",
+			keyName:        "",
+			setupMocks:     func(_ *store.MockStore) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedError:  "name is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockStore := store.NewMockStore(ctrl)
+			tt.setupMocks(mockStore)
+			server := &HelixAPIServer{
+				Store:      mockStore,
+				Controller: &controller.Controller{Options: controller.Options{Store: mockStore}},
+			}
+
+			req := httptest.NewRequest(http.MethodPost,
+				"/api/v1/admin/users/"+tt.targetUserID+"/api-keys?name="+tt.keyName, nil)
+			req = mux.SetURLVars(req, map[string]string{"id": tt.targetUserID})
+			req = req.WithContext(setTestRequestUser(req.Context(), tt.caller))
+
+			result, httpErr := server.adminMintUserAPIKey(httptest.NewRecorder(), req)
+
+			if tt.expectedError != "" {
+				require.NotNil(t, httpErr)
+				assert.Contains(t, httpErr.Error(), tt.expectedError)
+				assert.Equal(t, tt.expectedStatus, httpErr.StatusCode)
+			} else {
+				require.Nil(t, httpErr)
+				require.NotNil(t, result)
+				assert.Equal(t, tt.expectedKey, result.Key)
+				assert.Equal(t, tt.targetUserID, result.Owner)
 			}
 		})
 	}

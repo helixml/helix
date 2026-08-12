@@ -141,10 +141,10 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	// If repo is external, move to pull_request status (awaiting merge in external system)
 	// For internal repos, try merge first - only record approval if merge succeeds
 	if s.shouldOpenPullRequest(repo) {
-		// Validate user has GitHub OAuth before advancing task status.
+		// Validate user OAuth before advancing task status.
 		// This is a lightweight sync check (DB lookup only). The actual PR
 		// creation remains async.
-		if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+		if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
 			var oauthErr *services.OAuthRequiredError
 			if errors.As(err, &oauthErr) {
 				writeResponse(w, map[string]interface{}{
@@ -177,6 +177,13 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			if err := s.ensurePullRequestsForAllRepos(context.Background(), specTask, project.DefaultRepoID, user.ID); err != nil {
 				log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to create PRs on approval (push detection will retry)")
 			}
+			// Re-read agent-authored PR metadata after creation. This closes the
+			// race where pull_request_*.md is pushed while eager PR creation is
+			// still in flight: the specs-push handler may run before the new PR is
+			// tracked, while creation may already have read the old specs commit.
+			if s.gitHTTPServer != nil {
+				s.gitHTTPServer.SyncOpenPRDescriptions(context.Background(), specTask, repo.LocalPath)
+			}
 		}()
 
 		// Gather non-primary repo names so the push instruction tells the agent
@@ -187,7 +194,14 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		})
 		if repoErr == nil {
 			for _, r := range projectRepos {
-				if r.Name != repo.Name && r.ExternalURL != "" {
+				// Internal repos belong here too. Filtering on ExternalURL used to
+				// drop them, which directly contradicted the merge path:
+				// ensurePullRequestsForAllRepos fast-forwards exactly these
+				// non-primary internal repos, so it waits for a branch the agent
+				// was never told to push. In a project whose only internal repo is
+				// the shared playbook repo, that made contributing to it
+				// impossible — the agent never heard the repo named.
+				if r.Name != repo.Name {
 					nonPrimaryRepoNames = append(nonPrimaryRepoNames, r.Name)
 				}
 			}
@@ -198,7 +212,13 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		go func() {
 			defer s.wg.Done()
 
-			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName, repo.Name, repo.DefaultBranch, nonPrimaryRepoNames)
+			message, err := prompts.ImplementationApprovedPushInstruction(
+				specTask.BranchName,
+				repo.Name,
+				repo.DefaultBranch,
+				services.GetTaskDirName(specTask),
+				nonPrimaryRepoNames,
+			)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -209,8 +229,8 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			}
 
 			// interrupt=false: post-merge push instruction is a system-driven follow-up, not
-			// reactive feedback — let it queue behind any in-flight agent turn.
-			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "", false)
+			// reactive feedback — enqueue it to defer behind any in-flight agent turn.
+			err = s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, "")
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -311,7 +331,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			}
 
 			// interrupt=false: post-merge-failure rebase instruction is system-driven follow-up.
-			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "", false)
+			err = s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, "")
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -486,33 +506,7 @@ func parsePullRequestMarkdownForTask(content string) (string, string, bool) {
 	return title, description, true
 }
 
-// getSpecDocsBaseURLForTask builds a URL to view spec docs in the external repo's web UI.
-func getSpecDocsBaseURLForTask(repo *types.GitRepository, designDocPath string) string {
-	if repo.ExternalURL == "" {
-		return ""
-	}
-
-	baseURL := strings.TrimSuffix(repo.ExternalURL, ".git")
-
-	switch repo.ExternalType {
-	case types.ExternalRepositoryTypeGitHub:
-		return fmt.Sprintf("%s/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
-	case types.ExternalRepositoryTypeGitLab:
-		return fmt.Sprintf("%s/-/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
-	case types.ExternalRepositoryTypeADO:
-		return fmt.Sprintf("%s?path=/design/tasks/%s&version=GBhelix-specs", baseURL, designDocPath)
-	case types.ExternalRepositoryTypeBitbucket:
-		return fmt.Sprintf("%s/src/helix-specs/design/tasks/%s", baseURL, designDocPath)
-	default:
-		return ""
-	}
-}
-
-// buildPRFooterForTask generates the PR description footer.
-func (s *HelixAPIServer) buildPRFooterForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) string {
-	var parts []string
-
-	// "Open in Helix" link
+func (s *HelixAPIServer) renderPRFooterForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, userID string) (string, error) {
 	helixBaseURL := s.Cfg.WebServer.URL
 	orgName := ""
 	if task.OrganizationID != "" {
@@ -520,24 +514,16 @@ func (s *HelixAPIServer) buildPRFooterForTask(ctx context.Context, repo *types.G
 			orgName = org.Name
 		}
 	}
-	if helixBaseURL != "" && orgName != "" && task.ProjectID != "" && task.ID != "" {
-		helixTaskURL := fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
-			strings.TrimSuffix(helixBaseURL, "/"), orgName, task.ProjectID, task.ID)
-		parts = append(parts, fmt.Sprintf("🔗 [Open in Helix](%s)", helixTaskURL))
-	}
 
-	// Spec doc links
-	if task.DesignDocPath != "" {
-		if specDocsURL := getSpecDocsBaseURLForTask(repo, task.DesignDocPath); specDocsURL != "" {
-			parts = append(parts, fmt.Sprintf("📋 Spec:\n- [Requirements](%s/requirements.md)\n- [Design](%s/design.md)\n- [Tasks](%s/tasks.md)",
-				specDocsURL, specDocsURL, specDocsURL))
+	footerTemplate := services.DefaultPRFooterTemplate
+	if userID != "" {
+		user, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+		if err != nil {
+			return "", fmt.Errorf("get PR owner settings: %w", err)
 		}
+		footerTemplate = services.UserPRFooterTemplate(user)
 	}
-
-	// Helix branding
-	parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
-
-	return "---\n" + strings.Join(parts, "\n\n")
+	return services.RenderPRFooter(footerTemplate, repo, task, orgName, helixBaseURL)
 }
 
 // ensurePullRequestForRepo creates a PR for a spec task in a specific repo if one doesn't exist
@@ -648,8 +634,11 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	}
 
 	// Append footer
-	footer := s.buildPRFooterForTask(ctx, repo, task)
-	description = description + "\n\n" + footer
+	footer, err := s.renderPRFooterForTask(ctx, repo, task, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render PR footer: %w", err)
+	}
+	description = services.AppendPRFooter(description, footer)
 
 	// Create new PR
 	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch, userID)
@@ -768,6 +757,19 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 
 	for _, repo := range projectRepos {
 		if !s.shouldOpenPullRequest(repo) {
+			// Internal (directly-integrated) repos have no external system to
+			// open a PR in. The PRIMARY internal repo is merged server-side by
+			// approveImplementation; here we finalize the NON-primary internal
+			// repos the same way — a synchronous fast-forward merge — so a
+			// mixed-backing project (e.g. GitHub primary + internal secondary)
+			// doesn't leave the internal secondary repo's feature branch
+			// unmerged after the task is approved.
+			if repo.ID == primaryRepoID || repo.IsExternal {
+				continue
+			}
+			if err := s.mergeInternalRepoBranch(ctx, repo, task); err != nil {
+				log.Error().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Failed to fast-forward merge internal non-primary repo")
+			}
 			continue
 		}
 
@@ -781,12 +783,12 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 			}
 			var oauthErr *services.OAuthRequiredError
 			if errors.As(err, &oauthErr) {
-				task.Metadata["error"] = "GitHub OAuth connection required to open a PR. Please connect your GitHub account and try again."
+				task.Metadata["error"] = fmt.Sprintf("%s OAuth connection required to open a PR. Please connect your account and try again.", oauthErr.ProviderType)
 			} else if strings.Contains(err.Error(), "Permission") && strings.Contains(err.Error(), "denied") {
-				task.Metadata["error"] = fmt.Sprintf("Permission denied: your GitHub account does not have write access to %s. Ask the repository owner to add you as a collaborator.", repo.Name)
+				task.Metadata["error"] = fmt.Sprintf("Permission denied: your %s account does not have write access to %s. Ask the repository owner to add you as a collaborator.", repo.ExternalType, repo.Name)
 			} else if strings.Contains(err.Error(), "rate limit") {
-				// GitHub API rate limit — transient, don't alarm the user
-				log.Warn().Err(err).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("GitHub API rate limit hit, will retry on next cycle")
+				// Provider API rate limits are transient, so retry on the next cycle.
+				log.Warn().Err(err).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("VCS API rate limit hit, will retry on next cycle")
 				// Preserve existing PR data but don't set a scary error message
 				for _, existing := range task.RepoPullRequests {
 					if existing.RepositoryID == repo.ID {
@@ -851,6 +853,46 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 	}
 
 	log.Info().Str("task_id", task.ID).Int("pr_count", len(repoPRs)).Msg("Updated task with pull requests")
+	return nil
+}
+
+// mergeInternalRepoBranch fast-forward merges a task's feature branch into the
+// repo's default branch for an internal (directly-integrated) repo, which has no
+// external PR to open. It mirrors the server-side merge approveImplementation
+// runs for the primary internal repo, so non-primary internal repos in a
+// mixed-backing project are finalized synchronously rather than left dangling.
+//
+// No lock is taken: internal repos have no upstream to sync/push to (matching the
+// !repo.IsExternal branch in approveImplementation, which also skips the lock),
+// and MergeBranchFastForward is idempotent — a branch already at the target
+// commit is a no-op — so concurrent orchestrator cycles are safe. Returns nil
+// (nothing to merge) when the feature branch is absent, i.e. the agent made no
+// changes in this repo.
+func (s *HelixAPIServer) mergeInternalRepoBranch(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
+	if repo.DefaultBranch == "" {
+		return fmt.Errorf("default branch not set for repository %s", repo.Name)
+	}
+	if task.BranchName == "" {
+		return fmt.Errorf("task %s has no branch name", task.ID)
+	}
+
+	// If the feature branch doesn't exist in this repo, the agent pushed no
+	// changes here — there's nothing to merge.
+	if _, err := services.GetBranchCommitID(ctx, repo.LocalPath, task.BranchName); err != nil {
+		log.Debug().Str("repo_name", repo.Name).Str("branch", task.BranchName).Msg("Feature branch absent in internal repo, nothing to merge")
+		return nil
+	}
+
+	if _, err := services.MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); err != nil {
+		return fmt.Errorf("fast-forward merge %s into %s: %w", task.BranchName, repo.DefaultBranch, err)
+	}
+
+	log.Info().
+		Str("repo_name", repo.Name).
+		Str("task_id", task.ID).
+		Str("source_branch", task.BranchName).
+		Str("target_branch", repo.DefaultBranch).
+		Msg("Fast-forward merged internal non-primary repo")
 	return nil
 }
 

@@ -7,7 +7,6 @@ import React, {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Avatar,
   Box,
   Button,
   Typography,
@@ -24,23 +23,28 @@ import {
   Autocomplete,
   Tooltip,
   IconButton,
+  Fade,
 } from "@mui/material";
-import { Add as AddIcon, AttachFile as AttachFileIcon, Close as CloseIcon } from "@mui/icons-material";
-import { ChevronDown, UserCircle2, X } from "lucide-react";
+import { Add as AddIcon, AttachFile as AttachFileIcon, Close as CloseIcon, CloudUpload as CloudUploadIcon } from "@mui/icons-material";
+import { useDropzone } from "react-dropzone";
+import { ChevronDown, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";
+import OrganizationUserAvatar, { resolveOrganizationUser } from "../widgets/OrganizationUserAvatar";
 import GooseRecipeSelector from "./GooseRecipeSelector";
 import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
 
 import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
+import { isCodingAgent } from "../../utils/apps";
 import {
+  TypesCodeAgentOverrides,
+  TypesCreateTaskRequest,
   TypesSpecTaskPriority,
   TypesBranchMode,
+  TypesSandboxResourceOverrides,
   TypesSpecTask,
   TypesSpecTaskStatus,
-  TypesUser,
 } from "../../api/api";
-import AgentDropdown from "../agent/AgentDropdown";
 import CodingAgentForm, {
   CodingAgentFormHandle,
 } from "../agent/CodingAgentForm";
@@ -56,6 +60,7 @@ import {
   SPEC_TASK_ATTACHMENT_MAX_PER_TASK,
   useUploadSpecTaskAttachments,
 } from "../../services/specTaskAttachmentsService";
+import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
 
 const ATTACHMENT_ACCEPT_ATTR = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
   .flatMap(([mime, exts]) => [mime, ...exts])
@@ -136,6 +141,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     string[]
   >([]);
   const [selectedHelixAgent, setSelectedHelixAgent] = useState("");
+  const [codeAgentOverrides, setCodeAgentOverrides] = useState<TypesCodeAgentOverrides>({});
+  const [sandboxResourceOverrides, setSandboxResourceOverrides] = useState<TypesSandboxResourceOverrides>({
+    vcpus: 4,
+    memory_mb: 8192,
+  });
   // Goose recipe selection — only meaningful when the selected agent's runtime
   // is goose_code. Empty selectedRecipeName means "use vanilla goose"; the
   // backend skips baking and the agent's declared recipes are still available
@@ -161,6 +171,45 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const attachmentInput = useRef<HTMLInputElement | null>(null);
   const uploadAttachments = useUploadSpecTaskAttachments();
 
+  // Shared by both the file picker and the drag-and-drop zone so they apply
+  // identical validation (remaining-slot count + per-file size limit).
+  const handleAddFiles = useCallback(
+    (files: File[]) => {
+      if (!files.length) return;
+      setPendingAttachments((prev) => {
+        const remaining = SPEC_TASK_ATTACHMENT_MAX_PER_TASK - prev.length;
+        if (files.length > remaining) {
+          snackbar.error(
+            `Can only attach ${remaining} more file(s) — limit is ${SPEC_TASK_ATTACHMENT_MAX_PER_TASK}.`,
+          );
+          return prev;
+        }
+        const accepted: File[] = [];
+        for (const f of files) {
+          if (f.size > SPEC_TASK_ATTACHMENT_MAX_BYTES) {
+            snackbar.error(`${f.name} is too large (max ${humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)}).`);
+            continue;
+          }
+          accepted.push(f);
+        }
+        return accepted.length ? [...prev, ...accepted] : prev;
+      });
+    },
+    [snackbar],
+  );
+
+  const attachmentsFull = pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK;
+  const {
+    getRootProps: getAttachmentRootProps,
+    isDragActive: isAttachmentDragActive,
+  } = useDropzone({
+    onDrop: handleAddFiles,
+    accept: SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
+    noClick: true,
+    noKeyboard: true,
+    disabled: attachmentsFull,
+  });
+
   // Empty string = "Unassigned". Pre-filled with the current user below.
   const [assigneeId, setAssigneeId] = useState<string>("");
   const [assigneeTouched, setAssigneeTouched] = useState(false);
@@ -180,24 +229,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   }, [currentUserId, assigneeTouched]);
 
   const assignedUser = useMemo(() => {
-    if (!assigneeId) return undefined;
-    const member = orgMembers.find((m) => m.user_id === assigneeId);
-    return member?.user as TypesUser | undefined;
-  }, [assigneeId, orgMembers]);
-
-  const getAssigneeDisplayName = (user: TypesUser | undefined): string => {
-    if (!user) return "Unknown user";
-    return user.full_name || user.username || user.email || "Unknown user";
-  };
-  const getAssigneeInitials = (user: TypesUser | undefined): string => {
-    if (!user) return "?";
-    const name = user.full_name || user.username || user.email || "";
-    const parts = name.split(" ");
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-  };
+    return resolveOrganizationUser(assigneeId, orgMembers, account.user);
+  }, [assigneeId, orgMembers, account.user?.id]);
 
   // Branch configuration state
   const [branchMode, setBranchMode] = useState<TypesBranchMode>(
@@ -272,31 +305,23 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
-  // Sort apps: project default first, then zed_external, then others
+  // Show coding agents only, with the project default first.
   const sortedApps = useMemo(() => {
     if (!apps.apps) return [];
-    const zedExternalApps: IApp[] = [];
-    const otherApps: IApp[] = [];
+    const codingApps: IApp[] = [];
     let defaultApp: IApp | null = null;
     const projectDefaultId = project?.default_helix_app_id;
 
     apps.apps.forEach((app) => {
+      if (!isCodingAgent(app)) return;
       if (projectDefaultId && app.id === projectDefaultId) {
         defaultApp = app;
         return;
       }
-      const hasZedExternal =
-        app.config?.helix?.assistants?.some(
-          (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-        ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
-      if (hasZedExternal) {
-        zedExternalApps.push(app);
-      } else {
-        otherApps.push(app);
-      }
+      codingApps.push(app);
     });
 
-    // Sort zed_external agents by model quality (opus > sonnet > haiku > other)
+    // Sort the remaining coding agents by model quality.
     const modelPriority = (app: IApp): number => {
       const name = (app.config?.helix?.name || "").toLowerCase();
       if (name.includes("opus")) return 0;
@@ -304,11 +329,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       if (name.includes("haiku")) return 3;
       return 2; // unknown models between sonnet and haiku
     };
-    zedExternalApps.sort((a, b) => modelPriority(a) - modelPriority(b));
+    codingApps.sort((a, b) => modelPriority(a) - modelPriority(b));
 
     const result: IApp[] = [];
     if (defaultApp) result.push(defaultApp);
-    result.push(...zedExternalApps, ...otherApps);
+    result.push(...codingApps);
     return result;
   }, [apps.apps, project?.default_helix_app_id]);
 
@@ -405,6 +430,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
+    setCodeAgentOverrides({});
+    setSandboxResourceOverrides({ vcpus: 4, memory_mb: 8192 });
     setSelectedRecipeName("");
     setRecipeParams({});
     // justDoItMode and autoStart intentionally kept — they persist to the next
@@ -453,7 +480,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         agentId = createdAgent.id;
       }
 
-      const createTaskRequest = {
+      const createTaskRequest: TypesCreateTaskRequest = {
         prompt: taskPrompt,
         priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId,
@@ -480,6 +507,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           selectedRecipeName && Object.keys(recipeParams).length > 0
             ? recipeParams
             : undefined,
+        code_agent_overrides: Object.values(codeAgentOverrides).some(Boolean)
+          ? codeAgentOverrides
+          : undefined,
+        sandbox_resource_overrides: sandboxResourceOverrides,
       };
 
       const response = await api
@@ -625,16 +656,17 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             }}
           >
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
-              {assignedUser ? (
-                <Avatar sx={{ width: 24, height: 24, fontSize: "0.7rem" }}>
-                  {getAssigneeInitials(assignedUser)}
-                </Avatar>
-              ) : (
-                <UserCircle2 size={20} style={{ opacity: 0.5 }} />
-              )}
+              <OrganizationUserAvatar
+                userId={assigneeId || undefined}
+                members={orgMembers}
+                currentUser={account.user}
+                size={24}
+                fontSize="0.7rem"
+                iconSize={20}
+              />
               <Typography variant="body2" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {assignedUser
-                  ? `Assignee: ${getAssigneeDisplayName(assignedUser)}`
+                  ? `Assignee: ${assignedUser.full_name || assignedUser.username || assignedUser.email}`
                   : "Assignee: Unassigned"}
               </Typography>
             </Box>
@@ -642,7 +674,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           <AssigneeSelector
             assigneeId={assigneeId || undefined}
             members={orgMembers}
-            currentUserId={currentUserId}
+            currentUser={account.user}
             onAssigneeChange={(userId) => {
               setAssigneeId(userId || "");
               setAssigneeTouched(true);
@@ -778,7 +810,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               the dialog reliably with no JS involvement.
 
               Uploads happen after task creation in handleCreateTask. */}
-          <Box>
+          <Box {...getAttachmentRootProps()} sx={{ position: "relative" }}>
             <input
               ref={attachmentInput}
               id="new-spectask-attach-input"
@@ -789,28 +821,33 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
                 e.target.value = "";
-                if (!files.length) return;
-
-                const remaining = SPEC_TASK_ATTACHMENT_MAX_PER_TASK - pendingAttachments.length;
-                if (files.length > remaining) {
-                  snackbar.error(
-                    `Can only attach ${remaining} more file(s) — limit is ${SPEC_TASK_ATTACHMENT_MAX_PER_TASK}.`,
-                  );
-                  return;
-                }
-                const accepted: File[] = [];
-                for (const f of files) {
-                  if (f.size > SPEC_TASK_ATTACHMENT_MAX_BYTES) {
-                    snackbar.error(`${f.name} is too large (max ${humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)}).`);
-                    continue;
-                  }
-                  accepted.push(f);
-                }
-                if (accepted.length) {
-                  setPendingAttachments((prev) => [...prev, ...accepted]);
-                }
+                handleAddFiles(files);
               }}
             />
+            <Fade in={isAttachmentDragActive}>
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  m: -1,
+                  borderRadius: 1,
+                  border: "2px dashed",
+                  borderColor: "primary.main",
+                  backgroundColor: "rgba(25, 118, 210, 0.12)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 1,
+                  zIndex: 2,
+                  pointerEvents: "none",
+                }}
+              >
+                <CloudUploadIcon sx={{ color: "primary.main" }} />
+                <Typography variant="body2" color="primary">
+                  Drop files to attach
+                </Typography>
+              </Box>
+            </Fade>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
               <Box
                 component="label"
@@ -851,8 +888,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               ))}
               {pendingAttachments.length === 0 && (
                 <Typography variant="caption" color="text.secondary">
-                  Optional — screenshots / PDFs / text the agent should look at.
-                  Max {SPEC_TASK_ATTACHMENT_MAX_PER_TASK} files,{" "}
+                  Optional — drag &amp; drop or click to add screenshots / PDFs /
+                  text the agent should look at. Max{" "}
+                  {SPEC_TASK_ATTACHMENT_MAX_PER_TASK} files,{" "}
                   {humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)} each.
                 </Typography>
               )}
@@ -1100,14 +1138,20 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             </Box>
           )}
 
-          {/* Agent Selection (dropdown) */}
+          {/* Coding agent and execution configuration */}
           <Box>
             {!showCreateAgentForm ? (
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                <AgentDropdown
-                  value={selectedHelixAgent}
-                  onChange={setSelectedHelixAgent}
+                <SpecTaskExecutionControls
                   agents={sortedApps}
+                  selectedAgentId={selectedHelixAgent}
+                  codeAgentOverrides={codeAgentOverrides}
+                  sandboxResourceOverrides={sandboxResourceOverrides}
+                  onAgentModelChange={(agentId, overrides) => {
+                    setSelectedHelixAgent(agentId);
+                    setCodeAgentOverrides(overrides);
+                  }}
+                  onSandboxResourceOverridesChange={setSandboxResourceOverrides}
                 />
                 {selectedAgentIsGoose && (
                   <GooseRecipeSelector
@@ -1158,6 +1202,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   onCreateStateChange={setCreatingAgent}
                   onAgentCreated={(app) => {
                     setSelectedHelixAgent(app.id);
+                    setCodeAgentOverrides({});
                     setShowCreateAgentForm(false);
                   }}
                   modelPickerHint="Choose a capable model for agentic coding."
@@ -1177,6 +1222,17 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 )}
               </Box>
             )}
+            <Box sx={{ mt: 1 }}>
+              {showCreateAgentForm && (
+                <SpecTaskExecutionControls
+                  agents={[]}
+                  selectedAgentId=""
+                  sandboxResourceOverrides={sandboxResourceOverrides}
+                  onAgentModelChange={() => undefined}
+                  onSandboxResourceOverridesChange={setSandboxResourceOverrides}
+                />
+              )}
+            </Box>
           </Box>
 
           {/* Skip Spec Checkbox */}
@@ -1282,6 +1338,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             !taskPrompt.trim() ||
             isCreating ||
             creatingAgent ||
+            (branchMode === TypesBranchMode.BranchModeExisting &&
+              !workingBranch) ||
             (showCreateAgentForm &&
               !(
                 codeAgentRuntime === "claude_code" &&

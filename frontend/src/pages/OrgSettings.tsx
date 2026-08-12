@@ -20,6 +20,8 @@ import useRouter from "../hooks/useRouter";
 import { TypesOrganization } from "../api/api";
 import useSnackbar from "../hooks/useSnackbar";
 import CopyButton from "../components/common/CopyButton";
+import DefaultAgentConfigPanel from "../components/helix-org/WorkerRuntimePanel";
+import HelixOrgSettings from "./HelixOrgSettings";
 
 const OrgSettings: FC = () => {
   // Get account context and router
@@ -196,11 +198,6 @@ const OrgSettings: FC = () => {
   return (
     <Page
       breadcrumbTitle={organization ? `General` : "General"}
-      breadcrumbParent={{
-        title: "Organizations",
-        routeName: "orgs",
-        useOrgRouter: false,
-      }}
       breadcrumbShowHome={true}
       orgBreadcrumbs={true}
     >
@@ -322,6 +319,23 @@ const OrgSettings: FC = () => {
                   </Button>
                 </Box>
               )}
+
+              <Box sx={{ mt: 4 }}>
+                <Typography variant="h6" gutterBottom>
+                  Default Agent Configuration
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 2 }}
+                >
+                  Agent settings copied to Bots when they are first provisioned.
+                </Typography>
+                <DefaultAgentConfigPanel />
+                <Box sx={{ mt: 3 }}>
+                  <HelixOrgSettings />
+                </Box>
+              </Box>
 
               {isOrgOwner && (
                 <Paper

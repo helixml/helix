@@ -123,7 +123,23 @@ fi
 
 # Start dockerd with auto-restart supervisor loop in background
 # This ensures dockerd restarts if it crashes (which would break all sandboxes)
+#
+# tee to /var/log/helix-services/dockerd.log so hydra's tailer surfaces
+# dockerd output in the admin Runner Logs WS stream. dockerd's output
+# is noisy but invaluable when image pulls fail or the inner daemon
+# misbehaves on a YD-allocated host (see T-10 family of issues).
+# `|| true` + truncate-on-boot + SIGPIPE trap below: see
+# 12-start-compose-manager.sh for the rationale.
+mkdir -p /var/log/helix-services 2>/dev/null || true
+: > /var/log/helix-services/dockerd.log 2>/dev/null || true
+
 (
+    trap '' PIPE
+    # Restart loop must survive a non-zero exit of the supervised daemon. The
+    # sourced entrypoint's `set -e` leaks into this subshell and would otherwise
+    # abort it the moment dockerd crashes, leaving it dead and the runner wedged
+    # (same class of bug that took a runner offline via hydra — see 10-start-hydra).
+    set +e
     while true; do
         # Clean up stale PID files before each restart attempt
         rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
@@ -135,7 +151,7 @@ fi
         echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2
     done
-) 2>&1 | sed -u 's/^/[DOCKERD] /' &
+) 2>&1 | stdbuf -oL tee -a /var/log/helix-services/dockerd.log | sed -u 's/^/[DOCKERD] /' &
 
 DOCKERD_WRAPPER_PID=$!
 echo "Started dockerd with auto-restart (wrapper PID: $DOCKERD_WRAPPER_PID)"
@@ -147,7 +163,7 @@ until docker info >/dev/null 2>&1; do
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo "❌ ERROR: dockerd failed to start within $TIMEOUT seconds"
         echo "Check dockerd logs above for details"
-        return 1  # NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
+        exit 1
     fi
     echo "Waiting for dockerd... ($ELAPSED/$TIMEOUT)"
     sleep 1
@@ -175,7 +191,12 @@ echo "✅ iptables FORWARD policy set to ACCEPT"
 #
 # Usage: load_desktop_image <name> <required>
 #   name: desktop name (sway, zorin, ubuntu)
-#   required: "true" if missing image is a warning, "false" for info
+#   required: "true" if missing image is FATAL (return 1), "false" for skip
+#
+# Return codes:
+#   0: image present (already loaded, re-tagged, or freshly pulled), OR
+#      image not configured / pull failed AND required="false" (skip silently)
+#   1: image not configured or pull failed AND required="true" (caller must abort)
 load_desktop_image() {
     local NAME="$1"
     local REQUIRED="${2:-false}"
@@ -253,14 +274,33 @@ load_desktop_image() {
         fi
     fi
 
+    # Dev/local fallback: the image may be in the local push registry
+    # (registry:5000) even without a .ref file — e.g. `./stack build-sandbox`
+    # pushed it there but the in-sandbox transfer pull was interrupted (a
+    # container restart mid-transfer). Pull it directly instead of crash-looping
+    # the whole sandbox host. Harmless in prod: registry:5000 won't resolve / be
+    # populated, so this falls through to the FATAL below.
+    local LOCAL_REGISTRY_REF="registry:5000/${IMAGE_NAME}:${VERSION}"
+    echo "🔄 Local fallback: trying ${LOCAL_REGISTRY_REF} ..."
+    if docker pull "$LOCAL_REGISTRY_REF" 2>&1; then
+        docker tag "$LOCAL_REGISTRY_REF" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
+        docker tag "$LOCAL_REGISTRY_REF" "${IMAGE_NAME}:latest" 2>/dev/null || true
+        echo "✅ ${IMAGE_NAME}:${VERSION} pulled from local push registry"
+        return 0
+    fi
+
     # Image not available
     if [ "$REQUIRED" = "true" ]; then
-        echo "⚠️  ${IMAGE_NAME} not available"
+        echo "❌ FATAL: ${IMAGE_NAME} is a REQUIRED production desktop image and is not available."
         echo "   In development: Run './stack build-${NAME}' to build and transfer"
-        echo "   In production: Check .ref file and registry access"
-    else
-        echo "ℹ️  ${IMAGE_NAME} not configured (optional)"
+        echo "   In production: Check .ref file, registry access, and free disk space."
+        echo "   Boot will abort so the operator can fix this rather than silently"
+        echo "   running a sandbox host that cannot launch any sessions."
+        return 1
     fi
+
+    echo "ℹ️  ${IMAGE_NAME} not configured (optional)"
+    return 0
 }
 
 # Load desktop images.
@@ -272,8 +312,17 @@ load_desktop_image() {
 PRODUCTION_DESKTOPS=("ubuntu")
 AVAILABLE_EXPERIMENTAL_DESKTOPS=("sway" "zorin" "xfce" "kde")
 
+# Production desktops MUST load successfully. If load_desktop_image returns
+# non-zero (image missing or pull failed) we hard-fail the boot here rather
+# than continuing and letting hydra fail every sandbox-create later with a
+# confusing "No such image" error. See the function's return-code contract
+# above. This script is executed (not sourced) by s6-overlay at
+# /etc/cont-init.d/40-start-dockerd.sh, so use `exit` to abort the boot.
 for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
-    load_desktop_image "$desktop" "false"
+    if ! load_desktop_image "$desktop" "true"; then
+        echo "❌ Aborting sandbox boot: required production desktop '${desktop}' is not available."
+        exit 1
+    fi
 done
 
 declare -A ENABLED_EXPERIMENTAL=()
@@ -307,13 +356,26 @@ done
 echo ""
 echo "🧹 Cleaning up old desktop images in nested Docker..."
 
-# First, remove ALL stopped containers to allow image removal
-# This is safe because Hydra creates fresh containers for each session
-# Stopped containers are just leftovers from previous sessions
-STOPPED_COUNT=$(docker ps -aq --filter "status=exited" 2>/dev/null | wc -l)
-if [ "$STOPPED_COUNT" -gt 0 ]; then
-    echo "   Removing $STOPPED_COUNT stopped container(s)..."
-    docker container prune -f >/dev/null 2>&1 || true
+# Remove stopped leftover containers to allow image removal — but NEVER
+# persistent (web-service) containers. Those carry a Docker restart policy so
+# dockerd brings them back automatically after a reboot/dockerd restart; if the
+# reaper deletes one here (in the window before dockerd has restarted it) the
+# hosted service falls off its fast self-heal path and into a slow full
+# redeploy. `docker container prune` has no negative label filter, so enumerate
+# exited containers and skip the helix.persistent=true ones explicitly.
+# ponytail: plain loop, not `mapfile < <(...)` — process substitution needs
+# /dev/fd/63 which isn't resolvable in the nested-DinD container (broke the
+# whole init under `set -e`, see 2.11.39-.41). Container IDs are hex, so a
+# space-joined string with unquoted expansion is safe.
+STOPPED_TO_REMOVE=""
+for cid in $(docker ps -aq --filter "status=exited" 2>/dev/null); do
+    if [ "$(docker inspect -f '{{ index .Config.Labels "helix.persistent" }}' "$cid" 2>/dev/null)" != "true" ]; then
+        STOPPED_TO_REMOVE="$STOPPED_TO_REMOVE $cid"
+    fi
+done
+if [ -n "$STOPPED_TO_REMOVE" ]; then
+    echo "   Removing stopped container(s) (keeping persistent web-services)..."
+    docker rm -f $STOPPED_TO_REMOVE >/dev/null 2>&1 || true
 fi
 
 # Build a list of expected versions and registry refs

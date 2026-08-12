@@ -3,6 +3,7 @@ package helix
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -22,29 +23,41 @@ import (
 type fakeProjectService struct {
 	mu sync.Mutex
 
-	applyCalls         int
-	lastApplyReq       types.ProjectApplyRequest
-	applyResponse      types.ProjectApplyResponse
-	applyErr           error
-	getProjectCalls    int
-	getProjectResp     types.Project
-	getProjectErr      error
-	updateProjectCalls     int
-	updateProjectPatchLast types.ProjectUpdateRequest
-	updateProjectErr       error
-	putSecretCalls     int
-	putSecretLast      map[string]string
-	createGitRepoCalls int
-	createGitRepoErr   error
-	attachRepoErr      error
-	attachRepoCalls    int
-	getAppCalls        int
-	appConfig          types.AppConfig
-	updateAppCalls     int
-	updateAppLastCfg   types.AppConfig
-	whoAmIResp         string
-	deleteProjectIDs   []string
-	deleteAppIDs       []string
+	applyCalls              int
+	applyStarted            chan struct{}
+	applyContinue           chan struct{}
+	lastApplyReq            types.ProjectApplyRequest
+	applyResponse           types.ProjectApplyResponse
+	applyErr                error
+	getProjectCalls         int
+	getProjectResp          types.Project
+	getProjectErr           error
+	getProjectErrOnce       bool
+	updateProjectCalls      int
+	updateProjectPatchLast  types.ProjectUpdateRequest
+	updateProjectErr        error
+	putSecretCalls          int
+	putSecretLast           map[string]string
+	deletedSecrets          []string
+	listSecretsProjectID    string
+	listSecretsResp         map[string]string
+	listSecretsErr          error
+	createGitRepoCalls      int
+	createGitRepoErr        error
+	createGitRepoNameReturn string // when set, CreateGitRepo returns this name (simulates auto-increment on collision)
+	getGitRepoCalls         int
+	getGitRepoErr           error
+	deleteGitRepoIDs        []string
+	attachRepoErr           error
+	attachRepoCalls         int
+	getAppCalls             int
+	getAppErr               error
+	appConfig               types.AppConfig
+	updateAppCalls          int
+	updateAppLastCfg        types.AppConfig
+	whoAmIResp              string
+	deleteProjectIDs        []string
+	deleteAppIDs            []string
 }
 
 func newFakeProjectService() *fakeProjectService {
@@ -68,17 +81,36 @@ func (f *fakeProjectService) WhoAmI(_ context.Context) (string, error) { return 
 
 func (f *fakeProjectService) ApplyProject(_ context.Context, req types.ProjectApplyRequest) (types.ProjectApplyResponse, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.applyCalls++
 	f.lastApplyReq = req
-	return f.applyResponse, f.applyErr
+	resp, err := f.applyResponse, f.applyErr
+	started, continued := f.applyStarted, f.applyContinue
+	f.mu.Unlock()
+	if started != nil {
+		started <- struct{}{}
+	}
+	if continued != nil {
+		<-continued
+	}
+	return resp, err
 }
 
 func (f *fakeProjectService) GetProject(_ context.Context, _ string) (types.Project, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.getProjectCalls++
-	return f.getProjectResp, f.getProjectErr
+	err := f.getProjectErr
+	if f.getProjectErrOnce {
+		f.getProjectErr = nil
+	}
+	return f.getProjectResp, err
+}
+
+func (f *fakeProjectService) GetApp(_ context.Context, id string) (*types.App, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.getAppCalls++
+	return &types.App{ID: id, OrganizationID: "org-test", Config: f.appConfig}, f.getAppErr
 }
 
 func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch types.ProjectUpdateRequest) (types.Project, error) {
@@ -93,6 +125,15 @@ func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch t
 	if patch.StartupScript != nil {
 		updated.StartupScript = *patch.StartupScript
 	}
+	if patch.Name != nil {
+		updated.Name = *patch.Name
+	}
+	if patch.Metadata != nil {
+		updated.Metadata = *patch.Metadata
+	}
+	if patch.DefaultHelixAppID != nil {
+		updated.DefaultHelixAppID = *patch.DefaultHelixAppID
+	}
 	f.getProjectResp = updated
 	return updated, f.updateProjectErr
 }
@@ -105,6 +146,30 @@ func (f *fakeProjectService) PutProjectSecret(_ context.Context, _, name, value 
 	return nil
 }
 
+func (f *fakeProjectService) DeleteProjectSecret(_ context.Context, _, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletedSecrets = append(f.deletedSecrets, name)
+	return nil
+}
+
+// ListProjectSecrets records the projectID it was asked for and returns
+// the scripted response, so a test can assert ListWorkerProjectSecrets
+// resolved the worker to the right project before reading.
+func (f *fakeProjectService) ListProjectSecrets(_ context.Context, projectID string) (map[string]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listSecretsProjectID = projectID
+	if f.listSecretsErr != nil {
+		return nil, f.listSecretsErr
+	}
+	out := make(map[string]string, len(f.listSecretsResp))
+	for k, v := range f.listSecretsResp {
+		out[k] = v
+	}
+	return out, nil
+}
+
 func (f *fakeProjectService) CreateGitRepo(_ context.Context, req types.GitRepositoryCreateRequest) (types.GitRepository, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -112,7 +177,28 @@ func (f *fakeProjectService) CreateGitRepo(_ context.Context, req types.GitRepos
 	if f.createGitRepoErr != nil {
 		return types.GitRepository{}, f.createGitRepoErr
 	}
-	return types.GitRepository{ID: "repo-" + req.Name, Name: req.Name}, nil
+	name := req.Name
+	if f.createGitRepoNameReturn != "" {
+		name = f.createGitRepoNameReturn
+	}
+	return types.GitRepository{ID: "repo-" + name, Name: name}, nil
+}
+
+func (f *fakeProjectService) GetGitRepo(_ context.Context, repoID string) (types.GitRepository, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.getGitRepoCalls++
+	if f.getGitRepoErr != nil {
+		return types.GitRepository{}, f.getGitRepoErr
+	}
+	return types.GitRepository{ID: repoID, Name: repoID}, nil
+}
+
+func (f *fakeProjectService) DeleteGitRepo(_ context.Context, repoID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleteGitRepoIDs = append(f.deleteGitRepoIDs, repoID)
+	return nil
 }
 
 func (f *fakeProjectService) AttachRepoToProject(_ context.Context, _, _ string, _ bool) error {
@@ -159,7 +245,6 @@ func (f *fakeProjectService) DeleteApp(_ context.Context, id string) error {
 // fakeGitWriter but with an additional path map.
 type fakeGitForProject struct {
 	mu            sync.Mutex
-	branchCalls   int32
 	putFileCalls  int32
 	putFileByPath map[string]string
 	putFileErr    error
@@ -170,7 +255,6 @@ func newFakeGitForProject() *fakeGitForProject {
 }
 
 func (f *fakeGitForProject) CreateBranch(_ context.Context, _, _, _ string) error {
-	atomic.AddInt32(&f.branchCalls, 1)
 	return nil
 }
 
@@ -186,35 +270,28 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgchart.WorkerID) {
+func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgchart.NodeID) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	r, err := orgchart.NewRole("r-eng", roleContent, nil, nil, time.Now().UTC(), "org-test")
+	// The Bot's Content is its canonical instruction text. Keep the `w-eng`
+	// handle so runtime instruction path assertions stay meaningful.
+	b, err := orgchart.NewNode("w-eng", roleContent, nil, time.Now().UTC(), "org-test")
 	if err != nil {
-		t.Fatalf("role: %v", err)
+		t.Fatalf("new bot: %v", err)
 	}
-	if err := st.Roles.Create(ctx, r); err != nil {
-		t.Fatalf("create role: %v", err)
+	if err := st.Nodes.Create(ctx, b); err != nil {
+		t.Fatalf("create bot: %v", err)
 	}
-	w, err := orgchart.NewAIWorker("w-eng", "r-eng", "# Identity content", "org-test")
-	if err != nil {
-		t.Fatalf("new worker: %v", err)
-	}
-	if err := st.Workers.Create(ctx, w); err != nil {
-		t.Fatalf("create worker: %v", err)
-	}
-	return st, w.ID()
+	return st, b.ID
 }
 
 func newApplier(svc ProjectService, ws *Workspace, st *store.Store) *WorkerProject {
+	_ = ws
 	return &WorkerProject{
-		Service:     svc,
-		Workspace:   ws,
-		Store:       st,
-		HelixOrgURL: "http://helix-org:8081",
-		AgentMD:     "# Org policy",
-		Logger:      discardLogger(),
+		Service: svc,
+		Store:   st,
+		Logger:  discardLogger(),
 	}
 }
 
@@ -246,17 +323,23 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if svc.applyCalls != 1 {
 		t.Errorf("ApplyProject calls = %d, want 1", svc.applyCalls)
 	}
+	if svc.updateProjectCalls != 1 || svc.updateProjectPatchLast.Metadata == nil || !svc.updateProjectPatchLast.Metadata.OrgMembersAccess {
+		t.Errorf("fresh project was not marked for org member access: calls=%d patch=%+v", svc.updateProjectCalls, svc.updateProjectPatchLast)
+	}
 	if svc.lastApplyReq.Name != "w-eng" {
 		t.Errorf("ApplyProject name = %q, want w-eng", svc.lastApplyReq.Name)
 	}
 	if svc.lastApplyReq.Spec.Agent == nil || svc.lastApplyReq.Spec.Agent.Runtime != Runtime {
 		t.Errorf("Agent runtime = %+v, want %q", svc.lastApplyReq.Spec.Agent, Runtime)
 	}
-	if svc.putSecretLast["HELIX_ORG_URL"] != "http://helix-org:8081" {
-		t.Errorf("HELIX_ORG_URL = %q", svc.putSecretLast["HELIX_ORG_URL"])
+	if _, ok := svc.putSecretLast["HELIX_ORG_URL"]; ok {
+		t.Errorf("HELIX_ORG_URL must not be stored as a project secret")
 	}
-	if svc.putSecretLast["HELIX_WORKER_ID"] != "w-eng" {
-		t.Errorf("HELIX_WORKER_ID = %q", svc.putSecretLast["HELIX_WORKER_ID"])
+	if _, ok := svc.putSecretLast["HELIX_WORKER_ID"]; ok {
+		t.Errorf("HELIX_WORKER_ID must not be stored as a project secret")
+	}
+	if len(svc.deletedSecrets) != 2 || svc.deletedSecrets[0] != "HELIX_ORG_URL" || svc.deletedSecrets[1] != "HELIX_WORKER_ID" {
+		t.Errorf("deleted secrets = %v, want [HELIX_ORG_URL HELIX_WORKER_ID]", svc.deletedSecrets)
 	}
 	if svc.createGitRepoCalls != 1 {
 		t.Errorf("CreateGitRepo calls = %d, want 1", svc.createGitRepoCalls)
@@ -264,21 +347,14 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	if svc.attachRepoCalls != 1 {
 		t.Errorf("AttachRepoToProject calls = %d, want 1", svc.attachRepoCalls)
 	}
-	if atomic.LoadInt32(&git.branchCalls) < 1 {
-		t.Errorf("CreateBranch calls = %d, want >=1", atomic.LoadInt32(&git.branchCalls))
-	}
-	git.mu.Lock()
-	defer git.mu.Unlock()
-	for _, p := range []string{".context/agent.md", "workers/w-eng/.context/role.md", "workers/w-eng/.context/identity.md"} {
-		if _, ok := git.putFileByPath[p]; !ok {
-			t.Errorf("path %q not pushed", p)
-		}
+	if got := atomic.LoadInt32(&git.putFileCalls); got != 0 {
+		t.Errorf("WorkerProject published %d deprecated role files; instruction publishing belongs to Spawner", got)
 	}
 	state, err := LoadState(context.Background(), st, "org-test", wid)
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
-	if state.ProjectID != "prj_test" || state.AgentAppID != "app_test" {
+	if state.ProjectID != "prj_test" || state.AgentID != "app_test" {
 		t.Errorf("state = %+v", state)
 	}
 	// RepoID is part of the contract — without it the desktop bringup
@@ -290,6 +366,39 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	}
 	if repoID == "" {
 		t.Errorf("returned repoID is empty — same reasoning")
+	}
+}
+
+func TestEnsureConcurrentAppliesProjectOnce(t *testing.T) {
+	st, wid := newProjectTestStore(t, "# Role: engineer")
+	svc := newFakeProjectService()
+	svc.getProjectResp.Name = "w-eng"
+	svc.applyStarted = make(chan struct{}, 2)
+	svc.applyContinue = make(chan struct{})
+	a := newApplierGit(svc, newFakeGitForProject(), st)
+
+	done := make(chan error, 2)
+	go func() {
+		_, _, _, err := a.Ensure(context.Background(), "org-test", wid)
+		done <- err
+	}()
+	<-svc.applyStarted
+	go func() {
+		_, _, _, err := a.Ensure(context.Background(), "org-test", wid)
+		done <- err
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	close(svc.applyContinue)
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatalf("Ensure: %v", err)
+		}
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.applyCalls != 1 {
+		t.Fatalf("ApplyProject calls = %d, want 1", svc.applyCalls)
 	}
 }
 
@@ -360,24 +469,101 @@ func TestEnsureRequiresRepoToBeAttached(t *testing.T) {
 	})
 }
 
+// TestEnsureDeletesOrphanRepoOnAttachFailure: a repo created but not
+// attachable is an orphan with nothing pointing at it. It must be deleted so a
+// retry doesn't leak it (CreateGitRepo auto-increments, so a retry would make
+// `<worker>-2` beside the orphan).
+func TestEnsureDeletesOrphanRepoOnAttachFailure(t *testing.T) {
+	t.Parallel()
+	st, wid := newProjectTestStore(t, "# Role: engineer")
+	svc := newFakeProjectService()
+	svc.attachRepoErr = errors.New("attach nope")
+	git := newFakeGitForProject()
+	a := newApplierGit(svc, git, st)
+
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err == nil {
+		t.Fatal("Ensure must fail when attach fails")
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if len(svc.deleteGitRepoIDs) != 1 || svc.deleteGitRepoIDs[0] != "repo-w-eng" {
+		t.Fatalf("orphan repo not deleted: deleteGitRepoIDs = %v, want [repo-w-eng]", svc.deleteGitRepoIDs)
+	}
+}
+
+// TestEnsureDeletesRacedDuplicateRepo: when CreateGitRepo returns a name we
+// didn't ask for (it auto-incremented because a same-named repo already
+// existed — a lost cross-process create race), the duplicate must be deleted,
+// not kept.
+func TestEnsureDeletesRacedDuplicateRepo(t *testing.T) {
+	t.Parallel()
+	st, wid := newProjectTestStore(t, "# Role: engineer")
+	svc := newFakeProjectService()
+	svc.createGitRepoNameReturn = "w-eng-2" // simulate auto-increment on collision
+	git := newFakeGitForProject()
+	a := newApplierGit(svc, git, st)
+
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err == nil {
+		t.Fatal("Ensure must fail (retry) when it loses a create race")
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if len(svc.deleteGitRepoIDs) != 1 || svc.deleteGitRepoIDs[0] != "repo-w-eng-2" {
+		t.Fatalf("raced duplicate not deleted: deleteGitRepoIDs = %v, want [repo-w-eng-2]", svc.deleteGitRepoIDs)
+	}
+	if svc.attachRepoCalls != 0 {
+		t.Errorf("must not attach a raced duplicate; attachRepoCalls = %d", svc.attachRepoCalls)
+	}
+}
+
+// TestEnsureFastPathReprovisionsDeletedRepo: on the persisted-project fast
+// path, a DefaultRepoID/state repo that has been deleted out-of-band must be
+// re-provisioned, not handed back as a dead id.
+func TestEnsureFastPathReprovisionsDeletedRepo(t *testing.T) {
+	t.Parallel()
+	st, wid := newProjectTestStore(t, "# Role v1")
+	if err := SaveProject(context.Background(), st, "org-test", wid, "prj_existing", "app_existing", "repo_gone"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{ID: "prj_existing", DefaultRepoID: "repo_gone"}
+	svc.getGitRepoErr = fmt.Errorf("%w: deleted out of band", ErrRepoNotFound)
+	git := newFakeGitForProject()
+	a := newApplierGit(svc, git, st)
+
+	_, _, rid, err := a.Ensure(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if rid != "repo-w-eng" {
+		t.Fatalf("fast path did not re-provision the deleted repo: rid = %q, want repo-w-eng", rid)
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.createGitRepoCalls != 1 {
+		t.Errorf("deleted repo must be re-created; createGitRepoCalls = %d, want 1", svc.createGitRepoCalls)
+	}
+	// The new repo id must be persisted so the next activation is clean.
+	state, err := LoadState(context.Background(), st, "org-test", wid)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if state.RepoID != "repo-w-eng" {
+		t.Errorf("re-provisioned repo id not persisted: state.RepoID = %q, want repo-w-eng", state.RepoID)
+	}
+}
+
 // TestEnsureWithPersistedProjectFastPaths checks the persisted-project
 // fast path.
 //
 // The fast path must:
 //
-//   - return the stored IDs (no fresh provisioning)
-//   - NOT create a new repo or re-publish canonical files (those
-//     would clobber any external edits the operator has made on the
-//     helix-specs branch since the last apply — canonical-content
-//     updates flow through Workspace.MirrorFile)
-//
-// It MUST re-call ApplyProject with the current Runtime/Provider/
-// Model/Credentials, so a change in worker.* via the Settings page
-// propagates to existing workers on the next activation. ApplyProject
-// is upsert-by-name and idempotent — calling it on every Ensure with
-// the fresh spec is the single mechanism that auto-applies settings
-// drift to pre-existing workers. See
-// TestEnsureFastPathRefreshesAgentSpec for the spec assertion.
+//   - return the stored IDs (no fresh provisioning — no
+//     CreateGitRepo / AttachRepoToProject calls)
+//   - leave the existing app configuration untouched; worker.* values
+//     are provisioning defaults and the app UI/API owns later edits.
+//   - leave runtime instruction publishing to the activation spawner, which
+//     resolves linked Agent content and org-level overrides.
 func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role v1")
@@ -393,50 +579,37 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	// The fast path returns the STORED ids even though ApplyProject is
-	// re-called. (The fake's applyResp would otherwise overwrite them;
-	// the prod code keeps the persisted state.)
+	// The fast path returns the stored IDs without reapplying the project.
 	if pid != "prj_existing" || aid != "app_existing" || rid != "repo_existing" {
 		t.Errorf("returned ids = (%q,%q,%q)", pid, aid, rid)
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if svc.applyCalls != 1 {
-		t.Errorf("ApplyProject MUST be called on fast path to refresh worker.* settings drift; got %d", svc.applyCalls)
+	if svc.applyCalls != 0 {
+		t.Errorf("ApplyProject must not overwrite existing app config; got %d calls", svc.applyCalls)
+	}
+	if svc.updateProjectCalls < 1 || svc.updateProjectPatchLast.Metadata == nil || !svc.updateProjectPatchLast.Metadata.OrgMembersAccess {
+		t.Errorf("existing project was not marked for org member access: calls=%d patch=%+v", svc.updateProjectCalls, svc.updateProjectPatchLast)
 	}
 	if svc.getProjectCalls < 1 {
 		t.Errorf("GetProject calls = %d, want >=1", svc.getProjectCalls)
 	}
-	// Fast path must NOT create a new repo, change branches, or re-push
-	// canonical files. Repo + files are first-activation provisioning.
+	// Fast path must NOT create a new repo. Repo creation is
+	// first-activation provisioning.
 	if svc.createGitRepoCalls != 0 {
 		t.Errorf("fast path must not create a new repo; got %d", svc.createGitRepoCalls)
 	}
 	if svc.attachRepoCalls != 0 {
 		t.Errorf("fast path must not attach a repo; got %d", svc.attachRepoCalls)
 	}
-	if atomic.LoadInt32(&git.branchCalls) != 0 {
-		t.Errorf("fast path must not create-branch; got %d", atomic.LoadInt32(&git.branchCalls))
-	}
-	git.mu.Lock()
-	defer git.mu.Unlock()
-	if _, ok := git.putFileByPath["workers/w-eng/.context/role.md"]; ok {
-		t.Errorf("fast path must not republish role.md (would clobber external edits)")
+	if got := atomic.LoadInt32(&git.putFileCalls); got != 0 {
+		t.Errorf("fast path published %d deprecated role files", got)
 	}
 }
 
-// TestEnsureFastPathRefreshesAgentSpec pins the auto-apply behaviour:
-// on a pre-existing worker, calling Ensure again with a new applier
-// config (different runtime / provider / model / credentials)
-// re-applies the project spec so Helix's per-Worker agent app picks
-// up the new settings.
-//
-// Repro: operator opens /helix-org/settings, flips worker.credentials
-// from subscription to api_key with a provider+model. Without this
-// refresh, the existing w-owner agent app stays in subscription mode
-// forever (its spec was baked at first-apply time) — which is the
-// "how do users update settings for pre-existing workers?" gap.
-func TestEnsureFastPathRefreshesAgentSpec(t *testing.T) {
+// TestEnsureFastPathPreservesAgentSpec verifies that provisioning defaults
+// cannot overwrite an existing bot app on start.
+func TestEnsureFastPathPreservesAgentSpec(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role: engineer")
 	if err := SaveProject(context.Background(), st, "org-test", wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
@@ -447,8 +620,8 @@ func TestEnsureFastPathRefreshesAgentSpec(t *testing.T) {
 	git := newFakeGitForProject()
 
 	a := newApplierGit(svc, git, st)
-	// Simulate the operator having flipped worker.credentials → api_key
-	// via the settings page since the worker was first provisioned.
+	// These values deliberately differ from the existing app's settings.
+	// Ensure must not submit them to ApplyProject.
 	a.Runtime = "claude_code"
 	a.Credentials = "api_key"
 	a.Provider = "OpenRouter"
@@ -460,24 +633,174 @@ func TestEnsureFastPathRefreshesAgentSpec(t *testing.T) {
 
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if svc.applyCalls != 1 {
-		t.Fatalf("ApplyProject must be called on the fast path to refresh spec; got %d", svc.applyCalls)
+	if svc.applyCalls != 0 {
+		t.Fatalf("ApplyProject must not run for an existing app; got %d calls", svc.applyCalls)
 	}
-	got := svc.lastApplyReq.Spec.Agent
-	if got == nil {
-		t.Fatalf("lastApplyReq has no Agent spec")
+}
+
+func TestEnsureFastPathPreservesValidProjectDefaultAndConvergesLinks(t *testing.T) {
+	st, wid := newProjectTestStore(t, "# Role")
+	ctx := context.Background()
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got.Runtime != "claude_code" {
-		t.Errorf("Runtime = %q, want claude_code", got.Runtime)
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-new")); err != nil {
+		t.Fatal(err)
 	}
-	if got.Credentials != "api_key" {
-		t.Errorf("Credentials = %q, want api_key", got.Credentials)
+	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
+		t.Fatal(err)
 	}
-	if got.Provider != "OpenRouter" {
-		t.Errorf("Provider = %q, want OpenRouter", got.Provider)
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{
+		ID: "prj_existing", OrganizationID: "org-test",
+		DefaultHelixAppID: "app-explicit", DefaultRepoID: "repo_existing",
 	}
-	if got.Model != "anthropic/claude-3-haiku" {
-		t.Errorf("Model = %q, want anthropic/claude-3-haiku", got.Model)
+
+	if _, agentAppID, _, err := newApplierGit(svc, newFakeGitForProject(), st).Ensure(ctx, "org-test", wid); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	} else if agentAppID != "app-explicit" {
+		t.Fatalf("returned app = %q, want app-explicit", agentAppID)
+	}
+	bot, err = st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bot.AgentID != "app-explicit" {
+		t.Fatalf("bot app = %q, want app-explicit", bot.AgentID)
+	}
+	state, err := LoadState(ctx, st, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.AgentID != "app-explicit" {
+		t.Fatalf("runtime app = %q, want app-explicit", state.AgentID)
+	}
+}
+
+func TestEnsureFastPathDoesNotAdoptProjectDefaultClaimedByAnotherBot(t *testing.T) {
+	st, wid := newProjectTestStore(t, "# Role")
+	ctx := context.Background()
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-current")); err != nil {
+		t.Fatal(err)
+	}
+	other, err := orgchart.NewNode("w-other", "# Other", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Create(ctx, other.WithAgentID("app-claimed")); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
+		t.Fatal(err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{
+		ID: "prj_existing", OrganizationID: "org-test",
+		DefaultHelixAppID: "app-claimed", DefaultRepoID: "repo_existing",
+	}
+
+	if _, agentAppID, _, err := newApplierGit(svc, newFakeGitForProject(), st).Ensure(ctx, "org-test", wid); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	} else if agentAppID != "app-current" {
+		t.Fatalf("returned app = %q, want app-current", agentAppID)
+	}
+	bot, err = st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bot.AgentID != "app-current" {
+		t.Fatalf("bot app = %q, want app-current", bot.AgentID)
+	}
+	state, err := LoadState(ctx, st, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.AgentID != "app-current" {
+		t.Fatalf("runtime app = %q, want app-current", state.AgentID)
+	}
+}
+
+func TestEnsureFastPathPreservesLinksWhenProjectDefaultAppReadFails(t *testing.T) {
+	st, wid := newProjectTestStore(t, "# Role")
+	ctx := context.Background()
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-runtime", "repo_existing"); err != nil {
+		t.Fatal(err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{
+		ID: "prj_existing", OrganizationID: "org-test",
+		DefaultHelixAppID: "app-explicit", DefaultRepoID: "repo_existing",
+	}
+	svc.getAppErr = errors.New("database unavailable")
+
+	if _, _, _, err := newApplierGit(svc, newFakeGitForProject(), st).Ensure(ctx, "org-test", wid); err == nil ||
+		!strings.Contains(err.Error(), "get project default agent app app-explicit") {
+		t.Fatalf("Ensure error = %v", err)
+	}
+	bot, err = st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bot.AgentID != "app-current" {
+		t.Fatalf("bot app changed to %q", bot.AgentID)
+	}
+	state, err := LoadState(ctx, st, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.AgentID != "app-runtime" {
+		t.Fatalf("runtime app changed to %q", state.AgentID)
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.updateProjectCalls != 0 {
+		t.Fatalf("project updated %d times", svc.updateProjectCalls)
+	}
+	if svc.getProjectResp.DefaultHelixAppID != "app-explicit" {
+		t.Fatalf("project default changed to %q", svc.getProjectResp.DefaultHelixAppID)
+	}
+}
+
+func TestEnsureFastPathRepairsStaleRuntimeAgentApp(t *testing.T) {
+	st, wid := newProjectTestStore(t, "# Role")
+	ctx := context.Background()
+	bot, err := st.Nodes.Get(ctx, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Nodes.Update(ctx, bot.WithAgentID("app-canonical")); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProject(ctx, st, "org-test", wid, "prj_existing", "app-legacy", "repo_existing"); err != nil {
+		t.Fatal(err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{
+		ID: "prj_existing", OrganizationID: "org-test",
+		DefaultHelixAppID: "app-canonical", DefaultRepoID: "repo_existing",
+	}
+
+	if _, _, _, err := newApplierGit(svc, newFakeGitForProject(), st).Ensure(ctx, "org-test", wid); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	state, err := LoadState(ctx, st, "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.AgentID != "app-canonical" {
+		t.Fatalf("runtime app = %q, want app-canonical", state.AgentID)
 	}
 }
 
@@ -494,6 +817,7 @@ func TestEnsureClearsStateOnGetProject404(t *testing.T) {
 	}
 	svc := newFakeProjectService()
 	svc.getProjectErr = ErrProjectNotFound
+	svc.getProjectErrOnce = true
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
 
@@ -541,18 +865,8 @@ func TestEnsureGetProjectErrorIsFatal(t *testing.T) {
 	}
 }
 
-// TestEnsureDoesNotTouchAgentAppMCPs pins the new contract: MCP
-// attachment is NOT WorkerProject.Ensure's responsibility. It moved
-// out into runtimehelix.AttachHelixOrgMCP, called explicitly by the
-// Spawner (per-activation) and dynamicProjectApplier (per owner-chat
-// ensureWorker). Ensure mutates the project + repo + helix-specs
-// files only.
-//
-// Why this matters: the helix project-apply path wholesale-replaces
-// agentApp.Config.Helix on update, so any MCP attached during Ensure
-// is clobbered on the next re-apply. Keeping MCP attachment outside
-// Ensure means there's exactly one place that writes the MCP entry,
-// and it's the last write before the desktop boots.
+// TestEnsureDoesNotTouchAgentAppMCPs pins that MCP configuration is
+// generated from session metadata instead of persisted by project setup.
 func TestEnsureDoesNotTouchAgentAppMCPs(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role")
@@ -573,8 +887,9 @@ func TestEnsureDoesNotTouchAgentAppMCPs(t *testing.T) {
 	}
 }
 
-// TestEnsureRolePropagatesFromFirstPosition.
-func TestEnsureRolePropagatesFromFirstPosition(t *testing.T) {
+// TestEnsureDoesNotPublishDeprecatedRoleFile pins the single-instruction-file
+// contract: project provisioning must not recreate role.md.
+func TestEnsureDoesNotPublishDeprecatedRoleFile(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role: ChiefEngineer")
 	svc := newFakeProjectService()
@@ -584,48 +899,40 @@ func TestEnsureRolePropagatesFromFirstPosition(t *testing.T) {
 	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	git.mu.Lock()
-	defer git.mu.Unlock()
-	if got := git.putFileByPath["workers/w-eng/.context/role.md"]; got != "# Role: ChiefEngineer" {
-		t.Errorf("role.md content = %q", got)
+	if got := atomic.LoadInt32(&git.putFileCalls); got != 0 {
+		t.Errorf("WorkerProject published %d files, want 0", got)
 	}
 }
 
-// TestEnsureSkipsRolePushIfRoleMissing.
-func TestEnsureSkipsRolePushIfRoleMissing(t *testing.T) {
+// TestEnsureScopesProjectToParamOrg_NotStructOrgID is the unit-level
+// pin for the cross-tenant leak fix
+// (design/2026-06-09-org-multitenancy-spawner-leak.md).
+//
+// WorkerProject.Ensure takes an orgID parameter AND carries an OrgID
+// struct field. They are normally equal, but the production spawner
+// used to freeze one org's identity onto a process-wide SpawnerConfig
+// and replay it for every org — so a WorkerProject built for org A
+// would .Ensure() worker activations for org B. If Ensure stamps the
+// project with the struct field (a.OrgID) instead of the orgID it was
+// invoked for, org B's worker project lands in org A — the root of the
+// leak. This test forces the two apart and asserts the parameter wins.
+func TestEnsureScopesProjectToParamOrg_NotStructOrgID(t *testing.T) {
 	t.Parallel()
-	st := orggorm.GetOrgTestDB(t)
-	w, _ := orgchart.NewAIWorker("w-orphan", "r-missing", "# I am alone", "org-test")
-	if err := st.Workers.Create(context.Background(), w); err != nil {
-		t.Fatalf("create worker: %v", err)
-	}
+	// Worker exists in org-test (newProjectTestStore seeds there).
+	st, wid := newProjectTestStore(t, "# Role: engineer")
 	svc := newFakeProjectService()
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
-
-	if _, _, _, err := a.Ensure(context.Background(), "org-test", w.ID()); err != nil {
-		t.Fatalf("Ensure: %v", err)
-	}
-	git.mu.Lock()
-	defer git.mu.Unlock()
-	if _, ok := git.putFileByPath["workers/w-orphan/.context/role.md"]; ok {
-		t.Errorf("role.md must not be pushed without a position")
-	}
-	if _, ok := git.putFileByPath["workers/w-orphan/.context/identity.md"]; !ok {
-		t.Errorf("identity.md should still be pushed")
-	}
-}
-
-// TestEnsureLogsButDoesNotFailOnPutFileError.
-func TestEnsureLogsButDoesNotFailOnPutFileError(t *testing.T) {
-	t.Parallel()
-	st, wid := newProjectTestStore(t, "# Role")
-	svc := newFakeProjectService()
-	git := newFakeGitForProject()
-	git.putFileErr = errors.New("disk full")
-	a := newApplierGit(svc, git, st)
+	// Frozen, WRONG org on the struct — simulates a reused/cached config.
+	a.OrgID = "org-OTHER-TENANT"
 
 	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err != nil {
-		t.Fatalf("Ensure must not fail on PutFile error; got %v", err)
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.lastApplyReq.OrganizationID != "org-test" {
+		t.Fatalf("ApplyProject OrganizationID = %q, want org-test — Ensure must scope to the org it was invoked for, not the struct's frozen OrgID (cross-tenant leak)", svc.lastApplyReq.OrganizationID)
 	}
 }

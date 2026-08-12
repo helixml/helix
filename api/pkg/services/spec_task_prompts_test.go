@@ -39,3 +39,31 @@ func TestBuildPlanningPrompt_TitleFormatRule(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildPlanningPrompt_OpenQuestions guards the instruction that tells the
+// planning agent to add an "## Open Questions" section to requirements.md. This
+// surfaces the agent's guesses for user review instead of letting invented
+// requirements silently become the spec. If a future edit drops the rule,
+// agents will stop listing their open questions.
+func TestBuildPlanningPrompt_OpenQuestions(t *testing.T) {
+	task := &types.SpecTask{
+		ID:            "spt_test",
+		ProjectID:     "prj_test",
+		Name:          "Add Dark Mode",
+		Type:          "feature",
+		Priority:      types.SpecTaskPriorityMedium,
+		DesignDocPath: "000001_add-dark-mode",
+	}
+
+	out := BuildPlanningPrompt(task, "", "", "", "")
+
+	mustContain := []string{
+		"## Open Questions (requirements.md)",
+		"`## Open Questions`",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(out, want) {
+			t.Errorf("planning prompt is missing required snippet %q", want)
+		}
+	}
+}

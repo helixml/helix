@@ -35,7 +35,7 @@ export interface ProfileBlock {
   composeService: string;
   // Optional architecture hints — empty = any vendor's any arch.
   requiresArchitectures?: string[];
-  requiresVendor?: "nvidia" | "amd" | "";
+  requiresVendor?: "nvidia" | "amd" | "neuron" | "";
 }
 
 const GIB = 1024 * 1024 * 1024;
@@ -363,7 +363,7 @@ export const blockDesktopReserve: ProfileBlock = {
   id: "desktop-reserve",
   name: "Desktop session headroom",
   category: "budget",
-  description: "Reserves the unclaimed portion of the GPU for Hydra to spawn agent desktop sessions on. No compose service — informational. The math just works: anything the LLM blocks above don't claim is available to Hydra.",
+  description: "Reserves the unclaimed portion of the GPU for agent desktop sessions to spawn on. No compose service — informational. The math just works: anything the LLM blocks above don't claim is available for agent desktops.",
   pros: [
     "Lets one GPU host both inference and 1–2 agent desktop sessions",
     "Useful for dev hosts with one card",
@@ -378,6 +378,180 @@ export const blockDesktopReserve: ProfileBlock = {
   composeService: "", // informational only
 };
 
+// ----------------------------------------------------------------------
+// AWS Neuron (Inferentia2 / Trainium) — non-NVIDIA inference
+// ----------------------------------------------------------------------
+
+// GATING NOTE — do NOT "fix" the derived GPURequirement.Count to 2. Neuron
+// runners report an empty GPU inventory (gpudetect has no neuron probe; the
+// design stubs neuron GPU stats on purpose). The assignment compatibility
+// check (profile/compatibility.go) therefore gates neuron purely on Vendor:
+//   - neuron profile -> neuron host (empty inventory): count 0>0 false, vendor
+//     loop over [] is vacuous -> ASSIGNS.
+//   - neuron profile -> nvidia host: vendor check rejects (nvidia != neuron).
+//   - nvidia profile -> neuron host: count 1>0 rejects.
+// If composeparse ever learns to count neuron `devices:` (Count=2), it MUST
+// land together with a gpudetect neuron probe, or assignment to the inf2
+// runner breaks (2 > 0 reject). Both are out of scope for v1.
+// Validated live on a real inf2 instance (2026-06-24): TinyLlama serves tokens
+// over the OpenAI API. See the findings writeup for the full investigation.
+// Hard-won facts:
+//   - image MUST be the SDK 2.28 vLLM DLC. SDK 2.29+ dropped Inferentia2 from
+//     the NxD inference backend, so newer images fail to compile on inf2
+//     ("RangeSelect is not supported on arch Trn1, must be Trn2 or greater").
+//   - inf2.xlarge exposes a SINGLE /dev/neuron0 (1 chip, 2 cores -> tp=2)
+//   - needs cap_add SYS_ADMIN + IPC_LOCK
+//   - neuron backend is selected by VLLM_NEURON_FRAMEWORK env; this vLLM build
+//     does NOT accept the --device / --override-neuron-config flags
+//   - needs --block-size 8 (vLLM asserts block_size when prefix caching is on)
+//   - --swap-space 0: vLLM reserves ~8GB host RAM for CPU swap by default, which
+//     OOMs the 16GB inf2.xlarge; disabling it is required
+//   - vLLM compiles the model on first start; NEURON_COMPILE_CACHE_URL=s3://...
+//     makes that a compile-once-per-fleet cost
+//   - MODEL CHOICE: on THIS SDK (2.28) only simpler graphs compile; modern
+//     models (Qwen2.5, Llama-3.2) crash the compiler. But that crash is a
+//     neuronx-cc 2.23+ REGRESSION - the SDK 2.24 DLC compiles mainstream 7B
+//     models on inf2 fine (see blockChatNeuronMistral7B). For anything beyond a
+//     tiny smoke model, prefer the SDK 2.24 path, not Trn2.
+export const blockChatNeuronTinyLlama: ProfileBlock = {
+  id: "chat-neuron-tinyllama",
+  name: "inf2 - TinyLlama-1.1B (Neuron)",
+  category: "chat",
+  description:
+    "TinyLlama-1.1B served by vLLM on AWS Inferentia2 (inf2.xlarge, ~$0.99/hr) via Neuron SDK 2.28. Helix inference on non-NVIDIA hardware over the standard OpenAI API. inf2 only compiles simpler/older model graphs; modern models (Qwen2.5, Llama-3.2) need Trn2.",
+  pros: [
+    "LLM inference on AWS Inferentia2 - no NVIDIA hardware",
+    "Standard OpenAI API (vLLM) - Helix's router routes to it unchanged",
+    "First-compile result cached to S3 for fleet-wide reuse",
+  ],
+  cons: [
+    "vLLM compiles the model on first start (cached afterwards via S3)",
+    "Tiny smoke model only; for a mainstream 7B on inf2 use the SDK 2.24 path (blockChatNeuronMistral7B)",
+    "Pinned to Neuron SDK 2.28 - SDK 2.29+ dropped inf2 support",
+  ],
+  // GPU-memory fields don't model Neuron device memory; left at 1 core's
+  // worth of "claim the whole accelerator" since one model owns the pool.
+  gpuMemoryFraction: 1,
+  gpuCount: 1,
+  minVRAMBytesPerGPU: 0,
+  requiresVendor: "neuron",
+  // The pytorch-inference-vllm-neuronx entrypoint runs the container command as
+  // a subprocess, so command must invoke the api_server module itself (the
+  // NVIDIA vllm-openai image bakes that into its entrypoint; this one does not).
+  // NEURON_COMPILE_CACHE_URL is listed by name; compose-manager exports its
+  // value from the operator-set HELIX_NEURON_COMPILE_CACHE_URL config knob so
+  // the compiled NEFFs are shared fleet-wide. The value is s3://<bucket>/<prefix>
+  // where <prefix> is an S3 key prefix, not a folder - only the bucket need
+  // exist; the Neuron SDK creates everything under the prefix. Without it set,
+  // vLLM falls back to a local compile cache.
+  composeService: `vllm-neuron-tinyllama:
+    image: public.ecr.aws/neuron/pytorch-inference-vllm-neuronx:0.13.0-neuronx-py312-sdk2.28.0-ubuntu24.04
+    container_name: vllm-neuron-tinyllama
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /models:/root/.cache/huggingface
+    devices:
+      - "/dev/neuron0:/dev/neuron0"
+    cap_add:
+      - SYS_ADMIN
+      - IPC_LOCK
+    environment:
+      - VLLM_NEURON_FRAMEWORK=neuronx-distributed-inference
+      - NEURON_COMPILE_CACHE_URL
+    shm_size: 1g
+    command:
+      - python
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - TinyLlama/TinyLlama-1.1B-Chat-v1.0
+      - --served-model-name
+      - tinyllama
+      - --tensor-parallel-size
+      - "2"
+      - --max-num-seqs
+      - "4"
+      - --max-model-len
+      - "2048"
+      - --block-size
+      - "8"
+      - --swap-space
+      - "0"
+      - --port
+      - "8000"`,
+};
+
+// Validated live on a real inf2.8xlarge (2026-06-25): zephyr-7b-beta (a
+// Mistral-7B fine-tune) compiles (Compiler status PASS, ~3.4 min) and serves a
+// coherent token over the OpenAI API. KEY FINDING: the modern-model compile
+// crash on inf2 was a neuronx-cc 2.23+ REGRESSION (SDK 2.28/2.30). The OLDER
+// vLLM DLC (0.7.2 / SDK 2.24, compiler cc ~2.20) compiles mainstream models on
+// inf2 fine via the NxDI backend - no Trn2 required. Hard-won facts:
+//   - image: the SDK 2.24 vLLM DLC (0.7.2). Do NOT use 2.28/2.30 for modern models.
+//   - this vLLM version DOES accept --device neuron (0.13/0.16 dropped it).
+//   - backend: NxDI is the only one installed in this DLC and is the default, so
+//     leave VLLM_NEURON_FRAMEWORK unset. Do NOT set it to transformers-neuronx -
+//     TNx is not packaged in this image and the worker fails to start.
+//   - model: prefer a no-tied-embedding model. zephyr-7b-beta is ungated and
+//     Mistral-arch; Qwen2.5 fails separately on tie_word_embeddings=true.
+//   - inf2.8xlarge (~128 GB host RAM) is needed to load a 7B; inf2.xlarge (16 GB)
+//     is too small. TP=2 uses both NeuronCores of the single chip.
+export const blockChatNeuronMistral7B: ProfileBlock = {
+  id: "chat-neuron-mistral-7b",
+  name: "inf2.8xlarge - Mistral-7B (Neuron)",
+  category: "chat",
+  description:
+    "Mistral-7B (Zephyr-7B-beta) served by vLLM on AWS Inferentia2 (inf2.8xlarge) via Neuron SDK 2.24. Production-quality LLM on non-NVIDIA hardware over the standard OpenAI API. Pinned to the SDK 2.24 DLC because SDK 2.28+ regressed the compiler for modern models on inf2.",
+  pros: [
+    "Production-quality 7B on AWS Inferentia2 - no NVIDIA hardware",
+    "Standard OpenAI API (vLLM) - Helix's router routes to it unchanged",
+    "Compiles in ~3-4 min on inf2.8xlarge (validated live)",
+  ],
+  cons: [
+    "Pinned to Neuron SDK 2.24 (vLLM 0.7.2) - newer SDKs regress modern-model compile on inf2",
+    "Needs inf2.8xlarge (~128 GB host RAM); inf2.xlarge (16 GB) is too small for a 7B",
+    "Avoid tied-embedding models (Qwen2.5) on this path - use Mistral/Llama arch",
+  ],
+  gpuMemoryFraction: 1,
+  gpuCount: 1,
+  minVRAMBytesPerGPU: 0,
+  requiresVendor: "neuron",
+  composeService: `vllm-neuron-mistral:
+    image: public.ecr.aws/neuron/pytorch-inference-vllm-neuronx:0.7.2-neuronx-py310-sdk2.24.0-ubuntu22.04
+    container_name: vllm-neuron-mistral
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /models:/root/.cache/huggingface
+    devices:
+      - "/dev/neuron0:/dev/neuron0"
+    cap_add:
+      - SYS_ADMIN
+      - IPC_LOCK
+    environment:
+      - NEURON_COMPILE_CACHE_URL
+    shm_size: 4g
+    command:
+      - python
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - HuggingFaceH4/zephyr-7b-beta
+      - --served-model-name
+      - zephyr-7b
+      - --tensor-parallel-size
+      - "2"
+      - --max-num-seqs
+      - "4"
+      - --max-model-len
+      - "4096"
+      - --device
+      - neuron
+      - --port
+      - "8000"`,
+};
+
 export const allBlocks: ProfileBlock[] = [
   blockChatTiny,
   blockChat7B,
@@ -386,6 +560,8 @@ export const allBlocks: ProfileBlock[] = [
   blockEmbedText,
   blockEmbedVL,
   blockDesktopReserve,
+  blockChatNeuronTinyLlama,
+  blockChatNeuronMistral7B,
 ];
 
 // ----------------------------------------------------------------------
@@ -399,7 +575,7 @@ export interface CuratedProfile {
   pros: string[];
   cons: string[];
   blockIDs: string[];
-  vendor: "nvidia" | "amd" | "";
+  vendor: "nvidia" | "amd" | "neuron" | "";
   architectures: string[];
   modelMatch?: string;
   minVRAMBytes?: number;
@@ -419,7 +595,7 @@ export const curatedProfiles: CuratedProfile[] = [
   {
     id: "dev-shared-tiny",
     name: "Dev box: tiny LLM + desktops",
-    description: "Single GPU shared between a tiny chat model and Hydra agent desktops. The LLM claims only 20% of VRAM, leaving the rest for Wolf/sway desktop sessions.",
+    description: "Single GPU shared between a tiny chat model and agent desktops. The LLM claims only 20% of VRAM, leaving the rest for the desktop sessions.",
     pros: [
       "Works on a single 16 GiB consumer card",
       "Both inference and one or two agent desktop sessions can coexist",
@@ -473,6 +649,46 @@ export const curatedProfiles: CuratedProfile[] = [
     composeYAML: composeFromBlocks([blockChat35B]),
   },
   {
+    id: "inf2-tinyllama-neuron",
+    name: "AWS Inferentia2: TinyLlama-1.1B (Neuron)",
+    description:
+      "Single inf2.xlarge serving TinyLlama-1.1B on AWS Neuron via vLLM (SDK 2.28). Hardware-agnostic inference - the same control plane that drives NVIDIA g5 runners drives Inferentia2 via the same YD provisioning loop. Validated live serving a token on inf2.",
+    pros: [
+      "LLM inference on non-NVIDIA (Inferentia2) hardware",
+      "Standard OpenAI API - inference router routes to it unchanged",
+      "Compile cached to S3 for fleet-wide reuse",
+    ],
+    cons: [
+      "vLLM compiles on first start (cached afterwards via S3)",
+      "Tiny smoke model; for a mainstream 7B on inf2 use the Mistral-7B (SDK 2.24) profile",
+      "Neuron SDK / AMI / image-tag must be a compatible triple (SDK 2.28 for inf2)",
+    ],
+    blockIDs: ["chat-neuron-tinyllama"],
+    vendor: "neuron",
+    architectures: [],
+    composeYAML: composeFromBlocks([blockChatNeuronTinyLlama]),
+  },
+  {
+    id: "inf2-mistral-7b-neuron",
+    name: "AWS Inferentia2: Mistral-7B (Neuron)",
+    description:
+      "Single inf2.8xlarge serving a Mistral-7B (Zephyr-7B-beta) on AWS Neuron via vLLM (SDK 2.24). Production-quality LLM on non-NVIDIA hardware - the same control plane that drives NVIDIA g5 runners drives Inferentia2 via the same YD provisioning loop. Validated live serving a coherent token on inf2.8xlarge (compile ~3.4 min).",
+    pros: [
+      "Production-quality 7B inference on non-NVIDIA (Inferentia2) hardware",
+      "Standard OpenAI API - inference router routes to it unchanged",
+      "No Trn2 needed - runs on inf2 we can provision today",
+    ],
+    cons: [
+      "vLLM compiles on first start (cached afterwards)",
+      "Pinned to SDK 2.24 (vLLM 0.7.2) - newer SDKs regress modern-model compile on inf2",
+      "Needs inf2.8xlarge (~128 GB host RAM); avoid tied-embedding models (Qwen2.5)",
+    ],
+    blockIDs: ["chat-neuron-mistral-7b"],
+    vendor: "neuron",
+    architectures: [],
+    composeYAML: composeFromBlocks([blockChatNeuronMistral7B]),
+  },
+  {
     id: "8xh100-prod",
     name: "8×H100 production stack",
     description: "Full production rig: text + vision embeddings, 35B chat, plus headroom for two more inference services on remaining GPUs. The default for a dedicated inference box.",
@@ -511,7 +727,7 @@ export const curatedProfiles: CuratedProfile[] = [
   {
     id: "8xrtx6000pro-vllm",
     name: "8×RTX PRO 6000 Blackwell — multi-model stack",
-    description: "Full multi-model stack on 8× RTX PRO 6000 Blackwell (96 GB each). Two embedding models share GPU 0 at 45% util each, qwen3.5-35b on GPU 1, minimax-m2.7 tensor-parallel-4 on GPUs 2-5, gemma-4-26b on GPU 6 — and **GPU 7 left free for Hydra-spawned agent desktops on the same node** (Decision 15: spawn with `gpu_index: 7`). The canonical multi-tenant layout for this hardware.",
+    description: "Full multi-model stack on 8× RTX PRO 6000 Blackwell (96 GB each). Two embedding models share GPU 0 at 45% util each, qwen3.5-35b on GPU 1, minimax-m2.7 tensor-parallel-4 on GPUs 2-5, gemma-4-26b on GPU 6 — and **GPU 7 left free for agent desktops on the same node** (Decision 15: spawn with `gpu_index: 7`). The canonical multi-tenant layout for this hardware.",
     pros: [
       "5 models running concurrently on one node (incl. text + vision embeddings, mid-size chat, large MoE chat, long-context chat)",
       "Desktop sessions on the same physical box as inference (GPU 7 reserved)",
@@ -706,7 +922,7 @@ export const curatedProfiles: CuratedProfile[] = [
   {
     id: "4xa100-vllm",
     name: "4×A100 80GB — multi-model stack",
-    description: "4× A100 80GB. Embeddings + GLM-4.7-Flash + Qwen3.6-35B-A3B MoE on GPUs 0-2; **GPU 3 reserved for Hydra desktops, software-encoded only** (Decision 15: spawn with `gpu_index: 3`). A100 has no NVENC and no display engine — Mutter renders via the nvidia DRM/KMS path and GStreamer falls back to libx264 (CPU-bound; fine for 1-2 concurrent sessions). For hardware-accelerated desktops on the same hardware tier, prefer L40S.",
+    description: "4× A100 80GB. Embeddings + GLM-4.7-Flash + Qwen3.6-35B-A3B MoE on GPUs 0-2; **GPU 3 reserved for agent desktops, software-encoded only** (Decision 15: spawn with `gpu_index: 3`). A100 has no NVENC and no display engine — Mutter renders via the nvidia DRM/KMS path and GStreamer falls back to libx264 (CPU-bound; fine for 1-2 concurrent sessions). For hardware-accelerated desktops on the same hardware tier, prefer L40S.",
     pros: [
       "Mid-tier inference + agent desktops on the same node",
       "GLM-4.7-Flash 31B + Qwen3.6-35B-A3B MoE = top-tier reasoning + tool calling",
@@ -764,7 +980,7 @@ services:
   {
     id: "4xl40s-vllm",
     name: "4×L40S 48GB — multi-model (round-robin fleet)",
-    description: "4× L40S 48GB. Designed to be deployed identically on multiple nodes; the inference router round-robins across the sandboxes that serve the same model names. Embeddings + Qwen3.5-27B + Qwen3.6-35B-A3B on GPUs 0-2; **GPU 3 reserved for Hydra desktops with full NVENC hardware encoding**.",
+    description: "4× L40S 48GB. Designed to be deployed identically on multiple nodes; the inference router round-robins across the sandboxes that serve the same model names. Embeddings + Qwen3.5-27B + Qwen3.6-35B-A3B on GPUs 0-2; **GPU 3 reserved for agent desktops with full NVENC hardware encoding**.",
     pros: [
       "Fleet-friendly: deploy identically across N nodes; inference router round-robins",
       "Full hardware-accelerated desktop video (NVENC + display engine)",

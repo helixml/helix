@@ -19,34 +19,33 @@ type CINotifier interface {
 	NotifyCIResult(ctx context.Context, task *types.SpecTask, repo *types.RepoPR, status string) error
 }
 
-// MessageSenderCINotifier wraps a SpecTaskMessageSender (already used by
-// the design-review and approval flows) and delivers CI messages over
-// the same path. This way agents that are offline fall through to the
-// existing waiting-interaction queue without us having to reinvent that
-// logic. Constructed by the API server, where the sender is wired up.
-type MessageSenderCINotifier struct {
-	sender SpecTaskMessageSender
+// EnqueueCINotifier delivers CI messages through the session-scoped prompt
+// queue (SpecTaskMessageEnqueuer). Constructed by the API server, where the
+// enqueuer is wired up. Offline agents still fall through to the existing
+// waiting-interaction queue — the enqueue path boots a stopped desktop and
+// delivers on reconnect.
+type EnqueueCINotifier struct {
+	enqueue SpecTaskMessageEnqueuer
 }
 
-// NewMessageSenderCINotifier returns a CINotifier that pushes CI messages
-// through the given SpecTaskMessageSender. interrupt is always false:
-// CI results aren't urgent enough to interrupt mid-turn — the agent picks
-// them up at the next message-pump tick.
-func NewMessageSenderCINotifier(sender SpecTaskMessageSender) *MessageSenderCINotifier {
-	return &MessageSenderCINotifier{sender: sender}
+// NewEnqueueCINotifier returns a CINotifier that enqueues CI messages.
+// interrupt is always true: a CI pass/fail is worth surfacing to the agent
+// immediately (cancel the current turn, respecting the boot barrier, then send)
+// so it learns of failing tests straight away, even mid-turn. CI results are not
+// coalesced — each transition is delivered as its own interrupt.
+func NewEnqueueCINotifier(enqueue SpecTaskMessageEnqueuer) *EnqueueCINotifier {
+	return &EnqueueCINotifier{enqueue: enqueue}
 }
 
-// NotifyCIResult sends the CI message to the agent. notifyUserID is left
-// empty — CI results aren't tied to a specific commenter.
-func (n *MessageSenderCINotifier) NotifyCIResult(
+// NotifyCIResult enqueues the CI message to the agent as an interrupt.
+func (n *EnqueueCINotifier) NotifyCIResult(
 	ctx context.Context,
 	task *types.SpecTask,
 	_ *types.RepoPR,
 	message string,
 ) error {
-	if n == nil || n.sender == nil {
+	if n == nil || n.enqueue == nil {
 		return nil
 	}
-	_, _, err := n.sender(ctx, task, message, "", false)
-	return err
+	return n.enqueue(ctx, task, message, true, "")
 }

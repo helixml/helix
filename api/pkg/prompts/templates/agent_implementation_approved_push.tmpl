@@ -1,10 +1,42 @@
 Your implementation has been approved!
 
-Please merge the latest default branch and push any remaining uncommitted changes:
+Before the final push, provide the pull request title and description. Helix reads them from the task's PR description file and updates the automatically opened pull request.
+
+The file format is:
+
+```markdown
+# Clear, concise PR title
+
+## Summary
+What changed and why.
+
+## Testing
+What you tested and the result.
+```
+
+The first line is the PR title. Everything after the first blank line is the PR description. Write final content with no placeholders.
+{{if .NonPrimaryRepoNames}}
+This task changes multiple repositories. Create or update one file per repository, describing only that repository's changes:
+
+- `/home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/pull_request_{{.PrimaryRepoName}}.md`
+{{- range .NonPrimaryRepoNames}}
+- `/home/retro/work/helix-specs/design/tasks/{{$.TaskDirName}}/pull_request_{{.}}.md`
+{{- end}}
+{{else}}
+Create or update `/home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/pull_request.md`.
+{{end}}
+This metadata step is required even if every code change is already committed and pushed. If a PR is already open, pushing the metadata updates its title and description.
+
+Then push the PR metadata and any remaining code changes:
 
 ```bash
-# First, push any pending design doc changes (including PR descriptions)
-cd /home/retro/work/helix-specs && git add -A && git diff --cached --quiet || (git commit -m "Final updates" && git push origin helix-specs)
+# First, push the PR metadata and any other pending design doc changes
+cd /home/retro/work/helix-specs
+git add -A
+if ! git diff --cached --quiet; then git commit -m "docs(specs): add PR description"; fi
+git fetch origin helix-specs
+git rebase origin/helix-specs
+git push origin helix-specs
 
 # Then merge the default branch and push the feature branch in all repos that have changes
 cd /home/retro/work/{{ .PrimaryRepoName }} && git fetch origin {{ .BaseBranch }} && git merge origin/{{ .BaseBranch }} && git add -A && git diff --cached --quiet || git commit -m "Complete implementation"
@@ -14,6 +46,8 @@ cd /home/retro/work/{{ . }} && git fetch origin {{ $.BaseBranch }} && git merge 
 git push origin {{ $.BranchName }}
 {{- end }}
 ```
+
+Do not create the pull request yourself; Helix opens and updates it automatically.
 
 **Pushing alone does NOT complete the task.** When the work is judged finished, call the `mark_task_complete` MCP tool — that is the only way the task reaches `done`.
 

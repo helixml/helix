@@ -1,12 +1,15 @@
 package types
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/lib/pq"
 )
 
 type Provider string
+
+const OrganizationProviderUnavailableMessage = "This agent's provider is not available to the organization. Personal providers are no longer supported for organization agents. Configure the provider for the organization, then select it again in the agent settings."
 
 const (
 	ProviderOpenAI     Provider = "openai"
@@ -57,6 +60,7 @@ type ProviderEndpoint struct {
 	Updated        time.Time            `json:"updated"`
 	Name           string               `json:"name"`
 	Description    string               `json:"description"`
+	Icon           string               `json:"icon"`
 	Models         pq.StringArray       `json:"models" gorm:"type:text[]"` // Optional
 	EndpointType   ProviderEndpointType `json:"endpoint_type"`             // global, user (TODO: orgs, teams)
 	Owner          string               `json:"owner"`
@@ -118,12 +122,54 @@ type OpenAIModel struct {
 	ModelInfo     *ModelInfo         `json:"model_info,omitempty"`
 }
 
+// UnmarshalJSON accepts the context-window fields commonly returned by
+// OpenAI-compatible servers. OpenAI itself does not define a standard context
+// field on /v1/models, while vLLM uses max_model_len and some compatible
+// servers use max_context_length. Normalize all of them into ContextLength so
+// downstream code has one authoritative field to consume.
+func (m *OpenAIModel) UnmarshalJSON(data []byte) error {
+	type openAIModelAlias OpenAIModel
+
+	var decoded openAIModelAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var compatibleFields struct {
+		MaxModelLen      int `json:"max_model_len"`
+		MaxContextLength int `json:"max_context_length"`
+	}
+	if err := json.Unmarshal(data, &compatibleFields); err != nil {
+		return err
+	}
+
+	*m = OpenAIModel(decoded)
+	if m.ContextLength > 0 {
+		return nil
+	}
+	if compatibleFields.MaxModelLen > 0 {
+		m.ContextLength = compatibleFields.MaxModelLen
+		return nil
+	}
+	if compatibleFields.MaxContextLength > 0 {
+		m.ContextLength = compatibleFields.MaxContextLength
+		return nil
+	}
+	if m.ModelInfo != nil && m.ModelInfo.ContextLength > 0 {
+		m.ContextLength = m.ModelInfo.ContextLength
+	}
+
+	return nil
+}
+
 // UpdateProviderEndpoint used for updating a provider endpoint through the API
 type UpdateProviderEndpoint struct {
-	Name         string               `json:"name"`
-	Description  string               `json:"description"`
-	Models       []string             `json:"models"`
-	EndpointType ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
+	Name           string               `json:"name"`
+	Description    string               `json:"description"`
+	Icon           *string              `json:"icon,omitempty"`
+	Models         []string             `json:"models"`
+	EndpointType   ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
+	BillingEnabled *bool                `json:"billing_enabled,omitempty"`
 
 	BaseURL        string            `json:"base_url"`
 	APIKey         *string           `json:"api_key,omitempty"`

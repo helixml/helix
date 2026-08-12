@@ -16,23 +16,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 ### Embedding model stage ###
 #----------------------------
-# Downloads and converts the st-codesearch-distilroberta-base model to ONNX format.
-# Uses kodit's download-model tool (Go binary that embeds the Python conversion script).
-FROM api-base AS embedding-model
-COPY --from=ghcr.io/astral-sh/uv:debian-slim /usr/local/bin/uv /usr/local/bin/uv
-# Cache the uv wheel downloads (~2GB of torch/transformers/cuda-* wheels) and
-# the HuggingFace model snapshot so re-running these stages on the same builder
-# doesn't re-download from PyPI / HF Hub each time.
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=cache,target=/root/.cache/huggingface \
-    go run github.com/helixml/kodit/cmd/download-model /build/models/flax-sentence-embeddings_st-codesearch-distilroberta-base
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=cache,target=/root/.cache/huggingface \
-    go run github.com/helixml/kodit/cmd/download-siglip2 /build/models/google_siglip2-base-patch16-512
+FROM registry.helixml.tech/helix/controlplane:2.11.52@sha256:58705ba01fc53a3af20099e44f1e3874550ca3242b736cdaa70d22693d86ca6a AS embedding-model
 
 ### Tokenizers library ###
 #-------------------------
@@ -48,8 +32,9 @@ FROM api-base AS api-dev-env
 # - Air provides hot reload for Go
 RUN go install github.com/air-verse/air@v1.52.3
 # - Install curl for Wolf API debugging, bash for git operations, and git-daemon for git-http-backend
+# - tini is PID 1 so orphaned subprocesses get reaped (see production stage comment)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl bash git-daemon-sysvinit \
+    curl bash git-daemon-sysvinit tini \
     && rm -rf /var/lib/apt/lists/*
 # - Copy tokenizers library for CGo
 COPY --from=tokenizers-lib /app/lib/libtokenizers.a /usr/lib/
@@ -57,7 +42,7 @@ COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
 # Tell kodit where to find the ORT library (see production stage comment for details)
 ENV ORT_LIB_DIR=/usr/lib
 # - Copy embedding models for kodit code intelligence
-COPY --from=embedding-model /build/models/ /kodit-models/
+COPY --from=embedding-model /kodit-models/ /kodit-models/
 # - Copy the files and run a build to make startup faster
 COPY api /app/api
 COPY helix-org /app/helix-org
@@ -67,8 +52,8 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go build -tags ORT -ldflags "-s -w" -o /helix
-# - Entrypoint is the air command
-ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=1 go build -tags ORT -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
+# - Entrypoint is the air command, under tini so orphans are reaped
+ENTRYPOINT ["/usr/bin/tini", "--", "air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=1 go build -tags ORT -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
 CMD ["serve"]
 
 
@@ -126,13 +111,13 @@ RUN yarn build
 # Update digest when intentionally upgrading Debian version.
 FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git git-daemon-sysvinit \
+    ca-certificates git git-daemon-sysvinit tini \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=api-build-env /helix /helix
 COPY --from=ui-build-env /app/dist /www
 # Embedding model files for kodit code intelligence
-COPY --from=embedding-model /build/models/ /kodit-models/
+COPY --from=embedding-model /kodit-models/ /kodit-models/
 # ONNX Runtime library required by kodit's Hugot embedding provider (built with -tags ORT)
 COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
 # Tell kodit where to find the ORT library. Without this, kodit's auto-detection
@@ -144,4 +129,9 @@ ENV FRONTEND_URL=/www
 
 EXPOSE 80
 
-ENTRYPOINT ["/helix", "serve"]
+# tini runs as PID 1 and reaps orphaned processes. Helix shells out to git, and
+# git subcommands (pack-objects, index-pack, gc --auto) outlive their parent when
+# a clone/fetch is cancelled or when git detaches maintenance on purpose. Those
+# orphans reparent to PID 1; a Go binary (or air, in the dev image) never calls
+# wait() on them, so they pile up as zombies until the PID ceiling is hit.
+ENTRYPOINT ["/usr/bin/tini", "--", "/helix", "serve"]

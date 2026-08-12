@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,6 +24,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/cli"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func New() *cobra.Command {
@@ -59,7 +63,11 @@ func newStartCommand() *cobra.Command {
 	var projectID string
 	var agentID string
 	var prompt string
+	var promptFile string
+	var attachFiles []string
 	var quiet bool
+	var wait bool
+	var noWait bool
 
 	cmd := &cobra.Command{
 		Use:   "start [task-id]",
@@ -91,6 +99,20 @@ Example workflow:
 					fmt.Println("Creating new spec task...")
 				}
 				taskPrompt := prompt
+				// --prompt-file lets you dispatch an entire brief (e.g. a design
+				// doc) as the task prompt without committing it to the repo.
+				// Appended after --prompt when both are given.
+				if promptFile != "" {
+					data, readErr := os.ReadFile(promptFile)
+					if readErr != nil {
+						return fmt.Errorf("failed to read --prompt-file %q: %w", promptFile, readErr)
+					}
+					if taskPrompt != "" {
+						taskPrompt = taskPrompt + "\n\n" + string(data)
+					} else {
+						taskPrompt = string(data)
+					}
+				}
 				if taskPrompt == "" {
 					taskPrompt = "Testing RevDial connectivity"
 				}
@@ -103,6 +125,17 @@ Example workflow:
 					fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
 					if agentID != "" {
 						fmt.Printf("   Agent: %s\n", agentID)
+					}
+				}
+				// Attach files (e.g. logfiles) — the agent reads them at
+				// design/tasks/<task>/attachments/<name>, keeping large context
+				// out of the prompt.
+				if len(attachFiles) > 0 {
+					if err := uploadSpecTaskAttachments(apiURL, token, taskID, attachFiles); err != nil {
+						return fmt.Errorf("failed to upload attachments: %w", err)
+					}
+					if !quiet {
+						fmt.Printf("📎 Uploaded %d attachment(s)\n", len(attachFiles))
 					}
 				}
 			}
@@ -119,12 +152,48 @@ Example workflow:
 				fmt.Printf("✅ Task status: %s\n", task.Status)
 			}
 
-			// Poll for session to be created (sandbox takes ~10-15s to start)
+			// Default: don't block on the sandbox. Creating the task and
+			// triggering planning is the durable outcome; the browser task page
+			// (known at creation time) shows the sandbox provisioning and streams
+			// the desktop as it comes up, so there is nothing for the CLI to wait
+			// on. --wait opts into blocking until the sandbox is up + printing
+			// session-level connect info. (--no-wait is now the default and kept
+			// only as a hidden no-op for back-compat.)
+			shouldWait := wait && !noWait
+			if !shouldWait {
+				if quiet {
+					fmt.Println(taskID)
+				} else {
+					fmt.Printf("\n✅ Task created — planning started: %s\n", taskID)
+					if taskURL := buildTaskURL(apiURL, task, projectID); taskURL != "" {
+						fmt.Printf("   Open in browser: %s\n", taskURL)
+					}
+					fmt.Printf("   The sandbox provisions in the background; the page shows it loading.\n")
+				}
+				return nil
+			}
+
+			// --wait: poll for the session to be created (sandbox takes ~10-15s).
 			if !quiet {
 				fmt.Printf("⏳ Waiting for sandbox to start (this takes ~15 seconds)...\n")
 			}
 			session, err := waitForTaskSession(apiURL, token, taskID, 3*time.Minute)
 			if err != nil {
+				// A wait-timeout is NOT a failure of `start`: the task was already
+				// created and is still provisioning (slow image pull / busy host).
+				// Surface the task id + URL and exit 0 rather than a misleading
+				// non-zero error. Real errors (HTTP failures etc.) still hard-fail.
+				if errors.Is(err, errSandboxWaitTimeout) {
+					if quiet {
+						fmt.Println(taskID)
+					} else {
+						fmt.Printf("\n⏳ Task created (%s) — sandbox still provisioning after 3m.\n", taskID)
+						if taskURL := buildTaskURL(apiURL, task, projectID); taskURL != "" {
+							fmt.Printf("   Open in browser: %s\n", taskURL)
+						}
+					}
+					return nil
+				}
 				return fmt.Errorf("failed waiting for session: %w", err)
 			}
 
@@ -148,9 +217,14 @@ Example workflow:
 
 	cmd.Flags().StringVarP(&taskName, "name", "n", "CLI Test Task", "Task name")
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required when creating new task)")
-	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent/App ID to use (e.g., app_01xxx)")
+	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent ID to use (e.g., app_01xxx)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
-	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output session ID")
+	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
+	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). Uploaded as spec-task attachments the agent reads at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt.")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output the task ID (session ID with --wait)")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Block until the sandbox has booted, then print session-level connect info (default: return immediately with the task URL — the browser page shows it loading)")
+	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Deprecated: no-wait is now the default; kept as a no-op for back-compat")
+	_ = cmd.Flags().MarkHidden("no-wait")
 
 	return cmd
 }
@@ -382,10 +456,29 @@ func getToken() string {
 }
 
 type SpecTask struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	Status            string `json:"status"`
+	OrganizationID    string `json:"organization_id"`
+	ProjectID         string `json:"project_id"`
+	AgentSessionID string `json:"agent_session_id"`
+}
+
+// buildTaskURL returns the frontend task-detail page URL, which is known the
+// instant the task is created — no need to wait for the sandbox. Opening it
+// shows the sandbox provisioning and streams the desktop as it comes up.
+// Returns "" if org/project can't be determined (caller prints the id alone).
+func buildTaskURL(apiURL string, task *SpecTask, projectFallback string) string {
+	proj := task.ProjectID
+	if proj == "" {
+		proj = projectFallback
+	}
+	if task.OrganizationID == "" || proj == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
+		strings.TrimRight(apiURL, "/"), task.OrganizationID, proj, task.ID)
 }
 
 type Session struct {
@@ -447,6 +540,47 @@ func createSpecTask(apiURL, token, name, prompt, projectID, agentID string) (*Sp
 	return &task, nil
 }
 
+// uploadSpecTaskAttachments uploads local files as attachments on a spec task
+// (multipart, field name "files"). The agent can then read them inside the
+// sandbox at design/tasks/<task>/attachments/<name>.
+func uploadSpecTaskAttachments(apiURL, token, taskID string, files []string) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return fmt.Errorf("read %q: %w", f, err)
+		}
+		part, err := w.CreateFormFile("files", filepath.Base(f))
+		if err != nil {
+			return err
+		}
+		if _, err := part.Write(data); err != nil {
+			return err
+		}
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	url := fmt.Sprintf("%s/api/v1/spec-tasks/%s/attachments", apiURL, taskID)
+	req, err := http.NewRequest("POST", url, &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("attachments API returned %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 // triggerStartPlanning starts planning for a task (returns task, not session)
 func triggerStartPlanning(apiURL, token, taskID string) (*SpecTask, error) {
 	url := fmt.Sprintf("%s/api/v1/spec-tasks/%s/start-planning", apiURL, taskID)
@@ -476,15 +610,20 @@ func triggerStartPlanning(apiURL, token, taskID string) (*SpecTask, error) {
 	return &task, nil
 }
 
+// errSandboxWaitTimeout is returned by waitForTaskSession when the sandbox did
+// not come up within the poll window. The task itself was already created and
+// is still provisioning, so callers should treat this as a soft outcome (print
+// the task id, exit 0) rather than a hard `start` failure.
+var errSandboxWaitTimeout = errors.New("timeout waiting for sandbox to start")
+
 // waitForTaskSession polls for a session with dev_container_id to be created for the task
-func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*Session, error) {
+func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*types.Session, error) {
 	deadline := time.Now().Add(timeout)
 	pollInterval := 2 * time.Second
 	lastStatusMsg := ""
 
 	for time.Now().Before(deadline) {
-		// Get all sessions and find one for this task
-		req, err := http.NewRequest("GET", apiURL+"/api/v1/sessions", nil)
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/spec-tasks/%s", apiURL, taskID), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -497,33 +636,42 @@ func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*S
 			continue
 		}
 
-		var response SessionsResponse
-		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		var task SpecTask
+		if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
 			resp.Body.Close()
 			time.Sleep(pollInterval)
 			continue
 		}
 		resp.Body.Close()
 
-		// Find session for this task that has a running sandbox
-		for _, s := range response.Sessions {
-			if s.Metadata.SpecTaskID == taskID {
-				// Show status message updates (e.g., "Unpacking build cache (2.1/7.0 GB)")
-				if s.Metadata.StatusMessage != "" && s.Metadata.StatusMessage != lastStatusMsg {
-					fmt.Printf("   %s\n", s.Metadata.StatusMessage)
-					lastStatusMsg = s.Metadata.StatusMessage
-				}
-				// Check for active container
-				if s.Metadata.DevContainerID != "" || s.Metadata.ContainerID != "" {
-					return &s, nil
-				}
-			}
+		if task.AgentSessionID == "" {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		session, err := getSessionDetails(apiURL, token, task.AgentSessionID)
+		if err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+		if session.Metadata.StatusMessage != "" && session.Metadata.StatusMessage != lastStatusMsg {
+			fmt.Printf("   %s\n", session.Metadata.StatusMessage)
+			lastStatusMsg = session.Metadata.StatusMessage
+		}
+		if session.Metadata.DevContainerID != "" || session.Metadata.ContainerID != "" {
+			return session, nil
 		}
 
 		time.Sleep(pollInterval)
 	}
 
-	return nil, fmt.Errorf("timeout waiting for sandbox to start (task: %s)", taskID)
+	return nil, fmt.Errorf("%w (task: %s)", errSandboxWaitTimeout, taskID)
 }
 
 func newResumeCommand() *cobra.Command {
@@ -572,17 +720,20 @@ func newResumeCommand() *cobra.Command {
 	}
 }
 
-type App struct {
-	ID     string    `json:"id"`
-	Name   string    `json:"name"`
-	Config AppConfig `json:"config"`
+type Agent struct {
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Config AgentConfig `json:"config"`
 }
 
-type AppConfig struct {
+type AgentConfig struct {
 	Helix HelixConfig `json:"helix"`
 }
 
 type HelixConfig struct {
+	// Name is where an agent's display name actually lives — the top-level
+	// `name` field on the API response is always empty.
+	Name       string      `json:"name"`
 	Assistants []Assistant `json:"assistants"`
 }
 
@@ -593,13 +744,13 @@ type Assistant struct {
 	Model            string `json:"model"`
 }
 
-type AppsResponse struct {
-	Apps []App `json:"apps"`
+type AgentsResponse struct {
+	Agents []Agent `json:"apps"`
 }
 
 func newListAgentsCommand() *cobra.Command {
 	var (
-		orgFlag        string
+		orgFlag         string
 		zedExternalOnly bool
 	)
 	cmd := &cobra.Command{
@@ -635,7 +786,7 @@ agents.`,
 
 			q := url.Values{}
 			q.Set("organization_id", orgID)
-			endpoint := apiURL + "/api/v1/apps?" + q.Encode()
+			endpoint := apiURL + "/api/v1/agents?" + q.Encode()
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 			if err != nil {
@@ -650,35 +801,35 @@ agents.`,
 			}
 			defer resp.Body.Close()
 
-			var apps []App
-			if err := json.NewDecoder(resp.Body).Decode(&apps); err != nil {
-				return fmt.Errorf("failed to parse apps: %w", err)
+			var agents []Agent
+			if err := json.NewDecoder(resp.Body).Decode(&agents); err != nil {
+				return fmt.Errorf("failed to parse agents: %w", err)
 			}
 
 			fmt.Println("Available Agents:")
 			fmt.Println()
 
 			shown := 0
-			for _, app := range apps {
-				// Surface the most relevant assistant per app: prefer zed_external
+			for _, agent := range agents {
+				// Surface the most relevant assistant per agent: prefer zed_external
 				// (the only kind launchable via `spectask start` today), fall back
 				// to the first assistant otherwise so non-spec-task agents are
 				// still visible to the user.
 				var primary *Assistant
-				for i, assistant := range app.Config.Helix.Assistants {
+				for i, assistant := range agent.Config.Helix.Assistants {
 					if assistant.AgentType == "zed_external" {
-						primary = &app.Config.Helix.Assistants[i]
+						primary = &agent.Config.Helix.Assistants[i]
 						break
 					}
 				}
-				if primary == nil && len(app.Config.Helix.Assistants) > 0 {
+				if primary == nil && len(agent.Config.Helix.Assistants) > 0 {
 					if zedExternalOnly {
 						continue
 					}
-					primary = &app.Config.Helix.Assistants[0]
+					primary = &agent.Config.Helix.Assistants[0]
 				}
 				if primary == nil {
-					// App with no assistants at all - skip.
+					// Agent with no assistants at all - skip.
 					continue
 				}
 
@@ -689,8 +840,12 @@ agents.`,
 					marker = ""
 				}
 
-				fmt.Printf("App: %s%s\n", app.Name, marker)
-				fmt.Printf("  ID: %s\n", app.ID)
+				name := agent.Config.Helix.Name
+				if name == "" {
+					name = agent.Name
+				}
+				fmt.Printf("Agent: %s%s\n", name, marker)
+				fmt.Printf("  ID: %s\n", agent.ID)
 				fmt.Printf("  Assistant: %s\n", primary.Name)
 				if primary.AgentType != "" {
 					fmt.Printf("  Agent type: %s\n", primary.AgentType)
@@ -702,7 +857,7 @@ agents.`,
 					fmt.Printf("  Model: %s\n", primary.Model)
 				}
 				if usable {
-					fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", app.ID)
+					fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", agent.ID)
 				}
 				fmt.Println()
 			}
@@ -1553,7 +1708,6 @@ type videoStreamStats struct {
 	lastCursorHotspotX int // Last cursor hotspot X
 	lastCursorHotspotY int // Last cursor hotspot Y
 }
-
 
 // getContainerAppID fetches the placeholder app ID for a session
 // This is required for the AuthenticateAndInit message

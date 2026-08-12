@@ -1,15 +1,118 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestEnrichOrgUsageCostsSeparatesSavingsAndHelixCredits(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	modelInfo := model.NewMockModelInfoProvider(ctrl)
+	server := &HelixAPIServer{modelInfoProvider: modelInfo}
+	date := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	summary := &types.OrgUsageSummaryResponse{
+		Metrics:      []*types.AggregatedUsageMetric{{Date: date}},
+		HelixCredits: 1.25,
+		Models: []types.UsageBreakdownRow{{
+			ID: "openai:gpt-test", Provider: "openai", Model: "gpt-test",
+		}},
+		CostBreakdown: []types.UsageCostBreakdownRow{{
+			Date:             date,
+			Source:           types.UsageMetricSourceACP,
+			Provider:         "openai",
+			Model:            "gpt-test",
+			PromptTokens:     200,
+			CompletionTokens: 100,
+			TotalTokens:      1100,
+			CacheReadTokens:  800,
+		}},
+	}
+	modelInfo.EXPECT().GetModelInfo(gomock.Any(), &model.ModelInfoRequest{
+		Provider: "openai",
+		Model:    "gpt-test",
+	}).Return(&types.ModelInfo{ProviderSlug: "openai", Pricing: types.Pricing{
+		Prompt:         "0.01",
+		Completion:     "0.02",
+		InputCacheRead: "0.001",
+	}}, nil)
+
+	server.enrichOrgUsageCosts(context.Background(), summary)
+
+	require.InDelta(t, 4.8, summary.RawTokenCost, 1e-9)
+	require.InDelta(t, 4.8, summary.SubscriptionSavings, 1e-9)
+	require.InDelta(t, 7.2, summary.CacheSavings, 1e-9)
+	require.InDelta(t, 1.25, summary.HelixCredits, 1e-9)
+	require.Len(t, summary.Providers, 1)
+	require.Equal(t, "OpenAI", summary.Providers[0].Name)
+	require.InDelta(t, 4.8, summary.Providers[0].TotalCost, 1e-9)
+	require.Len(t, summary.ProviderTimeSeries, 1)
+	require.InDelta(t, 4.8, summary.ProviderTimeSeries[0].Metrics[0].TotalCost, 1e-9)
+	require.InDelta(t, 4.8, summary.Models[0].TotalCost, 1e-9)
+	require.Equal(t, "openai", summary.Models[0].Provider)
+}
+
+func TestEnrichOrgUsageCostsUsesGlobalEndpointAttribution(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	modelInfo := model.NewMockModelInfoProvider(ctrl)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore, modelInfoProvider: modelInfo}
+	date := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	summary := &types.OrgUsageSummaryResponse{
+		Metrics: []*types.AggregatedUsageMetric{{Date: date}},
+		Models: []types.UsageBreakdownRow{{
+			ID: "pe_node06:deepseek-v4-flash", Provider: "pe_node06", Model: "deepseek-v4-flash",
+		}},
+		CostBreakdown: []types.UsageCostBreakdownRow{{
+			Date:             date,
+			Source:           types.UsageMetricSourceHelixProxy,
+			Provider:         "pe_node06",
+			Model:            "deepseek-v4-flash",
+			PromptTokens:     100,
+			CompletionTokens: 20,
+			TotalTokens:      120,
+			TotalCost:        42,
+		}},
+	}
+	modelInfo.EXPECT().GetModelInfo(gomock.Any(), &model.ModelInfoRequest{
+		Provider: "pe_node06",
+		Model:    "deepseek-v4-flash",
+	}).Return(&types.ModelInfo{
+		ProviderSlug: "baidu/fp8",
+		Pricing: types.Pricing{
+			Prompt:     "1",
+			Completion: "1",
+		},
+	}, nil)
+	mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: "pe_node06"}).
+		Return(&types.ProviderEndpoint{
+			ID:           "pe_node06",
+			Name:         "ds4-flash-node06",
+			EndpointType: types.ProviderEndpointTypeGlobal,
+			OwnerType:    types.OwnerTypeSystem,
+		}, nil)
+
+	server.enrichOrgUsageCosts(context.Background(), summary)
+
+	require.Equal(t, 42.0, summary.RawTokenCost)
+	require.Len(t, summary.Providers, 1)
+	require.Equal(t, "helix/ds4-flash-node06", summary.Providers[0].Provider)
+	require.Equal(t, "helix/ds4-flash-node06", summary.Providers[0].Name)
+	require.Equal(t, 42.0, summary.Providers[0].TotalCost)
+	require.Len(t, summary.ProviderTimeSeries, 1)
+	require.Equal(t, "helix/ds4-flash-node06", summary.ProviderTimeSeries[0].Provider)
+	require.Len(t, summary.Models, 1)
+	require.Equal(t, "helix/ds4-flash-node06", summary.Models[0].Provider)
+	require.Equal(t, 42.0, summary.Models[0].TotalCost)
+}
 
 func TestMergeSandboxUsageCostsAddsSandboxSpend(t *testing.T) {
 	date := time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC)
@@ -84,6 +187,17 @@ func TestGetOrgUsageSummaryParsesFiltersAndPagination(t *testing.T) {
 			require.Equal(t, 75, q.SessionOffset)
 			return &types.OrgUsageSummaryResponse{}, nil
 		})
+	// Compute answers the date range and the project, and deliberately ignores
+	// the token-shaped filters — a container has no model or provider.
+	mockStore.EXPECT().
+		GetOrgComputeUsage(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, q *store.GetOrgComputeUsageQuery) (*types.OrgComputeUsage, error) {
+			require.Equal(t, org.ID, q.OrganizationID)
+			require.Equal(t, fromTime, q.From)
+			require.Equal(t, toTime, q.To)
+			require.Equal(t, "prj_456", q.ProjectID)
+			return &types.OrgComputeUsage{TotalCredits: 12.5, DesktopCredits: 12.5}, nil
+		})
 
 	req := httptest.NewRequest("GET", "/api/v1/usage/org-summary?org_id=koala-bunny-corp&from="+from+"&to="+to+"&user_id=user_456&project_id=prj_456&app_id=app_456&session_id=ses_456&provider=anthropic&model=claude-sonnet-4&user_search=alice@example.com&user_limit=25&user_offset=50&project_limit=10&project_offset=20&task_limit=10&task_offset=30&session_limit=25&session_offset=75", nil)
 	req = req.WithContext(setRequestUser(req.Context(), user))
@@ -91,4 +205,39 @@ func TestGetOrgUsageSummaryParsesFiltersAndPagination(t *testing.T) {
 	resp, httpErr := server.getOrgUsageSummary(httptest.NewRecorder(), req)
 	require.Nil(t, httpErr)
 	require.NotNil(t, resp)
+	require.NotNil(t, resp.Compute)
+	require.Equal(t, 12.5, resp.Compute.TotalCredits)
+}
+
+// Compute is a second query over a different table; if it fails the page must
+// still render the token numbers it is mainly about.
+func TestGetOrgUsageSummarySurvivesComputeFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	org := &types.Organization{ID: "org_123", Name: "koala-bunny-corp"}
+	user := types.User{ID: "user_admin", Admin: true}
+
+	mockStore.EXPECT().
+		GetOrganization(gomock.Any(), &store.GetOrganizationQuery{Name: org.Name}).
+		Return(org, nil)
+	mockStore.EXPECT().
+		GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().
+		GetOrgUsageSummary(gomock.Any(), gomock.Any()).
+		Return(&types.OrgUsageSummaryResponse{RawTokenCost: 42}, nil)
+	mockStore.EXPECT().
+		GetOrgComputeUsage(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("compute query exploded"))
+
+	req := httptest.NewRequest("GET", "/api/v1/usage/org-summary?org_id=koala-bunny-corp", nil)
+	req = req.WithContext(setRequestUser(req.Context(), user))
+
+	resp, httpErr := server.getOrgUsageSummary(httptest.NewRecorder(), req)
+	require.Nil(t, httpErr)
+	require.NotNil(t, resp)
+	require.Equal(t, float64(42), resp.RawTokenCost)
+	require.Nil(t, resp.Compute)
 }

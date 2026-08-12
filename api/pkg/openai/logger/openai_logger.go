@@ -90,7 +90,7 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 	start := time.Now()
 	resp, err := m.client.CreateChatCompletion(ctx, request)
 	if err != nil {
-		m.logLLMCall(ctx, start, &request, &resp, err, false, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, start, &request, &resp, err, false, time.Since(start).Milliseconds(), 0)
 		return resp, err
 	}
 
@@ -104,7 +104,7 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 
 		defer m.wg.Done()
 
-		m.logLLMCall(ctx, start, &request, &resp, nil, false, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, start, &request, &resp, nil, false, time.Since(start).Milliseconds(), time.Since(start).Milliseconds())
 	}()
 
 	return resp, nil
@@ -115,7 +115,7 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 
 	upstream, err := m.client.CreateChatCompletionStream(ctx, request)
 	if err != nil {
-		m.logLLMCall(ctx, start, &request, nil, err, true, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, start, &request, nil, err, true, time.Since(start).Milliseconds(), 0)
 		return nil, err
 	}
 
@@ -138,6 +138,20 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 
 		var resp = openai.ChatCompletionResponse{}
 
+		// A non-EOF error mid-stream (provider 5xx surfaced during the read,
+		// client/proxy disconnect -> context canceled, transport drop) must be
+		// recorded on the LLM call. Previously it was only logged to stderr and
+		// the call was written with error=nil, so a failed stream landed in the
+		// LLM logs as a phantom "success" with an empty response - invisible when
+		// filtering for errors.
+		var streamErr error
+
+		// Time-to-first-token: wall time until the first chunk arrives. Isolates
+		// provider prefill / cold-start latency from generation time. Stays 0 if
+		// the stream is cut before any chunk (e.g. a proxy read-timeout on a cold
+		// provider surfacing as context canceled).
+		var firstTokenMs int64
+
 		// Read from the upstream stream and write to the downstream stream
 		for {
 			msg, err := upstream.Recv()
@@ -145,8 +159,13 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 				if err == io.EOF {
 					break
 				}
+				streamErr = err
 				log.Error().Err(err).Msg("failed to receive message from upstream stream")
 				break
+			}
+
+			if firstTokenMs == 0 {
+				firstTokenMs = time.Since(start).Milliseconds()
 			}
 
 			// Add the message to the response
@@ -159,7 +178,7 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 		}
 
 		// Once the stream is done, close the downstream writer
-		m.logLLMCall(ctx, start, &request, &resp, nil, true, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, start, &request, &resp, streamErr, true, time.Since(start).Milliseconds(), firstTokenMs)
 	}()
 
 	return downstream, nil
@@ -211,23 +230,13 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 		}
 	}
 
-	// Append the usage
+	// Streaming usage is a cumulative snapshot for the request, not a per-chunk delta.
 	if chunk.Usage != nil {
-		resp.Usage.PromptTokens += chunk.Usage.PromptTokens
-		resp.Usage.CompletionTokens += chunk.Usage.CompletionTokens
-		resp.Usage.TotalTokens += chunk.Usage.TotalTokens
-
-		if chunk.Usage.PromptTokensDetails != nil {
-			if resp.Usage.PromptTokensDetails == nil {
-				resp.Usage.PromptTokensDetails = &openai.PromptTokensDetails{}
-			}
-			resp.Usage.PromptTokensDetails.CachedTokens += chunk.Usage.PromptTokensDetails.CachedTokens
-			resp.Usage.PromptTokensDetails.AudioTokens += chunk.Usage.PromptTokensDetails.AudioTokens
-		}
+		resp.Usage = *chunk.Usage
 	}
 }
 
-func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, apiError error, stream bool, durationMs int64) {
+func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, apiError error, stream bool, durationMs int64, firstTokenMs int64) {
 	// Remove the cancel function from the context
 	ctx = context.WithoutCancel(ctx)
 
@@ -354,7 +363,8 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		Request:          reqBts,
 		Response:         respBts,
 		Provider:         string(m.provider),
-		DurationMs:       durationMs,
+		DurationMs:         durationMs,
+		TimeToFirstTokenMs: firstTokenMs,
 		PromptTokens:     int64(promptTokens),
 		CompletionTokens: int64(completionTokens),
 		TotalTokens:      int64(totalTokens),

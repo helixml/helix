@@ -9,6 +9,7 @@ import { SxProps } from '@mui/system'
 import SearchIcon from '@mui/icons-material/Search'
 import LightModeIcon from '@mui/icons-material/LightMode'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
+import { PanelLeft } from 'lucide-react'
 
 import AppBar from './AppBar'
 import GlobalSearchDialog from './GlobalSearchDialog'
@@ -20,6 +21,7 @@ import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
 import useDocumentTitle from '../../hooks/useDocumentTitle'
 import { ThemeContext } from '../../contexts/theme'
+import { useChatSidebar } from '../../contexts/chatSidebar'
 
 import {
   IPageBreadcrumb,
@@ -49,7 +51,7 @@ const Page: React.FC<{
   organizationId?: string,
   globalSearch?: boolean,
   globalSearchResourceTypes?: TypesResource[],
-  // notifications
+  // notifications — the bell is part of the standard topbar; opt out per page
   notifications?: boolean,
   children?: ReactNode,
 }> = ({
@@ -70,14 +72,21 @@ const Page: React.FC<{
   organizationId,
   globalSearch = false,
   globalSearchResourceTypes,
-  notifications = false,
+  notifications = true,
   children,
 }) => {
   const router = useRouter()
   const account = useAccount()
   const lightTheme = useLightTheme()
   const { mode, toggleMode } = useContext(ThemeContext)
+  const chatSidebar = useChatSidebar()
   const [searchDialogOpen, setSearchDialogOpen] = useState(false)
+  const showChatSidebarButton = chatSidebar.collapsed && [
+    'org_chat',
+    'org_chat-task',
+    'org_session',
+    'org_new',
+  ].includes(router.name)
 
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -241,12 +250,29 @@ const Page: React.FC<{
       {
         (useTopbarTitle || topbarContent || breadcrumbTitle || showTopbar) && (
           <Box
+            data-page-toolbar
             sx={{
               flexGrow: 0,
             }}
           >
             <AppBar
               title={ useTopbarTitle }
+              leadingContent={showChatSidebarButton ? (
+                <Tooltip title="Open chat panel">
+                  <IconButton
+                    onClick={chatSidebar.expand}
+                    aria-label="Open chat panel"
+                    sx={{
+                      width: 30,
+                      height: 30,
+                      color: 'text.secondary',
+                      '&:hover': { color: 'text.primary' },
+                    }}
+                  >
+                    <PanelLeft size={18} strokeWidth={1.7} />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
               leftContent={ topbarLeftContent }
               px={ px }
               onOpenDrawer={ showDrawerButton ? () => account.setMobileMenuOpen(true) : undefined }
@@ -307,10 +333,14 @@ const Page: React.FC<{
                   }}
                   sx={{
                     width: 200,
+                    height: 32,
                     mr: 2,
                     flexShrink: 0,
                     cursor: 'pointer',
                     '& .MuiOutlinedInput-root': {
+                      height: 32,
+                      minHeight: 32,
+                      py: 0,
                       cursor: 'pointer',
                       background: lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.03)',
                       '& fieldset': {
@@ -325,6 +355,7 @@ const Page: React.FC<{
                       },
                     },
                     '& .MuiInputBase-input': {
+                      py: 0,
                       cursor: 'pointer',
                       color: lightTheme.textColor,
                       fontWeight: lightTheme.isLight ? 500 : 400,
@@ -336,14 +367,28 @@ const Page: React.FC<{
                   }}
                 />
               )}
-              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+              <Box
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  '& .MuiButton-root': {
+                    minHeight: 32,
+                    height: 32,
+                    py: 0,
+                  },
+                  '& .MuiButtonGroup-root': {
+                    height: 32,
+                  },
+                }}
+              >
                 { topbarContent }
                 <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
                   <IconButton onClick={toggleMode} size="small" sx={{ color: lightTheme.textColorFaded }}>
                     {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
                   </IconButton>
                 </Tooltip>
-                <GlobalNotifications organizationId={organizationId} />
+                {notifications && <GlobalNotifications organizationId={organizationId} />}
               </Box>
             </AppBar>
           </Box>

@@ -9,10 +9,10 @@ import (
 
 // TestOutcomeMarkerRoundTrip pins both directions of the canonical
 // "=== exit: ... ===" marker shape: how emitters render an Outcome
-// to the transcript stream, and how readers parse the same marker
+// to the transcript topic, and how readers parse the same marker
 // back into a typed Outcome. The marker is the only wire format
 // historically — every transcript reader (worker_log consumers, chat
-// UI, /ui/streams) string-matched it. Lifting the format into one
+// UI, /ui/topics) string-matched it. Lifting the format into one
 // shared helper means writers and readers can't drift.
 func TestOutcomeMarkerRoundTrip(t *testing.T) {
 	t.Parallel()

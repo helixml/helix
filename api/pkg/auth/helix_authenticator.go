@@ -84,6 +84,17 @@ func (h *HelixAuthenticator) isUserInAdminList(userID string) bool {
 	return false
 }
 
+// isAllUsersAdmin reports whether ADMIN_USER_IDS contains the "all" dev-mode
+// wildcard.
+func (h *HelixAuthenticator) isAllUsersAdmin() bool {
+	for _, adminID := range h.cfg.WebServer.AdminUserIDs {
+		if adminID == config.AdminAllUsers {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *HelixAuthenticator) CreateUser(ctx context.Context, user *types.User) (*types.User, error) {
 	if user.Password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
@@ -96,10 +107,20 @@ func (h *HelixAuthenticator) CreateUser(ctx context.Context, user *types.User) (
 
 	user.Waitlisted = h.cfg.Auth.Waitlist
 
-	// Check if user should be admin based on ADMIN_USER_IDS env var
+	// Check if user should be admin based on ADMIN_USER_IDS env var.
+	//
+	// Only an explicit user-ID match is persisted. The "all" wildcard is a
+	// dev-mode switch that already grants admin dynamically on every
+	// authenticated request, so persisting it is redundant — and harmful:
+	// the stored flag is never re-evaluated, so every account that registered
+	// while the wildcard was on would stay a permanent superuser (treated as
+	// owner of every organization, see orgstore.Authorizer.AuthorizeOrgMember)
+	// long after ADMIN_USER_IDS is tightened.
 	if h.isUserInAdminList(user.ID) {
-		user.Admin = true
 		user.Waitlisted = false
+		if !h.isAllUsersAdmin() {
+			user.Admin = true
+		}
 	}
 
 	return h.store.CreateUser(ctx, user)

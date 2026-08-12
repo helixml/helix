@@ -21,10 +21,24 @@ type Wallet struct {
 	SubscriptionCreated            int64                     `json:"subscription_created"`
 	SubscriptionCancelAtPeriodEnd  bool                      `json:"subscription_cancel_at_period_end"`
 
+	// PlanOverride, when set ("free"|"pro"), forces the quota tier for this
+	// wallet regardless of the Stripe subscription — used to grant a paid plan
+	// to a customer who paid out-of-band (bank transfer, no card / no Stripe).
+	// "" means derive the tier from the Stripe subscription as usual. Stripe
+	// sync only ever writes the Subscription* fields, never this one, so an
+	// admin grant can't be reverted by a webhook.
+	PlanOverride string `json:"plan_override,omitempty" gorm:"index"`
+
 	UserID  string  `json:"user_id" gorm:"index"`
 	OrgID   string  `json:"org_id" gorm:"index"` // If belongs to an organization
 	Balance float64 `json:"balance"`
 }
+
+// Plan override values for Wallet.PlanOverride.
+const (
+	PlanOverridePro  = "pro"
+	PlanOverrideFree = "free"
+)
 
 func (w *Wallet) IsSubscriptionActive() bool {
 	switch w.SubscriptionStatus {

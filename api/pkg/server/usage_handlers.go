@@ -1,13 +1,18 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
+	modelpkg "github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -261,8 +266,229 @@ func (s *HelixAPIServer) getOrgUsageSummary(_ http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+	s.enrichOrgUsageCosts(r.Context(), summary)
+
+	// Sandbox runtime is the other half of the bill. It comes from the wallet
+	// ledger rather than usage_metrics, so it is a separate query rather than
+	// part of GetOrgUsageSummary. A failure here must not blank the token
+	// numbers the page is mainly about.
+	compute, err := s.Store.GetOrgComputeUsage(r.Context(), &store.GetOrgComputeUsageQuery{
+		OrganizationID: orgID,
+		ProjectID:      r.URL.Query().Get("project_id"),
+		From:           from,
+		To:             to,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Msg("failed to load organization compute usage")
+	} else {
+		summary.Compute = compute
+	}
 
 	return summary, nil
+}
+
+func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types.OrgUsageSummaryResponse) {
+	if summary == nil {
+		return
+	}
+
+	type providerAggregate struct {
+		row    types.UsageBreakdownRow
+		byDate map[time.Time]*types.AggregatedUsageMetric
+	}
+	providers := make(map[string]*providerAggregate)
+	modelCosts := make(map[string]float64)
+	modelProviders := make(map[string]string)
+	modelInfo := make(map[string]*types.ModelInfo)
+	missingModelInfo := make(map[string]bool)
+	endpointProviders := make(map[string]string)
+	checkedEndpoints := make(map[string]bool)
+
+	for _, row := range summary.CostBreakdown {
+		key := row.Provider + ":" + row.Model
+		info, known := modelInfo[key]
+		if !known && !missingModelInfo[key] && s.modelInfoProvider != nil {
+			resolved, err := s.modelInfoProvider.GetModelInfo(ctx, &modelpkg.ModelInfoRequest{
+				Provider: row.Provider,
+				Model:    row.Model,
+			})
+			if err != nil {
+				missingModelInfo[key] = true
+				log.Debug().Err(err).Str("provider", row.Provider).Str("model", row.Model).
+					Msg("model cannot be priced for organization usage")
+			} else {
+				info = resolved
+				modelInfo[key] = resolved
+			}
+		}
+
+		estimatedCost := row.TotalCost
+		if info != nil {
+			pricingPromptTokens := row.PromptTokens
+			if row.Source == types.UsageMetricSourceACP {
+				pricingPromptTokens += row.CacheReadTokens + row.CacheWriteTokens
+			}
+			usage := pricing.TokenUsage{
+				PromptTokens:     int64(pricingPromptTokens),
+				CompletionTokens: int64(row.CompletionTokens),
+				CacheReadTokens:  int64(row.CacheReadTokens),
+				CacheWriteTokens: int64(row.CacheWriteTokens),
+			}
+			priced, err := pricing.CalculateTokenPrice(info, usage)
+			if err == nil {
+				if estimatedCost == 0 {
+					estimatedCost = priced.Total()
+				}
+				fullRate, fullRateErr := pricing.CalculateTokenPrice(info, pricing.TokenUsage{
+					PromptTokens:     int64(pricingPromptTokens),
+					CompletionTokens: int64(row.CompletionTokens),
+				})
+				if fullRateErr == nil {
+					summary.CacheSavings += max(fullRate.Total()-priced.Total(), 0)
+				}
+			}
+		}
+
+		summary.RawTokenCost += estimatedCost
+		if row.Source == types.UsageMetricSourceACP {
+			summary.SubscriptionSavings += estimatedCost
+		}
+		modelCosts[key] += estimatedCost
+		displayProvider := ""
+		if strings.HasPrefix(row.Provider, system.ProviderEndpointPrefix) && s.Store != nil {
+			if !checkedEndpoints[row.Provider] {
+				checkedEndpoints[row.Provider] = true
+				endpoint, endpointErr := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: row.Provider})
+				if endpointErr != nil {
+					log.Debug().Err(endpointErr).Str("provider", row.Provider).
+						Msg("failed to resolve provider endpoint for organization usage")
+				} else if endpoint != nil && endpoint.EndpointType == types.ProviderEndpointTypeGlobal && endpoint.OwnerType == types.OwnerTypeSystem {
+					// Database-backed system globals are Helix-managed inference routes
+					// (for example vLLM or SGLang), not the catalog provider for the model ID.
+					endpointProviders[row.Provider] = "helix/" + endpoint.Name
+				}
+			}
+			displayProvider = endpointProviders[row.Provider]
+		}
+		if displayProvider == "" && info != nil && info.ProviderSlug != "" {
+			displayProvider = info.ProviderSlug
+		}
+		if displayProvider == "" {
+			displayProvider = row.Provider
+		}
+		modelProviders[key] = displayProvider
+
+		providerKey := displayProvider
+		if providerKey == "" {
+			providerKey = "unknown"
+		}
+		aggregate := providers[providerKey]
+		if aggregate == nil {
+			aggregate = &providerAggregate{
+				row: types.UsageBreakdownRow{
+					ID:       providerKey,
+					Name:     usageProviderName(providerKey),
+					Provider: providerKey,
+				},
+				byDate: make(map[time.Time]*types.AggregatedUsageMetric),
+			}
+			providers[providerKey] = aggregate
+		}
+		aggregate.row.PromptTokens += row.PromptTokens
+		aggregate.row.CompletionTokens += row.CompletionTokens
+		aggregate.row.TotalTokens += row.TotalTokens
+		aggregate.row.CacheReadTokens += row.CacheReadTokens
+		aggregate.row.CacheWriteTokens += row.CacheWriteTokens
+		aggregate.row.TotalCost += estimatedCost
+
+		metric := aggregate.byDate[row.Date]
+		if metric == nil {
+			metric = &types.AggregatedUsageMetric{Date: row.Date}
+			aggregate.byDate[row.Date] = metric
+		}
+		metric.PromptTokens += row.PromptTokens
+		metric.CompletionTokens += row.CompletionTokens
+		metric.TotalTokens += row.TotalTokens
+		metric.CacheReadTokens += row.CacheReadTokens
+		metric.CacheWriteTokens += row.CacheWriteTokens
+		metric.TotalCost += estimatedCost
+		// Accumulate total duration here and average it once all rows for the
+		// provider-day are in — averaging per row would weight a day with one
+		// slow call the same as a day with a thousand fast ones.
+		metric.LatencyMs += row.DurationMs
+		metric.TotalRequests += row.TotalRequests
+	}
+
+	for index := range summary.Models {
+		row := &summary.Models[index]
+		key := row.Provider + ":" + row.Model
+		row.TotalCost = modelCosts[key]
+		row.Provider = modelProviders[key]
+	}
+	for index := range summary.ExportModels {
+		row := &summary.ExportModels[index]
+		key := row.Provider + ":" + row.Model
+		row.TotalCost = modelCosts[key]
+		row.Provider = modelProviders[key]
+	}
+
+	providerKeys := make([]string, 0, len(providers))
+	for key := range providers {
+		providerKeys = append(providerKeys, key)
+	}
+	sort.Slice(providerKeys, func(i, j int) bool {
+		return providers[providerKeys[i]].row.TotalCost > providers[providerKeys[j]].row.TotalCost
+	})
+	for _, key := range providerKeys {
+		aggregate := providers[key]
+		summary.Providers = append(summary.Providers, aggregate.row)
+		series := types.UsageProviderTimeSeries{
+			Provider: key,
+			Name:     aggregate.row.Name,
+		}
+		for _, totalMetric := range summary.Metrics {
+			metric := aggregate.byDate[totalMetric.Date]
+			if metric == nil {
+				metric = &types.AggregatedUsageMetric{Date: totalMetric.Date}
+			}
+			point := *metric
+			// LatencyMs accumulated total duration above; publish the mean per
+			// request, which is what the latency chart plots.
+			if point.TotalRequests > 0 {
+				point.LatencyMs = point.LatencyMs / float64(point.TotalRequests)
+			} else {
+				point.LatencyMs = 0
+			}
+			series.Metrics = append(series.Metrics, point)
+		}
+		summary.ProviderTimeSeries = append(summary.ProviderTimeSeries, series)
+	}
+	if summary.HelixCredits < 0 {
+		summary.HelixCredits = 0
+	}
+}
+
+func usageProviderName(provider string) string {
+	switch strings.ToLower(provider) {
+	case "openai":
+		return "OpenAI"
+	case "anthropic":
+		return "Anthropic"
+	case "google", "google-ai", "gemini":
+		return "Google"
+	case "xai":
+		return "xAI"
+	case "azure":
+		return "Azure OpenAI"
+	case "amazon-bedrock", "aws":
+		return "Amazon Bedrock"
+	case "deepseek":
+		return "DeepSeek"
+	case "unknown":
+		return "Unknown"
+	default:
+		return provider
+	}
 }
 
 func mergeSandboxUsageCosts(metrics []*types.AggregatedUsageMetric, sandboxMetrics []*types.AggregatedUsageMetric) {

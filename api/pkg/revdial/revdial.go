@@ -354,9 +354,8 @@ type Listener struct {
 	dial   func(context.Context, string) (*websocket.Conn, *http.Response, error)
 	writec chan<- []byte
 
-	mu      sync.Mutex // guards below, closing connc, and writing to rw
-	readErr error
-	closed  bool
+	mu     sync.Mutex // guards below and writing to rw
+	closed bool
 }
 
 type controlMsg struct {
@@ -458,6 +457,10 @@ func (ln *Listener) grabConn(path string) {
 	select {
 	case ln.connc <- wsconnadapter.New(wsConn):
 	case <-ln.donec:
+		// Listener closed while we were picking up — drop the connection
+		// instead of leaking it. (connc is never closed, so the send case
+		// above can never panic.)
+		wsConn.Close()
 	}
 }
 
@@ -468,19 +471,21 @@ func (ln *Listener) Closed() bool {
 	return ln.closed
 }
 
-// Accept blocks and returns a new connection, or an error.
+// Accept blocks and returns a new connection, or an error. connc is never
+// closed (see Close); closure is signalled by donec, so we select on both and
+// still drain any connection already buffered before closure.
 func (ln *Listener) Accept() (net.Conn, error) {
-	c, ok := <-ln.connc
-	if !ok {
-		ln.mu.Lock()
-		err, closed := ln.readErr, ln.closed
-		ln.mu.Unlock()
-		if err != nil && !closed {
-			return nil, fmt.Errorf("revdial: Listener closed; %v", err)
+	select {
+	case c := <-ln.connc:
+		return c, nil
+	case <-ln.donec:
+		select {
+		case c := <-ln.connc:
+			return c, nil
+		default:
+			return nil, ErrListenerClosed
 		}
-		return nil, ErrListenerClosed
 	}
-	return c, nil
 }
 
 // ErrListenerClosed is returned by Accept after Close has been called.
@@ -496,7 +501,10 @@ func (ln *Listener) Close() error {
 	}
 	go ln.sc.Close()
 	ln.closed = true
-	close(ln.connc)
+	// Signal closure via donec ONLY. We must never close connc: it has multiple
+	// concurrent senders (grabConn goroutines), and a send on a closed channel
+	// panics — even inside a select — which previously crashed hydra and took a
+	// whole runner offline. grabConn and Accept both select on donec instead.
 	close(ln.donec)
 	return nil
 }

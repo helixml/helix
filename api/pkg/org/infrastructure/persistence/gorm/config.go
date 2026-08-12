@@ -7,7 +7,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/org/domain/config"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 )
 
@@ -16,7 +15,6 @@ type configRow struct {
 	Key       string `gorm:"primaryKey;type:text"`
 	Value     string `gorm:"not null"`
 	UpdatedAt time.Time
-	UpdatedBy string `gorm:"type:text"`
 }
 
 func (configRow) TableName() string { return "org_configs" }
@@ -29,7 +27,6 @@ func (configMapper) ToRow(cfg config.Config) (configRow, error) {
 		Key:       cfg.Key,
 		Value:     cfg.Value,
 		UpdatedAt: cfg.UpdatedAt,
-		UpdatedBy: string(cfg.UpdatedBy),
 	}, nil
 }
 
@@ -39,7 +36,6 @@ func (configMapper) ToDomain(row configRow) (config.Config, error) {
 		Key:            row.Key,
 		Value:          row.Value,
 		UpdatedAt:      row.UpdatedAt,
-		UpdatedBy:      orgchart.WorkerID(row.UpdatedBy),
 	}, nil
 }
 

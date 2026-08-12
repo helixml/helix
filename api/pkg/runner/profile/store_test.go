@@ -180,6 +180,24 @@ func TestService_Create_RejectsBadInput(t *testing.T) {
 	}
 }
 
+// neuron is a valid accelerator vendor (Inferentia/Trainium). Guards the
+// vendor-validation switch in Create against a regression that would reject
+// neuron profiles the way an unknown vendor ("intel") is rejected above.
+func TestService_Create_AcceptsNeuronVendor(t *testing.T) {
+	svc := New(newFakeDB())
+	p, err := svc.Create(context.Background(), SaveInput{
+		Name:        "neuron-profile",
+		ComposeYAML: tinyCompose,
+		Vendor:      types.GPUVendorNeuron,
+	})
+	if err != nil {
+		t.Fatalf("neuron vendor should be accepted, got error: %v", err)
+	}
+	if p.GPURequirement.Vendor != types.GPUVendorNeuron {
+		t.Errorf("Vendor: got %q, want %q", p.GPURequirement.Vendor, types.GPUVendorNeuron)
+	}
+}
+
 func TestService_Update_RederivesAndPreservesID(t *testing.T) {
 	db := newFakeDB()
 	svc := New(db)

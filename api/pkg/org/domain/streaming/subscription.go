@@ -5,33 +5,31 @@ import (
 	"time"
 )
 
-// Subscription is a Worker's link to a Stream. The (WorkerID, StreamID)
-// pair is the identity — there is no synthetic ID.
+// Subscription is a Bot's link to a Topic. The (NodeID, TopicID) pair is
+// the identity — there is no synthetic ID.
 //
-// Subscriptions are WORKER-anchored: firing a Worker drops its
-// subscriptions. The hiring playbook re-subscribes new hires
-// explicitly, which lets two Workers in the same Role consume
-// different streams (specialisation) or only the on-call subset of a
-// role wake up on a given event (load patterns).
+// Subscriptions are BOT-anchored: deleting a Bot drops its
+// subscriptions. They are driven explicitly (subscribe / unsubscribe),
+// letting each Bot consume exactly the topics it should.
 //
-// WorkerID is an orgchart.WorkerID carried as a plain string; the
-// streaming aggregate intentionally does not import orgchart to keep
-// the dependency DAG one-way.
+// NodeID is an orgchart.NodeID carried as a plain string; the streaming
+// aggregate intentionally does not import orgchart to keep the
+// dependency DAG one-way.
 type Subscription struct {
 	OrganizationID string
-	WorkerID       string // orgchart.WorkerID
-	StreamID       StreamID
+	NodeID         string // orgchart.NodeID
+	TopicID        TopicID
 	CreatedAt      time.Time
 }
 
 // NewSubscription validates and constructs a Subscription. orgID is
 // required — subscriptions are tenant-scoped.
-func NewSubscription(workerID string, streamID StreamID, createdAt time.Time, orgID string) (Subscription, error) {
-	if workerID == "" {
-		return Subscription{}, errors.New("subscription workerId is empty")
+func NewSubscription(botID string, topicID TopicID, createdAt time.Time, orgID string) (Subscription, error) {
+	if botID == "" {
+		return Subscription{}, errors.New("subscription botId is empty")
 	}
-	if streamID == "" {
-		return Subscription{}, errors.New("subscription streamId is empty")
+	if topicID == "" {
+		return Subscription{}, errors.New("subscription topicId is empty")
 	}
 	if createdAt.IsZero() {
 		return Subscription{}, errors.New("subscription createdAt is zero")
@@ -41,8 +39,8 @@ func NewSubscription(workerID string, streamID StreamID, createdAt time.Time, or
 	}
 	return Subscription{
 		OrganizationID: orgID,
-		WorkerID:       workerID,
-		StreamID:       streamID,
+		NodeID:         botID,
+		TopicID:        topicID,
 		CreatedAt:      createdAt.UTC(),
 	}, nil
 }

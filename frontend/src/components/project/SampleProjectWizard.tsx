@@ -34,7 +34,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
-import useOAuthFlow from '../../hooks/useOAuthFlow'
+import useOAuthFlow, { GITHUB_VCS_SCOPES } from '../../hooks/useOAuthFlow'
 import {
   TypesCheckSampleProjectAccessResponse,
   TypesRepositoryAccessCheck,
@@ -424,7 +424,12 @@ const SampleProjectWizard: FC<SampleProjectWizardProps> = ({
                   return
                 }
 
-                const scopes = sampleProject?.required_scopes || ['repo', 'read:user', 'user:email']
+                // Always request at least the full VCS baseline so connecting here
+                // can't downgrade an existing grant (GitHub replaces scopes on
+                // re-auth); union any sample-declared extras on top.
+                const scopes = Array.from(
+                  new Set([...GITHUB_VCS_SCOPES, ...(sampleProject?.required_scopes || [])])
+                )
                 await startOAuthFlow({
                   providerId: githubProvider.id,
                   scopes,

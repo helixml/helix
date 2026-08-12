@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/helixml/helix/api/pkg/cli/api"
 	"github.com/helixml/helix/api/pkg/cli/app"
 	"github.com/helixml/helix/api/pkg/cli/chat"
 	"github.com/helixml/helix/api/pkg/cli/fs"
@@ -14,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/cli/mcp"
 	"github.com/helixml/helix/api/pkg/cli/member"
 	"github.com/helixml/helix/api/pkg/cli/model"
+	"github.com/helixml/helix/api/pkg/cli/org"
 	"github.com/helixml/helix/api/pkg/cli/organization"
 	"github.com/helixml/helix/api/pkg/cli/project"
 	"github.com/helixml/helix/api/pkg/cli/provider"
@@ -50,6 +52,8 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(project.New())
 	RootCmd.AddCommand(sandbox.New())
 	RootCmd.AddCommand(spectask.New())
+	RootCmd.AddCommand(org.New())
+	RootCmd.AddCommand(api.New())
 	RootCmd.AddCommand(mcp.New())
 	RootCmd.AddCommand(model.New())
 	RootCmd.AddCommand(provider.New())

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   DialogTitle,
   DialogContent,
@@ -16,13 +16,14 @@ import TriggerCron from '../app/TriggerCron';
 import AgentSelector from './AgentSelector';
 import ExecutionsHistory from './ExecutionsHistory';
 import { IApp } from '../../types'
-import { TypesTrigger, TypesTriggerConfiguration, TypesTriggerType, TypesOwnerType } from '../../api/api'
+import { TypesTrigger, TypesTriggerConfiguration, TypesTriggerExecutionStatus, TypesTriggerType, TypesOwnerType } from '../../api/api'
 
 import { useCreateAppTrigger, useUpdateAppTrigger, useExecuteAppTrigger } from '../../services/appService';
 import useAccount from '../../hooks/useAccount';
 import useSnackbar from '../../hooks/useSnackbar';
 
 import { generateAmusingName } from '../../utils/names';
+import { isChatSelectableAgent } from '../../utils/apps';
 
 interface TaskDialogProps {
   open: boolean;
@@ -47,38 +48,43 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [createdTaskId, setCreatedTaskId] = useState<string | undefined>(task?.id);
+  const eligibleApps = useMemo(() => apps.filter(isChatSelectableAgent), [apps]);
 
   // Get the current task ID for fetching executions
   const currentTaskId = createdTaskId || task?.id;
 
   // Initialize selected agent when apps are available
   useEffect(() => {
-    if (apps.length > 0 && !selectedAgent) {
+    if (eligibleApps.length === 0) {
+      setSelectedAgent(undefined);
+      return;
+    }
+    if (!selectedAgent || !eligibleApps.some((app) => app.id === selectedAgent.id)) {
       // If editing an existing task, find the associated agent
       if (task?.app_id) {
-        const associatedAgent = apps.find(app => app.id === task.app_id);
+        const associatedAgent = eligibleApps.find(app => app.id === task.app_id);
         if (associatedAgent) {
           setSelectedAgent(associatedAgent);
         } else {
           // Fallback to first app if associated agent not found
-          setSelectedAgent(apps[0]);
+          setSelectedAgent(eligibleApps[0]);
         }
       } else {
         // For new tasks, select the first agent
-        setSelectedAgent(apps[0]);
+        setSelectedAgent(eligibleApps[0]);
       }
     }
-  }, [apps, task?.app_id]);
+  }, [eligibleApps, task?.app_id, selectedAgent]);
 
   // Update selected agent when task changes (for editing existing tasks)
   useEffect(() => {
-    if (task?.app_id && apps.length > 0) {
-      const associatedAgent = apps.find(app => app.id === task.app_id);
+    if (task?.app_id && eligibleApps.length > 0) {
+      const associatedAgent = eligibleApps.find(app => app.id === task.app_id);
       if (associatedAgent) {
         setSelectedAgent(associatedAgent);
       }
     }
-  }, [task?.app_id, apps]);
+  }, [task?.app_id, eligibleApps]);
 
   // Update task name when task prop changes
   useEffect(() => {
@@ -259,8 +265,20 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
         await updateTriggerMutation.mutateAsync(triggerConfig);
       }
 
-      await executeTriggerMutation.mutateAsync();
-      snackbar.success('Task executed successfully');
+      const response = await executeTriggerMutation.mutateAsync();
+      switch (response.data.status) {
+        case TypesTriggerExecutionStatus.TriggerExecutionStatusRunning:
+          snackbar.info('Task started');
+          break;
+        case TypesTriggerExecutionStatus.TriggerExecutionStatusSkipped:
+          snackbar.warning('Task skipped because the previous execution is still running');
+          break;
+        case TypesTriggerExecutionStatus.TriggerExecutionStatusSuccess:
+          snackbar.success('Task executed successfully');
+          break;
+        default:
+          snackbar.warning('Task execution state could not be determined');
+      }
     } catch (err) {
       console.error('Error updating or executing task:', err);
       setError(err instanceof Error ? err.message : 'Failed to update or execute task');
@@ -404,7 +422,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
         <Box sx={{ display: 'flex', gap: 1 }}>
           {/* Agent Selector */}
           <AgentSelector
-            apps={apps}
+            apps={eligibleApps}
             selectedAgent={selectedAgent}
             onAgentSelect={handleAgentSelect}
           />  
@@ -434,4 +452,4 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
   );
 };
 
-export default TaskDialog; 
+export default TaskDialog;

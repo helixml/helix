@@ -1,0 +1,295 @@
+//! OBS + wolf synthesis for NVIDIA capture.
+//!
+//! The problem: importing Mutter's external PipeWire dma-buf into CUDA *per
+//! frame* (`cuGraphicsEGLRegisterImage`) spikes to tens of ms under GPU
+//! contention and cannot be cached (a cached registration of an external,
+//! producer-written buffer serves stale/reordered frames).
+//!
+//! The fix, taken from the two high-performance references:
+//!   - OBS (PipeWire capture + NVENC): imports the external dma-buf as a *GL
+//!     texture* every frame — cheap (`eglCreateImage` + GL bind, no CUDA
+//!     register) — then composites into a framebuffer OBS owns.
+//!   - wolf / gst-wayland-display: renders into ONE persistent buffer it owns
+//!     whose CUDA registration is created ONCE and reused every frame.
+//!
+//! So: per frame we GL-import the capture (cheap) and blit it into a persistent
+//! buffer we own (`GsCUDABuf`, registered to CUDA once at creation); then map
+//! that buffer for nvenc. The expensive CUDA register happens once, not 60×/s,
+//! and we never cache-register an external buffer.
+//!
+//! Thread affinity: a `GlesRenderer` is GL-context-bound, so a `GlBlitter` is
+//! created on and confined to the PipeWire loop thread (held as a local there,
+//! captured by the local process closure — never sent across threads).
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use smithay::backend::allocator::dmabuf::Dmabuf;
+use smithay::backend::allocator::Buffer as _;
+use smithay::backend::drm::DrmNode;
+use smithay::backend::egl::{EGLContext, EGLDisplay};
+use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::{Color32F, Frame, ImportDma, Renderer};
+use smithay::utils::{Physical, Point, Rectangle, Size, Transform};
+
+use gst_video::{VideoCapsBuilder, VideoFormat, VideoInfo, VideoInfoDmaDrm};
+
+use waylanddisplaycore::utils::allocator::cuda::{
+    CUDAContext, CUDABufferPool, CAPS_FEATURE_MEMORY_CUDA_MEMORY,
+};
+use waylanddisplaycore::utils::allocator::{GsBuffer, GsBufferType, GsCUDABuf};
+
+use crate::pipewire_stream::FrameData;
+
+/// Per-thread GL blitter that feeds wolf's persistent-buffer CUDA path from our
+/// PipeWire capture. Lives on the PipeWire loop thread only.
+pub struct GlBlitter {
+    renderer: GlesRenderer,
+    cuda_context: Arc<Mutex<CUDAContext>>,
+    render_node: DrmNode,
+    /// Persistent owned output buffer, registered to CUDA once. Created lazily
+    /// on the first frame (when we know the capture dimensions/format).
+    output: Option<GsBufferType>,
+    out_w: u32,
+    out_h: u32,
+    /// One persistent Dmabuf per PipeWire pool slot (keyed by the stable slot
+    /// fd). smithay caches dmabuf→GL-texture in a HashMap<WeakDmabuf, _> and
+    /// PRUNES entries when the Dmabuf drops. We used to build a fresh Dmabuf per
+    /// frame and drop it, so smithay's cache was pruned every frame → eglCreateImage
+    /// re-ran (~55ms spikes). Keeping one Dmabuf alive per slot keeps smithay's
+    /// texture cached → import_dmabuf is a cheap cache hit. The fd is kept valid
+    /// because the Dmabuf owns the dup'd fd for its lifetime.
+    slot_dmabufs: HashMap<i32, Dmabuf>,
+    /// Kept so we can import Mutter's explicit acquire fence as an EGLFence and
+    /// `eglWaitSync` (server-side) before sampling the capture buffer — the fix
+    /// for the NVIDIA import race (stale-frame flash). See sync_timeline.rs.
+    egl_display: Arc<EGLDisplay>,
+}
+
+impl GlBlitter {
+    /// Build a GL renderer sharing `egl_display` (the same display used for the
+    /// CUDA buffer's EGLImage, so render + CUDA-map are coherent).
+    pub fn new(
+        egl_display: &Arc<EGLDisplay>,
+        cuda_context: Arc<Mutex<CUDAContext>>,
+        render_node: DrmNode,
+    ) -> Result<Self, String> {
+        let context =
+            EGLContext::new(egl_display).map_err(|e| format!("EGLContext::new: {:?}", e))?;
+        let renderer =
+            unsafe { GlesRenderer::new(context) }.map_err(|e| format!("GlesRenderer::new: {:?}", e))?;
+        Ok(Self {
+            renderer,
+            cuda_context,
+            render_node,
+            output: None,
+            out_w: 0,
+            out_h: 0,
+            slot_dmabufs: HashMap::new(),
+            egl_display: egl_display.clone(),
+        })
+    }
+
+    /// Import the capture dma-buf as a GL texture, blit it into our persistent
+    /// CUDA buffer, and return a CUDAMemory GstBuffer for nvenc.
+    ///
+    /// `acquire_fence`, when present, is Mutter's explicit acquire fence (a
+    /// sync_file fd from SPA_META_SyncTimeline). We `eglWaitSync` on it BEFORE
+    /// sampling so the GPU doesn't read pixels Mutter is still writing. The wait
+    /// is server-side (GPU waits, CPU returns), so it does not stall the capture
+    /// loop. Without it, NVIDIA's lack of implicit dma-buf sync gives a stale frame.
+    pub fn process(
+        &mut self,
+        dmabuf: &Dmabuf,
+        pts_ns: i64,
+        slot_fd: i32,
+        acquire_fence: Option<std::os::fd::OwnedFd>,
+    ) -> Result<FrameData, String> {
+        let w = dmabuf.width();
+        let h = dmabuf.height();
+        let drm_format = dmabuf.format();
+        let video_format = crate::pipewire_stream::drm_fourcc_to_video_format(drm_format.code);
+        let fourcc_u32 = drm_format.code as u32;
+        let modifier_u64: u64 = drm_format.modifier.into();
+
+        // (Re)create the persistent output buffer if missing or resized.
+        if self.output.is_none() || self.out_w != w || self.out_h != h {
+            self.output = Some(self.create_output(w, h, video_format, fourcc_u32, modifier_u64)?);
+            self.out_w = w;
+            self.out_h = h;
+        }
+
+        let t_total = std::time::Instant::now();
+
+        // Per-slot Dmabuf cache: reuse one persistent Dmabuf per pool slot so
+        // smithay's dmabuf→texture cache stays warm (it prunes on Dmabuf drop).
+        // The persistent Dmabuf references the same slot memory Mutter keeps
+        // writing into, and smithay refreshes the EGLImage binding on the
+        // cache-hit path, so we still sample the current frame. import_dmabuf is
+        // then a cheap cache hit instead of a ~55ms eglCreateImage at 4K — that
+        // per-frame import (when this cache was bypassed as a diagnostic) was what
+        // stalled the capture thread and tanked the framerate / RTT.
+        //
+        // NB: the stale-frame flicker was NOT this cache — it was the dropped
+        // GL→CUDA fence below (now fixed by the wait()). The cache-bypass
+        // diagnostic only added latency, so the cache is restored.
+        let t_import = std::time::Instant::now();
+        let persistent = self
+            .slot_dmabufs
+            .entry(slot_fd)
+            .or_insert_with(|| dmabuf.clone());
+        let texture = self
+            .renderer
+            .import_dmabuf(persistent, None)
+            .map_err(|e| format!("import_dmabuf: {:?}", e))?;
+        let import_us = t_import.elapsed().as_micros() as u32;
+
+        let size: Size<i32, Physical> = (w as i32, h as i32).into();
+        let full = Rectangle::<i32, Physical>::from_size(size);
+
+        // Bind on a CLONE of the buffer handle (GsBufferType is Arc-backed) so the
+        // mutable bind borrow and the immutable to_gs_buffer borrow don't conflict
+        // — this mirrors wolf's create_frame.
+        let t_render = std::time::Instant::now();
+        // Clone the display handle for the acquire-fence wait below (disjoint from
+        // the &mut self.renderer borrow taken by render()).
+        let egl_display = self.egl_display.clone();
+        let mut bind_handle = self.output.as_ref().expect("output set above").clone();
+        let mut fb = bind_handle
+            .bind(&mut self.renderer)
+            .map_err(|e| format!("bind output: {:?}", e))?;
+        {
+            let mut frame = self
+                .renderer
+                .render(&mut fb, size, Transform::Normal)
+                .map_err(|e| format!("render: {:?}", e))?;
+            // Clear first — the persistent buffer is reused every frame, and
+            // render_texture_at blends src-over. Without this, frames accumulate
+            // and saturate to white.
+            frame
+                .clear(Color32F::BLACK, &[full])
+                .map_err(|e| format!("clear: {:?}", e))?;
+            // NVIDIA import-race fix: before sampling the capture texture, make the
+            // GPU wait for Mutter's explicit acquire fence (server-side eglWaitSync,
+            // so the CPU/capture loop is NOT blocked). The render context is current
+            // here, so the wait is enqueued ahead of render_texture_at. If absent or
+            // unsupported, we just don't wait (== prior behaviour).
+            if let Some(fd) = acquire_fence {
+                use smithay::backend::egl::fence::EGLFence;
+                if EGLFence::supports_importing(&egl_display) {
+                    if let Ok(fence) = EGLFence::import(&egl_display, fd) {
+                        let _ = fence.wait(&egl_display);
+                    }
+                }
+            }
+            frame
+                .render_texture_at(
+                    &texture,
+                    Point::<i32, Physical>::from((0, 0)),
+                    1,
+                    1.0,
+                    Transform::Normal,
+                    &[full],
+                    &[],
+                    1.0,
+                )
+                .map_err(|e| format!("render_texture_at: {:?}", e))?;
+            // GL→CUDA handoff barrier. The persistent `self.output` buffer is read by
+            // CUDA/NVENC in `to_gs_buffer` below via a default-stream cuMemcpy, which
+            // synchronizes CUDA↔CUDA but NOT GL↔CUDA. If we drop this fence, NVENC can
+            // copy `self.output` BEFORE the GL blit above has written this frame into it
+            // → it encodes the buffer's previous (stale) contents under a fresh PTS.
+            // That is the 4K stale-frame flicker (worse under GPU contention, where the
+            // GL stream lags the CUDA reads by several frames). Block until the GL blit
+            // is complete on the GPU before handing the buffer to CUDA.
+            frame
+                .finish()
+                .map_err(|e| format!("finish: {:?}", e))?
+                .wait()
+                .map_err(|e| format!("gl→cuda sync wait: {:?}", e))?;
+        }
+        let render_us = t_render.elapsed().as_micros() as u32;
+
+        // Map our persistent buffer's cached CUDA registration → GstBuffer.
+        let t_copy = std::time::Instant::now();
+        let buffer = self
+            .output
+            .as_ref()
+            .expect("output set above")
+            .to_gs_buffer(&mut fb, &mut self.renderer)
+            .map_err(|e| format!("to_gs_buffer: {}", e))?;
+        let copy_us = t_copy.elapsed().as_micros() as u32;
+
+        // Record stage breakdown: cuda.egl=import, cuda.reg=render, cuda.copy=copy.
+        crate::metrics::PRODUCER.lock().record_cuda(
+            import_us,
+            render_us,
+            copy_us,
+            t_total.elapsed().as_micros() as u32,
+        );
+
+        Ok(FrameData::CudaBuffer {
+            buffer,
+            width: w,
+            height: h,
+            format: video_format,
+            pts_ns,
+        })
+    }
+
+    fn create_output(
+        &mut self,
+        w: u32,
+        h: u32,
+        video_format: VideoFormat,
+        fourcc_u32: u32,
+        modifier_u64: u64,
+    ) -> Result<GsBufferType, String> {
+        let base = VideoInfo::builder(video_format, w, h)
+            .build()
+            .map_err(|e| format!("VideoInfo build: {:?}", e))?;
+        let video_info = VideoInfoDmaDrm::new(base, fourcc_u32, modifier_u64);
+
+        // Same raw EGL display as the renderer, so the output buffer's EGLImage
+        // (and its CUDA registration) is coherent with the GL render target.
+        let raw_display = self
+            .renderer
+            .egl_context()
+            .display()
+            .get_display_handle()
+            .handle;
+
+        // Configured CUDA buffer pool so to_gst_buffer ACQUIRES a reused buffer
+        // each frame instead of allocating a fresh one (the per-frame alloc was
+        // fragmenting GPU memory and degrading the stream to single-digit fps).
+        let pool = {
+            let ctx = self.cuda_context.lock().unwrap();
+            let pool = CUDABufferPool::new(&ctx).map_err(|e| format!("CUDABufferPool::new: {}", e))?;
+            let caps = VideoCapsBuilder::new()
+                .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+                .format(video_format)
+                .width(w as i32)
+                .height(h as i32)
+                .framerate(gst::Fraction::new(60, 1))
+                .build();
+            pool.configure_basic(&caps, w * h * 4, 8, 16)
+                .map_err(|e| format!("pool configure: {}", e))?;
+            pool.activate().map_err(|e| format!("pool activate: {}", e))?;
+            pool
+        };
+
+        let buf = GsCUDABuf::new(
+            self.render_node,
+            self.cuda_context.clone(),
+            video_info,
+            Arc::new(Mutex::new(Some(pool))),
+            &raw_display,
+        )
+        .ok_or_else(|| "GsCUDABuf::new returned None".to_string())?;
+        eprintln!(
+            "[GL_BLIT] persistent output buffer created: {}x{} {:?}",
+            w, h, video_format
+        );
+        Ok(GsBufferType::CUDA(buf))
+    }
+}

@@ -2,13 +2,118 @@ package gitlab
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/xanzy/go-gitlab"
 )
+
+type Webhook = gitlab.ProjectHook
+
+type addWebhookOptions struct {
+	URL                 string `json:"url"`
+	SigningToken        string `json:"signing_token,omitempty"`
+	Token               string `json:"token,omitempty"`
+	MergeRequestsEvents bool   `json:"merge_requests_events"`
+	NoteEvents          bool   `json:"note_events"`
+	PipelineEvents      bool   `json:"pipeline_events"`
+	PushEvents          bool   `json:"push_events"`
+}
+
+func (c *Client) AddWebhook(ctx context.Context, projectID int, url, signingToken, token string, events []string) (*Webhook, error) {
+	mergeRequests, notes, pipelines, pushes := webhookEvents(events)
+	if signingToken != "" {
+		return c.writeWebhook(ctx, http.MethodPost, fmt.Sprintf("projects/%d/hooks", projectID), url, signingToken, token, mergeRequests, notes, pipelines, pushes)
+	}
+	hook, _, err := c.client.Projects.AddProjectHook(projectID, &gitlab.AddProjectHookOptions{
+		URL:                 gitlab.Ptr(url),
+		Token:               gitlab.Ptr(token),
+		MergeRequestsEvents: gitlab.Ptr(mergeRequests),
+		NoteEvents:          gitlab.Ptr(notes),
+		PipelineEvents:      gitlab.Ptr(pipelines),
+		PushEvents:          gitlab.Ptr(pushes),
+	}, gitlab.WithContext(ctx))
+	return hook, err
+}
+
+func (c *Client) UpdateWebhook(ctx context.Context, projectID, hookID int, url, signingToken, token string, events []string) (*Webhook, error) {
+	mergeRequests, notes, pipelines, pushes := webhookEvents(events)
+	if signingToken != "" {
+		return c.writeWebhook(ctx, http.MethodPut, fmt.Sprintf("projects/%d/hooks/%d", projectID, hookID), url, signingToken, token, mergeRequests, notes, pipelines, pushes)
+	}
+	hook, _, err := c.client.Projects.EditProjectHook(projectID, hookID, &gitlab.EditProjectHookOptions{
+		URL:                 gitlab.Ptr(url),
+		Token:               gitlab.Ptr(token),
+		MergeRequestsEvents: gitlab.Ptr(mergeRequests),
+		NoteEvents:          gitlab.Ptr(notes),
+		PipelineEvents:      gitlab.Ptr(pipelines),
+		PushEvents:          gitlab.Ptr(pushes),
+	}, gitlab.WithContext(ctx))
+	return hook, err
+}
+
+func webhookEvents(events []string) (mergeRequests, notes, pipelines, pushes bool) {
+	for _, event := range events {
+		switch event {
+		case "Merge Request Hook":
+			mergeRequests = true
+		case "Note Hook":
+			notes = true
+		case "Pipeline Hook":
+			pipelines = true
+		case "Push Hook":
+			pushes = true
+		}
+	}
+	return
+}
+
+func (c *Client) writeWebhook(ctx context.Context, method, path, url, signingToken, token string, mergeRequests, notes, pipelines, pushes bool) (*Webhook, error) {
+	options := addWebhookOptions{
+		URL:                 url,
+		SigningToken:        signingToken,
+		Token:               token,
+		MergeRequestsEvents: mergeRequests,
+		NoteEvents:          notes,
+		PipelineEvents:      pipelines,
+		PushEvents:          pushes,
+	}
+	req, err := c.client.NewRequest(method, path, &options, nil)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	hook := new(Webhook)
+	if _, err := c.client.Do(req, hook); err != nil {
+		return nil, err
+	}
+	return hook, nil
+}
+
+func (c *Client) ListWebhooks(ctx context.Context, projectID int) ([]*Webhook, error) {
+	var all []*Webhook
+	options := &gitlab.ListProjectHooksOptions{PerPage: 100}
+	for {
+		hooks, response, err := c.client.Projects.ListProjectHooks(projectID, options, gitlab.WithContext(ctx))
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, hooks...)
+		if response.NextPage == 0 {
+			return all, nil
+		}
+		options.Page = response.NextPage
+	}
+}
+
+func SigningTokenUnsupported(err error) bool {
+	var response *gitlab.ErrorResponse
+	return errors.As(err, &response) && response.Response != nil && response.Response.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(response.Message), "signing_token")
+}
 
 // Client wraps the GitLab API client
 type Client struct {

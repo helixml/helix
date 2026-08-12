@@ -392,6 +392,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Janitor:               janitor,
 		Notifier:              notifier,
 		ProviderManager:       providerManager,
+		ModelInfoProvider:     dynamicInfoProvider,
 		Browser:               browserPool,
 		SearchProvider:        searchProvider,
 		GitRepositoryService:  gitRepositoryService,
@@ -431,9 +432,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	}()
 
+	// Started below, AFTER server.NewServer has wired the spec task creator and
+	// external agent starter into it — starting here would race those setters.
 	trigger := trigger.NewTriggerManager(cfg, postgresStore, notifier, appController)
-	// Start integrations
-	go trigger.Start(ctx)
 
 	stripe := stripe.NewStripe(
 		cfg.Stripe,
@@ -488,6 +489,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 
 	// Sandbox health monitoring is handled by the Hydra executor
+
+	// Start integrations. NewServer has now wired the spec task creator and the
+	// external agent starter into the manager, so cron triggers with
+	// action="spec_task" / agent_type="zed_external" can actually execute.
+	go trigger.Start(ctx)
 
 	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
 

@@ -1,0 +1,138 @@
+package channels
+
+import (
+	"sort"
+	"testing"
+	"time"
+
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+)
+
+const orgID = "org-test"
+
+func bot(id orgchart.NodeID) orgchart.Node {
+	b, err := orgchart.NewNode(id, "#", nil, time.Unix(1, 0), orgID)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func line(manager, report orgchart.NodeID) orgchart.ReportingLine {
+	l, err := orgchart.NewReportingLine(orgID, manager, report)
+	if err != nil {
+		panic(err)
+	}
+	return l
+}
+
+func membersOf(set Set, sid streaming.TopicID) []orgchart.NodeID {
+	var out []orgchart.NodeID
+	for k := range set.Members {
+		if k.TopicID == sid {
+			out = append(out, k.NodeID)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func eq(a, b []orgchart.NodeID) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestRequired_ManagerlessRootHasUnobservedTranscript: a manager-less
+// root bot gets a transcript (so its own chat turns have a home) with
+// NO observers — never self-subscribed — and, with no reports, no team
+// topic.
+func TestRequired_ManagerlessRootHasUnobservedTranscript(t *testing.T) {
+	set := Required([]orgchart.Node{bot("w-root")}, nil)
+
+	tx := activation.TranscriptID("w-root")
+	if _, ok := set.Channels[tx]; !ok {
+		t.Fatalf("manager-less root transcript missing")
+	}
+	if got := membersOf(set, tx); len(got) != 0 {
+		t.Fatalf("manager-less root transcript observers = %v, want none (no self-subscribe)", got)
+	}
+	if _, ok := set.Channels[TeamTopicID("w-root")]; ok {
+		t.Fatalf("root with no reports must NOT have a team topic")
+	}
+}
+
+// TestRequired_ObservedByManagers: a bot's transcript is subscribed by
+// ALL its managers (many-to-many).
+func TestRequired_ObservedByManagers(t *testing.T) {
+	bots := []orgchart.Node{bot("w-owner"), bot("w-jane"), bot("w-bob"), bot("w-li")}
+	lines := []orgchart.ReportingLine{
+		line("w-owner", "w-jane"),
+		line("w-owner", "w-bob"),
+		line("w-jane", "w-li"),
+		line("w-bob", "w-li"), // w-li reports to two managers
+	}
+	set := Required(bots, lines)
+
+	// w-li observed by both jane and bob.
+	if got := membersOf(set, activation.TranscriptID("w-li")); !eq(got, []orgchart.NodeID{"w-bob", "w-jane"}) {
+		t.Fatalf("w-li activation observers = %v, want [w-bob w-jane]", got)
+	}
+	// w-li is a member of BOTH team topics.
+	if got := membersOf(set, TeamTopicID("w-jane")); !eq(got, []orgchart.NodeID{"w-jane", "w-li"}) {
+		t.Fatalf("s-team-w-jane members = %v, want [w-jane w-li]", got)
+	}
+	if got := membersOf(set, TeamTopicID("w-bob")); !eq(got, []orgchart.NodeID{"w-bob", "w-li"}) {
+		t.Fatalf("s-team-w-bob members = %v, want [w-bob w-li]", got)
+	}
+}
+
+// TestRequired_NoSelfSubscribe: a manager-less bot is never subscribed
+// to its own transcript (would re-trigger forever).
+func TestRequired_NoSelfSubscribe(t *testing.T) {
+	set := Required([]orgchart.Node{bot("w-rogue")}, nil)
+	if got := membersOf(set, activation.TranscriptID("w-rogue")); len(got) != 0 {
+		t.Fatalf("manager-less bot activation observers = %v, want none", got)
+	}
+}
+
+// TestRequired_EveryBotGetsTranscript: every bot now gets a transcript,
+// including a managed one — the old AI-only/root rule is gone. The
+// managed bot's transcript is observed by its manager, and the manager
+// gets a team topic containing the report.
+func TestRequired_EveryBotGetsTranscript(t *testing.T) {
+	bots := []orgchart.Node{bot("w-owner"), bot("w-renee")}
+	set := Required(bots, []orgchart.ReportingLine{line("w-owner", "w-renee")})
+
+	// The managed bot DOES get a transcript now.
+	if _, ok := set.Channels[activation.TranscriptID("w-renee")]; !ok {
+		t.Fatalf("managed bot must get a transcript")
+	}
+	// Its observer is the manager.
+	if got := membersOf(set, activation.TranscriptID("w-renee")); !eq(got, []orgchart.NodeID{"w-owner"}) {
+		t.Fatalf("w-renee transcript observers = %v, want [w-owner]", got)
+	}
+	// And the owner now has a team topic containing renee.
+	if got := membersOf(set, TeamTopicID("w-owner")); !eq(got, []orgchart.NodeID{"w-owner", "w-renee"}) {
+		t.Fatalf("s-team-w-owner members = %v, want [w-owner w-renee]", got)
+	}
+}
+
+// TestRequired_DanglingLineIgnored: a reporting line that points at a
+// non-existent bot is ignored rather than producing phantom
+// subscriptions.
+func TestRequired_DanglingLineIgnored(t *testing.T) {
+	bots := []orgchart.Node{bot("w-owner")}
+	set := Required(bots, []orgchart.ReportingLine{line("w-owner", "w-ghost")})
+	if _, ok := set.Channels[TeamTopicID("w-owner")]; ok {
+		t.Fatalf("team topic must not exist when the only report is a ghost")
+	}
+}

@@ -154,9 +154,10 @@ func (suite *HelixAuthenticatorTestSuite) TestCreateUser_WaitlistEnabled() {
 
 func (suite *HelixAuthenticatorTestSuite) TestCreateUser_WaitlistEnabled_AdminNotWaitlisted() {
 	suite.cfg.Auth.Waitlist = true
-	suite.cfg.WebServer.AdminUserIDs = []string{config.AdminAllUsers}
 
 	userID := uuid.New().String()
+	suite.cfg.WebServer.AdminUserIDs = []string{userID}
+
 	user := &types.User{
 		ID:       userID,
 		Email:    "admin@example.com",
@@ -200,7 +201,7 @@ func (suite *HelixAuthenticatorTestSuite) TestCreateUser_WaitlistDisabled() {
 	suite.NotNil(createdUser)
 }
 
-func (suite *HelixAuthenticatorTestSuite) TestCreateUser_DevMode_SetsAdminTrue() {
+func (suite *HelixAuthenticatorTestSuite) TestCreateUser_DevMode_DoesNotPersistAdmin() {
 	// Set ADMIN_USER_IDS=all (dev mode)
 	suite.cfg.WebServer.AdminUserIDs = []string{config.AdminAllUsers}
 
@@ -211,13 +212,41 @@ func (suite *HelixAuthenticatorTestSuite) TestCreateUser_DevMode_SetsAdminTrue()
 		Username: "devuser",
 		Password: "testpassword123",
 		Admin:    false, // Initially not admin
+		// Waitlist is on, so we can assert the wildcard still clears it.
+	}
+	suite.cfg.Auth.Waitlist = true
+
+	suite.store.EXPECT().
+		CreateUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
+			// The "all" wildcard grants admin dynamically on every request;
+			// persisting it would outlive a later tightening of ADMIN_USER_IDS.
+			suite.False(u.Admin, "dev-mode wildcard must not persist the admin flag")
+			suite.False(u.Waitlisted, "admin-listed users are never waitlisted")
+			return u, nil
+		})
+
+	createdUser, err := suite.auth.CreateUser(suite.ctx, user)
+	suite.NoError(err)
+	suite.NotNil(createdUser)
+}
+
+func (suite *HelixAuthenticatorTestSuite) TestCreateUser_ExplicitAdminID_PersistsAdmin() {
+	userID := uuid.New().String()
+	suite.cfg.WebServer.AdminUserIDs = []string{"someone-else", userID}
+
+	user := &types.User{
+		ID:       userID,
+		Email:    "admin@example.com",
+		Username: "admin",
+		Password: "testpassword123",
+		Admin:    false,
 	}
 
 	suite.store.EXPECT().
 		CreateUser(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
-			// In dev mode, user should be created with Admin=true
-			suite.True(u.Admin, "user should be created as admin in dev mode")
+			suite.True(u.Admin, "explicitly listed admin IDs are persisted")
 			return u, nil
 		})
 

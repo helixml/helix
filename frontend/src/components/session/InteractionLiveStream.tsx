@@ -9,8 +9,6 @@ import React, {
 
 // Throttle interval for scroll updates during streaming (ms)
 const SCROLL_THROTTLE_MS = 200;
-import Box from "@mui/material/Box";
-import { useTheme } from "@mui/material/styles";
 import useLiveInteraction from "../../hooks/useLiveInteraction";
 import { MessageWithToolCalls } from "./InteractionInference";
 import { TypesServerConfigForFrontend } from "../../api/api";
@@ -19,6 +17,8 @@ import {
   TypesSession,
 } from "../../api/api";
 import ToolStepsWidget from "./ToolStepsWidget";
+import ActivitySummary from "./ActivitySummary";
+import { getInteractionRequestTimeMs } from "./interactionDuration";
 
 export const InteractionLiveStream: FC<{
   session_id: string;
@@ -39,13 +39,22 @@ export const InteractionLiveStream: FC<{
   onMessageUpdate,
   onFilterDocument,
 }) => {
-  const { message, responseEntries, stepInfos, isComplete } = useLiveInteraction(
+  const { message, responseEntries, durationMs, stepInfos, isComplete } = useLiveInteraction(
     session_id,
     interaction,
   );
 
   // Track if we're still in streaming mode or completed
   const [isActivelyStreaming, setIsActivelyStreaming] = useState(true);
+  const activityStartedAt = useMemo(
+    () => getInteractionRequestTimeMs(interaction, Date.now()),
+    [interaction.id, interaction.created],
+  );
+  const effectiveDurationMs =
+    durationMs ||
+    (!isActivelyStreaming
+      ? Math.max(0, Date.now() - activityStartedAt)
+      : 0);
 
   const useClientURL = useCallback(
     (url: string) => {
@@ -136,7 +145,13 @@ export const InteractionLiveStream: FC<{
       )}
 
       {/* Show thinking indicator when waiting and no content yet */}
-      {interaction.state === "waiting" && !hasContent && <ThinkingBox />}
+      {interaction.state === "waiting" && !hasContent && (
+        <ActivitySummary
+          hasActivity={false}
+          isStreaming
+          startedAt={activityStartedAt}
+        />
+      )}
 
       {hasContent && (
         <div>
@@ -147,52 +162,14 @@ export const InteractionLiveStream: FC<{
             getFileURL={useClientURL}
             showBlinker={true}
             isStreaming={isActivelyStreaming}
+            durationMs={effectiveDurationMs}
+            activityStartedAt={activityStartedAt}
             onFilterDocument={onFilterDocument}
+            includeTaskChecklist
           />
         </div>
       )}
     </>
-  );
-};
-
-const ThinkingBox: FC = () => {
-  const theme = useTheme();
-
-  return (
-    <Box
-      sx={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "16px",
-        margin: "8px 0",
-        gap: "4px",
-        "@keyframes bounce": {
-          "0%, 80%, 100%": {
-            transform: "scale(0.8)",
-            opacity: 0.5,
-          },
-          "40%": {
-            transform: "scale(1)",
-            opacity: 1,
-          },
-        },
-      }}
-    >
-      {[0, 0.2, 0.4].map((delay) => (
-        <Box
-          key={delay}
-          sx={{
-            width: "8px",
-            height: "8px",
-            borderRadius: "50%",
-            backgroundColor: theme.palette.mode === "light" ? "#666" : "#999",
-            animation: "bounce 1.4s ease-in-out infinite",
-            animationDelay: `${delay}s`,
-          }}
-        />
-      ))}
-    </Box>
   );
 };
 

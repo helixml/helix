@@ -6,6 +6,7 @@
 - **Current year: 2026** — include "2026" in web searches for current info
 - If you find yourself adding hacks or workarounds, **stop** — take a step back, root cause the issue, understand the wider context, and fix it properly. Don't always take the path of least resistance — we need maintainable code.
 - **Always give full URLs for PRs and issues** — never use the `owner/repo#123` shorthand format. Use `https://github.com/helixml/helix/pull/123` etc.
+- **Be concise. Only write comments when necessary for external documentation.**
 - See also: `.cursor/rules/*.mdc`
 
 ## FORBIDDEN ACTIONS
@@ -46,6 +47,11 @@
 ### Stack Commands
 - **NEVER** `./stack start-tmux` (needs interactive terminal)
 - OK: `./stack start`, `./stack build`, `build-zed`, `build-ubuntu`, `build-sandbox`, `update_openapi`
+
+### Dev Stack Networking
+- The **local dev stack** is at `localhost:8080`. Use this for all API calls when testing your changes.
+- `api:8080` is the **outer Helix stack** (the one running your agent session). Requests to `api:8080` hit the production/outer API, NOT your local dev code. The `$USER_API_TOKEN` / `$HELIX_API_URL` env vars also point at the outer stack.
+- When using `curl` or the browser to test, always use `http://localhost:8080`, never `http://api:8080`.
 
 ### Hot Reloading
 - **API**: Air auto-rebuilds Go changes
@@ -188,11 +194,27 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 
 These rules keep our list pages visually consistent. When in doubt, mirror `Sandboxes.tsx` / `Tasks.tsx`.
 
+#### Icons, toolbars, color, and spacing
+- **Use Lucide icons from `lucide-react` for product UI.** Do not mix MUI icons and Lucide icons in the same surface. Exceptions are brand/provider logos and a pre-existing shared component whose public API supplies its own icon.
+- **Use `AgentHarness` from `frontend/src/components/agent/AgentHarness.tsx` anywhere an agent harness is identified.** Use its `long` variant in tables, forms, and selectors, and its `short` variant in compact status rows and tooltips. Pass the raw `code_agent_runtime`; do not duplicate harness labels, brand marks, or brand colors in consumers. Its Zed Agent, Qwen Code, Goose, Claude Code, and Codex marks are the canonical official assets; never replace them with generic Lucide glyphs.
+- Use the simplest icon that communicates the action. Prefer plain panel glyphs such as `PanelLeft` / `PanelRight` over embellished `*Open` / `*Close` variants unless direction is otherwise ambiguous.
+- Standard toolbar geometry is an **18px icon inside a 30×30px `IconButton`**. Labeled toolbar/view buttons are 40px high. Keep every icon in a toolbar on the same optical size and baseline; do not mix arbitrary 14/15/17/18px glyphs.
+- Every clickable icon must be a real `<IconButton>` or `<Button>`, not an `onClick` attached to a bare `<Box>` or SVG. Add an `aria-label` and a concise tooltip. Passive status indicators may use a non-interactive wrapper, but should occupy the same 30×30px slot when aligned with toolbar buttons.
+- Use `text.secondary` for inactive utility icons, `text.primary` on hover, and `action.selected` for selected/toggled controls. Reserve green/red/amber/blue for semantic state or a primary action; do not add one-off decorative hex colors when a theme token exists.
+- Follow the 8px spacing grid. Within a tightly related icon cluster use 2px (`gap: 0.25`); between semantic groups or between a labeled action and its status cluster use 6–8px (`gap: 0.75–1`). Do not apply the tight internal gap to the whole toolbar.
+- Toolbar rows need deliberate vertical rhythm: normally 8px above controls and 4px below (`pt: 1`, `pb: 0.5`). Center all groups with `alignItems: 'center'`; do not compensate for misaligned controls with per-icon margins.
+- Toolbar rows inside a vertical flex layout must use `flexShrink: 0` and an explicit minimum block size that includes controls, padding, and borders. Mounting a selector, tabs, or other subview below the toolbar must never move or compress the toolbar.
+- Reuse a shared `sx` object or component for repeated toolbar icon buttons so hit area, icon size, hover, selected state, and spacing cannot drift between desktop/mobile or expanded/collapsed layouts.
+
+#### Resizable panels
+- `react-resizable-panels` v4 treats numeric `Panel` sizes as pixels. Use percentage strings (`defaultSize="50%"`, `minSize="25%"`) when the design is proportional; `PanelGroup.defaultLayout` remains a numeric percentage map.
+- Collapsible panels must restore the user's last expanded percentage. If there is no saved valid layout, default a two-pane workspace to 50/50. Never persist a zero-width collapsed layout as the user's preferred split.
+
 #### Tables
 - **ALWAYS use `SimpleTable`** from `frontend/src/components/widgets/SimpleTable.tsx`. Don't reach for raw MUI `<Table>` / `<TableContainer>`. References: `TasksTable.tsx`, `SandboxesTable.tsx`, `AppsTable.tsx`.
 - Build rows via a `tableData` `useMemo` that maps each entity to `{ id, _data: <entity>, <field>: <ReactNode>, ... }`. Always include `_data` so action handlers can recover the typed entity.
 - Cells are `<Typography>` nodes, not raw strings. Use `variant="body2" color="text.secondary"` for non-primary cells. Make the name cell a bold link via an inline `<a>` (see `TasksTable.tsx`); call `e.preventDefault()` + `e.stopPropagation()` in its `onClick`.
-- **Row actions go in a single vertical-dot menu**, never a row of icon buttons. Implement `getActions` as one `<IconButton><MoreVertIcon/></IconButton>` that opens a `<Menu>` with `<MenuItem>` entries (each item has a leading icon: `<Icon sx={{ mr: 1, fontSize: 20 }} />`). Track the active row via `currentX` state set on menu open; clear it on close.
+- **Row actions go in a single vertical-dot menu**, never a row of icon buttons. Implement `getActions` as one `<IconButton><EllipsisVertical size={18}/></IconButton>` that opens a `<Menu>` with `<MenuItem>` entries (each item has a leading Lucide icon: `<Icon size={20} />`). Track the active row via `currentX` state set on menu open; clear it on close.
 - `e.stopPropagation()` in every menu/icon click handler so row clicks don't fire.
 - Status chips: build a small dedicated component (e.g. `SandboxStatusBadge`) rather than inlining `<Chip>` styling.
 
@@ -200,7 +222,7 @@ These rules keep our list pages visually consistent. When in doubt, mirror `Sand
 - Render via the shared `CardGrid` (`components/widgets/CardGrid.tsx`) — never roll a new MUI `Grid container` (its negative margins break flush alignment with the page title).
 - Card chrome: `<Card>` with `border: '1px solid rgba(0, 0, 0, 0.08)'`, `borderRadius: 1`, `boxShadow: 'none'`, hover bumps `borderColor` to `rgba(0,0,0,0.12)` and tints `backgroundColor: 'rgba(0,0,0,0.01)'`. `height: '100%'` + `display: 'flex'; flexDirection: 'column'` so the grid rows align.
 - Inside, `<CardContent>` uses `p: 2`, `'&:last-child': { pb: 2 }`, `cursor: 'pointer'`, and an `onClick` that opens the detail view.
-- **Top-right corner gets the vertical-dot menu** (`<IconButton><MoreVertIcon sx={{ fontSize: 16 }}/></IconButton>` → `<Menu>`). Same menu items as the table actions — keep the two surfaces in sync. Don't put separate Open/Delete icons at the bottom of the card.
+- **Top-right corner gets the vertical-dot menu** (`<IconButton><EllipsisVertical size={18}/></IconButton>` → `<Menu>`). Same menu items as the table actions — keep the two surfaces in sync. Don't put separate Open/Delete icons at the bottom of the card.
 - Status indicator goes inline next to the dot menu (e.g. status badge), or as the leading icon by the title (see `CronTaskCard.tsx` — green clock vs paused-circle, with tooltip).
 - Dense stat strip uses the gradient panel: `background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)'`, `border: '1px solid rgba(255,255,255,0.06)'`, `borderRadius: 2`, `p: 1.5`. Stats are label (caption, `0.65rem`, `text.secondary`) + value (body2, `0.8rem`, `monospace`, `fontWeight: 600`).
 
@@ -219,8 +241,8 @@ These rules keep our list pages visually consistent. When in doubt, mirror `Sand
 Anything under `api/pkg/org/` is the org-graph runtime (Workers, Positions, Roles, Streams). Behaviour lives in the prompt/profile, not in Go code. The code is scaffolding.
 
 - **Prefer data and text over code.** If a feature can be expressed as a Role/Position prompt edit, a scope value, or a tool description, do that before adding Go logic.
-- **Keep the MCP surface small.** MCP tools are reserved for org-graph primitives (reads + mutations of Workers, Positions, Roles, Streams). Anything else a Worker needs goes through shell tools provisioned in their environment (`bash`, `curl`, `git`, `gh`, `python`). Don't add MCP wrappers like `publish_to_blog` or `fetch_url` — describe the shell usage in the Role text instead.
-- **No workflow in code.** Tools do exactly one thing. Code does not orchestrate multi-step sequences on behalf of an agent — it does not subscribe Workers, auto-create related records, or chain calls. Orchestration lives in the prompt. The one exception is structural derivation: `Role.Tools` is the live MCP surface for every Worker filling a Position bound to that Role — editing the Role changes its Workers' capabilities, because the Role *is* the capability. That isn't orchestration, it's the Role meaning what it says. `Role.Streams` stays prompt-driven (the hiring manager calls `create_stream` and `subscribe` explicitly). When reviewing a tool, ask: "is the code making a decision the agent should be making?" If yes, remove it.
+- **Keep the MCP surface small.** MCP tools are reserved for org-graph primitives (reads + mutations of Workers, Positions, Roles, Streams). Anything else a Worker needs goes through shell tools provisioned in their environment (`bash`, `curl`, `git`, `gh`, `python`). Don't add MCP wrappers like `publish_to_blog` or `fetch_url` — describe the shell usage in the Role text instead. **One recorded exception:** `mint_credential` is a generic credential-minting *primitive* (it is what makes the shell tools usable on long-running sessions whose boot-time tokens have expired). A *primitive* is different from a per-action wrapper; the per-action ban stands. See `design/tasks/002092_helix-org-mintcredential/design.md` §2 for the full rationale.
+- **Complete a user action in as few steps as possible.** A tool should do the whole of what the user means by one action, not force a chain of follow-up calls. `create_bot`, for example, grants the new Bot its initial tools AND subscribes it to the topics named at creation — in one call — because a manager creating a Bot almost always wants it tooled-up and listening immediately. Prefer bulk arguments (arrays) over one-at-a-time calls for the same reason. This supersedes the older "no workflow in code / `Role.Streams` stays prompt-driven" rule: creation-time subscription is a supported convenience, not forbidden orchestration. Keep the *implementation* DRY — `create_bot` reuses the same `subscriptions.Subscribe` use case the standalone `subscribe` tool calls; it does not reimplement it. Structural derivation still holds: `Bot.Tools` is the live MCP surface, and editing it changes the Bot's capability. When reviewing a tool, ask: "does this complete the user's intent, reusing existing use cases, without hiding a decision the agent should make?"
 - **Social enforcement first.** A Worker reads scope from its prompt and complies. Reach for hard enforcement only when the cost of a violation is high.
 - **Keep the core generic.** Tool definitions and scope shapes live with the tool, not in the registry, server, or domain layer. New tools must be addable without editing the core.
 
@@ -251,6 +273,7 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 ### Never Give Up on Testing
 - **PREFER end-to-end testing in the inner Helix over every other form of verification.** Setup is fast, not "substantial work" — register (`test@helix.ml` / `helixtest`), complete onboarding (testorg → testproj → claude-opus-4-6 auto-selects), create a spectask, navigate to its detail page. Do this *every time* a UI change is testable in the inner Helix. The inner Helix exists for exactly this — there is no point having it and not using it. Isolated DOM harnesses, JS-only algorithm replays, and unit tests are NOT substitutes; they verify the algorithm, not the wired-up production component.
 - Always test changes end-to-end in the inner Helix browser using the `mcp__chrome-devtools__*` MCP tools (they're under that prefix — easy to miss in the tool listing).
+- **Be patient with the stack booting — do NOT give up after one failed check.** At session start the stack pulls images and brings up containers in stages; `localhost:8080` returning `000`/connection-refused, or a container showing `Restarting`/`health: starting`, means it is still coming up, NOT that it is broken. Poll `docker compose -f docker-compose.dev.yaml ps` and `curl -s -o /dev/null -w '%{http_code}' http://localhost:8080` on a loop, waiting **several minutes** (the full bring-up can take 5–10 min) before concluding the stack is unavailable. The signal that it is ready is `helix-api-1`, `helix-frontend-1`, and `helix-postgres-1` all `Up` and `8080` returning `200`. Never downgrade to "couldn't verify in the UI" while containers are still mid-startup — wait for them.
 - Check DB state: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SQL"`
 - Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
 
@@ -261,6 +284,31 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 - **Frontend**: `cd frontend && yarn build` before committing
 - **Full tests**: Push and check CI (`gh pr checks` or Drone API)
 - Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
+
+### Don't claim confidence you didn't earn
+- NEVER report quantified confidence ("95% tested", "last 5% works"). Either you ran
+  it end-to-end (say so, with the output) or you did not (say "NOT tested: <what/why>").
+- A unit test that checks a state change (field reset, row deleted) is NOT evidence the
+  feature works. Do not write "covered by unit tests" when the test only asserts the
+  mechanism, not the user-visible outcome.
+- Reasoning by analogy ("same as the fork/X path") is a hypothesis, not a result.
+  Verify the precondition state matches — a live/connected resource is a DIFFERENT
+  state from a fresh/offline one, and lifecycle bugs hide in that gap.
+
+### Test the next operation, not just the state change
+- For any reset/clear/delete/cancel/switch feature, always exercise the IMMEDIATELY
+  FOLLOWING normal operation: clear → send a message; delete → recreate; cancel →
+  resume; reset thread → next turn. Bugs live in that seam, not in the mutation itself.
+
+### Live external-agent (Zed) testing is mandatory for lifecycle changes
+- Features touching session/thread lifecycle (clear, fork, cancel, resume, switch-agent)
+  MUST be tested against a LIVE, connected Zed — not seeded DB rows. Seeded rows only
+  exercise the no-connection branch and miss thread_created routing entirely.
+- To get a live session fast: create a **spec task** (it provisions a git repo, so Zed's
+  workspace setup completes and it opens the sync WebSocket). A bare
+  `agent_type=zed_external` chat session does NOT work — no repo → workspace setup
+  FATALs after 300s → Zed never connects. Liveness check: `config->>'zed_thread_id'` is a
+  non-empty UUID.
 
 ### Quick Log Checks
 ```bash
@@ -292,6 +340,26 @@ If already registered, click "Sign in here" and use the same credentials.
 - Regenerate API client: `./stack update_openapi`
 - Kill stuck builds: `pkill -f "cargo build" && pkill -f rustc`
 - Design docs: `design/YYYY-MM-DD-name.md`
+
+## Releases & Continuous Delivery
+**Cut a release with the GH CLI, always auto-generating the notes:**
+```bash
+gh release create <tag> --target main --generate-notes   # e.g. 2.11.32
+```
+- `--generate-notes` == GitHub's "Generate release notes" button: a per-PR changelog with
+  contributors + a Full Changelog diff vs the previous tag. **Never** hand-write `--notes`.
+- Tags are bare semver `2.11.x` (no `v` prefix). Bump the patch from the latest:
+  `git tag --sort=-v:refname | head`.
+- To regenerate notes on an existing release:
+  `gh api -X POST repos/helixml/helix/releases/generate-notes -f tag_name=<tag> -f target_commitish=main --jq .body > /tmp/n.md && gh release edit <tag> --notes-file /tmp/n.md`.
+
+**Cutting the tag self-deploys to prod.** The tag triggers the Drone tag build, whose
+`deploy-prod` pipeline (`scripts/deploy-prod.sh`) SSHes to prod and rolls the new version:
+the **london controlplane** (`helix-cloud-london`: ZFS-snapshots the DB, bumps `HELIX_VERSION`
+in `/data/helix-app/helix/.env`, `docker compose pull/up api`, health-checks, auto-rolls-back
+on failure) and the **code.helix.ml runner** (bumps `SANDBOX_TAG`). See
+`design/2026-06-25-prod-version-bump-runbook.md`. Watch the build with `gh pr checks` / the
+Drone MCP tools and confirm `deploy-prod` goes green.
 
 ## CI (Drone)
 **ALWAYS check CI yourself after pushing a PR.** Don't make the user discover the failure and tell you. As soon as a push is up, use `gh pr checks <num>` (or the Drone MCP tools / fallback below) to confirm green or surface failures. If failing, drill into the logs, fix, push the fix, and re-check — all without being asked.
@@ -330,7 +398,42 @@ Helix stack runs **inside the UTM VM** (SSH: `ssh -p 2222 luke@127.0.0.1`). Only
 ### Key Commands
 ```bash
 /tmp/helix spectask list|list-agents|start|resume|stop|screenshot|stream|benchmark|send|mcp|live
+/tmp/helix org bots list|get|start|stop|restart|chat   # helix-org — see skills/helix-org-cli/SKILL.md
+/tmp/helix api GET /orgs/<org>/bots                    # gh-api style escape hatch
 ```
+
+### Dispatch an investigation to a helix-in-helix spec task (from a local brief)
+When the **outer** instance can't be instrumented — e.g. Air won't hot-reload
+because the repo is a ZFS bind-mount (inotify doesn't cross it), or a headless
+browser/Google-auth is unavailable — hand the whole thing to a spec task. Its
+sandbox is a **full inner Helix at `localhost:8080` where Air hot-reload, Vite
+HMR, and the browser all work**. Do it end-to-end from the CLI, **no branch or
+merge needed** — pass the whole brief straight into the prompt:
+
+```bash
+export HELIX_URL=http://localhost:8080
+export HELIX_API_KEY=<key from api_keys for the session owner>
+
+# Write the brief to a local file (does NOT need to be committed), then:
+/tmp/helix-bin spectask start \
+  --project prj_01kg02vqqyg178c1n2ydscn5fb \
+  --agent app_01kw1n70xs2qq2y4ntzbqqmpff \
+  -n "<task name>" \
+  --prompt "Complete the task below end-to-end, testing live in this inner Helix." \
+  --prompt-file /path/to/brief.md \        # appended after --prompt; no repo commit required
+  --attach /path/to/big.log --attach /path/to/other.log   # repeatable
+```
+`--prompt-file` reads a file straight into the task prompt (skips the write-doc →
+branch → PR → merge dance). You can also just inline it: `--prompt "$(cat brief.md)"`.
+`--attach` (repeatable) uploads files as spec-task **attachments** — the agent
+reads them at `design/tasks/<task>/attachments/<name>` inside the sandbox, so
+non-trivial logfiles/large context go there instead of bloating the prompt.
+
+`spectask start` **provisions a sandbox and the CLI will time out (~short) — the
+task is still created**; confirm via `spec_tasks` (order by `created_at`, not
+`created`) and `docker exec helix-sandbox-nvidia-1 docker ps | grep ubuntu-external-<sid>`.
+Get an API key straight from the DB when `.env.usercreds` is stale:
+`SELECT key, owner FROM api_keys WHERE owner=(SELECT owner FROM sessions WHERE id='ses_…')`.
 
 ### Sandbox Service Names
 - `sandbox-nvidia` (Linux GPU), `sandbox` (Linux no-GPU), `sandbox-macos` (macOS, container: `helix-sandbox-macos-1`)
@@ -374,6 +477,21 @@ Look for: StreamInit received, video frames > 0, FPS > 0. Common issues: 0 frame
 From macOS host via SSH: `ssh -p 2222 -o StrictHostKeyChecking=no luke@127.0.0.1 "export HELIX_API_KEY=... && /tmp/helix spectask list"`. Don't combine `run_in_background` with `&` in SSH.
 
 ## Zed WebSocket Sync E2E Testing
+
+**IF YOU TOUCH THE E2E TESTS, YOU MUST RUN THEM. NO EXCEPTIONS.**
+Adding, editing, or "compile-checking" an e2e phase is NOT done until you have
+actually run the full dockerized e2e (`run_docker_e2e.sh`) and seen it pass.
+Do not hand off e2e changes as "verified by CI" or "logically follows the
+pattern" — e2e tests are timing-sensitive and stateful, and the ONLY way to know
+a phase works is to run it. This is runnable in the dev sandbox: a prebuilt Zed
+binary lives at `zed-build/zed` (copy it to `e2e-test/zed-binary`), docker works,
+and the API key is in `.env`. Running it caught two bugs that compiling never
+would (a store-ordering bug and an interrupt-before-streaming race); assume yours
+has bugs too until the run is green. Don't claim you "can't run it" without first
+checking for the binary + docker + key. If the local Anthropic proxy rejects the
+default model, point the e2e at a model this environment serves (e.g.
+`claude-opus-4-8` in `run_e2e.sh`) for the run, then REVERT that local-only edit
+before committing (CI has real Anthropic secrets).
 
 The WebSocket sync protocol between Helix (Go) and Zed (Rust) has E2E tests that run a real Zed binary against a Go test server importing real production Helix server code.
 
@@ -447,7 +565,21 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 | `design/2026-03-20-multi-agent-e2e-tests.md` | Multi-agent E2E test design and roadmap |
 
 ## CLI Development
-Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/`.
+Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/` (spec tasks) or `api/pkg/cli/org/` (helix-org).
+
+### Helix-org CLI
+Skill: [`skills/helix-org-cli/SKILL.md`](skills/helix-org-cli/SKILL.md) (also linked from AGENTS.md via this file).
+
+```bash
+export HELIX_URL=http://localhost:8080 HELIX_API_KEY=… HELIX_ORG=unmanned-org
+cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin .
+
+helix org bots list|get|start|stop|restart|chat …
+helix org topics list
+helix org processors list
+helix api GET /orgs/unmanned-org/bots          # gh-api-style escape hatch
+helix api -X POST /orgs/unmanned-org/bots/chief-of-staff/activate
+```
 
 ## Sandboxes API
 

@@ -45,7 +45,7 @@ type SpecDrivenTaskService struct {
 	externalAgentExecutor    external_agent.Executor   // Wolf executor for launching external agents
 	gitRepositoryService     *GitRepositoryService     // Service for git repository operations
 	RegisterRequestMapping   RequestMappingRegistrar   // Callback to register request-to-session mappings
-	SendMessageToAgent       SpecTaskMessageSender     // Callback to send messages to agents via WebSocket
+	EnqueueMessageToAgent    SpecTaskMessageEnqueuer   // Callback to enqueue messages onto the session-scoped prompt queue (the single sender path)
 	helixAgentID             string                    // ID of Helix agent for spec generation
 	zedAgentPool             []string                  // Pool of available Zed agents
 	testMode                 bool                      // If true, skip async operations for testing
@@ -133,6 +133,13 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
+		return nil, fmt.Errorf("invalid sandbox resource preset")
+	}
+	sandboxResources := req.SandboxResourceOverrides
+	if sandboxResources == nil {
+		sandboxResources = types.DefaultSpecTaskSandboxResources()
+	}
 	// Fetch project to get organization ID and default agent
 	var project *types.Project
 	if req.ProjectID != "" {
@@ -165,6 +172,15 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	if branchMode == "" {
 		branchMode = types.BranchModeNew
 	}
+	if branchMode == types.BranchModeExisting && strings.TrimSpace(req.WorkingBranch) == "" {
+		return nil, fmt.Errorf("working branch is required for existing branch mode")
+	}
+
+	// An explicit name wins; otherwise derive one from the prompt.
+	taskName := strings.TrimSpace(req.Name)
+	if taskName == "" {
+		taskName = GenerateTaskNameFromPrompt(req.Prompt)
+	}
 
 	// Determine organization ID from project if it belongs to an org
 	organizationID := ""
@@ -176,29 +192,40 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	// immediately (mirrors cloneTaskToProject behaviour). This bypasses the project's
 	// auto_start_backlog_tasks setting so the task starts even when project auto-start is off.
 	initialStatus := types.TaskStatusBacklog
+	assigneeID := req.AssigneeID
+	planningStartedBy := ""
 	if req.AutoStart {
 		if req.JustDoItMode {
 			initialStatus = types.TaskStatusQueuedImplementation
 		} else {
 			initialStatus = types.TaskStatusQueuedSpecGeneration
 		}
+		assigneeID = req.UserID
+		planningStartedBy = req.UserID
 	}
 
 	task := &types.SpecTask{
-		ID:             generateTaskID(),
-		ProjectID:      req.ProjectID,
-		UserID:         req.UserID,
-		OrganizationID: organizationID,
-		AssigneeID:     req.AssigneeID, // Optional: handler validates org membership before this is reached
-		Name:           GenerateTaskNameFromPrompt(req.Prompt),
-		Description:    req.Prompt,
-		Type:           req.Type,
-		Priority:       req.Priority,
-		Status:         initialStatus,
-		OriginalPrompt: req.Prompt,
-		CreatedBy:      req.UserID,
-		HelixAppID:     helixAppID,       // Helix agent used for entire workflow
-		JustDoItMode:   req.JustDoItMode, // Set Just Do It mode from request
+		ID:                       generateTaskID(),
+		ProjectID:                req.ProjectID,
+		UserID:                   req.UserID,
+		OrganizationID:           organizationID,
+		AssigneeID:               assigneeID, // Auto-started work is always assigned to the user who started it
+		Name:                     taskName,
+		Description:              req.Prompt,
+		Type:                     req.Type,
+		Priority:                 req.Priority,
+		Status:                   initialStatus,
+		OriginalPrompt:           req.Prompt,
+		CreatedBy:                req.UserID,
+		PlanningStartedBy:        planningStartedBy,
+		HelixAppID:               helixAppID, // Helix agent used for entire workflow
+		CodeAgentOverrides:       req.CodeAgentOverrides,
+		SandboxResourceOverrides: sandboxResources,
+		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
+		// Credential-only override: whose Claude subscription authenticates this
+		// task's agent. Enforced at resolution time against the named user's
+		// delegation grant, so an unauthorised value simply has no effect.
+		CredentialOwnerID: req.CredentialOwnerID,
 		// Branch configuration
 		BranchMode:   branchMode,
 		BaseBranch:   req.BaseBranch,    // User-specified base branch (empty = use repo default)
@@ -392,6 +419,13 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Stream:           false,
 		SpecTaskID:       task.ID,          // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
 		CodeAgentRuntime: codeAgentRuntime, // For open_thread on resume
+		// Whose Claude subscription authenticates this session's agent, when the
+		// dispatcher is a service account acting for a human. Credential-only —
+		// the session is still owned by task.CreatedBy.
+		CredentialOwnerID: task.CredentialOwnerID,
+		// Autonomous surface: no human watches a planning run, so recover the
+		// agent automatically on crash rather than stalling errored+idle.
+		AutoRestartOnCrash: true,
 	}
 
 	session := &types.Session{
@@ -411,17 +445,16 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		OwnerType:      types.OwnerTypeUser,
 	}
 
-	// Guard against duplicate session creation (issue #10 from ZFS deployment).
-	// Two concurrent requests can both reach this point before either has written
-	// agent_session_id to the DB. Re-read the task to see if a sibling already won the race.
-	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.AgentSessionID != "" {
-		log.Info().
-			Str("task_id", task.ID).
-			Str("existing_session_id", freshTask.AgentSessionID).
-			Msg("Planning session already created by concurrent request — skipping duplicate creation")
-		return
-	}
-
+	// Create the session first so we have a real session ID to claim with. If
+	// we lose the atomic claim below, we delete this orphan and return — the
+	// winning caller's session is the one that ends up driving the desktop.
+	//
+	// This is more wasteful than a pre-claim (we burn a session row when we
+	// lose) but avoids the rollback footgun: if we claimed first and
+	// CreateSession failed, agent_session_id would point at a non-existent
+	// session and future retries would silently noop on the read-then-write
+	// guard. With this ordering, the claim is the single source of truth and
+	// no retry path can be left in a half-claimed state.
 	session, err = s.store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
@@ -429,16 +462,39 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
-	// Update task with session ID
-	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: About to update task with session ID")
-	task.AgentSessionID = session.ID
-	err = s.store.UpdateSpecTask(ctx, task)
+	// Atomically claim the agent_session_id slot. Two concurrent callers
+	// (orchestrator ticker + status-change subscription firing on the same
+	// task within milliseconds) each get to here with their own session, but
+	// only one wins this single-statement UPDATE. The loser deletes its
+	// orphan session and returns BEFORE reaching StartDesktop — preventing
+	// the workspace-volume race that corrupts the spec-task's git clone.
+	// Replaces the read-then-write TOCTOU guard that issue #10 of the
+	// 2026-03-18 ZFS deployment design doc attempted to close.
+	claimed, err := s.store.SetAgentSessionIDIfEmpty(ctx, task.ID, session.ID)
 	if err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with session ID")
-		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to update task with session ID: %v", err))
+		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to claim agent_session_id; rolling back session")
+		if _, delErr := s.store.DeleteSession(ctx, session.ID); delErr != nil {
+			log.Warn().Err(delErr).Str("session_id", session.ID).Msg("Failed to delete orphan session after claim error")
+		}
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to claim agent_session_id: %v", err))
 		return
 	}
-	log.Debug().Str("task_id", task.ID).Msg("DEBUG: Task updated with session ID")
+	if !claimed {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("orphan_session_id", session.ID).
+			Msg("Lost race to claim agent_session_id; deleting orphan session and bailing before StartDesktop")
+		if _, delErr := s.store.DeleteSession(ctx, session.ID); delErr != nil {
+			log.Warn().Err(delErr).Str("session_id", session.ID).Msg("Failed to delete orphan session after losing claim")
+		}
+		return
+	}
+
+	// We won the claim. Mirror the DB write into the in-memory task struct so
+	// the rest of this function (env var building, audit logging) sees the
+	// canonical agent_session_id.
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Claimed agent_session_id atomically")
+	task.AgentSessionID = session.ID
 
 	// Kick off git-identity sync in the background. The desktop container
 	// isn't up yet; the async helper polls until it can reach the container,
@@ -519,20 +575,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
-	// Build list of all repository IDs to clone from project
-	repositoryIDs := []string{}
-	for _, repo := range projectRepos {
-		if repo.ID != "" {
-			repositoryIDs = append(repositoryIDs, repo.ID)
-		}
-	}
-
-	// Determine primary repository from project configuration
-	primaryRepoID := project.DefaultRepoID
-	if primaryRepoID == "" && len(projectRepos) > 0 {
-		// Use first project repo as fallback if no default set
-		primaryRepoID = projectRepos[0].ID
-	}
+	// Repository fields are populated below via zedAgent.SetRepoContext after
+	// the agent struct is constructed.
 
 	// API key creation is deferred to OnBeforeCreate hook (inside StartDesktop's
 	// session lock) to prevent races with concurrent StopDesktop.
@@ -600,22 +644,23 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	zedAgent := &types.DesktopAgent{
-		OrganizationID:      orgID,
-		SessionID:           session.ID,
-		UserID:              task.CreatedBy,
-		Input:               "Initialize Zed development environment for spec generation",
-		ProjectID:           task.ProjectID, // For golden Docker cache overlay
-		ProjectPath:         "workspace",    // Use relative path
-		SpecTaskID:          task.ID,        // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID,  // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs,  // ALL project repos to checkout
-		DisplayWidth:        displayWidth,
-		DisplayHeight:       displayHeight,
-		DisplayRefreshRate:  displayRefreshRate,
-		Resolution:          resolution,
-		ZoomLevel:           zoomLevel,
-		DesktopType:         desktopType,
-		Env: envVars,
+		OrganizationID: orgID,
+		SessionID:      session.ID,
+		UserID:         task.CreatedBy,
+		Input:          "Initialize Zed development environment for spec generation",
+		ProjectID:      task.ProjectID, // For golden Docker cache overlay
+		ProjectPath:    "workspace",    // Use relative path
+		SpecTaskID:     task.ID,        // For task-scoped workspace
+		VCPUs:          sandboxVCPUs(task),
+		MemoryMB:       sandboxMemoryMB(task),
+		// RepositoryIDs / PrimaryRepositoryID set by SetRepoContext below.
+		DisplayWidth:       displayWidth,
+		DisplayHeight:      displayHeight,
+		DisplayRefreshRate: displayRefreshRate,
+		Resolution:         resolution,
+		ZoomLevel:          zoomLevel,
+		DesktopType:        desktopType,
+		Env:                envVars,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
 			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
 				OrganizationID: launchOrgID,
@@ -633,6 +678,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
+	zedAgent.SetRepoContext(projectRepos, project.DefaultRepoID)
 	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Created ZedAgent struct")
 
 	// Check if executor is nil
@@ -647,7 +693,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
-		s.markTaskFailed(ctx, task, err.Error())
+		s.markTaskFailedErr(ctx, task, err)
 		return
 	}
 
@@ -790,6 +836,15 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Stream:           false,
 		SpecTaskID:       task.ID,             // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
 		CodeAgentRuntime: codeAgentRuntimeJDI, // For open_thread on resume
+		// Whose Claude subscription authenticates this session's agent, when the
+		// dispatcher is a service account acting for a human. Credential-only —
+		// the session is still owned by task.CreatedBy. This is the path HelixOS
+		// bots take (just-do-it), so it is the one that routes a bot to its
+		// owner's Claude account instead of the orchestrator's.
+		CredentialOwnerID: task.CredentialOwnerID,
+		// Autonomous surface: no human watches a just-do-it run, so recover the
+		// agent automatically on crash rather than stalling errored+idle.
+		AutoRestartOnCrash: true,
 	}
 
 	session := &types.Session{
@@ -1034,8 +1089,10 @@ Follow these guidelines when making changes:
 		ProjectID:           task.ProjectID, // For golden Docker cache overlay
 		ProjectPath:         "workspace",    // Use relative path
 		SpecTaskID:          task.ID,        // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID,  // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs,  // ALL project repos to checkout
+		VCPUs:               sandboxVCPUs(task),
+		MemoryMB:            sandboxMemoryMB(task),
+		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
 		DisplayWidth:        displayWidthJDI,
 		DisplayHeight:       displayHeightJDI,
 		DisplayRefreshRate:  displayRefreshRateJDI,
@@ -1053,7 +1110,7 @@ Follow these guidelines when making changes:
 	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for Just Do It mode")
-		s.markTaskFailed(ctx, task, err.Error())
+		s.markTaskFailedErr(ctx, task, err)
 		return
 	}
 
@@ -1069,6 +1126,20 @@ Follow these guidelines when making changes:
 	if s.auditLogService != nil {
 		s.auditLogService.LogAgentStarted(ctx, task, session.ID, task.CreatedBy, "")
 	}
+}
+
+func sandboxVCPUs(task *types.SpecTask) int {
+	if task == nil {
+		return 0
+	}
+	return types.EffectiveSpecTaskSandboxResources(task.SandboxResourceOverrides).VCPUs
+}
+
+func sandboxMemoryMB(task *types.SpecTask) int {
+	if task == nil {
+		return 0
+	}
+	return types.EffectiveSpecTaskSandboxResources(task.SandboxResourceOverrides).MemoryMB
 }
 
 // buildEnvWithLocale constructs the environment variable array for desktop containers
@@ -1246,6 +1317,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 
 		// Handle branch configuration based on mode
 		var branchName string
+		effectiveBaseBranch := repo.DefaultBranch
 		if task.BranchMode == types.BranchModeExisting && task.BranchName != "" {
 			// Existing mode: use the branch name that was set during task creation
 			branchName = task.BranchName
@@ -1265,6 +1337,9 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			// Set base branch if not already set
 			if task.BaseBranch == "" {
 				task.BaseBranch = repo.DefaultBranch
+			}
+			if task.BranchMode == types.BranchModeNew {
+				effectiveBaseBranch = task.BaseBranch
 			}
 		}
 
@@ -1354,17 +1429,19 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// remote already has it. Errors are logged but don't block the
 		// transition: the existing pre-receive hook stops genuinely-bad
 		// pushes, and the agent prompt still names the right branch.
-		if err := s.ensureFeatureBranchInContainer(ctx, sessionID, repo.Name, branchName, repo.DefaultBranch); err != nil {
-			log.Error().Err(err).
-				Str("task_id", task.ID).Str("session_id", sessionID).
-				Str("repo", repo.Name).Str("branch", branchName).Str("base", repo.DefaultBranch).
-				Msg("Failed to check out feature branch in container at approval; agent may start on base branch")
+		if task.BranchMode == types.BranchModeNew {
+			if err := s.ensureFeatureBranchInContainer(ctx, sessionID, repo.Name, branchName, effectiveBaseBranch); err != nil {
+				log.Error().Err(err).
+					Str("task_id", task.ID).Str("session_id", sessionID).
+					Str("repo", repo.Name).Str("branch", branchName).Str("base", effectiveBaseBranch).
+					Msg("Failed to check out feature branch in container at approval; agent may start on base branch")
+			}
 		}
 
 		// Send instruction to existing agent session (reuse planning session)
 		if sessionID != "" && !s.testMode {
 			// Create agent instruction service
-			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent, s.koditService)
+			agentInstructionService := NewAgentInstructionService(s.store, s.EnqueueMessageToAgent, s.koditService)
 
 			err := agentInstructionService.SendApprovalInstruction(
 				context.Background(),
@@ -1372,7 +1449,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				task.CreatedBy, // User who created the task
 				task,
 				branchName,
-				repo.DefaultBranch,
+				effectiveBaseBranch,
 				repo.Name,
 			)
 			if err != nil {
@@ -1388,6 +1465,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				Str("task_id", task.ID).
 				Str("session_id", sessionID).
 				Str("branch_name", branchName).
+				Str("base_branch", effectiveBaseBranch).
 				Msg("Specs approved - sent implementation instruction to existing agent")
 		} else {
 			log.Warn().
@@ -1432,13 +1510,13 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			return fmt.Errorf("failed to update task for revision: %w", err)
 		}
 
-		// Send revision instruction to existing agent session via WebSocket
-		if s.SendMessageToAgent != nil && !s.testMode {
+		// Send revision instruction to existing agent session via the queue
+		if s.EnqueueMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
 				// interrupt=true: revision instruction is reviewer-driven feedback delivered via the
 				// task-state machine — same semantic as a comment, should preempt in-flight work.
-				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "", true)
+				err := s.EnqueueMessageToAgent(context.Background(), t, message, true, "")
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -1505,25 +1583,12 @@ func (s *SpecDrivenTaskService) syncGitIdentityToUser(ctx context.Context, task 
 		return fmt.Errorf("%w: %s %s", errIdentityUserNotFound, phaseLabel, userID)
 	}
 
-	actorEmail := actor.Email
+	actorEmail := actor.GitAuthorEmail()
 	if actorEmail == "" {
 		return fmt.Errorf("%w: %s %s", errIdentityNoEmail, phaseLabel, actor.ID)
 	}
 
-	actorName := actor.FullName
-	if actorName == "" {
-		actorName = actor.Username
-	}
-	if actorName == "" {
-		// Last-resort fallback: local-part of the email. Git config accepts
-		// an empty user.name but the resulting commits would be unreadable,
-		// so we synthesise something meaningful instead.
-		if at := strings.IndexByte(actorEmail, '@'); at > 0 {
-			actorName = actorEmail[:at]
-		} else {
-			actorName = actorEmail
-		}
-	}
+	actorName := actor.GitAuthorName()
 
 	sessionID := task.AgentSessionID
 
@@ -1742,6 +1807,18 @@ func (s *SpecDrivenTaskService) selectZedAgent() string {
 }
 
 func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, errorMessage string) {
+	s.markTaskFailedWithCause(ctx, task, errorMessage, nil)
+}
+
+// markTaskFailedErr records a failure whose cause the browser may need to act
+// on. A missing subscription is not something a retry can fix — the user has to
+// connect the provider first — so the reason is persisted in a machine-readable
+// form alongside the message.
+func (s *SpecDrivenTaskService) markTaskFailedErr(ctx context.Context, task *types.SpecTask, err error) {
+	s.markTaskFailedWithCause(ctx, task, err.Error(), err)
+}
+
+func (s *SpecDrivenTaskService) markTaskFailedWithCause(ctx context.Context, task *types.SpecTask, errorMessage string, cause error) {
 	// Keep task in backlog status but set error metadata
 	now := time.Now()
 	task.Status = types.TaskStatusBacklog
@@ -1754,6 +1831,13 @@ func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.
 	}
 	task.Metadata["error"] = errorMessage
 	task.Metadata["error_timestamp"] = time.Now().Format(time.RFC3339)
+	delete(task.Metadata, types.TaskErrorCodeKey)
+	delete(task.Metadata, types.TaskErrorProviderKey)
+	var missingSubscription *types.MissingSubscriptionError
+	if errors.As(cause, &missingSubscription) {
+		task.Metadata[types.TaskErrorCodeKey] = types.TaskErrorSubscriptionRequired
+		task.Metadata[types.TaskErrorProviderKey] = missingSubscription.Provider
+	}
 
 	err := s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
@@ -2112,6 +2196,8 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",
 		SpecTaskID:          task.ID,
+		VCPUs:               sandboxVCPUs(task),
+		MemoryMB:            sandboxMemoryMB(task),
 		PrimaryRepositoryID: primaryRepoID,
 		RepositoryIDs:       repositoryIDs,
 		DisplayWidth:        displayWidth,
@@ -2119,7 +2205,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		DisplayRefreshRate:  displayRefreshRate,
 		Resolution:          fmt.Sprintf("%dx%d", displayWidth, displayHeight),
 		ZoomLevel:           1.0,
-		DesktopType: desktopType,
+		DesktopType:         desktopType,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
 			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
 				OrganizationID: task.OrganizationID,
@@ -2172,11 +2258,11 @@ func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task
 	if err != nil {
 		return fmt.Errorf("failed to get user: %w", err)
 	}
-	authorName := user.FullName
+	authorName := user.GitAuthorName()
 	if authorName == "" {
 		authorName = "Helix"
 	}
-	authorEmail := user.Email
+	authorEmail := user.GitAuthorEmail()
 	if authorEmail == "" {
 		authorEmail = "helix@helix.ml"
 	}

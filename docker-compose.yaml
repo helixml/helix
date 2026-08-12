@@ -9,6 +9,7 @@ services:
     # connect to Helix
     ports:
       - ${API_PORT:-8080}:8080
+      - ${ASSET_SSH_PROXY_PORT:-2224}:2224
     restart: always
     env_file:
       - .env
@@ -23,6 +24,7 @@ services:
       - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - SERVER_URL=${SERVER_URL:-http://localhost:8080}
+      - ASSET_SSH_PROXY_LISTEN=:2224
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE-env}

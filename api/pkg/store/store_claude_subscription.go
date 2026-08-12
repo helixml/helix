@@ -99,6 +99,48 @@ func (s *PostgresStore) ListClaudeSubscriptions(ctx context.Context, ownerID str
 	return subs, nil
 }
 
+// GetSessionClaudeSubscription resolves the Claude subscription that should
+// authenticate a session's agent.
+//
+// When the session names a credential owner (an orchestrator dispatching work on
+// a human's behalf — see SpecTask.CredentialOwnerID), that user's own
+// subscription is used, but ONLY if they have delegated it to this organization.
+// The delegation check is the consent gate: without it, anyone who can create a
+// session could name any user as credential owner and spend their Claude quota.
+//
+// A named-but-undelegated (or missing) credential owner falls back to the
+// session owner's normal resolution rather than failing, so a revoked delegation
+// degrades to previous behaviour instead of bricking the agent.
+func (s *PostgresStore) GetSessionClaudeSubscription(ctx context.Context, session *types.Session) (*types.ClaudeSubscription, error) {
+	if session == nil {
+		return nil, ErrNotFound
+	}
+	if owner := session.Metadata.CredentialOwnerID; owner != "" && owner != session.Owner {
+		sub, err := s.GetClaudeSubscriptionForOwner(ctx, owner, types.OwnerTypeUser)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		if err == nil && subscriptionDelegatedTo(sub, session.OrganizationID) {
+			return sub, nil
+		}
+	}
+	return s.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+}
+
+// subscriptionDelegatedTo reports whether sub's owner has authorised agents in
+// orgID to authenticate with it on their behalf.
+func subscriptionDelegatedTo(sub *types.ClaudeSubscription, orgID string) bool {
+	if sub == nil || orgID == "" {
+		return false
+	}
+	for _, id := range sub.DelegatedOrgIDs {
+		if id == orgID {
+			return true
+		}
+	}
+	return false
+}
+
 // GetEffectiveClaudeSubscription returns the active Claude subscription for a user.
 // It checks user-level first (takes priority), then falls back to org-level.
 func (s *PostgresStore) GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error) {

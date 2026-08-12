@@ -9,6 +9,7 @@ import {
   Collapse,
 } from "@mui/material";
 import PlayArrow from "@mui/icons-material/PlayArrow";
+import TaskSessionPlaceholder from "../tasks/TaskSessionPlaceholder";
 import ChatIcon from "@mui/icons-material/Chat";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
@@ -38,9 +39,13 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
     refetchInterval: 3000, // Poll every 3 seconds
   });
 
-  const { sandboxState, statusMessage } = useMemo(() => {
+  const { sandboxState, statusMessage, hasDesktopLifecycleState } = useMemo(() => {
     if (!sessionResponse?.data) {
-      return { sandboxState: "loading", statusMessage: "" };
+      return {
+        sandboxState: "loading",
+        statusMessage: "",
+        hasDesktopLifecycleState: false,
+      };
     }
 
     const session = sessionResponse.data;
@@ -71,7 +76,15 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
       state = hasContainer ? "running" : "absent";
     }
 
-    return { sandboxState: state, statusMessage: msg };
+    return {
+      sandboxState: state,
+      statusMessage: msg,
+      // A newly-created spec-task session exists before StartDesktop has written
+      // any lifecycle fields. Keep that state distinct from a desktop that was
+      // provisioned and subsequently stopped so callers can render the launch
+      // transition instead of a misleading "Desktop Paused" action.
+      hasDesktopLifecycleState: !!(status || desiredState || hasContainer),
+    };
   }, [sessionResponse?.data]);
 
   // Backend now returns 'starting' state for recently-created containers
@@ -82,7 +95,14 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
   // Show "paused" only if container was previously running but is now absent
   const isPaused = sandboxState === "absent";
 
-  return { sandboxState, isRunning, isPaused, isStarting, statusMessage };
+  return {
+    sandboxState,
+    isRunning,
+    isPaused,
+    isStarting,
+    statusMessage,
+    hasDesktopLifecycleState,
+  };
 };
 
 interface ExternalAgentDesktopViewerProps {
@@ -102,6 +122,13 @@ interface ExternalAgentDesktopViewerProps {
   apiClient?: Api<unknown>["api"]; // For prompt history sync
   defaultPanelOpen?: boolean; // Default state of the session panel (default: false)
   startupErrorMessage?: string;
+  /**
+   * Offered instead of "start desktop" when the launch was refused for a
+   * missing subscription — starting again cannot succeed until the provider
+   * is connected.
+   */
+  connectSubscriptionLabel?: string;
+  onConnectSubscription?: () => void;
   // Pre-computed sandbox state from the task list (avoids per-card session polling on Kanban)
   initialSandboxState?: string;
   initialSandboxStatusMessage?: string;
@@ -126,6 +153,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   apiClient,
   defaultPanelOpen = false,
   startupErrorMessage,
+  connectSubscriptionLabel,
+  onConnectSubscription,
   initialSandboxState,
   initialSandboxStatusMessage,
   sandboxMode = false,
@@ -144,6 +173,22 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const isStarting = sandboxStateValue === "starting" || sandboxStateValue === "loading";
   const isPaused = sandboxStateValue === "absent";
   const [isResuming, setIsResuming] = useState(false);
+  // Wake signal for DesktopStreamViewer: bump a counter whenever the desktop comes
+  // back from a paused/absent state (user sent a message or clicked "Start Desktop").
+  // We only fire after having actually observed the paused state, so a normal fresh
+  // page load (loading -> running) does not count as a wake. Using the paused->reachable
+  // edge (not the transient "starting" state) makes this robust to fast resumes where
+  // polling never samples "starting".
+  const sawPausedRef = useRef(false);
+  const [wakeSignal, setWakeSignal] = useState(0);
+  useEffect(() => {
+    if (isPaused) {
+      sawPausedRef.current = true;
+    } else if ((isRunning || isStarting) && sawPausedRef.current) {
+      sawPausedRef.current = false;
+      setWakeSignal((n) => n + 1);
+    }
+  }, [isPaused, isRunning, isStarting]);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
   // Session panel state
@@ -439,26 +484,24 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               gap: 2,
             }}
           >
-            <Typography
-              variant="body1"
-              sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
-            >
-              {sandboxMode ? "Desktop Unavailable" : "Desktop Paused"}
-            </Typography>
-            {!sandboxMode && (
-              <Button
-                variant="contained"
-                color="primary"
-                size="large"
-                startIcon={
-                  isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-                }
-                onClick={handleResume}
-                disabled={isResuming}
-              >
-                {isResuming ? "Starting..." : "Start Desktop"}
-              </Button>
-            )}
+            <TaskSessionPlaceholder
+              variant="overlay"
+              tone="paused"
+              detail={startupErrorMessage}
+              primaryAction={
+                connectSubscriptionLabel && onConnectSubscription
+                  ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
+                  : undefined
+              }
+              title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
+              description={
+                sandboxMode
+                  ? "This sandbox has no desktop to display."
+                  : "This task's sandbox is stopped. Start the desktop to interact with it."
+              }
+              onStart={sandboxMode ? undefined : handleResume}
+              starting={isResuming}
+            />
           </Box>
         </Box>
       );
@@ -584,26 +627,24 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             backgroundColor: lightTheme.isLight ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.3)",
           }}
         >
-          <Typography
-            variant="body1"
-            sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
-          >
-            {sandboxMode ? "Desktop Unavailable" : "Desktop Paused"}
-          </Typography>
-          {!sandboxMode && (
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              startIcon={
-                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-              }
-              onClick={handleResume}
-              disabled={isResuming}
-            >
-              {isResuming ? "Starting..." : "Start Desktop"}
-            </Button>
-          )}
+          <TaskSessionPlaceholder
+            variant="overlay"
+            tone="paused"
+            detail={startupErrorMessage}
+            primaryAction={
+              connectSubscriptionLabel && onConnectSubscription
+                ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
+                : undefined
+            }
+            title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
+            description={
+              sandboxMode
+                ? "This sandbox has no desktop to display."
+                : "This task's sandbox is stopped. Start the desktop to interact with it."
+            }
+            onStart={sandboxMode ? undefined : handleResume}
+            starting={isResuming}
+          />
         </Box>
       </Box>
     );
@@ -652,6 +693,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             // Suppress DesktopStreamViewer's overlay when we're showing our own reconnecting overlay
             // This prevents double spinners when container state changes
             suppressOverlay={showReconnectingOverlay}
+            // Signal wake-ups so the viewer resets its reconnect retry budget when the
+            // session is woken (via message send or "Start Desktop") after going to sleep.
+            wakeSignal={wakeSignal}
           />
 
           {/* Reconnecting overlay - shown when state changes but stream stays mounted */}
@@ -672,27 +716,36 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 zIndex: 100,
               }}
             >
-              <CircularProgress size={40} sx={{ color: "warning.main" }} />
-              <Typography
-                variant="body1"
-                sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
-              >
-                {isPaused ? (sandboxMode ? "Desktop Unavailable" : "Desktop Paused") : "Reconnecting..."}
-              </Typography>
-              {isPaused && !sandboxMode && (
-                <Button
-                  variant="contained"
-                  color="primary"
-                  size="large"
-                  startIcon={
-                    isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+              {isPaused ? (
+                <TaskSessionPlaceholder
+                  variant="overlay"
+                  tone="paused"
+                  detail={startupErrorMessage}
+                  primaryAction={
+                    connectSubscriptionLabel && onConnectSubscription
+                      ? { label: connectSubscriptionLabel, onClick: onConnectSubscription }
+                      : undefined
                   }
-                  onClick={handleResume}
-                  disabled={isResuming}
-                  sx={{ mt: 1 }}
-                >
-                  {isResuming ? "Starting..." : "Restart Desktop"}
-                </Button>
+                  title={sandboxMode ? "Desktop unavailable" : "Desktop paused"}
+                  description={
+                    sandboxMode
+                      ? "This sandbox has no desktop to display."
+                      : "This task's sandbox is stopped. Restart the desktop to interact with it."
+                  }
+                  onStart={sandboxMode ? undefined : handleResume}
+                  starting={isResuming}
+                  startLabel="Restart desktop"
+                />
+              ) : (
+                <>
+                  <CircularProgress size={40} sx={{ color: "warning.main" }} />
+                  <Typography
+                    variant="body1"
+                    sx={{ color: lightTheme.isLight ? "text.primary" : "rgba(255,255,255,0.9)", fontWeight: 500 }}
+                  >
+                    Reconnecting...
+                  </Typography>
+                </>
               )}
             </Box>
           )}
@@ -777,6 +830,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 onImagePaste={handleImagePaste}
                 onCancel={handleCancelTurn}
                 isAgentBusy={isAgentBusy}
+                enableSandboxCompletions
               />
             </Box>
           </Box>

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion, TypesGitRepository, TypesForkSimpleProjectRequest, TypesGuidelinesHistory, TypesAggregatedUsageMetric, ServerPinnedProjectsResponse } from '../api/api';
+import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion, TypesGitRepository, TypesForkSimpleProjectRequest, TypesGuidelinesHistory, TypesAggregatedUsageMetric, ServerPinnedProjectsResponse, TypesProjectSpecTaskAgent } from '../api/api';
 
 // Query keys
 export const projectsListQueryKey = (orgId?: string) => ['projects', orgId];
@@ -12,6 +12,7 @@ export const projectExploratorySessionQueryKey = (projectId: string) => ['projec
 export const projectStartupScriptHistoryQueryKey = (projectId: string) => ['project-startup-script-history', projectId];
 export const projectGuidelinesHistoryQueryKey = (projectId: string) => ['project-guidelines-history', projectId];
 export const projectUsageQueryKey = (projectId: string) => ['project-usage', projectId];
+export const projectSpecTaskAgentsQueryKey = (projectId: string) => ['project-spec-task-agents', projectId];
 
 export const getHTTPStatus = (error: unknown): number | undefined => {
   return (error as any)?.response?.status;
@@ -24,7 +25,10 @@ export const isProjectAccessDeniedError = (error: unknown): boolean => {
 /**
  * Hook to list all projects for the current user
  */
-export const useListProjects = (orgId?: string, options?: { enabled?: boolean }) => {
+export const useListProjects = (
+  orgId?: string,
+  options?: { enabled?: boolean; refetchInterval?: number | false },
+) => {
   const api = useApi();
   const apiClient = api.getApiClient();
 
@@ -35,6 +39,7 @@ export const useListProjects = (orgId?: string, options?: { enabled?: boolean })
       return response.data || [];
     },
     enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
   });
 };
 
@@ -53,6 +58,20 @@ export const useGetProject = (projectId: string, enabled = true) => {
     },
     enabled: enabled && !!projectId,
     retry: (failureCount, error) => !isProjectAccessDeniedError(error) && failureCount < 3,
+  });
+};
+
+export const useListProjectSpecTaskAgents = (projectId: string, enabled = true) => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+
+  return useQuery<TypesProjectSpecTaskAgent[]>({
+    queryKey: projectSpecTaskAgentsQueryKey(projectId),
+    queryFn: async () => {
+      const response = await apiClient.v1ProjectsSpecTaskAgentsDetail(projectId);
+      return response.data || [];
+    },
+    enabled: enabled && !!projectId,
   });
 };
 

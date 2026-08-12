@@ -321,19 +321,6 @@ type User struct {
 	t.Log("   ✅ Forward-only design docs preserved")
 }
 
-// TestPromptGeneration_RealRepoURLs tests prompt generation with real repository URLs
-// SKIP: Repositories are now managed at project level, not task level.
-// This test needs to be rewritten to test project-level repository prompts.
-func TestPromptGeneration_RealRepoURLs(t *testing.T) {
-	t.Skip("Repositories moved to project level - test needs rewrite")
-}
-
-// TestDesignDocsWorktree_RealGitOperations tests worktree manager with real git
-// SKIP: DesignDocsWorktreeManager has been removed - worktree handling now done by shell scripts in sandbox
-func TestDesignDocsWorktree_RealGitOperations(t *testing.T) {
-	t.Skip("DesignDocsWorktreeManager removed - worktree handling now done by shell scripts in sandbox container")
-}
-
 // TestMultiPhaseWorkflow_GitBranches tests that both phases use correct git branches
 func TestMultiPhaseWorkflow_GitBranches(t *testing.T) {
 	ctx := context.Background()

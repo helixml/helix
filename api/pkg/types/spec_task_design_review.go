@@ -69,6 +69,7 @@ type SpecTaskDesignReviewComment struct {
 	AgentResponseAt      *time.Time     `json:"agent_response_at,omitempty"`                        // When agent responded
 	InteractionID   string     `json:"interaction_id,omitempty" gorm:"size:255;index"` // Link to Helix interaction
 	RequestID       string     `json:"request_id,omitempty" gorm:"size:255;index"`     // Request ID used when sending to agent (for response linking)
+	PromptID        string     `json:"prompt_id,omitempty" gorm:"size:255;index"`      // Link to the prompt_history_entry enqueued for this comment; RequestID/InteractionID are backfilled from it at dispatch
 
 	// Database-backed queue for agent processing (restart-resilient)
 	// QueuedAt is set when comment is submitted for agent processing.

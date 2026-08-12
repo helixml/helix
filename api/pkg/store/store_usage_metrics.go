@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // usageInteractionsJoin is a per-row LATERAL lookup that fetches the
@@ -45,6 +47,8 @@ const usageTriggerExecutionsJoin = `
 	) usage_trigger_executions ON true
 `
 
+const usageAppIDExpr = "COALESCE(NULLIF(usage_metrics.app_id, ''), NULLIF(usage_interactions.app_id, ''), '')"
+
 func (s *PostgresStore) CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
 	if metric.ID == "" {
 		metric.ID = system.GenerateUsageMetricID()
@@ -57,9 +61,24 @@ func (s *PostgresStore) CreateUsageMetric(ctx context.Context, metric *types.Usa
 	// Set the date field to just the date part (truncate time portion)
 	metric.Date = metric.Created.Truncate(24 * time.Hour)
 
-	err := s.gdb.WithContext(ctx).Create(metric).Error
+	query := s.gdb.WithContext(ctx)
+	if metric.SourceID != "" {
+		query = query.Clauses(clause.OnConflict{DoNothing: true})
+	}
+	result := query.Create(metric)
+	err := result.Error
 	if err != nil {
 		return nil, err
+	}
+	if result.RowsAffected == 0 && metric.SourceID != "" {
+		var existing types.UsageMetric
+		err = s.gdb.WithContext(ctx).
+			Where("source = ? AND source_id = ?", metric.Source, metric.SourceID).
+			First(&existing).Error
+		if err != nil {
+			return nil, err
+		}
+		return &existing, nil
 	}
 	return metric, nil
 }
@@ -132,7 +151,7 @@ func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, provid
 			AVG(duration_ms) as latency_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes,
-			COUNT(DISTINCT interaction_id) as total_requests
+			COUNT(DISTINCT id) as total_requests
 		`).
 		Where("provider = ? AND date >= ? AND date <= ?", providerID, from, to).
 		Group("date, provider").
@@ -283,6 +302,9 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 	case AggregationLevel5Min:
 		dateExpr = "date_trunc('hour', usage_metrics.created) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM usage_metrics.created) / 5) as date"
 		groupBy = "date_trunc('hour', usage_metrics.created) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM usage_metrics.created) / 5)"
+	case AggregationLevel30Min:
+		dateExpr = "date_trunc('hour', usage_metrics.created) + INTERVAL '30 min' * FLOOR(EXTRACT(MINUTE FROM usage_metrics.created) / 30) as date"
+		groupBy = "date_trunc('hour', usage_metrics.created) + INTERVAL '30 min' * FLOOR(EXTRACT(MINUTE FROM usage_metrics.created) / 30)"
 	case AggregationLevelHourly:
 		dateExpr = "date_trunc('hour', usage_metrics.created) as date"
 		groupBy = "date_trunc('hour', usage_metrics.created)"
@@ -327,7 +349,7 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 		query = query.Where("usage_metrics.organization_id = ?", q.OrganizationID)
 	}
 	if q.AppID != "" {
-		query = query.Where("COALESCE(NULLIF(usage_metrics.app_id, ''), usage_interactions.app_id) = ?", q.AppID)
+		query = query.Where(usageAppIDExpr+" = ?", q.AppID)
 	}
 	if q.SessionID != "" {
 		query = query.Where("usage_interactions.session_id = ?", q.SessionID)
@@ -352,6 +374,8 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 	switch aggregationLevel {
 	case AggregationLevel5Min:
 		completeMetrics = fillInMissing5Minutes(metrics, q.From, q.To)
+	case AggregationLevel30Min:
+		completeMetrics = fillInMissing30Minutes(metrics, q.From, q.To)
 	case AggregationLevelHourly:
 		completeMetrics = fillInMissingHours(metrics, q.From, q.To)
 	default:
@@ -497,17 +521,64 @@ func (s *PostgresStore) GetOrgUsageSummary(ctx context.Context, q *GetOrgUsageSu
 	g.Go(func() error {
 		return s.orgUsageExportRows(gctx, q, resp)
 	})
+	g.Go(func() error {
+		return s.orgUsageBaseQuery(gctx, q).
+			Select(`
+				usage_metrics.date,
+				usage_metrics.source,
+				usage_metrics.provider,
+				usage_metrics.model,
+				SUM(usage_metrics.prompt_tokens) as prompt_tokens,
+				SUM(usage_metrics.completion_tokens) as completion_tokens,
+				SUM(usage_metrics.total_tokens) as total_tokens,
+				SUM(usage_metrics.cache_read_tokens) as cache_read_tokens,
+				SUM(usage_metrics.cache_write_tokens) as cache_write_tokens,
+				SUM(usage_metrics.prompt_cost) as prompt_cost,
+				SUM(usage_metrics.completion_cost) as completion_cost,
+				SUM(usage_metrics.cache_read_cost) as cache_read_cost,
+				SUM(usage_metrics.cache_write_cost) as cache_write_cost,
+				SUM(usage_metrics.total_cost) as total_cost,
+				SUM(usage_metrics.duration_ms) as duration_ms,
+				COUNT(*) as total_requests
+			`).
+			Group("usage_metrics.date, usage_metrics.source, usage_metrics.provider, usage_metrics.model").
+			Order("usage_metrics.date ASC").
+			Scan(&resp.CostBreakdown).Error
+	})
+	g.Go(func() error {
+		credits, err := s.getOrgHelixCredits(gctx, q)
+		if err != nil {
+			return err
+		}
+		resp.HelixCredits = credits
+		return nil
+	})
 
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
-	// Phase 2: model time series depends on which models came out on top.
-	modelSeries, err := s.getOrgUsageModelTimeSeries(ctx, q, resp.Models)
-	if err != nil {
+	// Phase 2: model time series depend on which models came out on top.
+	seriesGroup, seriesCtx := errgroup.WithContext(ctx)
+	seriesGroup.Go(func() error {
+		modelSeries, err := s.getOrgUsageModelTimeSeries(seriesCtx, q, resp.Models)
+		if err != nil {
+			return err
+		}
+		resp.ModelTimeSeries = modelSeries
+		return nil
+	})
+	seriesGroup.Go(func() error {
+		runtimeSeries, err := s.getOrgUsageAgentRuntimeTimeSeries(seriesCtx, q)
+		if err != nil {
+			return err
+		}
+		resp.AgentRuntimeTimeSeries = runtimeSeries
+		return nil
+	})
+	if err := seriesGroup.Wait(); err != nil {
 		return nil, err
 	}
-	resp.ModelTimeSeries = modelSeries
 
 	return resp, nil
 }
@@ -520,6 +591,42 @@ func boundedUsageLimit(limit int) int {
 		return 100
 	}
 	return limit
+}
+
+func (s *PostgresStore) getOrgHelixCredits(ctx context.Context, q *GetOrgUsageSummaryQuery) (float64, error) {
+	var credits float64
+	query := s.gdb.WithContext(ctx).
+		Model(&types.Transaction{}).
+		Joins("JOIN wallets ON wallets.id = transactions.wallet_id").
+		Joins("JOIN llm_calls ON llm_calls.id = transactions.llm_call_id").
+		Where("wallets.org_id = ?", q.OrganizationID).
+		Where("transactions.type = ?", types.TransactionTypeUsage).
+		Where("transactions.llm_call_id <> ''").
+		Where("transactions.created_at >= ? AND transactions.created_at <= ?", q.From, q.To)
+
+	if q.UserID != "" {
+		query = query.Where("llm_calls.user_id = ?", q.UserID)
+	}
+	if q.ProjectID != "" {
+		query = query.Where("llm_calls.project_id = ?", q.ProjectID)
+	}
+	if q.AppID != "" {
+		query = query.Where("llm_calls.app_id = ?", q.AppID)
+	}
+	if q.SessionID != "" {
+		query = query.Where("llm_calls.session_id = ?", q.SessionID)
+	}
+	if q.Provider != "" {
+		query = query.Where("llm_calls.provider = ?", q.Provider)
+	}
+	if q.Model != "" {
+		query = query.Where("llm_calls.model = ?", q.Model)
+	}
+
+	if err := query.Select("COALESCE(SUM(-transactions.amount), 0)").Scan(&credits).Error; err != nil {
+		return 0, err
+	}
+	return credits, nil
 }
 
 func (s *PostgresStore) countOrgUsageBreakdownRows(ctx context.Context, q *GetOrgUsageSummaryQuery, dimension string) (int64, error) {
@@ -570,7 +677,7 @@ func (s *PostgresStore) orgUsageBreakdownQuery(ctx context.Context, q *GetOrgUsa
 			Group("usage_metrics.project_id, projects.name, usage_metrics.provider, usage_metrics.model").
 			Order("total_tokens DESC")
 	case "app":
-		appIDExpr := "COALESCE(NULLIF(usage_metrics.app_id, ''), usage_interactions.app_id)"
+		appIDExpr := usageAppIDExpr
 		appNameExpr := "COALESCE(MAX(NULLIF(apps.config->'helix'->>'name', '')), NULLIF(apps.id, ''), 'Unassigned')"
 		return query.
 			Joins("LEFT JOIN apps ON apps.id = " + appIDExpr).
@@ -640,7 +747,7 @@ func (s *PostgresStore) orgUsageBaseQuery(ctx context.Context, q *GetOrgUsageSum
 		query = query.Where("usage_metrics.project_id = ?", q.ProjectID)
 	}
 	if q.AppID != "" {
-		query = query.Where("COALESCE(NULLIF(usage_metrics.app_id, ''), usage_interactions.app_id) = ?", q.AppID)
+		query = query.Where(usageAppIDExpr+" = ?", q.AppID)
 	}
 	if q.SessionID != "" {
 		query = query.Where("usage_interactions.session_id = ?", q.SessionID)
@@ -721,7 +828,7 @@ func (s *PostgresStore) orgUsageFilterOptions(ctx context.Context, q *GetOrgUsag
 	})
 
 	g.Go(func() error {
-		appIDExpr := "COALESCE(NULLIF(usage_metrics.app_id, ''), usage_interactions.app_id)"
+		appIDExpr := usageAppIDExpr
 		appNameExpr := "COALESCE(MAX(NULLIF(apps.config->'helix'->>'name', '')), NULLIF(apps.id, ''), " + appIDExpr + ")"
 		return s.orgUsageBaseQuery(gctx, &optionQuery).
 			Joins("LEFT JOIN apps ON apps.id = " + appIDExpr).
@@ -882,6 +989,109 @@ func (s *PostgresStore) getOrgUsageModelTimeSeries(ctx context.Context, q *GetOr
 	}
 
 	return series, nil
+}
+
+func (s *PostgresStore) getOrgUsageAgentRuntimeTimeSeries(ctx context.Context, q *GetOrgUsageSummaryQuery) ([]types.UsageAgentRuntimeTimeSeries, error) {
+	const unattributedRuntime types.CodeAgentRuntime = "unattributed"
+	runtimeExpr := `COALESCE(
+		NULLIF(usage_sessions.config->>'code_agent_runtime', ''),
+		'unattributed'
+	)`
+	var rows []struct {
+		Date             time.Time `gorm:"column:date"`
+		Runtime          string    `gorm:"column:runtime"`
+		PromptTokens     int       `gorm:"column:prompt_tokens"`
+		CompletionTokens int       `gorm:"column:completion_tokens"`
+		CacheReadTokens  int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens int       `gorm:"column:cache_write_tokens"`
+		TotalTokens      int       `gorm:"column:total_tokens"`
+	}
+	err := s.orgUsageBaseQuery(ctx, q).
+		Joins(`LEFT JOIN sessions usage_sessions ON usage_sessions.id = COALESCE(
+			NULLIF(usage_interactions.session_id, ''),
+			CASE WHEN usage_metrics.source = 'acp' THEN NULLIF(split_part(usage_metrics.source_id, ':', 1), '') END
+		)`).
+		Select(`
+			usage_metrics.date,
+			` + runtimeExpr + ` as runtime,
+			SUM(usage_metrics.prompt_tokens) as prompt_tokens,
+			SUM(usage_metrics.completion_tokens) as completion_tokens,
+			SUM(usage_metrics.cache_read_tokens) as cache_read_tokens,
+			SUM(usage_metrics.cache_write_tokens) as cache_write_tokens,
+			SUM(usage_metrics.total_tokens) as total_tokens
+		`).
+		Group("usage_metrics.date, " + runtimeExpr).
+		Order("usage_metrics.date ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	metricsByRuntime := make(map[types.CodeAgentRuntime][]*types.AggregatedUsageMetric)
+	tokensByRuntime := make(map[types.CodeAgentRuntime]int)
+	for _, row := range rows {
+		runtime := types.CodeAgentRuntime(row.Runtime)
+		if runtime == "" {
+			runtime = unattributedRuntime
+		}
+		metricsByRuntime[runtime] = append(metricsByRuntime[runtime], &types.AggregatedUsageMetric{
+			Date:             row.Date,
+			PromptTokens:     row.PromptTokens,
+			CompletionTokens: row.CompletionTokens,
+			CacheReadTokens:  row.CacheReadTokens,
+			CacheWriteTokens: row.CacheWriteTokens,
+			TotalTokens:      row.TotalTokens,
+		})
+		tokensByRuntime[runtime] += row.TotalTokens
+	}
+
+	runtimes := make([]types.CodeAgentRuntime, 0, len(metricsByRuntime))
+	for runtime := range metricsByRuntime {
+		runtimes = append(runtimes, runtime)
+	}
+	sort.Slice(runtimes, func(i, j int) bool {
+		if tokensByRuntime[runtimes[i]] == tokensByRuntime[runtimes[j]] {
+			return runtimes[i] < runtimes[j]
+		}
+		return tokensByRuntime[runtimes[i]] > tokensByRuntime[runtimes[j]]
+	})
+
+	series := make([]types.UsageAgentRuntimeTimeSeries, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		complete := fillInMissingDates(metricsByRuntime[runtime], q.From, q.To)
+		converted := make([]types.AggregatedUsageMetric, len(complete))
+		for i, metric := range complete {
+			converted[i] = *metric
+		}
+		series = append(series, types.UsageAgentRuntimeTimeSeries{
+			Runtime: runtime,
+			Name:    usageAgentRuntimeName(runtime),
+			Metrics: converted,
+		})
+	}
+
+	return series, nil
+}
+
+func usageAgentRuntimeName(runtime types.CodeAgentRuntime) string {
+	switch runtime {
+	case types.CodeAgentRuntimeCodexCLI:
+		return "Codex"
+	case types.CodeAgentRuntimeClaudeCode:
+		return "Claude Code"
+	case types.CodeAgentRuntimeQwenCode:
+		return "Qwen Code"
+	case types.CodeAgentRuntimeGeminiCLI:
+		return "Gemini CLI"
+	case types.CodeAgentRuntimeGooseCode:
+		return "Goose"
+	case types.CodeAgentRuntimeZedAgent:
+		return "Zed Agent"
+	case "unattributed":
+		return "Unattributed"
+	default:
+		return string(runtime)
+	}
 }
 
 func (s *PostgresStore) GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {
@@ -1103,92 +1313,37 @@ func fillInMissingDates(metrics []*types.AggregatedUsageMetric, from time.Time, 
 	return completeMetrics
 }
 
-type metricHour struct {
-	Year  int
-	Month int
-	Day   int
-	Hour  int
-}
-
 func fillInMissingHours(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
-	var completeMetrics []*types.AggregatedUsageMetric
-
-	metricsMap := make(map[metricHour]*types.AggregatedUsageMetric)
-	for _, metric := range metrics {
-		hour := metricHour{
-			Year:  metric.Date.Year(),
-			Month: int(metric.Date.Month()),
-			Day:   metric.Date.Day(),
-			Hour:  metric.Date.Hour(),
-		}
-		metricsMap[hour] = metric
-	}
-
-	currentHour := from.Truncate(time.Hour)
-	endHour := to.Truncate(time.Hour)
-	for !currentHour.After(endHour) {
-		mHour := metricHour{
-			Year:  currentHour.Year(),
-			Month: int(currentHour.Month()),
-			Day:   currentHour.Day(),
-			Hour:  currentHour.Hour(),
-		}
-
-		if metric, exists := metricsMap[mHour]; exists {
-			completeMetrics = append(completeMetrics, metric)
-		} else {
-			completeMetrics = append(completeMetrics, &types.AggregatedUsageMetric{
-				Date: currentHour,
-			})
-		}
-		currentHour = currentHour.Add(time.Hour)
-	}
-
-	return completeMetrics
+	return fillInMissingIntervals(metrics, from, to, time.Hour)
 }
 
-type metric5Min struct {
-	Year   int
-	Month  int
-	Day    int
-	Hour   int
-	Minute int
+func fillInMissing30Minutes(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
+	return fillInMissingIntervals(metrics, from, to, 30*time.Minute)
 }
 
 func fillInMissing5Minutes(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
+	return fillInMissingIntervals(metrics, from, to, 5*time.Minute)
+}
+
+func fillInMissingIntervals(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time, interval time.Duration) []*types.AggregatedUsageMetric {
 	var completeMetrics []*types.AggregatedUsageMetric
 
-	metricsMap := make(map[metric5Min]*types.AggregatedUsageMetric)
+	metricsMap := make(map[int64]*types.AggregatedUsageMetric)
 	for _, metric := range metrics {
-		m5 := metric5Min{
-			Year:   metric.Date.Year(),
-			Month:  int(metric.Date.Month()),
-			Day:    metric.Date.Day(),
-			Hour:   metric.Date.Hour(),
-			Minute: (metric.Date.Minute() / 5) * 5,
-		}
-		metricsMap[m5] = metric
+		metricsMap[metric.Date.Truncate(interval).UnixNano()] = metric
 	}
 
-	current := from.Truncate(5 * time.Minute)
-	end := to.Truncate(5 * time.Minute)
+	current := from.Truncate(interval)
+	end := to.Truncate(interval)
 	for !current.After(end) {
-		m5 := metric5Min{
-			Year:   current.Year(),
-			Month:  int(current.Month()),
-			Day:    current.Day(),
-			Hour:   current.Hour(),
-			Minute: current.Minute(),
-		}
-
-		if metric, exists := metricsMap[m5]; exists {
+		if metric, exists := metricsMap[current.UnixNano()]; exists {
 			completeMetrics = append(completeMetrics, metric)
 		} else {
 			completeMetrics = append(completeMetrics, &types.AggregatedUsageMetric{
 				Date: current,
 			})
 		}
-		current = current.Add(5 * time.Minute)
+		current = current.Add(interval)
 	}
 
 	return completeMetrics

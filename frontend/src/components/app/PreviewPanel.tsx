@@ -28,7 +28,7 @@ import InferenceTextField from '../create/InferenceTextField';
 import AppCreateHeader from '../appstore/CreateHeader';
 import Cell from '../widgets/Cell';
 import Row from '../widgets/Row';
-import { useRouterContext } from '../../contexts/router';
+import useRouter from '../../hooks/useRouter';
 
 import {   
   ISessionRAGResult, 
@@ -109,7 +109,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   const isBigScreen = useIsBigScreen();
   const { NewInference, setCurrentSessionId } = useStreaming();
   const [isStreaming, setIsStreaming] = useState(false);
-  const router = useRouterContext();
+  const router = useRouter();
   const [filterMap, setFilterMap] = useState<Record<string, string>>({});
   // const [showSession, setShowSession] = useState(false);
 

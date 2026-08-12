@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -107,6 +109,44 @@ const (
 	TaskTypeCodingSession TaskType = "coding_session" // Focused session (e.g., "Debug performance issue")
 )
 
+// ValidateCodeAgentModelCompatibility rejects model families that cannot be
+// used by runtimes with a fixed provider. Other runtimes deliberately remain
+// permissive because they support arbitrary OpenAI-compatible providers.
+func ValidateCodeAgentModelCompatibility(assistant AssistantConfig) error {
+	models := []string{assistant.Model}
+	if assistant.GenerationModel != "" {
+		models = append(models, assistant.GenerationModel)
+	}
+	if assistant.ClaudeSubscriptionModel != "" {
+		models = append(models, assistant.ClaudeSubscriptionModel)
+	}
+
+	for _, model := range models {
+		model = strings.TrimSpace(strings.ToLower(model))
+		if model == "" {
+			continue
+		}
+		if slash := strings.LastIndex(model, "/"); slash >= 0 {
+			model = model[slash+1:]
+		}
+
+		switch assistant.CodeAgentRuntime {
+		case CodeAgentRuntimeCodexCLI:
+			if !strings.HasPrefix(model, "gpt-5") && !strings.HasPrefix(model, "codex-") {
+				return fmt.Errorf("codex_cli requires a Codex model (gpt-5* or codex-*), got %q", model)
+			}
+		case CodeAgentRuntimeClaudeCode:
+			isClaudeAlias := model == "opus" || strings.HasPrefix(model, "opus[") || strings.HasPrefix(model, "opus-") ||
+				model == "sonnet" || strings.HasPrefix(model, "sonnet[") || strings.HasPrefix(model, "sonnet-") ||
+				model == "haiku" || strings.HasPrefix(model, "haiku[") || strings.HasPrefix(model, "haiku-")
+			if !strings.Contains(model, "claude-") && !isClaudeAlias {
+				return fmt.Errorf("claude_code requires an Anthropic Claude model, got %q", model)
+			}
+		}
+	}
+	return nil
+}
+
 type TaskStatus string
 
 const (
@@ -185,7 +225,7 @@ func (c CodeAgentCredentialType) IsSubscription() bool {
 
 // ZedAgentName returns the agent name used in Zed for this runtime.
 // This is used when sending open_thread commands to tell Zed which agent to use.
-// For zed_agent (built-in), returns empty string (uses NativeAgent).
+// Zed accepts "zed-agent" as the explicit name for its built-in NativeAgent.
 func (r CodeAgentRuntime) ZedAgentName() string {
 	switch r {
 	case CodeAgentRuntimeQwenCode:
@@ -197,7 +237,7 @@ func (r CodeAgentRuntime) ZedAgentName() string {
 	case CodeAgentRuntimeCodexCLI:
 		return "codex"
 	default: // CodeAgentRuntimeZedAgent or empty
-		return "" // NativeAgent (built-in)
+		return "zed-agent"
 	}
 }
 
@@ -221,7 +261,7 @@ func (a *AssistantConfig) IsAgentType(agentType AgentType) bool {
 }
 
 // GetDefaultAgentType returns the default agent type for an app
-func (a *AppHelixConfig) GetDefaultAgentType() AgentType {
+func (a *AgentHelixConfig) GetDefaultAgentType() AgentType {
 	if a.DefaultAgentType != "" {
 		return a.DefaultAgentType
 	}

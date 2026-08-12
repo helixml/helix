@@ -22,6 +22,16 @@ func Test_GetGeminiFlash(t *testing.T) {
 	assert.Equal(t, "0.0000004", modelInfo.Pricing.Completion)
 }
 
+func TestToModelInfo_ReasoningEffortCapability(t *testing.T) {
+	withEffort := ModelInfoData{
+		ReasoningConfig: &ReasoningConfig{SupportsReasoningEffort: true},
+	}
+	withEffort.Endpoint.SupportsReasoning = true
+
+	assert.True(t, toModelInfo(withEffort).SupportsReasoningEffort)
+	assert.False(t, toModelInfo(ModelInfoData{}).SupportsReasoningEffort)
+}
+
 func Test_GetHaiku35(t *testing.T) {
 	b, err := NewBaseModelInfoProvider()
 	assert.NoError(t, err)
@@ -234,4 +244,61 @@ func Test_GetOpus47_NewModel(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, mi.Pricing.Completion)
+}
+
+func Test_GetAnthropicSubscriptionAliases(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	for _, alias := range []string{"opus", "opus[1m]", "claude-subscription"} {
+		t.Run(alias, func(t *testing.T) {
+			mi, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "anthropic",
+				Model:    alias,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "anthropic", mi.ProviderSlug)
+			assert.Contains(t, mi.ProviderModelID, "claude-opus-")
+			assert.NotEmpty(t, mi.Pricing.Prompt)
+		})
+	}
+}
+
+// TestGPT56Family_SupportsNoneReasoningEffort pins the catalog data the
+// reasoning-effort gate depends on. The GPT-5.6 models default to "medium"
+// reasoning effort, and OpenAI rejects that combination with function tools
+// ("Function tools with reasoning_effort are not supported for gpt-5.6-luna
+// in /v1/chat/completions ... set reasoning_effort to 'none'"), so Helix has
+// to send an explicit "none" — which it only does when the model advertises
+// support for it.
+func TestGPT56Family_SupportsNoneReasoningEffort(t *testing.T) {
+	provider, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	for _, modelID := range []string{"gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"} {
+		t.Run(modelID, func(t *testing.T) {
+			info, err := provider.GetModelInfo(context.Background(), &ModelInfoRequest{
+				Provider: "openai",
+				Model:    modelID,
+			})
+			require.NoError(t, err)
+			assert.Contains(t, info.SupportedReasoningEfforts, "none")
+			assert.True(t, info.SupportsReasoningEffort)
+		})
+	}
+}
+
+// TestOSeriesDoesNotSupportNoneReasoningEffort is the other half of the gate:
+// o1/o3 predate the "none" value, so "none" must keep being stripped for them
+// rather than sent through.
+func TestOSeriesDoesNotSupportNoneReasoningEffort(t *testing.T) {
+	provider, err := NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	info, err := provider.GetModelInfo(context.Background(), &ModelInfoRequest{
+		Provider: "openai",
+		Model:    "o3-mini",
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, info.SupportedReasoningEfforts, "none")
 }

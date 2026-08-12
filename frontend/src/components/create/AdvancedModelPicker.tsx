@@ -61,47 +61,47 @@ interface AdvancedModelPickerProps {
   onExternalClose?: () => void; // Called when the externally-controlled dialog is closed
 }
 
-const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider }) => {
+export const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint; size?: number }> = ({ provider, size = 32 }) => {
   if (provider.base_url?.startsWith('https://api.openai.com/')) {
-    return <Avatar src={openaiLogo} sx={{ width: 32, height: 32 }} variant="square" />;
+    return <Avatar src={openaiLogo} sx={{ width: size, height: size }} variant="square" />;
   } else if (provider.base_url?.startsWith('https://api.together.xyz/')) {
-    return <Avatar src={togetheraiLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
+    return <Avatar src={togetheraiLogo} sx={{ width: size, height: size, bgcolor: '#fff' }} variant="square" />;
   }
 
   if (provider.base_url?.startsWith('https://generativelanguage.googleapis.com/')) {
-    return <Avatar src={googleLogo} sx={{ width: 32, height: 32 }} variant="square" />;
+    return <Avatar src={googleLogo} sx={{ width: size, height: size }} variant="square" />;
   }
 
   if (provider.name === 'anthropic' || provider.base_url?.startsWith('https://api.anthropic.com/')) {
-    return <Avatar src={anthropicLogo} sx={{ width: 32, height: 32 }} variant="square" />;
+    return <Avatar src={anthropicLogo} sx={{ width: size, height: size }} variant="square" />;
   }
 
   if (provider.base_url?.startsWith('https://api.fireworks.ai/')) {
-    return <Avatar src={fireworksLogo} sx={{ width: 32, height: 32 }} variant="square" />;
+    return <Avatar src={fireworksLogo} sx={{ width: size, height: size }} variant="square" />;
   }
 
   if (provider.name === 'xai' || provider.base_url?.startsWith('https://api.x.ai/')) {
     return (
-      <Avatar sx={{ width: 32, height: 32, bgcolor: 'transparent', color: '#fff' }} variant="square">
-        <XaiLogo width={24} height={24} />
+      <Avatar sx={{ width: size, height: size, bgcolor: 'transparent', color: '#fff' }} variant="square">
+        <XaiLogo width={size * 0.75} height={size * 0.75} />
       </Avatar>
     );
   }
 
   // Check provider models, if it has more than 1 and "owned_by" = "vllm", then show vllm logo
   if (provider.available_models && provider.available_models.length > 0 && provider.available_models[0].owned_by === "vllm") {
-    return <Avatar src={vllmLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
+    return <Avatar src={vllmLogo} sx={{ width: size, height: size, bgcolor: '#fff' }} variant="square" />;
   }
 
   // If owned by helix, show helix logo
   if (provider.available_models && provider.available_models.length > 0 && provider.available_models[0].owned_by === "helix") {
-    return <Avatar src={helixLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
+    return <Avatar src={helixLogo} sx={{ width: size, height: size, bgcolor: '#fff' }} variant="square" />;
   }
 
   // Default robot head
   return (
-    <Avatar sx={{ bgcolor: '#9E9E9E', width: 32, height: 32 }}>
-      <Bot size={20} />
+    <Avatar sx={{ bgcolor: '#9E9E9E', width: size, height: size }}>
+      <Bot size={size * 0.625} />
     </Avatar>
   );  
 };
@@ -129,7 +129,7 @@ const hasRealID = (provider: TypesProviderEndpoint | undefined): boolean => {
 // provider: env-baked globals have no DB row, so we use their canonical
 // name (itself immutable). DB-backed providers use their ID, so admin
 // renames are a no-op for the agent.
-const providerRef = (provider: TypesProviderEndpoint | undefined): string => {
+export const providerRef = (provider: TypesProviderEndpoint | undefined): string => {
   if (!provider) return '';
   if (hasRealID(provider)) return provider.id || '';
   return provider.name || '';
@@ -138,7 +138,7 @@ const providerRef = (provider: TypesProviderEndpoint | undefined): string => {
 // Matches a stored agent reference against a provider. Tries ID first
 // (current scheme) then falls back to a case-insensitive name match
 // (globals + legacy agents stored before the switch to ID-based references).
-const matchesStoredRef = (provider: TypesProviderEndpoint | undefined, storedRef: string | undefined): boolean => {
+export const matchesStoredRef = (provider: TypesProviderEndpoint | undefined, storedRef: string | undefined): boolean => {
   if (!provider || !storedRef) return false;
   if (hasRealID(provider) && provider.id === storedRef) return true;
   if (provider.name && provider.name.toLowerCase() === storedRef.toLowerCase()) return true;
@@ -404,7 +404,13 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
       {externalOpen === undefined && (
         <Tooltip title={tooltipTitle} placement="top-start">
           {/* Wrap button in a span if disabled to allow tooltip to show */}
-          <span style={{ display: 'inline-block', cursor: disabled ? 'not-allowed' : 'pointer' }}>
+          <span
+            style={{
+              display: buttonProps?.fullWidth ? 'block' : 'inline-block',
+              width: buttonProps?.fullWidth ? '100%' : undefined,
+              cursor: disabled ? 'not-allowed' : 'pointer',
+            }}
+          >
             <Button
               variant="text"
               onClick={handleOpenDialog}
@@ -418,9 +424,10 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                 padding: '4px 8px',
                 height: '32px',
                 minWidth: 'auto',
-                maxWidth: '200px',
+                maxWidth: buttonProps?.fullWidth ? 'none' : '200px',
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: buttonProps?.fullWidth ? 'space-between' : undefined,
                 border: buttonVariant === 'outlined'
                   ? `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.2)' : '#353945'}`
                   : 'none',

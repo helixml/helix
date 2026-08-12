@@ -146,6 +146,18 @@ func (r *Repository[D, R]) Delete(ctx context.Context, opts ...store.Option) err
 	return nil
 }
 
+// Count returns the number of rows matching the given filters. Like
+// Exists it applies only the WHERE clauses — ORDER / LIMIT / OFFSET
+// are irrelevant to a count.
+func (r *Repository[D, R]) Count(ctx context.Context, opts ...store.Option) (int, error) {
+	var count int64
+	db := ApplyConditions(r.db.WithContext(ctx).Model(new(R)), opts...)
+	if err := db.Count(&count).Error; err != nil {
+		return 0, fmt.Errorf("count %s: %w", r.label, err)
+	}
+	return int(count), nil
+}
+
 // Exists reports whether any row matches the given filters.
 func (r *Repository[D, R]) Exists(ctx context.Context, opts ...store.Option) (bool, error) {
 	var count int64

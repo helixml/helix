@@ -1,5 +1,9 @@
 import { TypesOrganization, TypesOrganizationRole, TypesOrganizationMembership } from '../api/api'
 
+export function orgLandingRoute(): string {
+  return 'org_chat'
+}
+
 /**
  * Gets a user's membership in an organization
  * @param organization - An organization object with memberships
@@ -48,4 +52,4 @@ export function isUserMemberOfOrganization(
 ): boolean {
   // User is a member if they have any membership role
   return getUserMembership(organization, userId) !== undefined
-} 
+}

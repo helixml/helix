@@ -244,6 +244,12 @@ func (s *Server) Run(ctx context.Context) error {
 	InitGStreamer()
 	s.logger.Info("GStreamer initialized")
 
+	// Watch our own GPU file-descriptor usage. A desktop-bridge that leaks GPU
+	// resources starves every other tenant on the card, and until now nothing
+	// detected it — the 2026-07-28 incident ran for 45 hours before a human
+	// noticed. See gpu_guard.go.
+	StartGPUResourceGuard(s.logger)
+
 	// Detect compositor type and setup D-Bus sessions accordingly
 	s.compositorType = s.detectCompositor()
 	s.logger.Info("detected compositor", "type", s.compositorType)
@@ -477,12 +483,24 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/screenshot", s.handleScreenshot)
 	mux.HandleFunc("/clipboard", s.handleClipboard)
 	mux.HandleFunc("/upload", s.handleUpload)
-	mux.HandleFunc("/input", s.handleInput)
-	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input
-	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming
-	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
-	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
+	mux.HandleFunc("/file", s.handleFile)
+	mux.HandleFunc("/ws/input", s.handleWSInput)      // Direct WebSocket input
+	mux.HandleFunc("/ws/stream", s.handleWSStream)    // Direct WebSocket video streaming
+	mux.HandleFunc("/exec", s.handleExec)             // Execute command in container (for benchmarking)
 	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
+	mux.HandleFunc("/workspace/review", s.handleWorkspaceReview)
+	mux.HandleFunc("/workspace/files", s.handleWorkspaceFiles)
+	mux.HandleFunc("/workspace/file", s.handleWorkspaceFile)
+	mux.HandleFunc("/workspace/skills", s.handleWorkspaceSkills)
+	mux.HandleFunc("/workspace/checkpoints/capture", s.handleWorkspaceCheckpointCapture)
+	mux.HandleFunc("/workspace/checkpoints/diff", s.handleWorkspaceCheckpointDiff)
+	// Workspace git plumbing used by the fork-and-pause safety net.
+	// Kept as dedicated endpoints (not /exec) because /exec is
+	// allowlist-restricted by design — adding git status/add/commit/push
+	// to the allowlist would weaken that gate. These run trusted, fixed
+	// command sequences with no caller-controlled command strings.
+	mux.HandleFunc("/workspace/status", s.handleWorkspaceStatus)
+	mux.HandleFunc("/workspace/commit-and-push", s.handleWorkspaceCommitAndPush)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))

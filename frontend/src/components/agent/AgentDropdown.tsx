@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import { FC, useMemo } from 'react'
 import {
   Box,
   FormControl,
@@ -8,18 +8,22 @@ import {
   MenuItem,
   IconButton,
   Tooltip,
+  Typography,
 } from '@mui/material'
-import EditIcon from '@mui/icons-material/Edit'
-import { Bot } from 'lucide-react'
+import { SxProps, Theme } from '@mui/material/styles'
+import { Pencil } from 'lucide-react'
 import { IApp } from '../../types'
 import useAccount from '../../hooks/useAccount'
+import { selectCodingAgents } from '../../utils/apps'
+import AgentHarness, { getAgentHarnessLabel, getAgentHarnessRuntime } from './AgentHarness'
 
 interface AgentDropdownProps {
   /** Currently selected agent ID */
   value: string
   /** Callback when agent selection changes */
   onChange: (agentId: string) => void
-  /** List of available agents, sorted with preferred agents first */
+  /** Agents to choose from. Non-coding agents are filtered out here, so callers
+   * can pass a raw agent list without repeating the kind check. */
   agents: IApp[]
   /** Label for the dropdown */
   label?: string
@@ -29,57 +33,96 @@ interface AgentDropdownProps {
   size?: 'small' | 'medium'
   /** Helper text displayed below the dropdown */
   helperText?: string
+  /** Style overrides for pages with their own palette (e.g. Onboarding) */
+  selectSx?: SxProps<Theme>
+  labelSx?: SxProps<Theme>
+  menuPaperSx?: SxProps<Theme>
 }
 
+const agentName = (app: IApp): string => app.config?.helix?.name || 'Unnamed Agent'
+
 /**
- * Reusable agent dropdown with edit button for each agent.
- * Used in ProjectSettings, SpecTasksPage, and other places that need agent selection.
+ * The single control for picking a coding agent.
+ *
+ * Owns the three things every caller previously reimplemented: filtering to
+ * coding agents, rendering the harness mark (closed state included — a bare
+ * name gives no clue which harness an agent runs), and the per-agent edit
+ * shortcut. Used by ProjectSettings, CreateProjectDialog, Onboarding and
+ * NewSpecTaskForm; add new agent pickers here rather than hand-rolling a Select.
  */
 const AgentDropdown: FC<AgentDropdownProps> = ({
   value,
   onChange,
   agents,
-  label = 'Agent',
+  label,
   disabled = false,
   size = 'small',
   helperText,
+  selectSx,
+  labelSx,
+  menuPaperSx,
 }) => {
   const account = useAccount()
+  const codingAgents = useMemo(() => selectCodingAgents(agents), [agents])
 
   return (
     <FormControl fullWidth size={size}>
-      <InputLabel>{label}</InputLabel>
+      {label && <InputLabel sx={labelSx}>{label}</InputLabel>}
       <Select
         value={value}
-        label={label}
+        label={label || undefined}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
+        sx={selectSx}
+        MenuProps={menuPaperSx ? { PaperProps: { sx: menuPaperSx } } : undefined}
         renderValue={(selectedValue) => {
-          const app = agents.find(a => a.id === selectedValue)
-          return app?.config?.helix?.name || 'Select Agent'
+          const app = codingAgents.find((a) => a.id === selectedValue)
+          if (!app) return 'Select Agent'
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+              <AgentHarness runtime={getAgentHarnessRuntime(app)} variant="short" size={18} />
+              <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {agentName(app)}
+              </Box>
+            </Box>
+          )
         }}
       >
-        {agents.map((app) => (
-          <MenuItem key={app.id} value={app.id}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-              <Bot size={18} color="#9e9e9e" />
-              <span style={{ flex: 1 }}>{app.config?.helix?.name || 'Unnamed Agent'}</span>
-              <Tooltip title="Edit agent">
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    account.orgNavigate('agent', { app_id: app.id })
-                  }}
-                  sx={{ ml: 'auto' }}
-                >
-                  <EditIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          </MenuItem>
-        ))}
-        {agents.length === 0 && (
+        {codingAgents.map((app) => {
+          const runtime = getAgentHarnessRuntime(app)
+          const harnessLabel = getAgentHarnessLabel(runtime)
+          const name = agentName(app)
+          return (
+            <MenuItem key={app.id} value={app.id}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', minWidth: 0 }}>
+                <AgentHarness runtime={runtime} variant="short" size={18} />
+                <Box component="span" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {name}
+                </Box>
+                {/* Agent names are free text, so the harness is not otherwise
+                    readable from the row when the name doesn't mention it. */}
+                {name.toLowerCase() !== harnessLabel.toLowerCase() && (
+                  <Typography component="span" variant="caption" color="text.secondary" noWrap>
+                    {harnessLabel}
+                  </Typography>
+                )}
+                <Tooltip title="Edit agent">
+                  <IconButton
+                    size="small"
+                    aria-label={`Edit ${name}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      account.orgNavigate('agent', { app_id: app.id })
+                    }}
+                  >
+                    <Pencil size={18} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </MenuItem>
+          )
+        })}
+        {codingAgents.length === 0 && (
           <MenuItem disabled value="">
             No agents available
           </MenuItem>

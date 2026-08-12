@@ -2,6 +2,11 @@ package logger
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -15,6 +20,148 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+type captureLogStore struct {
+	calls chan *types.LLMCall
+}
+
+func (s *captureLogStore) CreateLLMCall(_ context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+	s.calls <- call
+	return call, nil
+}
+
+func TestAppendChunkUsesLatestUsageSnapshot(t *testing.T) {
+	resp := &openai.ChatCompletionResponse{}
+
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Usage: &openai.Usage{
+			PromptTokens:     100,
+			CompletionTokens: 10,
+			TotalTokens:      110,
+			PromptTokensDetails: &openai.PromptTokensDetails{
+				CachedTokens: 80,
+			},
+		},
+	})
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Usage: &openai.Usage{
+			PromptTokens:     100,
+			CompletionTokens: 20,
+			TotalTokens:      120,
+			PromptTokensDetails: &openai.PromptTokensDetails{
+				CachedTokens: 80,
+			},
+		},
+	})
+
+	require.NotNil(t, resp.Usage.PromptTokensDetails)
+	assert.Equal(t, 100, resp.Usage.PromptTokens)
+	assert.Equal(t, 20, resp.Usage.CompletionTokens)
+	assert.Equal(t, 120, resp.Usage.TotalTokens)
+	assert.Equal(t, 80, resp.Usage.PromptTokensDetails.CachedTokens)
+}
+
+func TestAppendChunkAcceptsFinalOnlyUsage(t *testing.T) {
+	resp := &openai.ChatCompletionResponse{}
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{Content: "hello"},
+		}},
+	})
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Usage: &openai.Usage{
+			PromptTokens:     40,
+			CompletionTokens: 2,
+			TotalTokens:      42,
+		},
+	})
+
+	assert.Equal(t, "hello", resp.Choices[0].Message.Content)
+	assert.Equal(t, 40, resp.Usage.PromptTokens)
+	assert.Equal(t, 2, resp.Usage.CompletionTokens)
+	assert.Equal(t, 42, resp.Usage.TotalTokens)
+}
+
+func TestCreateChatCompletionStreamLogsLatestUsageSnapshot(t *testing.T) {
+	chunks := []openai.ChatCompletionStreamResponse{
+		{
+			ID: "chatcmpl_test",
+			Choices: []openai.ChatCompletionStreamChoice{{
+				Delta: openai.ChatCompletionStreamChoiceDelta{Content: "hello "},
+			}},
+			Usage: &openai.Usage{
+				PromptTokens:     100,
+				CompletionTokens: 1,
+				TotalTokens:      101,
+				PromptTokensDetails: &openai.PromptTokensDetails{
+					CachedTokens: 80,
+				},
+			},
+		},
+		{
+			ID: "chatcmpl_test",
+			Choices: []openai.ChatCompletionStreamChoice{{
+				Delta: openai.ChatCompletionStreamChoiceDelta{Content: "world"},
+			}},
+			Usage: &openai.Usage{
+				PromptTokens:     100,
+				CompletionTokens: 2,
+				TotalTokens:      102,
+				PromptTokensDetails: &openai.PromptTokensDetails{
+					CachedTokens: 80,
+				},
+			},
+		},
+	}
+
+	var streamBody strings.Builder
+	for _, chunk := range chunks {
+		payload, err := json.Marshal(chunk)
+		require.NoError(t, err)
+		streamBody.WriteString("data: ")
+		streamBody.Write(payload)
+		streamBody.WriteString("\n\n")
+	}
+	streamBody.WriteString("data: [DONE]\n\n")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(streamBody.String()))
+	}))
+	defer server.Close()
+
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	require.NoError(t, err)
+	captured := &captureLogStore{calls: make(chan *types.LLMCall, 2)}
+	middleware := Wrap(
+		nil,
+		types.ProviderOpenAI,
+		oai.New("test", server.URL, true),
+		modelInfoProvider,
+		nil,
+		captured,
+	)
+
+	stream, err := middleware.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{
+		Model: "gpt-3.5-turbo",
+	})
+	require.NoError(t, err)
+	for {
+		_, err = stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+	}
+	middleware.wg.Wait()
+
+	require.Equal(t, 1, len(captured.calls))
+	call := <-captured.calls
+	assert.Equal(t, int64(100), call.PromptTokens)
+	assert.Equal(t, int64(2), call.CompletionTokens)
+	assert.Equal(t, int64(102), call.TotalTokens)
+	assert.Equal(t, int64(80), call.CacheReadTokens)
+}
 
 func Test_computeTokenUsage_SingleMessage(t *testing.T) {
 	enc, err := tokenizer.Get(tokenizer.Cl100kBase)

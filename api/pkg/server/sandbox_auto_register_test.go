@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -26,7 +27,7 @@ import (
 func TestEnsureSandboxRegistered_BridgesProvisioningRow_TargetedUpdates(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
-	server := &HelixAPIServer{Store: mockStore}
+	server := &HelixAPIServer{Store: mockStore, Cfg: &config.ServerConfig{SandboxMaxDevContainers: 20}}
 
 	existing := &types.SandboxInstance{
 		ID:           "sbx_provisioning",
@@ -68,7 +69,7 @@ func TestEnsureSandboxRegistered_BridgesFailedRow_RecoveryPath(t *testing.T) {
 	// pre-warms a replacement, and the host serves but doesn't count.
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
-	server := &HelixAPIServer{Store: mockStore}
+	server := &HelixAPIServer{Store: mockStore, Cfg: &config.ServerConfig{SandboxMaxDevContainers: 20}}
 
 	existing := &types.SandboxInstance{
 		ID:           "sbx_recovered",
@@ -101,7 +102,7 @@ func TestEnsureSandboxRegistered_LegacyReconnectPathUnchanged(t *testing.T) {
 	// log spam and overwrite heartbeat fields.
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
-	server := &HelixAPIServer{Store: mockStore}
+	server := &HelixAPIServer{Store: mockStore, Cfg: &config.ServerConfig{SandboxMaxDevContainers: 20}}
 
 	existing := &types.SandboxInstance{
 		ID:           "sbx_existing",
@@ -127,7 +128,7 @@ func TestEnsureSandboxRegistered_LegacyReconnectForEmptyComputeState(t *testing.
 	// empty value must NOT match the provisioning branch.
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
-	server := &HelixAPIServer{Store: mockStore}
+	server := &HelixAPIServer{Store: mockStore, Cfg: &config.ServerConfig{SandboxMaxDevContainers: 20}}
 
 	existing := &types.SandboxInstance{
 		ID:           "sbx_legacy",
@@ -150,7 +151,7 @@ func TestEnsureSandboxRegistered_NoRowInsertsFreshLegacyRow(t *testing.T) {
 	// exists, so we INSERT a fresh one with Provider="" (legacy).
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
-	server := &HelixAPIServer{Store: mockStore}
+	server := &HelixAPIServer{Store: mockStore, Cfg: &config.ServerConfig{SandboxMaxDevContainers: 20}}
 
 	mockStore.EXPECT().
 		ListSandboxInstances(gomock.Any()).
@@ -182,7 +183,7 @@ func TestEnsureSandboxRegistered_BridgeEarlyStoreErrorAborts(t *testing.T) {
 	// to the legacy paths. Next reconcile cycle will retry.
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
-	server := &HelixAPIServer{Store: mockStore}
+	server := &HelixAPIServer{Store: mockStore, Cfg: &config.ServerConfig{SandboxMaxDevContainers: 20}}
 
 	existing := &types.SandboxInstance{
 		ID:           "sbx_provisioning_err",

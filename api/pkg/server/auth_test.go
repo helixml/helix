@@ -244,6 +244,33 @@ func (suite *AuthSuite) TestLogin() {
 	}
 }
 
+func (suite *AuthSuite) TestLoginReturnsAdmin() {
+	suite.server.Cfg.Auth.Provider = types.AuthProviderRegular
+	user := suite.createMockUser()
+	user.Admin = true
+
+	suite.store.EXPECT().
+		GetUser(gomock.Any(), &store.GetUserQuery{Email: testEmail}).
+		Return(user, nil)
+	suite.authenticator.EXPECT().
+		ValidatePassword(gomock.Any(), user, "password").
+		Return(nil)
+	suite.store.EXPECT().
+		CreateUserSession(gomock.Any(), gomock.Any()).
+		Return(&types.UserSession{ID: "session-123"}, nil)
+
+	body, err := json.Marshal(types.LoginRequest{Email: testEmail, Password: "password"})
+	suite.Require().NoError(err)
+	rec := httptest.NewRecorder()
+
+	suite.server.login(rec, suite.createTestRequest(http.MethodPost, "/api/v1/auth/login", body))
+
+	suite.Equal(http.StatusOK, rec.Code)
+	var response types.UserResponse
+	suite.Require().NoError(json.NewDecoder(rec.Body).Decode(&response))
+	suite.True(response.Admin)
+}
+
 func (suite *AuthSuite) TestCallback() {
 	testCases := []struct {
 		name           string
@@ -553,6 +580,79 @@ func (suite *AuthSuite) TestUser() {
 			}
 		})
 	}
+}
+
+func (suite *AuthSuite) TestAccountUpdateGitIdentityAndEmptyPRFooter() {
+	user := suite.createMockUser()
+	commitName := "Commit User"
+	commitEmail := "commit@example.com"
+	emptyFooter := ""
+	body, err := json.Marshal(types.AccountUpdateRequest{
+		GitCommitName:    &commitName,
+		GitCommitEmail:   &commitEmail,
+		PRFooterTemplate: &emptyFooter,
+	})
+	suite.Require().NoError(err)
+
+	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: user.ID}).Return(user, nil)
+	suite.store.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.User) (*types.User, error) {
+			suite.Equal(commitName, updated.GitCommitName)
+			suite.Equal(commitEmail, updated.GitCommitEmail)
+			suite.NotNil(updated.PRFooterTemplate)
+			suite.Empty(*updated.PRFooterTemplate)
+			return updated, nil
+		},
+	)
+
+	req := suite.createTestRequest(http.MethodPost, "/api/v1/auth/update", body)
+	req = req.WithContext(setRequestUser(req.Context(), *user))
+	rec := httptest.NewRecorder()
+	suite.server.accountUpdate(rec, req)
+
+	suite.Equal(http.StatusOK, rec.Code)
+	var response types.UserResponse
+	suite.Require().NoError(json.NewDecoder(rec.Body).Decode(&response))
+	suite.Equal(commitName, response.GitCommitName)
+	suite.Equal(commitEmail, response.GitCommitEmail)
+	suite.NotNil(response.PRFooterTemplate)
+	suite.Empty(*response.PRFooterTemplate)
+	suite.NotEmpty(response.DefaultPRFooter)
+}
+
+func (suite *AuthSuite) TestAccountUpdateResetPRFooter() {
+	customFooter := "custom"
+	user := suite.createMockUser()
+	user.PRFooterTemplate = &customFooter
+
+	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: user.ID}).Return(user, nil)
+	suite.store.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.User) (*types.User, error) {
+			suite.Nil(updated.PRFooterTemplate)
+			return updated, nil
+		},
+	)
+
+	body := []byte(`{"reset_pr_footer":true}`)
+	req := suite.createTestRequest(http.MethodPost, "/api/v1/auth/update", body)
+	req = req.WithContext(setRequestUser(req.Context(), *user))
+	rec := httptest.NewRecorder()
+	suite.server.accountUpdate(rec, req)
+
+	suite.Equal(http.StatusOK, rec.Code)
+}
+
+func (suite *AuthSuite) TestAccountUpdateRejectsInvalidPRFooterTemplate() {
+	user := suite.createMockUser()
+	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: user.ID}).Return(user, nil)
+
+	body := []byte(`{"pr_footer_template":"{{.Unknown}}"}`)
+	req := suite.createTestRequest(http.MethodPost, "/api/v1/auth/update", body)
+	req = req.WithContext(setRequestUser(req.Context(), *user))
+	rec := httptest.NewRecorder()
+	suite.server.accountUpdate(rec, req)
+
+	suite.Equal(http.StatusBadRequest, rec.Code)
 }
 
 func (suite *AuthSuite) TestLogout() {
@@ -939,11 +1039,11 @@ func TestNewCookieManager_SecureCookiesAutoDetection(t *testing.T) {
 // forces secure cookies regardless of SERVER_URL protocol.
 func TestNewCookieManager_ExplicitOverride(t *testing.T) {
 	tests := []struct {
-		name              string
-		serverURL         string
-		secureCookiesCfg  bool
-		wantSecure        bool
-		description       string
+		name             string
+		serverURL        string
+		secureCookiesCfg bool
+		wantSecure       bool
+		description      string
 	}{
 		{
 			name:             "Override forces secure cookies on HTTP localhost",

@@ -115,13 +115,26 @@ describe('optimisticallyMarkSessionStarting', () => {
     expect(data.config.external_agent_status).toBe('starting')
   })
 
-  it('fires invalidateQueries on the prefix key to nudge the next poll', () => {
+  it('does NOT call invalidateQueries (would race the async backend wake)', () => {
+    // See spec 002047_yet-again-sending-a/design.md: the previous belt-and-braces
+    // invalidate fired a refetch that overwrote the optimistic "starting" with the
+    // still-stale "stopped" backend row, causing a visible spinner flicker.
     const qc = new QueryClient()
+    seed(qc, 'absent', 'full')
     const spy = vi.spyOn(qc, 'invalidateQueries')
     optimisticallyMarkSessionStarting(qc, SESSION_ID)
-    expect(spy).toHaveBeenCalledWith({
-      queryKey: GET_SESSION_QUERY_KEY(SESSION_ID),
-    })
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('optimistic state is not marked stale (so the 3s poll, not an immediate refetch, reconciles)', () => {
+    const qc = new QueryClient()
+    seed(qc, 'absent', 'full')
+    optimisticallyMarkSessionStarting(qc, SESSION_ID)
+    const state = qc.getQueryState(fullKey)
+    // Query was never observed (no useGetSession mounted in this unit test),
+    // so isInvalidated should remain false — confirms we did not nudge React Query
+    // into kicking off a refetch.
+    expect(state?.isInvalidated).not.toBe(true)
   })
 
   it('returns immediately on empty sessionId', () => {

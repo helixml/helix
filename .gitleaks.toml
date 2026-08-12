@@ -1,0 +1,11 @@
+title = "Helix secret scanning configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore generated frontend build output"
+paths = [
+  '''^frontend/dist/''',
+  '''^frontend/lib/''',
+]

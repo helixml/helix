@@ -300,6 +300,21 @@ func (s *PostgresStore) GetCommentByRequestID(ctx context.Context, requestID str
 	return &comment, nil
 }
 
+// GetCommentByPromptID returns the comment linked to a queued prompt entry.
+// Used at dispatch to backfill the comment's RequestID/InteractionID once the
+// queue creates the interaction, so the existing comment finalize/streaming
+// machinery (which keys off those fields) keeps working unchanged.
+func (s *PostgresStore) GetCommentByPromptID(ctx context.Context, promptID string) (*types.SpecTaskDesignReviewComment, error) {
+	var comment types.SpecTaskDesignReviewComment
+	err := s.gdb.WithContext(ctx).
+		Where("prompt_id = ?", promptID).
+		First(&comment).Error
+	if err != nil {
+		return nil, err
+	}
+	return &comment, nil
+}
+
 // Get all unresolved comments for a spec task (for auto-resolution)
 func (s *PostgresStore) GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error) {
 	var comments []types.SpecTaskDesignReviewComment

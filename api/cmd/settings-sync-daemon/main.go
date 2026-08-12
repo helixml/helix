@@ -17,11 +17,18 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gorilla/websocket"
+	"github.com/pelletier/go-toml/v2"
+)
+
+// SettingsPath and KeymapPath are vars (not consts) so unit tests can point
+// them at a tempdir without touching the real Zed config.
+var (
+	SettingsPath    = "/home/retro/.config/zed/settings.json"
+	KeymapPath      = "/home/retro/.config/zed/keymap.json"
+	CodexConfigPath = "/home/retro/.codex/config.toml"
 )
 
 const (
-	SettingsPath = "/home/retro/.config/zed/settings.json"
-	KeymapPath   = "/home/retro/.config/zed/keymap.json"
 	PollInterval = 30 * time.Second
 	DebounceTime = 500 * time.Millisecond
 )
@@ -42,6 +49,7 @@ type SettingsDaemon struct {
 
 	// Whether user has a Claude subscription available for credential sync
 	claudeSubscriptionAvailable bool
+	codexSubscriptionAvailable  bool
 
 	// Track the last expiresAt we know about, so we can detect Claude Code token refreshes
 	lastKnownExpiresAt int64
@@ -50,7 +58,9 @@ type SettingsDaemon struct {
 	claudeSetupToken string
 
 	// Timestamp of our last write to the credentials file (to ignore our own fsnotify events)
-	lastCredWrite time.Time
+	lastCredWrite      time.Time
+	lastCodexCredWrite time.Time
+	lastCodexRefresh   time.Time
 
 	// Current state
 	helixSettings         map[string]interface{}
@@ -65,7 +75,9 @@ type CodeAgentConfig struct {
 	AgentName       string `json:"agent_name"`
 	BaseURL         string `json:"base_url"`
 	APIType         string `json:"api_type"`
-	Runtime         string `json:"runtime"`           // "zed_agent" or "qwen_code" or "goose_code"
+	Runtime         string `json:"runtime"`                    // "zed_agent" or "qwen_code" or "goose_code"
+	ReasoningEffort string `json:"reasoning_effort,omitempty"` // Runtime/model reasoning effort; empty uses the upstream default
+	ServiceTier     string `json:"service_tier,omitempty"`
 	MaxTokens       int    `json:"max_tokens"`        // Model's context window size (0 if unknown)
 	MaxOutputTokens int    `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
 
@@ -96,6 +108,7 @@ type AvailableModel struct {
 	DisplayName     string `json:"display_name"`
 	MaxTokens       int    `json:"max_tokens"`
 	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // helixConfigResponse is the response structure from the Helix API's zed-config endpoint
@@ -110,6 +123,7 @@ type helixConfigResponse struct {
 	Version                     int64                  `json:"version"`
 	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config"`
 	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"`
+	CodexSubscriptionAvailable  bool                   `json:"codex_subscription_available,omitempty"`
 }
 
 // generateAgentServerConfig creates the agent_servers configuration for custom agents (like qwen).
@@ -155,11 +169,28 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 				"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
 				"command": "qwen",
 				"args": []string{
+					// --yolo makes qwen start its ACP session in YOLO mode so it
+					// auto-approves every tool call. This is passed on the command
+					// line (not just via the "default_mode" setting below) on
+					// purpose: default_mode only takes effect if the host IDE reads
+					// it and sends an ACP session/set_mode after new_session. The
+					// Zed builds pinned for spec-task sandboxes don't do that for
+					// custom agent servers, so without --yolo qwen stays in
+					// ApprovalMode.DEFAULT and every edit round-trips a
+					// session/request_permission that nobody clicks in a headless
+					// sandbox — the agent stalls on an "Allow all edits?" prompt.
+					"--yolo",
 					"--experimental-acp",
 					"--no-telemetry",
 					"--include-directories", "/home/retro/work",
 				},
 				"env": env,
+				// default_mode is the IDE-mediated equivalent of --yolo: newer Zed
+				// reads it and issues session/set_mode("yolo"), which also keeps the
+				// Zed UI mode indicator in sync. Mirrors claude_code's
+				// "bypassPermissions" entry below. --yolo above is the version-
+				// independent guarantee; this is the nicety for IDEs that honour it.
+				"default_mode": "yolo",
 			},
 		}
 
@@ -223,9 +254,67 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		if d.codeAgentConfig.Model != "" {
 			claudeACPConfig["default_model"] = d.codeAgentConfig.Model
 		}
+		if d.codeAgentConfig.ReasoningEffort != "" {
+			env["CLAUDE_CODE_EFFORT_LEVEL"] = d.codeAgentConfig.ReasoningEffort
+		}
 		return map[string]interface{}{
 			"claude-acp": claudeACPConfig,
 		}
+
+	case "codex_cli":
+		if err := ensureCodexNonInteractiveConfig(CodexConfigPath); err != nil {
+			log.Printf("Failed to configure Codex non-interactive permissions: %v", err)
+			return nil
+		}
+		env := map[string]interface{}{
+			"CODEX_HOME":         "/home/retro/.codex",
+			"INITIAL_AGENT_MODE": "agent-full-access",
+		}
+		if d.codeAgentConfig.BaseURL != "" {
+			env["OPENAI_BASE_URL"] = d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+			if d.userAPIKey != "" {
+				env["OPENAI_API_KEY"] = d.userAPIKey
+			}
+		} else {
+			if _, err := os.Stat(CodexCredentialsPath); err != nil {
+				// Distinguish "creds haven't synced yet" (transient, resolves in
+				// seconds) from "there is no subscription to sync" (terminal —
+				// codex-acp never gets registered and Zed can never open a
+				// thread). The API refuses to start such a session, so this
+				// should be unreachable; log loudly if it ever is.
+				if !d.codexSubscriptionAvailable {
+					log.Printf("ERROR: codex agent server cannot be registered: no active ChatGPT subscription is available to this session; the agent will not be able to start a thread")
+					return nil
+				}
+				log.Printf("Codex credentials file not yet available, deferring codex agent server: %v", err)
+				return nil
+			}
+			env["OPENAI_API_KEY"] = ""
+			env["OPENAI_BASE_URL"] = ""
+		}
+		config := map[string]interface{}{
+			"type":         "registry",
+			"default_mode": "agent-full-access",
+			"env":          env,
+		}
+		if d.codeAgentConfig.Model != "" {
+			config["default_model"] = d.codeAgentConfig.Model
+		}
+		if d.codeAgentConfig.ReasoningEffort != "" || d.codeAgentConfig.ServiceTier != "" {
+			codexConfig, err := json.Marshal(struct {
+				ModelReasoningEffort string `json:"model_reasoning_effort,omitempty"`
+				ServiceTier          string `json:"service_tier,omitempty"`
+			}{
+				ModelReasoningEffort: d.codeAgentConfig.ReasoningEffort,
+				ServiceTier:          d.codeAgentConfig.ServiceTier,
+			})
+			if err != nil {
+				log.Printf("Failed to encode Codex reasoning effort: %v", err)
+				return nil
+			}
+			env["CODEX_CONFIG"] = string(codexConfig)
+		}
+		return map[string]interface{}{"codex-acp": config}
 
 	case "goose_code":
 		// Goose: Uses the `goose acp` command as a custom agent_server.
@@ -317,6 +406,36 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	}
 }
 
+func ensureCodexNonInteractiveConfig(path string) error {
+	config := map[string]interface{}{}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err := toml.Unmarshal(data, &config); err != nil {
+			return fmt.Errorf("parse existing Codex config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read existing Codex config: %w", err)
+	}
+
+	config["approval_policy"] = "never"
+	config["sandbox_mode"] = "danger-full-access"
+	data, err = toml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal Codex config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create Codex config directory: %w", err)
+	}
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("write Codex config: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("install Codex config: %w", err)
+	}
+	return nil
+}
+
 // writeGooseConfig writes ${xdgConfigHome}/goose/config.yaml so the goose acp
 // process picks up our slash_commands. We use a dedicated XDG_CONFIG_HOME
 // (set on the agent_servers env) to avoid clobbering any user-level goose
@@ -400,23 +519,22 @@ func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
 	// Parse our known-working API URL to get the host
 	apiParsed, err := url.Parse(d.apiURL)
 	if err != nil {
-		log.Printf("Warning: failed to parse apiURL %s: %v", d.apiURL, err)
+		log.Printf("Warning: failed to parse API URL")
 		return originalURL
 	}
 
 	// Parse the original URL
 	origParsed, err := url.Parse(originalURL)
 	if err != nil {
-		log.Printf("Warning: failed to parse original URL %s: %v", originalURL, err)
+		log.Printf("Warning: failed to parse model endpoint URL")
 		return originalURL
 	}
 
 	// Replace the host with our working API host
 	origParsed.Host = apiParsed.Host
 
-	rewritten := origParsed.String()
-	log.Printf("Rewrote localhost URL for container networking: %s -> %s", originalURL, rewritten)
-	return rewritten
+	log.Printf("Rewrote localhost URL for container networking")
+	return origParsed.String()
 }
 
 // injectAvailableModels adds the configured model to the provider's available_models list.
@@ -429,6 +547,14 @@ func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
 // available_models would override the built-in with worse metadata.
 func (d *SettingsDaemon) injectAvailableModels() {
 	if d.codeAgentConfig == nil || d.codeAgentConfig.Model == "" {
+		return
+	}
+
+	// claude_code uses the claude-agent-acp adapter, which resolves its model
+	// from managed-settings.json — not Zed's language_models. Never inject a
+	// Custom model entry for it. (In api_key mode APIType=="anthropic" is caught
+	// below, but in subscription mode APIType is empty, so guard on runtime.)
+	if d.codeAgentConfig.Runtime == "claude_code" {
 		return
 	}
 
@@ -471,6 +597,9 @@ func (d *SettingsDaemon) injectAvailableModels() {
 		DisplayName:     d.codeAgentConfig.Model,
 		MaxTokens:       maxTokens,
 		MaxOutputTokens: d.codeAgentConfig.MaxOutputTokens, // 0 = omitted (uses model default)
+	}
+	if d.codeAgentConfig.Runtime == "zed_agent" {
+		modelEntry.ReasoningEffort = d.codeAgentConfig.ReasoningEffort
 	}
 
 	// Get existing available_models or create new slice
@@ -537,12 +666,14 @@ const (
 	ClaudeCredentialsPath        = "/home/retro/.claude/.credentials.json"
 	ClaudeSubscriptionMarkerPath = "/tmp/helix-claude-subscription-mode"
 	ClaudeManagedSettingsPath    = "/etc/claude-code/managed-settings.json"
+	CodexCredentialsPath         = "/home/retro/.codex/auth.json"
 )
 
 // writeClaudeManagedSettings writes /etc/claude-code/managed-settings.json so the
 // claude-agent-acp SettingsManager picks up the model preference at session init.
-// resolveModelPreference() handles substring matching so "claude-opus-4-6" correctly
-// resolves to the model's canonical value ID (e.g. "claude-opus-4-6-latest").
+// resolveModelPreference() handles substring matching so tier-level shorthand
+// (e.g. "opus") resolves to the latest version, and versioned IDs (e.g.
+// "claude-opus-4-6") resolve to their canonical form ("claude-opus-4-6-latest").
 func (d *SettingsDaemon) writeClaudeManagedSettings() {
 	settings := map[string]interface{}{}
 	if d.codeAgentConfig != nil && d.codeAgentConfig.Model != "" {
@@ -767,6 +898,121 @@ func (d *SettingsDaemon) pushCredentialsToAPI() {
 	log.Printf("Pushed refreshed Claude credentials to API (expiresAt=%d)", creds.ExpiresAt)
 }
 
+type codexAuthCredentials struct {
+	AuthMode     string  `json:"auth_mode"`
+	OpenAIAPIKey *string `json:"OPENAI_API_KEY"`
+	Tokens       struct {
+		IDToken      string `json:"id_token"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		AccountID    string `json:"account_id"`
+	} `json:"tokens"`
+	LastRefresh time.Time `json:"last_refresh"`
+}
+
+func (d *SettingsDaemon) syncCodexCredentials() {
+	if !d.codexSubscriptionAvailable {
+		return
+	}
+	apiURL := fmt.Sprintf("%s/api/v1/sessions/%s/codex-credentials", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, apiURL, nil)
+	if err != nil {
+		log.Printf("Failed to create Codex credentials request: %v", err)
+		return
+	}
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to fetch Codex credentials: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to fetch Codex credentials: status %d", resp.StatusCode)
+		return
+	}
+	var serverCredentials codexAuthCredentials
+	if err := json.NewDecoder(resp.Body).Decode(&serverCredentials); err != nil {
+		log.Printf("Failed to parse Codex credentials: %v", err)
+		return
+	}
+	if fileCredentials, err := readCodexCredentials(); err == nil && fileCredentials.LastRefresh.After(serverCredentials.LastRefresh) {
+		d.pushCodexCredentialsToAPI()
+		return
+	}
+	data, err := json.MarshalIndent(serverCredentials, "", "  ")
+	if err != nil {
+		log.Printf("Failed to marshal Codex credentials: %v", err)
+		return
+	}
+	credentialDir := filepath.Dir(CodexCredentialsPath)
+	if err := os.MkdirAll(credentialDir, 0700); err != nil {
+		log.Printf("Failed to create Codex credentials directory: %v", err)
+		return
+	}
+	tmpPath := CodexCredentialsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		log.Printf("Failed to write Codex credentials: %v", err)
+		return
+	}
+	if err := os.Rename(tmpPath, CodexCredentialsPath); err != nil {
+		log.Printf("Failed to install Codex credentials: %v", err)
+		return
+	}
+	d.lastCodexRefresh = serverCredentials.LastRefresh
+	d.lastCodexCredWrite = time.Now()
+	log.Printf("Synced Codex credentials to %s", CodexCredentialsPath)
+}
+
+func readCodexCredentials() (*codexAuthCredentials, error) {
+	data, err := os.ReadFile(CodexCredentialsPath)
+	if err != nil {
+		return nil, err
+	}
+	var credentials codexAuthCredentials
+	if err := json.Unmarshal(data, &credentials); err != nil {
+		return nil, err
+	}
+	if credentials.AuthMode != "chatgpt" || credentials.Tokens.RefreshToken == "" || credentials.LastRefresh.IsZero() {
+		return nil, fmt.Errorf("invalid Codex credentials")
+	}
+	return &credentials, nil
+}
+
+func (d *SettingsDaemon) pushCodexCredentialsToAPI() {
+	credentials, err := readCodexCredentials()
+	if err != nil || !credentials.LastRefresh.After(d.lastCodexRefresh) {
+		return
+	}
+	payload, err := json.Marshal(credentials)
+	if err != nil {
+		return
+	}
+	apiURL := fmt.Sprintf("%s/api/v1/sessions/%s/codex-credentials", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, apiURL, bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to push Codex credentials: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to push Codex credentials: status %d", resp.StatusCode)
+		return
+	}
+	d.lastCodexRefresh = credentials.LastRefresh
+	log.Printf("Pushed refreshed Codex credentials to API")
+}
+
 // writeZedKeymap writes Zed keymap.json with terminal copy/paste bindings.
 // XKB remaps Super (Command) → Ctrl, so we configure Zed's terminal to:
 // - Ctrl+C: copy when text is selected, SIGINT when not (via context precedence)
@@ -935,9 +1181,11 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	// Store code agent config for generating agent_servers
 	d.codeAgentConfig = config.CodeAgentConfig
 	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
+	d.codexSubscriptionAvailable = config.CodexSubscriptionAvailable
 
 	// Sync Claude credentials if available
 	d.syncClaudeCredentials()
+	d.syncCodexCredentials()
 
 	// Start from hardcoded Helix defaults, then layer on API response fields
 	d.helixSettings = helixDefaults()
@@ -954,7 +1202,7 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	if t := d.effectiveTheme(config.Theme); t != "" {
 		d.helixSettings["theme"] = t
 	}
-	injectAgentToolPermissions(d.helixSettings)
+	injectAgentPermissions(d.helixSettings)
 
 	// Save baseline before inject mutations (for deepEqual comparison in checkHelixUpdates)
 	d.helixSettingsBaseline = copyMap(d.helixSettings)
@@ -1068,7 +1316,71 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 		if err := d.syncFromHelix(); err != nil {
 			log.Printf("re-sync after config_changed failed: %v", err)
 		}
+		// In-place agent switch coordination:
+		//   field="agent"          → fast path. settings.json has just been
+		//      rewritten; Zed hot-reloads agent_servers + context_servers via
+		//      its SettingsStore observers (no process restart). We then tell
+		//      the API the new config is on disk so it can deliver the new
+		//      thread to the still-running Zed over the live WebSocket.
+		//   field="agent_restart"  → fallback. The API asks for a clean restart
+		//      (e.g. live delivery failed / the new custom agent didn't register
+		//      from the hot-reload). pkill Zed; run_zed_restart_loop respawns it
+		//      and the reconnect path delivers the pending handoff.
+		switch evt.Field {
+		case "agent":
+			d.notifyAgentConfigApplied()
+		case "agent_restart":
+			d.restartZed()
+		}
 	}
+}
+
+// notifyAgentConfigApplied tells the Helix API that settings.json has been
+// rewritten for an in-place agent switch and Zed has had it hot-reloaded, so the
+// API can deliver the new thread over the live external-agent WebSocket without
+// waiting for a process restart + reconnect. Best-effort: if this fails, the
+// API's restart fallback (it sees no new ZedThreadID within its timeout) takes
+// over.
+func (d *SettingsDaemon) notifyAgentConfigApplied() {
+	ctx := context.Background()
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/agent-config-applied", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		log.Printf("notifyAgentConfigApplied: failed to build request: %v", err)
+		return
+	}
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("notifyAgentConfigApplied: request failed: %v (API restart fallback will cover this)", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		log.Printf("notifyAgentConfigApplied: API returned status %d", resp.StatusCode)
+		return
+	}
+	log.Printf("notifyAgentConfigApplied: API notified of applied agent config for live thread delivery")
+}
+
+// restartZed kills the running Zed editor process. The desktop's
+// run_zed_restart_loop (start-zed-core.sh) respawns it after a 2s sleep, so the
+// new process reads the freshly-written settings.json — picking up the switched
+// agent's agent_servers and MCP context_servers. Best-effort: if no Zed process
+// is running (e.g. still booting), pkill is a no-op and the first launch already
+// reads the new config.
+func (d *SettingsDaemon) restartZed() {
+	// pkill -x matches the exact process name "zed" (the editor binary), not
+	// the bash restart-loop script, so we only restart the editor.
+	out, err := exec.Command("pkill", "-x", "zed").CombinedOutput()
+	if err != nil {
+		// Exit code 1 just means "no process matched" — fine, nothing to do.
+		log.Printf("restartZed: pkill zed returned: %v (%s) — likely no running Zed yet", err, strings.TrimSpace(string(out)))
+		return
+	}
+	log.Printf("restartZed: signalled Zed to restart for agent switch; run_zed_restart_loop will respawn with new config")
 }
 
 // applyGNOMEColorScheme runs gsettings to switch GNOME's color scheme. Empty
@@ -1123,23 +1435,63 @@ var HELIX_MANAGED_THEMES = map[string]bool{
 // Helix-managed themes; otherwise it returns the on-disk value, preserving
 // the user's manual Zed-UI choice. apiTheme=="" disables the assignment in
 // the caller (we don't want to delete an existing theme key).
+//
+// Emits one structured INFO log line per call so that future debugging of
+// the helix→zed theme sync can `grep` for "theme sync:" and see which
+// branch fired without having to re-derive the logic from source.
 func (d *SettingsDaemon) effectiveTheme(apiTheme string) string {
+	result, branch, onDiskRepr := d.computeEffectiveTheme(apiTheme)
+	log.Printf("theme sync: branch=%s on_disk=%s wrote=%q api=%q",
+		branch, onDiskRepr, result, apiTheme)
+	return result
+}
+
+// computeEffectiveTheme is the pure decision function behind effectiveTheme.
+// Split out so unit tests can assert the branch taken without having to
+// scrape log output. Returns the value to write (or "" to skip the write),
+// the branch label, and a human-readable repr of what was on disk.
+//
+// Branches:
+//   - no_api_theme       — apiTheme is empty; caller should skip the assign.
+//   - no_existing_file   — settings.json missing; write apiTheme.
+//   - unparseable        — settings.json corrupt; write apiTheme.
+//   - no_theme_key       — theme key absent; write apiTheme.
+//   - structured_replace — theme is a {mode,light,dark} object; replace with apiTheme string.
+//   - empty_string       — theme is "" on disk; write apiTheme.
+//   - managed_overwrite  — theme is one of HELIX_MANAGED_THEMES; write apiTheme.
+//   - preserve_custom    — theme is a custom string the user picked in Zed; preserve it.
+func (d *SettingsDaemon) computeEffectiveTheme(apiTheme string) (result, branch, onDiskRepr string) {
 	if apiTheme == "" {
-		return ""
+		return "", "no_api_theme", "<not_read>"
 	}
 	data, err := os.ReadFile(SettingsPath)
 	if err != nil {
-		return apiTheme // no existing settings, safe to write
+		return apiTheme, "no_existing_file", "<missing>"
 	}
 	var existing map[string]interface{}
 	if err := json.Unmarshal(data, &existing); err != nil {
-		return apiTheme // unparseable, treat as if missing
+		return apiTheme, "unparseable", "<unparseable>"
 	}
-	onDisk, ok := existing["theme"].(string)
-	if !ok || onDisk == "" || HELIX_MANAGED_THEMES[onDisk] {
-		return apiTheme
+	raw, present := existing["theme"]
+	if !present {
+		return apiTheme, "no_theme_key", "<absent>"
 	}
-	return onDisk
+	onDisk, ok := raw.(string)
+	if !ok {
+		// Structured theme — most likely {mode, light, dark} written by Zed's
+		// own theme picker / ToggleMode action. Replace with the bare string
+		// the API chose; this also dislodges any sticky Dynamic{mode:System}
+		// state Zed may be holding.
+		encoded, _ := json.Marshal(raw)
+		return apiTheme, "structured_replace", string(encoded)
+	}
+	if onDisk == "" {
+		return apiTheme, "empty_string", `""`
+	}
+	if HELIX_MANAGED_THEMES[onDisk] {
+		return apiTheme, "managed_overwrite", fmt.Sprintf("%q", onDisk)
+	}
+	return onDisk, "preserve_custom", fmt.Sprintf("%q", onDisk)
 }
 
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API
@@ -1175,6 +1527,7 @@ var HELIX_MANAGED_AGENT_FIELDS = map[string]bool{
 	"inline_assistant_model": true,
 	"commit_message_model":   true,
 	"thread_summary_model":   true,
+	"sandbox_permissions":    true,
 }
 
 // HELIX_OWNED_CONTEXT_SERVERS lists context_server names whose configuration
@@ -1240,15 +1593,18 @@ func helixDefaults() map[string]interface{} {
 	}
 }
 
-// injectAgentToolPermissions sets tool_permissions.default = "allow" on the
-// agent section. Extracted so both syncFromHelix and checkHelixUpdates use it.
-func injectAgentToolPermissions(settings map[string]interface{}) {
+// injectAgentPermissions sets the Helix-managed agent permissions. Extracted so
+// both syncFromHelix and checkHelixUpdates use it.
+func injectAgentPermissions(settings map[string]interface{}) {
 	agentSection, ok := settings["agent"].(map[string]interface{})
 	if !ok {
 		agentSection = map[string]interface{}{}
 	}
 	agentSection["tool_permissions"] = map[string]interface{}{
 		"default": "allow",
+	}
+	agentSection["sandbox_permissions"] = map[string]interface{}{
+		"allow_unsandboxed": true,
 	}
 	settings["agent"] = agentSection
 }
@@ -1354,7 +1710,7 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 
 // mergeAgentBlock deep-merges Zed's user-side "agent" block onto the helix-managed
 // one, dropping any user-side values for keys in HELIX_MANAGED_AGENT_FIELDS so
-// helix's model selections always win.
+// Helix's settings always win.
 func mergeAgentBlock(helixAgent, userAgent interface{}) interface{} {
 	userMap, ok := userAgent.(map[string]interface{})
 	if !ok {
@@ -1441,7 +1797,7 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 			continue
 		}
 		if k == "agent" {
-			// Diff the agent block per-field, dropping helix-managed model fields so
+			// Diff the agent block per-field, dropping helix-managed fields so
 			// they never get uploaded back to the API. Defense-in-depth alongside
 			// the merge guard above.
 			if agentDiff := diffAgentBlock(v, helix["agent"]); agentDiff != nil {
@@ -1458,7 +1814,7 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 }
 
 // diffAgentBlock returns the user-side keys under "agent" that differ from the
-// helix-managed value, with helix-managed model fields excluded. Returns nil if
+// helix-managed value, with helix-managed fields excluded. Returns nil if
 // there is nothing to upload.
 func diffAgentBlock(current, helix interface{}) map[string]interface{} {
 	currentMap, ok := current.(map[string]interface{})
@@ -1533,17 +1889,27 @@ func (d *SettingsDaemon) startWatcher() error {
 			log.Printf("Watching %s for credential refreshes", credDir)
 		}
 	}
+	if d.codexSubscriptionAvailable {
+		credDir := filepath.Dir(CodexCredentialsPath)
+		if err := os.MkdirAll(credDir, 0700); err != nil {
+			log.Printf("Warning: failed to create Codex credentials directory for watcher: %v", err)
+		} else if err := watcher.Add(credDir); err != nil {
+			log.Printf("Warning: failed to watch Codex credentials directory: %v", err)
+		}
+	}
 
 	go func() {
 		var settingsDebounce *time.Timer
 		var credsDebounce *time.Timer
+		var codexCredsDebounce *time.Timer
 		credFilename := filepath.Base(ClaudeCredentialsPath)
+		codexCredFilename := filepath.Base(CodexCredentialsPath)
 
 		for {
 			select {
 			case event := <-watcher.Events:
 				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-					if filepath.Base(event.Name) == credFilename {
+					if filepath.Base(event.Name) == credFilename && filepath.Dir(event.Name) == filepath.Dir(ClaudeCredentialsPath) {
 						// Claude credentials file changed
 						if credsDebounce != nil {
 							credsDebounce.Stop()
@@ -1551,6 +1917,11 @@ func (d *SettingsDaemon) startWatcher() error {
 						credsDebounce = time.AfterFunc(DebounceTime, func() {
 							d.onCredentialsChanged()
 						})
+					} else if filepath.Base(event.Name) == codexCredFilename && filepath.Dir(event.Name) == filepath.Dir(CodexCredentialsPath) {
+						if codexCredsDebounce != nil {
+							codexCredsDebounce.Stop()
+						}
+						codexCredsDebounce = time.AfterFunc(DebounceTime, d.onCodexCredentialsChanged)
 					} else if filepath.Base(event.Name) == filepath.Base(SettingsPath) {
 						// Zed settings file changed
 						if settingsDebounce != nil {
@@ -1579,6 +1950,13 @@ func (d *SettingsDaemon) onCredentialsChanged() {
 
 	log.Printf("Detected credentials file change (not from our write)")
 	d.pushCredentialsToAPI()
+}
+
+func (d *SettingsDaemon) onCodexCredentialsChanged() {
+	if time.Since(d.lastCodexCredWrite) < 2*time.Second {
+		return
+	}
+	d.pushCodexCredentialsToAPI()
 }
 
 // onFileChanged handles Zed UI modifications to settings.json
@@ -1709,11 +2087,13 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	if t := d.effectiveTheme(config.Theme); t != "" {
 		newHelixSettings["theme"] = t
 	}
-	injectAgentToolPermissions(newHelixSettings)
+	injectAgentPermissions(newHelixSettings)
 
 	// Update Claude subscription availability and sync credentials
 	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
+	d.codexSubscriptionAvailable = config.CodexSubscriptionAvailable
 	d.syncClaudeCredentials()
+	d.syncCodexCredentials()
 
 	// Compare against the pre-injection baseline to avoid spurious diffs
 	// caused by injectAvailableModels mutations
@@ -1741,7 +2121,21 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 // DEPRECATED_FIELDS should be removed from settings.json (Zed doesn't support them)
 var DEPRECATED_FIELDS = []string{"default_agent", "external_sync"}
 
-// writeSettings atomically writes settings.json
+// writeSettings writes settings.json in place, preserving the file's inode.
+//
+// We deliberately do NOT write-to-temp + rename here. Zed watches the
+// settings.json *inode* via inotify (watch_config_file -> RealFs::watch only
+// adds a parent-directory watch for symlinks; a regular file is watched by its
+// own inode). An atomic rename replaces that inode on every write, and inotify
+// tears the watch down after the first replacement (IN_IGNORED) without
+// re-arming it. The daemon is the sole Helix-side writer of this file, so once
+// the watch dies Zed never sees another change — which is why a light/dark
+// toggle changed the theme on the first click but never again until restart.
+//
+// Truncating and rewriting the same inode keeps Zed's watch alive across every
+// write. Reads stay safe: Zed debounces file events ~100ms before loading, and
+// we write the (small) JSON in a single Write + Sync, so a reader never observes
+// a partially written file.
 func (d *SettingsDaemon) writeSettings(settings map[string]interface{}) error {
 	// Ensure directory exists
 	dir := filepath.Dir(SettingsPath)
@@ -1760,13 +2154,21 @@ func (d *SettingsDaemon) writeSettings(settings map[string]interface{}) error {
 		return err
 	}
 
-	// Atomic write (write to temp file, then rename)
-	tmpFile := SettingsPath + ".tmp"
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+	// In-place write that preserves the inode (O_TRUNC, not rename) so Zed's
+	// inotify watch on settings.json survives across repeated writes.
+	f, err := os.OpenFile(SettingsPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
 		return err
 	}
-
-	if err := os.Rename(tmpFile, SettingsPath); err != nil {
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 

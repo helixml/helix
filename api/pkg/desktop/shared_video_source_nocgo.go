@@ -60,6 +60,9 @@ func (r *SharedVideoSourceRegistry) Remove(nodeID uint32) {}
 // Shutdown is a no-op for non-CGO builds.
 func (r *SharedVideoSourceRegistry) Shutdown() {}
 
+// ResetCircuitBreaker is a no-op for non-CGO builds.
+func (r *SharedVideoSourceRegistry) ResetCircuitBreaker(nodeID uint32) {}
+
 // SourceStats contains statistics for a single shared video source.
 type SourceStats struct {
 	NodeID         uint32              `json:"node_id"`

@@ -16,6 +16,12 @@ import {
 } from '../types'
 import { TypesFrontendLicenseInfo, TypesServerConfigForFrontend } from '../api/api'
 
+// Embed routes are fullscreen, single-purpose views of one task or session,
+// designed to be iframed on another site. Account-level redirects (onboarding,
+// "you have no organizations") must never fire there: the visitor is not
+// onboarding, and a scoped embed key sees an empty org list by design.
+const isEmbedRoute = (routeName: string) => routeName?.startsWith('embed_')
+
 export interface IAccountContext {
   initialized: boolean,
   credits: number,
@@ -447,6 +453,11 @@ export const useAccountContext = (): IAccountContext => {
     if (user.waitlisted) return
     // Don't redirect if already on onboarding page
     if (router.name === 'onboarding') return
+    // Never redirect out of an embed. It is a fullscreen, single-purpose view of
+    // one task or session, often iframed on someone else's page — onboarding a
+    // visitor there is nonsense, and with a scoped embed key the org list is
+    // deliberately empty, which would otherwise trigger this every time.
+    if (isEmbedRoute(router.name)) return
     // Don't redirect if onboarding is already completed
     if (user.onboarding_completed) return
     // Don't redirect if user dismissed onboarding this session
@@ -466,6 +477,8 @@ export const useAccountContext = (): IAccountContext => {
     if (user.waitlisted) return
     if (!organizationTools.initialized) return
     if (router.name === 'orgs') return
+    // Same reason as the onboarding redirect above.
+    if (isEmbedRoute(router.name)) return
     // Don't redirect to /orgs if onboarding hasn't been completed yet — let the
     // onboarding redirect above handle the flow instead
     if (!user.onboarding_completed && !onboardingDismissedRef.current) return

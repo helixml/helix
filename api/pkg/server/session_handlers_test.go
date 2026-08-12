@@ -5,83 +5,35 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
 
-// func TestLimitInteractions(t *testing.T) {
-// 	// Helper function to create test interactions
-// 	createTestInteractions := func() []*types.Interaction {
-// 		interactions := []*types.Interaction{
-// 			{
-// 				ID:      "1",
-// 				Message: "A",
-// 			},
-// 			{
-// 				ID:      "2",
-// 				Message: "B",
-// 			},
-// 			{
-// 				ID:      "3",
-// 				Message: "C",
-// 			},
-// 			{
-// 				ID:      "4",
-// 				Message: "D",
-// 			},
-// 			{
-// 				ID:      "5",
-// 				Message: "E",
-// 			},
-// 			{
-// 				ID:      "6",
-// 				Message: "F",
-// 			},
-// 		}
-// 		return interactions
-// 	}
+func TestLimitInteractionsIncludesNewestPendingTurn(t *testing.T) {
+	interactions := []*types.Interaction{
+		{ID: "int_1"},
+		{ID: "int_2"},
+		{ID: "int_3"},
+		{ID: "int_pending", State: types.InteractionStateWaiting},
+	}
 
-// 	// Case when we have less interactions than the limit
-// 	t.Run("LessThanLimit", func(t *testing.T) {
-// 		interactions := createTestInteractions()
-// 		result := limitInteractions(interactions, 10)
-// 		assert.Equal(t, 5, len(result), "Should have all but the last interaction")
-// 		assert.Equal(t, "A", result[0].Message)
-// 		assert.Equal(t, "E", result[4].Message)
-// 	})
-
-// 	t.Run("Exact limit", func(t *testing.T) {
-// 		interactions := createTestInteractions()
-// 		result := limitInteractions(interactions, 6)
-// 		assert.Equal(t, 5, len(result), "Should have all but the last interaction")
-// 		assert.Equal(t, "A", result[0].Message)
-// 		assert.Equal(t, "E", result[4].Message)
-// 	})
-
-// 	// More messages than the limit
-// 	t.Run("MoreThanLimit", func(t *testing.T) {
-// 		interactions := createTestInteractions()
-// 		result := limitInteractions(interactions, 3)
-// 		assert.Equal(t, 3, len(result), "Should have all but the last interaction")
-// 		assert.Equal(t, "C", result[0].Message)
-// 		assert.Equal(t, "E", result[2].Message)
-// 	})
-
-// 	t.Run("ZeroLimit", func(t *testing.T) {
-// 		interactions := createTestInteractions()
-// 		result := limitInteractions(interactions, 0)
-// 		assert.Equal(t, 5, len(result), "Should have all but the last interaction")
-// 		assert.Equal(t, "A", result[0].Message)
-// 		assert.Equal(t, "E", result[4].Message)
-// 	})
-// }
+	limited := limitInteractions(interactions, 2)
+	require.Len(t, limited, 2)
+	require.Equal(t, "int_3", limited[0].ID)
+	require.Equal(t, "int_pending", limited[1].ID)
+}
 
 type AppendOrOverwriteSuite struct {
 	suite.Suite
@@ -89,6 +41,20 @@ type AppendOrOverwriteSuite struct {
 
 func TestAppendOrOverwriteSuite(t *testing.T) {
 	suite.Run(t, new(AppendOrOverwriteSuite))
+}
+
+func TestSessionReasoningEffort(t *testing.T) {
+	session := &types.Session{Metadata: types.SessionMetadata{ReasoningEffort: "low"}}
+
+	require.NoError(t, validateReasoningEffort("medium"))
+	// "none" is a real tier — agent settings offers it and llm_client.go maps it
+	// to "reasoning disabled" — so the per-session field must accept it too.
+	require.NoError(t, validateReasoningEffort(types.ReasoningEffortNone))
+	require.NoError(t, validateReasoningEffort(""))
+	require.Error(t, validateReasoningEffort("ultra"))
+	require.Equal(t, "low", applySessionReasoningEffort(session, ""))
+	require.Equal(t, "high", applySessionReasoningEffort(session, "high"))
+	require.Equal(t, "high", session.Metadata.ReasoningEffort)
 }
 
 func (suite *AppendOrOverwriteSuite) TestAppendToEmptySession() {
@@ -452,6 +418,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OwnerNoOrg() {
 	}
 
 	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -482,6 +449,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OwnerInOrg() {
 		UserID:         s.userID,
 		Role:           types.OrganizationRoleMember,
 	}, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -512,6 +480,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgOwnerNotSessionOwner() {
 		UserID:         s.userID,
 		Role:           types.OrganizationRoleOwner,
 	}, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -542,6 +511,11 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgMemberNotAuthorizedToProject() 
 		OrganizationID: s.orgID,
 		UserID:         s.userID,
 		Role:           types.OrganizationRoleMember,
+	}, nil).Times(2)
+	s.store.EXPECT().GetProject(gomock.Any(), session.ProjectID).Return(&types.Project{
+		ID:             session.ProjectID,
+		OrganizationID: s.orgID,
+		UserID:         "other_user",
 	}, nil)
 	// No teams
 	s.store.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
@@ -583,6 +557,11 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgMemberAuthorizedToProject() {
 		OrganizationID: s.orgID,
 		UserID:         s.userID,
 		Role:           types.OrganizationRoleMember,
+	}, nil).Times(2)
+	s.store.EXPECT().GetProject(gomock.Any(), session.ProjectID).Return(&types.Project{
+		ID:             session.ProjectID,
+		OrganizationID: s.orgID,
+		UserID:         "other_user",
 	}, nil)
 	// No teams
 	s.store.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
@@ -610,6 +589,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgMemberAuthorizedToProject() {
 			},
 		},
 	}, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -648,6 +628,141 @@ func (s *SessionAuthzSuite) TestDeleteSession_NotOrgMemberNotSessionOwner() {
 	s.Equal(http.StatusForbidden, httpErr.StatusCode)
 }
 
+func (s *SessionAuthzSuite) TestUpdateSession_NameOnlyPreservesProviderAndModel() {
+	session := &types.Session{
+		ID:        "ses_123",
+		Owner:     s.userID,
+		Name:      "Original name",
+		Provider:  "openai",
+		ModelName: "gpt-5",
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated types.Session) (*types.Session, error) {
+			s.Equal("Renamed session", updated.Name)
+			s.Equal("openai", updated.Provider)
+			s.Equal("gpt-5", updated.ModelName)
+			return &updated, nil
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/sessions/"+session.ID, strings.NewReader(`{"name":"Renamed session"}`))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.updateSession(httptest.NewRecorder(), req)
+
+	s.Nil(httpErr)
+	s.Require().NotNil(result)
+	s.Equal("Renamed session", result.Name)
+	s.Equal("openai", result.Provider)
+	s.Equal("gpt-5", result.ModelName)
+}
+
+func (s *SessionAuthzSuite) TestArchiveSession_Owner() {
+	session := &types.Session{
+		ID:    "ses_123",
+		Owner: s.userID,
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated types.Session) (*types.Session, error) {
+			s.True(updated.Archived)
+			return &updated, nil
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/sessions/ses_123/archive", strings.NewReader(`{"archived":true}`))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.archiveSession(httptest.NewRecorder(), req)
+
+	s.Nil(httpErr)
+	s.Require().NotNil(result)
+	s.True(result.Archived)
+}
+
+func (s *SessionAuthzSuite) TestArchiveSession_ExternalAgentStopsDesktop() {
+	session := &types.Session{
+		ID:    "ses_external",
+		Owner: s.userID,
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+		},
+	}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	executor.EXPECT().StopDesktop(gomock.Any(), session.ID).Return(nil)
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated types.Session) (*types.Session, error) {
+			s.True(updated.Archived)
+			return &updated, nil
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/sessions/"+session.ID+"/archive", strings.NewReader(`{"archived":true}`))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.archiveSession(httptest.NewRecorder(), req)
+
+	s.Nil(httpErr)
+	s.Require().NotNil(result)
+	s.True(result.Archived)
+}
+
+func (s *SessionAuthzSuite) TestArchiveSession_OrgAgentDoesNotStopSharedSandbox() {
+	session := &types.Session{
+		ID:             "ses_org_agent",
+		Owner:          s.userID,
+		OrganizationID: s.orgID,
+		ParentApp:      "app_org_agent",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+		},
+	}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+	orgStore := memory.New()
+	s.Require().NoError(orgStore.Nodes.Create(context.Background(), orgchart.Node{
+		ID:             "worker",
+		OrganizationID: s.orgID,
+		AgentID:        session.ParentApp,
+	}))
+	s.server.helixOrg = &helixOrgHandlers{store: orgStore}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated types.Session) (*types.Session, error) {
+			s.True(updated.Archived)
+			return &updated, nil
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/sessions/"+session.ID+"/archive", strings.NewReader(`{"archived":true}`))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.archiveSession(httptest.NewRecorder(), req)
+
+	s.Nil(httpErr)
+	s.Require().NotNil(result)
+	s.True(result.Archived)
+}
+
 // -----------------------------------------------------------------------------
 // listSessions tests
 // -----------------------------------------------------------------------------
@@ -663,9 +778,10 @@ func assertHTTPError(s *SessionAuthzSuite, err error, expectedStatus int) {
 // 1. User lists personal sessions (no org)
 func (s *SessionAuthzSuite) TestListSessions_OwnerNoOrg() {
 	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
-		Owner:   s.userID,
-		Page:    0,
-		PerPage: 50,
+		Owner:           s.userID,
+		Page:            0,
+		PerPage:         50,
+		ExcludeArchived: true,
 	}).Return([]*types.Session{
 		{ID: "ses_1", Owner: s.userID, Name: "test"},
 	}, int64(1), nil)
@@ -678,6 +794,132 @@ func (s *SessionAuthzSuite) TestListSessions_OwnerNoOrg() {
 	s.NoError(err)
 	s.Require().NotNil(result)
 	s.Equal(int64(1), result.TotalCount)
+}
+
+func (s *SessionAuthzSuite) TestListSessions_UsesCurrentAgentRuntimeAndModel() {
+	session := &types.Session{
+		ID:        "ses_org_agent",
+		Owner:     s.userID,
+		ParentApp: "app_org_agent",
+		ModelName: "llama3:instruct",
+		Metadata: types.SessionMetadata{
+			AgentType:        string(types.AgentTypeZedExternal),
+			CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+		},
+	}
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:           s.userID,
+		Page:            0,
+		PerPage:         50,
+		ExcludeArchived: true,
+	}).Return([]*types.Session{session}, int64(1), nil)
+	s.store.EXPECT().GetApp(gomock.Any(), session.ParentApp).Return(&types.App{
+		ID: session.ParentApp,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+			AgentType:               types.AgentTypeZedExternal,
+			CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+			CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model:                   "gpt-5.6-luna",
+		}}}},
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", http.NoBody).WithContext(s.authCtx)
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().Len(result.Sessions, 1)
+	s.Equal(types.CodeAgentRuntimeCodexCLI, result.Sessions[0].Metadata.CodeAgentRuntime)
+	s.Equal("gpt-5.6-luna", result.Sessions[0].ModelName)
+}
+
+func (s *SessionAuthzSuite) TestListSessions_IncludeExternalAgents() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
+		ID: s.orgID,
+	}).Return(&types.Organization{ID: s.orgID}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:                 s.userID,
+		OrganizationID:        s.orgID,
+		Page:                  0,
+		PerPage:               50,
+		IncludeExternalAgents: true,
+		ExcludeArchived:       true,
+	}).Return([]*types.Session{}, int64(0), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID+"&include_external_agents=true", http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().NotNil(result)
+}
+
+func (s *SessionAuthzSuite) TestListSessions_ProjectChatScope() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
+		ID: s.orgID,
+	}).Return(&types.Organization{ID: s.orgID}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:                 s.userID,
+		OrganizationID:        s.orgID,
+		Page:                  0,
+		PerPage:               7,
+		ProjectID:             "prj_123",
+		ProjectScope:          "project",
+		SortBy:                "updated",
+		IncludeExternalAgents: true,
+		ExcludeArchived:       true,
+	}).Return([]*types.Session{}, int64(0), nil)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/sessions?org_id="+s.orgID+"&project_id=prj_123&project_scope=project&sort=updated&page_size=7&include_external_agents=true",
+		http.NoBody,
+	)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().NotNil(result)
+}
+
+// Archiving is only reversible if the archived rows can be listed back.
+func (s *SessionAuthzSuite) TestListSessions_ArchivedOnly() {
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:           s.userID,
+		Page:            0,
+		PerPage:         50,
+		ExcludeArchived: false,
+		ArchivedOnly:    true,
+	}).Return([]*types.Session{
+		{ID: "ses_archived", Owner: s.userID, Archived: true},
+	}, int64(1), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions?archived=true", http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().NotNil(result)
+	s.Require().Len(result.Sessions, 1)
+	s.True(result.Sessions[0].Archived)
 }
 
 // 2. User is owner and org member, lists org sessions
@@ -694,10 +936,11 @@ func (s *SessionAuthzSuite) TestListSessions_OwnerInOrg() {
 		Role:           types.OrganizationRoleMember,
 	}, nil)
 	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
-		Owner:          s.userID,
-		OrganizationID: s.orgID,
-		Page:           0,
-		PerPage:        50,
+		Owner:           s.userID,
+		OrganizationID:  s.orgID,
+		Page:            0,
+		PerPage:         50,
+		ExcludeArchived: true,
 	}).Return([]*types.Session{
 		{ID: "ses_1", Owner: s.userID, OrganizationID: s.orgID, Name: "org session"},
 	}, int64(1), nil)
@@ -726,10 +969,11 @@ func (s *SessionAuthzSuite) TestListSessions_OrgOwner() {
 		Role:           types.OrganizationRoleOwner,
 	}, nil)
 	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
-		Owner:          s.userID,
-		OrganizationID: s.orgID,
-		Page:           0,
-		PerPage:        50,
+		Owner:           s.userID,
+		OrganizationID:  s.orgID,
+		Page:            0,
+		PerPage:         50,
+		ExcludeArchived: true,
 	}).Return([]*types.Session{}, int64(0), nil)
 
 	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID, http.NoBody)
@@ -756,10 +1000,11 @@ func (s *SessionAuthzSuite) TestListSessions_OrgMemberCanList() {
 		Role:           types.OrganizationRoleMember,
 	}, nil)
 	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
-		Owner:          s.userID,
-		OrganizationID: s.orgID,
-		Page:           0,
-		PerPage:        50,
+		Owner:           s.userID,
+		OrganizationID:  s.orgID,
+		Page:            0,
+		PerPage:         50,
+		ExcludeArchived: true,
 	}).Return([]*types.Session{}, int64(0), nil)
 
 	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID, http.NoBody)

@@ -16,6 +16,7 @@ import (
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"code.gitea.io/gitea/modules/setting"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -150,6 +151,21 @@ func (s *GitRepositoryService) SetKoditGitURL(url string) {
 // This is separate from where git repositories are stored.
 func (s *GitRepositoryService) GetGitHomePath() string {
 	return filepath.Join(s.filestoreBase, "git-home")
+}
+
+// GetLocalBranchSHA returns the commit SHA that the local mirror's <branch>
+// currently points at (refs/heads/<branch>). The web-service CD watcher uses
+// this — after a SyncBaseBranch — to detect when a GitHub default branch has
+// advanced and a redeploy is due.
+func (s *GitRepositoryService) GetLocalBranchSHA(ctx context.Context, repoID, branch string) (string, error) {
+	repoPath := filepath.Join(s.gitRepoBase, repoID)
+	stdout, _, err := gitcmd.NewCommand("rev-parse").
+		AddDynamicArguments("refs/heads/"+branch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return "", fmt.Errorf("rev-parse refs/heads/%s in %s: %w", branch, repoID, err)
+	}
+	return strings.TrimSpace(stdout), nil
 }
 
 // Initialize creates the git repository base directory and sets up git server
@@ -352,11 +368,14 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		}
 	}
 
-	// Check for duplicate repository name for this owner and auto-increment if needed
-	existingRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		OrganizationID: request.OrganizationID,
-		OwnerID:        request.OwnerID,
-	})
+	// Repository names are unique within their workspace. Organization repositories
+	// must consider every member's repositories; personal repositories are scoped to
+	// their owner.
+	listRequest := &types.ListGitRepositoriesRequest{OrganizationID: request.OrganizationID}
+	if request.OrganizationID == "" {
+		listRequest.OwnerID = request.OwnerID
+	}
+	existingRepos, err := s.store.ListGitRepositories(ctx, listRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list repositories: %w", err)
 	}
@@ -364,16 +383,14 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	// Build a set of existing names for quick lookup
 	existingNames := make(map[string]bool)
 	for _, repo := range existingRepos {
-		if repo.OwnerID == request.OwnerID {
-			existingNames[repo.Name] = true
-		}
+		existingNames[repo.Name] = true
 	}
 
 	// Auto-increment name if it already exists (e.g., repo -> repo-2 -> repo-3)
 	request.Name = GetUniqueRepoName(request.Name, existingNames)
 
 	// Generate repository ID
-	repoID := s.generateRepositoryID(request.RepoType, request.Name)
+	repoID := system.GenerateGitRepositoryID(request.RepoType, request.Name)
 
 	// Resolve organization ID
 	// Only set if explicitly provided or if the project has an organization.
@@ -1034,9 +1051,16 @@ func incrementRepositoryName(name string) string {
 // The existingNames map is updated with the returned name marked as used.
 // Examples: "helix" -> "helix", "helix" (if exists) -> "helix-2", etc.
 func GetUniqueRepoName(baseName string, existingNames map[string]bool) string {
+	normalizedExistingNames := make(map[string]bool, len(existingNames))
+	for name, exists := range existingNames {
+		if exists {
+			normalizedExistingNames[strings.ToLower(strings.TrimSpace(name))] = true
+		}
+	}
+
 	name := baseName
 	suffix := 2
-	for existingNames[name] {
+	for normalizedExistingNames[strings.ToLower(strings.TrimSpace(name))] {
 		name = fmt.Sprintf("%s-%d", baseName, suffix)
 		suffix++
 	}
@@ -1111,16 +1135,6 @@ func (s *GitRepositoryService) GetCloneCommand(repoID string, targetDir string) 
 		return fmt.Sprintf("git clone %s", cloneURL)
 	}
 	return fmt.Sprintf("git clone %s %s", cloneURL, targetDir)
-}
-
-// generateRepositoryID generates a unique repository ID
-func (s *GitRepositoryService) generateRepositoryID(repoType types.GitRepositoryType, name string) string {
-	// Sanitize name for filesystem
-	sanitizedName := strings.ReplaceAll(strings.ToLower(name), " ", "-")
-	sanitizedName = strings.ReplaceAll(sanitizedName, "_", "-")
-
-	timestamp := time.Now().Unix()
-	return fmt.Sprintf("%s-%s-%d", repoType, sanitizedName, timestamp)
 }
 
 // generateCloneURL generates the clone URL for a repository
@@ -2650,32 +2664,36 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 	if len(userID) > 0 {
 		actingUserID = userID[0]
 	}
-	if actingUserID != "" && gitRepo.ExternalType == types.ExternalRepositoryTypeGitHub {
+	providerType := OAuthProviderTypeForRepo(gitRepo.ExternalType)
+	if actingUserID != "" && providerType != types.OAuthProviderTypeUnknown {
 		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
 			UserID: actingUserID,
 		})
 		if err == nil {
 			for _, conn := range connections {
-				if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
-					return "x-access-token", conn.AccessToken
+				if oauthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
+					return oauthGitUsername(gitRepo.ExternalType), conn.AccessToken
 				}
 			}
 		}
 	}
 
-	// Repo-level credentials: check for OAuth connection
+	// Repo-level credentials: use the pinned OAuth connection.
 	if gitRepo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, gitRepo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {
-			switch gitRepo.ExternalType {
-			case types.ExternalRepositoryTypeGitHub:
-				return "x-access-token", conn.AccessToken
-			case types.ExternalRepositoryTypeGitLab:
-				return "oauth2", conn.AccessToken
-			case types.ExternalRepositoryTypeADO:
-				return "oauth2", conn.AccessToken
-			default:
-				return "oauth2", conn.AccessToken
+			return oauthGitUsername(gitRepo.ExternalType), conn.AccessToken
+		}
+		// The pinned connection is gone (GetOAuthConnection excludes soft-deleted
+		// rows). Disconnecting and reconnecting a provider soft-deletes the old
+		// connection and creates a new one, leaving OAuthConnectionID a dangling
+		// pointer that silently breaks auth — git then prompts for a username and
+		// fails with "could not read Username", which surfaces as a 409 on push.
+		// Self-heal to the repo owner's newest live connection for the same
+		// provider instead of stranding the repo.
+		if gitRepo.OwnerID != "" {
+			if token := s.newestLiveOAuthToken(ctx, gitRepo.OwnerID, gitRepo.ExternalType); token != "" {
+				return oauthGitUsername(gitRepo.ExternalType), token
 			}
 		}
 	}
@@ -2712,6 +2730,41 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 	return "", ""
 }
 
+// oauthGitUsername returns the basic-auth username git expects when an OAuth
+// access token is embedded as the password, per provider.
+func oauthGitUsername(t types.ExternalRepositoryType) string {
+	if t == types.ExternalRepositoryTypeGitHub {
+		return "x-access-token"
+	}
+	return "oauth2"
+}
+
+// newestLiveOAuthToken returns the access token of the most-recently-updated,
+// non-deleted OAuth connection owned by userID whose provider matches the repo's
+// external type, or "" if none exists. Used to recover from a dangling
+// OAuthConnectionID after the repo owner disconnects/reconnects a provider (the
+// reconnect creates a new connection row and soft-deletes the pinned one).
+func (s *GitRepositoryService) newestLiveOAuthToken(ctx context.Context, userID string, externalType types.ExternalRepositoryType) string {
+	wantType := OAuthProviderTypeForRepo(externalType)
+	conns, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})
+	if err != nil {
+		return ""
+	}
+	var newest *types.OAuthConnection
+	for _, conn := range conns {
+		if !oauthConnectionMatchesProvider(conn, wantType) || conn.AccessToken == "" {
+			continue
+		}
+		if newest == nil || conn.UpdatedAt.After(newest.UpdatedAt) {
+			newest = conn
+		}
+	}
+	if newest == nil {
+		return ""
+	}
+	return newest.AccessToken
+}
+
 func GetPullRequestURL(repo *types.GitRepository, pullRequestID string) string {
 	// Strip credentials from the URL (e.g., https://user@host.com -> https://host.com)
 	repoURL := stripCredentialsFromURL(repo.ExternalURL)
@@ -2727,6 +2780,67 @@ func GetPullRequestURL(repo *types.GitRepository, pullRequestID string) string {
 		return fmt.Sprintf("%s/merge_requests/%s", repoURL, pullRequestID)
 	case types.ExternalRepositoryTypeBitbucket:
 		return fmt.Sprintf("%s/pull-requests/%s", repoURL, pullRequestID)
+	}
+	return ""
+}
+
+// OAuthProviderTypeForRepo maps a repo's external type to its OAuth provider type.
+func OAuthProviderTypeForRepo(t types.ExternalRepositoryType) types.OAuthProviderType {
+	switch t {
+	case types.ExternalRepositoryTypeGitHub:
+		return types.OAuthProviderTypeGitHub
+	case types.ExternalRepositoryTypeGitLab:
+		return types.OAuthProviderTypeGitLab
+	case types.ExternalRepositoryTypeADO:
+		return types.OAuthProviderTypeAzureDevOps
+	default:
+		return types.OAuthProviderTypeUnknown
+	}
+}
+
+func oauthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
+	return conn != nil && (conn.Provider.Type == providerType ||
+		(conn.Provider.Type == types.OAuthProviderTypeCustom && strings.Contains(strings.ToLower(conn.Provider.Name), string(providerType))))
+}
+
+// RepoOwnerName returns the "owner/repo" slug parsed from a repo's external URL,
+// or "" if it can't be parsed.
+func RepoOwnerName(repo *types.GitRepository) string {
+	if repo == nil || repo.ExternalURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(stripCredentialsFromURL(repo.ExternalURL))
+	if err != nil {
+		return ""
+	}
+	p := strings.Trim(strings.TrimSuffix(parsed.Path, ".git"), "/")
+	parts := strings.Split(p, "/")
+	if len(parts) < 2 {
+		return p
+	}
+	return strings.Join(parts[len(parts)-2:], "/")
+}
+
+// GetActingAccountHandle returns the VCS account handle (e.g. "@login") that a
+// user-initiated push would be attributed to for this repo, mirroring the
+// acting-user-first credential resolution in getCredentialsForRepo. Best-effort:
+// returns "" if it can't be resolved. Used to label push-failure messages.
+func (s *GitRepositoryService) GetActingAccountHandle(ctx context.Context, gitRepo *types.GitRepository, actingUserID string) string {
+	providerType := OAuthProviderTypeForRepo(gitRepo.ExternalType)
+	if actingUserID != "" {
+		conns, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: actingUserID})
+		if err == nil {
+			for _, conn := range conns {
+				if oauthConnectionMatchesProvider(conn, providerType) && conn.ProviderUsername != "" {
+					return "@" + conn.ProviderUsername
+				}
+			}
+		}
+	}
+	if gitRepo.OAuthConnectionID != "" {
+		if conn, err := s.store.GetOAuthConnection(ctx, gitRepo.OAuthConnectionID); err == nil && conn.ProviderUsername != "" {
+			return "@" + conn.ProviderUsername
+		}
 	}
 	return ""
 }

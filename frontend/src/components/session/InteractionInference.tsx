@@ -1,5 +1,4 @@
 import React, { FC, useState, useEffect, useMemo } from "react";
-import { styled } from "@mui/system";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -9,28 +8,157 @@ import ClickLink from "../widgets/ClickLink";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
-import StreamingIndicator from "./StreamingIndicator";
-import { CollapsibleToolCall } from "./CollapsibleToolCall";
+import WorkLog from "./WorkLog";
+import ActivitySummary from "./ActivitySummary";
+import { SessionPlanProgress } from "./PlanProgress";
+import { getInteractionDurationMs } from "./interactionDuration";
+import ImageLightbox, { LightboxImage } from "./ImageLightbox";
 
 /**
  * A structured response entry from the Go API.
  * Preserves the type and ordering of each entry as Zed originally had them.
  */
 export interface ResponseEntry {
-  type: "text" | "tool_call";
+  type: "text" | "tool_call" | "plan";
   content: string;
   message_id: string;
   tool_name?: string;
   tool_status?: string;
+}
+
+interface TextActivitySegment {
+  type: "text";
+  entry: ResponseEntry;
+  index: number;
+  renderThinking: boolean;
+  renderContent: boolean;
+}
+
+interface ToolActivitySegment {
+  type: "tools";
+  index: number;
+  entries: Array<{
+    id: string;
+    toolName: string;
+    status: string;
+    body: string;
+  }>;
+}
+
+type ActivitySegment = TextActivitySegment | ToolActivitySegment;
+
+const hasThinking = (content: string) => /<(?:think|thinking)>/i.test(content);
+
+const hasVisibleAssistantText = (content: string) => content
+  .replace(/<think>[\s\S]*?<\/think>/gi, "")
+  .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+  .replace(/<(?:think|thinking)>[\s\S]*$/gi, "")
+  .trim()
+  .length > 0;
+
+const toolActivityEntry = (
+  entry: ResponseEntry,
+  index: number,
+  responseEntryCount: number,
+  isStreaming: boolean,
+) => ({
+  id: `${entry.message_id || "tool-call"}-${index}`,
+  toolName: entry.tool_name || "Tool Call",
+  status:
+    entry.tool_status ||
+    (index === responseEntryCount - 1 && isStreaming ? "Running" : "Completed"),
+  body: entry.content || "",
+});
+
+export function buildActivityTimeline(
+  responseEntries: ResponseEntry[],
+  isStreaming: boolean,
+): { activitySegments: ActivitySegment[]; finalTextIndex: number | undefined } {
+  let finalTextIndex: number | undefined;
+  if (!isStreaming) {
+    for (let index = responseEntries.length - 1; index >= 0; index -= 1) {
+      if (
+        responseEntries[index].type === "text" &&
+        hasVisibleAssistantText(responseEntries[index].content)
+      ) {
+        finalTextIndex = index;
+        break;
+      }
+    }
+  }
+
+  const activitySegments: ActivitySegment[] = [];
+  let currentToolSegment: ToolActivitySegment | undefined;
+
+  responseEntries.forEach((entry, index) => {
+    if (entry.type === "tool_call") {
+      const toolEntry = toolActivityEntry(
+        entry,
+        index,
+        responseEntries.length,
+        isStreaming,
+      );
+
+      if (currentToolSegment) {
+        currentToolSegment.entries.push(toolEntry);
+        currentToolSegment.index = index;
+      } else {
+        currentToolSegment = { type: "tools", index, entries: [toolEntry] };
+        activitySegments.push(currentToolSegment);
+      }
+      return;
+    }
+
+    if (entry.type === "plan") {
+      currentToolSegment = undefined;
+      return;
+    }
+
+    // Any text entry ends the current tool run, even when its thinking content
+    // is hidden while streaming.
+    currentToolSegment = undefined;
+
+    if (index === finalTextIndex) {
+      if (hasThinking(entry.content)) {
+        activitySegments.push({
+          type: "text",
+          entry,
+          index,
+          renderThinking: true,
+          renderContent: false,
+        });
+      }
+      return;
+    }
+
+    const renderThinking = !isStreaming && hasThinking(entry.content);
+    const renderContent = hasVisibleAssistantText(entry.content);
+    if (renderThinking || renderContent) {
+      activitySegments.push({
+        type: "text",
+        entry,
+        index,
+        renderThinking,
+        renderContent,
+      });
+    }
+  });
+
+  return {
+    activitySegments,
+    finalTextIndex,
+  };
 }
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import TextField from "@mui/material/TextField";
 import CopyButtonWithCheck from "./CopyButtonWithCheck";
+import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
+import MessageReceivedTimestamp from "./MessageReceivedTimestamp";
 import ToolStepsWidget from "./ToolStepsWidget";
 
-import { ThumbsUp, ThumbsDown, Download } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Download, FileText, Paperclip } from "lucide-react";
 
 import ExportDocument from "../export/ExportDocument";
 import ToPDF from "../export/ToPDF";
@@ -42,28 +170,16 @@ import { useUpdateInteractionFeedback } from "../../services/interactionsService
 
 import { TypesServerConfigForFrontend } from "../../api/api";
 
-import { TypesInteraction, TypesSession, TypesFeedback } from "../../api/api";
-
-const GeneratedImage = styled("img")({
-  cursor: "pointer",
-  transition: "transform 0.2s ease-in-out",
-  "&:hover": {
-    transform: "scale(1.05)",
-  },
-});
-
-const ImagePreview = styled("img")({
-  height: "150px",
-  width: "150px",
-  objectFit: "cover",
-  border: "1px solid #000000",
-  borderRadius: "4px",
-  cursor: "pointer",
-  transition: "transform 0.2s ease-in-out",
-  "&:hover": {
-    transform: "scale(1.05)",
-  },
-});
+import {
+  TypesFeedback,
+  TypesInteraction,
+  TypesInteractionState,
+  TypesSession,
+} from "../../api/api";
+import {
+  ChatWorkspaceAttachment,
+  workspaceAttachmentURL,
+} from "../common/chatAttachments";
 
 /**
  * Renders a message that may contain tool call blocks.
@@ -72,10 +188,6 @@ const ImagePreview = styled("img")({
  * field), renders each entry with the correct component in the correct order.
  * Otherwise falls back to regex parsing of the flat text (for old interactions).
  */
-// Maximum entries to render initially. Older entries are collapsed behind a button
-// to prevent the browser from choking on 500+ Markdown/tool-call components.
-const VISIBLE_ENTRIES_LIMIT = 50;
-
 export const MessageWithToolCalls: FC<{
   text: string;
   responseEntries?: ResponseEntry[];
@@ -85,6 +197,10 @@ export const MessageWithToolCalls: FC<{
   isStreaming: boolean;
   onFilterDocument?: (docId: string) => void;
   compactThinking?: boolean;
+  durationMs?: number;
+  activityStartedAt?: number;
+  showActivitySummary?: boolean;
+  includeTaskChecklist?: boolean;
 }> = ({
   text,
   responseEntries,
@@ -94,79 +210,161 @@ export const MessageWithToolCalls: FC<{
   isStreaming,
   onFilterDocument,
   compactThinking = false,
+  durationMs = 0,
+  activityStartedAt,
+  showActivitySummary = true,
+  includeTaskChecklist = false,
 }) => {
-  const [showAll, setShowAll] = useState(false);
+  if (!showActivitySummary) {
+    return (
+      <Markdown
+        text={text}
+        session={session}
+        getFileURL={getFileURL}
+        showBlinker={showBlinker}
+        isStreaming={isStreaming}
+        onFilterDocument={onFilterDocument}
+        compactThinking={compactThinking}
+      />
+    );
+  }
+
+  const planProgress = (
+    <SessionPlanProgress
+      responseEntries={responseEntries}
+      session={session}
+      includeTaskChecklist={includeTaskChecklist}
+    />
+  );
 
   // Structured path: use response_entries from the Go API (preserves type + order)
   if (responseEntries && responseEntries.length > 0) {
-    const hiddenCount = showAll ? 0 : Math.max(0, responseEntries.length - VISIBLE_ENTRIES_LIMIT);
-    const visibleEntries = showAll
-      ? responseEntries
-      : responseEntries.slice(hiddenCount);
+    const { activitySegments, finalTextIndex } = buildActivityTimeline(
+      responseEntries,
+      isStreaming,
+    );
+    const hasActivity = activitySegments.length > 0;
+    const activity = activitySegments.map((segment, segmentIndex) => {
+      if (segment.type === "tools") {
+        return <WorkLog key={`tool-run-${segmentIndex}`} entries={segment.entries} />;
+      }
 
-    return (
+      return (
+        <Markdown
+          key={`activity-text-${segment.index}`}
+          text={segment.entry.content}
+          session={session}
+          getFileURL={getFileURL}
+          showBlinker={false}
+          isStreaming={isStreaming && segment.index === responseEntries.length - 1}
+          onFilterDocument={onFilterDocument}
+          compactThinking={compactThinking}
+          renderThinkingWidget={segment.renderThinking}
+          renderContent={segment.renderContent}
+        />
+      );
+    });
+    const finalEntry = finalTextIndex === undefined ? undefined : responseEntries[finalTextIndex];
+    const finalContent = finalEntry ? (
+      <Markdown
+        text={finalEntry.content}
+        session={session}
+        getFileURL={getFileURL}
+        showBlinker={false}
+        isStreaming={false}
+        onFilterDocument={onFilterDocument}
+        compactThinking={compactThinking}
+        renderThinkingWidget={false}
+      />
+    ) : null;
+
+    return isStreaming ? (
       <>
-        {hiddenCount > 0 && (
-          <Button
-            size="small"
-            onClick={() => setShowAll(true)}
-            sx={{ mb: 1, textTransform: "none" }}
-          >
-            Show {hiddenCount} earlier entries
-          </Button>
-        )}
-        {visibleEntries.map((entry, vi) => {
-          const i = showAll ? vi : vi + hiddenCount;
-          if (entry.type === "tool_call") {
-            const isLast = i === responseEntries.length - 1;
-            const toolName = entry.tool_name || "Tool Call";
-            const status = entry.tool_status || (isLast && isStreaming ? "Running" : "Completed");
-            const body = entry.content || "";
-            return (
-              <React.Fragment key={`tc-${i}`}>
-                <CollapsibleToolCall
-                  toolName={toolName}
-                  status={status}
-                  body={body}
-                />
-                {isLast && showBlinker && isStreaming && <StreamingIndicator />}
-              </React.Fragment>
-            );
-          }
-          // text entry
-          return (
-            <Markdown
-              key={`md-${i}`}
-              text={entry.content}
-              session={session}
-              getFileURL={getFileURL}
-              showBlinker={showBlinker && i === responseEntries.length - 1}
-              isStreaming={isStreaming && i === responseEntries.length - 1}
-              onFilterDocument={onFilterDocument}
-              compactThinking={compactThinking}
-            />
-          );
-        })}
+        {activity}
+        {planProgress}
+        <ActivitySummary
+          durationMs={durationMs}
+          hasActivity={false}
+          isStreaming
+          startedAt={activityStartedAt}
+        />
+      </>
+    ) : (
+      <>
+        <ActivitySummary
+          durationMs={durationMs}
+          hasActivity={hasActivity}
+          isStreaming={false}
+          startedAt={activityStartedAt}
+        >
+          {activity}
+        </ActivitySummary>
+        {planProgress}
+        {finalContent}
       </>
     );
   }
 
   // Plain markdown for text-only interactions
-  return (
+  const plainHasThinking = hasThinking(text);
+  const finalContent = (
     <Markdown
       text={text}
       session={session}
       getFileURL={getFileURL}
-      showBlinker={showBlinker}
+      showBlinker={false}
       isStreaming={isStreaming}
       onFilterDocument={onFilterDocument}
       compactThinking={compactThinking}
+      renderThinkingWidget={false}
     />
+  );
+  const activityContent = plainHasThinking ? (
+    <Markdown
+      text={text}
+      session={session}
+      getFileURL={getFileURL}
+      showBlinker={false}
+      isStreaming={false}
+      onFilterDocument={onFilterDocument}
+      compactThinking={compactThinking}
+      renderThinkingWidget
+      renderContent={false}
+    />
+  ) : null;
+
+  return isStreaming ? (
+    <>
+      {finalContent}
+      {planProgress}
+      <ActivitySummary
+        durationMs={durationMs}
+        hasActivity={plainHasThinking}
+        isStreaming
+        startedAt={activityStartedAt}
+      >
+        {activityContent}
+      </ActivitySummary>
+    </>
+  ) : (
+    <>
+      {finalContent}
+      <ActivitySummary
+        durationMs={durationMs}
+        hasActivity={plainHasThinking}
+        isStreaming={false}
+        startedAt={activityStartedAt}
+      >
+        {activityContent}
+      </ActivitySummary>
+      {planProgress}
+    </>
   );
 };
 
 export const InteractionInference: FC<{
   imageURLs?: string[];
+  workspaceAttachments?: ChatWorkspaceAttachment[];
   message?: string;
   error?: string;
   serverConfig?: TypesServerConfigForFrontend;
@@ -182,8 +380,10 @@ export const InteractionInference: FC<{
   handleSave?: () => void;
   isLastInteraction?: boolean;
   sessionSteps?: any[];
+  enableDebugCopy?: boolean;
 }> = ({
   imageURLs = [],
+  workspaceAttachments = [],
   message,
   error,
   serverConfig,
@@ -199,12 +399,14 @@ export const InteractionInference: FC<{
   handleSave: externalHandleSave,
   isLastInteraction,
   sessionSteps = [],
+  enableDebugCopy = false,
 }) => {
   const account = useAccount();
   const router = useRouter();
   const [viewingError, setViewingError] = useState(false);
   const [viewingExport, setViewingExport] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
+  const [userMessageExpanded, setUserMessageExpanded] = useState(false);
   const [internalIsEditing, setInternalIsEditing] = useState(false);
   const [internalEditedMessage, setInternalEditedMessage] = useState(
     message || "",
@@ -252,6 +454,10 @@ export const InteractionInference: FC<{
     setCurrentFeedback(interaction.feedback);
   }, [interaction.feedback]);
 
+  useEffect(() => {
+    setUserMessageExpanded(false);
+  }, [interaction.id, message]);
+
   // Filter tool steps for this interaction
   const toolSteps = sessionSteps
     .filter((step) => step.interaction_id === interaction.id)
@@ -278,6 +484,9 @@ export const InteractionInference: FC<{
       .map((e: ResponseEntry) => e.content)
       .join("\n\n");
   }, [message, interaction]);
+  const shouldCollapseUserMessage = !isFromAssistant && !!message && (
+    message.length > 600 || message.split("\n").length > 8
+  );
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
   if (!interaction) return null;
@@ -289,32 +498,142 @@ export const InteractionInference: FC<{
     return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`;
   };
 
+  const contentImages: LightboxImage[] = imageURLs
+    .filter(() => !!account.user)
+    .map((imageURL, index) => {
+      const path = imageURL.split("?")[0];
+      const basename = path.split("/").pop();
+      let imageName = `Image ${index + 1}`;
+      if (basename && !basename.startsWith("data:")) {
+        try {
+          imageName = decodeURIComponent(basename);
+        } catch {
+          imageName = basename;
+        }
+      }
+      return {
+        src: getFileURL(imageURL),
+        name: imageName,
+      };
+    });
+  const workspaceImages: LightboxImage[] = workspaceAttachments
+    .filter((attachment) => attachment.type === "image")
+    .map((attachment) => ({
+      src: workspaceAttachmentURL(session.id || "", attachment.path),
+      name: attachment.name,
+    }));
+  const lightboxImages = [...workspaceImages, ...contentImages];
+  const workspaceFiles = workspaceAttachments.filter((attachment) => attachment.type === "file");
+
   return (
     <>
-      {serverConfig?.filestore_prefix &&
-        imageURLs
-          .filter((file) => {
-            return account.user ? true : false;
-          })
-          .map((imageURL: string) => {
-            const useURL = getFileURL(imageURL);
+      {serverConfig?.filestore_prefix && lightboxImages.length > 0 && (
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: lightboxImages.length === 1
+              ? "minmax(0, 1fr)"
+              : "repeat(2, minmax(0, 1fr))",
+            gap: 1,
+            width: "min(100%, 420px)",
+            mb: message ? 1.25 : 0,
+          }}
+        >
+          {lightboxImages.map((image, index) => (
+            <Box
+              key={`${image.src}-${index}`}
+              component="button"
+              type="button"
+              onClick={() => setSelectedImageIndex(index)}
+              aria-label={`Preview ${image.name}`}
+              sx={{
+                p: 0,
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: 1,
+                overflow: "hidden",
+                background: "transparent",
+                cursor: "zoom-in",
+                minWidth: 0,
+                lineHeight: 0,
+                "&:hover img": { transform: "scale(1.02)" },
+                "&:focus-visible": {
+                  outline: "2px solid",
+                  outlineColor: "primary.main",
+                  outlineOffset: 2,
+                },
+              }}
+            >
+              <Box
+                component="img"
+                src={image.src}
+                alt={image.name}
+                sx={{
+                  display: "block",
+                  width: "100%",
+                  height: lightboxImages.length === 1 ? "auto" : 180,
+                  maxHeight: 220,
+                  objectFit: "cover",
+                  transition: "transform 0.15s ease",
+                }}
+              />
+            </Box>
+          ))}
+        </Box>
+      )}
+      {workspaceFiles.length > 0 && (
+        <Box
+          sx={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 1,
+            width: "min(100%, 440px)",
+            mb: message ? 1.25 : 0,
+          }}
+        >
+          {workspaceFiles.map((attachment) => {
+            const isDocument = /\.(pdf|txt|md|docx?|rtf)$/i.test(attachment.name);
             return (
               <Box
+                key={attachment.path}
+                component="a"
+                href={workspaceAttachmentURL(session.id || "", attachment.path)}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Open attachment ${attachment.name}`}
                 sx={{
-                  mb: 2,
+                  width: { xs: "100%", sm: 210 },
+                  minWidth: 0,
+                  height: 56,
                   display: "flex",
+                  alignItems: "center",
                   gap: 1,
+                  px: 1.25,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  color: "text.primary",
+                  textDecoration: "none",
+                  backgroundColor: "rgba(255,255,255,0.025)",
+                  "&:hover": { borderColor: "text.secondary", backgroundColor: "action.hover" },
                 }}
-                key={useURL}
               >
-                <ImagePreview
-                  src={useURL}
-                  onClick={() => setSelectedImage(useURL)}
-                  alt="Preview"
-                />
+                <Box sx={{ display: "flex", flexShrink: 0, color: "text.secondary" }}>
+                  {isDocument ? <FileText size={19} /> : <Paperclip size={19} />}
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Box sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.8rem" }}>
+                    {attachment.name}
+                  </Box>
+                  <Box sx={{ color: "text.secondary", fontSize: "0.68rem", lineHeight: 1.4 }}>
+                    Open attachment
+                  </Box>
+                </Box>
               </Box>
             );
           })}
+        </Box>
+      )}
       {toolSteps.length > 0 && isFromAssistant && (
         <ToolStepsWidget steps={toolSteps} />
       )}
@@ -369,20 +688,60 @@ export const InteractionInference: FC<{
                 <Box
                   sx={{
                     position: "relative",
-                    "&:hover .action-buttons": {
+                    "&:hover .action-buttons, &:focus-within .action-buttons": {
                       opacity: 1,
                     },
                   }}
                 >
-                  <MessageWithToolCalls
-                    text={message || ""}
-                    responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
-                    session={session}
-                    getFileURL={getFileURL}
-                    showBlinker={false}
-                    isStreaming={false}
-                    onFilterDocument={onFilterDocument}
-                  />
+                  <Box
+                    sx={{
+                      position: "relative",
+                      maxHeight: shouldCollapseUserMessage && !userMessageExpanded ? 176 : "none",
+                      overflow: shouldCollapseUserMessage && !userMessageExpanded ? "hidden" : "visible",
+                      "&::after": shouldCollapseUserMessage && !userMessageExpanded
+                        ? {
+                            content: '""',
+                            position: "absolute",
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: 48,
+                            pointerEvents: "none",
+                            background: (theme) => `linear-gradient(transparent, ${theme.palette.mode === "dark" ? "#1c1c1f" : "#f0f0f2"})`,
+                          }
+                        : undefined,
+                    }}
+                  >
+                    <MessageWithToolCalls
+                      text={message || ""}
+                      responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
+                      session={session}
+                      getFileURL={getFileURL}
+                      showBlinker={false}
+                      isStreaming={false}
+                      durationMs={getInteractionDurationMs(interaction)}
+                      showActivitySummary={isFromAssistant}
+                      includeTaskChecklist={isFromAssistant && !!isLastInteraction}
+                      onFilterDocument={onFilterDocument}
+                    />
+                  </Box>
+                  {shouldCollapseUserMessage && (
+                    <Button
+                      size="small"
+                      onClick={() => setUserMessageExpanded((expanded) => !expanded)}
+                      sx={{
+                        minHeight: 24,
+                        px: 0,
+                        mt: 0.5,
+                        textTransform: "none",
+                        color: "text.secondary",
+                        fontSize: "0.75rem",
+                        "&:hover": { background: "transparent", color: "text.primary" },
+                      }}
+                    >
+                      {userMessageExpanded ? "Show less" : "Show full message"}
+                    </Button>
+                  )}
                   {isFromAssistant && onRegenerate && (
                     <Box
                       className="action-buttons"
@@ -392,14 +751,23 @@ export const InteractionInference: FC<{
                         alignItems: "center",
                         mt: 1,
                         gap: 1,
-                        opacity: isLastInteraction ? 1 : 0,
+                        opacity: 0,
                         transition: "opacity 0.2s ease-in-out",
                         position: "relative",
-                        "&:hover": {
+                        "&:hover, &:focus-within": {
                           opacity: 1,
                         },
                       }}
                     >
+                      {enableDebugCopy && (
+                        <InteractionDebugCopyButton
+                          interaction={interaction}
+                          session={session}
+                          sessionSteps={sessionSteps}
+                          serverConfig={serverConfig}
+                        />
+                      )}
+
                       <Tooltip title="Regenerate this response">
                         <IconButton
                           onClick={() =>
@@ -528,6 +896,12 @@ export const InteractionInference: FC<{
                           />
                         </IconButton>
                       </Tooltip>
+                      {interaction.state ===
+                        TypesInteractionState.InteractionStateComplete && (
+                        <MessageReceivedTimestamp
+                          completedAt={interaction.completed}
+                        />
+                      )}
                     </Box>
                   )}
                 </Box>
@@ -563,6 +937,7 @@ export const InteractionInference: FC<{
             <Cell
               sx={{
                 ml: 2,
+                flexShrink: 0,
               }}
             >
               <Button
@@ -570,6 +945,10 @@ export const InteractionInference: FC<{
                 color="secondary"
                 size="small"
                 endIcon={<ReplayIcon />}
+                sx={{
+                  minWidth: 92,
+                  whiteSpace: "nowrap",
+                }}
                 onClick={() =>
                   onRegenerate(
                     interaction.id || "",
@@ -605,33 +984,12 @@ export const InteractionInference: FC<{
           />
         </ExportDocument>
       )}
-      {selectedImage && (
-        <Box
-          sx={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            bgcolor: "rgba(0, 0, 0, 0.8)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
-          }}
-          onClick={() => setSelectedImage(null)}
-        >
-          <GeneratedImage
-            src={selectedImage}
-            sx={{
-              maxHeight: "90vh",
-              maxWidth: "90vw",
-              objectFit: "contain",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          />
-        </Box>
-      )}
+      <ImageLightbox
+        images={lightboxImages}
+        initialIndex={selectedImageIndex ?? 0}
+        open={selectedImageIndex !== null}
+        onClose={() => setSelectedImageIndex(null)}
+      />
     </>
   );
 };

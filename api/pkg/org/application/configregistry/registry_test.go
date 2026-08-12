@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
@@ -42,7 +41,7 @@ func TestRegistryRegisterAndSet(t *testing.T) {
 	}
 
 	// Set overrides default.
-	if err := r.Set(ctx, testOrgID, "claude.bin", `"/usr/local/bin/claude"`, orgchart.WorkerID("")); err != nil {
+	if err := r.Set(ctx, testOrgID, "claude.bin", `"/usr/local/bin/claude"`); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	got, _ = r.GetString(ctx, testOrgID, "claude.bin")
@@ -96,7 +95,7 @@ func TestRegistryUnknownKey(t *testing.T) {
 	r := newRegistry(t)
 	ctx := context.Background()
 
-	if err := r.Set(ctx, testOrgID, "ghost.key", `"x"`, orgchart.WorkerID("")); err == nil || !strings.Contains(err.Error(), "unknown") {
+	if err := r.Set(ctx, testOrgID, "ghost.key", `"x"`); err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Fatalf("Set unknown = %v", err)
 	}
 	if _, err := r.GetRaw(ctx, testOrgID, "ghost.key"); err == nil {
@@ -122,7 +121,7 @@ func TestRegistryValidationRejectsBadShape(t *testing.T) {
 		{"a.o", `not json`}, // not JSON
 	}
 	for _, tc := range cases {
-		if err := r.Set(ctx, testOrgID, tc.key, tc.val, orgchart.WorkerID("")); err == nil {
+		if err := r.Set(ctx, testOrgID, tc.key, tc.val); err == nil {
 			t.Errorf("Set(%q, %q) = nil, want validation error", tc.key, tc.val)
 		}
 	}
@@ -138,7 +137,7 @@ func TestRegistryRedaction(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	if err := r.Set(ctx, testOrgID, "transport.postmark", `{"token":"abc-xyz","from":"x@y.com"}`, orgchart.WorkerID("")); err != nil {
+	if err := r.Set(ctx, testOrgID, "transport.postmark", `{"token":"abc-xyz","from":"x@y.com"}`); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 

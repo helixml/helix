@@ -40,6 +40,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /inference-proxy ./api/cmd/inference-proxy
+# Build dns-proxy (forwards sandbox DNS to the outer Docker/host DNS). It is a
+# separate Go module (sandbox/dns-proxy). NOTE: this was accidentally dropped in
+# the docker-in-desktop refactor (099156501), silently removing sandbox DNS from
+# the image — restored here and supervised via cont-init below.
+COPY sandbox/dns-proxy/ ./dns-proxy/
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    cd dns-proxy && CGO_ENABLED=0 go build -ldflags "-s -w" -o /dns-proxy .
 
 # ====================================================================
 # Stage 2: Final sandbox image (based on GOW base pattern)
@@ -226,10 +234,12 @@ COPY --from=go-builder /hydra /usr/local/bin/hydra
 COPY --from=go-builder /sandbox-heartbeat /usr/local/bin/sandbox-heartbeat
 COPY --from=go-builder /compose-manager /usr/local/bin/compose-manager
 COPY --from=go-builder /inference-proxy /usr/local/bin/inference-proxy
+COPY --from=go-builder /dns-proxy /usr/local/bin/dns-proxy
 RUN chmod +x /usr/local/bin/hydra \
     /usr/local/bin/sandbox-heartbeat \
     /usr/local/bin/compose-manager \
-    /usr/local/bin/inference-proxy
+    /usr/local/bin/inference-proxy \
+    /usr/local/bin/dns-proxy
 
 # Sandbox-absorbs-runner: directory for the active compose YAML that
 # compose-manager writes and inference-proxy reads.
@@ -242,6 +252,11 @@ RUN mkdir -p /etc/helix
 # Start dockerd script
 COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/40-start-dockerd.sh
 RUN chmod +x /etc/cont-init.d/40-start-dockerd.sh
+
+# Start (and supervise) the sandbox DNS proxy AFTER dockerd so nested
+# containers can resolve names. Re-added after it was dropped in 099156501.
+COPY sandbox/05-start-dns-proxy.sh /etc/cont-init.d/45-start-dns-proxy.sh
+RUN chmod +x /etc/cont-init.d/45-start-dns-proxy.sh
 
 # Start sandbox heartbeat daemon
 # Note: RevDial client is built into Hydra daemon (see sandbox/10-start-hydra.sh)

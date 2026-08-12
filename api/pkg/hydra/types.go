@@ -18,6 +18,16 @@ type HealthResponse struct {
 	Version         string `json:"version"`
 }
 
+// containerSessionIDLabel is the Docker label hydra stamps on every dev
+// container with its session id, so hydra can re-adopt running containers
+// (with the exact session id) after a restart — see
+// DevContainerManager.RecoverDevContainersFromDocker.
+const containerSessionIDLabel = "helix.session_id"
+
+// containerPersistentLabel marks long-lived (web-service) containers so the
+// boot-time stopped-container reaper skips them and they survive a reboot.
+const containerPersistentLabel = "helix.persistent"
+
 // DevContainerType represents the type of dev container
 type DevContainerType string
 
@@ -55,6 +65,10 @@ type CreateDevContainerRequest struct {
 	Hostname      string        `json:"hostname"`
 	Env           []string      `json:"env"` // KEY=value format
 	Mounts        []MountConfig `json:"mounts"`
+	// WorkspaceFiles are materialized into the bind mount targeting
+	// /home/retro/work before the container starts. Keys are root filenames;
+	// byte values are base64-encoded by JSON.
+	WorkspaceFiles map[string][]byte `json:"workspace_files,omitempty"`
 
 	// Display settings (optional - headless containers omit these)
 	DisplayWidth  int `json:"display_width,omitempty"`
@@ -117,6 +131,14 @@ type CreateDevContainerRequest struct {
 	// `ubuntu:22.04`). The Sandboxes API headless runtime sets this so plain
 	// docker images can be used.
 	SkipImageValidation bool `json:"skip_image_validation,omitempty"`
+
+	// Persistent marks a long-lived dev container (e.g. a hosted web service)
+	// that must survive host reboots and dockerd restarts. It gets a Docker
+	// restart policy (unless-stopped) and is exempt from stopped-container
+	// reaping, so a reboot self-heals in seconds with /data and the image
+	// cache intact — instead of the slow provision-fresh-sandbox + full
+	// rebuild recovery path.
+	Persistent bool `json:"persistent,omitempty"`
 }
 
 // DevContainerResponse is the response after creating/querying a dev container
@@ -137,6 +159,19 @@ type DevContainerResponse struct {
 	DesktopVersion string `json:"desktop_version,omitempty"` // helix-ubuntu image version (commit hash)
 	GPUVendor      string `json:"gpu_vendor,omitempty"`      // nvidia, amd, intel, or ""
 	RenderNode     string `json:"render_node,omitempty"`     // /dev/dri/renderD128 or SOFTWARE
+	VCPUs          int    `json:"vcpus,omitempty"`
+	MemoryMB       int    `json:"memory_mb,omitempty"`
+}
+
+type UpdateDevContainerResourcesRequest struct {
+	VCPUs    int `json:"vcpus"`
+	MemoryMB int `json:"memory_mb"`
+}
+
+type DevContainerResourcesResponse struct {
+	SessionID string `json:"session_id"`
+	VCPUs     int    `json:"vcpus"`
+	MemoryMB  int    `json:"memory_mb"`
 }
 
 // DevContainer represents a running dev container managed by Hydra
@@ -184,4 +219,47 @@ type SystemStatsResponse struct {
 type VersionResponse struct {
 	Version string   `json:"version"`
 	Routes  []string `json:"routes"`
+}
+
+// GCReconcileRequest is the durable, DB-driven garbage-collection request the
+// API sends to hydra. The API computes the live-set from Postgres (the source
+// of truth that survives reboots) and hydra reconciles on-disk resources
+// (session zvols, per-task/session workspace dirs) against it.
+type GCReconcileRequest struct {
+	// LiveSessionIDs is the set of session IDs (full ses_… strings) that the
+	// API considers alive. zvols and session workspace dirs for IDs NOT in this
+	// set are candidates for reaping (subject to the grace period).
+	LiveSessionIDs []string `json:"live_session_ids"`
+
+	// LiveSpecTaskIDs is the set of spec-task IDs (full spt_… strings) the API
+	// considers alive. Spec-task workspace dirs for IDs NOT in this set are
+	// candidates for reaping (subject to the grace period).
+	LiveSpecTaskIDs []string `json:"live_spec_task_ids"`
+
+	// GracePeriodSeconds is the minimum age (since creation / mtime) a resource
+	// must reach before it can be reaped. Guards against racing newly-created
+	// resources the DB live-set hasn't caught up with yet.
+	GracePeriodSeconds int `json:"grace_period_seconds"`
+
+	// DryRun reports what WOULD be reaped without destroying anything.
+	DryRun bool `json:"dry_run"`
+}
+
+// GCSkip records a resource the reconciler chose NOT to reap, with the reason.
+type GCSkip struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// GCReconcileResponse is hydra's report of what it reaped (or would reap, in
+// dry-run mode) and what it deliberately skipped.
+type GCReconcileResponse struct {
+	ZvolsReaped         []string `json:"zvols_reaped"`
+	ZvolsSkipped        []GCSkip `json:"zvols_skipped"`
+	WorkspacesReaped    []string `json:"workspaces_reaped"`
+	WorkspacesSkipped   []GCSkip `json:"workspaces_skipped"`
+	FileCopyDirsReaped  []string `json:"file_copy_dirs_reaped"`
+	FileCopyDirsSkipped []GCSkip `json:"file_copy_dirs_skipped"`
+	GoldensFlattened    []string `json:"goldens_flattened"`
+	BytesFreed          int64    `json:"bytes_freed"`
 }

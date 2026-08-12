@@ -40,8 +40,8 @@ docker run --rm \
         # libgstcuda symlink for CUDA support (may not exist on AMD, but link anyway)
         ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so 2>/dev/null || true
 
-        # Install Rust (same version as Dockerfile)
-        curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+        # Install Rust (must match Dockerfile.ubuntu-helix rust-build-env)
+        curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.87.0
         source /root/.cargo/env
 
         # Build the plugin

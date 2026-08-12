@@ -48,7 +48,15 @@ func (suite *HelixMCPBackendSuite) SetupTest() {
 	}
 	suite.controller.Options.RAG = suite.mockRAG
 
-	suite.backend = NewHelixMCPBackend(suite.mockStore, suite.controller)
+	// Default authorizer mirrors the old owner-only rule so existing tests keep
+	// their meaning. Individual tests can override suite.backend.authorizeApp to
+	// exercise delegated (access-grant) authorization.
+	suite.backend = NewHelixMCPBackend(suite.mockStore, suite.controller, func(_ context.Context, user *types.User, app *types.App, _ types.Action) error {
+		if app.Owner != user.ID {
+			return errors.New("user does not own this app")
+		}
+		return nil
+	})
 }
 
 func (suite *HelixMCPBackendSuite) TearDownTest() {
@@ -203,6 +211,50 @@ func (suite *HelixMCPBackendSuite) TestServeHTTP_AccessDenied() {
 
 	suite.Equal(http.StatusInternalServerError, rec.Code)
 	suite.Contains(rec.Body.String(), "access denied")
+}
+
+// TestGetOrCreateServer_DelegatedAccessGrant proves the backend authorizes via
+// the injected RBAC authorizer, not ownership: a non-owner is allowed when the
+// authorizer permits (e.g. a scoped app shared to an end-user via access grants).
+func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_DelegatedAccessGrant() {
+	app := suite.testApp()
+	app.Owner = "find-ai-service" // owned by the service, NOT the requesting user
+
+	suite.mockStore.EXPECT().
+		GetApp(gomock.Any(), "app-123").
+		Return(app, nil)
+	suite.mockStore.EXPECT().
+		ListKnowledge(gomock.Any(), gomock.Any()).
+		Return([]*types.Knowledge{}, nil)
+
+	// Simulate an access grant: authorizer says yes for this non-owner user.
+	granted := false
+	suite.backend.authorizeApp = func(_ context.Context, user *types.User, app *types.App, _ types.Action) error {
+		granted = true
+		suite.Equal("user-123", user.ID)
+		suite.Equal("find-ai-service", app.Owner)
+		return nil
+	}
+
+	server, err := suite.backend.getOrCreateServer(suite.ctx, suite.testUser(), "app-123", "")
+	suite.NoError(err)
+	suite.NotNil(server)
+	suite.True(granted, "authorizer must be consulted")
+}
+
+// TestGetOrCreateServer_FailsClosedWithoutAuthorizer proves a misconfigured
+// backend denies access rather than defaulting to open.
+func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_FailsClosedWithoutAuthorizer() {
+	app := suite.testApp()
+	suite.mockStore.EXPECT().
+		GetApp(gomock.Any(), "app-123").
+		Return(app, nil)
+
+	suite.backend.authorizeApp = nil // misconfigured
+
+	_, err := suite.backend.getOrCreateServer(suite.ctx, suite.testUser(), "app-123", "")
+	suite.Error(err)
+	suite.Contains(err.Error(), "access denied")
 }
 
 // =============================================================================

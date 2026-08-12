@@ -14,7 +14,7 @@ type gitRepositoryServicer interface {
 	Initialize(ctx context.Context) error
 	SetKoditService(koditService services.KoditServicer)
 	CloneRepositoryAsync(gitRepo *types.GitRepository, postClone ...func(localPath string))
-	ValidateUserGitHubOAuth(ctx context.Context, repo *types.GitRepository, userID string) error
+	ValidateUserOAuth(ctx context.Context, repo *types.GitRepository, userID string) error
 	CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error)
 	GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error)
 	UpdateRepository(ctx context.Context, repoID string, request *types.GitRepositoryUpdateRequest, koditAPIKey string) (*types.GitRepository, error)
@@ -35,6 +35,8 @@ type gitRepositoryServicer interface {
 	PullFromRemote(ctx context.Context, repoID, branchName string, force bool) error
 	PushBranchToRemote(ctx context.Context, repoID, branchName string, force bool, userID ...string) error
 	SyncAllBranches(ctx context.Context, repoID string, force bool) error
+	SyncBaseBranch(ctx context.Context, repoID, branchName string) error
+	GetLocalBranchSHA(ctx context.Context, repoID, branch string) (string, error)
 	GetExternalRepoStatus(ctx context.Context, repoID, branchName string) (*types.ExternalStatus, error)
 	GetRepoLock(repoID string) *sync.Mutex
 	WithRepoLock(repoID string, fn func() error) error

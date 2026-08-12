@@ -31,13 +31,12 @@ func TestActivationCreateGetRoundTrip(t *testing.T) {
 	triggers := []activation.Trigger{
 		{Kind: activation.TriggerHire},
 		{
-			Kind:       activation.TriggerEvent,
-			EventID:    "e-1",
-			StreamID:   "s-test",
-			Source:     "w-bob",
-			SourceKind: "ai",
-			Message:    streaming.Message{From: "w-bob", Body: "hi"},
-			CreatedAt:  started.Add(-time.Minute),
+			Kind:      activation.TriggerEvent,
+			EventID:   "e-1",
+			TopicID:   "s-test",
+			Source:    "w-bob",
+			Message:   streaming.Message{From: "w-bob", Body: "hi"},
+			CreatedAt: started.Add(-time.Minute),
 		},
 	}
 	a, err := activation.New("a-1", "w-alice", triggers, started, "org-test")
@@ -64,8 +63,8 @@ func TestActivationCreateGetRoundTrip(t *testing.T) {
 	if got.EndedAt != nil {
 		t.Errorf("EndedAt = %v, want nil (no Complete yet)", got.EndedAt)
 	}
-	if got.TranscriptStreamID != activation.StreamID("w-alice") {
-		t.Errorf("TranscriptStreamID = %q, want derived from WorkerID", got.TranscriptStreamID)
+	if got.TranscriptID != activation.TranscriptID("w-alice") {
+		t.Errorf("TranscriptID = %q, want derived from WorkerID", got.TranscriptID)
 	}
 	if len(got.Triggers) != 2 {
 		t.Fatalf("len(Triggers) = %d, want 2", len(got.Triggers))
@@ -153,8 +152,8 @@ func TestActivationListForWorkerReturnsNewestFirst(t *testing.T) {
 		}
 		// Re-set WorkerID directly because the constructor enforces non-empty;
 		// keeping the parameterised id avoids per-test boilerplate.
-		a.WorkerID = orgchart.WorkerID(w)
-		a.TranscriptStreamID = activation.StreamID(a.WorkerID)
+		a.WorkerID = orgchart.NodeID(w)
+		a.TranscriptID = activation.TranscriptID(a.WorkerID)
 		if err := s.Activations.Create(ctx, a); err != nil {
 			t.Fatalf("create: %v", err)
 		}

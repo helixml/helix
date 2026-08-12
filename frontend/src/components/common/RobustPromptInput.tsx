@@ -6,54 +6,37 @@
  * - Queue multiple messages while offline, send when connection returns
  * - Auto-expanding textarea that grows with content
  * - Draft auto-save to localStorage (never lose a prompt)
- * - History navigation with up/down arrow keys
- * - Dropdown menu for browsing and resending history
  * - Visual queue showing pending/sending/failed messages
  * - Retry mechanism for failed sends
  * - Recovery on page reload
  */
 
-import React, { FC, useRef, useEffect, useState, useCallback } from 'react'
+import React, { FC, useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react'
 import {
   Box,
   IconButton,
   CircularProgress,
   Tooltip,
-  Menu,
-  MenuItem,
-  ListItemText,
-  ListItemIcon,
   Typography,
-  Chip,
   alpha,
   Collapse,
   LinearProgress,
-  TextField,
-  InputAdornment,
 } from '@mui/material'
 import {
-  History,
   SendHorizontal,
   ListStart,
   CircleAlert,
   CheckCircle,
   Hourglass,
   CloudOff,
-  Cloud,
   Pencil,
   Check,
   X,
-  CirclePause,
   GripVertical,
   Zap,
-  Pin,
-  PinOff,
-  Search,
-  Image,
   Paperclip,
-  FileText,
   Camera,
-  StopCircle,
+  Square,
 } from 'lucide-react'
 import {
   DndContext,
@@ -73,29 +56,52 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
-
-// Attachment that's pending to be sent with the message
-// Supports offline queueing - file data is stored until upload completes
-interface PendingAttachment {
-  id: string
-  name: string
-  path?: string // Set once uploaded, undefined while pending upload
-  file?: File // The file data, kept until uploaded (for offline support)
-  type: 'image' | 'text' | 'file'
-  previewUrl?: string // For images, a data URL for preview
-  uploadStatus: 'pending' | 'uploading' | 'uploaded' | 'failed'
-  error?: string // Error message if upload failed
-}
+import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
+import { getChatColors } from '../session/chatStyles'
+import ChatAttachmentTray from './ChatAttachmentTray'
+import ContextMenuModal from '../widgets/ContextMenuModal'
+import SandboxComposerSuggestions from './SandboxComposerSuggestions'
+import { useSandboxComposerSuggestions } from './useSandboxComposerSuggestions'
+import SandboxPromptEditor, {
+  getSandboxPromptEditorCursor,
+  setSandboxPromptEditorCursor,
+} from './SandboxPromptEditor'
+import {
+  applySandboxComposerSuggestion,
+  detectSandboxComposerTrigger,
+  SandboxComposerSuggestion,
+} from './sandboxComposerSuggestions.logic'
+import {
+  buildMessageWithAttachments,
+  createPendingChatAttachment,
+  filesFromClipboard,
+  PendingChatAttachment,
+  validateChatAttachmentFiles,
+} from './chatAttachments'
 
 // Threshold for converting large text paste to file attachment (10KB)
 const LARGE_TEXT_THRESHOLD = 10 * 1024
 
 interface RobustPromptInputProps {
   sessionId: string
-  onSend: (message: string, interrupt?: boolean) => Promise<void>
+  onSend: (message: string, interrupt?: boolean, attachments?: File[]) => Promise<void | boolean>
   placeholder?: string
   disabled?: boolean
   maxHeight?: number
+  sendMode?: 'queued' | 'direct'
+  inlineImageAttachments?: boolean
+  deferredFileAttachments?: boolean
+  attachmentAccept?: string
+  attachmentMaxBytes?: number
+  attachmentMaxCount?: number
+  validateAttachment?: (file: File) => string | null
+  leadingActions?: React.ReactNode
+  trailingActions?: React.ReactNode
+  contextMenuAppId?: string
+  formatContextMenuInsert?: (text: string) => string
+  autoFocus?: boolean
+  // Enables @workspace-path and $skill completion for connected sandboxes.
+  enableSandboxCompletions?: boolean
   // Optional backend sync props
   specTaskId?: string
   projectId?: string
@@ -111,9 +117,11 @@ interface RobustPromptInputProps {
   // Deprecated: use onFileUpload instead
   onImagePaste?: (file: File) => Promise<string | null>
   // Called when user clicks the cancel button to stop the agent's current turn
-  onCancel?: () => void
+  onCancel?: () => void | Promise<void>
   // Whether the agent is currently processing (has a waiting interaction)
   isAgentBusy?: boolean
+  // Whether cancellation is waiting for acknowledgement from the agent
+  isCancelling?: boolean
   // Fires synchronously inside handleSend the moment the user submits a
   // prompt, before the local queue persist or the backend sync POST. The
   // parent uses this hook to do optimistic UI updates (e.g. flip the cached
@@ -180,40 +188,15 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   }
 
   const isFailed = entry.status === 'failed'
-
-  // A transient failure is one we expect to recover from automatically: the
-  // agent is sleeping/booting, the prior turn hasn't drained yet, the WebSocket
-  // is mid-reconnect, etc. The retry will land soon and the message will get
-  // through. These should look like a soft "still working on it" rather than a
-  // hard red error — they're not the user's problem and we don't want them to
-  // act on the warning. Anything else (auth failures, malformed payloads) stays
-  // red so it's visually distinct.
-  const transientErrorMarkers = [
-    'no WebSocket',
-    'no external agent WebSocket',
-    'became busy',
-    'deferring queue prompt',
-    'channel full',
-    'connection replaced',
-    'empty response',
-  ]
-  // A *crashed* failure is the terminal Claude Agent process death case. The
-  // backend detects these strings in handleThreadLoadError and calls
-  // MarkPromptAsCrashed (pinning next_retry_at far in the future) so the
-  // queue's auto-retry stops. The user has to click Restart to recover —
-  // restart clears ZedThreadID + re-sends, causing Zed to spawn a fresh thread
-  // and Claude Agent process. Detected by error_message marker (authoritative)
-  // rather than nextRetryAt timestamp comparison so the UI reacts immediately
-  // even before the polled prompt sync lands the new next_retry_at value.
-  const crashedErrorMarkers = [
-    'Claude Agent process exited',
-    'Session not found',
-  ]
-  const isCrashed = isFailed && !!entry.errorMessage &&
-    crashedErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
-  const isTransientFailure = !isCrashed && isFailed && !!entry.errorMessage &&
-    transientErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
-  const failColor = isCrashed ? 'error.main' : isTransientFailure ? 'warning.main' : 'error.main'
+  // Classification (transient vs crashed vs stuck → Restart) is shared with
+  // SessionPromptQueue via classifyPromptQueueEntry so both queues agree.
+  const { isCrashed, isTransientFailure, isStuckTransient, showRestart } = classifyPromptQueueEntry({
+    status: entry.status,
+    errorMessage: entry.errorMessage,
+    nextRetryAtMs: entry.nextRetryAt,
+    retryCount: entry.retryCount,
+  })
+  const failColor = showRestart ? 'error.main' : isTransientFailure ? 'warning.main' : 'error.main'
 
   // Force re-render every second for failed items with retry countdown
   const [, forceUpdate] = useState(0)
@@ -231,24 +214,24 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
       sx={{
         display: 'flex',
         alignItems: isEditing ? 'flex-start' : 'center',
-        gap: 0.5,
-        px: 1,
-        py: isEditing ? 1 : 0.5,
+        gap: 0.75,
+        px: 1.5,
+        py: isEditing ? 1 : 0.75,
         borderBottom: index < totalCount - 1 ? '1px solid' : 'none',
-        borderColor: 'divider',
+        borderColor: (theme) => getChatColors(theme).border,
         bgcolor: isDragging
           ? (theme) => alpha(theme.palette.primary.main, 0.12)
           : isEditing
-            ? (theme) => alpha(theme.palette.info.main, 0.12)
+            ? (theme) => alpha(theme.palette.text.primary, 0.05)
             : isFailed
               ? (theme) => alpha(
-                  isTransientFailure ? theme.palette.warning.main : theme.palette.error.main,
+                  (isTransientFailure && !showRestart) ? theme.palette.warning.main : theme.palette.error.main,
                   0.08,
                 )
               : 'transparent',
         transition: 'background-color 0.2s',
         '&:hover': !isEditing && !isSending && !isDragging ? {
-          bgcolor: (theme) => alpha(theme.palette.action.hover, 0.04),
+          bgcolor: (theme) => alpha(theme.palette.text.primary, 0.025),
           '& .drag-handle': { opacity: 1 },
         } : undefined,
       }}
@@ -264,7 +247,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             alignItems: 'center',
             cursor: 'grab',
             color: 'text.secondary',
-            opacity: 0.4,
+            opacity: 0.3,
             transition: 'opacity 0.15s',
             '&:hover': { opacity: 1, color: 'text.primary' },
             '&:active': { cursor: 'grabbing' },
@@ -285,7 +268,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
       ) : isEditing ? (
         <Pencil size={16} style={{ flexShrink: 0, marginTop: 4, marginLeft: 20 }} />
       ) : (
-        <Hourglass size={16} style={{ flexShrink: 0 }} />
+        <Hourglass size={14} style={{ flexShrink: 0, opacity: 0.58 }} />
       )}
 
       {/* Message content - either edit mode or display mode */}
@@ -369,6 +352,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
                 color: isFailed ? failColor : 'text.primary',
+                fontSize: '0.8125rem',
                 flex: 1,
                 minWidth: 0,
               }}
@@ -389,26 +373,28 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           </Box>
           {isFailed && (
             <Box>
-              <Typography variant="caption" sx={{ color: failColor, display: 'block', fontWeight: isCrashed ? 600 : 'inherit' }}>
+              <Typography variant="caption" sx={{ color: failColor, display: 'block', fontWeight: showRestart ? 600 : 'inherit' }}>
                 {isCrashed ? (
-                  'Agent crashed. Click restart to attempt to recover.'
+                  'The assistant stopped unexpectedly. Click Restart to recover.'
+                ) : isStuckTransient ? (
+                  "The assistant isn't responding. Click Restart to recover."
                 ) : entry.nextRetryAt ? (
                   (() => {
                     const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
                     if (isTransientFailure) {
                       return secondsUntilRetry > 0
-                        ? `Waiting for agent — retrying in ${secondsUntilRetry}s`
-                        : 'Waiting for agent — retrying now...'
+                        ? `Waiting for the assistant — retrying in ${secondsUntilRetry}s`
+                        : 'Waiting for the assistant — retrying now...'
                     }
                     return secondsUntilRetry > 0
                       ? `Failed - retrying in ${secondsUntilRetry}s`
                       : 'Failed - retrying now...'
                   })()
                 ) : (
-                  isTransientFailure ? 'Waiting for agent' : 'Failed - will retry'
+                  isTransientFailure ? 'Waiting for the assistant' : 'Failed - will retry'
                 )}
               </Typography>
-              {isCrashed && (
+              {showRestart && (
                 <Box sx={{ mt: 0.5 }}>
                   <Box
                     component="button"
@@ -486,8 +472,8 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               }}
               sx={{
                 p: 0.5,
-                color: entry.interrupt !== false ? 'warning.main' : 'info.main',
-                opacity: 0.7,
+                color: entry.interrupt !== false ? 'warning.main' : 'text.secondary',
+                opacity: 0.62,
                 '&:hover': { opacity: 1 },
               }}
             >
@@ -532,25 +518,47 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   onImagePaste,
   onCancel,
   isAgentBusy = false,
+  isCancelling = false,
   onWillSend,
+  sendMode = 'queued',
+  inlineImageAttachments = false,
+  deferredFileAttachments = false,
+  attachmentAccept,
+  attachmentMaxBytes,
+  attachmentMaxCount,
+  validateAttachment,
+  leadingActions,
+  trailingActions,
+  contextMenuAppId,
+  formatContextMenuInsert,
+  autoFocus = false,
+  enableSandboxCompletions = false,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const sandboxEditorRef = useRef<HTMLDivElement>(null)
+  const pendingComposerCursorRef = useRef<number | null>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const [isDirectSending, setIsDirectSending] = useState(false)
   const [isRestartingAgent, setIsRestartingAgent] = useState(false)
+  const [composerCursor, setComposerCursor] = useState(0)
+  const [composerFocused, setComposerFocused] = useState(false)
+  const [composerSelectedIndex, setComposerSelectedIndex] = useState(0)
   // Pending attachments that will be sent with the message
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([])
-  const [isUploading, setIsUploading] = useState(false)
+  const [attachments, setAttachments] = useState<PendingChatAttachment[]>([])
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const attachmentsRef = useRef<PendingChatAttachment[]>([])
+  const attachmentUploadsInFlightRef = useRef(new Set<string>())
 
   // Use onFileUpload if provided, otherwise fall back to onImagePaste for backwards compat
   const handleFileUploadCallback = onFileUpload || onImagePaste
+  const attachmentsEnabled = inlineImageAttachments || deferredFileAttachments || !!handleFileUploadCallback
+  const inputDisabled = disabled || isDirectSending
 
   // Check if we're on a mobile device for camera support
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-  const [historyMenuAnchor, setHistoryMenuAnchor] = useState<null | HTMLElement>(null)
-  const [showHistoryHint, setShowHistoryHint] = useState(false)
-  const [historySearchQuery, setHistorySearchQuery] = useState('')
+  const interruptShortcut = /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ? '⌘Enter' : 'Ctrl+Enter'
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showQueue, setShowQueue] = useState(true)
   const [interruptMode, setInterruptMode] = useState(false) // false = queue after (default), true = interrupt
@@ -564,10 +572,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const {
     draft,
     setDraft,
-    history,
-    historyIndex,
-    navigateUp,
-    navigateDown,
     saveToHistory,
     markAsSent,
     markAsFailed,
@@ -578,8 +582,70 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     pendingPrompts,
     failedPrompts,
     clearDraft,
-    pinPrompt,
   } = usePromptHistory({ sessionId, specTaskId, projectId, apiClient })
+
+  const focusPromptEditor = useCallback(() => {
+    if (enableSandboxCompletions) sandboxEditorRef.current?.focus()
+    else textareaRef.current?.focus()
+  }, [enableSandboxCompletions])
+
+  const composerTrigger = useMemo(
+    () => enableSandboxCompletions && composerFocused
+      ? detectSandboxComposerTrigger(draft, composerCursor)
+      : null,
+    [composerCursor, composerFocused, draft, enableSandboxCompletions],
+  )
+  const composerSuggestions = useSandboxComposerSuggestions(
+    sessionId,
+    composerTrigger,
+    enableSandboxCompletions,
+  )
+
+  useEffect(() => {
+    setComposerSelectedIndex(0)
+  }, [composerTrigger?.kind, composerTrigger?.query])
+
+  const selectComposerSuggestion = useCallback((suggestion: SandboxComposerSuggestion) => {
+    if (!composerTrigger) return
+    const next = applySandboxComposerSuggestion(draft, composerTrigger, suggestion)
+    pendingComposerCursorRef.current = next.cursor
+    setDraft(next.text)
+    setComposerCursor(next.cursor)
+  }, [composerTrigger, draft, setDraft])
+
+  useLayoutEffect(() => {
+    const cursor = pendingComposerCursorRef.current
+    if (cursor === null) return
+    pendingComposerCursorRef.current = null
+    setComposerCursor(cursor)
+    if (enableSandboxCompletions && sandboxEditorRef.current) {
+      const frame = requestAnimationFrame(() => {
+        if (!sandboxEditorRef.current) return
+        sandboxEditorRef.current.focus()
+        setSandboxPromptEditorCursor(sandboxEditorRef.current, cursor)
+      })
+      return () => cancelAnimationFrame(frame)
+    } else {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(cursor, cursor)
+    }
+  }, [draft, enableSandboxCompletions])
+
+  // Canonical "still actionable in the queue" list, failed-first. Computed in ONE
+  // place so every consumer — queue display, the interrupt toggle, the empty-Enter
+  // interrupt-promotion, the client-side pump — operates on the SAME set.
+  // Previously each site recomputed [...failedPrompts, ...pendingPrompts]
+  // independently, and the promotion path diverged to pendingPrompts-only — so it
+  // silently skipped a prompt the instant the backend deferred it to 'failed'
+  // (which a long current turn does almost immediately).
+  //
+  // We exclude 'sending' (backend has dispatched to Zed, awaiting first
+  // message_added): once a message is in flight it can't be promoted/toggled, and
+  // showing it in the queue until the *next* sync flips it to 'sent' is the lag
+  // that makes a just-sent prompt linger. Dropping 'sending' hides it optimistically
+  // the moment dispatch is confirmed; if it later bounces it returns via 'failed'.
+  // See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+  const queuedPrompts = [...failedPrompts, ...pendingPrompts].filter(p => p.status !== 'sending')
 
   // Track previous appendText to detect changes
   const prevAppendTextRef = useRef<string | undefined>(undefined)
@@ -590,7 +656,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Backend queue processing only kicks in for spec-task composers: that path
   // persists prompts via usePromptHistory and the server dispatches them once
   // synced (keyed on spec_task_id). Plain external-agent sessions — the
-  // project "Human Desktop" (TeamDesktopPage) and org-worker chat — have no
+  // project "Project Desktop" (TeamDesktopPage) and org-worker chat — have no
   // spec_task_id, so the composer must pump the queue itself by calling
   // onSend, which the parent routes to streaming.NewInference → the running
   // Zed agent. Without this fallback every queued message just sits forever as
@@ -599,14 +665,25 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // the backend queue was always enabled.)
   const backendQueueEnabled = !!(specTaskId && projectId && apiClient)
 
+  useEffect(() => {
+    attachmentsRef.current = attachments
+  }, [attachments])
+
+  useEffect(() => () => {
+    attachmentsRef.current.forEach((attachment) => {
+      if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
+    })
+  }, [])
+
   const processQueue = useCallback(async () => {
+    if (sendMode === 'direct') return
     // Spec-task sessions: the backend owns dispatch after sync.
     if (backendQueueEnabled) return
     // Prevent concurrent processing.
     if (processingRef.current || !isOnline || disabled) return
 
     // Interrupt-mode messages first, then queue-mode, each oldest-first.
-    const sortedQueue = [...failedPrompts, ...pendingPrompts].sort((a, b) => {
+    const sortedQueue = [...queuedPrompts].sort((a, b) => {
       const aInterrupt = a.interrupt !== false
       const bInterrupt = b.interrupt !== false
       if (aInterrupt && !bInterrupt) return -1
@@ -635,7 +712,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
     try {
       // interrupt=true interrupts the agent's current turn; false queues after.
-      await onSend(nextToSend.content, nextToSend.interrupt !== false)
+      const sent = await onSend(nextToSend.content, nextToSend.interrupt !== false)
+      if (sent === false) throw new Error('Prompt was not sent')
       markAsSent(nextToSend.id)
     } catch (error) {
       console.error('Failed to send message:', error)
@@ -644,7 +722,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       setSendingId(null)
       processingRef.current = false
     }
-  }, [backendQueueEnabled, isOnline, disabled, failedPrompts, pendingPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
+  }, [sendMode, backendQueueEnabled, isOnline, disabled, queuedPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
 
   // Pump the queue when messages are pending and we're online.
   useEffect(() => {
@@ -662,19 +740,33 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [sendingId, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
 
-  // Handle prepending text from parent (e.g., uploaded file paths)
+  // Handle text appended by a parent surface (e.g., uploaded file paths).
   useEffect(() => {
     if (appendText && appendText !== prevAppendTextRef.current) {
       // Strip any unique key suffix (format: "text#123")
-      const textToPrepend = appendText.replace(/#\d+$/, '')
-      // Prepend to draft with proper spacing
-      const needsSpace = draft.length > 0 && !draft.startsWith(' ') && !draft.startsWith('\n')
-      setDraft(textToPrepend + (needsSpace ? ' ' : '') + draft)
+      const textToAppend = appendText.replace(/#\d+$/, '')
+      const needsSpace = draft.length > 0 && !/\s$/.test(draft)
+      setDraft(draft + (needsSpace ? ' ' : '') + textToAppend)
       prevAppendTextRef.current = appendText
       // Focus the textarea
-      textareaRef.current?.focus()
+      focusPromptEditor()
     }
-  }, [appendText, setDraft, draft])
+  }, [appendText, setDraft, draft, focusPromptEditor])
+
+  useEffect(() => {
+    if (autoFocus && !inputDisabled) focusPromptEditor()
+  }, [autoFocus, inputDisabled, sessionId, focusPromptEditor])
+
+  const handleContextMenuInsert = useCallback((text: string) => {
+    const insertedText = formatContextMenuInsert ? formatContextMenuInsert(text) : text
+    const lastAtIndex = draft.lastIndexOf('@')
+    setDraft(
+      lastAtIndex >= 0
+        ? draft.substring(0, lastAtIndex) + insertedText
+        : draft + insertedText,
+    )
+    focusPromptEditor()
+  }, [draft, formatContextMenuInsert, setDraft, focusPromptEditor])
 
   // DnD sensors
   const sensors = useSensors(
@@ -716,26 +808,26 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
+    const editor = enableSandboxCompletions ? sandboxEditorRef.current : textareaRef.current
+    if (!editor) return
 
-    const oldHeight = textarea.offsetHeight
-    textarea.style.height = 'auto'
-    const newHeight = Math.min(Math.max(textarea.scrollHeight, 40), maxHeight)
-    textarea.style.height = `${newHeight}px`
+    const oldHeight = editor.offsetHeight
+    editor.style.height = 'auto'
+    const newHeight = Math.min(Math.max(editor.scrollHeight, 40), maxHeight)
+    editor.style.height = `${newHeight}px`
 
     // Notify parent if height changed
     if (oldHeight !== newHeight && onHeightChange) {
       onHeightChange()
     }
-  }, [maxHeight, onHeightChange])
+  }, [enableSandboxCompletions, maxHeight, onHeightChange])
 
   useEffect(() => {
     adjustHeight()
   }, [draft, adjustHeight])
 
   // Notify parent when queue changes (affects overall height)
-  const queueLength = pendingPrompts.length + failedPrompts.length
+  const queueLength = queuedPrompts.length
   useEffect(() => {
     if (onHeightChange) {
       // Small delay to allow Collapse animation to start
@@ -744,26 +836,28 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [queueLength, onHeightChange])
 
-  // Queue a new message
-  const handleSend = useCallback(async () => {
+  const clearCurrentAttachments = useCallback(() => {
+    setAttachments((current) => {
+      current.forEach((attachment) => {
+        if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
+      })
+      return []
+    })
+  }, [])
+
+  const submitDraft = useCallback(async (interrupt: boolean) => {
     const content = draft.trim()
-    // Allow sending if there's content OR attachments
-    if ((!content && attachments.length === 0) || disabled) return
+    if (
+      (!content && attachments.length === 0) ||
+      inputDisabled ||
+      (sendMode === 'direct' && isAgentBusy)
+    ) return
 
-    // Check if any attachments are still uploading
     const uploadingAttachments = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
-    if (uploadingAttachments.length > 0) {
-      // Wait for uploads to complete - don't send yet
-      // TODO: Could show a snackbar message here
-      return
-    }
+    if (uploadingAttachments.length > 0) return
+    if (attachments.some((attachment) => attachment.uploadStatus === 'failed')) return
 
-    // Build the message with attachment paths prepended
-    const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded' && a.path)
-    const attachmentPaths = uploadedAttachments.map(a => a.path!).join(' ')
-    const fullContent = attachmentPaths
-      ? (content ? `${attachmentPaths} ${content}` : attachmentPaths)
-      : content
+    const fullContent = buildMessageWithAttachments(content, attachments)
 
     // Optimistic UI hook: fires synchronously before the queue persist /
     // backend sync POST so the parent can flip a paused desktop's cached
@@ -777,20 +871,30 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       }
     }
 
-    // Add to queue with pending status, passing interrupt mode
-    saveToHistory(fullContent, interruptMode)
-    clearDraft()
+    if (sendMode === 'direct') {
+      const inlineImages = attachments.flatMap((attachment) => attachment.file ? [attachment.file] : [])
+      setIsDirectSending(true)
+      try {
+        const sent = await onSend(content, true, inlineImages)
+        if (sent === false) return
+        clearDraft()
+        clearCurrentAttachments()
+      } catch (error) {
+        console.error('Failed to send prompt:', error)
+      } finally {
+        setIsDirectSending(false)
+      }
+      return
+    }
 
-    // Clear attachments after adding to queue
-    setAttachments(prev => {
-      // Revoke object URLs to prevent memory leaks
-      prev.forEach(a => {
-        if (a.previewUrl) URL.revokeObjectURL(a.previewUrl)
-      })
-      return []
-    })
-    // Backend handles processing after sync - no need to call processQueue
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode, onWillSend])
+    saveToHistory(fullContent, interrupt)
+    clearDraft()
+    clearCurrentAttachments()
+  }, [draft, attachments, inputDisabled, sendMode, isAgentBusy, onSend, clearDraft, clearCurrentAttachments, saveToHistory, onWillSend])
+
+  const handleSend = useCallback(async () => {
+    await submitDraft(interruptMode)
+  }, [interruptMode, submitDraft])
 
   // Remove from queue: tombstone locally first (instant UI update, prevents
   // re-import on sync), then fire backend DELETE (best effort).
@@ -805,11 +909,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Toggle interrupt mode for a queued message
   const handleToggleInterrupt = useCallback((entryId: string) => {
-    const entry = [...failedPrompts, ...pendingPrompts].find(e => e.id === entryId)
+    const entry = queuedPrompts.find(e => e.id === entryId)
     if (entry) {
       updateInterrupt(entryId, entry.interrupt === false)
     }
-  }, [failedPrompts, pendingPrompts, updateInterrupt])
+  }, [queuedPrompts, updateInterrupt])
 
   // Restart Zed thread after a Claude Agent crash. Calls the backend endpoint
   // which clears the dead acp_thread_id and resets crashed prompts back to
@@ -910,10 +1014,37 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Handle key events
   // Enter = queue mode (non-interrupt), Ctrl+Enter = interrupt mode
-  // Empty Enter (no draft, no attachments) = promote the most recent queued
-  // entry to interrupt mode, which dispatches it immediately via the existing
-  // sync loop. Equivalent to clicking the lightning icon on that queue item.
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  // Empty Enter (no draft, no attachments) = promote the OLDEST queued entry to
+  // interrupt mode, which dispatches it immediately via the existing sync loop.
+  // Equivalent to clicking the lightning icon on that queue item.
+  // Oldest-first (not most-recent) so repeated empty-Enter escalates the queue in
+  // FIFO order — promoting the newest would dispatch it ahead of older queued
+  // messages, reordering the conversation.
+  // See design/2026-06-23-queue-drain-out-of-order-dispatch.md.
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLElement>) => {
+    if (composerTrigger) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setComposerFocused(false)
+        return
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (composerSuggestions.items.length === 0) return
+        e.preventDefault()
+        const direction = e.key === 'ArrowDown' ? 1 : -1
+        setComposerSelectedIndex((current) =>
+          (current + direction + composerSuggestions.items.length) % composerSuggestions.items.length,
+        )
+        return
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && composerSuggestions.items.length > 0) {
+        e.preventDefault()
+        selectComposerSuggestion(
+          composerSuggestions.items[Math.min(composerSelectedIndex, composerSuggestions.items.length - 1)],
+        )
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       // Ctrl+Enter = interrupt mode, Enter = queue mode
@@ -922,107 +1053,73 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
       // Empty field: promote most-recent queued entry to interrupt instead of sending nothing.
       if (!content && attachments.length === 0) {
-        if (disabled) return
-        const candidates = pendingPrompts.filter(p =>
+        if (inputDisabled || sendMode === 'direct') return
+        // Promote the OLDEST NON-interrupt queued message to interrupt.
+        // Scans queuedPrompts (failed + pending) so a deferred message — the one
+        // the user is actually trying to escalate — is still a candidate.
+        const candidates = queuedPrompts.filter(p =>
           p.interrupt === false &&
           !p.deleted &&
           p.id !== sendingId &&
           p.id !== editingId
         )
         if (candidates.length === 0) return
-        const target = candidates.reduce((a, b) => (b.timestamp > a.timestamp ? b : a))
+        const target = candidates.reduce((a, b) => (b.timestamp < a.timestamp ? b : a))
         updateInterrupt(target.id, true)
         return
       }
 
-      if (disabled) return
-
-      // Check if any attachments are still uploading
-      const uploadingAttachments = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
-      if (uploadingAttachments.length > 0) {
-        // Wait for uploads to complete
-        return
-      }
-
-      // Build the message with attachment paths prepended
-      const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded' && a.path)
-      const attachmentPaths = uploadedAttachments.map(a => a.path!).join(' ')
-      const fullContent = attachmentPaths
-        ? (content ? `${attachmentPaths} ${content}` : attachmentPaths)
-        : content
-
-      // Add to queue with pending status
-      saveToHistory(fullContent, useInterrupt)
-      clearDraft()
-
-      // Clear attachments
-      setAttachments(prev => {
-        prev.forEach(a => {
-          if (a.previewUrl) URL.revokeObjectURL(a.previewUrl)
-        })
-        return []
-      })
-      // Backend handles processing after sync
+      void submitDraft(useInterrupt)
       return
     }
 
-    const textarea = textareaRef.current
-    if (!textarea) return
+  }, [composerSelectedIndex, composerSuggestions.items, composerTrigger, draft, attachments.length, inputDisabled, sendMode, submitDraft, queuedPrompts, updateInterrupt, sendingId, editingId, selectComposerSuggestion])
 
-    const isAtStart = textarea.selectionStart === 0 && textarea.selectionEnd === 0
-    const isAtEnd = textarea.selectionStart === draft.length && textarea.selectionEnd === draft.length
-
-    if (e.key === 'ArrowUp' && isAtStart) {
-      if (navigateUp()) {
-        e.preventDefault()
-        setShowHistoryHint(true)
-        setTimeout(() => setShowHistoryHint(false), 2000)
+  const addFilesAsAttachments = useCallback((files: File[]) => {
+    if (!attachmentsEnabled || files.length === 0) return
+    const unsupported = files.flatMap((file) => {
+      if (inlineImageAttachments && !file.type.startsWith('image/')) {
+        return [{ name: file.name, reason: 'only images can be attached to model chats' }]
       }
-    } else if (e.key === 'ArrowDown' && isAtEnd) {
-      if (navigateDown()) {
-        e.preventDefault()
-      }
-    }
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown, pendingPrompts, updateInterrupt, sendingId, editingId])
+      const customReason = validateAttachment?.(file)
+      return customReason ? [{ name: file.name, reason: customReason }] : []
+    })
+    const rejectedNames = new Set(unsupported.map(({ name }) => name))
+    const eligibleFiles = files.filter((file) => !rejectedNames.has(file.name))
+    const { accepted, rejected } = validateChatAttachmentFiles(
+      eligibleFiles,
+      attachmentsRef.current.length,
+      { maxBytes: attachmentMaxBytes, maxCount: attachmentMaxCount },
+    )
+    const allRejected = [...unsupported, ...rejected]
+    setAttachmentError(
+      allRejected.length > 0
+        ? allRejected.map(({ name, reason }) => `${name}: ${reason}`).join('. ')
+        : null,
+    )
+    if (accepted.length === 0) return
+    setAttachments((current) => [
+      ...current,
+      ...accepted.map((file) => {
+        const attachment = createPendingChatAttachment(file)
+        return inlineImageAttachments || deferredFileAttachments
+          ? { ...attachment, uploadStatus: 'uploaded' as const }
+          : attachment
+      }),
+    ])
+  }, [attachmentsEnabled, attachmentMaxBytes, attachmentMaxCount, deferredFileAttachments, inlineImageAttachments, validateAttachment])
 
-  // Add a file as an attachment (queues for upload, uploads if online)
-  const addFileAsAttachment = useCallback((file: File): string => {
-    // Determine type based on file mime type
-    const type: PendingAttachment['type'] = file.type.startsWith('image/')
-      ? 'image'
-      : file.type.startsWith('text/') || file.name.match(/\.(txt|md|json|xml|csv|log|js|ts|py|java|c|cpp|h|hpp|css|html|yaml|yml)$/i)
-        ? 'text'
-        : 'file'
-
-    // Create preview URL for images
-    let previewUrl: string | undefined
-    if (type === 'image') {
-      previewUrl = URL.createObjectURL(file)
-    }
-
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const attachment: PendingAttachment = {
-      id,
-      name: file.name,
-      file, // Store the file for offline upload later
-      type,
-      previewUrl,
-      uploadStatus: 'pending',
-    }
-    setAttachments(prev => [...prev, attachment])
-    return id
-  }, [])
-
-  // Upload a single attachment
   const uploadAttachment = useCallback(async (attachmentId: string) => {
-    if (!handleFileUploadCallback) return
+    if (!handleFileUploadCallback || attachmentUploadsInFlightRef.current.has(attachmentId)) return
+
+    const attachment = attachmentsRef.current.find((candidate) => candidate.id === attachmentId)
+    if (!attachment?.file) return
+
+    attachmentUploadsInFlightRef.current.add(attachmentId)
 
     setAttachments(prev => prev.map(a =>
       a.id === attachmentId ? { ...a, uploadStatus: 'uploading' as const, error: undefined } : a
     ))
-
-    const attachment = attachments.find(a => a.id === attachmentId)
-    if (!attachment?.file) return
 
     try {
       const filePath = await handleFileUploadCallback(attachment.file)
@@ -1046,35 +1143,18 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           ? { ...a, uploadStatus: 'failed' as const, error: errorMessage }
           : a
       ))
+    } finally {
+      attachmentUploadsInFlightRef.current.delete(attachmentId)
     }
-  }, [handleFileUploadCallback, attachments])
-
-  // Process pending uploads when online
-  const processPendingUploads = useCallback(async () => {
-    if (!isOnline || !handleFileUploadCallback) return
-
-    const pendingAttachments = attachments.filter(a => a.uploadStatus === 'pending' && a.file)
-    for (const attachment of pendingAttachments) {
-      await uploadAttachment(attachment.id)
-    }
-  }, [isOnline, handleFileUploadCallback, attachments, uploadAttachment])
+  }, [handleFileUploadCallback])
 
   // Auto-upload when file is added or when coming back online
   useEffect(() => {
-    if (isOnline) {
-      const pendingAttachments = attachments.filter(a => a.uploadStatus === 'pending' && a.file)
-      if (pendingAttachments.length > 0) {
-        processPendingUploads()
-      }
-    }
-  }, [isOnline, attachments])
-
-  // Add a file and trigger upload if online
-  const uploadAndAddAttachment = useCallback(async (file: File) => {
-    const attachmentId = addFileAsAttachment(file)
-    // Upload will be triggered by the useEffect when attachments change
-    // This ensures proper state updates
-  }, [addFileAsAttachment])
+    if (!isOnline || !handleFileUploadCallback || inlineImageAttachments || deferredFileAttachments) return
+    attachments
+      .filter((attachment) => attachment.uploadStatus === 'pending' && attachment.file)
+      .forEach((attachment) => void uploadAttachment(attachment.id))
+  }, [attachments, deferredFileAttachments, handleFileUploadCallback, inlineImageAttachments, isOnline, uploadAttachment])
 
   // Remove an attachment
   const removeAttachment = useCallback((id: string) => {
@@ -1085,55 +1165,53 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       }
       return prev.filter(a => a.id !== id)
     })
+    setAttachmentError(null)
+  }, [])
+
+  const retryAttachment = useCallback((id: string) => {
+    setAttachments((current) => current.map((attachment) =>
+      attachment.id === id && attachment.file
+        ? { ...attachment, uploadStatus: 'pending' as const, error: undefined }
+        : attachment,
+    ))
+    setAttachmentError(null)
   }, [])
 
   // Handle file input change (from browse button)
-  const handleFileInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
-    for (const file of files) {
-      await uploadAndAddAttachment(file)
-    }
+    addFilesAsAttachments(files)
     // Reset the input so the same file can be selected again
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
-  }, [uploadAndAddAttachment])
+  }, [addFilesAsAttachments])
 
   // Open file browser
   const handleBrowseClick = useCallback(() => {
     fileInputRef.current?.click()
   }, [])
 
-  // Handle paste events for images and large text
-  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!handleFileUploadCallback) return
+  // Clipboard files include screenshots as well as files copied from Finder /
+  // Explorer. Read the DataTransfer file list first so PDFs and other binary
+  // assets follow the same upload path as images.
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
+    if (!attachmentsEnabled) return
 
-    const items = e.clipboardData?.items
-    if (!items) return
-
-    // Check for images first
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
-      if (item.type.startsWith('image/')) {
-        e.preventDefault()
-        const blob = item.getAsFile()
-        if (blob) {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-          const extension = item.type === 'image/png' ? 'png' : 'jpg'
-          const file = new File([blob], `pasted-image-${timestamp}.${extension}`, { type: item.type })
-          await uploadAndAddAttachment(file)
-        }
-        return
-      }
+    const clipboardFiles = filesFromClipboard(e.clipboardData)
+    if (clipboardFiles.length > 0) {
+      e.preventDefault()
+      addFilesAsAttachments(clipboardFiles)
+      return
     }
 
     // Check for large text paste - convert to text file attachment
     const pastedText = e.clipboardData?.getData('text/plain')
-    if (pastedText && pastedText.length > LARGE_TEXT_THRESHOLD) {
+    if (handleFileUploadCallback && pastedText && pastedText.length > LARGE_TEXT_THRESHOLD) {
       e.preventDefault()
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const file = new File([pastedText], `pasted-text-${timestamp}.txt`, { type: 'text/plain' })
-      await uploadAndAddAttachment(file)
+      addFilesAsAttachments([file])
       // Add a note to the draft about the attached file
       const note = '[Large text pasted as attachment]'
       if (!draft.includes(note)) {
@@ -1141,62 +1219,51 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         setDraft(note + (needsSpace ? ' ' : '') + draft)
       }
     }
-  }, [handleFileUploadCallback, uploadAndAddAttachment, setDraft, draft])
+  }, [addFilesAsAttachments, attachmentsEnabled, handleFileUploadCallback, setDraft, draft])
 
   // Track drag state for visual feedback
   const [isDraggingOver, setIsDraggingOver] = useState(false)
 
   // Handle drag enter - show visual feedback
-  const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    if (handleFileUploadCallback) {
+    if (attachmentsEnabled) {
       setIsDraggingOver(true)
     }
-  }, [handleFileUploadCallback])
+  }, [attachmentsEnabled])
 
   // Handle drag leave - hide visual feedback
-  const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLElement>) => {
     e.preventDefault()
     e.stopPropagation()
+    const nextTarget = e.relatedTarget
+    if (nextTarget instanceof Node && e.currentTarget.contains(nextTarget)) return
     setIsDraggingOver(false)
   }, [])
 
   // Handle drag over - prevent default to allow drop
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    if (handleFileUploadCallback) {
+    if (attachmentsEnabled) {
       e.dataTransfer.dropEffect = 'copy'
     }
-  }, [handleFileUploadCallback])
+  }, [attachmentsEnabled])
 
   // Handle drop events for files
-  const handleDrop = useCallback(async (e: React.DragEvent<HTMLTextAreaElement>) => {
+  const handleDrop = useCallback((e: React.DragEvent<HTMLElement>) => {
     e.preventDefault()
     e.stopPropagation()
     setIsDraggingOver(false)
 
-    if (!handleFileUploadCallback) return
+    if (!attachmentsEnabled) return
 
     const files = Array.from(e.dataTransfer.files)
-    for (const file of files) {
-      await uploadAndAddAttachment(file)
-    }
-  }, [handleFileUploadCallback, uploadAndAddAttachment])
+    addFilesAsAttachments(files)
+  }, [addFilesAsAttachments, attachmentsEnabled])
 
   // Format timestamp
-  const formatTime = (timestamp: number): string => {
-    const diffMs = Date.now() - timestamp
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMins / 60)
-
-    if (diffMins < 1) return 'just now'
-    if (diffMins < 60) return `${diffMins}m ago`
-    if (diffHours < 24) return `${diffHours}h ago`
-    return new Date(timestamp).toLocaleDateString()
-  }
-
   const truncateContent = (content: string, maxLen: number = 60): string => {
     const firstLine = content.split('\n')[0]
     if (firstLine.length <= maxLen) return firstLine
@@ -1204,7 +1271,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   }
 
   // All queued messages (pending + failed), sorted: interrupt mode first, then queue mode
-  const queuedMessages = [...failedPrompts, ...pendingPrompts].sort((a, b) => {
+  const queuedMessages = [...queuedPrompts].sort((a, b) => {
     // Interrupt mode (true or undefined) comes first
     const aInterrupt = a.interrupt !== false
     const bInterrupt = b.interrupt !== false
@@ -1213,26 +1280,51 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     // Within same mode, maintain original order by timestamp
     return a.timestamp - b.timestamp
   })
-  const sentHistory = history.filter(h => h.status === 'sent')
-  const hasHistory = sentHistory.length > 0
+  const hasVisibleQueue = backendQueueEnabled && showQueue && queuedMessages.length > 0
+  const promptPlaceholder = isDraggingOver
+    ? inlineImageAttachments
+      ? 'Drop image to attach...'
+      : 'Drop file to upload...'
+    : isOnline
+      ? placeholder
+      : sendMode === 'direct'
+        ? 'Offline'
+        : 'Offline - messages will queue'
 
-  return (
+  const input = (
     <Box
       className="prompt-input-container"
       data-prompt-input="true"
-      sx={{ position: 'relative', width: '100%', minWidth: 0 }}
+      sx={{
+        position: 'relative',
+        width: '100%',
+        minWidth: 0,
+      }}
     >
-      {/* Queued messages display */}
-      <Collapse in={showQueue && queuedMessages.length > 0}>
+      {composerTrigger && (
+        <SandboxComposerSuggestions
+          trigger={composerTrigger}
+          items={composerSuggestions.items}
+          loading={composerSuggestions.loading}
+          error={composerSuggestions.error}
+          selectedIndex={composerSelectedIndex}
+          onSelectedIndexChange={setComposerSelectedIndex}
+          onSelect={selectComposerSuggestion}
+        />
+      )}
+      {/* Queued messages display. Only rendered when this is an authoritative
+          backend-backed queue (spec-task). For plain sessions (org-chat,
+          team desktop) the local queue is a non-authoritative ghost — the
+          session-keyed SessionPromptQueue is the single source there. */}
+      <Collapse in={hasVisibleQueue}>
         <Box
           sx={{
-            mb: 1.5,
-            borderRadius: 1.5,
+            borderRadius: '20px 20px 0 0',
             border: '1px solid',
-            borderColor: editingId ? 'info.main' : isOnline ? 'primary.dark' : 'warning.dark',
-            bgcolor: (theme) => alpha(theme.palette.background.paper, 0.5),
+            borderBottom: 0,
+            borderColor: (theme) => getChatColors(theme).border,
+            bgcolor: (theme) => getChatColors(theme).composerSurface,
             overflow: 'hidden',
-            transition: 'border-color 0.2s',
           }}
         >
           {/* Queue header */}
@@ -1240,33 +1332,24 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             sx={{
               display: 'flex',
               alignItems: 'center',
-              gap: 1,
-              px: 1.5,
-              py: 0.75,
-              bgcolor: editingId ? 'info.dark' : isOnline ? 'primary.dark' : 'warning.dark',
+              gap: 0.75,
+              px: 2,
+              pt: 1.25,
+              pb: 0.75,
+              bgcolor: 'transparent',
+              color: (theme) => getChatColors(theme).subtle,
               borderBottom: '1px solid',
-              borderColor: 'divider',
+              borderColor: (theme) => getChatColors(theme).border,
             }}
           >
-            {editingId ? (
-              <CirclePause size={16} />
-            ) : isOnline ? (
-              <Cloud size={16} />
-            ) : (
-              <CloudOff size={16} />
-            )}
-            <Typography variant="caption" sx={{ flex: 1, fontWeight: 600 }}>
+            <ListStart size={14} />
+            <Typography variant="caption" sx={{ flex: 1, fontWeight: 500, letterSpacing: '0.01em' }}>
               {editingId
-                ? 'Editing - paused from here'
+                ? 'Editing queued message'
                 : isOnline
-                  ? 'Message queue (saved locally)'
-                  : 'Offline - saved locally, will send when connected'}
+                  ? `${queuedMessages.length} queued`
+                  : `${queuedMessages.length} queued · offline`}
             </Typography>
-            <Chip
-              label={queuedMessages.length}
-              size="small"
-              sx={{ height: 18, fontSize: '0.7rem' }}
-            />
           </Box>
 
           {/* Queue items with drag and drop */}
@@ -1316,187 +1399,137 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,text/*,.txt,.md,.json,.xml,.csv,.log,.js,.ts,.py,.java,.c,.cpp,.h,.hpp,.css,.html,.yaml,.yml,.pdf,.doc,.docx"
+        accept={inlineImageAttachments ? 'image/*' : attachmentAccept}
         onChange={handleFileInputChange}
         style={{ display: 'none' }}
       />
 
-      {/* History navigation hint */}
-      {showHistoryHint && historyIndex >= 0 && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: -28,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            px: 1.5,
-            py: 0.5,
-            borderRadius: 1,
-            bgcolor: 'primary.main',
-            color: 'primary.contrastText',
-            fontSize: '0.75rem',
-            zIndex: 1,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Browsing history ({historyIndex + 1}/{sentHistory.length}) - ↓ to return
-        </Box>
-      )}
-
-      {/* Attachments display */}
-      {attachments.length > 0 && (
-        <Box
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 0.75,
-            mb: 1,
-            p: 1,
-            borderRadius: 1.5,
-            border: '1px solid',
-            borderColor: 'divider',
-            bgcolor: (theme) => alpha(theme.palette.background.paper, 0.5),
-          }}
-        >
-          {attachments.map((attachment) => (
-            <Chip
-              key={attachment.id}
-              size="small"
-              icon={
-                attachment.uploadStatus === 'uploading' ? (
-                  <CircularProgress size={14} sx={{ ml: 0.5 }} />
-                ) : attachment.uploadStatus === 'failed' ? (
-                  <CircleAlert size={16} />
-                ) : attachment.type === 'image' ? (
-                  attachment.previewUrl ? (
-                    <Box
-                      component="img"
-                      src={attachment.previewUrl}
-                      alt=""
-                      sx={{
-                        width: 20,
-                        height: 20,
-                        objectFit: 'cover',
-                        borderRadius: 0.5,
-                        ml: 0.5,
-                      }}
-                    />
-                  ) : (
-                    <Image size={16} />
-                  )
-                ) : attachment.type === 'text' ? (
-                  <FileText size={16} />
-                ) : (
-                  <Paperclip size={16} />
-                )
-              }
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      maxWidth: 120,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {attachment.name}
-                  </Typography>
-                  {attachment.uploadStatus === 'pending' && !isOnline && (
-                    <CloudOff size={12} />
-                  )}
-                </Box>
-              }
-              onDelete={() => removeAttachment(attachment.id)}
-              sx={{
-                bgcolor: attachment.uploadStatus === 'failed'
-                  ? (theme) => alpha(theme.palette.error.main, 0.1)
-                  : attachment.uploadStatus === 'pending'
-                    ? (theme) => alpha(theme.palette.warning.main, 0.1)
-                    : (theme) => alpha(theme.palette.primary.main, 0.1),
-                borderColor: attachment.uploadStatus === 'failed'
-                  ? 'error.main'
-                  : attachment.uploadStatus === 'pending'
-                    ? 'warning.main'
-                    : 'primary.main',
-                border: '1px solid',
-                '& .MuiChip-deleteIcon': {
-                  fontSize: 16,
-                },
-              }}
-            />
-          ))}
-        </Box>
-      )}
-
       {/* Input container */}
       <Box
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         sx={{
           display: 'flex',
           flexDirection: 'column',
-          bgcolor: 'background.paper',
-          borderRadius: 2,
+          bgcolor: (theme) => getChatColors(theme).composerSurface,
+          borderRadius: hasVisibleQueue ? '0 0 22px 22px' : '22px',
           border: '1px solid',
-          borderColor: !isOnline
+          borderColor: isDraggingOver
+            ? 'primary.main'
+            : !isOnline
             ? 'warning.main'
-            : historyIndex >= 0
-              ? 'info.main'
-              : 'divider',
-          transition: 'border-color 0.2s, box-shadow 0.2s',
-          boxShadow: !isOnline
+            : (theme) => getChatColors(theme).borderStrong,
+          transition: 'border-color 0.15s, box-shadow 0.15s, background-color 0.15s',
+          boxShadow: isDraggingOver
+            ? (theme) => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.22)}`
+            : !isOnline
             ? (theme) => `0 0 0 2px ${alpha(theme.palette.warning.main, 0.2)}`
-            : historyIndex >= 0
-              ? (theme) => `0 0 0 2px ${alpha(theme.palette.info.main, 0.2)}`
-              : 'none',
+            : (theme) => theme.palette.mode === 'light'
+                ? '0 12px 28px -18px rgba(0,0,0,0.4)'
+                : 'none',
           '&:focus-within': {
-            borderColor: 'primary.main',
-            boxShadow: (theme) => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.2)}`,
+            borderColor: (theme) => theme.palette.mode === 'dark'
+              ? 'rgba(255,255,255,0.18)'
+              : 'rgba(0,0,0,0.2)',
           },
-          p: 1,
+          px: { xs: 1.5, sm: 2 },
+          pt: { xs: 1.5, sm: 2 },
+          pb: { xs: 1.5, sm: 2 },
         }}
       >
-        {/* Textarea - full width at top */}
-        <Box
-          component="textarea"
-          ref={textareaRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          placeholder={isDraggingOver ? 'Drop file to upload...' : (isOnline ? placeholder : 'Offline - messages will queue')}
-          disabled={disabled}
-          sx={{
-            width: '100%',
-            resize: 'none',
-            border: isDraggingOver ? '2px dashed' : 'none',
-            borderColor: 'primary.main',
-            borderRadius: isDraggingOver ? 1 : 0,
-            outline: 'none',
-            bgcolor: isDraggingOver ? (theme) => alpha(theme.palette.primary.main, 0.08) : 'transparent',
-            color: 'text.primary',
-            fontFamily: 'inherit',
-            fontSize: '0.875rem',
-            lineHeight: 1.5,
-            p: 0.5,
-            minHeight: 50,
-            maxHeight: maxHeight,
-            overflowY: 'auto',
-            transition: 'background-color 0.15s, border 0.15s',
-            '&::placeholder': {
-              color: isDraggingOver ? 'primary.main' : (!isOnline ? 'warning.main' : 'text.secondary'),
-              opacity: isDraggingOver ? 1 : 0.7,
-            },
-            '&:disabled': {
-              opacity: 0.6,
-              cursor: 'not-allowed',
-            },
-          }}
+        <ChatAttachmentTray
+          attachments={attachments}
+          onRemove={removeAttachment}
+          onRetry={retryAttachment}
         />
+
+        {attachmentError && (
+          <Box role="alert" sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75, mb: 1, color: 'error.main' }}>
+            <CircleAlert size={15} style={{ flexShrink: 0, marginTop: 2 }} />
+            <Typography variant="caption" sx={{ lineHeight: 1.4 }}>
+              {attachmentError}
+            </Typography>
+          </Box>
+        )}
+
+        {enableSandboxCompletions ? (
+          <SandboxPromptEditor
+            ref={sandboxEditorRef}
+            value={draft}
+            placeholder={promptPlaceholder || ''}
+            disabled={inputDisabled}
+            maxHeight={maxHeight}
+            isDraggingOver={isDraggingOver}
+            isOnline={isOnline}
+            onValueChange={(value, cursor) => {
+              setDraft(value)
+              setComposerCursor(cursor)
+              setComposerFocused(true)
+            }}
+            onCursorChange={setComposerCursor}
+            onKeyDown={handleKeyDown}
+            onFocus={(event) => {
+              setComposerFocused(true)
+              setComposerCursor(getSandboxPromptEditorCursor(event.currentTarget))
+            }}
+            onBlur={() => setComposerFocused(false)}
+            onPaste={handlePaste}
+          />
+        ) : (
+          <Box
+            component="textarea"
+            ref={textareaRef}
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              setComposerCursor(e.target.selectionStart)
+              setComposerFocused(true)
+            }}
+            onKeyDown={handleKeyDown}
+            onKeyUp={(e) => setComposerCursor(e.currentTarget.selectionStart)}
+            onClick={(e) => setComposerCursor(e.currentTarget.selectionStart)}
+            onFocus={(e) => {
+              setComposerFocused(true)
+              setComposerCursor(e.currentTarget.selectionStart)
+            }}
+            onBlur={() => setComposerFocused(false)}
+            onPaste={handlePaste}
+            placeholder={promptPlaceholder}
+            disabled={inputDisabled}
+            sx={{
+              width: '100%',
+              resize: 'none',
+              border: 'none',
+              borderRadius: 0,
+              outline: 'none',
+              bgcolor: 'transparent',
+              color: (theme) => getChatColors(theme).foreground,
+              fontFamily: 'inherit',
+              fontSize: { xs: '0.9375rem', sm: '0.875rem' },
+              fontWeight: 450,
+              lineHeight: 1.55,
+              letterSpacing: '-0.005em',
+              p: 0,
+              minHeight: 70,
+              maxHeight: maxHeight,
+              overflowY: 'auto',
+              '&::placeholder': {
+                color: isDraggingOver
+                  ? 'primary.main'
+                  : !isOnline
+                    ? 'warning.main'
+                    : (theme) => getChatColors(theme).subtle,
+                opacity: isDraggingOver ? 1 : 0.72,
+              },
+              '&:disabled': {
+                opacity: 0.6,
+                cursor: 'not-allowed',
+              },
+            }}
+          />
+        )}
 
         {/* Buttons row at bottom */}
         <Box
@@ -1504,48 +1537,51 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             display: 'flex',
             alignItems: 'center',
             gap: 0.5,
-            mt: 1,
-            flexWrap: 'wrap',
+            mt: 1.25,
+            minWidth: 0,
+            flexWrap: 'nowrap',
           }}
         >
-          {/* History button */}
-          {hasHistory && (
-            <Tooltip title="Browse prompt history (↑/↓ to navigate)">
-              <IconButton
-                size="small"
-                onClick={(e) => setHistoryMenuAnchor(e.currentTarget)}
-                sx={{
-                  color: historyIndex >= 0 ? 'info.main' : 'text.secondary',
-                  flexShrink: 0,
-                }}
-              >
-                <History size={20} />
-              </IconButton>
-            </Tooltip>
+          {leadingActions}
+
+          {leadingActions && (
+            <Box
+              aria-hidden="true"
+              sx={{
+                width: '1px',
+                height: 16,
+                mx: 0.25,
+                flexShrink: 0,
+                bgcolor: 'divider',
+                opacity: 0.65,
+              }}
+            />
           )}
 
           {/* Attach file button */}
-          {handleFileUploadCallback && (
-            <Tooltip title="Attach file">
+          {attachmentsEnabled && (
+            <Tooltip title={inlineImageAttachments ? 'Attach image' : 'Attach file'}>
               <IconButton
                 size="small"
                 onClick={handleBrowseClick}
-                disabled={disabled}
+                disabled={inputDisabled}
                 sx={{
-                  color: 'text.secondary',
+                  color: (theme) => getChatColors(theme).subtle,
                   flexShrink: 0,
+                  width: 28,
+                  height: 28,
                   '&:hover': {
                     color: 'primary.main',
                   },
                 }}
               >
-                <Paperclip size={20} />
+                <Paperclip size={17} />
               </IconButton>
             </Tooltip>
           )}
 
           {/* Camera button (mobile only) */}
-          {handleFileUploadCallback && isMobile && (
+          {attachmentsEnabled && isMobile && (
             <Tooltip title="Take photo">
               <IconButton
                 size="small"
@@ -1555,40 +1591,42 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                   input.type = 'file'
                   input.accept = 'image/*'
                   input.capture = 'environment' // Use rear camera by default
-                  input.onchange = async (e) => {
+                  input.onchange = (e) => {
                     const files = (e.target as HTMLInputElement).files
                     if (files && files.length > 0) {
-                      await uploadAndAddAttachment(files[0])
+                      addFilesAsAttachments([files[0]])
                     }
                   }
                   input.click()
                 }}
-                disabled={disabled}
+                disabled={inputDisabled}
                 sx={{
                   color: 'text.secondary',
                   flexShrink: 0,
+                  width: 28,
+                  height: 28,
                   '&:hover': {
                     color: 'primary.main',
                   },
                 }}
               >
-                <Camera size={20} />
+                <Camera size={17} />
               </IconButton>
             </Tooltip>
           )}
 
-          {/* Spacer */}
-          <Box sx={{ flex: 1 }} />
-
           {/* Offline indicator */}
           {!isOnline && (
-            <Tooltip title="You're offline - messages will queue and send when connected">
+            <Tooltip title={sendMode === 'direct'
+              ? "You're offline"
+              : "You're offline - messages will queue and send when connected"}
+            >
               <CloudOff size={20} style={{ flexShrink: 0 }} />
             </Tooltip>
           )}
 
           {/* Interrupt mode toggle */}
-          <Tooltip
+          {sendMode === 'queued' && <Tooltip
             title={
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -1601,7 +1639,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                   }
                 </Typography>
                 <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'grey.400' }}>
-                  Keyboard: Enter = queue | Ctrl+Enter = interrupt
+                  Keyboard: Enter = queue | {interruptShortcut} = interrupt
                 </Typography>
               </Box>
             }
@@ -1609,73 +1647,103 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             <IconButton
               size="small"
               onClick={() => setInterruptMode(!interruptMode)}
+              aria-label={interruptMode ? 'Switch to queue mode' : 'Switch to interrupt mode'}
+              aria-pressed={interruptMode}
               sx={{
                 flexShrink: 0,
-                color: interruptMode ? 'warning.main' : 'info.main',
-                bgcolor: (theme) => alpha(
-                  interruptMode ? theme.palette.warning.main : theme.palette.info.main,
-                  0.1
-                ),
+                width: 28,
+                height: 28,
+                color: interruptMode
+                  ? 'warning.main'
+                  : (theme) => getChatColors(theme).subtle,
+                bgcolor: interruptMode
+                  ? (theme) => alpha(theme.palette.warning.main, 0.1)
+                  : 'transparent',
                 '&:hover': {
-                  bgcolor: (theme) => alpha(
-                    interruptMode ? theme.palette.warning.main : theme.palette.info.main,
-                    0.2
-                  ),
+                  color: interruptMode ? 'warning.main' : 'text.primary',
+                  bgcolor: (theme) => alpha(theme.palette.text.primary, 0.06),
                 },
               }}
             >
               {interruptMode ? (
-                <Zap size={20} />
+                <Zap size={17} />
               ) : (
-                <ListStart size={20} />
+                <ListStart size={17} />
               )}
             </IconButton>
-          </Tooltip>
+          </Tooltip>}
+
+          <Box sx={{ flex: 1 }} />
+
+          {trailingActions}
 
           {/* Cancel button - visible when agent is busy */}
           {isAgentBusy && onCancel && (
-            <Tooltip title="Cancel current turn">
-              <IconButton
-                onClick={onCancel}
-                sx={{
-                  flexShrink: 0,
-                  width: 30,
-                  height: 30,
-                  color: 'warning.main',
-                  '&:hover': {
-                    bgcolor: (theme) => alpha(theme.palette.warning.main, 0.1),
-                  },
-                }}
-              >
-                <StopCircle size={18} />
-              </IconButton>
+            <Tooltip title={isCancelling ? 'Stopping generation…' : 'Stop generation'}>
+              <Box component="span" sx={{ display: 'flex', flexShrink: 0 }}>
+                <IconButton
+                  onClick={onCancel}
+                  aria-label={isCancelling ? 'Stopping generation' : 'Stop generation'}
+                  disabled={isCancelling}
+                  sx={{
+                    flexShrink: 0,
+                    width: 32,
+                    height: 32,
+                    color: '#fff',
+                    bgcolor: 'error.main',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.28)',
+                    '&:hover': {
+                      bgcolor: 'error.dark',
+                    },
+                    '&.Mui-disabled': {
+                      color: '#fff',
+                      bgcolor: 'error.main',
+                      opacity: 0.72,
+                    },
+                    '& svg': {
+                      pointerEvents: 'none',
+                    },
+                  }}
+                >
+                  {isCancelling
+                    ? <CircularProgress size={14} thickness={5} color="inherit" />
+                    : <Square size={12} fill="currentColor" strokeWidth={0} />}
+                </IconButton>
+              </Box>
             </Tooltip>
           )}
 
           {/* Send button */}
-          {(() => {
+          {!isAgentBusy && !isDirectSending && (() => {
             const hasContent = draft.trim().length > 0
             const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded')
             const pendingUploads = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
-            const canSend = (hasContent || uploadedAttachments.length > 0) && pendingUploads.length === 0 && !disabled
+            const failedUploads = attachments.filter(a => a.uploadStatus === 'failed')
+            const canSend = (hasContent || uploadedAttachments.length > 0) && pendingUploads.length === 0 && failedUploads.length === 0 && !inputDisabled && (isOnline || sendMode === 'queued')
 
             return (
               <Tooltip
                 title={
                   pendingUploads.length > 0
                     ? `Uploading ${pendingUploads.length} file${pendingUploads.length > 1 ? 's' : ''}...`
-                    : 'Add to queue (Enter = queue, Ctrl+Enter = interrupt)'
+                    : failedUploads.length > 0
+                      ? 'Retry or remove failed uploads before sending'
+                      : sendMode === 'direct'
+                        ? 'Send message'
+                        : `Add to queue (Enter = queue, ${interruptShortcut} = interrupt)`
                 }
               >
                 <span>
                   <IconButton
                     onClick={handleSend}
                     disabled={!canSend}
+                    aria-label="Send message"
                     color={canSend ? 'secondary' : 'primary'}
                     sx={{
                       flexShrink: 0,
-                      width: 30,
-                      height: 30,
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
                       bgcolor: canSend ? 'secondary.main' : 'transparent',
                       color: canSend ? 'secondary.contrastText' : 'text.secondary',
                       '&:hover': {
@@ -1700,221 +1768,19 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         </Box>
       </Box>
 
-      {/* Keyboard hint */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 2,
-          mt: 0.75,
-          px: 0.5,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <ListStart size={12} style={{ opacity: 0.6 }} />
-          <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
-            Enter = queue
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Zap size={12} style={{ opacity: 0.6 }} />
-          <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
-            Ctrl+Enter = interrupt
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <SendHorizontal size={12} style={{ opacity: 0.6 }} />
-          <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
-            Shift+Enter = new line
-          </Typography>
-        </Box>
-        {hasHistory && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <History size={12} style={{ opacity: 0.6 }} />
-            <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
-              ↑/↓ history
-            </Typography>
-          </Box>
-        )}
-        {queuedMessages.length > 0 && (
-          <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 500 }}>
-            {queuedMessages.length} in queue
-          </Typography>
-        )}
-      </Box>
-
-      {/* History menu */}
-      <Menu
-        anchorEl={historyMenuAnchor}
-        open={Boolean(historyMenuAnchor)}
-        onClose={() => {
-          setHistoryMenuAnchor(null)
-          setHistorySearchQuery('')
-        }}
-        anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        slotProps={{
-          paper: {
-            sx: {
-              maxHeight: 450,
-              minWidth: 400,
-              maxWidth: 550,
-            },
-          },
-        }}
-      >
-        {/* Search field */}
-        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <TextField
-            size="small"
-            fullWidth
-            placeholder="Search history..."
-            value={historySearchQuery}
-            onChange={(e) => setHistorySearchQuery(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search size={18} />
-                </InputAdornment>
-              ),
-            }}
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                fontSize: '0.875rem',
-              },
-            }}
-          />
-        </Box>
-
-        {(() => {
-          // Filter and sort history: pinned first, then by timestamp, filtered by search
-          const filteredHistory = sentHistory
-            .filter(entry => {
-              if (!historySearchQuery.trim()) return true
-              return entry.content.toLowerCase().includes(historySearchQuery.toLowerCase())
-            })
-            .sort((a, b) => {
-              // Pinned items first
-              if (a.pinned && !b.pinned) return -1
-              if (!a.pinned && b.pinned) return 1
-              // Then by timestamp (newest first)
-              return b.timestamp - a.timestamp
-            })
-            .slice(0, 30)
-
-          const pinnedCount = filteredHistory.filter(e => e.pinned).length
-
-          if (filteredHistory.length === 0) {
-            return (
-              <MenuItem disabled>
-                <ListItemText
-                  primary={historySearchQuery ? 'No matching prompts' : 'No history yet'}
-                  secondary={historySearchQuery ? 'Try a different search term' : 'Your sent messages will appear here'}
-                />
-              </MenuItem>
-            )
-          }
-
-          return (
-            <>
-              {/* Pinned section header */}
-              {pinnedCount > 0 && (
-                <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default' }}>
-                  <Typography variant="caption" sx={{ fontWeight: 600, color: 'warning.main', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Pin size={14} />
-                    Pinned ({pinnedCount})
-                  </Typography>
-                </Box>
-              )}
-
-              {filteredHistory.map((entry, index) => {
-                const isPinned = entry.pinned
-                const isFirstUnpinned = index > 0 && !isPinned && filteredHistory[index - 1]?.pinned
-
-                return (
-                  <Box key={entry.id}>
-                    {/* Show "Recent" header before first unpinned item */}
-                    {isFirstUnpinned && (
-                      <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default', borderTop: '1px solid', borderColor: 'divider' }}>
-                        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                          Recent
-                        </Typography>
-                      </Box>
-                    )}
-                    {/* Show "Recent" header at top if no pinned items */}
-                    {index === 0 && pinnedCount === 0 && (
-                      <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default' }}>
-                        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                          Recent Prompts
-                        </Typography>
-                      </Box>
-                    )}
-                    <MenuItem
-                      onClick={() => {
-                        setDraft(entry.content)
-                        setHistoryMenuAnchor(null)
-                        setHistorySearchQuery('')
-                        textareaRef.current?.focus()
-                      }}
-                      sx={{
-                        borderLeft: isPinned ? '3px solid' : '3px solid transparent',
-                        borderColor: isPinned ? 'warning.main' : 'transparent',
-                        bgcolor: isPinned ? (theme) => alpha(theme.palette.warning.main, 0.04) : 'transparent',
-                        '&:hover .pin-button': { opacity: 1 },
-                      }}
-                    >
-                      <ListItemIcon>
-                        {isPinned ? (
-                          <Pin size={20} />
-                        ) : (
-                          <CheckCircle size={20} style={{ opacity: 0.6 }} />
-                        )}
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={truncateContent(entry.content)}
-                        secondary={formatTime(entry.timestamp)}
-                        primaryTypographyProps={{ noWrap: true, fontSize: '0.875rem' }}
-                        secondaryTypographyProps={{ fontSize: '0.75rem' }}
-                      />
-                      {/* Pin/unpin button */}
-                      <Tooltip title={isPinned ? 'Unpin' : 'Pin for quick access'}>
-                        <IconButton
-                          className="pin-button"
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            pinPrompt(entry.id, !isPinned)
-                          }}
-                          sx={{
-                            ml: 1,
-                            opacity: isPinned ? 0.8 : 0.3,
-                            transition: 'opacity 0.15s',
-                            color: isPinned ? 'warning.main' : 'text.secondary',
-                            '&:hover': {
-                              color: isPinned ? 'warning.dark' : 'warning.main',
-                            },
-                          }}
-                        >
-                          {isPinned ? (
-                            <Pin size={16} />
-                          ) : (
-                            <PinOff size={16} />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    </MenuItem>
-                  </Box>
-                )
-              })}
-            </>
-          )
-        })()}
-      </Menu>
     </Box>
+  )
+
+  if (!contextMenuAppId) return input
+
+  return (
+    <ContextMenuModal
+      appId={contextMenuAppId}
+      textAreaRef={textareaRef}
+      onInsertText={handleContextMenuInsert}
+    >
+      {input}
+    </ContextMenuModal>
   )
 }
 

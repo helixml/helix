@@ -3,6 +3,7 @@ import { createTheme, ThemeProvider } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useApi from '../hooks/useApi'
 import { PaletteMode } from '@mui/material'
+import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY } from '../styles/typography'
 
 function getInitialMode(): PaletteMode {
   if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light'
@@ -17,6 +18,69 @@ try { localStorage.removeItem('themeMode') } catch { /* ignore */ }
 export const ThemeContext = React.createContext({
   mode: 'dark' as PaletteMode,
   toggleMode: () => {},
+})
+
+export const getTooltipStyleOverrides = (isLight: boolean) => ({
+  tooltip: isLight ? {} : {
+    backgroundColor: '#1b1b1b',
+    border: '1px solid #3a3a3a',
+    borderRadius: '7px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.35)',
+    color: '#f5f5f5',
+    fontFamily: APP_FONT_FAMILY,
+    fontSize: '0.75rem',
+    fontWeight: 400,
+    lineHeight: 1.35,
+    padding: '5px 8px',
+  },
+  arrow: isLight ? {} : {
+    color: '#1b1b1b',
+  },
+})
+
+export const getDialogStyleTokens = (isLight: boolean, background: string) => {
+  const surfaceBase = isLight
+    ? background
+    : `color-mix(in srgb, ${background} 94%, white)`
+
+  return {
+    surfaceFallback: isLight ? background : '#191919',
+    surface: `color-mix(in srgb, ${surfaceBase} 80%, transparent)`,
+    surfaceFilter: `blur(${isLight ? 12 : 16}px) saturate(${isLight ? 1.14 : 1.08})`,
+    border: isLight
+      ? '1px solid rgba(0, 0, 0, 0.10)'
+      : '1px solid rgba(255, 255, 255, 0.08)',
+    shadow: isLight
+      ? '0 24px 64px -24px rgba(0, 0, 0, 0.35)'
+      : 'inset 0 1px rgba(255, 255, 255, 0.04), 0 24px 72px -20px rgba(0, 0, 0, 0.90)',
+    backdropFallback: isLight ? 'rgba(255, 255, 255, 0.60)' : 'rgba(0, 0, 0, 0.64)',
+    backdrop: `color-mix(in srgb, ${background} ${isLight ? 60 : 64}%, transparent)`,
+  }
+}
+
+export const getFlatSelectOverrides = (isLight: boolean) => ({
+  '&:has(> .MuiSelect-select)': {
+    borderRadius: '6px',
+    backgroundColor: 'transparent',
+    transition: 'background-color 0.1s, color 0.1s',
+    '& .MuiOutlinedInput-notchedOutline': {
+      border: '0 !important',
+    },
+    '&:before, &:after': {
+      borderBottom: '0 !important',
+    },
+    '& > .MuiSelect-select': {
+      paddingTop: '6px',
+      paddingBottom: '6px',
+      paddingLeft: '8px',
+    },
+    '&:hover': {
+      backgroundColor: isLight ? 'rgba(0,0,0,0.045)' : 'rgba(255,255,255,0.055)',
+    },
+    '&.Mui-focused': {
+      backgroundColor: isLight ? 'rgba(0,0,0,0.075)' : 'rgba(255,255,255,0.085)',
+    },
+  },
 })
 
 export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
@@ -65,17 +129,16 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       },
     }
 
-    const menuSurfaceBg = isLight ? 'rgba(255, 255, 255, 0.97)' : 'rgba(26, 26, 26, 0.97)'
-    const menuBorder = isLight ? '1px solid rgba(0,0,0,0.10)' : '1px solid rgba(255,255,255,0.10)'
-    const menuTextColor = isLight ? '#333' : 'white'
-    const menuHoverBg = isLight ? 'rgba(0,180,220,0.10)' : 'rgba(0,229,255,0.13)'
-    const menuSelectedBg = isLight ? 'rgba(0,180,220,0.15)' : 'rgba(0,229,255,0.18)'
-    const menuDividerColor = isLight ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.10)'
-    const menuShadow = isLight ? '0 8px 32px rgba(0,0,0,0.12)' : '0 8px 32px rgba(0,0,0,0.32)'
+    const menuSurfaceBg = isLight ? 'rgba(255, 255, 255, 0.98)' : 'rgba(27, 27, 27, 0.98)'
+    const menuBorder = isLight ? '1px solid rgba(0,0,0,0.12)' : '1px solid rgba(255,255,255,0.12)'
+    const menuTextColor = isLight ? '#262626' : '#f1f1f1'
+    const menuHoverBg = isLight ? 'rgba(0,0,0,0.045)' : 'rgba(255,255,255,0.055)'
+    const menuSelectedBg = isLight ? 'rgba(0,0,0,0.075)' : 'rgba(255,255,255,0.085)'
+    const menuDividerColor = isLight ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.09)'
+    const menuShadow = isLight ? '0 10px 30px rgba(0,0,0,0.14)' : '0 10px 30px rgba(0,0,0,0.38)'
 
-    const dialogBg = isLight ? '#ffffff' : '#181A20'
+    const dialogStyles = getDialogStyleTokens(isLight, bg)
     const dialogColor = isLight ? '#333' : '#F1F1F1'
-    const dialogShadow = isLight ? '0 8px 32px rgba(0, 0, 0, 0.15)' : '0 8px 32px rgba(0, 0, 0, 0.5)'
 
     return createTheme({
       palette: {
@@ -93,7 +156,8 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
       },
       typography: {
-        fontFamily: "IBM Plex Sans, Helvetica, Arial, sans-serif",
+        fontFamily: APP_FONT_FAMILY,
+        fontFamilyMono: APP_MONO_FONT_FAMILY,
         fontSize: 14,
         // Light mode is often viewed in sunlight — bump weights for readability.
         ...(isLight && {
@@ -111,45 +175,95 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       components: {
         MuiCssBaseline: {
           styleOverrides: {
+            html: {
+              fontFamily: APP_FONT_FAMILY,
+              WebkitFontSmoothing: 'auto',
+              MozOsxFontSmoothing: 'auto',
+            },
             body: {
+              fontFamily: APP_FONT_FAMILY,
+              WebkitFontSmoothing: 'auto',
+              MozOsxFontSmoothing: 'auto',
               backgroundColor: bg,
               ...scrollbarStyles,
+            },
+            'button, input, optgroup, select, textarea': {
+              fontFamily: 'inherit',
             },
             '*': scrollbarStyles,
           },
         },
         MuiMenu: {
+          defaultProps: {
+            elevation: 0,
+          },
           styleOverrides: {
             root: {
               zIndex: 100003,
-              '& .MuiMenu-list': {
-                padding: 0,
-                backgroundColor: menuSurfaceBg,
-                backdropFilter: 'blur(10px)',
-                minWidth: '160px',
-                borderRadius: '10px',
-                border: menuBorder,
-                boxShadow: menuShadow,
-              },
+            },
+            paper: {
+              minWidth: '144px',
+              padding: '5px',
+              overflow: 'hidden auto',
+              backgroundColor: menuSurfaceBg,
+              backgroundImage: 'none',
+              backdropFilter: 'blur(12px)',
+              border: menuBorder,
+              borderRadius: '10px',
+              boxShadow: menuShadow,
               '& .MuiMenuItem-root': {
                 color: menuTextColor,
-                fontSize: '0.92rem',
+                fontSize: '0.8rem',
                 fontWeight: 500,
-                padding: '8px 16px',
-                minHeight: '32px',
+                lineHeight: 1.25,
+                padding: '5px 7px',
+                minHeight: '28px',
                 borderRadius: '6px',
-                transition: 'background 0.15s',
+                transition: 'background-color 0.1s, color 0.1s',
                 '&:hover': {
                   backgroundColor: menuHoverBg,
                 },
                 '&.Mui-selected': {
                   backgroundColor: menuSelectedBg,
+                  '&:hover': {
+                    backgroundColor: menuSelectedBg,
+                  },
                 },
+              },
+              '& .MuiListItemIcon-root': {
+                minWidth: '24px',
+                color: isLight ? 'rgba(0,0,0,0.58)' : 'rgba(255,255,255,0.58)',
+                '& svg': {
+                  width: 15,
+                  height: 15,
+                },
+              },
+              '& .MuiListItemText-primary': {
+                fontSize: 'inherit',
+                lineHeight: 'inherit',
+              },
+              '& .MuiListItemText-secondary': {
+                marginTop: '2px',
+                color: isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.48)',
+                fontSize: '0.7rem',
+                lineHeight: 1.25,
+              },
+              '& .MuiListSubheader-root': {
+                minHeight: 0,
+                padding: '5px 7px 3px',
+                backgroundColor: 'transparent',
+                color: isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.45)',
+                fontSize: '0.7rem',
+                fontWeight: 500,
+                lineHeight: 1.35,
               },
               '& .MuiDivider-root': {
                 borderColor: menuDividerColor,
-                margin: '4px 0',
+                margin: '5px 0',
               },
+            },
+            list: {
+              padding: 0,
             },
           },
         },
@@ -158,7 +272,8 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             root: {
               '&.MuiMenu-paper, &.MuiPopover-paper': {
                 backgroundColor: menuSurfaceBg,
-                backdropFilter: 'blur(10px)',
+                backgroundImage: 'none',
+                backdropFilter: 'blur(12px)',
                 borderRadius: '10px',
                 boxShadow: menuShadow,
               },
@@ -171,15 +286,27 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
           },
           styleOverrides: {
             paper: {
-              background: dialogBg,
+              backgroundColor: dialogStyles.surfaceFallback,
+              background: dialogStyles.surface,
+              backgroundImage: 'none',
+              WebkitBackdropFilter: dialogStyles.surfaceFilter,
+              backdropFilter: dialogStyles.surfaceFilter,
+              border: dialogStyles.border,
               color: dialogColor,
               borderRadius: 16,
-              boxShadow: dialogShadow,
+              boxShadow: dialogStyles.shadow,
               transition: 'all 0.2s ease-in-out',
             },
             root: {
               zIndex: 100002, // Above floating windows (z-index 9999); tooltips (100004) render above
               transition: 'all 0.2s ease-in-out',
+              '& .MuiBackdrop-root': {
+                backgroundColor: dialogStyles.backdropFallback,
+                background: dialogStyles.backdrop,
+                WebkitBackdropFilter: 'blur(4px)',
+                backdropFilter: 'blur(4px)',
+                transition: 'background 0.2s ease-in-out, backdrop-filter 0.2s ease-in-out',
+              },
             },
           },
         },
@@ -195,6 +322,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
               },
             },
           },
+          styleOverrides: getTooltipStyleOverrides(isLight),
         },
         MuiPopover: {
           styleOverrides: {
@@ -210,6 +338,21 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
                 zIndex: 100003,
               },
             },
+          },
+        },
+        MuiOutlinedInput: {
+          styleOverrides: {
+            root: getFlatSelectOverrides(isLight),
+          },
+        },
+        MuiInput: {
+          styleOverrides: {
+            root: getFlatSelectOverrides(isLight),
+          },
+        },
+        MuiFilledInput: {
+          styleOverrides: {
+            root: getFlatSelectOverrides(isLight),
           },
         },
       },

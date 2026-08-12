@@ -15,15 +15,34 @@ import {
     Chip,
     InputAdornment,
     IconButton,
+    Menu,
+    MenuItem,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
+import EditIcon from "@mui/icons-material/Edit";
 import { TypesOrgDetails } from "../../api/api";
-import { useListAdminOrgs } from "../../services/dashboardService";
+import { useListAdminOrgs, useAdminSetOrgPlan } from "../../services/dashboardService";
 
 const AdminOrgsTable: FC = () => {
     const [searchQuery, setSearchQuery] = useState("");
     const { data: orgs, isLoading, error } = useListAdminOrgs();
+    const setOrgPlan = useAdminSetOrgPlan();
+    const [planAnchor, setPlanAnchor] = useState<null | HTMLElement>(null);
+    const [planOrgId, setPlanOrgId] = useState<string | null>(null);
+
+    const openPlanMenu = (e: React.MouseEvent<HTMLElement>, orgId: string) => {
+        setPlanAnchor(e.currentTarget);
+        setPlanOrgId(orgId);
+    };
+    const closePlanMenu = () => {
+        setPlanAnchor(null);
+        setPlanOrgId(null);
+    };
+    const applyPlan = (plan: string) => {
+        if (planOrgId) setOrgPlan.mutate({ orgId: planOrgId, plan });
+        closePlanMenu();
+    };
 
     const filtered = useMemo(() => {
         if (!orgs) return [];
@@ -112,13 +131,14 @@ const AdminOrgsTable: FC = () => {
                             <TableCell>Members</TableCell>
                             <TableCell>Stripe Customer ID</TableCell>
                             <TableCell>Subscription</TableCell>
+                            <TableCell>Plan</TableCell>
                             <TableCell align="right">Wallet Credits</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {filtered.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} align="center">
+                                <TableCell colSpan={7} align="center">
                                     <Typography variant="body2" color="text.secondary">
                                         {searchQuery ? "No organizations matching your search" : "No organizations found"}
                                     </Typography>
@@ -196,6 +216,27 @@ const AdminOrgsTable: FC = () => {
                                                 <Typography variant="body2" color="text.secondary">None</Typography>
                                             )}
                                         </TableCell>
+                                        <TableCell>
+                                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                                {org.wallet?.plan_override ? (
+                                                    <Chip
+                                                        label={org.wallet.plan_override}
+                                                        size="small"
+                                                        color={org.wallet.plan_override === "pro" ? "success" : "default"}
+                                                    />
+                                                ) : (
+                                                    <Typography variant="body2" color="text.secondary">—</Typography>
+                                                )}
+                                                <IconButton
+                                                    size="small"
+                                                    aria-label="set plan"
+                                                    disabled={setOrgPlan.isPending}
+                                                    onClick={(e) => openPlanMenu(e, org.organization?.id || "")}
+                                                >
+                                                    <EditIcon fontSize="small" />
+                                                </IconButton>
+                                            </Box>
+                                        </TableCell>
                                         <TableCell align="right">
                                             <Typography variant="body2">
                                                 {balance !== undefined ? `$${balance.toFixed(2)}` : "N/A"}
@@ -208,6 +249,12 @@ const AdminOrgsTable: FC = () => {
                     </TableBody>
                 </Table>
             </TableContainer>
+
+            <Menu anchorEl={planAnchor} open={Boolean(planAnchor)} onClose={closePlanMenu}>
+                <MenuItem onClick={() => applyPlan("pro")}>Set Pro (paid, no Stripe)</MenuItem>
+                <MenuItem onClick={() => applyPlan("free")}>Set Free</MenuItem>
+                <MenuItem onClick={() => applyPlan("")}>Clear override (use Stripe)</MenuItem>
+            </Menu>
         </Paper>
     );
 };

@@ -1,4 +1,4 @@
-import { FC, useCallback, useEffect, useMemo, useState } from 'react'
+import { FC, Fragment, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
@@ -6,693 +6,1514 @@ import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
-import Divider from '@mui/material/Divider'
-import Drawer from '@mui/material/Drawer'
+import GlobalStyles from '@mui/material/GlobalStyles'
 import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
-import TextField from '@mui/material/TextField'
+import Paper from '@mui/material/Paper'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import AddIcon from '@mui/icons-material/Add'
-import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
-import CloseIcon from '@mui/icons-material/Close'
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined'
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import SettingsIcon from '@mui/icons-material/Settings'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
+import StopIcon from '@mui/icons-material/Stop'
+import TransformIcon from '@mui/icons-material/Transform'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
 
 import dagre from 'dagre'
 import {
   Background,
+  BaseEdge,
+  ControlButton,
   Controls,
   Edge,
+  EdgeChange,
+  EdgeLabelRenderer,
+  EdgeProps,
+  ConnectionLineType,
+  getBezierPath,
   Handle,
-  MiniMap,
+  MarkerType,
   Node,
   NodeProps,
+  ConnectionMode,
   Position as RFPosition,
   ReactFlow,
   ReactFlowProvider,
+  Viewport,
   useEdgesState,
   useNodesState,
   useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import {
+  clearChartViewport,
+  loadChartViewport,
+  saveChartViewport,
+} from '../components/helix-org/chartViewportStorage'
+import {
+  ChartTopicFilter,
+  DEFAULT_CHART_TOPIC_FILTERS,
+  chartTopicFilterFor,
+  loadChartTopicVisibility,
+  saveChartTopicVisibility,
+} from '../components/helix-org/chartTopicVisibility'
+import ChartTopicVisibilityMenu from '../components/helix-org/ChartTopicVisibilityMenu'
+import ChartVisibilityMenu, { chartToolbarButtonSizeSx } from '../components/helix-org/ChartVisibilityMenu'
+import {
+  ChartEntityKind,
+  EMPTY_HIDDEN_CHART_ENTITY_IDS,
+  HiddenChartEntityIDs,
+  loadHiddenChartEntityIDs,
+  saveHiddenChartEntityIDs,
+} from '../components/helix-org/chartEntityVisibility'
+import {
+  CHAT_BOT_FOCUS_EVENT,
+  ChatBotFocusDetail,
+  focusChatBot,
+  isValidBotId,
+  loadFocusedBotId,
+} from '../components/helix-org/chatBotFocus'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
+import NewBotDialog from '../components/helix-org/NewBotDialog'
+import NewTopicDrawer from '../components/helix-org/NewTopicDrawer'
+import AssetConfigDrawer from '../components/helix-org/AssetConfigDrawer'
+import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
+import TopicDetailDrawer from '../components/helix-org/TopicDetailDrawer'
+import ProcessorNode, { ProcessorNodeData } from '../components/helix-org/ProcessorNode'
+import {
+  ASSET_H,
+  ASSET_W,
+  BOT_H,
+  BOT_W,
+  centeredCreatedNodePosition,
+  ChartNodeKind,
+  PROC_W,
+  procNodeHeight,
+  STREAM_H,
+  STREAM_W,
+} from '../components/helix-org/chartNodeGeometry'
+import AgentHarness from '../components/agent/AgentHarness'
+import { isTranscriptTopic } from '../components/helix-org/helixOrgTopics'
+import { BotTaskStats, summarizeBotTasks } from '../components/helix-org/botTaskStats'
+import useAccount from '../hooks/useAccount'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import { CODE_AGENT_RUNTIME_DISPLAY_NAMES, CodeAgentRuntime, getModelDisplayName } from '../contexts/apps'
 import {
-  HireWorkerRequest,
-  WorkerDTO,
-  useCreateHelixOrgRole,
-  useDeleteHelixOrgRole,
-  useDeleteHelixOrgStream,
-  useFireHelixOrgWorker,
-  useHireHelixOrgWorker,
-  useListHelixOrgRoles,
-  useListHelixOrgStreams,
-  useListHelixOrgWorkers,
-  useAddWorkerParent,
-  useRemoveWorkerParent,
-  useSubscribeWorkerAtChart,
-  useUnsubscribeWorkerAtChart,
+  BotDTO,
+  AssetDTO,
+  AssetHealthDTO,
+  ChartPositionMap,
+  chartPositionKey,
+  ProcessorDTO,
+  useActivateBot,
+  useAssetHealth,
+  useClearChartPositions,
+  useDeleteBot,
+  useDeleteAsset,
+  useDeleteHelixOrgTopic,
+  useListChartPositions,
+  useListAssets,
+  useLinkAsset,
+  useListHelixOrgBots,
+  useListHelixOrgBotDetails,
+  useListHelixOrgTopics,
+  useTopicMessageCounts,
+  useListHelixOrgProcessors,
+  useDeleteHelixOrgProcessor,
+  useUpdateHelixOrgProcessor,
+  useAddBotParent,
+  useRemoveBotParent,
+  useUnlinkAsset,
+  useRestartBotAgent,
+  useStopBotAgent,
+  useSubscribeBotAtChart,
+  useUnsubscribeBotAtChart,
+  useUpsertChartPositions,
 } from '../services/helixOrgService'
+import { useSpecTasksForProjects } from '../services/specTaskService'
+import type { SpecTask } from '../services/specTaskService'
+import { useListProjects } from '../services/projectService'
+import { generateCronShortSummary } from '../utils/cronUtils'
 
-// The chart visualises the org as a ReactFlow subflow. After Positions
-// were removed from the domain, a Role groups Workers directly:
+// The chart visualises the org as a ReactFlow graph. Bots are plain
+// nodes wired by reporting edges:
 //
-//   ┌─[Role: r-owner]──────────────────┐
-//   │  [w-owner]                       │
-//   └────────│───────────────────────────┘
-//            ↓ (worker-to-worker reporting edge, from a reporting line)
-//   ┌─[Role: r-engineer]───────────────────────────┐
-//   │  [w-alice]  [w-bob]  [w-carol]               │
-//   └───────────────────────────────────────────────┘
+//   [b-alice] ──reports to──▶ [b-owner]
+//   [b-bob]   ──reports to──▶ [b-owner]
 //
-// Roles are parent group nodes that VISUALLY CONTAIN their Worker child
-// nodes. A Role can hold many Workers. Reporting is a many-to-many
-// relation: each (manager → report) reporting line becomes a Worker →
-// Worker edge (a Worker may have several incoming edges). Streams hang
-// off the right of the tree; an edge from a Worker to a Stream is a
-// subscription.
+// Reporting is many-to-many: each (subordinate → manager) "reports to"
+// line is a closest-side Bot → Bot edge with an arrow at the manager.
+// Topics hang off the right of the tree; a solid edge from a Topic to a
+// Bot is a subscription (pulse animates topic → bot = consume direction).
 //
-// Layout: dagre runs over the role tree (edges derived from cross-role
-// reporting lines) to get global (x, y) for each Role. Workers sit in a
-// horizontal row inside their Role's frame.
+// Layout: dagre runs over the bot graph (edges = reporting lines) to get
+// global (x, y) for each Bot node. Saved free-placed coordinates from
+// GET /chart/positions override auto-layout per node; nodes without a
+// saved row stay on the auto-layout position. Camera (pan/zoom) is
+// personal — localStorage keyed by user id + org id, not shared.
 
-const OWNER_ROLE = 'r-owner'
-const OWNER_WORKER = 'w-owner'
+const BOT_GAP_X = 32
+const BOT_GAP_Y = 90
 
-const WORKER_W = 220
-const WORKER_H = 96
-const WORKER_GAP_X = 32
-const WORKER_GAP_Y = 90
-const ROLE_PAD_X = 24
-const ROLE_PAD_TOP = 56
-const ROLE_PAD_BOTTOM = 24
-
-// ---- Flatten + group ---------------------------------------------------
-
-type FlatWorker = {
-  id: string
-  kind: string
-  roleId: string
-  // Reporting is many-to-many: a Worker may report to several managers.
-  parentIds: string[]
+// Rough height used by auto-layout before RF measures the real node.
+// Keeps stacked topics from overlapping when names wrap to multiple lines.
+// `subtitle` is the second line (topic id, or cron schedule summary).
+const estimateTopicCardHeight = (name: string, subtitle: string): number => {
+  const padY = 16
+  const statsH = 16
+  const gaps = 8
+  const nameInnerW = STREAM_W - 16 - 22 - 20 // pad − icon − menu gutter
+  const subInnerW = STREAM_W - 16
+  const nameLines = Math.max(1, Math.ceil((name || subtitle || 'x').length / Math.max(8, nameInnerW / 7.2)))
+  // Cron summaries use proportional text (~7.2px/char); ids use monospace (~6.5).
+  const subChar = subtitle && !subtitle.startsWith('s-') ? 7.2 : 6.5
+  const subLines = Math.max(1, Math.ceil((subtitle || 'x').length / Math.max(10, subInnerW / subChar)))
+  return Math.max(STREAM_H, Math.ceil(padY + nameLines * 16 + subLines * 13 + statsH + gaps))
 }
 
-type RoleGroup = { roleId: string; workers: FlatWorker[] }
+const topicCardSubtitle = (t: { id: string; kind: string; schedule?: string }): string => {
+  if (t.kind === 'cron' && t.schedule) return generateCronShortSummary(t.schedule)
+  return t.id
+}
 
-const groupByRole = (workers: FlatWorker[], knownRoles: string[]): RoleGroup[] => {
-  const byRole = new Map<string, FlatWorker[]>()
-  for (const r of knownRoles) {
-    if (!byRole.has(r)) byRole.set(r, [])
-  }
-  for (const wk of workers) {
-    const list = byRole.get(wk.roleId) ?? []
-    list.push(wk)
-    byRole.set(wk.roleId, list)
-  }
-  const out: RoleGroup[] = []
-  byRole.forEach((ws, roleId) => {
-    out.push({
-      roleId,
-      workers: ws.slice().sort((a, b) => a.id.localeCompare(b.id)),
-    })
-  })
-  out.sort((a, b) => {
-    if (a.roleId === OWNER_ROLE) return -1
-    if (b.roleId === OWNER_ROLE) return 1
-    return a.roleId.localeCompare(b.roleId)
-  })
-  return out
+// ---- Flatten -----------------------------------------------------------
+
+type FlatBot = {
+  id: string
+  // Human-readable display label; empty falls back to the id.
+  name: string
+  // Reporting is many-to-many: a Bot may report to several managers.
+  parentIds: string[]
+  // Desktop sandbox online-ness for the presence dot.
+  agentStatus: 'running' | 'stopped'
+  agentRuntime: string
+  agentModel: string
+  projectId?: string
+  taskStats: BotTaskStats
 }
 
 // ---- Node renderers ----------------------------------------------------
 
-type RoleNodeData = {
-  roleId: string
-  workerCount: number
-  isOwner: boolean
-  onSelectRole: (roleId: string) => void
-  onHire: (roleId: string) => void
-  onDeleteRole: (roleId: string) => void
+type BotNodeData = {
+  botId: string
+  botName: string
+  // running = desktop sandbox online; stopped (or missing) = offline.
+  agentStatus: 'running' | 'stopped'
+  agentRuntime: string
+  agentModel: string
+  projectId: string
+  taskStats: BotTaskStats
+  /** True when the left chat rail is focused on this bot. */
+  selected: boolean
+  /** Card body click — focus the left chat rail on Chat. */
+  onSelectBot: (botId: string) => void
+  /** Open the bot detail page from the menu or a card double-click. */
+  onOpenBotDetails: (botId: string) => void
+  onViewProject: (projectId: string) => void
+  onNewBot: (parentBotId: string) => void
+  onDeleteBot: (botId: string) => void
+  onStartBot: (botId: string) => void
+  onStopBot: (botId: string) => void
+  onRestartBot: (botId: string) => void
 }
 
-type WorkerNodeData = {
-  workerId: string
-  kind: string
-  isOwner: boolean
-  onSelectWorker: (workerId: string) => void
-  onFireWorker: (workerId: string) => void
-}
-
-// StreamNodeData drives the small pseudo-nodes the chart renders for
-// each Stream beside the org tree. Edges from Workers to these nodes
-// (subscriptions) are styled distinctly from the accountability edges
-// between Workers.
-type StreamNodeData = {
-  streamId: string
+// TopicNodeData drives the small pseudo-nodes the chart renders for each
+// Topic beside the org tree. Edges from Bots to these nodes
+// (subscriptions) are styled distinctly from the reporting edges between
+// Bots.
+type TopicNodeData = {
+  topicId: string
   name: string
   kind: string
   subscriberCount: number
-  onSelectStream: (streamId: string) => void
-  onDeleteStream: (streamId: string) => void
+  messageCount: number
+  // Human-readable cron schedule (only set for kind=cron). Shown in place
+  // of the topic id on the card so operators see when it fires.
+  scheduleSummary?: string
+  // When set, this topic is a processor's auto-provisioned output — it is
+  // managed by that processor and must not be deleted independently
+  // (delete the processor instead, which cascades it).
+  ownedByProcessor?: string
+  onSelectTopic: (topicId: string) => void
+  onDeleteTopic: (topicId: string) => void
+}
+
+type AssetNodeData = {
+  asset: AssetDTO
+  health?: AssetHealthDTO
+  onSelectAsset: (assetId: string) => void
+  onDeleteAsset: (assetId: string) => void
 }
 
 // ReactFlow uses these CSS class names internally — children of a node
-// that carry `nodrag` won't start a node-drag, and `nopan` won't pan
-// the canvas. The combination is the documented way to make buttons,
-// menus and form inputs inside custom nodes work correctly. See
-// https://reactflow.dev/learn/customization/custom-nodes#interactive-children.
+// that carry `nodrag` won't start a node-drag, and `nopan` won't pan the
+// canvas. The combination is the documented way to make buttons, menus
+// and form inputs inside custom nodes work correctly.
 const NO_DRAG_NO_PAN = 'nodrag nopan'
 
-// RoleNode is a parent group — ReactFlow renders the child Worker nodes
-// inside its rect. The Box fills the node's frame and paints the header
-// band along the top edge with the role id + the hire / delete-role
-// affordances.
-const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
-  const lightTheme = useLightTheme()
-  const muted = lightTheme.isLight ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)'
-  const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)'
+// ---- Closest-side geometry ---------------------------------------------
+// Subscription (and similar free-form) edges should attach to whichever
+// sides of the two cards are nearest, not a fixed right→left pair. The
+// edge renderer recomputes this every frame from live node positions so
+// it stays correct while cards are dragged.
 
-  return (
-    <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
-      <Box
-        className={NO_DRAG_NO_PAN}
-        onClick={(e) => { e.stopPropagation(); data.onSelectRole(data.roleId) }}
-        sx={{
-          position: 'absolute',
-          top: 0, left: 0, right: 0,
-          height: ROLE_PAD_TOP - 8,
-          px: 2,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'pointer',
-          borderTopLeftRadius: 12,
-          borderTopRightRadius: 12,
-          '&:hover': {
-            backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.025)' : 'rgba(255,255,255,0.03)',
-          },
-        }}
-      >
-        <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ minWidth: 0, flex: 1 }}>
-          <Typography
-            variant="subtitle1"
-            sx={{
-              fontWeight: 700,
-              color: titleColor,
-              fontFamily: 'monospace',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {data.roleId}
-          </Typography>
-          <Typography variant="caption" sx={{ color: muted, whiteSpace: 'nowrap' }}>
-            {data.workerCount} {data.workerCount === 1 ? 'worker' : 'workers'}
-          </Typography>
-        </Stack>
-        <Stack direction="row" spacing={0.25}>
-          <Tooltip title="Hire a worker into this role">
-            <IconButton
-              className={NO_DRAG_NO_PAN}
-              size="small"
-              onClick={(e) => { e.stopPropagation(); data.onHire(data.roleId) }}
-              sx={{ color: muted }}
-            >
-              <PersonAddOutlinedIcon sx={{ fontSize: 18 }} />
-            </IconButton>
-          </Tooltip>
-          {!data.isOwner && (
-            <Tooltip title="Delete role (fires every Worker holding it)">
-              <IconButton
-                className={NO_DRAG_NO_PAN}
-                size="small"
-                onClick={(e) => { e.stopPropagation(); data.onDeleteRole(data.roleId) }}
-                sx={{ color: muted }}
-              >
-                <DeleteOutlineIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Stack>
-      </Box>
-      {data.workerCount === 0 && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: ROLE_PAD_TOP,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: muted,
-            fontStyle: 'italic',
-            fontSize: '0.85rem',
-            px: 2,
-            textAlign: 'center',
+type CardSide = 'left' | 'right' | 'top' | 'bottom'
+type CardRect = { x: number; y: number; w: number; h: number }
+
+const CARD_SIDES: CardSide[] = ['left', 'right', 'top', 'bottom']
+
+const sideMidpoint = (r: CardRect, side: CardSide): { x: number; y: number } => {
+  switch (side) {
+    case 'left': return { x: r.x, y: r.y + r.h / 2 }
+    case 'right': return { x: r.x + r.w, y: r.y + r.h / 2 }
+    case 'top': return { x: r.x + r.w / 2, y: r.y }
+    case 'bottom': return { x: r.x + r.w / 2, y: r.y + r.h }
+  }
+}
+
+// Point just outside a card side. Used so arrowheads sit in the gap
+// between nodes (nodes paint above edges and would otherwise clip them).
+const sideOutward = (r: CardRect, side: CardSide, dist: number): { x: number; y: number } => {
+  const p = sideMidpoint(r, side)
+  switch (side) {
+    case 'left': return { x: p.x - dist, y: p.y }
+    case 'right': return { x: p.x + dist, y: p.y }
+    case 'top': return { x: p.x, y: p.y - dist }
+    case 'bottom': return { x: p.x, y: p.y + dist }
+  }
+}
+
+// How far outside the target card to park the path end when an arrow
+// marker is drawn — keeps the full head visible above the node z-order.
+const ARROW_CLEARANCE_PX = 12
+
+// Pick the (fromSide, toSide) pair whose midpoints are closest.
+export const closestSidePair = (a: CardRect, b: CardRect): { from: CardSide; to: CardSide } => {
+  let bestFrom: CardSide = 'right'
+  let bestTo: CardSide = 'left'
+  let bestD = Infinity
+  for (const from of CARD_SIDES) {
+    const p1 = sideMidpoint(a, from)
+    for (const to of CARD_SIDES) {
+      const p2 = sideMidpoint(b, to)
+      const dx = p1.x - p2.x
+      const dy = p1.y - p2.y
+      const d = dx * dx + dy * dy
+      if (d < bestD) {
+        bestD = d
+        bestFrom = from
+        bestTo = to
+      }
+    }
+  }
+  return { from: bestFrom, to: bestTo }
+}
+
+// Map a card side to the RF Position so bezier control points leave /
+// enter perpendicular to that edge (rounder, more natural curves).
+const sideToPosition = (side: CardSide): RFPosition => {
+  switch (side) {
+    case 'left': return RFPosition.Left
+    case 'right': return RFPosition.Right
+    case 'top': return RFPosition.Top
+    case 'bottom': return RFPosition.Bottom
+  }
+}
+
+const nodeCardRect = (n: Node, fallbackW: number, fallbackH: number): CardRect => {
+  const w = (n.measured?.width ?? n.width ?? fallbackW) as number
+  const h = (n.measured?.height ?? n.height ?? fallbackH) as number
+  return { x: n.position.x, y: n.position.y, w, h }
+}
+
+const fallbackSizeForNode = (n: Node): { w: number; h: number } => {
+  if (n.type === 'asset') return { w: ASSET_W, h: ASSET_H }
+  if (n.type === 'topic') {
+    const d = n.data as TopicNodeData | undefined
+    const sub = d?.scheduleSummary || d?.topicId || ''
+    return {
+      w: STREAM_W,
+      h: estimateTopicCardHeight(d?.name ?? '', sub),
+    }
+  }
+  if (n.type === 'processor') {
+    const outs = (n.data as ProcessorNodeData | undefined)?.outputs?.length ?? 1
+    return { w: PROC_W, h: procNodeHeight(outs) }
+  }
+  return { w: BOT_W, h: BOT_H }
+}
+
+// Server refreshes replace the graph projection, but React Flow adds measured
+// node geometry to its controlled node objects after rendering. Dropping that
+// geometry clears the internal handle bounds, so every edge becomes
+// temporarily unresolvable. In a background tab the re-measure animation
+// frame may not run until much later, leaving the chart with no visible edges.
+export const reconcileGraphNodes = (current: Node[], computed: Node[]): Node[] => {
+  const currentByID = new Map(current.map((node) => [node.id, node]))
+  return computed.map((node) => {
+    const previous = currentByID.get(node.id)
+    if (!previous) return node
+    return {
+      ...node,
+      ...(previous.measured ? { measured: previous.measured } : {}),
+      ...(previous.selected !== undefined ? { selected: previous.selected } : {}),
+      ...(previous.dragging ? { position: previous.position, dragging: true } : {}),
+    }
+  })
+}
+
+// Invisible handles on all four sides so the user can still drag a
+// subscription wire from/to any side — no visible port dots. Outward
+// (source) + inward (target) share a side so ConnectionMode.Loose can
+// start and end a connection on either end. Reporting lines keep the
+// default (id-less) top target / bottom source.
+const SubSideHandles: FC<{ size?: number }> = ({ size = 16 }) => (
+  <Fragment>
+    {([
+      [RFPosition.Left, 'left'],
+      [RFPosition.Right, 'right'],
+      [RFPosition.Top, 'top'],
+      [RFPosition.Bottom, 'bottom'],
+    ] as const).map(([pos, side]) => (
+      <Fragment key={side}>
+        <Handle
+          id={`sub-${side}`}
+          type="source"
+          position={pos}
+          isConnectable
+          style={{
+            background: 'transparent',
+            border: 'none',
+            opacity: 0,
+            width: size,
+            height: size,
+            minWidth: size,
+            minHeight: size,
+            zIndex: 5,
           }}
-        >
-          No workers yet — click the hire icon to add one
-        </Box>
-      )}
+        />
+        <Handle
+          id={`sub-${side}-in`}
+          type="target"
+          position={pos}
+          isConnectable
+          style={{
+            background: 'transparent',
+            border: 'none',
+            opacity: 0,
+            width: size + 4,
+            height: size + 4,
+            minWidth: size + 4,
+            minHeight: size + 4,
+            zIndex: 4,
+          }}
+        />
+      </Fragment>
+    ))}
+  </Fragment>
+)
+
+const BotTaskStatsRow: FC<{ stats: BotTaskStats; isLight: boolean }> = ({ stats, isLight }) => {
+  const muted = isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
+  const active = isLight ? 'rgba(180,100,0,0.95)' : 'rgba(255,180,80,0.95)'
+  const done = isLight ? 'rgba(32,120,55,0.95)' : 'rgba(90,200,115,0.95)'
+  return (
+    <Stack direction="row" justifyContent="space-between" sx={{ minWidth: 0, mt: -0.25 }}>
+      <Typography variant="caption" sx={{ color: muted, fontSize: '0.58rem' }}>
+        Backlog: <Box component="span" sx={{ fontWeight: 700 }}>{stats.backlog}</Box>
+      </Typography>
+      <Typography variant="caption" sx={{ color: active, fontSize: '0.58rem' }}>
+        In progress: <Box component="span" sx={{ fontWeight: 700 }}>{stats.inProgress}</Box>
+      </Typography>
+      <Typography variant="caption" sx={{ color: done, fontSize: '0.58rem' }}>
+        Done: <Box component="span" sx={{ fontWeight: 700 }}>{stats.done}</Box>
+      </Typography>
+    </Stack>
+  )
+}
+
+export const AssetNode: FC<NodeProps<Node<AssetNodeData>>> = ({ data }) => {
+  const lightTheme = useLightTheme()
+  const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
+  const border = lightTheme.isLight ? 'rgba(25,118,210,0.42)' : 'rgba(100,181,246,0.5)'
+  const bg = lightTheme.isLight ? '#eef6ff' : '#1e2c3a'
+  const hoverBg = lightTheme.isLight ? '#e2f0ff' : '#26394a'
+  const muted = lightTheme.isLight ? 'rgba(0,0,0,0.58)' : 'rgba(255,255,255,0.6)'
+  const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
+  const tcp = Boolean(data.health?.tcp_reachable)
+  const ssh = Boolean(data.health?.ssh_reachable)
+  const reachable = tcp && ssh
+  return (
+    <Box
+      onClick={(e) => { e.stopPropagation(); data.onSelectAsset(data.asset.id ?? '') }}
+      sx={{
+        width: ASSET_W, height: ASSET_H, boxSizing: 'border-box', border: `1px solid ${border}`,
+        borderRadius: 1.5, backgroundColor: bg, p: 1.5, cursor: 'grab', position: 'relative',
+        boxShadow: lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.05)' : '0 1px 2px rgba(0,0,0,0.35)',
+        '&:hover': { backgroundColor: hoverBg }, '&:active': { cursor: 'grabbing' },
+      }}
+    >
+      {([
+        [RFPosition.Left, 'left'],
+        [RFPosition.Right, 'right'],
+        [RFPosition.Top, 'top'],
+        [RFPosition.Bottom, 'bottom'],
+      ] as const).map(([position, side]) => (
+        <Handle
+          key={side}
+          id={`asset-${side}`}
+          type="source"
+          position={position}
+          isConnectable
+          aria-label={`Connect asset to an agent from the ${side}`}
+          style={{ background: handleColor, border: `2px solid ${bg}`, width: 10, height: 10 }}
+        />
+      ))}
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+          <DnsOutlinedIcon sx={{ fontSize: 18, color: muted }} />
+          <Typography variant="body2" sx={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {data.asset.name}
+          </Typography>
+        </Stack>
+        <Stack direction="row" spacing={0.5} alignItems="center" className={NO_DRAG_NO_PAN} onClick={(e) => e.stopPropagation()}>
+          <Tooltip title={reachable ? 'Network and SSH reachable' : 'Network or SSH unavailable'}>
+            <Box
+              role="status"
+              aria-label={reachable ? 'Network and SSH reachable' : 'Network or SSH unavailable'}
+              sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: reachable ? 'rgb(46,160,67)' : 'rgb(202,138,4)' }}
+            />
+          </Tooltip>
+          <IconButton size="small" onClick={(e) => { e.stopPropagation(); setMenuEl(e.currentTarget) }} sx={{ p: 0.25, color: muted }}>
+            <MoreVertIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+          <Menu anchorEl={menuEl} open={Boolean(menuEl)} onClose={() => setMenuEl(null)} onClick={(e) => e.stopPropagation()}>
+            <MenuItem onClick={() => { setMenuEl(null); data.onSelectAsset(data.asset.id ?? '') }}><OpenInNewIcon sx={{ mr: 1, fontSize: 20 }} />Details</MenuItem>
+            <MenuItem onClick={() => { setMenuEl(null); data.onDeleteAsset(data.asset.id ?? '') }}><DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />Delete server</MenuItem>
+          </Menu>
+        </Stack>
+      </Stack>
+      <Typography variant="caption" sx={{ display: 'block', color: muted, fontFamily: 'monospace', mt: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {data.asset.server?.user}@{data.asset.server?.address}:{data.asset.server?.port}
+      </Typography>
+      <Typography variant="caption" sx={{ display: 'block', color: muted, mt: 0.5 }}>
+        {(data.asset.agent_ids ?? []).length} allowed agent{(data.asset.agent_ids ?? []).length === 1 ? '' : 's'}
+      </Typography>
     </Box>
   )
 }
 
-const WorkerNode: FC<NodeProps<Node<WorkerNodeData>>> = ({ data }) => {
+export const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
-  const border = lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
-  const bg = lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.05)'
-  const hoverBg = lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.08)'
+  const idleBorder = lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
+  // Cyan accent matches chat-focus / brand highlight (sidebar active, search selected).
+  const selectedBorder = lightTheme.isLight ? 'rgba(14,116,144,0.9)' : 'rgba(0,213,255,0.75)'
+  const selectedRing = lightTheme.isLight ? 'rgba(14,116,144,0.18)' : 'rgba(0,213,255,0.22)'
+  // Fully opaque cards so the graph reads as solid nodes, not glass.
+  const bg = lightTheme.isLight ? '#ffffff' : '#2a2a2e'
+  const selectedBg = lightTheme.isLight ? '#f0fafc' : '#1e2a30'
+  const hoverBg = lightTheme.isLight ? '#f7f7f8' : '#323236'
+  const selectedHoverBg = lightTheme.isLight ? '#e8f6f9' : '#243440'
+  const actionButtonHoverBg = lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)'
   const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
+  const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
+
+  const online = data.agentStatus === 'running'
+  const selected = !!data.selected
+  const cardBorderColor = selected ? selectedBorder : idleBorder
+  const cardBorderWidth = selected ? 2 : 1
+  const drawerOffset = 4
+  const statusColor = online ? 'rgb(46, 160, 67)' : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
+  const statusLabel = online ? 'Agent sandbox online' : 'Agent sandbox stopped'
+
+  const closeMenu = () => setMenuEl(null)
 
   return (
     <Box
-      className={NO_DRAG_NO_PAN}
-      onClick={(e) => { e.stopPropagation(); data.onSelectWorker(data.workerId) }}
+      onClick={(e) => { e.stopPropagation(); data.onSelectBot(data.botId) }}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        data.onOpenBotDetails(data.botId)
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setMenuEl(e.currentTarget)
+      }}
+      aria-selected={selected}
       sx={{
-        width: WORKER_W,
-        height: WORKER_H,
-        border: `1px solid ${border}`,
+        width: BOT_W,
+        height: BOT_H,
+        boxSizing: 'border-box',
+        border: `${cardBorderWidth}px solid ${cardBorderColor}`,
         borderRadius: 1.5,
-        backgroundColor: bg,
-        boxShadow: lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+        backgroundColor: selected ? selectedBg : bg,
+        boxShadow: selected
+          ? `0 0 0 3px ${selectedRing}, ${lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.06)' : '0 1px 2px rgba(0,0,0,0.4)'}`
+          : (lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : '0 1px 2px rgba(0,0,0,0.35)'),
         p: 1.5,
         display: 'flex',
         flexDirection: 'column',
         gap: 1,
-        cursor: 'pointer',
-        '&:hover': { backgroundColor: hoverBg },
+        cursor: 'grab',
+        position: 'relative',
+        zIndex: selected ? 2 : 1,
+        transition: 'border-color 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease',
+        '&:hover': { backgroundColor: selected ? selectedHoverBg : hoverBg },
+        '&:hover .bot-node-actions, &:focus-within .bot-node-actions': {
+          opacity: 1,
+          pointerEvents: 'auto',
+          transform: 'translate(-50%, 0)',
+          backgroundColor: selected ? selectedHoverBg : hoverBg,
+          transition: 'opacity 0.12s ease, transform 0.12s ease',
+        },
+        '&:hover::after, &:focus-within::after': {
+          content: '""',
+          position: 'absolute',
+          top: '100%',
+          left: '50%',
+          width: 144,
+          height: cardBorderWidth + drawerOffset,
+          transform: 'translateX(-50%)',
+          pointerEvents: 'auto',
+          zIndex: 0,
+        },
+        '&:hover .bot-node-primary-source, &:focus-within .bot-node-primary-source': {
+          opacity: 0,
+          visibility: 'hidden',
+          pointerEvents: 'none',
+        },
+        '&:active': { cursor: 'grabbing' },
       }}
     >
-      {/* Target handle = where a manager's edge LANDS, marking this
-          worker as the subordinate. Source handle = where the user drags
-          FROM when this worker becomes the manager. */}
+      {/* Reporting: top = land as subordinate, bottom = drag as manager.
+          Subscriptions use invisible sub-* handles on all four sides. */}
       <Handle
         type="target"
         position={RFPosition.Top}
-        style={{ background: handleColor, width: 12, height: 12 }}
+        style={{ background: handleColor, width: 10, height: 10 }}
       />
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-          {data.kind === 'ai' ? (
-            <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted }} />
-          ) : (
-            <PersonOutlineIcon sx={{ fontSize: 18, color: muted }} />
-          )}
+      <SubSideHandles size={16} />
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={0.5}>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
+          <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted, flexShrink: 0 }} />
           <Typography
             variant="body2"
-            sx={{ fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            sx={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
           >
-            {data.workerId}
+            {data.botName || data.botId}
           </Typography>
         </Stack>
-        {!data.isOwner && (
-          <Tooltip title="Fire worker">
-            <IconButton
-              className={NO_DRAG_NO_PAN}
-              size="small"
-              onClick={(e) => { e.stopPropagation(); data.onFireWorker(data.workerId) }}
-              sx={{ p: 0.25, color: muted }}
-            >
-              <DeleteOutlineIcon sx={{ fontSize: 16 }} />
-            </IconButton>
+        {/* Top-right: status dot + ⋮ menu (same pattern as table/card lists). */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={0.25}
+          className={NO_DRAG_NO_PAN}
+          sx={{ flexShrink: 0, mt: -0.25, mr: -0.5 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Tooltip title={statusLabel}>
+            <Box
+              sx={{
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                backgroundColor: statusColor,
+                boxShadow: online ? `0 0 0 2px ${lightTheme.isLight ? 'rgba(46,160,67,0.2)' : 'rgba(46,160,67,0.35)'}` : 'none',
+                flexShrink: 0,
+              }}
+            />
           </Tooltip>
-        )}
+          <IconButton
+            className={NO_DRAG_NO_PAN}
+            size="small"
+            aria-label="Agent actions"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuEl(e.currentTarget)
+            }}
+            sx={{ p: 0.25, color: muted }}
+          >
+            <MoreVertIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+          <Menu
+            className={NO_DRAG_NO_PAN}
+            anchorEl={menuEl}
+            open={Boolean(menuEl)}
+            onClose={closeMenu}
+            onClick={(e) => e.stopPropagation()}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onOpenBotDetails(data.botId)
+              }}
+            >
+              <SettingsIcon sx={{ mr: 1, fontSize: 20 }} />
+              Settings
+            </MenuItem>
+            <MenuItem
+              disabled={!data.projectId}
+              onClick={() => {
+                closeMenu()
+                data.onViewProject(data.projectId)
+              }}
+            >
+              <FolderOpenOutlinedIcon sx={{ mr: 1, fontSize: 20 }} />
+              View project
+            </MenuItem>
+            {online ? (
+              <>
+                <MenuItem
+                  onClick={() => {
+                    closeMenu()
+                    data.onStopBot(data.botId)
+                  }}
+                >
+                  <StopIcon sx={{ mr: 1, fontSize: 20 }} />
+                  Stop agent
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    closeMenu()
+                    data.onRestartBot(data.botId)
+                  }}
+                >
+                  <RestartAltIcon sx={{ mr: 1, fontSize: 20 }} />
+                  Restart agent
+                </MenuItem>
+              </>
+            ) : (
+              <MenuItem
+                onClick={() => {
+                  closeMenu()
+                  data.onStartBot(data.botId)
+                }}
+              >
+                <PlayArrowIcon sx={{ mr: 1, fontSize: 20 }} />
+                Start agent
+              </MenuItem>
+            )}
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onNewBot(data.botId)
+              }}
+            >
+              <PersonAddOutlinedIcon sx={{ mr: 1, fontSize: 20 }} />
+              New agent reporting here
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onDeleteBot(data.botId)
+              }}
+            >
+              <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+              Delete agent
+            </MenuItem>
+          </Menu>
+        </Stack>
       </Stack>
-      <Typography variant="caption" sx={{ color: muted, fontSize: '0.65rem', mt: 'auto' }}>
-        {data.kind === 'ai' ? 'AI agent' : 'Human'}
-      </Typography>
+      <BotTaskStatsRow stats={data.taskStats} isLight={lightTheme.isLight} />
+      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: muted, mt: 'auto', minWidth: 0 }}>
+        <AgentHarness runtime={data.agentRuntime} variant="short" />
+        <Typography
+          variant="caption"
+          sx={{ color: 'inherit', fontSize: '0.65rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {data.agentRuntime
+            ? CODE_AGENT_RUNTIME_DISPLAY_NAMES[data.agentRuntime as CodeAgentRuntime] ?? data.agentRuntime
+            : 'Not provisioned'}
+          {data.agentModel ? ` · ${getModelDisplayName(data.agentModel)}` : ''}
+        </Typography>
+      </Stack>
       <Handle
         type="source"
         position={RFPosition.Bottom}
-        style={{ background: handleColor, width: 12, height: 12 }}
+        className="bot-node-primary-source"
+        style={{
+          background: handleColor,
+          width: 10,
+          height: 10,
+          visibility: selected ? 'hidden' : 'visible',
+        }}
       />
-      {/* Dedicated source handle for stream/subscription edges, anchored
-          on the right side of the card. Decoupling stream edges from the
-          bottom-center reporting handle means a subscription edge and a
-          manager → subordinate edge can never share the same geometry.
-          id="stream" is what buildGraph passes as sourceHandle when
-          emitting subscription edges.
-
-          Unlike the top/bottom reporting handles (which sit clear above
-          and below the card), this one lands at the card's vertical
-          centre — right where the name/caption Typography rows are. It
-          must be large enough to grab and explicitly stacked above that
-          content (zIndex), or the label intercepts the pointer and the
-          subscription drag can't start. */}
-      <Handle
-        id="stream"
-        type="source"
-        position={RFPosition.Right}
-        isConnectable
-        style={{ background: 'rgba(180,100,0,0.85)', border: 'none', width: 14, height: 14, zIndex: 5 }}
-      />
+      <Box
+        className={`bot-node-actions ${NO_DRAG_NO_PAN}`}
+        role="group"
+        aria-label={`${data.botName || data.botId} navigation`}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        sx={{
+          position: 'absolute',
+          top: `calc(100% + ${cardBorderWidth}px)`,
+          left: '50%',
+          transform: selected ? 'translate(-50%, 0)' : 'translate(-50%, -10px)',
+          opacity: selected ? 1 : 0,
+          pointerEvents: selected ? 'auto' : 'none',
+          zIndex: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 144,
+          minHeight: 32,
+          boxSizing: 'border-box',
+          px: 1,
+          backgroundColor: selected ? selectedBg : bg,
+          border: `${cardBorderWidth}px solid ${cardBorderColor}`,
+          borderTop: 'none',
+          borderRadius: '0 0 8px 8px',
+          boxShadow: lightTheme.isLight ? '0 4px 7px rgba(0,0,0,0.14)' : '0 4px 7px rgba(0,0,0,0.45)',
+          transition: 'opacity 0.12s ease, transform 0.12s ease',
+          '& .bot-node-action-divider': {
+            position: 'relative',
+            zIndex: 1,
+            width: 0,
+            height: 16,
+            mx: 0.75,
+            borderLeft: `${cardBorderWidth}px solid ${cardBorderColor}`,
+          },
+          '& .MuiButton-root': {
+            flex: '1 1 0',
+            minWidth: 0,
+            minHeight: 26,
+            px: 1.25,
+            py: 0.35,
+            color: 'inherit',
+            fontSize: '0.7rem',
+            lineHeight: 1.2,
+            textTransform: 'none',
+            whiteSpace: 'nowrap',
+            position: 'relative',
+            zIndex: 1,
+            transition: 'background-color 0.12s ease',
+          },
+          '& .MuiButton-root:hover': {
+            backgroundColor: actionButtonHoverBg,
+            borderRadius: 0.75,
+          },
+        }}
+      >
+        <Button
+          aria-label="Settings"
+          onClick={(e) => {
+            e.stopPropagation()
+            data.onOpenBotDetails(data.botId)
+          }}
+        >
+          Settings
+        </Button>
+        <Box className="bot-node-action-divider" aria-hidden="true" />
+        <Button
+          aria-label="Project"
+          disabled={!data.projectId}
+          onClick={(e) => {
+            e.stopPropagation()
+            data.onViewProject(data.projectId)
+          }}
+        >
+          Project
+        </Button>
+      </Box>
     </Box>
   )
 }
 
-// StreamNode is a small pseudo-node — narrower than a Worker card —
-// rendered beside the org tree to anchor subscription edges. Clicking
-// the body navigates to the per-stream detail page; the trash icon
-// deletes the Stream row (irreversible).
-const STREAM_W = 180
-const STREAM_H = 80
-const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
+// TopicNode is a solid card — same chrome family as BotNode — rendered
+// beside the org tree to anchor subscription edges. Height grows with
+// wrapped name/id so long labels aren't clipped. Clicking the body
+// navigates to the per-topic detail page; the ⋮ menu deletes the Topic.
+const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
-  const accent = lightTheme.isLight ? 'rgba(180,100,0,0.85)' : 'rgba(255,180,80,0.85)'
-  const bg = 'rgba(255,180,80,0.06)'
+  const accent = lightTheme.isLight ? 'rgba(180,100,0,0.95)' : 'rgba(255,180,80,0.95)'
+  const border = lightTheme.isLight ? 'rgba(180,100,0,0.45)' : 'rgba(255,180,80,0.45)'
+  // Fully opaque warm card (not glass / dashed outline).
+  const bg = lightTheme.isLight ? '#fff8eb' : '#2f281c'
+  const hoverBg = lightTheme.isLight ? '#fff1d6' : '#3a3122'
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
-  const handleColor = lightTheme.isLight ? 'rgba(180,100,0,0.55)' : 'rgba(255,180,80,0.55)'
+  const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
+  const closeMenu = () => setMenuEl(null)
   return (
     <Box
-      onClick={(e) => { e.stopPropagation(); data.onSelectStream(data.streamId) }}
+      onClick={(e) => { e.stopPropagation(); data.onSelectTopic(data.topicId) }}
       sx={{
         width: STREAM_W,
-        height: STREAM_H,
-        border: `1px dashed ${accent}`,
+        minHeight: STREAM_H,
+        height: 'auto',
+        boxSizing: 'border-box',
+        border: `1px solid ${border}`,
         borderRadius: 1.5,
         backgroundColor: bg,
+        boxShadow: lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : '0 1px 2px rgba(0,0,0,0.35)',
         p: 1,
         display: 'flex',
         flexDirection: 'column',
-        gap: 0.25,
-        cursor: 'pointer',
+        gap: 0.5,
+        cursor: 'grab',
         position: 'relative',
-        '&:hover': { backgroundColor: 'rgba(255,180,80,0.12)' },
+        '&:hover': { backgroundColor: hoverBg },
+        '&:active': { cursor: 'grabbing' },
       }}
     >
-      <Handle type="target" position={RFPosition.Left} style={{ background: handleColor, width: 8, height: 8 }} />
-      <Tooltip title="Delete stream">
-        <IconButton
+      {/* Invisible ports: drag to/from a bot to subscribe, or to a
+          processor IN port (right side also carries id "src" for the
+          legacy processor-wiring path). */}
+      <SubSideHandles size={16} />
+      <Handle
+        id="src"
+        type="source"
+        position={RFPosition.Right}
+        isConnectable
+        style={{
+          background: 'transparent',
+          border: 'none',
+          opacity: 0,
+          width: 16,
+          height: 16,
+          minWidth: 16,
+          minHeight: 16,
+          zIndex: 6,
+        }}
+      />
+      {data.ownedByProcessor ? (
+        <Tooltip title={`Output of processor ${data.ownedByProcessor} — delete the processor to remove this topic`}>
+          <Box sx={{ position: 'absolute', top: 2, right: 4, fontSize: '0.6rem', color: muted, fontFamily: 'monospace' }}>
+            ⟜ {data.ownedByProcessor}
+          </Box>
+        </Tooltip>
+      ) : (
+        <Box
           className={NO_DRAG_NO_PAN}
-          size="small"
-          onClick={(e) => { e.stopPropagation(); data.onDeleteStream(data.streamId) }}
-          sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
+          sx={{ position: 'absolute', top: 0, right: 0, zIndex: 2 }}
+          onClick={(e) => e.stopPropagation()}
         >
-          <DeleteOutlineIcon sx={{ fontSize: 14 }} />
-        </IconButton>
-      </Tooltip>
-      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, pr: 2 }}>
-        {data.streamId}
-      </Typography>
-      <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {data.name}
-      </Typography>
-      <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, mt: 'auto' }}>
-        {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
-      </Typography>
+          <IconButton
+            className={NO_DRAG_NO_PAN}
+            size="small"
+            aria-label="Topic actions"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuEl(e.currentTarget)
+            }}
+            sx={{ p: 0.25, color: muted }}
+          >
+            <MoreVertIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+          <Menu
+            className={NO_DRAG_NO_PAN}
+            anchorEl={menuEl}
+            open={Boolean(menuEl)}
+            onClose={closeMenu}
+            onClick={(e) => e.stopPropagation()}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onDeleteTopic(data.topicId)
+              }}
+            >
+              <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+              Delete topic
+            </MenuItem>
+          </Menu>
+        </Box>
+      )}
+      <Stack direction="row" alignItems="flex-start" spacing={0.75} sx={{ minWidth: 0, pr: 2.5 }}>
+        {data.kind === 'cron' ? (
+          <AccessTimeIcon sx={{ fontSize: 16, color: accent, flexShrink: 0, mt: '2px' }} />
+        ) : (
+          <HubOutlinedIcon sx={{ fontSize: 16, color: accent, flexShrink: 0, mt: '2px' }} />
+        )}
+        <Typography
+          variant="body2"
+          sx={{
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            color: accent,
+            lineHeight: 1.3,
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {data.name}
+        </Typography>
+      </Stack>
+      {data.kind === 'cron' && data.scheduleSummary ? (
+        <Tooltip title={data.topicId}>
+          <Typography
+            variant="caption"
+            sx={{
+              fontSize: '0.65rem',
+              color: muted,
+              pl: 0.25,
+              lineHeight: 1.3,
+              wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {data.scheduleSummary}
+          </Typography>
+        </Tooltip>
+      ) : (
+        <Typography
+          variant="caption"
+          sx={{
+            fontFamily: 'monospace',
+            fontSize: '0.65rem',
+            color: muted,
+            pl: 0.25,
+            lineHeight: 1.3,
+            wordBreak: 'break-all',
+          }}
+        >
+          {data.topicId}
+        </Typography>
+      )}
+      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.5} sx={{ mt: 0.25 }}>
+        <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, minWidth: 0 }}>
+          {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
+        </Typography>
+        {/* Retained-message count. Kept deliberately tiny — the card is
+            already dense — and tinted with the topic accent so it reads as
+            a topic stat rather than chrome. */}
+        <Tooltip title={`${data.messageCount} retained message${data.messageCount === 1 ? '' : 's'}`}>
+          <Typography
+            variant="caption"
+            sx={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 700, color: accent, lineHeight: 1, flexShrink: 0 }}
+          >
+            {data.messageCount} msg
+          </Typography>
+        </Tooltip>
+      </Stack>
     </Box>
   )
 }
 
-const nodeTypes = { role: RoleNode, worker: WorkerNode, stream: StreamNode }
+const nodeTypes = { bot: BotNode, topic: TopicNode, processor: ProcessorNode, asset: AssetNode }
 
 // ---- dagre layout ------------------------------------------------------
 
-type StreamSummary = {
+type TopicSummary = {
   id: string
   name: string
   kind: string
   created_by?: string
   subscribers?: string[]
+  processorConsumerCount?: number
+  // Raw cron expression from transport config (kind=cron only).
+  schedule?: string
+  // Set to the owning processor id when this topic is that processor's
+  // auto-provisioned output (managed; not independently deletable).
+  ownedByProcessor?: string
 }
 
-// buildGraph computes nodes + edges for the chart. Roles are laid out by
-// dagre over a role-level graph whose edges come from reporting lines
-// that cross role boundaries. Workers sit in a horizontal row inside
-// their role's frame. Worker → Worker reporting edges and Worker →
-// Stream subscription edges are drawn on top.
-const buildGraph = (
-  groups: RoleGroup[],
-  flat: FlatWorker[],
+type ProcessorSummary = {
+  id: string
+  name: string
+  kind: string
+  inputTopicId: string
+  outputs: { topicId: string; label: string; match: string; owned: boolean }[]
+}
+
+// layoutTopicColumns positions bot-anchored topic nodes to the right of
+// the org tree without overlaps. Each topic prefers to sit at its subject
+// Bot's y (so the subscription edge is short and roughly horizontal), but
+// two topics may never occupy the same space. Heights are estimated from
+// label length so multi-line cards get enough vertical room.
+//
+// Algorithm:
+//  1. Sort topics by their anchor y (then id, for a stable order).
+//  2. Decide how many vertical columns are needed using min card height.
+//  3. Split the sorted list into balanced, contiguous column chunks.
+//  4. Within a column, place each topic at `max(anchorY, cursor)` and
+//     advance the cursor past its estimated height — anchor-biased greedy.
+const STREAM_VERTICAL_GAP = 16
+const layoutTopicColumns = (
+  items: { topic: TopicSummary; anchorY: number }[],
+  opts: { columnX: number; columnGap: number; top: number; bottom: number },
+): { topic: TopicSummary; x: number; y: number; h: number }[] => {
+  if (items.length === 0) return []
+  const sorted = items
+    .slice()
+    .sort((a, b) => a.anchorY - b.anchorY || a.topic.id.localeCompare(b.topic.id))
+
+  const minSlot = STREAM_H + STREAM_VERTICAL_GAP
+  const MIN_PER_COLUMN = 6
+  const band = Math.max(opts.bottom - opts.top, minSlot)
+  const perColumn = Math.max(MIN_PER_COLUMN, Math.floor((band + STREAM_VERTICAL_GAP) / minSlot))
+  const columnCount = Math.ceil(sorted.length / perColumn)
+  const chunkSize = Math.ceil(sorted.length / columnCount)
+
+  const out: { topic: TopicSummary; x: number; y: number; h: number }[] = []
+  for (let col = 0; col < columnCount; col++) {
+    const x = opts.columnX + col * (STREAM_W + opts.columnGap)
+    let cursor = -Infinity
+    const chunk = sorted.slice(col * chunkSize, (col + 1) * chunkSize)
+    for (const it of chunk) {
+      const h = estimateTopicCardHeight(it.topic.name, topicCardSubtitle(it.topic))
+      const y = Math.max(it.anchorY, cursor)
+      out.push({ topic: it.topic, x, y, h })
+      cursor = y + h + STREAM_VERTICAL_GAP
+    }
+  }
+  return out
+}
+
+export const buildGraph = (
+  flat: FlatBot[],
   handlers: {
-    onSelectWorker: (workerId: string) => void
-    onSelectRole: (roleId: string) => void
-    onHire: (roleId: string) => void
-    onDeleteRole: (roleId: string) => void
-    onFireWorker: (workerId: string) => void
-    onSelectStream: (streamId: string) => void
-    onDeleteStream: (streamId: string) => void
+    onSelectBot: (botId: string) => void
+    onOpenBotDetails: (botId: string) => void
+    onViewProject: (projectId: string) => void
+    onNewBot: (parentBotId: string) => void
+    onDeleteBot: (botId: string) => void
+    onStartBot: (botId: string) => void
+    onStopBot: (botId: string) => void
+    onRestartBot: (botId: string) => void
+    onSelectTopic: (topicId: string) => void
+    onDeleteTopic: (topicId: string) => void
+    onSelectProcessor: (processorId: string) => void
+    onDeleteProcessor: (processorId: string) => void
+    onSelectAsset: (assetId: string) => void
+    onDeleteAsset: (assetId: string) => void
   },
   isLight: boolean,
-  streams: StreamSummary[],
+  topics: TopicSummary[],
+  messageCounts: Record<string, number>,
+  processors: ProcessorSummary[],
+  assets: AssetDTO[],
+  assetHealth: Record<string, AssetHealthDTO | undefined>,
+  visibleTopicIds: ReadonlySet<string>,
+  // Saved free-placed coordinates keyed by `${kind}:${id}`. Missing
+  // entries keep the auto-layout position for that node.
+  savedPositions: ChartPositionMap = {},
+  // Bot id currently focused in the left chat rail (highlights that card).
+  selectedBotId: string = '',
 ): { nodes: Node[]; edges: Edge[] } => {
-  const flatByID = new Map<string, FlatWorker>()
-  for (const wk of flat) flatByID.set(wk.id, wk)
+  const place = (kind: string, id: string, auto: { x: number; y: number }) =>
+    savedPositions[chartPositionKey(kind, id)] ?? auto
+  const flatByID = new Map<string, FlatBot>()
+  for (const b of flat) flatByID.set(b.id, b)
 
-  const workerToRole = new Map<string, string>()
-  for (const group of groups) {
-    for (const wk of group.workers) workerToRole.set(wk.id, group.roleId)
-  }
-
-  // 1. Size each role frame from its worker count. Empty roles get a
-  //    one-slot-wide placeholder so they're still discoverable.
-  type Size = { w: number; h: number }
-  const roleSize = new Map<string, Size>()
-  for (const group of groups) {
-    const n = Math.max(1, group.workers.length)
-    roleSize.set(group.roleId, {
-      w: n * WORKER_W + (n - 1) * WORKER_GAP_X + 2 * ROLE_PAD_X,
-      h: WORKER_H + ROLE_PAD_TOP + ROLE_PAD_BOTTOM,
-    })
-  }
-
-  // 2. Role-level dagre graph. Edges: any reporting line that crosses
-  //    a role boundary contributes a role → role edge.
+  // 1. Bot-level dagre graph. Edges: each reporting line is a
+  //    parent → child edge.
   const g = new dagre.graphlib.Graph()
   g.setGraph({
     rankdir: 'TB',
-    nodesep: WORKER_GAP_X,
-    ranksep: WORKER_GAP_Y,
+    nodesep: BOT_GAP_X,
+    ranksep: BOT_GAP_Y,
     marginx: 0,
     marginy: 0,
   })
   g.setDefaultEdgeLabel(() => ({}))
-  for (const group of groups) {
-    const sz = roleSize.get(group.roleId)!
-    g.setNode(`role:${group.roleId}`, { width: sz.w, height: sz.h })
+  for (const b of flat) {
+    g.setNode(`bot:${b.id}`, { width: BOT_W, height: BOT_H })
   }
   const seenEdge = new Set<string>()
-  for (const wk of flat) {
-    for (const parentId of wk.parentIds) {
-    if (!parentId || !flatByID.has(parentId)) continue
-    const childRole = workerToRole.get(wk.id)
-    const parentRole = workerToRole.get(parentId)
-    if (!childRole || !parentRole || childRole === parentRole) continue
-    const key = `${parentRole}->${childRole}`
-    if (seenEdge.has(key)) continue
-    seenEdge.add(key)
-    g.setEdge(`role:${parentRole}`, `role:${childRole}`)
+  for (const b of flat) {
+    for (const parentId of b.parentIds) {
+      if (!parentId || !flatByID.has(parentId)) continue
+      const key = `${parentId}->${b.id}`
+      if (seenEdge.has(key)) continue
+      seenEdge.add(key)
+      g.setEdge(`bot:${parentId}`, `bot:${b.id}`)
     }
   }
   dagre.layout(g)
 
-  // 3. Emit nodes — role parents first, then their worker children.
+  // 2. Emit bot nodes.
+  // botAutoAbs = pure dagre coords (used to auto-place topics so free-
+  // placing a bot does NOT reflow unpinned yellow topic cards).
+  // botAbs = rendered coords (saved override or auto) for bounds / edges.
   const nodes: Node[] = []
-  const roleStyle = {
-    backgroundColor: isLight ? 'rgba(0,0,0,0.025)' : 'rgba(255,255,255,0.03)',
-    border: `1px solid ${isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)'}`,
-    borderRadius: 12,
-    boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
-  }
-  type RoleOrigin = { x: number; y: number; w: number; h: number }
-  const roleOrigin = new Map<string, RoleOrigin>()
-  for (const group of groups) {
-    const ln = g.node(`role:${group.roleId}`)
-    const sz = roleSize.get(group.roleId)!
+  const botAbs = new Map<string, { x: number; y: number }>()
+  const botAutoAbs = new Map<string, { x: number; y: number }>()
+  for (const b of flat) {
+    const ln = g.node(`bot:${b.id}`)
     if (!ln) continue
-    roleOrigin.set(group.roleId, {
-      x: ln.x - sz.w / 2,
-      y: ln.y - sz.h / 2,
-      w: sz.w,
-      h: sz.h,
-    })
-  }
-
-  for (const group of groups) {
-    const ro = roleOrigin.get(group.roleId)
-    if (!ro) continue
+    const auto = { x: ln.x - BOT_W / 2, y: ln.y - BOT_H / 2 }
+    botAutoAbs.set(b.id, auto)
+    const pos = place('bot', b.id, auto)
+    botAbs.set(b.id, pos)
     nodes.push({
-      id: `role:${group.roleId}`,
-      type: 'role',
-      position: { x: ro.x, y: ro.y },
-      style: { ...roleStyle, width: ro.w, height: ro.h },
+      id: `bot:${b.id}`,
+      type: 'bot',
+      position: pos,
+      initialWidth: BOT_W,
+      initialHeight: BOT_H,
       data: {
-        roleId: group.roleId,
-        workerCount: group.workers.length,
-        isOwner: group.roleId === OWNER_ROLE,
-        onSelectRole: handlers.onSelectRole,
-        onHire: handlers.onHire,
-        onDeleteRole: handlers.onDeleteRole,
-      } as RoleNodeData,
-      // selectable: true keeps the role's pointer-events on so the
-      // header controls stay clickable; draggable is off (dagre owns
-      // layout). The canvas-level elementsSelectable still applies.
-      draggable: false,
-      selectable: true,
-    })
-  }
-  for (const group of groups) {
-    const ro = roleOrigin.get(group.roleId)
-    if (!ro) continue
-    group.workers.forEach((wk, i) => {
-      nodes.push({
-        id: `worker:${wk.id}`,
-        type: 'worker',
-        position: {
-          x: ro.x + ROLE_PAD_X + i * (WORKER_W + WORKER_GAP_X),
-          y: ro.y + ROLE_PAD_TOP,
-        },
-        data: {
-          workerId: wk.id,
-          kind: wk.kind,
-          isOwner: wk.id === OWNER_WORKER,
-          onSelectWorker: handlers.onSelectWorker,
-          onFireWorker: handlers.onFireWorker,
-        } as WorkerNodeData,
-        draggable: false,
-        connectable: true,
-      })
+        botId: b.id,
+        botName: b.name,
+        agentStatus: b.agentStatus,
+        agentRuntime: b.agentRuntime,
+        agentModel: b.agentModel,
+        projectId: b.projectId ?? '',
+        taskStats: b.taskStats,
+        selected: selectedBotId !== '' && selectedBotId === b.id,
+        onSelectBot: handlers.onSelectBot,
+        onOpenBotDetails: handlers.onOpenBotDetails,
+        onViewProject: handlers.onViewProject,
+        onNewBot: handlers.onNewBot,
+        onDeleteBot: handlers.onDeleteBot,
+        onStartBot: handlers.onStartBot,
+        onStopBot: handlers.onStopBot,
+        onRestartBot: handlers.onRestartBot,
+      } as BotNodeData,
+      draggable: true,
+      connectable: true,
     })
   }
 
-  // 4. Reporting edges: manager → subordinate, one per reporting line
-  //    (a Worker may report to several). Bezier (the default) gives every pair its own
-  //    arc so multiple reports from one manager never overlap.
+  // 3. Reporting edges: subordinate → manager ("reports to"), one per
+  //    reporting line. Closest-side bezier so free-placed cards attach
+  //    from the nearest sides; arrow points at the manager.
   const edges: Edge[] = []
-  for (const wk of flat) {
-    for (const parentId of wk.parentIds) {
-    if (!parentId || !flatByID.has(parentId)) continue
-    edges.push({
-      id: `report:${parentId}->${wk.id}`,
-      source: `worker:${parentId}`,
-      target: `worker:${wk.id}`,
-      type: 'default',
-      animated: false,
-      data: { kind: 'report', childWorkerId: wk.id, parentWorkerId: parentId },
-      style: {
-        stroke: isLight ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.35)',
-        strokeWidth: 1.5,
-      },
-    })
+  const reportStroke = isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.4)'
+  for (const b of flat) {
+    for (const parentId of b.parentIds) {
+      if (!parentId || !flatByID.has(parentId)) continue
+      edges.push({
+        id: `report:${parentId}->${b.id}`,
+        // Source = who reports, target = who they report to (arrow end).
+        source: `bot:${b.id}`,
+        target: `bot:${parentId}`,
+        type: 'closest',
+        animated: false,
+        data: {
+          kind: 'report',
+          childBotId: b.id,
+          parentBotId: parentId,
+          label: 'reports to',
+        },
+        style: {
+          stroke: reportStroke,
+          strokeWidth: 1.5,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 24,
+          height: 24,
+          color: reportStroke,
+        },
+      })
     }
   }
 
-  // 5. Stream pseudo-nodes + subscription edges. Subscriptions are
-  //    worker-anchored, so subscribers carries Worker ids — one dashed
-  //    edge per subscribed Worker. Streams sit in a column to the right
-  //    of the org tree. Each stream is vertically anchored to the
-  //    "subject" Worker: for activation streams (`s-activations-<id>`)
-  //    that's the encoded worker; otherwise created_by. Streams whose
-  //    subject isn't on the chart park in an orphan strip below.
-  if (streams.length > 0) {
-    const ACTIVATION_PREFIX = 's-activations-'
-    const workerAbs = new Map<string, { x: number; y: number }>()
-    for (const group of groups) {
-      const ro = roleOrigin.get(group.roleId)
-      if (!ro) continue
-      group.workers.forEach((wk, i) => {
-        workerAbs.set(wk.id, {
-          x: ro.x + ROLE_PAD_X + i * (WORKER_W + WORKER_GAP_X),
-          y: ro.y + ROLE_PAD_TOP,
-        })
+  // 4. Topic nodes + subscription edges. Subscriptions are bot-anchored:
+  //    one solid edge per subscribed Bot, drawn topic → bot so the pulse
+  //    animates in the consume direction. Topics sit in column(s) to the
+  //    right of the org tree. Each topic is vertically anchored to the
+  //    creator Bot when available. Topics whose creator isn't on the
+  //    chart park in an orphan strip below.
+  //
+  //    Processor-owned output topics are collapsed into their processor
+  //    node (rendered as labelled branch ports), so they are not drawn as
+  //    their own Topic boxes. We still need their subscriber lists below
+  //    to draw the branch → Bot edges, so they stay in `topics` (just not
+  //    rendered).
+  const ownedOutputTopicIds = new Set<string>()
+  // branchOwner maps a (collapsed) output-topic id → the processor that
+  // produces it, so a downstream processor reading that topic can be wired
+  // straight from the upstream branch port (chaining).
+  const branchOwner = new Map<string, string>()
+  for (const p of processors) for (const o of p.outputs) {
+    if (o.owned && o.topicId) ownedOutputTopicIds.add(o.topicId)
+    if (o.topicId) branchOwner.set(o.topicId, p.id)
+  }
+
+  // Bounds for the topic-column auto-layout use *dagre* bot positions,
+  // not free-placed ones — otherwise dragging a bot would slide every
+  // still-auto-laid topic by the same delta (the bug users hit).
+  let maxRight = -Infinity
+  let minTop = Infinity, maxBottom = -Infinity, minLeft = Infinity
+  for (const pos of botAutoAbs.values()) {
+    if (pos.x + BOT_W > maxRight) maxRight = pos.x + BOT_W
+    if (pos.x < minLeft) minLeft = pos.x
+    if (pos.y < minTop) minTop = pos.y
+    if (pos.y + BOT_H > maxBottom) maxBottom = pos.y + BOT_H
+  }
+  if (!isFinite(maxRight)) maxRight = 0
+  if (!isFinite(minLeft)) minLeft = 0
+  if (!isFinite(minTop)) minTop = 0
+  if (!isFinite(maxBottom)) maxBottom = 0
+
+  const assetX = minLeft - ASSET_W - 120
+  assets.forEach((a, index) => {
+    const id = a.id ?? ''
+    if (!id) return
+    const auto = { x: assetX, y: minTop + index * (ASSET_H + 28) }
+    nodes.push({
+      id: `asset:${id}`,
+      type: 'asset',
+      position: place('asset', id, auto),
+      initialWidth: ASSET_W,
+      initialHeight: ASSET_H,
+      data: {
+        asset: a,
+        health: assetHealth[id],
+        onSelectAsset: handlers.onSelectAsset,
+        onDeleteAsset: handlers.onDeleteAsset,
+      } as AssetNodeData,
+      draggable: true,
+      connectable: true,
+    })
+    for (const agentID of a.agent_ids ?? []) {
+      if (!flatByID.has(agentID)) continue
+      edges.push({
+        id: `asset-link:${id}->${agentID}`,
+        source: `asset:${id}`,
+        target: `bot:${agentID}`,
+        type: 'closest',
+        data: { kind: 'asset_link', assetId: id, botId: agentID, label: 'available to' },
+        style: { stroke: isLight ? 'rgba(25,118,210,0.6)' : 'rgba(100,181,246,0.7)', strokeWidth: 1.25 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 20,
+          height: 20,
+          color: isLight ? 'rgba(25,118,210,0.6)' : 'rgba(100,181,246,0.7)',
+        },
       })
     }
+  })
 
-    let maxY = 0
-    let minLeft = Infinity, maxRight = -Infinity
-    for (const ro of roleOrigin.values()) {
-      const bottom = ro.y + ro.h
-      if (bottom > maxY) maxY = bottom
-      if (ro.x < minLeft) minLeft = ro.x
-      if (ro.x + ro.w > maxRight) maxRight = ro.x + ro.w
-    }
-    if (!isFinite(minLeft)) minLeft = 0
-    if (!isFinite(maxRight)) maxRight = 0
-
-    const STREAM_VERTICAL_GAP = 16
-    const STREAM_COLUMN_GAP = 120
+  if (visibleTopicIds.size > 0 && topics.length > 0) {
     const STREAM_GAP_X = 32
+    const STREAM_COLUMN_GAP = 120
     const ORPHAN_VERTICAL_GAP = 120
-    const streamColumnX = maxRight + STREAM_COLUMN_GAP
-    const stackByYRow = new Map<number, number>()
 
-    const resolved: { stream: StreamSummary; subjectWorker: string | null }[] = []
-    for (const s of streams) {
-      let subjectWorker: string | undefined
-      if (s.id.startsWith(ACTIVATION_PREFIX)) {
-        subjectWorker = s.id.slice(ACTIVATION_PREFIX.length)
-      } else if (s.created_by) {
-        subjectWorker = s.created_by
-      }
-      const onChart = subjectWorker && workerAbs.has(subjectWorker) ? subjectWorker : null
-      resolved.push({ stream: s, subjectWorker: onChart })
+    const resolved: { topic: TopicSummary; subjectBot: string | null }[] = []
+    for (const s of topics) {
+      if (!visibleTopicIds.has(s.id)) continue
+      if (ownedOutputTopicIds.has(s.id)) continue // collapsed into its processor's branch ports
+      const subjectBot = s.created_by
+      const onChart = subjectBot && botAutoAbs.has(subjectBot) ? subjectBot : null
+      resolved.push({ topic: s, subjectBot: onChart })
     }
-    const orphans = resolved.filter((r) => !r.subjectWorker)
-    let orphanCursorX = (minLeft + maxRight) / 2
+
+    // Anchored topics: auto-layout beside the *dagre* y of the subject
+    // bot (not its free-placed y). Free-placing a bot must not reflow
+    // unpinned topics.
+    const anchored = resolved.filter((r) => r.subjectBot)
+    const placed = layoutTopicColumns(
+      anchored.map((r) => ({ topic: r.topic, anchorY: botAutoAbs.get(r.subjectBot!)!.y })),
+      { columnX: maxRight + STREAM_COLUMN_GAP, columnGap: STREAM_COLUMN_GAP, top: minTop, bottom: maxBottom },
+    )
+    const topicPos = new Map<string, { x: number; y: number }>()
+    let streamsBottom = maxBottom
+    for (const p of placed) {
+      topicPos.set(p.topic.id, { x: p.x, y: p.y })
+      if (p.y + p.h > streamsBottom) streamsBottom = p.y + p.h
+    }
+
+    // Orphans: a centred strip below everything else.
+    const orphans = resolved.filter((r) => !r.subjectBot)
     if (orphans.length > 0) {
       const stripWidth = orphans.length * STREAM_W + (orphans.length - 1) * STREAM_GAP_X
-      orphanCursorX = (minLeft + maxRight) / 2 - stripWidth / 2
+      let cursorX = (minLeft + maxRight) / 2 - stripWidth / 2
+      const orphanY = streamsBottom + ORPHAN_VERTICAL_GAP
+      for (const r of orphans) {
+        topicPos.set(r.topic.id, { x: cursorX, y: orphanY })
+        cursorX += STREAM_W + STREAM_GAP_X
+      }
     }
 
-    for (const { stream: s, subjectWorker } of resolved) {
-      let x: number
-      let y: number
-      if (subjectWorker) {
-        const anchor = workerAbs.get(subjectWorker)!
-        const yRow = Math.round(anchor.y)
-        const stackIndex = stackByYRow.get(yRow) ?? 0
-        x = streamColumnX
-        y = anchor.y + stackIndex * (STREAM_H + STREAM_VERTICAL_GAP)
-        stackByYRow.set(yRow, stackIndex + 1)
-      } else {
-        x = orphanCursorX
-        y = maxY + ORPHAN_VERTICAL_GAP
-        orphanCursorX += STREAM_W + STREAM_GAP_X
-      }
+    for (const { topic: s } of resolved) {
+      const auto = topicPos.get(s.id)!
+      const pos = place('topic', s.id, auto)
+      // Keep topicPosById (used for processor placement) in sync with
+      // the rendered position when a topic has been free-placed.
+      topicPos.set(s.id, pos)
       nodes.push({
-        id: `stream:${s.id}`,
-        type: 'stream',
-        position: { x, y },
+        id: `topic:${s.id}`,
+        type: 'topic',
+        position: pos,
+        initialWidth: STREAM_W,
+        initialHeight: estimateTopicCardHeight(s.name, topicCardSubtitle(s)),
         data: {
-          streamId: s.id,
+          topicId: s.id,
           name: s.name,
           kind: s.kind,
-          subscriberCount: s.subscribers?.length ?? 0,
-          onSelectStream: handlers.onSelectStream,
-          onDeleteStream: handlers.onDeleteStream,
-        } as StreamNodeData,
-        draggable: false,
+          subscriberCount: (s.subscribers?.length ?? 0) + (s.processorConsumerCount ?? 0),
+          messageCount: messageCounts[s.id] ?? 0,
+          scheduleSummary: s.kind === 'cron' && s.schedule
+            ? generateCronShortSummary(s.schedule)
+            : undefined,
+          ownedByProcessor: s.ownedByProcessor,
+          onSelectTopic: handlers.onSelectTopic,
+          onDeleteTopic: handlers.onDeleteTopic,
+        } as TopicNodeData,
+        draggable: true,
         connectable: true,
         selectable: true,
       })
-      const subscribingWorkers = (s.subscribers ?? []).filter((wid) => workerAbs.has(wid))
-      for (const wid of subscribingWorkers) {
+      const subscribingBots = (s.subscribers ?? []).filter((bid) => botAbs.has(bid))
+      for (const bid of subscribingBots) {
+        // type 'closest' draws between the nearest sides of the two
+        // cards. Source is the topic so the pulse travels topic → bot
+        // (consume direction). Narrow solid stroke; dash/pulse is drawn
+        // as an overlay inside ClosestSideEdge.
         edges.push({
-          id: `sub:${wid}->${s.id}`,
-          source: `worker:${wid}`,
-          sourceHandle: 'stream',
-          target: `stream:${s.id}`,
-          type: 'default',
+          id: `sub:${s.id}->${bid}`,
+          source: `topic:${s.id}`,
+          target: `bot:${bid}`,
+          type: 'closest',
           animated: false,
-          data: { kind: 'sub', workerId: wid, streamId: s.id },
+          data: { kind: 'sub', botId: bid, topicId: s.id },
           style: {
-            stroke: isLight ? 'rgba(180,100,0,0.7)' : 'rgba(255,180,80,0.7)',
-            strokeWidth: 1.25,
-            strokeDasharray: '6 4',
+            stroke: isLight ? 'rgba(180,100,0,0.75)' : 'rgba(255,180,80,0.75)',
+            strokeWidth: 1,
           },
         })
+      }
+    }
+  }
+
+  // ---- Processors -------------------------------------------------------
+  // A processor sits just right of the topic column. It draws an input
+  // edge from its input Topic, and one edge per output BRANCH from that
+  // branch's labelled port to each Bot subscribed to the branch's
+  // (collapsed) output topic. Wiring a branch to a Bot is a drag from the
+  // branch port → the Bot.
+  if (processors.length > 0) {
+    const topicNodeIds = new Set<string>()
+    const topicPosById = new Map<string, { x: number; y: number }>()
+    for (const n of nodes) {
+      if (n.id.startsWith('topic:')) {
+        const tid = n.id.slice('topic:'.length)
+        topicNodeIds.add(tid)
+        topicPosById.set(tid, n.position as { x: number; y: number })
+      }
+    }
+    // Subscribers per topic (incl. the collapsed output topics) so we can
+    // draw branch → Bot edges.
+    const botSet = new Set<string>()
+    for (const b of flat) botSet.add(b.id)
+    const subsByTopic = new Map<string, string[]>()
+    for (const tp of topics) subsByTopic.set(tp.id, (tp.subscribers ?? []).filter((b) => botSet.has(b)))
+
+    const PROC_COL_X = maxRight + 120 + STREAM_W + 80
+    const procStroke = isLight ? 'rgba(90,60,170,0.7)' : 'rgba(180,150,255,0.7)'
+
+    // Vertical collision avoidance, accounting for each node's height
+    // (which grows with the branch count).
+    const used: { y: number; h: number }[] = []
+    const placeY = (preferred: number, h: number): number => {
+      let y = preferred
+      for (let guard = 0; guard < 200; guard++) {
+        const clash = used.find((u) => y < u.y + u.h + 24 && y + h + 24 > u.y)
+        if (clash === undefined) break
+        y = clash.y + clash.h + 24
+      }
+      used.push({ y, h })
+      return y
+    }
+
+    for (const p of processors) {
+      const inPos = p.inputTopicId ? topicPosById.get(p.inputTopicId) : undefined
+      const h = procNodeHeight(p.outputs.length)
+      const saved = savedPositions[chartPositionKey('processor', p.id)]
+      let pos: { x: number; y: number }
+      if (saved) {
+        // Free-placed: keep the saved coords as-is. Reserve the vertical
+        // band without clash-shifting (placeY would move a free-placed
+        // node if a sibling already occupied that y).
+        pos = saved
+        used.push({ y: saved.y, h })
+      } else {
+        pos = { x: PROC_COL_X, y: placeY(inPos ? inPos.y : minTop, h) }
+      }
+      nodes.push({
+        id: `processor:${p.id}`,
+        type: 'processor',
+        position: pos,
+        initialWidth: PROC_W,
+        initialHeight: h,
+        data: {
+          processorId: p.id,
+          name: p.name,
+          kind: p.kind,
+          outputs: p.outputs.map((o) => ({ topicId: o.topicId, label: o.label, match: o.match })),
+          onSelectProcessor: handlers.onSelectProcessor,
+          onDeleteProcessor: handlers.onDeleteProcessor,
+          onInspectBranch: handlers.onSelectTopic,
+        } as ProcessorNodeData,
+        draggable: true,
+        connectable: true,
+        selectable: true,
+      })
+
+      if (p.inputTopicId && topicNodeIds.has(p.inputTopicId)) {
+        edges.push({
+          id: `procin:${p.inputTopicId}->${p.id}`,
+          source: `topic:${p.inputTopicId}`,
+          sourceHandle: 'src',
+          target: `processor:${p.id}`,
+          type: 'closest',
+          data: { kind: 'proc_in', processorId: p.id },
+          style: { stroke: procStroke, strokeWidth: 1.5 },
+        })
+      } else if (p.inputTopicId && branchOwner.has(p.inputTopicId) && branchOwner.get(p.inputTopicId) !== p.id) {
+        // Chained: this processor reads an upstream processor's output
+        // branch — draw the edge from that branch port to this IN port.
+        const upstream = branchOwner.get(p.inputTopicId)!
+        edges.push({
+          id: `procchain:${upstream}:${p.inputTopicId}->${p.id}`,
+          source: `processor:${upstream}`,
+          sourceHandle: p.inputTopicId,
+          target: `processor:${p.id}`,
+          type: 'closest',
+          data: { kind: 'proc_in', processorId: p.id },
+          style: { stroke: procStroke, strokeWidth: 1.5 },
+        })
+      }
+      // Each branch port → every Bot subscribed to that branch's output
+      // topic. The edge leaves the branch's own handle (sourceHandle = the
+      // branch topic id) and lands on the Bot's right-side DATA handle
+      // (id "topic") — the same side a Bot uses to subscribe to topics.
+      for (const o of p.outputs) {
+        if (!o.topicId) continue
+        for (const bid of subsByTopic.get(o.topicId) ?? []) {
+          edges.push({
+            id: `procout:${p.id}:${o.topicId}->${bid}`,
+            source: `processor:${p.id}`,
+            sourceHandle: o.topicId,
+            target: `bot:${bid}`,
+            // Closest-side path between branch and bot; sourceHandle still
+            // names the branch port so the edge leaves the right port.
+            type: 'closest',
+            data: { kind: 'proc_out', processorId: p.id, topicId: o.topicId, botId: bid },
+            style: { stroke: procStroke, strokeWidth: 1.25, strokeDasharray: '6 4' },
+          })
+        }
       }
     }
   }
@@ -700,63 +1521,7 @@ const buildGraph = (
   return { nodes, edges }
 }
 
-// ---- Dialogs (Create role, Confirm delete) -----------------------------
-
-const CreateRoleDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
-  const snackbar = useSnackbar()
-  const create = useCreateHelixOrgRole()
-  const [id, setId] = useState('')
-  const [content, setContent] = useState('')
-
-  const submit = async () => {
-    const trimmedId = id.trim()
-    if (!trimmedId) {
-      snackbar.error('Role ID is required')
-      return
-    }
-    try {
-      await create.mutateAsync({ id: trimmedId, content })
-      snackbar.success(`role ${trimmedId} created`)
-      setId(''); setContent(''); onClose()
-    } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create role failed')
-    }
-  }
-
-  return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>New role</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          <TextField
-            label="Role ID"
-            placeholder="r-engineer"
-            value={id}
-            onChange={(e) => setId(e.target.value)}
-            helperText="Convention: r-<kebab-case>. Stays as-is — the LLM and operator both refer to roles by this handle."
-            autoFocus
-            fullWidth
-          />
-          <TextField
-            label="Content (markdown)"
-            placeholder="# Engineer&#10;Builds and ships software."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            multiline
-            minRows={6}
-            fullWidth
-          />
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={submit} variant="contained" disabled={create.isPending}>
-          {create.isPending ? 'Creating…' : 'Create'}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  )
-}
+// ---- Dialogs (Confirm delete) -----------------------------------------
 
 const ConfirmDeleteDialog: FC<{
   open: boolean
@@ -780,196 +1545,693 @@ const ConfirmDeleteDialog: FC<{
   </Dialog>
 )
 
-// ---- Hire drawer -------------------------------------------------------
+// ---- Custom edges ------------------------------------------------------
+//
+// DeletableEdge: path between the RF-supplied handle endpoints, with a
+// hover × that routes through deleteElements → onEdgesDelete. Used for
+// processor input wires, while ClosestSideEdge recomputes every processor
+// path from the nearest card sides.
+//
+// ClosestSideEdge: same chrome, but endpoints are recomputed from the
+// live node rects as the nearest side-midpoint pair. Used for bot↔bot
+// reporting lines, topic→bot subscriptions, and branch→bot wires so
+// free-placed cards don't force a fixed-side cable that crosses cards.
+// Subscription edges (kind 'sub') get a medium-speed pulse overlay that
+// travels source → target (topic → bot).
 
-const HireDrawer: FC<{ roleId: string; onClose: () => void }> = ({ roleId, onClose }) => {
-  const snackbar = useSnackbar()
-  const hire = useHireHelixOrgWorker()
-  const [id, setId] = useState('')
-  const [kind, setKind] = useState<'ai' | 'human'>('human')
-  const [identity, setIdentity] = useState('')
+const EdgeDeleteButton: FC<{
+  id: string
+  labelX: number
+  labelY: number
+  ariaLabel: string
+  show: boolean
+  onHover: (v: boolean) => void
+}> = ({ id, labelX, labelY, ariaLabel, show, onHover }) => {
+  const { deleteElements } = useReactFlow()
+  if (!show) return null
+  return (
+    <EdgeLabelRenderer>
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        title={ariaLabel}
+        onMouseEnter={() => onHover(true)}
+        onMouseLeave={() => onHover(false)}
+        onClick={(e) => {
+          e.stopPropagation()
+          deleteElements({ edges: [{ id }] })
+        }}
+        style={{
+          position: 'absolute',
+          transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          pointerEvents: 'all',
+          width: 18,
+          height: 18,
+          borderRadius: '50%',
+          border: '1px solid rgba(0,0,0,0.2)',
+          background: '#ffffff',
+          color: '#444',
+          padding: 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+          fontSize: 14,
+          lineHeight: 1,
+          zIndex: 1,
+        }}
+        onFocus={(e) => {
+          e.currentTarget.style.outline = '2px solid #1976d2'
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.outline = 'none'
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        ×
+      </button>
+    </EdgeLabelRenderer>
+  )
+}
 
-  const submit = async () => {
-    if (!identity.trim()) {
-      snackbar.error('identity content is required')
-      return
-    }
-    const body: HireWorkerRequest = {
-      role_id: roleId,
-      kind,
-      identity_content: identity,
-    }
-    if (id.trim()) body.id = id.trim()
-    try {
-      const res = await hire.mutateAsync(body)
-      snackbar.success(`hired ${res.id} — drag an edge from a manager to set who they report to`)
-      setId(''); setIdentity(''); onClose()
-    } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'hire failed')
-    }
+// Mid-edge caption (e.g. "reports to"). Hidden while the delete control
+// is shown so the two don't stack on the same point.
+const EdgeCaption: FC<{
+  labelX: number
+  labelY: number
+  text: string
+  show: boolean
+}> = ({ labelX, labelY, text, show }) => {
+  const lightTheme = useLightTheme()
+  if (!show || !text) return null
+  const isLight = lightTheme.isLight
+  return (
+    <EdgeLabelRenderer>
+      <div
+        style={{
+          position: 'absolute',
+          transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          pointerEvents: 'none',
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: '0.01em',
+          color: isLight ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.8)',
+          background: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(30,30,30,0.92)',
+          border: isLight ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.12)',
+          borderRadius: 4,
+          padding: '1px 6px',
+          whiteSpace: 'nowrap',
+          boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+          lineHeight: 1.4,
+        }}
+        className="nodrag nopan"
+      >
+        {text}
+      </div>
+    </EdgeLabelRenderer>
+  )
+}
+
+const edgeAriaLabel = (kind?: string) =>
+  kind === 'sub' || kind === 'proc_out' ? 'Remove subscription'
+    : kind === 'proc_in' ? 'Disconnect input'
+      : 'Remove reporting line'
+
+const DeletableEdge: FC<EdgeProps> = ({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  markerEnd,
+  data,
+  selected,
+}) => {
+  const [hover, setHover] = useState(false)
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  })
+  const kind = (data as { kind?: string } | undefined)?.kind
+  const show = hover || selected
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} interactionWidth={20} />
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={20}
+        strokeDasharray="none"
+        style={{ cursor: 'pointer' }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+      />
+      <EdgeDeleteButton
+        id={id}
+        labelX={labelX}
+        labelY={labelY}
+        ariaLabel={edgeAriaLabel(kind)}
+        show={show}
+        onHover={setHover}
+      />
+    </>
+  )
+}
+
+// Subscription-style edge: attach to the closest sides of the two cards.
+// Re-reads node positions from the store so the path updates live while
+// either end is dragged (handle-based endpoints would stick to a fixed side).
+// Uses a bezier so the cable leaves/enters perpendicular to each side.
+const ClosestSideEdge: FC<EdgeProps> = ({
+  id,
+  source,
+  target,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  style,
+  markerEnd,
+  data,
+  selected,
+}) => {
+  const [hover, setHover] = useState(false)
+  const { getNode } = useReactFlow()
+  const sourceNode = getNode(source)
+  const targetNode = getNode(target)
+  const edgeData = data as { kind?: string; label?: string } | undefined
+  const kind = edgeData?.kind
+  const caption = edgeData?.label
+
+  let sx = sourceX
+  let sy = sourceY
+  let tx = targetX
+  let ty = targetY
+  let sPos = sourcePosition ?? RFPosition.Right
+  let tPos = RFPosition.Left
+
+  if (sourceNode && targetNode) {
+    const sf = fallbackSizeForNode(sourceNode)
+    const tf = fallbackSizeForNode(targetNode)
+    const sRect = nodeCardRect(sourceNode, sf.w, sf.h)
+    const tRect = nodeCardRect(targetNode, tf.w, tf.h)
+
+    // Render every closest-side edge from the nearest side of each card.
+    // This includes processor branches: sourceHandleId still identifies
+    // the branch for wiring and deletion, while the visual cable is free
+    // to attach to whichever processor side is nearest. This prevents a
+    // free-placed processor from drawing a cable through its own card just
+    // because its labelled output handle is physically on the right.
+    //
+    // When the edge has an arrow (reporting lines), park the target end
+    // slightly outside the card so the marker isn't clipped under the
+    // node layer.
+    const hasArrow = Boolean(markerEnd)
+    const { from, to } = closestSidePair(sRect, tRect)
+    const p1 = sideMidpoint(sRect, from)
+    const p2 = hasArrow ? sideOutward(tRect, to, ARROW_CLEARANCE_PX) : sideMidpoint(tRect, to)
+    sx = p1.x
+    sy = p1.y
+    sPos = sideToPosition(from)
+    tx = p2.x
+    ty = p2.y
+    tPos = sideToPosition(to)
   }
 
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX: sx,
+    sourceY: sy,
+    targetX: tx,
+    targetY: ty,
+    sourcePosition: sPos,
+    targetPosition: tPos,
+  })
+  const showDelete = hover || selected
+  // Solid base cable + a short packet that travels source → target.
+  // pathLength normalises dash units so speed is independent of edge length.
+  const isSub = kind === 'sub'
+  const pulseColor = (style as { stroke?: string } | undefined)?.stroke
+    ?? 'rgba(255,180,80,0.95)'
   return (
-    <Box sx={{ p: 2.5, width: 380 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h6">Hire worker</Typography>
-        <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
-      </Stack>
-      <Stack spacing={1.5}>
-        <Box>
-          <Typography variant="caption" color="text.secondary">Role</Typography>
-          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{roleId}</Typography>
-        </Box>
-        <Divider sx={{ my: 1 }} />
-        <TextField select size="small" label="Kind" value={kind} onChange={(e) => setKind(e.target.value as 'ai' | 'human')} fullWidth>
-          <MenuItem value="human">Human</MenuItem>
-          <MenuItem value="ai">AI</MenuItem>
-        </TextField>
-        <TextField
-          size="small"
-          label="Handle (optional)"
-          placeholder="w-alice"
-          helperText="Lowercase first name, prefixed with w-. Leave blank to auto-assign."
-          value={id}
-          onChange={(e) => setId(e.target.value)}
-          fullWidth
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        style={isSub ? { ...style, strokeDasharray: undefined, strokeWidth: (style as { strokeWidth?: number })?.strokeWidth ?? 1 } : style}
+        markerEnd={markerEnd}
+        interactionWidth={20}
+      />
+      {isSub && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke={pulseColor}
+          strokeWidth={2}
+          strokeLinecap="round"
+          // Short packet + long gap so pulses are rare; multi-second
+          // cycle keeps travel slow (topic → bot).
+          pathLength={100}
+          strokeDasharray="5 95"
+          style={{
+            pointerEvents: 'none',
+            animation: 'helixSubPulse 4.2s linear infinite',
+          }}
         />
-        <TextField
-          size="small"
-          label="Identity content"
-          placeholder="Short persona / profile in markdown."
-          value={identity}
-          onChange={(e) => setIdentity(e.target.value)}
-          multiline
-          minRows={6}
-          fullWidth
-        />
-        <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
-          <Button variant="contained" onClick={submit} disabled={hire.isPending}>
-            {hire.isPending ? 'Hiring…' : 'Hire'}
-          </Button>
-          <Button variant="text" onClick={onClose}>Cancel</Button>
-        </Stack>
-      </Stack>
-    </Box>
+      )}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={20}
+        strokeDasharray="none"
+        style={{ cursor: 'pointer' }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+      />
+      <EdgeCaption
+        labelX={labelX}
+        labelY={labelY}
+        text={caption ?? ''}
+        show={!showDelete}
+      />
+      <EdgeDeleteButton
+        id={id}
+        labelX={labelX}
+        labelY={labelY}
+        ariaLabel={edgeAriaLabel(kind)}
+        show={showDelete}
+        onHover={setHover}
+      />
+    </>
   )
+}
+
+const edgeTypes = { deletable: DeletableEdge, closest: ClosestSideEdge }
+
+export const assetLinkFromConnection = (source: string, target: string): { assetId: string; agentId: string } | null => {
+  if (!source.startsWith('asset:') || !target.startsWith('bot:')) return null
+  const assetId = source.slice('asset:'.length)
+  const agentId = target.slice('bot:'.length)
+  if (!assetId || !agentId) return null
+  return { assetId, agentId }
 }
 
 // ---- ReactFlow canvas --------------------------------------------------
 
 const ChartCanvas: FC<{
-  groups: RoleGroup[]
-  flat: FlatWorker[]
+  flat: FlatBot[]
   handlers: {
-    onSelectWorker: (workerId: string) => void
-    onSelectRole: (roleId: string) => void
-    onHire: (roleId: string) => void
-    onDeleteRole: (roleId: string) => void
-    onFireWorker: (workerId: string) => void
-    onSelectStream: (streamId: string) => void
-    onDeleteStream: (streamId: string) => void
+    onSelectBot: (botId: string) => void
+    onOpenBotDetails: (botId: string) => void
+    onViewProject: (projectId: string) => void
+    onNewBot: (parentBotId: string) => void
+    onDeleteBot: (botId: string) => void
+    onStartBot: (botId: string) => void
+    onStopBot: (botId: string) => void
+    onRestartBot: (botId: string) => void
+    onSelectTopic: (topicId: string) => void
+    onDeleteTopic: (topicId: string) => void
+    onSelectProcessor: (processorId: string) => void
+    onDeleteProcessor: (processorId: string) => void
+    onSelectAsset: (assetId: string) => void
+    onDeleteAsset: (assetId: string) => void
   }
   // onAddParent fires when the user wires manager → subordinate (an
   // onConnect); onRemoveParent fires when they delete a reporting edge,
-  // and carries the specific manager since a Worker may have several.
-  onAddParent: (childWorkerId: string, newParentWorkerId: string) => void
-  onRemoveParent: (childWorkerId: string, parentWorkerId: string) => void
-  // onSubscribeWorker fires when the user wires a Worker node → a stream
-  // pseudo-node; onUnsubscribeWorker fires when they delete that edge.
-  onSubscribeWorker: (workerId: string, streamId: string) => void
-  onUnsubscribeWorker: (workerId: string, streamId: string) => void
-  streams: StreamSummary[]
-}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, streams }) => {
+  // and carries the specific manager since a Bot may have several.
+  onAddParent: (childBotId: string, newParentBotId: string) => void
+  onRemoveParent: (childBotId: string, parentBotId: string) => void
+  // onSubscribeBot fires when the user wires a Bot node → a topic
+  // pseudo-node; onUnsubscribeBot fires when they delete that edge.
+  onSubscribeBot: (botId: string, topicId: string) => void
+  onUnsubscribeBot: (botId: string, topicId: string) => void
+  onLinkAsset: (assetId: string, agentId: string) => void
+  onUnlinkAsset: (assetId: string, agentId: string) => void
+  // onSetProcessorInput fires when the user wires a Topic (or another
+  // processor's output branch) into a processor's IN port.
+  onSetProcessorInput: (processorId: string, topicId: string) => void
+  // onLayoutSnapshot fires after the user finishes dragging a node with
+  // the FULL set of node positions currently on the canvas. Saving only
+  // the dragged node lets unpinned topics re-auto-layout and "follow"
+  // the bot; pinning everything freezes the layout.
+  onLayoutSnapshot: (positions: { kind: string; id: string; x: number; y: number }[]) => void
+  // Right-click on empty pane (or a node) → create menu in parent.
+  onCanvasContextMenu: (clientX: number, clientY: number, flowX: number, flowY: number) => void
+  topics: TopicSummary[]
+  messageCounts: Record<string, number>
+  processors: ProcessorSummary[]
+  assets: AssetDTO[]
+  assetHealth: Record<string, AssetHealthDTO | undefined>
+  savedPositions: ChartPositionMap
+  visibleTopicIds: ReadonlySet<string>
+  onResetLayout: () => void
+  resetLayoutPending: boolean
+  fitViewRequest: number
+  /** Bot id currently focused in the left chat rail. */
+  selectedBotId: string
+}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onLinkAsset, onUnlinkAsset, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, assets, assetHealth, savedPositions, visibleTopicIds, onResetLayout, resetLayoutPending, fitViewRequest, selectedBotId }) => {
   const lightTheme = useLightTheme()
-  const { fitView } = useReactFlow()
+  const account = useAccount()
+  const userId = account.user?.id ?? ''
+  // Canonical org id (not the URL slug) so a rename doesn't lose the camera.
+  const orgId = account.organizationTools.organization?.id ?? ''
+  const { fitView, screenToFlowPosition, setViewport } = useReactFlow()
+  // Apply camera once after the first graph build: restore this user's
+  // saved pan/zoom for the org, or fitView when nothing is stored yet.
+  // Node-drag persistence must not re-run this (would yank the camera).
+  const didInitViewportRef = useRef(false)
+  // Track which user+org the init applied to so a mid-session org switch
+  // re-loads that org's camera.
+  const viewportScopeRef = useRef('')
+  const fitViewRequestRef = useRef(fitViewRequest)
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(groups, flat, handlers, lightTheme.isLight, streams),
-    [groups, flat, handlers, lightTheme.isLight, streams],
+    () => buildGraph(flat, handlers, lightTheme.isLight, topics, messageCounts, processors, assets, assetHealth, visibleTopicIds, savedPositions, selectedBotId),
+    [flat, handlers, lightTheme.isLight, topics, messageCounts, processors, assets, assetHealth, visibleTopicIds, savedPositions, selectedBotId],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
+  const [pendingEdgeDeletes, setPendingEdgeDeletes] = useState<Edge[]>([])
+  const [edgeDeletePending, setEdgeDeletePending] = useState(false)
+
+  // Edges are derived from reporting lines, subscriptions, and processors.
+  // React Flow may emit remove changes while reconciling refreshed node
+  // objects; applying those changes would erase valid server-backed edges.
+  // Explicit deletes are persisted by onEdgesDelete and disappear on refetch.
+  const onCanonicalEdgesChange = useCallback(
+    (changes: EdgeChange[]) => onEdgesChange(changes.filter((change) => change.type !== 'remove')),
+    [onEdgesChange],
+  )
 
   useEffect(() => {
-    setNodes(computedNodes)
+    setNodes((current) => reconcileGraphNodes(current, computedNodes))
     setEdges(computedEdges)
-    requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
-  }, [computedNodes, computedEdges, fitView, setNodes, setEdges])
+    const nodeIds = computedNodes.map((node) => node.id)
+    if (fitViewRequest !== fitViewRequestRef.current) {
+      fitViewRequestRef.current = fitViewRequest
+      requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
+      return
+    }
+    const scope = userId && orgId ? `${userId}:${orgId}` : ''
+    if (scope && scope !== viewportScopeRef.current) {
+      viewportScopeRef.current = scope
+      didInitViewportRef.current = false
+    }
+    if (didInitViewportRef.current || computedNodes.length === 0 || !userId || !orgId) return
+    didInitViewportRef.current = true
+    const saved = loadChartViewport(userId, orgId, nodeIds)
+    requestAnimationFrame(() => {
+      if (saved) {
+        setViewport(saved, { duration: 0 })
+      } else {
+        fitView({ padding: 0.2, duration: 250 })
+      }
+    })
+  }, [computedNodes, computedEdges, fitView, fitViewRequest, setViewport, setNodes, setEdges, userId, orgId])
 
-  // onConnect handles both wire shapes:
-  //   - worker→worker: manager wires their report. Source = manager,
-  //     target = subordinate. Persists by adding a reporting line.
-  //   - worker→stream:  the worker consumes a stream. Persists by
-  //     POSTing a (worker, stream) subscription.
+  // Personal camera: pan/zoom only — node layout is server-side shared.
+  const onMoveEnd = useCallback(
+    (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+      if (!userId || !orgId) return
+      saveChartViewport(userId, orgId, viewport, nodes.map((node) => node.id))
+    },
+    [nodes, userId, orgId],
+  )
+
+  // xyflow's OnNodeDrag first arg is a native MouseEvent|TouchEvent — do not
+  // type it as React.MouseEvent or tsc rejects the prop assignment.
+  const onNodeDragStop = useCallback(
+    (_event: unknown, dragged: Node, allNodes?: Node[]) => {
+      // Prefer the nodes array ReactFlow passes (includes the final
+      // drag position); fall back to local state with the dragged node
+      // patched in.
+      const source = allNodes && allNodes.length > 0
+        ? allNodes
+        : nodes.map((n) => (n.id === dragged.id ? { ...n, position: dragged.position } : n))
+      const positions: { kind: string; id: string; x: number; y: number }[] = []
+      for (const n of source) {
+        const colon = n.id.indexOf(':')
+        if (colon <= 0) continue
+        const kind = n.id.slice(0, colon)
+        const id = n.id.slice(colon + 1)
+        if (!id || (kind !== 'bot' && kind !== 'topic' && kind !== 'processor' && kind !== 'asset')) continue
+        positions.push({ kind, id, x: n.position.x, y: n.position.y })
+      }
+      if (positions.length === 0) return
+      onLayoutSnapshot(positions)
+    },
+    [nodes, onLayoutSnapshot],
+  )
+
+  // onConnect handles wire shapes:
+  //   - bot→bot:     drag manager → report creates a "reports to" line
+  //                  (stored as subordinate reports_to manager; drawn
+  //                  subordinate → manager with arrow + label)
+  //   - asset→bot:   grant the agent access to the asset
+  //   - bot→topic OR topic→bot: subscribe (either direction)
+  //   - topic→processor / processor-branch→…: processor wiring
   const onConnect = useCallback(
-    ({ source, target }: { source: string | null; target: string | null }) => {
+    ({ source, sourceHandle, target }: { source: string | null; sourceHandle?: string | null; target: string | null }) => {
       if (!source || !target) return
-      if (!source.startsWith('worker:')) return
-      const sourceId = source.replace(/^worker:/, '')
-      if (!sourceId) return
-      if (target.startsWith('stream:')) {
-        const streamId = target.replace(/^stream:/, '')
-        if (!streamId) return
-        onSubscribeWorker(sourceId, streamId)
+
+      const assetLink = assetLinkFromConnection(source, target)
+      if (assetLink) {
+        onLinkAsset(assetLink.assetId, assetLink.agentId)
         return
       }
-      if (target.startsWith('worker:')) {
-        const targetId = target.replace(/^worker:/, '')
-        if (!targetId || sourceId === targetId) return
-        onAddParent(targetId, sourceId)
+
+      // Processor OUT branch → (Bot | Processor). The branch handle id IS
+      // the branch's output topic id (see buildGraph), so the wire carries
+      // which branch was dragged.
+      if (source.startsWith('processor:') && sourceHandle && sourceHandle.startsWith('s-')) {
+        const branchTopicId = sourceHandle
+        if (target.startsWith('bot:')) {
+          const botId = target.replace(/^bot:/, '')
+          if (botId) onSubscribeBot(botId, branchTopicId)
+        } else if (target.startsWith('processor:')) {
+          // Chain: the downstream processor reads this branch's output.
+          const procId = target.replace(/^processor:/, '')
+          if (procId) onSetProcessorInput(procId, branchTopicId)
+        }
+        return
+      }
+
+      // Topic → Processor IN: that processor now reads this topic.
+      if (source.startsWith('topic:') && target.startsWith('processor:')) {
+        const topicId = source.replace(/^topic:/, '')
+        const procId = target.replace(/^processor:/, '')
+        if (topicId && procId) onSetProcessorInput(procId, topicId)
+        return
+      }
+
+      // Topic → Bot: subscribe (drag from a topic onto a bot).
+      if (source.startsWith('topic:') && target.startsWith('bot:')) {
+        const topicId = source.replace(/^topic:/, '')
+        const botId = target.replace(/^bot:/, '')
+        if (topicId && botId) onSubscribeBot(botId, topicId)
+        return
+      }
+
+      // Bot → Topic: subscribe.
+      if (source.startsWith('bot:') && target.startsWith('topic:')) {
+        const botId = source.replace(/^bot:/, '')
+        const topicId = target.replace(/^topic:/, '')
+        if (botId && topicId) onSubscribeBot(botId, topicId)
+        return
+      }
+
+      // Bot → Bot: reporting line (manager → subordinate).
+      if (source.startsWith('bot:') && target.startsWith('bot:')) {
+        const managerId = source.replace(/^bot:/, '')
+        const reportId = target.replace(/^bot:/, '')
+        if (!managerId || !reportId || managerId === reportId) return
+        onAddParent(reportId, managerId)
       }
     },
-    [onAddParent, onSubscribeWorker],
+    [onAddParent, onLinkAsset, onSubscribeBot, onSetProcessorInput],
   )
 
-  // onEdgesDelete severs whatever the edge represented: a reporting edge
-  // drops that one (manager → report) line; a subscription edge drops
-  // the (worker, stream) row.
+  const edgeEndpointLabel = useCallback(
+    (nodeId: string, handleId?: string | null) => {
+      if (nodeId.startsWith('bot:')) {
+        const id = nodeId.slice('bot:'.length)
+        return flat.find((bot) => bot.id === id)?.name || id
+      }
+      if (nodeId.startsWith('topic:')) {
+        const id = nodeId.slice('topic:'.length)
+        return topics.find((topic) => topic.id === id)?.name || id
+      }
+      if (nodeId.startsWith('processor:')) {
+        const id = nodeId.slice('processor:'.length)
+        const processor = processors.find((candidate) => candidate.id === id)
+        if (handleId) {
+          const output = processor?.outputs.find((candidate) => candidate.topicId === handleId)
+          if (output) return `${processor?.name || id}: ${output.label || output.topicId}`
+        }
+        return processor?.name || id
+      }
+      if (nodeId.startsWith('asset:')) {
+        const id = nodeId.slice('asset:'.length)
+        return assets.find((asset) => asset.id === id)?.name || id
+      }
+      return nodeId
+    },
+    [flat, topics, processors, assets],
+  )
+
+  const deleteEdge = useCallback(
+    async (edge: Edge) => {
+      const d = edge.data as { kind?: string; childBotId?: string; parentBotId?: string; botId?: string; topicId?: string; processorId?: string; assetId?: string } | undefined
+	  if (d?.kind === 'asset_link' && d.assetId && d.botId) {
+	    await onUnlinkAsset(d.assetId, d.botId)
+	    return
+	  }
+      if (d?.kind === 'proc_in' && d.processorId) {
+        await onSetProcessorInput(d.processorId, '')
+        return
+      }
+      if ((d?.kind === 'proc_out' || d?.kind === 'sub') && d.botId && d.topicId) {
+        await onUnsubscribeBot(d.botId, d.topicId)
+        return
+      }
+
+      let childId = d?.childBotId
+      let parentId = d?.parentBotId
+      if ((!childId || !parentId) && edge.id.startsWith('report:')) {
+        const rest = edge.id.slice('report:'.length)
+        const arrow = rest.indexOf('->')
+        if (arrow > 0) {
+          parentId = parentId || rest.slice(0, arrow)
+          childId = childId || rest.slice(arrow + 2)
+        }
+      }
+      if (childId && parentId) await onRemoveParent(childId, parentId)
+    },
+    [onRemoveParent, onUnsubscribeBot, onUnlinkAsset, onSetProcessorInput],
+  )
+
+  // React Flow sends both inline-control and keyboard deletions here.
+  // Queue them so every server-backed link is confirmed before mutation.
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
-      for (const e of deleted) {
-        const d = e.data as { kind?: string; childWorkerId?: string; parentWorkerId?: string; workerId?: string; streamId?: string } | undefined
-        if (d?.kind === 'sub' && d.workerId && d.streamId) {
-          onUnsubscribeWorker(d.workerId, d.streamId)
-          continue
-        }
-        // Reporting edge: remove the specific manager line. Fall back to
-        // parsing "report:<parent>-><child>" from the edge id when data
-        // is missing (e.g. an edge synthesised by ReactFlow).
-        const childId = d?.childWorkerId ?? (e.target ?? '').replace(/^worker:/, '')
-        const parentId = d?.parentWorkerId ?? (e.source ?? '').replace(/^worker:/, '')
-        if (childId && parentId && (e.target ?? '').startsWith('worker:')) onRemoveParent(childId, parentId)
-      }
+      setPendingEdgeDeletes((current) => [...current, ...deleted])
     },
-    [onRemoveParent, onUnsubscribeWorker],
+    [],
   )
 
+  const pendingEdgeDelete = pendingEdgeDeletes[0]
+  const confirmEdgeDelete = useCallback(async () => {
+    if (!pendingEdgeDelete) return
+    setEdgeDeletePending(true)
+    try {
+      await deleteEdge(pendingEdgeDelete)
+      setPendingEdgeDeletes((current) => current.slice(1))
+    } finally {
+      setEdgeDeletePending(false)
+    }
+  }, [deleteEdge, pendingEdgeDelete])
+
+  const closeEdgeDeleteDialog = useCallback(() => {
+    if (edgeDeletePending) return
+    setPendingEdgeDeletes([])
+  }, [edgeDeletePending])
+
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      onConnect={onConnect}
-      onEdgesDelete={onEdgesDelete}
-      nodeTypes={nodeTypes}
-      fitView
-      fitViewOptions={{ padding: 0.2 }}
-      proOptions={{ hideAttribution: true }}
-      colorMode={lightTheme.isLight ? 'light' : 'dark'}
-      nodesConnectable
-      elementsSelectable
-      // @xyflow/react v12's deleteKeyCode defaults to Backspace only, so
-      // Linux/Windows users hitting Delete on a selected edge get
-      // nothing. Accept both.
-      deleteKeyCode={['Backspace', 'Delete']}
-      panOnDrag
-      zoomOnScroll
-    >
-      <Background gap={20} size={1} />
-      <Controls showInteractive={false} />
-      <MiniMap pannable zoomable maskColor={lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.6)'} />
-    </ReactFlow>
+    <>
+      {/* Medium-speed packet travelling topic → bot on subscription edges. */}
+      <GlobalStyles
+        styles={{
+          '@keyframes helixSubPulse': {
+            to: { strokeDashoffset: -100 },
+          },
+        }}
+      />
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onCanonicalEdgesChange}
+        onConnect={onConnect}
+        onEdgesDelete={onEdgesDelete}
+        onNodeDragStop={onNodeDragStop}
+        onMoveEnd={onMoveEnd}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        // Snap a dropped connection to the nearest handle within this radius,
+        // so wiring into a bot / processor port doesn't require pixel-perfect
+        // aim.
+        connectionRadius={55}
+        // Loose mode lets a connection END on any handle regardless of
+        // source/target type. Needed because a Bot's only target handle is on
+        // top, but a processor's output approaches from the right (a source
+        // handle) — in strict mode that drop is rejected and the wire
+        // silently fails. onConnect validates which combos are real.
+        connectionMode={ConnectionMode.Loose}
+        // Match persisted edges: curved while the user is still dragging a wire.
+        connectionLineType={ConnectionLineType.Bezier}
+        // Camera is restored from localStorage (or fitView) in the init effect —
+        // do not fitView on every mount prop, or it fights the saved viewport.
+        fitViewOptions={{ padding: 0.2 }}
+        proOptions={{ hideAttribution: true }}
+        colorMode={lightTheme.isLight ? 'light' : 'dark'}
+        nodesDraggable
+        nodesConnectable
+        elementsSelectable
+        // @xyflow/react v12's deleteKeyCode defaults to Backspace only, so
+        // Linux/Windows users hitting Delete on a selected edge get nothing.
+        // Accept both.
+        deleteKeyCode={['Backspace', 'Delete']}
+        panOnDrag
+        zoomOnScroll
+        onPaneContextMenu={(e) => {
+          e.preventDefault()
+          const point = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+          onCanvasContextMenu(e.clientX, e.clientY, point.x, point.y)
+        }}
+        onNodeContextMenu={(e) => {
+          e.preventDefault()
+          const point = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+          onCanvasContextMenu(e.clientX, e.clientY, point.x, point.y)
+        }}
+        onEdgeContextMenu={(e) => {
+          e.preventDefault()
+          const point = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+          onCanvasContextMenu(e.clientX, e.clientY, point.x, point.y)
+        }}
+      >
+        <Background gap={20} size={1} />
+        <Controls showInteractive={false} position="bottom-left">
+          <ControlButton
+            onClick={onResetLayout}
+            disabled={resetLayoutPending}
+            aria-label="Reset layout"
+            title="Reset layout"
+          >
+            <RestartAltIcon />
+          </ControlButton>
+        </Controls>
+      </ReactFlow>
+      <ConfirmDeleteDialog
+        open={!!pendingEdgeDelete}
+        title="Delete connection?"
+        body={pendingEdgeDelete
+          ? `Do you want to delete the connection from ${edgeEndpointLabel(pendingEdgeDelete.source, pendingEdgeDelete.sourceHandle)} to ${edgeEndpointLabel(pendingEdgeDelete.target, pendingEdgeDelete.targetHandle)}?`
+          : ''}
+        onConfirm={confirmEdgeDelete}
+        onClose={closeEdgeDeleteDialog}
+        pending={edgeDeletePending}
+      />
+    </>
   )
 }
 
@@ -977,53 +2239,437 @@ const ChartCanvas: FC<{
 
 type Selection =
   | { kind: 'none' }
-  | { kind: 'hire'; roleId: string }
+  | { kind: 'newBot'; parentBotId: string }
+
+// PeoplePanel is the docked list of the org's people, pinned to the bottom-
+// right of the chart canvas. People (kind=human) are NOT graph nodes — the
+// chart is for agents — but they're shown here alongside the agents with the
+// contact channels the org reaches them on plus their responsibility. Click
+// a person to open their profile.
+export const PeoplePanel: FC<{ people: BotDTO[]; onSelect: (botId: string) => void }> = ({ people, onSelect }) => {
+  const lightTheme = useLightTheme()
+  const [expanded, setExpanded] = useState(true)
+  const toggleExpanded = () => setExpanded((current) => !current)
+  if (people.length === 0) return null
+  const bg = lightTheme.isLight ? 'rgba(255,255,255,0.96)' : 'rgba(28,28,32,0.96)'
+  const border = lightTheme.isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.14)'
+  const hover = lightTheme.isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)'
+  return (
+    <Paper
+      elevation={0}
+      className={NO_DRAG_NO_PAN}
+      sx={{
+        position: 'absolute', bottom: 12, right: 12, zIndex: 5,
+        width: 300, maxHeight: '48%', display: 'flex', flexDirection: 'column',
+        border: `1px solid ${border}`, borderRadius: 1.5, backgroundColor: bg,
+        backdropFilter: 'blur(4px)',
+      }}
+    >
+      <Box
+        className={NO_DRAG_NO_PAN}
+        onClick={toggleExpanded}
+        sx={{ px: 1.5, py: 0.5, borderBottom: expanded ? `1px solid ${border}` : 'none', cursor: 'pointer' }}
+      >
+        <Stack direction="row" alignItems="center" spacing={0.75}>
+          <PersonOutlineIcon sx={{ fontSize: 16, color: 'rgba(60,140,210,0.9)' }} />
+          <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            People
+          </Typography>
+          <IconButton
+            size="small"
+            aria-label={expanded ? 'Collapse people' : 'Expand people'}
+            aria-expanded={expanded}
+            onClick={(event) => {
+              event.stopPropagation()
+              toggleExpanded()
+            }}
+            sx={{ ml: 'auto', p: 0.25 }}
+          >
+            {expanded ? <ExpandLessIcon sx={{ fontSize: 18 }} /> : <ExpandMoreIcon sx={{ fontSize: 18 }} />}
+          </IconButton>
+        </Stack>
+      </Box>
+      {expanded && (
+        <Box sx={{ p: 0.5, overflowY: 'auto' }}>
+          {people.map((p) => {
+            const channels = Object.entries(p.identity ?? {}).filter(([, v]) => !!v)
+            const responsibility = (p.content || '').split('\n').find((l) => l.trim() !== '')?.trim()
+            return (
+              <Box
+                key={p.id}
+                className="nodrag nopan"
+                onClick={() => onSelect(p.id ?? '')}
+                sx={{ px: 1, py: 0.75, borderRadius: 1, cursor: 'pointer', '&:hover': { backgroundColor: hover } }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.name || p.id}</Typography>
+                {channels.length > 0 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {channels.map(([k, v]) => `${k}: ${v}`).join('  ·  ')}
+                  </Typography>
+                )}
+                {responsibility && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {responsibility}
+                  </Typography>
+                )}
+              </Box>
+            )
+          })}
+        </Box>
+      )}
+    </Paper>
+  )
+}
 
 const HelixOrgChart: FC = () => {
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
   const router = useRouter()
-  const { data: workersData, isLoading } = useListHelixOrgWorkers()
-  const { data: rolesData } = useListHelixOrgRoles()
-  const { data: streamsData } = useListHelixOrgStreams()
-  const deleteRole = useDeleteHelixOrgRole()
-  const deleteStream = useDeleteHelixOrgStream()
-  const fireWorker = useFireHelixOrgWorker()
-  const addParent = useAddWorkerParent()
-  const removeParent = useRemoveWorkerParent()
-  const subscribe = useSubscribeWorkerAtChart()
-  const unsubscribe = useUnsubscribeWorkerAtChart()
+  const account = useAccount()
+  const orgID = account.organizationTools.organization?.id ?? ''
+  const userID = account.user?.id ?? ''
+  // Chart is the org root of helix-org — breadcrumb is just the org name.
+  const breadcrumbs = useHelixOrgBreadcrumbs()
+  // Poll bots so agent_status (green/grey sandbox dots) stays fresh while
+  // the chart is open — desktops start/stop without other chart mutations.
+  const { data: botsData, isLoading } = useListHelixOrgBots({ refetchInterval: 5000 })
+  const { data: assetsData = [], isLoading: assetsLoading } = useListAssets()
+  const assetIDs = useMemo(() => assetsData.map((asset) => asset.id ?? '').filter(Boolean), [assetsData])
+  const assetHealth = useAssetHealth(assetIDs, { refetchInterval: 15000 })
+  const { data: streamsData } = useListHelixOrgTopics()
+  const { data: processorsData } = useListHelixOrgProcessors()
+  const { data: savedPositions = {} } = useListChartPositions()
+  const { data: projects = [] } = useListProjects(orgID, { enabled: !!orgID })
+  const upsertPositions = useUpsertChartPositions()
+  const clearPositions = useClearChartPositions()
+  const deleteBot = useDeleteBot()
+  const deleteAsset = useDeleteAsset()
+  const deleteTopic = useDeleteHelixOrgTopic()
+  const deleteProcessor = useDeleteHelixOrgProcessor()
+  const updateProcessor = useUpdateHelixOrgProcessor()
+  const addParent = useAddBotParent()
+  const removeParent = useRemoveBotParent()
+  const subscribe = useSubscribeBotAtChart()
+  const unsubscribe = useUnsubscribeBotAtChart()
+  const linkAsset = useLinkAsset()
+  const unlinkAsset = useUnlinkAsset()
+  const activateBot = useActivateBot()
+  const stopBot = useStopBotAgent()
+  const restartBot = useRestartBotAgent()
 
-  const flat = useMemo<FlatWorker[]>(
-    () => (workersData ?? []).map((w: WorkerDTO) => ({
-      id: w.id ?? '',
-      kind: w.kind ?? 'human',
-      roleId: w.role_id ?? '',
-      parentIds: w.parent_ids ?? [],
-    })),
-    [workersData],
+  const botIds = useMemo(
+    () => (botsData ?? [])
+      .filter((bot: BotDTO) => bot.kind !== 'human')
+      .map((bot: BotDTO) => bot.id ?? '')
+      .filter(Boolean),
+    [botsData],
   )
-  const knownRoles = useMemo(() => (rolesData ?? []).map((r) => r.id ?? ''), [rolesData])
-  const groups = useMemo(() => groupByRole(flat, knownRoles), [flat, knownRoles])
-  const streams = useMemo<StreamSummary[]>(
-    () => (streamsData?.streams ?? []).map((s) => ({
-      id: s.id ?? '',
-      name: s.name ?? '',
-      kind: s.kind ?? '',
-      created_by: s.created_by,
-      subscribers: s.subscribers,
+  const botDetails = useListHelixOrgBotDetails(botIds, { refetchInterval: 5000 })
+  const projectIds = useMemo(
+    () => projects.map((project) => project.id ?? '').filter(Boolean),
+    [projects],
+  )
+  const specTasks = useSpecTasksForProjects(projectIds, {
+    enabled: !!orgID,
+    refetchInterval: 5000,
+  }) as SpecTask[]
+
+  const tasksByBotId = useMemo(() => {
+    const projectsByID = new Map(projects.map((project) => [project.id ?? '', project]))
+    const tasksByBotId = new Map<string, SpecTask[]>()
+
+    botDetails.forEach((detail, index) => {
+      const botId = botIds[index]
+      if (botId) tasksByBotId.set(botId, [])
+      if (!botId || !detail) return
+
+      const botProjectID = detail.project_id ?? ''
+      const botAgentID = detail.agent_id ?? detail.agent_app_id ?? ''
+      const botTasks = specTasks.filter((task) => {
+        const taskProject = projectsByID.get(task.project_id ?? '')
+        const taskAgentID = task.helix_app_id || taskProject?.default_helix_app_id
+        return (
+          (!!botProjectID && task.project_id === botProjectID) ||
+          (!!botAgentID && taskAgentID === botAgentID)
+        )
+      })
+      tasksByBotId.set(botId, botTasks)
+    })
+
+    return tasksByBotId
+  }, [botDetails, botIds, projects, specTasks])
+
+  const taskStatsByBotId = useMemo(() => {
+    const stats = new Map<string, BotTaskStats>()
+    tasksByBotId.forEach((tasks, botId) => {
+      stats.set(botId, summarizeBotTasks(tasks))
+    })
+    return stats
+  }, [tasksByBotId])
+
+  const projectIDByBotID = useMemo(() => {
+    const projectIDs = new Map<string, string>()
+    botDetails.forEach((detail, index) => {
+      const botID = botIds[index]
+      if (botID && detail?.project_id) projectIDs.set(botID, detail.project_id)
+    })
+    return projectIDs
+  }, [botDetails, botIds])
+
+  const flat = useMemo<FlatBot[]>(
+    () => (botsData ?? [])
+      // People (kind=human) are managed in the People tab, not on the agent
+      // chart — the chart is for agent relationships (reporting, subscriptions).
+      .filter((b: BotDTO) => b.kind !== 'human')
+      .map((b: BotDTO) => ({
+        id: b.id ?? '',
+        name: b.name ?? '',
+        parentIds: b.parent_ids ?? [],
+        agentStatus: b.agent_status === 'running' ? 'running' as const : 'stopped' as const,
+        agentRuntime: b.agent_runtime ?? '',
+        agentModel: b.agent_model ?? '',
+        projectId: projectIDByBotID.get(b.id ?? '') ?? '',
+        taskStats: taskStatsByBotId.get(b.id ?? '') ?? { backlog: 0, inProgress: 0, done: 0 },
+      })),
+    [botsData, projectIDByBotID, taskStatsByBotId],
+  )
+
+  // People (kind=human) — shown in the docked PeoplePanel on the chart, not
+  // as graph nodes.
+  const people = useMemo<BotDTO[]>(
+    () => (botsData ?? []).filter((b: BotDTO) => b.kind === 'human'),
+    [botsData],
+  )
+
+  // Map each processor-owned output topic id → owning processor id, so
+  // those topics render as managed (no independent delete).
+  const ownedOutputTopics = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const p of processorsData ?? []) {
+      for (const o of p.outputs ?? []) {
+        if (o.owned && o.topic_id) m.set(o.topic_id, p.id)
+      }
+    }
+    return m
+  }, [processorsData])
+
+  const topics = useMemo<TopicSummary[]>(
+    () => (streamsData?.topics ?? [])
+      .filter((topic) => !isTranscriptTopic(topic.id))
+      .map((s) => {
+        const cfg = (s.config ?? {}) as Record<string, unknown>
+        const schedule = typeof cfg.schedule === 'string' ? cfg.schedule : undefined
+        return {
+          id: s.id ?? '',
+          name: s.name ?? '',
+          kind: s.kind ?? '',
+          created_by: s.created_by,
+          subscribers: s.subscribers,
+          schedule,
+          ownedByProcessor: ownedOutputTopics.get(s.id ?? ''),
+        }
+      }),
+    [streamsData, ownedOutputTopics],
+  )
+
+  const processorConsumerCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const processor of processorsData ?? []) {
+      if (!processor.input_topic_id) continue
+      counts.set(processor.input_topic_id, (counts.get(processor.input_topic_id) ?? 0) + 1)
+    }
+    return counts
+  }, [processorsData])
+
+  const topicsWithConsumerCounts = useMemo<TopicSummary[]>(
+    () => topics.map((topic) => ({
+      ...topic,
+      processorConsumerCount: processorConsumerCounts.get(topic.id) ?? 0,
     })),
-    [streamsData],
+    [topics, processorConsumerCounts],
+  )
+
+  const agentOptions = useMemo(
+    () => flat
+      .map((agent) => ({ id: agent.id, label: agent.name || agent.id }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [flat],
+  )
+  const processorOptions = useMemo(
+    () => (processorsData ?? [])
+      .filter((processor) => !!processor.id)
+      .map((processor) => ({ id: processor.id, label: processor.name || processor.id }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [processorsData],
+  )
+  const assetOptions = useMemo(
+    () => assetsData
+      .filter((asset) => !!asset.id)
+      .map((asset) => ({ id: asset.id ?? '', label: asset.name || asset.id || '' }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [assetsData],
+  )
+
+  const visibilityScope = userID && orgID ? `${userID}:${orgID}` : ''
+  const entityVisibilityScopeRef = useRef(visibilityScope)
+  const [hiddenEntityIDs, setHiddenEntityIDs] = useState<HiddenChartEntityIDs>(() => (
+    visibilityScope
+      ? loadHiddenChartEntityIDs(userID, orgID) ?? { ...EMPTY_HIDDEN_CHART_ENTITY_IDS }
+      : { ...EMPTY_HIDDEN_CHART_ENTITY_IDS }
+  ))
+  useEffect(() => {
+    if (!visibilityScope) {
+      entityVisibilityScopeRef.current = ''
+      setHiddenEntityIDs({ ...EMPTY_HIDDEN_CHART_ENTITY_IDS })
+      return
+    }
+    if (visibilityScope === entityVisibilityScopeRef.current) return
+    entityVisibilityScopeRef.current = visibilityScope
+    setHiddenEntityIDs(loadHiddenChartEntityIDs(userID, orgID) ?? { ...EMPTY_HIDDEN_CHART_ENTITY_IDS })
+  }, [userID, orgID, visibilityScope])
+
+  const selectedAgentIDs = useMemo(() => {
+    const hidden = new Set(hiddenEntityIDs.agents)
+    return agentOptions.map((option) => option.id).filter((id) => !hidden.has(id))
+  }, [agentOptions, hiddenEntityIDs.agents])
+  const selectedProcessorIDs = useMemo(() => {
+    const hidden = new Set(hiddenEntityIDs.processors)
+    return processorOptions.map((option) => option.id).filter((id) => !hidden.has(id))
+  }, [processorOptions, hiddenEntityIDs.processors])
+  const selectedAssetIDs = useMemo(() => {
+    const hidden = new Set(hiddenEntityIDs.assets)
+    return assetOptions.map((option) => option.id).filter((id) => !hidden.has(id))
+  }, [assetOptions, hiddenEntityIDs.assets])
+
+  const updateEntityVisibility = (
+    kind: ChartEntityKind,
+    options: readonly { id: string }[],
+    selectedIDs: string[],
+  ) => {
+    const selected = new Set(selectedIDs)
+    const next = {
+      ...hiddenEntityIDs,
+      [kind]: options.map((option) => option.id).filter((id) => !selected.has(id)),
+    }
+    setHiddenEntityIDs(next)
+    saveHiddenChartEntityIDs(userID, orgID, next)
+  }
+
+  const topicVisibilityScopeRef = useRef(visibilityScope)
+  const [visibleTopicFilters, setVisibleTopicFilters] = useState<ChartTopicFilter[]>(() => (
+    visibilityScope
+      ? loadChartTopicVisibility(userID, orgID) ?? [...DEFAULT_CHART_TOPIC_FILTERS]
+      : [...DEFAULT_CHART_TOPIC_FILTERS]
+  ))
+  useEffect(() => {
+    if (!visibilityScope) {
+      topicVisibilityScopeRef.current = ''
+      setVisibleTopicFilters([...DEFAULT_CHART_TOPIC_FILTERS])
+      return
+    }
+    if (visibilityScope === topicVisibilityScopeRef.current) return
+    topicVisibilityScopeRef.current = visibilityScope
+    setVisibleTopicFilters(loadChartTopicVisibility(userID, orgID) ?? [...DEFAULT_CHART_TOPIC_FILTERS])
+  }, [userID, orgID, visibilityScope])
+
+  const visibilityReady = visibilityScope !== ''
+    && entityVisibilityScopeRef.current === visibilityScope
+    && topicVisibilityScopeRef.current === visibilityScope
+
+  const onTopicFiltersChange = useCallback((filters: ChartTopicFilter[]) => {
+    setVisibleTopicFilters(filters)
+    saveChartTopicVisibility(userID, orgID, filters)
+  }, [userID, orgID])
+
+  const visibleTopicIds = useMemo(() => {
+    const selected = new Set(visibleTopicFilters)
+    const visibleProcessors = new Set(selectedProcessorIDs)
+    return new Set(topics
+      .filter((topic) => selected.has(chartTopicFilterFor(topic)))
+      .filter((topic) => !topic.ownedByProcessor || visibleProcessors.has(topic.ownedByProcessor))
+      .map((topic) => topic.id))
+  }, [topics, visibleTopicFilters, selectedProcessorIDs])
+
+  // Retained-message counts only run for cards currently shown on the chart.
+  const visibleTopicIdList = useMemo(() => Array.from(visibleTopicIds), [visibleTopicIds])
+  const [fitViewRequest, setFitViewRequest] = useState(0)
+  const messageCounts = useTopicMessageCounts(visibleTopicIdList, { enabled: visibleTopicIdList.length > 0 })
+
+  const processorSummaries = useMemo<ProcessorSummary[]>(
+    () => (processorsData ?? []).map((p: ProcessorDTO) => ({
+      id: p.id,
+      name: p.name ?? p.id,
+      kind: p.kind ?? '',
+      inputTopicId: p.input_topic_id ?? '',
+      outputs: (p.outputs ?? []).map((o) => ({
+        topicId: o.topic_id ?? '',
+        label: o.label ?? '',
+        match: o.match ?? '',
+        owned: !!o.owned,
+      })),
+    })),
+    [processorsData],
+  )
+
+  const visibleAgentIDs = useMemo(() => new Set(selectedAgentIDs), [selectedAgentIDs])
+  const visibleProcessorIDs = useMemo(() => new Set(selectedProcessorIDs), [selectedProcessorIDs])
+  const visibleAssetIDs = useMemo(() => new Set(selectedAssetIDs), [selectedAssetIDs])
+  const visibleFlat = useMemo(
+    () => flat.filter((agent) => visibleAgentIDs.has(agent.id)),
+    [flat, visibleAgentIDs],
+  )
+  const visibleProcessorSummaries = useMemo(
+    () => processorSummaries.filter((processor) => visibleProcessorIDs.has(processor.id)),
+    [processorSummaries, visibleProcessorIDs],
+  )
+  const visibleAssets = useMemo(
+    () => assetsData.filter((asset) => visibleAssetIDs.has(asset.id ?? '')),
+    [assetsData, visibleAssetIDs],
   )
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
-  const [roleDialogOpen, setRoleDialogOpen] = useState(false)
+  const [botDialogOpen, setBotDialogOpen] = useState(false)
+  const [newMenuEl, setNewMenuEl] = useState<null | HTMLElement>(null)
+  const [assetDrawer, setAssetDrawer] = useState<{ open: boolean; assetID?: string }>({ open: false })
+  const [topicDrawerOpen, setTopicDrawerOpen] = useState(false)
+  const [selectedTopicId, setSelectedTopicId] = useState<string>()
+  // Processor drawer: { open, processor } — processor null = create mode.
+  const [processorDrawer, setProcessorDrawer] = useState<{ open: boolean; processor: ProcessorDTO | null }>({ open: false, processor: null })
   const [confirmDelete, setConfirmDelete] = useState<
-    | { kind: 'role'; id: string }
-    | { kind: 'worker'; id: string }
-    | { kind: 'stream'; id: string }
+    | { kind: 'bot'; id: string }
+    | { kind: 'topic'; id: string }
+    | { kind: 'processor'; id: string }
+    | { kind: 'asset'; id: string }
     | null
   >(null)
+  // Right-click create menu (client coords for MUI Menu positioning).
+  const [ctxMenu, setCtxMenu] = useState<{ mouseX: number; mouseY: number; flowX: number; flowY: number } | null>(null)
+  const [pendingCreatePosition, setPendingCreatePosition] = useState<{ x: number; y: number }>()
+  const openCtxMenu = useCallback((clientX: number, clientY: number, flowX: number, flowY: number) => {
+    setCtxMenu({ mouseX: clientX, mouseY: clientY, flowX, flowY })
+  }, [])
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), [])
+
+  const openCreateFromContext = useCallback((open: () => void) => {
+    if (!ctxMenu) return
+    setPendingCreatePosition({ x: ctxMenu.flowX, y: ctxMenu.flowY })
+    closeCtxMenu()
+    open()
+  }, [closeCtxMenu, ctxMenu])
+
+  const saveCreatedPosition = useCallback((kind: ChartNodeKind, id: string) => {
+    const point = pendingCreatePosition
+    setPendingCreatePosition(undefined)
+    if (!point || !id) return
+    const position = centeredCreatedNodePosition(kind, point)
+    upsertPositions.mutate([
+      { kind, id, x: position.x, y: position.y },
+    ], {
+      onError: (err: any) => {
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'created item, but could not save its chart position')
+      },
+    })
+  }, [pendingCreatePosition, snackbar, upsertPositions])
 
   const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.87)' : 'rgba(255,255,255,0.95)'
   const subtitleColor = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
@@ -1031,41 +2677,118 @@ const HelixOrgChart: FC = () => {
   const canvasBg = lightTheme.isLight ? '#fafafa' : 'rgba(255,255,255,0.02)'
 
   const orgSlug = (router.params.org_id as string | undefined) ?? ''
-  const onSelectWorker = useCallback(
-    (workerId: string) => {
+  // Which bot card shows the active/selected chrome — kept in sync with the
+  // left chat rail via focusChatBot (click, dropdown, or restore).
+  const [selectedBotId, setSelectedBotId] = useState<string>(() =>
+    orgSlug ? (loadFocusedBotId(orgSlug) ?? '') : '',
+  )
+  // Re-read storage when org changes (same component instance, different slug).
+  useEffect(() => {
+    if (!orgSlug) {
+      setSelectedBotId('')
+      return
+    }
+    setSelectedBotId(loadFocusedBotId(orgSlug) ?? '')
+  }, [orgSlug])
+  // Chart click, chat dropdown, and any other focusChatBot caller.
+  useEffect(() => {
+    const onFocus = (ev: Event) => {
+      const detail = (ev as CustomEvent<ChatBotFocusDetail>).detail
+      if (!detail || detail.orgId !== orgSlug || !isValidBotId(detail.botId)) return
+      setSelectedBotId(detail.botId)
+    }
+    window.addEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
+    return () => window.removeEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
+  }, [orgSlug])
+  // Card body click → focus the left chat rail directly on Chat.
+  const onSelectBot = useCallback(
+    (botId: string) => {
       if (!orgSlug) return
-      router.navigate('helix_org_worker_detail', { org_id: orgSlug, worker_id: workerId })
+      setSelectedBotId(botId)
+      focusChatBot(orgSlug, botId)
+    },
+    [orgSlug],
+  )
+  // Agent menu Details / card double-click → agent detail page.
+  const onOpenBotDetails = (botId: string) => {
+    const bot = botsData?.find((candidate) => candidate.id === botId)
+    const agentID = bot?.agent_id ?? bot?.agent_app_id
+    if (!orgSlug || !agentID) return
+    router.navigate('org_agent', { org_id: orgSlug, app_id: agentID })
+  }
+  const onViewProject = useCallback(
+    (projectId: string) => {
+      if (!orgSlug || !projectId) return
+      router.navigate('org_project-specs', { org_id: orgSlug, id: projectId })
     },
     [router, orgSlug],
   )
-  const onSelectRole = useCallback(
-    (roleId: string) => {
+  const onSelectPerson = useCallback(
+    (botId: string) => {
       if (!orgSlug) return
-      router.navigate('helix_org_role_detail', { org_id: orgSlug, role_id: roleId })
+      router.navigate('helix_org_human_detail', { org_id: orgSlug, bot_id: botId })
     },
     [router, orgSlug],
   )
-  const onHire = useCallback((roleId: string) => setSelection({ kind: 'hire', roleId }), [])
-  const onDeleteRole = useCallback((roleId: string) => setConfirmDelete({ kind: 'role', id: roleId }), [])
-  const onFireWorker = useCallback((workerId: string) => setConfirmDelete({ kind: 'worker', id: workerId }), [])
-  const onSelectStream = useCallback(
-    (streamId: string) => {
-      if (!orgSlug) return
-      router.navigate('helix_org_stream_detail', { org_id: orgSlug, stream_id: streamId })
+  const onNewBot = useCallback((parentBotId: string) => {
+    setPendingCreatePosition(undefined)
+    setSelection({ kind: 'newBot', parentBotId })
+  }, [])
+  const onDeleteBot = useCallback((botId: string) => setConfirmDelete({ kind: 'bot', id: botId }), [])
+  const onStartBot = useCallback(async (botId: string) => {
+    try {
+      await activateBot.mutateAsync(botId)
+      snackbar.success(`Starting ${botId}…`)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'start failed')
+    }
+  }, [activateBot, snackbar])
+  const onStopBot = useCallback(async (botId: string) => {
+    try {
+      await stopBot.mutateAsync(botId)
+      snackbar.success(`Stopped ${botId}`)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'stop failed')
+    }
+  }, [stopBot, snackbar])
+  const onRestartBot = useCallback(async (botId: string) => {
+    try {
+      await restartBot.mutateAsync(botId)
+      snackbar.success(`Restarting ${botId}…`)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
+    }
+  }, [restartBot, snackbar])
+  const onSelectTopic = useCallback(
+    (topicId: string) => {
+      setSelectedTopicId(topicId)
     },
-    [router, orgSlug],
+    [],
   )
-  const onDeleteStream = useCallback((streamId: string) => setConfirmDelete({ kind: 'stream', id: streamId }), [])
+  const onDeleteTopic = useCallback((topicId: string) => setConfirmDelete({ kind: 'topic', id: topicId }), [])
+  const onSelectProcessor = useCallback(
+    (processorId: string) => {
+      const p = (processorsData ?? []).find((x) => x.id === processorId) ?? null
+      setProcessorDrawer({ open: true, processor: p })
+    },
+    [processorsData],
+  )
+  const onDeleteProcessor = useCallback((processorId: string) => setConfirmDelete({ kind: 'processor', id: processorId }), [])
+  const onSelectAsset = useCallback((assetId: string) => setAssetDrawer({ open: true, assetID: assetId }), [])
+  const onDeleteAsset = useCallback((assetId: string) => setConfirmDelete({ kind: 'asset', id: assetId }), [])
   const handlers = useMemo(
-    () => ({ onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectStream, onDeleteStream }),
-    [onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectStream, onDeleteStream],
+    () => ({
+      onSelectBot, onOpenBotDetails, onViewProject, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot,
+      onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor, onSelectAsset, onDeleteAsset,
+    }),
+    [onSelectBot, onOpenBotDetails, onViewProject, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor, onSelectAsset, onDeleteAsset],
   )
 
   const onAddParent = useCallback(
-    async (childWorkerId: string, newParentWorkerId: string) => {
+    async (childBotId: string, newParentBotId: string) => {
       try {
-        await addParent.mutateAsync({ workerID: childWorkerId, parentID: newParentWorkerId })
-        snackbar.success(`${childWorkerId} now reports to ${newParentWorkerId}`)
+        await addParent.mutateAsync({ botID: childBotId, parentID: newParentBotId })
+        snackbar.success(`${childBotId} now reports to ${newParentBotId}`)
       } catch (err: any) {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'add reporting line failed')
       }
@@ -1074,10 +2797,10 @@ const HelixOrgChart: FC = () => {
   )
 
   const onRemoveParent = useCallback(
-    async (childWorkerId: string, parentWorkerId: string) => {
+    async (childBotId: string, parentBotId: string) => {
       try {
-        await removeParent.mutateAsync({ workerID: childWorkerId, parentID: parentWorkerId })
-        snackbar.success(`${childWorkerId} no longer reports to ${parentWorkerId}`)
+        await removeParent.mutateAsync({ botID: childBotId, parentID: parentBotId })
+        snackbar.success(`${childBotId} no longer reports to ${parentBotId}`)
       } catch (err: any) {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'remove reporting line failed')
       }
@@ -1085,11 +2808,11 @@ const HelixOrgChart: FC = () => {
     [removeParent, snackbar],
   )
 
-  const onSubscribeWorker = useCallback(
-    async (workerId: string, streamId: string) => {
+  const onSubscribeBot = useCallback(
+    async (botId: string, topicId: string) => {
       try {
-        await subscribe.mutateAsync({ workerID: workerId, streamID: streamId })
-        snackbar.success(`${workerId} now consumes ${streamId}`)
+        await subscribe.mutateAsync({ botID: botId, topicID: topicId })
+        snackbar.success(`${botId} now consumes ${topicId}`)
       } catch (err: any) {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'subscribe failed')
       }
@@ -1097,11 +2820,11 @@ const HelixOrgChart: FC = () => {
     [subscribe, snackbar],
   )
 
-  const onUnsubscribeWorker = useCallback(
-    async (workerId: string, streamId: string) => {
+  const onUnsubscribeBot = useCallback(
+    async (botId: string, topicId: string) => {
       try {
-        await unsubscribe.mutateAsync({ workerID: workerId, streamID: streamId })
-        snackbar.success(`${workerId} no longer consumes ${streamId}`)
+        await unsubscribe.mutateAsync({ botID: botId, topicID: topicId })
+        snackbar.success(`${botId} no longer consumes ${topicId}`)
       } catch (err: any) {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'unsubscribe failed')
       }
@@ -1109,23 +2832,100 @@ const HelixOrgChart: FC = () => {
     [unsubscribe, snackbar],
   )
 
+  const onUnlinkAsset = useCallback(
+    async (assetId: string, agentId: string) => {
+      try {
+        await unlinkAsset.mutateAsync({ assetID: assetId, agentID: agentId })
+        snackbar.success(`${agentId} can no longer use ${assetId}`)
+      } catch (err: any) {
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'unlink asset failed')
+      }
+    },
+    [unlinkAsset, snackbar],
+  )
+
+  const onLinkAsset = useCallback(
+    async (assetId: string, agentId: string) => {
+      try {
+        await linkAsset.mutateAsync({ assetID: assetId, agentID: agentId })
+        snackbar.success(`${agentId} can now use ${assetId}`)
+      } catch (err: any) {
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'link asset failed')
+      }
+    },
+    [linkAsset, snackbar],
+  )
+
+  // onSetProcessorInput re-points a processor at a new input topic (from
+  // wiring a Topic — or another processor's output branch — into its IN
+  // port). Preserves the processor's name/kind/config; only the input
+  // changes. The cycle check runs server-side.
+  const onSetProcessorInput = useCallback(
+    async (processorId: string, topicId: string) => {
+      const p = (processorsData ?? []).find((x) => x.id === processorId)
+      if (!p) return
+      try {
+        await updateProcessor.mutateAsync({
+          id: processorId,
+          attrs: { name: p.name ?? processorId, kind: p.kind ?? 'template', config: p.config, input_topic_id: topicId },
+        })
+        snackbar.success(topicId ? `${processorId} now reads ${topicId}` : `${processorId} disconnected from its input`)
+      } catch (err: any) {
+        snackbar.error(err?.response?.data?.errors?.[0]?.detail ?? err?.response?.data?.error ?? err?.message ?? 'wire input failed')
+      }
+    },
+    [processorsData, updateProcessor, snackbar],
+  )
+
+  // Persist the full canvas after a drag. Saving only the moved node
+  // left topics/processors on auto-layout, which re-anchored them to
+  // the bot and made them "follow" the drag. Snapshot freezes everyone.
+  const onLayoutSnapshot = useCallback(
+    (positions: { kind: string; id: string; x: number; y: number }[]) => {
+      upsertPositions.mutate(positions, {
+        onError: (err: any) => {
+          snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save position failed')
+        },
+      })
+    },
+    [upsertPositions, snackbar],
+  )
+
+  const onResetLayout = useCallback(async () => {
+    clearChartViewport(userID, orgID)
+    setFitViewRequest((request) => request + 1)
+    try {
+      await clearPositions.mutateAsync()
+      setFitViewRequest((request) => request + 1)
+      snackbar.success('layout reset to auto')
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'reset layout failed')
+    }
+  }, [clearPositions, orgID, snackbar, userID])
+
   const handleConfirmDelete = async () => {
     if (!confirmDelete) return
     try {
-      if (confirmDelete.kind === 'role') {
-        await deleteRole.mutateAsync(confirmDelete.id)
-        snackbar.success(`deleted role ${confirmDelete.id}`)
-      } else if (confirmDelete.kind === 'stream') {
-        await deleteStream.mutateAsync(confirmDelete.id)
-        snackbar.success(`deleted stream ${confirmDelete.id}`)
+      if (confirmDelete.kind === 'bot') {
+        await deleteBot.mutateAsync(confirmDelete.id)
+        snackbar.success(`deleted agent ${confirmDelete.id}`)
+      } else if (confirmDelete.kind === 'topic') {
+        await deleteTopic.mutateAsync(confirmDelete.id)
+        snackbar.success(`deleted topic ${confirmDelete.id}`)
+      } else if (confirmDelete.kind === 'asset') {
+        await deleteAsset.mutateAsync(confirmDelete.id)
+        setAssetDrawer({ open: false })
+        snackbar.success(`deleted asset ${confirmDelete.id}`)
       } else {
-        await fireWorker.mutateAsync(confirmDelete.id)
-        snackbar.success(`fired worker ${confirmDelete.id}`)
+        await deleteProcessor.mutateAsync(confirmDelete.id)
+        snackbar.success(`deleted processor ${confirmDelete.id}`)
       }
       setConfirmDelete(null)
     } catch (err: any) {
       const status = err?.response?.status
-      const msg = err?.response?.data?.error ?? err?.message ?? 'delete failed'
+      // Processor endpoints emit JSON:API errors[]; the others emit
+      // {error}. Read both shapes.
+      const msg = err?.response?.data?.error ?? err?.response?.data?.errors?.[0]?.detail ?? err?.message ?? 'delete failed'
       if (status === 409) {
         snackbar.error(`${confirmDelete.kind} is protected and cannot be deleted`)
       } else {
@@ -1136,65 +2936,59 @@ const HelixOrgChart: FC = () => {
 
   const confirmBody = useMemo(() => {
     if (!confirmDelete) return ''
-    if (confirmDelete.kind === 'role') {
-      const group = groups.find((g) => g.roleId === confirmDelete.id)
-      const workers = (group?.workers ?? []).map((w) => w.id)
-      return [
-        `Deleting role ${confirmDelete.id} will cascade:`,
-        `  • fires ${workers.length} worker${workers.length === 1 ? '' : 's'} (${workers.join(', ') || 'none'})`,
-        '',
-        'This is irreversible.',
-      ].join('\n')
-    }
-    if (confirmDelete.kind === 'stream') {
-      const s = (streamsData?.streams ?? []).find((x) => x.id === confirmDelete.id)
+    if (confirmDelete.kind === 'topic') {
+      const s = (streamsData?.topics ?? []).find((x) => x.id === confirmDelete.id)
       const subs = s?.subscribers ?? []
       return [
-        `Deleting stream ${confirmDelete.id}:`,
-        `  • removes the Stream row`,
+        `Deleting topic ${confirmDelete.id}:`,
+        `  • removes the Topic row`,
         `  • drops ${subs.length} subscription${subs.length === 1 ? '' : 's'}${subs.length > 0 ? ' (' + subs.join(', ') + ')' : ''}`,
-        `  • events on this stream survive as an audit trail`,
+        `  • events on this topic survive as an audit trail`,
         '',
         'This is irreversible.',
       ].join('\n')
     }
-    const reports = flat.filter((w) => w.parentIds.includes(confirmDelete.id)).map((w) => w.id)
+    if (confirmDelete.kind === 'processor') {
+      const p = (processorsData ?? []).find((x) => x.id === confirmDelete.id)
+      const owned = (p?.outputs ?? []).filter((o) => o.owned).map((o) => o.topic_id)
+      return [
+        `Deleting processor ${confirmDelete.id}:`,
+        `  • removes the Processor`,
+        `  • deletes ${owned.length} auto-created output topic${owned.length === 1 ? '' : 's'}${owned.length > 0 ? ' (' + owned.join(', ') + ')' : ''} and their subscriptions`,
+        '',
+        'This is irreversible.',
+      ].join('\n')
+    }
+    if (confirmDelete.kind === 'asset') {
+      const asset = assetsData.find((candidate) => candidate.id === confirmDelete.id)
+      return [
+        `Deleting server ${asset?.name || confirmDelete.id}:`,
+        `  • removes its encrypted credentials and dedicated SSH key`,
+        `  • revokes access from ${(asset?.agent_ids ?? []).length} linked agent${(asset?.agent_ids ?? []).length === 1 ? '' : 's'}`,
+        '',
+        'This is irreversible.',
+      ].join('\n')
+    }
+    const reports = flat.filter((b) => b.parentIds.includes(confirmDelete.id)).map((b) => b.id)
     return [
-      `Firing worker ${confirmDelete.id} will cascade:`,
-      `  • stops sessions, deletes its project + agent app, drops its subscriptions`,
+      `Deleting agent ${confirmDelete.id} will cascade:`,
+      `  • stops sessions, deletes its project, canonical Agent configuration, knowledge sources, and subscriptions`,
       reports.length > 0
         ? `  • ${reports.length} direct report${reports.length === 1 ? '' : 's'} (${reports.join(', ')}) lose their manager`
         : `  • no direct reports`,
       '',
       'This is irreversible.',
     ].join('\n')
-  }, [confirmDelete, groups, flat, streamsData])
+  }, [confirmDelete, flat, streamsData, processorsData, assetsData])
 
   return (
-    <Page breadcrumbTitle="Chart">
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', minHeight: 0 }}>
-        <Box sx={{ px: 4, pt: 4, pb: 2 }}>
-          <Box>
-            <Typography
-              variant="h4"
-              sx={{ fontWeight: 700, mb: 1, color: titleColor, letterSpacing: '-0.02em' }}
-            >
-              Chart
-            </Typography>
-            <Typography variant="body2" sx={{ color: subtitleColor }}>
-              Roles group Workers. Hire Workers into a Role, then drag from a manager's
-              bottom handle to a subordinate to set who reports to whom, or from a
-              Worker's right handle to a Stream to subscribe.
-            </Typography>
-          </Box>
-        </Box>
-
+    <HelixOrgShell showChat breadcrumbs={breadcrumbs}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
         <Box
           sx={{
             flex: 1,
             minHeight: 0,
-            mx: 4,
-            mb: 4,
+            m: 1.5,
             position: 'relative',
             border: `1px solid ${canvasBorder}`,
             borderRadius: 1,
@@ -1202,72 +2996,208 @@ const HelixOrgChart: FC = () => {
             overflow: 'hidden',
           }}
         >
-          {/* New role lives on the canvas (floating top-right) rather than
-              in the page header — it reads as a canvas action, and keeps
-              the header to title + description. zIndex sits above the
-              ReactFlow surface / controls. */}
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setRoleDialogOpen(true)}
-            sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}
-          >
-            New role
-          </Button>
+          {visibilityReady && <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
+            <ChartTopicVisibilityMenu selected={visibleTopicFilters} onChange={onTopicFiltersChange} />
+            <ChartVisibilityMenu
+              label="Agents"
+              icon={<SmartToyOutlinedIcon />}
+              options={agentOptions}
+              selected={selectedAgentIDs}
+              onChange={(selected) => updateEntityVisibility('agents', agentOptions, selected)}
+            />
+            <ChartVisibilityMenu
+              label="Processors"
+              icon={<TransformIcon />}
+              options={processorOptions}
+              selected={selectedProcessorIDs}
+              onChange={(selected) => updateEntityVisibility('processors', processorOptions, selected)}
+            />
+            <ChartVisibilityMenu
+              label="Assets"
+              icon={<DnsOutlinedIcon />}
+              options={assetOptions}
+              selected={selectedAssetIDs}
+              onChange={(selected) => updateEntityVisibility('assets', assetOptions, selected)}
+            />
+            <Button
+              size="small"
+              variant="contained"
+              color="secondary"
+              startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+              endIcon={<ArrowDropDownIcon sx={{ fontSize: 18 }} />}
+              onClick={(event) => setNewMenuEl(event.currentTarget)}
+              aria-label="Create new chart item"
+              aria-haspopup="menu"
+              aria-expanded={Boolean(newMenuEl)}
+              sx={chartToolbarButtonSizeSx}
+            >
+              New
+            </Button>
+            <Menu anchorEl={newMenuEl} open={Boolean(newMenuEl)} onClose={() => setNewMenuEl(null)}>
+              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setBotDialogOpen(true) }}>
+                <ListItemIcon><SmartToyOutlinedIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Agent</ListItemText>
+              </MenuItem>
+              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setTopicDrawerOpen(true) }}>
+                <ListItemIcon><HubOutlinedIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Topic</ListItemText>
+              </MenuItem>
+              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setProcessorDrawer({ open: true, processor: null }) }}>
+                <ListItemIcon><TransformIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Processor</ListItemText>
+              </MenuItem>
+              <MenuItem onClick={() => { setNewMenuEl(null); setPendingCreatePosition(undefined); setAssetDrawer({ open: true }) }}>
+                <ListItemIcon><DnsOutlinedIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Asset</ListItemText>
+              </MenuItem>
+            </Menu>
+          </Stack>}
 
-          {isLoading ? (
+          {!visibilityReady || isLoading || assetsLoading ? (
             <Box sx={{ p: 4 }}><LoadingSpinner /></Box>
-          ) : groups.length === 0 ? (
-            <Box sx={{ p: 4 }}>
+          ) : flat.length === 0 && assetsData.length === 0 ? (
+            <Box
+              sx={{ p: 4, height: '100%', boxSizing: 'border-box' }}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                const rect = e.currentTarget.getBoundingClientRect()
+                openCtxMenu(e.clientX, e.clientY, e.clientX - rect.left, e.clientY - rect.top)
+              }}
+            >
               <Typography variant="body1" sx={{ color: subtitleColor }}>
-                No roles yet. Click <strong>New role</strong> to get started.
+                No agents or servers yet. Right-click the canvas to add one.
               </Typography>
             </Box>
           ) : (
             <ReactFlowProvider>
               <ChartCanvas
-                groups={groups}
-                flat={flat}
+                flat={visibleFlat}
                 handlers={handlers}
                 onAddParent={onAddParent}
                 onRemoveParent={onRemoveParent}
-                onSubscribeWorker={onSubscribeWorker}
-                onUnsubscribeWorker={onUnsubscribeWorker}
-                streams={streams}
+                onSubscribeBot={onSubscribeBot}
+                onUnsubscribeBot={onUnsubscribeBot}
+                onLinkAsset={onLinkAsset}
+                onUnlinkAsset={onUnlinkAsset}
+                onSetProcessorInput={onSetProcessorInput}
+                onLayoutSnapshot={onLayoutSnapshot}
+                onCanvasContextMenu={openCtxMenu}
+                topics={topicsWithConsumerCounts}
+                messageCounts={messageCounts}
+                processors={visibleProcessorSummaries}
+                assets={visibleAssets}
+                assetHealth={assetHealth}
+                savedPositions={savedPositions}
+                visibleTopicIds={visibleTopicIds}
+                onResetLayout={onResetLayout}
+                resetLayoutPending={clearPositions.isPending}
+                fitViewRequest={fitViewRequest}
+                selectedBotId={selectedBotId}
               />
             </ReactFlowProvider>
           )}
+          <PeoplePanel people={people} onSelect={onSelectPerson} />
         </Box>
       </Box>
 
-      <CreateRoleDialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} />
+      <Menu
+        open={ctxMenu !== null}
+        onClose={closeCtxMenu}
+        anchorReference="anchorPosition"
+        anchorPosition={ctxMenu ? { top: ctxMenu.mouseY, left: ctxMenu.mouseX } : undefined}
+        // MUI v5: componentsProps (slotProps is v6+)
+        componentsProps={{
+          root: {
+            onContextMenu: (e: ReactMouseEvent) => {
+              e.preventDefault()
+              closeCtxMenu()
+            },
+          },
+        }}
+      >
+        <MenuItem
+          onClick={() => {
+            openCreateFromContext(() => setBotDialogOpen(true))
+          }}
+        >
+          <ListItemIcon><SmartToyOutlinedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>New agent</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            openCreateFromContext(() => setTopicDrawerOpen(true))
+          }}
+        >
+          <ListItemIcon><HubOutlinedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>New topic</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            openCreateFromContext(() => setProcessorDrawer({ open: true, processor: null }))
+          }}
+        >
+          <ListItemIcon><TransformIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>New processor</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            openCreateFromContext(() => setAssetDrawer({ open: true }))
+          }}
+        >
+          <ListItemIcon><DnsOutlinedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>New asset</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      <NewBotDialog
+        open={botDialogOpen || selection.kind === 'newBot'}
+        onClose={() => { setBotDialogOpen(false); setSelection({ kind: 'none' }); setPendingCreatePosition(undefined) }}
+        onCreated={(id) => saveCreatedPosition('bot', id)}
+        presetParentId={selection.kind === 'newBot' ? selection.parentBotId : undefined}
+      />
+      <AssetConfigDrawer
+        open={assetDrawer.open}
+        asset={assetsData.find((asset) => asset.id === assetDrawer.assetID)}
+        health={assetDrawer.assetID ? assetHealth[assetDrawer.assetID] : undefined}
+        agents={(botsData ?? []).filter((bot) => bot.kind !== 'human')}
+        onClose={() => { setAssetDrawer({ open: false }); setPendingCreatePosition(undefined) }}
+        onCreated={(id) => saveCreatedPosition('asset', id)}
+        onDelete={onDeleteAsset}
+      />
+      <NewTopicDrawer
+        open={topicDrawerOpen}
+        onClose={() => { setTopicDrawerOpen(false); setPendingCreatePosition(undefined) }}
+        onCreated={(id) => saveCreatedPosition('topic', id)}
+      />
+      <TopicDetailDrawer
+        topicId={selectedTopicId}
+        consumerCount={selectedTopicId
+          ? (topics.find((topic) => topic.id === selectedTopicId)?.subscribers?.length ?? 0)
+            + (processorConsumerCounts.get(selectedTopicId) ?? 0)
+          : undefined}
+        onClose={() => setSelectedTopicId(undefined)}
+      />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}
         title={
-          confirmDelete?.kind === 'role' ? 'Delete role?' :
-          confirmDelete?.kind === 'stream' ? 'Delete stream?' :
-          'Fire worker?'
+          confirmDelete?.kind === 'topic' ? 'Delete topic?' :
+          confirmDelete?.kind === 'processor' ? 'Delete processor?' :
+          confirmDelete?.kind === 'asset' ? 'Delete asset?' :
+          'Delete agent?'
         }
         body={confirmBody}
         onConfirm={handleConfirmDelete}
         onClose={() => setConfirmDelete(null)}
-        pending={deleteRole.isPending || deleteStream.isPending || fireWorker.isPending}
+        pending={deleteBot.isPending || deleteTopic.isPending || deleteProcessor.isPending || deleteAsset.isPending}
       />
 
-      <Drawer
-        anchor="right"
-        open={selection.kind !== 'none'}
-        onClose={() => setSelection({ kind: 'none' })}
-        PaperProps={{ sx: { backgroundImage: 'none' } }}
-      >
-        {selection.kind === 'hire' && (
-          <HireDrawer
-            roleId={selection.roleId}
-            onClose={() => setSelection({ kind: 'none' })}
-          />
-        )}
-      </Drawer>
-    </Page>
+      <ProcessorConfigDrawer
+        open={processorDrawer.open}
+        processor={processorDrawer.processor}
+        onClose={() => { setProcessorDrawer({ open: false, processor: null }); setPendingCreatePosition(undefined) }}
+        onCreated={(id) => saveCreatedPosition('processor', id)}
+      />
+    </HelixOrgShell>
   )
 }
 

@@ -25,11 +25,14 @@ import useApp from '../../hooks/useApp'
 import { useCreateFilestoreFolder, useUploadFilestoreFiles, useFilestoreConfig } from '../../services/filestoreService'
 import DarkDialog from '../dialog/DarkDialog'
 import useSnackbar from '../../hooks/useSnackbar'
+import { isOrgAgent } from '../../utils/apps'
 
 import SlideMenuContainer from './SlideMenuContainer'
 import SidebarContextHeader from './SidebarContextHeader'
 // import UnifiedSearchBar from '../common/UnifiedSearchBar'
 import { SidebarProvider, useSidebarContext } from '../../contexts/sidebarContext'
+import { LIGHT_SIDEBAR_COLORS } from '../../styles/themeTokens'
+import { TOOLBAR_HEIGHT } from '../../config'
 
 
 const shimmer = keyframes`
@@ -106,6 +109,7 @@ const SidebarContentInner: React.FC<{
   const account = useAccount()
   const appTools = useApp(params.app_id)
   const snackbar = useSnackbar()
+  const isConversationRoute = ['org_chat', 'org_chat-task', 'org_session', 'org_new'].includes(router.name)
 
   // New file menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
@@ -245,16 +249,14 @@ const SidebarContentInner: React.FC<{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          borderRight: lightTheme.border,
-          backgroundColor: lightTheme.backgroundColor,
+          borderRight: lightTheme.isLight ? `1px solid ${LIGHT_SIDEBAR_COLORS.border}` : lightTheme.border,
+          backgroundColor: lightTheme.isLight ? LIGHT_SIDEBAR_COLORS.background : lightTheme.backgroundColor,
           width: '100%',
         }}
       >
-        <SidebarContextHeader />
-        <Divider sx={{ width: '100%' }} />
+        {!isConversationRoute && <SidebarContextHeader />}
         {/* Global search - available on all pages */}
         {/* <UnifiedSearchBar compact placeholder="Search..." /> */}
-        <Divider sx={{ width: '100%' }} />
         <Box
           sx={{
             flexGrow: 0,
@@ -262,7 +264,10 @@ const SidebarContentInner: React.FC<{
           }}
         >
           {
-            showTopLinks && (router.name === 'org_chat' || router.name === 'org_session' || router.name === 'org_qa-results' || router.name === 'org_agent' || router.name === 'org_new') && (
+            showTopLinks &&
+            (router.name !== 'org_agent' || (!!appTools.app && !isOrgAgent(appTools.app))) &&
+            !isConversationRoute &&
+            router.name === 'org_agent' && (
               <List disablePadding>
 
                 {/* New resource creation button */}
@@ -274,7 +279,7 @@ const SidebarContentInner: React.FC<{
                     id="create-link"
                     onClick={handleCreateNew}
                     sx={{
-                      height: '64px',
+                      height: isConversationRoute ? TOOLBAR_HEIGHT : '64px',
                       display: 'flex',
                       '&:hover': {
                         '.MuiListItemText-root .MuiTypography-root': { color: lightTheme.textColor },
@@ -374,13 +379,15 @@ const SidebarContentInner: React.FC<{
           sx={{
             flexGrow: 1,
             width: '100%',
-            height: '100%', // Fixed height to fill available space
-            overflow: 'auto', // Enable scrollbar when content exceeds height
-            boxShadow: 'none', // Remove shadow for a more flat/minimalist design
-            borderRight: 'none', // Remove the border if present
-            mr: 3,
-            mt: 1,
-            ...lightTheme.scrollbar,
+            minWidth: 0,
+            height: '100%',
+            overflowY: isConversationRoute ? 'hidden' : 'auto',
+            overflowX: 'hidden',
+            boxSizing: 'border-box',
+            boxShadow: 'none',
+            borderRight: 'none',
+            mt: isConversationRoute ? 0 : 1,
+            ...(!isConversationRoute && lightTheme.scrollbar),
           }}
         >
           { children }

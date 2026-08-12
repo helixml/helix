@@ -12,6 +12,16 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// goldenBuildTimeout bounds a single golden build's wall-clock duration. A cold
+// `build-zed release` + `build-sandbox` under heavy CPU contention can take
+// hours (especially after a zed bump invalidates the cargo cache), so this
+// ceiling is deliberately generous. It doubles as the staleness threshold for
+// the in-memory `building` map: an entry older than this with no live monitor
+// goroutine (e.g. an API restart that recovery missed) is treated as dead, so a
+// fresh build is allowed. On timeout the build is marked failed AND its
+// container is stopped, so a blown build doesn't keep compiling and burning CPU.
+const goldenBuildTimeout = 6 * time.Hour
+
 // GoldenBuildService manages golden Docker cache builds for projects.
 // When a merge to main happens and the project has AutoWarmDockerCache enabled,
 // it triggers a golden build session that runs the startup script to populate
@@ -25,7 +35,7 @@ type GoldenBuildService struct {
 
 	// Track running golden builds to prevent duplicates.
 	// Key: "projectID/sandboxID" -> build start time.
-	// Entries older than 30 min are treated as stale.
+	// Entries older than goldenBuildTimeout are treated as stale.
 	mu       sync.Mutex
 	building map[string]time.Time
 
@@ -234,7 +244,7 @@ func (g *GoldenBuildService) TriggerManualGoldenBuild(ctx context.Context, proje
 		key := buildKey(project.ID, sb.ID)
 		g.mu.Lock()
 		if startedAt, ok := g.building[key]; ok {
-			if time.Since(startedAt) < 30*time.Minute {
+			if time.Since(startedAt) < goldenBuildTimeout {
 				// Manual trigger while build running — queue rebuild
 				g.pendingRebuild[key] = project
 				g.mu.Unlock()
@@ -334,7 +344,7 @@ func (g *GoldenBuildService) fanOutBuilds(ctx context.Context, project *types.Pr
 
 		g.mu.Lock()
 		if startedAt, ok := g.building[key]; ok {
-			if time.Since(startedAt) < 30*time.Minute {
+			if time.Since(startedAt) < goldenBuildTimeout {
 				// Build already running — queue a rebuild for when it finishes.
 				// This ensures rapid merges don't leave the cache stale.
 				g.pendingRebuild[key] = project
@@ -344,7 +354,7 @@ func (g *GoldenBuildService) fanOutBuilds(ctx context.Context, project *types.Pr
 				continue
 			}
 			log.Warn().Str("project_id", project.ID).Str("sandbox_id", sb.ID).
-				Msg("Golden build entry is stale (>30min), starting new build")
+				Msg("Golden build entry is stale (no live monitor), starting new build")
 			delete(g.building, key)
 		}
 		g.building[key] = time.Now()
@@ -379,7 +389,7 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, 
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), goldenBuildTimeout)
 	defer cancel()
 
 	// Get project repositories
@@ -559,10 +569,19 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 		select {
 		case <-ctx.Done():
 			log.Warn().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
-				Msg("Golden build: timed out waiting for completion")
+				Dur("timeout", goldenBuildTimeout).
+				Msg("Golden build: timed out waiting for completion, stopping container")
+			// Stop the container so a blown build doesn't keep compiling and
+			// burning CPU. ctx is already cancelled, so use a fresh context.
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := g.containerExecutor.StopDesktop(stopCtx, sessionID); err != nil {
+				log.Warn().Err(err).Str("session_id", sessionID).Str("sandbox_id", sandboxID).
+					Msg("Golden build: failed to stop timed-out container (may have already exited)")
+			}
+			stopCancel()
 			g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
 				s.Status = "failed"
-				s.Error = "Build timed out (30 min)"
+				s.Error = fmt.Sprintf("Build timed out (%s)", goldenBuildTimeout)
 				s.BuildSessionID = ""
 			})
 			return
