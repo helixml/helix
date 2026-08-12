@@ -14,7 +14,10 @@ import { RefreshCw, Save } from "lucide-react";
 import useLightTheme from "../../hooks/useLightTheme";
 import useSnackbar from "../../hooks/useSnackbar";
 import { DIFF_UNSAFE_CSS, PIERRE_THEMES } from "./pierreStyles";
-import { useUpdateWorkspaceFile } from "./workspaceReviewService";
+import {
+  getWorkspaceFileSaveError,
+  useUpdateWorkspaceFile,
+} from "./workspaceReviewService";
 import {
   buildWorkspaceReviewComment,
   type WorkspaceReviewComment,
@@ -266,9 +269,7 @@ const WorkspaceEditableFile: FC<WorkspaceEditableFileProps> = ({
     } catch (error) {
       const status = (error as { response?: { status?: number } })?.response?.status;
       setConflicted(status === 409);
-      snackbarRef.current.error(status === 409
-        ? `${path} changed outside the editor. Reload it before saving.`
-        : `Could not save ${path}`);
+      snackbarRef.current.error(getWorkspaceFileSaveError(error, path));
     }
   }, [contentHash, path]);
 

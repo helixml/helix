@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   desktopPollInterval,
   desktopQueryRetry,
+  getWorkspaceFileSaveError,
   isDesktopUnavailableError,
   useUpdateWorkspaceFile,
 } from "./workspaceReviewService";
@@ -52,6 +53,20 @@ describe("workspace query behaviour against a stopped sandbox", () => {
 });
 
 describe("workspace file updates", () => {
+  it("explains when a running desktop predates file editing", () => {
+    expect(
+      getWorkspaceFileSaveError({ response: { status: 405 } }, "src/app.ts"),
+    ).toBe(
+      "This desktop was started before file editing was available. Copy your unsaved changes, then stop and start the desktop.",
+    );
+    expect(
+      getWorkspaceFileSaveError({ response: { status: 409 } }, "src/app.ts"),
+    ).toBe("src/app.ts changed outside the editor. Reload it before saving.");
+    expect(
+      getWorkspaceFileSaveError(new Error("network"), "src/app.ts"),
+    ).toBe("Could not save src/app.ts");
+  });
+
   it("uses the generated client with a content precondition and invalidates workspace data", async () => {
     mocks.updateFile.mockResolvedValue({
       data: { path: "src/app.ts", contents: "updated", content_hash: "next" },

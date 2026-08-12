@@ -11,6 +11,18 @@ export function isDesktopUnavailableError(error: unknown): boolean {
   return (error as { response?: { status?: number } } | null)?.response?.status === 503;
 }
 
+export function getWorkspaceFileSaveError(error: unknown, path: string): string {
+  const status = (error as { response?: { status?: number } } | null)?.response
+    ?.status;
+  if (status === 409) {
+    return `${path} changed outside the editor. Reload it before saving.`;
+  }
+  if (status === 405) {
+    return "This desktop was started before file editing was available. Copy your unsaved changes, then stop and start the desktop.";
+  }
+  return `Could not save ${path}`;
+}
+
 /**
  * A stopped sandbox is a settled state, not a flaky one. Retrying its 503 —
  * or polling straight through it — produces an endless stream of requests
