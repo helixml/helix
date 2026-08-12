@@ -166,3 +166,22 @@ func TestExternalMCPBackendCleanupPreservesReplacement(t *testing.T) {
 		t.Fatal("cleanup deleted the fresh replacement server")
 	}
 }
+
+
+// The external proxy is the only path Zed's tool calls take, so the acting
+// session must travel with them. Without it an external MCP server cannot tell
+// which user a call is for except by trusting a model-supplied argument — Find
+// AI's tools failed closed with "requires a signed-in session" for exactly this
+// reason, on production.
+func TestProxyMetaCarriesTheActingSession(t *testing.T) {
+	m := proxyMeta(&types.User{ID: "user_1", AppID: "app_1"}, "ses_real")
+	if m.SessionID != "ses_real" {
+		t.Errorf("SessionID = %q, want ses_real — the X-Helix-Session-Id header depends on it", m.SessionID)
+	}
+	if m.UserID != "user_1" {
+		t.Errorf("UserID = %q, want user_1", m.UserID)
+	}
+	if m.AppID != "app_1" {
+		t.Errorf("AppID = %q, want app_1", m.AppID)
+	}
+}
