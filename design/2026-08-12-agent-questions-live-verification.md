@@ -129,6 +129,22 @@ Three attempts after the rebuild, none of which got as far as a question.
 | 2 | `zed_thread_id` never set. Interaction ended `error`: *"Agent never connected after auto-wake cold-start retries (no WebSocket — see helixml/helix#2397)"*. UI: "Retried 2× · upstream ACP buffering" + "The system has encountered an error". `screenshots/01-acp-error-after-zed-rebuild.png` |
 | 3 | Same. Session sat `waiting`, `zed_thread_id` stayed empty for 15+ min. |
 | 4 | Restarted the desktop on run 3's task (reusing the already-extracted image). Still no `zed_thread_id` after 8 min. `screenshots/02-third-task-acp-error-desktop-paused.png` |
+| 5 | Reused run 1's task, which already had a `zed_thread_id`. Desktop started with the rebuilt Zed; the sandbox went `unhealthy` and 8080 died again before a prompt could be sent. `screenshots/03-run5-desktop-restarting-fixed-zed.png` |
+
+Run 5 took a different route: rather than provoking another cold start, it restarted the
+desktop on **run 1's** task, whose session already had a registered
+`zed_thread_id=dab7327a-171f-49d7-ac05-4a32241dc72e`. That worked as far as it went — the
+desktop came up and a single fresh Zed process (the rebuilt binary) was running against
+`/home/retro/work/cache-demo-2` (`screenshots/03-run5-desktop-restarting-fixed-zed.png`).
+Before a prompt could be sent, the sandbox went `unhealthy` again and 8080 stopped responding
+— this time at load average 9, so not CPU exhaustion but the dockerd wedge below. That was the
+fifth occurrence of the same cycle and the point at which attempts stopped.
+
+Incidentally, run 1's original turn did eventually settle on its own, ending with the
+assistant text *"I'll ask about the caching backend before touching any code."* after
+9m 49s — i.e. the elicitation was dropped, and the agent gave up on asking and narrated its
+intention instead. That is consistent with the dropped-entry behaviour, not with a working
+question.
 
 Zed itself was running each time — `/zed-build/zed /home/retro/work/cache-demo-2 …` plus
 `claude-agent-acp` were both live in the desktop container. The problem was the transport. The
