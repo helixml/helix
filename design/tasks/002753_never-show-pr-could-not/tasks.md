@@ -1,7 +1,7 @@
 # Implementation Tasks: Never Show "PR Could Not Be Created" When Work Landed on an Internal Repo
 
-- [ ] Read prior art before touching code: `git show 77726b750`, `70ab4b28a`, `19d7d4f55`
-- [ ] Confirm Open Question 1: check `project_repositories` for `code-chris-outreach-01kvtnnpgaz5eg525et25tx62f` and verify the task's repo set really does include it; adjust the resolver's candidate set if not
+- [~] Read prior art before touching code: `git show 77726b750`, `70ab4b28a`, `19d7d4f55`
+- [~] Confirm Open Question 1: check `project_repositories` for `code-chris-outreach-01kvtnnpgaz5eg525et25tx62f` and verify the task's repo set really does include it; adjust the resolver's candidate set if not
 - [ ] Create `api/pkg/services/spec_task_repo_landing.go` with `RepoLandingState`, `RepoLanding`, `TaskLanding`, and `ResolveTaskLanding` (classify each repo via `GetDivergence` on `LocalPath`, matching `ensurePullRequestForRepo`)
 - [ ] Add the derived predicates `WorkRepos()`, `PullRequestPossible()`, `AllWorkLanded()`, `DivergedRepos()`
 - [ ] Move the body of `HelixAPIServer.shouldOpenPullRequest` into `services.RepoSupportsPullRequests`, delete the old method, and update its call sites
