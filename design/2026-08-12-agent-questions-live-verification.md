@@ -44,6 +44,48 @@ curl -s -o /dev/null -w '%{http_code}' http://localhost:8080
 
 (Results appended below as they were observed.)
 
+## Blocker found and cleared: the sandbox was running the wrong Zed
+
+First run through the loop **failed**, and the cause was environmental, not the feature.
+
+Observed: a spec task on the Claude Code harness (`claude-opus-5`) did call `AskUserQuestion`
+— but Helix rendered it as a **dead tool-call stub**: a collapsible row reading "Which caching
+backend should I use for the caching layer in cache-demo-2?" that expands to the same
+sentence and nothing else. No options, no descriptions, no "Other" field, no answer control.
+The turn sat at "Working for 3m 53s" indefinitely. `agent_elicitations` had **0 rows** and the
+API logged **zero** occurrences of `elicit` in ten minutes.
+
+This is precisely the pre-change behaviour the design doc describes.
+
+Root cause: `/home/retro/work/zed` was checked out on **`main`**, and `./stack build-zed`
+builds from that working tree. `main` has no elicitation support:
+
+```
+# on main
+git grep -c elicitation_requested -- crates/external_websocket_sync/src/types.rs   → (no match)
+# at the pinned commit
+git grep -c elicitation_requested 859325b38f -- crates/…/types.rs                  → 2
+# the binary that was actually running
+strings zed-build/zed | grep -c elicitation_requested                              → 0
+```
+
+`sandbox-versions.txt` pins `ZED_COMMIT=859325b38fa519c28b55157039e7a9fe4990189a`, but that
+pin is consumed by **`.drone.yml` only** — CI clones Zed at the pinned commit. The local
+`./stack build-zed` path has no such pin; it builds whatever the working tree happens to be.
+A local sandbox is therefore not pinned by `sandbox-versions.txt` at all.
+
+Fix applied for this verification (environment only, no code change): checked
+`/home/retro/work/zed` out at `859325b38f` and rebuilt. `docker-compose.dev.yaml` bind-mounts
+`./zed-build:/helix-dev/zed-build:ro` into the sandbox, so rebuilding the binary is sufficient
+— the sandbox image does not need rebuilding.
+
+Evidence: `screenshots/00-wrong-zed-dead-stub.png` (real model tool call, wrong Zed binary).
+
+**Recommendation for the PR (not a change made here):** the local build path silently ignores
+the `ZED_COMMIT` pin. Anyone verifying this feature from a dev stack will hit the same dead
+stub and may well read it as "the feature is broken". Worth either making `./stack build-zed`
+honour `sandbox-versions.txt` or warning when the worktree HEAD ≠ pinned commit.
+
 ## Provider configuration observed
 
 `/home/retro/work/helix/.env` in the inner stack routes inference through the outer Helix
