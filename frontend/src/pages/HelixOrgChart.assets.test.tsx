@@ -191,7 +191,7 @@ describe('HelixOrgChart processors and people panel', () => {
     ]))
   })
 
-  it('collapses and expands the people panel', () => {
+  it('starts collapsed and expands the people panel', () => {
     render(
       <ThemeProvider theme={createTheme()}>
         <PeoplePanel
@@ -201,8 +201,6 @@ describe('HelixOrgChart processors and people panel', () => {
       </ThemeProvider>,
     )
 
-    expect(screen.getByText('Alice')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('People'))
     expect(screen.queryByText('Alice')).not.toBeInTheDocument()
     fireEvent.click(screen.getByText('People'))
     expect(screen.getByText('Alice')).toBeInTheDocument()
