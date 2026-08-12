@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   getNewTaskShortcutLabel,
+  registerNewTaskShortcut,
   shouldOpenNewTask,
   type SpecTaskViewMode,
 } from "./specTaskKeyboardShortcuts";
@@ -64,7 +65,28 @@ describe("project board new-task shortcut", () => {
   });
 
   it("formats the shortcut for the active platform", () => {
-    expect(getNewTaskShortcutLabel("MacIntel")).toBe("⌘↵");
-    expect(getNewTaskShortcutLabel("Linux x86_64")).toBe("Ctrl+↵");
+    expect(getNewTaskShortcutLabel("MacIntel")).toBe("⌘ Enter");
+    expect(getNewTaskShortcutLabel("Linux x86_64")).toBe("Ctrl Enter");
+  });
+
+  it("captures the shortcut before a child can stop keyboard propagation", () => {
+    const target = document.createElement("button");
+    target.addEventListener("keydown", (event) => event.stopPropagation());
+    document.body.appendChild(target);
+    const openNewTask = vi.fn();
+    const unregister = registerNewTaskShortcut("kanban", openNewTask);
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    target.dispatchEvent(event);
+
+    expect(openNewTask).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(true);
+    unregister();
+    target.remove();
   });
 });

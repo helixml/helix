@@ -32,5 +32,21 @@ export function shouldOpenNewTask(
 }
 
 export function getNewTaskShortcutLabel(platform = navigator.platform): string {
-  return platform.includes("Mac") ? "⌘↵" : "Ctrl+↵";
+  return platform.includes("Mac") ? "⌘ Enter" : "Ctrl Enter";
+}
+
+export function registerNewTaskShortcut(
+  viewMode: SpecTaskViewMode,
+  openNewTask: () => void,
+): () => void {
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (!shouldOpenNewTask(event, viewMode)) return;
+    event.preventDefault();
+    openNewTask();
+  };
+
+  window.addEventListener("keydown", handleKeyDown, { capture: true });
+  return () => window.removeEventListener("keydown", handleKeyDown, {
+    capture: true,
+  });
 }

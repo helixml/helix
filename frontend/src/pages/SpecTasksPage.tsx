@@ -85,7 +85,7 @@ import {
 } from "../services/projectAccessGrantService";
 import ProjectMembersBar from "../components/project/ProjectMembersBar";
 import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
-import { shouldOpenNewTask } from "../components/tasks/specTaskKeyboardShortcuts";
+import { registerNewTaskShortcut } from "../components/tasks/specTaskKeyboardShortcuts";
 
 const SpecTasksPage: FC = () => {
   const account = useAccount();
@@ -600,15 +600,7 @@ const SpecTasksPage: FC = () => {
 
   useEffect(() => {
     if (viewMode !== "kanban" || createDialogOpen) return;
-
-    const handleNewTaskShortcut = (event: KeyboardEvent) => {
-      if (!shouldOpenNewTask(event, viewMode)) return;
-      event.preventDefault();
-      handleOpenCreateDialog();
-    };
-
-    window.addEventListener("keydown", handleNewTaskShortcut);
-    return () => window.removeEventListener("keydown", handleNewTaskShortcut);
+    return registerNewTaskShortcut(viewMode, handleOpenCreateDialog);
   }, [createDialogOpen, handleOpenCreateDialog, viewMode]);
 
   const handleTaskCreated = useCallback((task: TypesSpecTask) => {

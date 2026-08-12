@@ -1705,22 +1705,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 color="secondary"
                 startIcon={<AddIcon />}
                 onClick={onCreateTask}
-                endIcon={
-                  <Box
-                    component="span"
-                    sx={{
-                      px: 0.5,
-                      py: 0.125,
-                      border: "1px solid",
-                      borderColor: "currentColor",
-                      borderRadius: 0.5,
-                      fontSize: "0.65rem",
-                      lineHeight: 1.2,
-                      opacity: 0.75,
-                    }}
-                  >
-                    {newTaskShortcutLabel}
-                  </Box>
+                aria-keyshortcuts={
+                  navigator.platform.includes("Mac")
+                    ? "Meta+Enter"
+                    : "Control+Enter"
                 }
               >
                 New Task
