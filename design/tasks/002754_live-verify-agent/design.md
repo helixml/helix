@@ -144,6 +144,53 @@ group, report sections). Screenshots land in the helix-specs task folder and are
 Finally, a summary comment on https://github.com/helixml/helix/pull/3009 via `gh pr comment`.
 **No merges, no new PRs, no code changes.**
 
+## Implementation Notes (written during the run — read these first if you are repeating this)
+
+**Outcome: NOT VERIFIED.** The loop was not proven to work and not proven broken. Details in
+`helix:design/2026-08-12-agent-questions-live-verification.md`.
+
+Discoveries that will save the next agent hours:
+
+- **The Zed pin does not apply locally.** `sandbox-versions.txt` sets
+  `ZED_COMMIT=859325b38f`, but that is consumed by **`.drone.yml` only**. `./stack build-zed`
+  builds from whatever `/home/retro/work/zed` has checked out — which was `main`, with no
+  elicitation support. Symptom: a real `AskUserQuestion` renders as a **dead tool-call stub**
+  with `agent_elicitations` empty and zero `elicit` lines in the API log. Check first:
+  `cd /home/retro/work/zed && git log --oneline -1` and
+  `grep -c elicitation_requested /home/retro/work/helix/zed-build/zed`.
+- **Rebuilding just the binary is enough.** `docker-compose.dev.yaml` bind-mounts
+  `./zed-build:/helix-dev/zed-build:ro` into the sandbox, so no sandbox image rebuild is
+  needed after `./stack build-zed release` (~37 min).
+- **The database is `postgres`, not `helix`**: `docker exec helix-postgres-1 psql -U postgres -d postgres`.
+  Use `docker exec` directly rather than `docker compose exec` — the compose CLI spawns
+  buildx/compose plugin-metadata children on every call and adds real load on a busy box.
+- **Fresh stacks cannot create projects** until
+  `PUT /api/v1/system/settings` sets `default_new_project_agent_provider` +
+  `default_new_project_agent_model` (error text points at "Admin > System Settings", but there
+  is no `/admin/settings` route). Used `anthropic` / `claude-opus-5`.
+- **Claude Code is present** in the project-creation agent picker, with real Anthropic models.
+  Note the inner `/v1/models` aggregation lists **no** Anthropic models even so — don't use it
+  to decide whether Claude is available.
+- **`chrome-devtools` `fill` does not trigger React onChange** in the composer; the Send button
+  stays disabled. Use `type_text` (real keystrokes) instead.
+- **`/proc/<pid>/root/...` did not resolve into the desktop container** — it returned the
+  host's own file (same inode). Don't trust it for reading a container's logs.
+- **The killer: `sandbox-nvidia`'s healthcheck wedges the box.** It is `docker info` every 30 s
+  with a 5 s timeout that does not kill the hung process. Once the inner dockerd wedges, one
+  leaks every 30 s; 51 were measured stacked, load 30→150, iowait ~50 %, inner API dead on 8080
+  with no logs. Recovery is `docker restart helix-sandbox-nvidia-1` (exits 137, then needs
+  `docker compose up -d sandbox-nvidia`). Killing the processes alone does not work. This
+  recurred **five times** on a ~25 minute cycle, each triggered by a desktop cold-start
+  (extracting the 7.67 GB desktop image). Watch it with `pgrep -c -f '^docker info'`; anything
+  above ~3 means restart the sandbox now.
+- **Liveness gate before prompting:** `config->>'zed_thread_id'` must be a non-empty UUID. If
+  it stays empty and the API log repeats `[CONNECT] … zed_thread_id=` alongside
+  `websocket: close 1006`, the transport is flapping and no prompt will ever run.
+
+Repo state left behind: `/home/retro/work/zed` is at detached HEAD `859325b38f` (the pinned
+commit) with no local commits — that is the correct state for this sandbox. No code was
+changed in any repo; the only commits are the report in `helix` and these docs.
+
 ## Risks
 
 | Risk | Handling |

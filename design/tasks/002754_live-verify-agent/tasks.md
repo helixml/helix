@@ -46,7 +46,8 @@
 
 - [x] Runs 2, 3 and 4 after the Zed fix never got a `zed_thread_id`. Zed + `claude-agent-acp` were live each time; the sync WebSocket flapped every ~2 min (`close 1006 (abnormal closure)`, RevDial `i/o timeout`). Run 2 ended `error`: "Agent never connected after auto-wake cold-start retries (#2397)". Screenshots `01-acp-error-after-zed-rebuild.png`, `02-third-task-acp-error-desktop-paused.png`
 - [x] Root-caused the host instability: `sandbox-nvidia` healthcheck is `docker info` every 30 s with a 5 s timeout that does not kill the hung process; once the inner dockerd wedges one leaks every 30 s (measured 51 stacked, load 30→150, iowait ~50 %, API dead on 8080). Only a container restart clears it; recurs on a ~25 min cycle, triggered by desktop cold-starts
-- [~] Retry the un-reached evidence whenever the sandbox is stable
+- [x] Run 5: reused run 1's task (already had a `zed_thread_id`) and restarted its desktop on the fixed Zed — desktop came up, then the sandbox went unhealthy and 8080 died again *at load 9*, before a prompt could be sent. `03-run5-desktop-restarting-fixed-zed.png`
+- [x] Stop after the fifth wedge cycle and report honestly rather than keep burning the environment
 
 ## Report and close out
 
@@ -55,3 +56,5 @@
 - [x] Commit and push the report to `feature/002731-end-to-end-agent`
 - [x] **Could not post the PR comment**: no `gh` CLI, no GitHub credentials in this sandbox (only the internal `api:8080` git proxy), `github` MCP server never connected. Comment text saved at `pr-3009-comment.md` for the user to paste
 - [x] Do not merge, do not open new PRs — nothing merged, no PRs created
+- [x] Merge `origin/main` into `feature/002731-end-to-end-agent` (clean) and push; `git merge-base --is-ancestor origin/main HEAD` confirms mergeable
+- [x] Write `pull_request_helix.md`. No PR descriptions for helix-next / docs / qwen-code / zed — none of them have changes from this task (`zed` is at detached HEAD `859325b38f`, the pinned commit, with no local commits)
