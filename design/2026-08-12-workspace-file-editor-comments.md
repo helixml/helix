@@ -11,6 +11,7 @@ The Workspace Inspector could browse and render files but could not make small e
 - The desktop bridge writes through a same-directory temporary file and atomic rename while preserving file permissions.
 - Accepted line comments live in the active task-session composer state. The visible chat draft remains clean; comments are converted to XML-like `review_comment` blocks at queue/send time and cleared only after the message is accepted.
 - Comment draft text is local to the annotation component. Keeping it out of Pierre's annotation state prevents each keystroke from replacing the annotation node, losing textarea focus, and returning input to the file editor.
+- Task creation remains an explicit toolbar action. The previous window-level bare-Enter shortcuts were unsafe for editors: shadow-DOM keyboard events are retargeted to the custom-element host, so checks against the inner `contenteditable` cannot reliably protect text input.
 
 ## Verification
 

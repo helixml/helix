@@ -898,64 +898,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Available sample types for planning
   const [sampleTypes, setSampleTypes] = useState<any[]>([]);
 
-  // Keyboard shortcut for creating new task (Enter key)
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      // Only trigger if not in an interactive element
-      const target = e.target as HTMLElement;
-
-      // Skip if in form elements
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT"
-      ) {
-        return;
-      }
-
-      // Skip if in iframe (video stream)
-      if (target.tagName === "IFRAME") {
-        return;
-      }
-
-      // Skip if element is contentEditable
-      if (target.isContentEditable) {
-        return;
-      }
-
-      // Skip if inside an element with role that expects keyboard input
-      const role = target.getAttribute("role");
-      if (role === "textbox" || role === "searchbox" || role === "combobox") {
-        return;
-      }
-
-      // Skip if inside DesktopStreamViewer or any video container
-      if (
-        target.closest("[data-video-container]") ||
-        target.closest(".desktop-stream-viewer")
-      ) {
-        return;
-      }
-
-      // Skip if inside prompt input area
-      if (
-        target.closest("[data-prompt-input]") ||
-        target.closest(".prompt-input-container")
-      ) {
-        return;
-      }
-
-      if (e.key === "Enter") {
-        if (onCreateTask) {
-          onCreateTask();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [onCreateTask]);
-
   // WIP limits for kanban columns (use prop values or defaults)
   const WIP_LIMITS = {
     backlog: undefined,

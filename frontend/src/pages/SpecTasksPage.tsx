@@ -403,41 +403,6 @@ const SpecTasksPage: FC = () => {
     }
   }, [router.params.new]);
 
-  // Keyboard shortcut: Enter to toggle new task dialog
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === "Enter" &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        !e.shiftKey
-      ) {
-        // Only trigger if not typing in an input field or focused interactive element
-        const target = e.target as HTMLElement;
-        if (
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable ||
-          target.hasAttribute("tabindex")
-        ) {
-          // Exclude focusable elements like stream viewer
-          return;
-        }
-        e.preventDefault();
-        // Toggle behavior: open if closed, close if open and no focus
-        // Also close chat panel when opening create dialog
-        if (!createDialogOpen) {
-          setChatPanelOpen(false);
-        }
-        setCreateDialogOpen((prev) => !prev);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [createDialogOpen]);
-
   // Keyboard shortcut: ESC to close create task panel or chat panel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
