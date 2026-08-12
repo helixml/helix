@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/lib/pq"
@@ -119,6 +120,46 @@ type OpenAIModel struct {
 	ContextLength int                `json:"context_length,omitempty"`
 	Enabled       bool               `json:"enabled,omitempty"`
 	ModelInfo     *ModelInfo         `json:"model_info,omitempty"`
+}
+
+// UnmarshalJSON accepts the context-window fields commonly returned by
+// OpenAI-compatible servers. OpenAI itself does not define a standard context
+// field on /v1/models, while vLLM uses max_model_len and some compatible
+// servers use max_context_length. Normalize all of them into ContextLength so
+// downstream code has one authoritative field to consume.
+func (m *OpenAIModel) UnmarshalJSON(data []byte) error {
+	type openAIModelAlias OpenAIModel
+
+	var decoded openAIModelAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var compatibleFields struct {
+		MaxModelLen      int `json:"max_model_len"`
+		MaxContextLength int `json:"max_context_length"`
+	}
+	if err := json.Unmarshal(data, &compatibleFields); err != nil {
+		return err
+	}
+
+	*m = OpenAIModel(decoded)
+	if m.ContextLength > 0 {
+		return nil
+	}
+	if compatibleFields.MaxModelLen > 0 {
+		m.ContextLength = compatibleFields.MaxModelLen
+		return nil
+	}
+	if compatibleFields.MaxContextLength > 0 {
+		m.ContextLength = compatibleFields.MaxContextLength
+		return nil
+	}
+	if m.ModelInfo != nil && m.ModelInfo.ContextLength > 0 {
+		m.ContextLength = m.ModelInfo.ContextLength
+	}
+
+	return nil
 }
 
 // UpdateProviderEndpoint used for updating a provider endpoint through the API

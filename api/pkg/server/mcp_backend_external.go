@@ -337,8 +337,15 @@ func (b *ExternalMCPBackend) getOrCreateServerOnce(ctx context.Context, user *ty
 	// The TTL is based on lastUsed timestamp, not creation time.
 	clientCtx, clientCancel := context.WithCancel(context.Background())
 
-	// Create MCP client to the external server
-	externalClient, err := b.clientGetter.NewClient(clientCtx, agent.Meta{UserID: user.ID}, nil, mcpConfig)
+	// Create MCP client to the external server.
+	//
+	// SessionID is load-bearing, not decoration. NewClient turns Meta into the
+	// X-Helix-Session-Id header, which is how an external MCP server learns which
+	// session a call is for without trusting a model-supplied tool argument. This
+	// is the only path Zed's tool calls take, so omitting it left every such
+	// server unable to identify the caller — Find AI's tools failed with "this
+	// tool requires a signed-in session" for exactly this reason.
+	externalClient, err := b.clientGetter.NewClient(clientCtx, proxyMeta(user, sessionID), nil, mcpConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to external MCP server: %w", err)
 	}
@@ -472,5 +479,18 @@ func (b *ExternalMCPBackend) createToolHandler(client mcpclient.Client, toolName
 			Msg("external MCP tool call succeeded")
 
 		return result, nil
+	}
+}
+
+// proxyMeta is the identity travelling with a proxied tool call.
+//
+// Extracted so it can be tested: the SessionID here becomes the
+// X-Helix-Session-Id header, and dropping it silently breaks every external MCP
+// server that authorizes per user rather than per org.
+func proxyMeta(user *types.User, sessionID string) agent.Meta {
+	return agent.Meta{
+		UserID:    user.ID,
+		SessionID: sessionID,
+		AppID:     user.AppID,
 	}
 }
