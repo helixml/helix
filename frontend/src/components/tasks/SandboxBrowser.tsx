@@ -29,7 +29,9 @@ import {
   useSessionPreviewTokens,
 } from '../../services/sessionPreviewService'
 import {
+  isSandboxBrowserNavigationMessage,
   parseSandboxBrowserTarget,
+  sandboxDisplayUrlFromPreview,
   sandboxPreviewUrl,
   sandboxPreviewURLWithScheme,
 } from './sandboxBrowserUrl'
@@ -50,6 +52,7 @@ interface BrowserHistoryEntry {
 interface BrowserTab {
   address: string
   error: string
+  frameUrl: string
   history: BrowserHistoryEntry[]
   historyIndex: number
   id: string
@@ -68,6 +71,7 @@ function createBrowserTab(id: string, address = defaultAddress): BrowserTab {
   return {
     address,
     error: '',
+    frameUrl: '',
     history: [],
     historyIndex: -1,
     id,
@@ -111,6 +115,8 @@ function errorMessage(error: unknown): string {
 const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
   const storageKey = `helix.sandboxBrowser.url.${sessionId}`
   const nextTabId = useRef(1)
+  const iframeRefs = useRef(new Map<string, HTMLIFrameElement>())
+  const activeTabIdRef = useRef<string | null>('browser-0')
   const [tabs, setTabs] = useState<BrowserTab[]>(() => [
     createBrowserTab('browser-0', window.localStorage.getItem(storageKey) ?? defaultAddress),
   ])
@@ -122,15 +128,75 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
   const tokensQuery = useSessionPreviewTokens(sessionId, previewConfigured)
   const createToken = useCreateSessionPreviewToken(sessionId)
 
+  activeTabIdRef.current = activeTabId
+
   useEffect(() => {
     const nextStorageKey = `helix.sandboxBrowser.url.${sessionId}`
     nextTabId.current = 1
+    iframeRefs.current.clear()
     setTabs([
       createBrowserTab('browser-0', window.localStorage.getItem(nextStorageKey) ?? defaultAddress),
     ])
     setActiveTabId('browser-0')
     setTabContextMenu(null)
   }, [sessionId])
+
+  useEffect(() => {
+    const handlePreviewNavigation = (event: MessageEvent) => {
+      if (!isSandboxBrowserNavigationMessage(event.data)) return
+      const frameEntry = [...iframeRefs.current.entries()].find(([, frame]) => (
+        frame.contentWindow === event.source
+      ))
+      if (!frameEntry) return
+      const [tabId] = frameEntry
+
+      setTabs((currentTabs) => currentTabs.map((tab) => {
+        if (tab.id !== tabId || tab.historyIndex < 0) return tab
+        const currentEntry = tab.history[tab.historyIndex]
+        const resolvedPreviewUrl = sandboxPreviewURLWithScheme(
+          currentEntry.previewUrl,
+          previewURLHTTPS,
+        )
+        if (event.origin !== new URL(resolvedPreviewUrl).origin) return tab
+        const displayUrl = sandboxDisplayUrlFromPreview(
+          currentEntry.displayUrl,
+          resolvedPreviewUrl,
+          event.data.href,
+        )
+        if (!displayUrl) return tab
+        if (activeTabIdRef.current === tabId) {
+          window.localStorage.setItem(`helix.sandboxBrowser.url.${sessionId}`, displayUrl)
+        }
+        if (displayUrl === currentEntry.displayUrl) {
+          return { ...tab, address: displayUrl }
+        }
+
+        const nextEntry = { displayUrl, previewUrl: event.data.href }
+        if (event.data.navigationType === 'replace') {
+          const history = [...tab.history]
+          history[tab.historyIndex] = nextEntry
+          return { ...tab, address: displayUrl, history }
+        }
+        if (event.data.navigationType === 'pop') {
+          const historyIndex = tab.history.findIndex((entry) => entry.displayUrl === displayUrl)
+          if (historyIndex >= 0) {
+            return { ...tab, address: displayUrl, historyIndex }
+          }
+        }
+
+        const history = [...tab.history.slice(0, tab.historyIndex + 1), nextEntry]
+        return {
+          ...tab,
+          address: displayUrl,
+          history,
+          historyIndex: history.length - 1,
+        }
+      }))
+    }
+
+    window.addEventListener('message', handlePreviewNavigation)
+    return () => window.removeEventListener('message', handlePreviewNavigation)
+  }, [previewURLHTTPS, sessionId])
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId)
   const current = activeTab && activeTab.historyIndex >= 0
@@ -227,6 +293,7 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
           ...tab,
           address: target.displayUrl,
           error: '',
+          frameUrl: entry.previewUrl,
           history: nextHistory,
           historyIndex: nextHistory.length - 1,
         }
@@ -250,7 +317,9 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
       ...currentTab,
       address: next.displayUrl,
       error: '',
+      frameUrl: next.previewUrl,
       historyIndex: nextIndex,
+      reloadNonce: currentTab.reloadNonce + 1,
     }))
   }
 
@@ -425,7 +494,11 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
             <IconButton
               aria-label="Reload browser preview"
               disabled={!current || isLoading}
-              onClick={() => updateTab(activeTab.id, (tab) => ({ ...tab, reloadNonce: tab.reloadNonce + 1 }))}
+              onClick={() => updateTab(activeTab.id, (tab) => ({
+                ...tab,
+                frameUrl: current?.previewUrl || tab.frameUrl,
+                reloadNonce: tab.reloadNonce + 1,
+              }))}
               sx={browserButtonSx}
             >
               {isLoading ? <CircularProgress size={16} /> : <RotateCw />}
@@ -472,9 +545,9 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
       <Box sx={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden', backgroundColor: '#000' }}>
         {tabs.map((tab) => {
           const tabCurrent = tab.historyIndex >= 0 ? tab.history[tab.historyIndex] : undefined
-          if (!tabCurrent) return null
+          if (!tabCurrent || !tab.frameUrl) return null
           const resolvedPreviewUrl = sandboxPreviewURLWithScheme(
-            tabCurrent.previewUrl,
+            tab.frameUrl,
             previewURLHTTPS,
           )
           return (
@@ -487,7 +560,11 @@ const SandboxBrowser: FC<SandboxBrowserProps> = ({ sessionId }) => {
               }}
             >
               <iframe
-                key={`${resolvedPreviewUrl}:${tab.reloadNonce}`}
+                key={`${tab.id}:${tab.reloadNonce}`}
+                ref={(frame) => {
+                  if (frame) iframeRefs.current.set(tab.id, frame)
+                  else iframeRefs.current.delete(tab.id)
+                }}
                 src={resolvedPreviewUrl}
                 title={`Sandbox browser: ${tabCurrent.displayUrl}`}
                 allow="clipboard-read; clipboard-write; fullscreen"

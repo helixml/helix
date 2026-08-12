@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const previewMocks = vi.hoisted(() => ({
@@ -128,5 +128,72 @@ describe('SandboxBrowser', () => {
     fireEvent.click(screen.getAllByRole('tab')[0])
     expect(firstFrame).toBeVisible()
     expect(secondFrame).not.toBeVisible()
+  })
+
+  it('tracks iframe navigation and reloads the current path', async () => {
+    render(<SandboxBrowser sessionId="ses_test" />)
+
+    const address = screen.getByRole('textbox', { name: 'Sandbox browser address' })
+    fireEvent.change(address, { target: { value: 'http://localhost:8080/' } })
+    fireEvent.submit(address.closest('form')!)
+    const firstFrame = await screen.findByTitle('Sandbox browser: http://localhost:8080/')
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: {
+          type: 'helix:sandbox-browser:navigate',
+          href: 'http://share-blue-fox.dev.localhost:8080/dashboard?q=one#status',
+          navigationType: 'push',
+        },
+        origin: 'http://share-blue-fox.dev.localhost:8080',
+        source: (firstFrame as HTMLIFrameElement).contentWindow,
+      }))
+    })
+
+    await waitFor(() => expect(address).toHaveValue(
+      'http://localhost:8080/dashboard?q=one#status',
+    ))
+    const navigatedFrame = screen.getByTitle(
+      'Sandbox browser: http://localhost:8080/dashboard?q=one#status',
+    )
+    expect(navigatedFrame).toBe(firstFrame)
+    expect(navigatedFrame).toHaveAttribute(
+      'src',
+      'http://share-blue-fox.dev.localhost:8080/',
+    )
+    expect(window.localStorage.getItem('helix.sandboxBrowser.url.ses_test'))
+      .toBe('http://localhost:8080/dashboard?q=one#status')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload browser preview' }))
+    const reloadedFrame = await screen.findByTitle(
+      'Sandbox browser: http://localhost:8080/dashboard?q=one#status',
+    )
+    expect(reloadedFrame).toHaveAttribute(
+      'src',
+      'http://share-blue-fox.dev.localhost:8080/dashboard?q=one#status',
+    )
+  })
+
+  it('ignores navigation messages that do not match the preview origin', async () => {
+    render(<SandboxBrowser sessionId="ses_test" />)
+
+    const address = screen.getByRole('textbox', { name: 'Sandbox browser address' })
+    fireEvent.change(address, { target: { value: 'http://localhost:8080/' } })
+    fireEvent.submit(address.closest('form')!)
+    const frame = await screen.findByTitle('Sandbox browser: http://localhost:8080/')
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: {
+          type: 'helix:sandbox-browser:navigate',
+          href: 'https://example.com/phishing',
+          navigationType: 'push',
+        },
+        origin: 'https://example.com',
+        source: (frame as HTMLIFrameElement).contentWindow,
+      }))
+    })
+
+    expect(address).toHaveValue('http://localhost:8080/')
   })
 })
