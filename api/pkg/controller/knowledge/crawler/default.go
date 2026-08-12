@@ -308,7 +308,7 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 
 	start := time.Now()
 
-	page, err := d.browser.GetPage(b, proto.TargetCreateTarget{URL: url})
+	page, err := d.browser.GetPage(b, proto.TargetCreateTarget{})
 	if err != nil {
 		return nil, fmt.Errorf("error getting page for %s: %w", url, err)
 	}
@@ -326,6 +326,11 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 
 	e := proto.NetworkResponseReceived{}
 	wait := page.WaitEvent(&e)
+
+	err = page.Navigate(url)
+	if err != nil {
+		return nil, fmt.Errorf("error navigating to %s: %w", url, err)
+	}
 
 	err = page.Timeout(d.pageTimeout).WaitLoad()
 	if err != nil {
