@@ -105,6 +105,7 @@ import VCSConnectionLozenges from "./VCSConnectionLozenges";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
 import { useSampleTypes } from "../../hooks/useSampleTypes";
 import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
+import { getNewTaskShortcutLabel } from "./specTaskKeyboardShortcuts";
 
 // SpecTask types and statuses
 type SpecTaskPhase =
@@ -684,6 +685,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const newTaskShortcutLabel = getNewTaskShortcutLabel();
 
   // Open the matching repository provider when planning requires OAuth.
   const { startOAuthFlow } = useOAuthFlow();
@@ -1697,12 +1699,29 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             </Tooltip>
           </Box>
           {onCreateTask && (
-            <Tooltip title="Press Enter">
+            <Tooltip title={`New task (${newTaskShortcutLabel})`}>
               <Button
                 variant="contained"
                 color="secondary"
                 startIcon={<AddIcon />}
                 onClick={onCreateTask}
+                endIcon={
+                  <Box
+                    component="span"
+                    sx={{
+                      px: 0.5,
+                      py: 0.125,
+                      border: "1px solid",
+                      borderColor: "currentColor",
+                      borderRadius: 0.5,
+                      fontSize: "0.65rem",
+                      lineHeight: 1.2,
+                      opacity: 0.75,
+                    }}
+                  >
+                    {newTaskShortcutLabel}
+                  </Box>
+                }
               >
                 New Task
               </Button>
