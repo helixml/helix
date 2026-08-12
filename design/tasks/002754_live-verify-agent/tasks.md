@@ -5,50 +5,53 @@
 
 ## Bring the stack up
 
-- [ ] Confirm `/home/retro/work/helix` is on `feature/002731-end-to-end-agent` and `ZED_COMMIT` is pinned to zed PR #83's head
-- [ ] Start the inner dev stack: `docker compose -f docker-compose.dev.yaml up -d`
-- [ ] Poll readiness in a short loop for several minutes: `docker compose -f docker-compose.dev.yaml ps` and `curl -s -o /dev/null -w '%{http_code}' http://localhost:8080` (treat `000` as "booting")
-- [ ] Record ready state: `helix-api-1`, `helix-frontend-1`, `helix-postgres-1` all `Up` and `8080` returning `200`
-- [ ] Create `screenshots/` in the task folder; commit and push the stack-up notes
+- [x] Confirm `/home/retro/work/helix` is on `feature/002731-end-to-end-agent` and `ZED_COMMIT` is pinned to zed PR #83's head
+- [x] Start the inner dev stack (startup script was already running `./stack build` → `build-zed` → `build-sandbox` → `start`)
+- [x] Poll readiness in a short loop for several minutes (treat `000` as "booting")
+- [x] Record ready state: `helix-api-1`, `helix-frontend-1`, `helix-postgres-1` all `Up` and `8080` returning `200` (reached 07:29 BST)
+- [x] Create `screenshots/`; commit and push the stack-up notes
 
 ## Get to a live spec task
 
-- [ ] Register at `http://localhost:8080` as `test@helix.ml` / `helixtest` ("Test User"); sign in if already registered
-- [ ] Complete onboarding: create org, then project
-- [ ] Create a **spec task** (not a bare chat session) so a git repo is provisioned
-- [ ] Verify liveness in postgres: `config->>'zed_thread_id'` is a non-empty UUID
-- [ ] Confirm the task's agent uses the **Claude Code harness**; if no Claude-backed agent exists, stop and report it as a **blocker**
-- [ ] Commit and push progress notes
+- [x] Register at `http://localhost:8080` as `test@helix.ml` / `helixtest` ("Test User") — fresh DB, registration path used
+- [x] Complete onboarding: org `testorg`, project `cache-demo`
+- [x] **Unblock project creation** — failed with "default new project agent provider and model are not configured in Admin > System Settings"; no `/admin/settings` route exists, set via `PUT /api/v1/system/settings` (anthropic / claude-opus-5)
+- [x] Create a **spec task** (not a bare chat session) so a git repo is provisioned
+- [x] Verify liveness: `config->>'zed_thread_id'` = `dab7327a-171f-49d7-ac05-4a32241dc72e` (run 1)
+- [x] Confirm the task's agent uses the **Claude Code harness** — Claude Code is available; **not a blocker**
+- [x] Commit and push progress notes
 
 ## Evidence: the happy path
 
-- [ ] Prompt: "Before you write any code, ask me which caching backend to use — Redis, in-memory, or none" (bounded retries if the model answers without calling `AskUserQuestion`)
-- [ ] Screenshot `01-question-rendered.png`: every option visible with label **and** description, plus the "Other" free-text field
-- [ ] Answer the question in the UI; capture the `respond` network call and its status
-- [ ] Screenshot `02-answer-accepted.png` and `03-turn-resumed.png`: next agent message reflects the chosen option
-- [ ] Cross-check DB: row is `accepted` with `resolution_reason = answered`
-- [ ] Reload the page; screenshot `04-after-reload.png` showing the answered card still records the user's choice
-- [ ] Commit and push screenshots + notes
+- [x] Prompt the agent to ask which caching backend to use — **the model called `AskUserQuestion` first try**
+- [x] **Blocker found:** question rendered as a dead tool-call stub. Root-caused to the sandbox running Zed `main` (no elicitation support); `sandbox-versions.txt` pin is consumed by `.drone.yml` only, not by `./stack build-zed`. Screenshot `00-wrong-zed-dead-stub.png`
+- [x] Fix the environment: check `/home/retro/work/zed` out at `859325b38f`, rebuild (37m). New binary contains `elicitation_requested`; old one had 0
+- [ ] `01-question-rendered.png`: every option visible with label **and** description, plus "Other" free-text field — **NOT REACHED**
+- [ ] `02-answer-accepted.png` / `03-turn-resumed.png` — **NOT REACHED**
+- [ ] Cross-check DB: row `accepted` / `resolution_reason = answered` — **NOT REACHED**
+- [ ] `04-after-reload.png` persistence — **NOT REACHED**
 
 ## Evidence: the session keeps working
 
-- [ ] Send a normal follow-up message in the same thread; screenshot `05-followup-reply.png` of the normal reply
-- [ ] Provoke a **second** question in the same session; screenshot `06-second-question.png`
-- [ ] Answer it; screenshot `07-second-answered.png` and confirm the first answer did not poison the second
-- [ ] Commit and push
+- [ ] `05-followup-reply.png` normal follow-up — **NOT REACHED**
+- [ ] `06-second-question.png` / `07-second-answered.png` uncontaminated second question — **NOT REACHED**
 
 ## Evidence: skip, interrupt, blocked
 
-- [ ] Provoke a question and **skip/decline** it; confirm the turn settles cleanly and continues; screenshot `08-skip.png`
-- [ ] Provoke a question, leave it unanswered, **interrupt** the turn from Helix; confirm the card stops being answerable; screenshot `09-interrupt-locked.png`
-- [ ] Cross-check DB: `cancelled` / reason `interrupted` (or record what actually happened)
-- [ ] With a question pending, screenshot `10-blocked-indicator.png` of the task list / detail header showing the task waits on a human
-- [ ] Confirm the auto-wake worker leaves it alone: `docker compose -f docker-compose.dev.yaml logs api | grep AUTO_WAKE`; capture the log excerpt
-- [ ] Commit and push
+- [ ] `08-skip.png` skip path — **NOT REACHED**
+- [ ] `09-interrupt-locked.png` interrupt locks the card — **NOT REACHED**
+- [ ] `10-blocked-indicator.png` + AUTO_WAKE log excerpt — **NOT REACHED**
+
+## Blocked by environment (documented, not worked around)
+
+- [x] Runs 2, 3 and 4 after the Zed fix never got a `zed_thread_id`. Zed + `claude-agent-acp` were live each time; the sync WebSocket flapped every ~2 min (`close 1006 (abnormal closure)`, RevDial `i/o timeout`). Run 2 ended `error`: "Agent never connected after auto-wake cold-start retries (#2397)". Screenshots `01-acp-error-after-zed-rebuild.png`, `02-third-task-acp-error-desktop-paused.png`
+- [x] Root-caused the host instability: `sandbox-nvidia` healthcheck is `docker info` every 30 s with a 5 s timeout that does not kill the hung process; once the inner dockerd wedges one leaks every 30 s (measured 51 stacked, load 30→150, iowait ~50 %, API dead on 8080). Only a container restart clears it; recurs on a ~25 min cycle, triggered by desktop cold-starts
+- [~] Retry the un-reached evidence whenever the sandbox is stable
 
 ## Report and close out
 
-- [ ] Write `design/2026-08-12-agent-questions-live-verification.md` in the **helix** repo: per-claim observed/expected/verdict, screenshot references, DB/log excerpts, defects described (not fixed), blunt overall verdict
-- [ ] State explicitly if the model would not call `AskUserQuestion`; label any injected-event screenshot **"INJECTED"**
-- [ ] Commit and push the report to `feature/002731-end-to-end-agent`
-- [ ] Post a summary comment on https://github.com/helixml/helix/pull/3009 (`gh pr comment`) — **do not merge, do not open new PRs**
+- [x] Write `design/2026-08-12-agent-questions-live-verification.md` in the **helix** repo with the honest verdict (**NOT VERIFIED**), per-claim status, DB/log excerpts, screenshots, and recommendations
+- [x] State explicitly that no elicitation was injected — there are **no** injected/simulated screenshots
+- [x] Commit and push the report to `feature/002731-end-to-end-agent`
+- [x] **Could not post the PR comment**: no `gh` CLI, no GitHub credentials in this sandbox (only the internal `api:8080` git proxy), `github` MCP server never connected. Comment text saved at `pr-3009-comment.md` for the user to paste
+- [x] Do not merge, do not open new PRs — nothing merged, no PRs created
