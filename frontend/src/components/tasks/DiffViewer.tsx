@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import { Box, CircularProgress } from "@mui/material";
+import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
 
 const WorkspaceInspector = lazy(
   () => import("../workspace-inspector/WorkspaceInspector"),
@@ -19,6 +20,9 @@ interface DiffViewerProps {
   desktopUnavailableDetail?: string;
   desktopUnavailableTitle?: string;
   desktopUnavailableDescription?: string;
+  comments?: readonly WorkspaceReviewComment[];
+  onUpsertComment?: (comment: WorkspaceReviewComment) => void;
+  onRemoveComment?: (commentId: string) => void;
 }
 
 export default function DiffViewer(props: DiffViewerProps) {

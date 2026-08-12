@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import useApi from "../../hooks/useApi";
 
 /**
@@ -171,6 +171,36 @@ export function useWorkspaceFile(
     staleTime: 5_000,
     refetchOnWindowFocus: false,
     retry: desktopQueryRetry,
+  });
+}
+
+export function useUpdateWorkspaceFile(
+  sessionId: string,
+  workspace: string | undefined,
+  path: string,
+) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ contents, expectedContentHash }: {
+      contents: string;
+      expectedContentHash: string;
+    }) => {
+      const response = await api
+        .getApiClient()
+        .v1ExternalAgentsWorkspaceFileUpdate(sessionId, {
+          workspace,
+          path,
+          contents,
+          expected_content_hash: expectedContentHash,
+        });
+      return response.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceReviewKeys.all(sessionId),
+      });
+    },
   });
 }
 

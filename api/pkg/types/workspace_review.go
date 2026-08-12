@@ -78,6 +78,13 @@ type WorkspaceFileResponse struct {
 	Binary      bool   `json:"binary"`
 }
 
+type WorkspaceFileWriteRequest struct {
+	Workspace           string `json:"workspace,omitempty"`
+	Path                string `json:"path"`
+	Contents            string `json:"contents"`
+	ExpectedContentHash string `json:"expected_content_hash"`
+}
+
 type InteractionCodeChanges struct {
 	Status         string                      `json:"status"`
 	Workspace      string                      `json:"workspace,omitempty"`

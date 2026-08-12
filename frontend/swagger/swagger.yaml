@@ -12859,6 +12859,17 @@ definitions:
       workspace:
         type: string
     type: object
+  types.WorkspaceFileWriteRequest:
+    properties:
+      contents:
+        type: string
+      expected_content_hash:
+        type: string
+      path:
+        type: string
+      workspace:
+        type: string
+    type: object
   types.WorkspaceFilesResponse:
     properties:
       entries:
@@ -15744,6 +15755,55 @@ paths:
       security:
       - BearerAuth: []
       summary: Read a workspace file
+      tags:
+      - ExternalAgents
+    put:
+      consumes:
+      - application/json
+      description: Replaces an existing browsable UTF-8 workspace file when its content
+        hash still matches the version the user opened.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Workspace file update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.WorkspaceFileWriteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WorkspaceFileResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update a workspace file
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/workspace-files:

@@ -8073,6 +8073,13 @@ export interface TypesWorkspaceFileResponse {
   workspace?: string;
 }
 
+export interface TypesWorkspaceFileWriteRequest {
+  contents?: string;
+  expected_content_hash?: string;
+  path?: string;
+  workspace?: string;
+}
+
 export interface TypesWorkspaceFilesResponse {
   entries?: TypesWorkspaceFileEntry[];
   truncated?: boolean;
@@ -10308,6 +10315,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Replaces an existing browsable UTF-8 workspace file when its content hash still matches the version the user opened.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWorkspaceFileUpdate
+     * @summary Update a workspace file
+     * @request PUT:/api/v1/external-agents/{sessionID}/workspace-file
+     * @secure
+     */
+    v1ExternalAgentsWorkspaceFileUpdate: (
+      sessionId: string,
+      request: TypesWorkspaceFileWriteRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWorkspaceFileResponse, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/workspace-file`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

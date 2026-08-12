@@ -14,6 +14,7 @@ import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView, { EmbeddedSessionViewHandle } from './EmbeddedSessionView'
 import SessionPromptQueue from './SessionPromptQueue'
 import { getChatColors } from './chatStyles'
+import type { WorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
 
 interface AgentChatProps {
   sessionId: string
@@ -26,6 +27,9 @@ interface AgentChatProps {
   onWillSend?: () => void
   leadingActions?: ReactNode
   footerContent?: ReactNode
+  reviewComments?: readonly WorkspaceReviewComment[]
+  onRemoveReviewComment?: (commentId: string) => void
+  onReviewCommentsSent?: () => void
 }
 
 /** Shared org/spec-task conversation surface. */
@@ -40,6 +44,9 @@ const AgentChat: FC<AgentChatProps> = ({
   onWillSend,
   leadingActions,
   footerContent,
+  reviewComments,
+  onRemoveReviewComment,
+  onReviewCommentsSent,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -164,6 +171,9 @@ const AgentChat: FC<AgentChatProps> = ({
               placeholder={placeholder}
               disabled={disabled}
               enableSandboxCompletions
+              reviewComments={reviewComments}
+              onRemoveReviewComment={onRemoveReviewComment}
+              onReviewCommentsSent={onReviewCommentsSent}
             />
           </Box>
           {footerContent && (

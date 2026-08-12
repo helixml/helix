@@ -4990,6 +4990,102 @@
                         }
                     }
                 }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces an existing browsable UTF-8 workspace file when its content hash still matches the version the user opened.",
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Update a workspace file",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.WorkspaceFileWriteRequest"
+                            }
+                        }
+                    },
+                    "description": "Workspace file update",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.WorkspaceFileResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/v1/external-agents/{sessionID}/workspace-files": {
@@ -44831,6 +44927,23 @@
                     },
                     "truncated": {
                         "type": "boolean"
+                    },
+                    "workspace": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.WorkspaceFileWriteRequest": {
+                "type": "object",
+                "properties": {
+                    "contents": {
+                        "type": "string"
+                    },
+                    "expected_content_hash": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
                     },
                     "workspace": {
                         "type": "string"

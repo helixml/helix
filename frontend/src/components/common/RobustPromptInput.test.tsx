@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
+import { buildWorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
 
 const updateInterrupt = vi.fn()
 const saveToHistory = vi.fn()
@@ -210,6 +211,36 @@ describe('RobustPromptInput active-turn controls', () => {
 
     expect(screen.getByText('1 queued')).toBeInTheDocument()
     expect(screen.queryByText(/saved locally/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('RobustPromptInput workspace review comments', () => {
+  it('shows file comments as chips and serializes them into the queued prompt', () => {
+    const comment = buildWorkspaceReviewComment({
+      id: 'comment-1',
+      filePath: 'demos/jobvacancy.go',
+      startLine: 20,
+      endLine: 20,
+      text: 'Use a clearer name',
+      fileContents: Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n'),
+    })
+    const onCommentsSent = vi.fn()
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        reviewComments={[comment]}
+        onReviewCommentsSent={onCommentsSent}
+      />,
+    )
+
+    expect(screen.getByText('demos/jobvacancy.go L20')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(saveToHistory).toHaveBeenCalledWith(expect.stringContaining(
+      '<review_comment sectionId="file:demos/jobvacancy.go"'), false)
+    expect(saveToHistory).toHaveBeenCalledWith(expect.stringContaining('```go\nline 20\n```'), false)
+    expect(onCommentsSent).toHaveBeenCalledTimes(1)
   })
 })
 
