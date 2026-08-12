@@ -86,6 +86,35 @@ the `ZED_COMMIT` pin. Anyone verifying this feature from a dev stack will hit th
 stub and may well read it as "the feature is broken". Worth either making `./stack build-zed`
 honour `sandbox-versions.txt` or warning when the worktree HEAD ≠ pinned commit.
 
+## Environment gotcha: the sandbox healthcheck can wedge the whole box
+
+Worth recording for anyone else verifying from a dev stack, since it cost ~45 minutes and
+looked exactly like "the API is broken".
+
+After the Zed rebuild's I/O storm, the sandbox's inner dockerd wedged. `sandbox-nvidia`'s
+healthcheck is:
+
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
+  interval: 30s
+  timeout: 5s
+```
+
+The 5 s timeout marks the check failed but does **not** kill the hung `docker info`. With the
+inner dockerd wedged, one process leaks every 30 s. Observed: **51 `docker info` processes**
+stacked in uninterruptible sleep (oldest 45 min), 32 buildx/compose plugin-metadata children,
+38 zombies, load average oscillating 30→150, `iowait` pinned near 50 %, CPU pressure
+`some avg10=98.8`. The inner Helix API stopped answering on 8080 entirely and stopped logging.
+
+Recovery: `docker restart helix-sandbox-nvidia-1` (it exited 137 and needed
+`docker compose up -d sandbox-nvidia` to come back), after which the pile-up went to 0 and
+8080 returned 200 immediately. Killing the stacked `docker info` processes alone did **not**
+help — they respawn every 30 s until the container is restarted.
+
+Not a bug in this feature, and not something this task changes. Flagging it because the
+symptom (API dead, no logs) invites misdiagnosis.
+
 ## Provider configuration observed
 
 `/home/retro/work/helix/.env` in the inner stack routes inference through the outer Helix
