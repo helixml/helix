@@ -5,7 +5,29 @@ import useApi from '../hooks/useApi'
 import { PaletteMode } from '@mui/material'
 import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY } from '../styles/typography'
 
+// themePinnedByQuery reports whether the embedder stated the mode explicitly.
+function themePinnedByQuery(): boolean {
+  try {
+    const q = new URLSearchParams(window.location.search).get('theme')
+    return q === 'dark' || q === 'light'
+  } catch {
+    return false
+  }
+}
+
 function getInitialMode(): PaletteMode {
+  // An explicit ?theme= wins over the OS preference.
+  //
+  // This exists for embedding. An iframe inherits the VIEWER's OS setting, not
+  // the host page's, so a dark site embedding Helix gets a white panel dropped
+  // into it and cannot do anything about it from the parent — the frame is
+  // cross-origin. Letting the embedder state the mode is the only fix available
+  // to them.
+  try {
+    const q = new URLSearchParams(window.location.search).get('theme')
+    if (q === 'dark' || q === 'light') return q
+  } catch { /* malformed query string — fall through to the OS preference */ }
+
   if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light'
   return 'dark'
 }
@@ -93,6 +115,11 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   // local state and push to the API so the user's spec-task GNOME desktops and
   // Zed editors flip too via the settings-sync-daemon's WS subscription.
   useEffect(() => {
+    // A pinned ?theme= must stay pinned. Otherwise an embedder's dark panel
+    // would flip to light the moment the VIEWER's OS changed — a setting the
+    // embedding site has no control over and no way to observe.
+    if (themePinnedByQuery()) return
+
     const mql = window.matchMedia('(prefers-color-scheme: light)')
     const handler = (e: MediaQueryListEvent) => {
       const next: PaletteMode = e.matches ? 'light' : 'dark'
