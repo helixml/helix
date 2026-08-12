@@ -40,6 +40,8 @@ export const desktopPollInterval =
 
 export const workspaceReviewKeys = {
   all: (sessionId: string) => ["workspace-review", sessionId] as const,
+  reviewPrefix: (sessionId: string) =>
+    [...workspaceReviewKeys.all(sessionId), "review"] as const,
   review: (
     sessionId: string,
     workspace: string | undefined,
@@ -210,7 +212,10 @@ export function useUpdateWorkspaceFile(
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({
-        queryKey: workspaceReviewKeys.all(sessionId),
+        queryKey: workspaceReviewKeys.reviewPrefix(sessionId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: workspaceReviewKeys.files(sessionId, workspace),
       });
     },
   });

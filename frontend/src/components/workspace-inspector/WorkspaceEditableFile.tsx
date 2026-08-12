@@ -25,6 +25,7 @@ import {
 import WorkspaceFileComment, {
   type WorkspaceFileCommentEntry,
 } from "./WorkspaceFileComment";
+import { reconcileWorkspaceFileSave } from "./workspaceFileSaveState";
 
 interface CommentGroup {
   entries: WorkspaceFileCommentEntry[];
@@ -116,6 +117,7 @@ const WorkspaceEditableFile: FC<WorkspaceEditableFileProps> = ({
   const [contents, setContents] = useState(initialContents);
   const [contentHash, setContentHash] = useState(initialContentHash);
   const [savedContents, setSavedContents] = useState(initialContents);
+  const [editorRevision, setEditorRevision] = useState(0);
   const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null);
   const [annotations, setAnnotations] = useState<CommentAnnotation[]>(() =>
     annotationsFromComments(comments, path),
@@ -187,11 +189,12 @@ const WorkspaceEditableFile: FC<WorkspaceEditableFileProps> = ({
     setContentHash(initialContentHash);
     contentsRef.current = initialContents;
     savedContentsRef.current = initialContents;
+    setEditorRevision((revision) => revision + 1);
   }, [initialContentHash, initialContents]);
 
   const beginComment = useCallback((range: SelectedLineRange | null) => {
-    setSelectedLines(range);
     if (!range) return;
+    setSelectedLines(null);
     const { startLine, endLine } = normalizeRange(range);
     const entry: WorkspaceFileCommentEntry = {
       id: nextCommentId(),
@@ -253,17 +256,25 @@ const WorkspaceEditableFile: FC<WorkspaceEditableFileProps> = ({
 
   const save = useCallback(async () => {
     if (contentsRef.current === savedContentsRef.current || updateFileRef.current.isPending) return;
+    const submittedContents = contentsRef.current;
     try {
       const saved = await updateFileRef.current.mutateAsync({
-        contents: contentsRef.current,
+        contents: submittedContents,
         expectedContentHash: contentHash,
       });
-      const confirmedContents = saved.contents ?? contentsRef.current;
-      setContents(confirmedContents);
-      setSavedContents(confirmedContents);
-      setContentHash(saved.content_hash || contentHash);
-      contentsRef.current = confirmedContents;
-      savedContentsRef.current = confirmedContents;
+      const confirmedContents = saved.contents ?? submittedContents;
+      const next = reconcileWorkspaceFileSave(
+        contentsRef.current,
+        submittedContents,
+        confirmedContents,
+      );
+      const confirmedHash = saved.content_hash || contentHash;
+      setContents(next.contents);
+      setSavedContents(next.savedContents);
+      setContentHash(confirmedHash);
+      contentsRef.current = next.contents;
+      savedContentsRef.current = next.savedContents;
+      sourceContentHashRef.current = confirmedHash;
       setConflicted(false);
       snackbarRef.current.success(`Saved ${path}`);
     } catch (error) {
@@ -282,6 +293,7 @@ const WorkspaceEditableFile: FC<WorkspaceEditableFileProps> = ({
     setContentHash(fresh.content_hash);
     contentsRef.current = fresh.contents;
     savedContentsRef.current = fresh.contents;
+    setEditorRevision((revision) => revision + 1);
     setConflicted(false);
   }, []);
 
@@ -325,7 +337,11 @@ const WorkspaceEditableFile: FC<WorkspaceEditableFileProps> = ({
       <EditProvider editor={editor as unknown as React.ComponentProps<typeof EditProvider>["editor"]}>
         <Virtualizer style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
           <File<CommentGroup>
-            file={{ name: path, contents, cacheKey: `${path}:${contentHash}` }}
+            file={{
+              name: path,
+              contents,
+              cacheKey: `${workspace || "primary"}:${path}:${editorRevision}`,
+            }}
             contentEditable
             selectedLines={selectedLines}
             lineAnnotations={annotations}

@@ -33,7 +33,7 @@ describe("WorkspaceFileComment", () => {
     expect(screen.getByRole("textbox")).toBe(input);
     expect(input).toHaveFocus();
 
-    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
     expect(onSubmit).toHaveBeenCalledWith(draft, "fix this\nwithout editing the file");
   });
 
@@ -51,5 +51,20 @@ describe("WorkspaceFileComment", () => {
 
     expect(onSubmit).toHaveBeenCalledWith(populatedDraft, "Review this");
     expect(onParentKeyDown).not.toHaveBeenCalled();
+  });
+
+  it("renders a committed comment with its line range and delete action", () => {
+    render(
+      <WorkspaceFileComment
+        entry={{ ...draft, kind: "comment", text: "Keep this focused." }}
+        onCancel={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("File comment")).toBeInTheDocument();
+    expect(screen.getByText("L12–13")).toBeInTheDocument();
+    expect(screen.getByText("Keep this focused.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete comment" })).toBeInTheDocument();
   });
 });

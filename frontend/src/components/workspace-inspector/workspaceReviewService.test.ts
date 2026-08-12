@@ -93,6 +93,15 @@ describe("workspace file updates", () => {
       contents: "updated",
       expected_content_hash: "opened",
     });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspace-review", "ses_1"] });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["workspace-review", "ses_1", "review"],
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["workspace-review", "ses_1", "files", "primary"],
+    });
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["workspace-review", "ses_1", "file", "primary", "src/app.ts"],
+    });
   });
 });
