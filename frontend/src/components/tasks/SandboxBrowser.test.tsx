@@ -43,6 +43,47 @@ describe('SandboxBrowser', () => {
     })
   })
 
+  it('automatically opens the saved address on mount', async () => {
+    window.localStorage.setItem(
+      'helix.sandboxBrowser.url.ses_test',
+      'http://localhost:8080/docs/deploy-sovereign-server',
+    )
+
+    render(<SandboxBrowser sessionId="ses_test" />)
+
+    const frame = await screen.findByTitle(
+      'Sandbox browser: http://localhost:8080/docs/deploy-sovereign-server',
+    )
+    expect(frame).toHaveAttribute(
+      'src',
+      'http://share-blue-fox.dev.localhost:8080/docs/deploy-sovereign-server',
+    )
+    expect(screen.getByRole('textbox', { name: 'Sandbox browser address' }))
+      .toHaveValue('http://localhost:8080/docs/deploy-sovereign-server')
+    expect(previewMocks.refetch).not.toHaveBeenCalled()
+    expect(previewMocks.create).not.toHaveBeenCalled()
+  })
+
+  it('automatically opens the saved address after switching sessions', async () => {
+    window.localStorage.setItem(
+      'helix.sandboxBrowser.url.ses_first',
+      'http://localhost:8080/first',
+    )
+    window.localStorage.setItem(
+      'helix.sandboxBrowser.url.ses_second',
+      'http://localhost:8080/second',
+    )
+
+    const { rerender } = render(<SandboxBrowser sessionId="ses_first" />)
+    await screen.findByTitle('Sandbox browser: http://localhost:8080/first')
+
+    rerender(<SandboxBrowser sessionId="ses_second" />)
+
+    await screen.findByTitle('Sandbox browser: http://localhost:8080/second')
+    expect(screen.getByRole('textbox', { name: 'Sandbox browser address' }))
+      .toHaveValue('http://localhost:8080/second')
+  })
+
   it('opens a localhost path through the existing preview hostname', async () => {
     render(<SandboxBrowser sessionId="ses_test" />)
 
@@ -88,6 +129,7 @@ describe('SandboxBrowser', () => {
   it('opens multiple tabs and supports the file-tab close actions', async () => {
     render(<SandboxBrowser sessionId="ses_test" />)
 
+    await screen.findByTitle('Sandbox browser: http://localhost:8080/')
     expect(screen.getAllByRole('tab')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: 'New browser tab' }))
     fireEvent.click(screen.getByRole('button', { name: 'New browser tab' }))
