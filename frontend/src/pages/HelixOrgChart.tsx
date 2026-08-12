@@ -80,10 +80,10 @@ import ChartTopicVisibilityMenu from '../components/helix-org/ChartTopicVisibili
 import ChartVisibilityMenu, { chartToolbarButtonSizeSx } from '../components/helix-org/ChartVisibilityMenu'
 import {
   ChartEntityKind,
-  EMPTY_HIDDEN_CHART_ENTITY_IDS,
   HiddenChartEntityIDs,
   loadHiddenChartEntityIDs,
   saveHiddenChartEntityIDs,
+  selectedChartEntityIDs,
 } from '../components/helix-org/chartEntityVisibility'
 import {
   CHAT_BOT_FOCUS_EVENT,
@@ -2248,7 +2248,7 @@ type Selection =
 // a person to open their profile.
 export const PeoplePanel: FC<{ people: BotDTO[]; onSelect: (botId: string) => void }> = ({ people, onSelect }) => {
   const lightTheme = useLightTheme()
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const toggleExpanded = () => setExpanded((current) => !current)
   if (people.length === 0) return null
   const bg = lightTheme.isLight ? 'rgba(255,255,255,0.96)' : 'rgba(28,28,32,0.96)'
@@ -2337,7 +2337,7 @@ const HelixOrgChart: FC = () => {
   const assetIDs = useMemo(() => assetsData.map((asset) => asset.id ?? '').filter(Boolean), [assetsData])
   const assetHealth = useAssetHealth(assetIDs, { refetchInterval: 15000 })
   const { data: streamsData } = useListHelixOrgTopics()
-  const { data: processorsData } = useListHelixOrgProcessors()
+  const { data: processorsData, isLoading: processorsLoading } = useListHelixOrgProcessors()
   const { data: savedPositions = {} } = useListChartPositions()
   const { data: projects = [] } = useListProjects(orgID, { enabled: !!orgID })
   const upsertPositions = useUpsertChartPositions()
@@ -2512,34 +2512,34 @@ const HelixOrgChart: FC = () => {
 
   const visibilityScope = userID && orgID ? `${userID}:${orgID}` : ''
   const entityVisibilityScopeRef = useRef(visibilityScope)
-  const [hiddenEntityIDs, setHiddenEntityIDs] = useState<HiddenChartEntityIDs>(() => (
+  const [hiddenEntityIDs, setHiddenEntityIDs] = useState<HiddenChartEntityIDs | null>(() => (
     visibilityScope
-      ? loadHiddenChartEntityIDs(userID, orgID) ?? { ...EMPTY_HIDDEN_CHART_ENTITY_IDS }
-      : { ...EMPTY_HIDDEN_CHART_ENTITY_IDS }
+      ? loadHiddenChartEntityIDs(userID, orgID)
+      : null
   ))
   useEffect(() => {
     if (!visibilityScope) {
       entityVisibilityScopeRef.current = ''
-      setHiddenEntityIDs({ ...EMPTY_HIDDEN_CHART_ENTITY_IDS })
+      setHiddenEntityIDs(null)
       return
     }
     if (visibilityScope === entityVisibilityScopeRef.current) return
     entityVisibilityScopeRef.current = visibilityScope
-    setHiddenEntityIDs(loadHiddenChartEntityIDs(userID, orgID) ?? { ...EMPTY_HIDDEN_CHART_ENTITY_IDS })
+    setHiddenEntityIDs(loadHiddenChartEntityIDs(userID, orgID))
   }, [userID, orgID, visibilityScope])
 
-  const selectedAgentIDs = useMemo(() => {
-    const hidden = new Set(hiddenEntityIDs.agents)
-    return agentOptions.map((option) => option.id).filter((id) => !hidden.has(id))
-  }, [agentOptions, hiddenEntityIDs.agents])
-  const selectedProcessorIDs = useMemo(() => {
-    const hidden = new Set(hiddenEntityIDs.processors)
-    return processorOptions.map((option) => option.id).filter((id) => !hidden.has(id))
-  }, [processorOptions, hiddenEntityIDs.processors])
-  const selectedAssetIDs = useMemo(() => {
-    const hidden = new Set(hiddenEntityIDs.assets)
-    return assetOptions.map((option) => option.id).filter((id) => !hidden.has(id))
-  }, [assetOptions, hiddenEntityIDs.assets])
+  const selectedAgentIDs = useMemo(
+    () => selectedChartEntityIDs('agents', agentOptions.map((option) => option.id), hiddenEntityIDs),
+    [agentOptions, hiddenEntityIDs],
+  )
+  const selectedProcessorIDs = useMemo(
+    () => selectedChartEntityIDs('processors', processorOptions.map((option) => option.id), hiddenEntityIDs),
+    [processorOptions, hiddenEntityIDs],
+  )
+  const selectedAssetIDs = useMemo(
+    () => selectedChartEntityIDs('assets', assetOptions.map((option) => option.id), hiddenEntityIDs),
+    [assetOptions, hiddenEntityIDs],
+  )
 
   const updateEntityVisibility = (
     kind: ChartEntityKind,
@@ -2547,8 +2547,13 @@ const HelixOrgChart: FC = () => {
     selectedIDs: string[],
   ) => {
     const selected = new Set(selectedIDs)
+    const current = hiddenEntityIDs ?? {
+      agents: [],
+      processors: processorOptions.map((option) => option.id),
+      assets: assetOptions.map((option) => option.id),
+    }
     const next = {
-      ...hiddenEntityIDs,
+      ...current,
       [kind]: options.map((option) => option.id).filter((id) => !selected.has(id)),
     }
     setHiddenEntityIDs(next)
@@ -2996,7 +3001,7 @@ const HelixOrgChart: FC = () => {
             overflow: 'hidden',
           }}
         >
-          {visibilityReady && <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
+          {visibilityReady && !isLoading && !assetsLoading && !processorsLoading && <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
             <ChartTopicVisibilityMenu selected={visibleTopicFilters} onChange={onTopicFiltersChange} />
             <ChartVisibilityMenu
               label="Agents"

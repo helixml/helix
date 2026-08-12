@@ -11,9 +11,7 @@ export const CHART_TOPIC_FILTERS = [
 
 export type ChartTopicFilter = (typeof CHART_TOPIC_FILTERS)[number]['id']
 
-export const DEFAULT_CHART_TOPIC_FILTERS: ChartTopicFilter[] = CHART_TOPIC_FILTERS
-  .map((filter) => filter.id)
-  .filter((filter) => filter !== 'direct_messages' && filter !== 'local' && filter !== 'other')
+export const DEFAULT_CHART_TOPIC_FILTERS: ChartTopicFilter[] = []
 
 type TopicIdentity = {
   name: string

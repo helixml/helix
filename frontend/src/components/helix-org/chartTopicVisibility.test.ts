@@ -15,14 +15,8 @@ describe('chartTopicVisibility', () => {
     window.localStorage.clear()
   })
 
-  it('hides direct messages, local topics, and other topics by default', () => {
-    expect(DEFAULT_CHART_TOPIC_FILTERS).toEqual([
-      'webhook',
-      'github',
-      'gitlab',
-      'postmark',
-      'cron',
-    ])
+  it('hides all topics by default', () => {
+    expect(DEFAULT_CHART_TOPIC_FILTERS).toEqual([])
   })
 
   it('separates direct messages from other local topics', () => {
