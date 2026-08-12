@@ -281,6 +281,44 @@ round installs `claude-agent-acp` from npm at runtime (unpinned, 0.66.0), and th
 in that agent's startup. Unrelated to this change, but it means the CI matrix round for
 `claude` has not been exercised locally.
 
+### Live verification: NOT COMPLETED — no screenshots
+
+Stated plainly, per the brief's instruction not to report the feature done on the strength
+of unit tests. The backend chain was brought up but the agent never connected, so **none**
+of the seven live acceptance criteria were observed.
+
+How far it got, and the four blockers cleared on the way:
+
+1. The session-startup script had died at "Step 2/4: Building Zed IDE" — because of the
+   Rust compile error above — so the inner stack had never started. Fixed the Rust,
+   rebuilt (`build-zed release`), rebuilt the desktop image (`build-ubuntu`, version
+   `2c22c2`), started the stack; API reached `200` on `:8080`.
+2. **`build-ubuntu` before `./stack start` silently strands the image.** The sandbox
+   crash-looped on `manifest unknown: registry:5000/helix-ubuntu:2c22c2` because the local
+   registry container did not exist when the image was built. Fixed by
+   `docker tag helix-ubuntu:latest localhost:5000/helix-ubuntu:2c22c2 && docker push`.
+   Sandbox then reported healthy. **Build the desktop image *after* starting the stack.**
+3. The inner Helix had **no Claude-backed agent** — the only app was "Chief of Staff"
+   (`zed_agent`), which cannot produce an `AskUserQuestion`. Created a `claude_code` app
+   via the API. Note the onboarding chain: a project needs `default_repo_id` *and*
+   `default_helix_app_id`, and a repo needs `owner_id` + `owner_type`.
+4. A `claude_code` app **defaults to `code_agent_credential_type: subscription`**, and the
+   preflight (`api/pkg/external-agent/subscription_preflight.go:68`) then refuses to launch
+   the desktop with "no active Claude subscription is available". Switching to `api_key`
+   additionally requires `provider` (`anthropic`) and `model` on the assistant.
+
+What stopped it: the shared box went to **load average 285–674**. `docker exec`,
+`docker ps` and even a single-row `psql` query all timed out at 100–120 s, and the desktop
+container for the spec task never appeared. This is an environment capacity limit, not a
+finding about the feature.
+
+**So the following remain unproven end to end:** the card rendering with all options, the
+answer resuming the turn, the follow-up and second question, the Skip path, the
+interrupt-settles path, and the reload-persistence check. The e2e Phase 18 covers the same
+Helix-side chain (record → answer → command egress → real ack round trip → terminal
+status → next turn completes) against a live Zed, but it does **not** exercise the React
+card or a model-driven `AskUserQuestion`.
+
 Process notes that paid off: `./stack update_openapi` needs `$(go env GOPATH)/bin` on
 `PATH` for `swag`, and npm's cache needed `sudo chown -R 1000:1000 ~/.npm`. Both repos'
 feature branches moved under me mid-task (another agent pushed a `ZED_COMMIT` pin and
