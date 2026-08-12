@@ -15,6 +15,7 @@ import CollapsibleSystemPrefix, {
 import ChangedFilesCard from "./ChangedFilesCard";
 import { parseMessageWithAttachments } from "../common/chatAttachments";
 import { resolveChatTurnAssistantPreview } from "./ChatTurnNavigator.logic";
+import { workspaceReviewMessageCopyText } from "./workspaceReviewMessage";
 
 import useAccount from "../../hooks/useAccount";
 
@@ -360,6 +361,7 @@ export const Interaction: FC<InteractionProps> = ({
   // bubble has nothing to show. The CollapsibleSystemPrefix carries the
   // entire message and replaces the bubble.
   const isPureSystemMessage = !!systemPrefix && userMessageBody.length === 0;
+  const workspaceReviewCopyText = workspaceReviewMessageCopyText(userMessageBody);
 
   const [isEditing, setIsEditing] = React.useState(false);
   const [editedMessage, setEditedMessage] = React.useState(userMessage || "");
@@ -533,24 +535,29 @@ export const Interaction: FC<InteractionProps> = ({
                     />
                   )}
                   <CopyButtonWithCheck
-                    text={systemPrefix ? userMessageBody : userMessage}
+                    text={
+                      workspaceReviewCopyText ||
+                      (systemPrefix ? userMessageBody : userMessage)
+                    }
                     alwaysVisible={isHovering}
                   />
-                  <Tooltip title="Edit">
-                    <IconButton
-                      onClick={handleEditClick}
-                      size="small"
-                      sx={(theme) => ({
-                        color: theme.palette.mode === "light" ? "#888" : "#bbb",
-                        "&:hover": {
-                          color: theme.palette.mode === "light" ? "#000" : "#fff",
-                        },
-                      })}
-                      aria-label="edit"
-                    >
-                      <EditIcon sx={{ fontSize: 20 }} />
-                    </IconButton>
-                  </Tooltip>
+                  {!workspaceReviewCopyText && (
+                    <Tooltip title="Edit">
+                      <IconButton
+                        onClick={handleEditClick}
+                        size="small"
+                        sx={(theme) => ({
+                          color: theme.palette.mode === "light" ? "#888" : "#bbb",
+                          "&:hover": {
+                            color: theme.palette.mode === "light" ? "#000" : "#fff",
+                          },
+                        })}
+                        aria-label="edit"
+                      >
+                        <EditIcon sx={{ fontSize: 20 }} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </Box>
               )}
             </>

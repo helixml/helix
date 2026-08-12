@@ -101,6 +101,29 @@ describe("Interaction", () => {
     expect(screen.queryByText("Attachments available in the agent workspace:")).not.toBeInTheDocument();
   });
 
+  it("does not offer raw-message editing for structured file comments", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_review",
+          prompt_message: [
+            "Please explain this.",
+            "",
+            '<review_comment filePath="README.md" startIndex="22" endIndex="22" rangeLabel="L23">',
+            "What does this line do?",
+            "```md",
+            "- Docker",
+            "```",
+            "</review_comment>",
+          ].join("\n"),
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "edit" })).not.toBeInTheDocument();
+  });
+
   it("renders an interaction error once below the user message", () => {
     render(
       <Interaction

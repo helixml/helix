@@ -14,6 +14,23 @@ describe('ChatTurnNavigator', () => {
     expect(compactChatTurnPreview(undefined)).toBeNull()
   })
 
+  it('uses a readable preview for file comments', () => {
+    const message = [
+      'Please explain this.',
+      '',
+      '<review_comment filePath="README.md" startIndex="22" endIndex="22" rangeLabel="L23">',
+      'What does this line do?',
+      '```md',
+      '- Docker',
+      '```',
+      '</review_comment>',
+    ].join('\n')
+
+    expect(compactChatTurnPreview(message)).toBe(
+      'Please explain this. · Comment on README.md L23: What does this line do?',
+    )
+  })
+
   it('uses the latest assistant prose and skips tool calls or thinking-only entries', () => {
     expect(resolveChatTurnAssistantPreview('', [
       { type: 'text', content: '<thinking>private reasoning</thinking>Earlier update.' },
