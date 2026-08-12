@@ -39,7 +39,6 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getCSRFToken } from "../../utils/csrf";
 import {
-  Add as AddIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Source as GitIcon,
@@ -1703,7 +1702,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               <Button
                 variant="contained"
                 color="secondary"
-                startIcon={<AddIcon />}
                 onClick={onCreateTask}
                 aria-keyshortcuts={
                   navigator.platform.includes("Mac")
@@ -1712,6 +1710,31 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 }
               >
                 New Task
+                <Box
+                  component="span"
+                  aria-hidden="true"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 0.5,
+                    ml: 1,
+                    px: 0.75,
+                    height: 20,
+                    borderRadius: 0.75,
+                    border: "1px solid rgba(0, 0, 0, 0.18)",
+                    bgcolor: "rgba(0, 0, 0, 0.1)",
+                    fontSize: "0.7rem",
+                    fontWeight: 600,
+                    lineHeight: 1,
+                    letterSpacing: 0,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Box component="span">
+                    {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
+                  </Box>
+                  <Box component="span">Enter</Box>
+                </Box>
               </Button>
             </Tooltip>
           )}
