@@ -48,6 +48,7 @@ func TestEmbedKeyAllowsItsOwnTaskAndSession(t *testing.T) {
 		{"POST", "/api/v1/sessions/ses_A/foreground-thread"},
 		{"GET", "/api/v1/spec-tasks/spt_A/progress"},
 		{"GET", "/api/v1/external-agents/ses_A/file"},
+		{"GET", "/api/v1/external-agents/ses_A/ws/stream"},
 		{"GET", "/api/v1/prompt-history?spec_task_id=spt_A&project_id=prj_1"},
 	}
 	for _, c := range allowed {
@@ -70,6 +71,7 @@ func TestEmbedKeyCannotReachAnotherTaskOrSession(t *testing.T) {
 		{"POST", "/api/v1/sessions/ses_B/foreground-thread"},
 		{"GET", "/api/v1/spec-tasks/spt_B/progress"},
 		{"GET", "/api/v1/external-agents/ses_B/file"},
+		{"GET", "/api/v1/external-agents/ses_B/ws/stream"},
 		{"GET", "/api/v1/prompt-history?spec_task_id=spt_B&project_id=prj_1"},
 		// No subject named at all is not "unscoped", it is out of scope.
 		{"GET", "/api/v1/prompt-history"},
@@ -178,8 +180,10 @@ func TestEmbedKeyCannotMutateOrDriveDesktop(t *testing.T) {
 		{"DELETE", "/api/v1/sessions/ses_A/stop-external-agent"},
 		{"POST", "/api/v1/sessions/ses_A/resume"},
 		{"GET", "/api/v1/external-agents/ses_A/screenshot"},
-		{"GET", "/api/v1/external-agents/ses_A/ws/stream"},
 		{"POST", "/api/v1/external-agents/ses_A/clipboard"},
+		// The dedicated INPUT socket. The video socket is allowed and forced
+		// read-only; this one is pure control and has no read-only mode.
+		{"GET", "/api/v1/external-agents/ses_A/ws/input"},
 		{"GET", "/api/v1/sessions/ses_A/terminal"},
 		{"GET", "/api/v1/external-agents/ses_A/workspace-files"},
 	}

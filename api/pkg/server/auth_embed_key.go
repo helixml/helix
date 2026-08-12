@@ -70,8 +70,10 @@ type embedRule struct {
 //     other candidate's chat. This is the single most important omission.
 //   - /api/v1/agents, /api/v1/organizations, /api/v1/projects/... — tenant-wide
 //     inventory the embed does not need to render a conversation.
-//   - /api/v1/external-agents/{id}/ws/stream and the desktop endpoints — the
-//     video/desktop surface. Headless chat does not need it.
+//   - /api/v1/external-agents/{id}/ws/input, /clipboard, /screenshot, the
+//     terminal and the workspace-file endpoints — everything that DRIVES or
+//     reads the desktop. The video stream is allowed but forced read-only; see
+//     desktop_stream_readonly.go.
 //   - Every mutation of the task itself (PUT /spec-tasks/{id}, labels, archive,
 //     execution-config PATCH, start-planning) — an end user must not be able to
 //     re-point or reconfigure the agent run they are talking to.
@@ -97,6 +99,13 @@ var embedRules = []embedRule{
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/step-info", scope: scopeSession},
 	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/cancel", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/external-agents/", suffix: "/file", scope: scopeSession},
+
+	// Watching the agent work. This socket is bidirectional — it carries input
+	// as well as video — so allowing it is only safe because the API marks embed
+	// connections read-only on the upgrade it sends to the sandbox, which then
+	// drops keyboard/mouse/touch. See desktop_stream_readonly.go. Note that
+	// /ws/input, the dedicated input socket, has no rule and stays denied.
+	{methods: []string{"GET"}, prefix: "/api/v1/external-agents/", suffix: "/ws/stream", scope: scopeSession},
 
 	// Streaming updates. The session id arrives as a query param; checked below.
 	{methods: []string{"GET"}, prefix: "/api/v1/ws/user", scope: scopeGlobal},

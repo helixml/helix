@@ -1407,6 +1407,22 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	}
 	defer serverConn.Close()
 
+	// The desktop stream is bidirectional: the same socket that carries H.264
+	// frames out carries keyboard (0x10) and mouse/touch (0x11-0x14) events IN.
+	// An embed key belongs to a member of the public watching their own agent
+	// work, so it gets the video and none of the control — otherwise viewing a
+	// conversation would come with a keyboard attached to a container holding a
+	// terminal, a browser and git credentials.
+	//
+	// Enforced by a header WE add to the upgrade we send to the sandbox. The
+	// client's request is never forwarded verbatim, so the browser cannot set or
+	// clear this.
+	readOnlyHeader := ""
+	if desktopStreamIsReadOnly(req) {
+		readOnlyHeader = desktopReadOnlyHeader + ": 1\r\n"
+		log.Info().Str("session_id", sessionID).Msg("desktop stream is read-only for this caller")
+	}
+
 	// Construct WebSocket upgrade request to forward to screenshot-server
 	upgradeReq := fmt.Sprintf("GET /ws/stream HTTP/1.1\r\n"+
 		"Host: localhost:9876\r\n"+
@@ -1414,7 +1430,8 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		"Connection: Upgrade\r\n"+
 		"Sec-WebSocket-Key: %s\r\n"+
 		"Sec-WebSocket-Version: 13\r\n"+
-		"\r\n", req.Header.Get("Sec-WebSocket-Key"))
+		"%s"+
+		"\r\n", req.Header.Get("Sec-WebSocket-Key"), readOnlyHeader)
 
 	// Forward the WebSocket upgrade request
 	if _, err := serverConn.Write([]byte(upgradeReq)); err != nil {
@@ -1461,7 +1478,11 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 
 	// Create upgrade function for WebSocket
 	wsKey := req.Header.Get("Sec-WebSocket-Key")
-	upgradeFunc := proxy.CreateWebSocketUpgradeFunc("/ws/stream", wsKey)
+	streamUpgradeHeaders := []string{}
+	if desktopStreamIsReadOnly(req) {
+		streamUpgradeHeaders = append(streamUpgradeHeaders, desktopReadOnlyHeader, "1")
+	}
+	upgradeFunc := proxy.CreateWebSocketUpgradeFunc("/ws/stream", wsKey, streamUpgradeHeaders...)
 
 	// Create resilient proxy
 	resilientProxy := proxy.NewResilientProxy(proxy.ResilientProxyConfig{
