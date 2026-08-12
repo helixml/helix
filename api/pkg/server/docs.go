@@ -17512,6 +17512,156 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/elicitations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the questions the agent is currently waiting on for this session.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "List answerable questions for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AgentElicitation"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/elicitations/{elicitation_id}/respond": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Answers a pending ACP elicitation, unblocking the agent's turn. Action is\n\"accept\" (with the user's answers in content) or \"decline\", which the ACP\nadapter turns into an empty answer set — the turn continues either way.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Answer a question the agent asked",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Elicitation ID",
+                        "name": "elicitation_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Answer",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ElicitationRespondRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ElicitationRespondResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/foreground-thread": {
             "post": {
                 "security": [
@@ -27840,6 +27990,72 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AgentElicitation": {
+            "type": "object",
+            "properties": {
+                "acp_thread_id": {
+                    "type": "string"
+                },
+                "content": {
+                    "description": "Content is the answer Helix sent. Zed cannot report it back —\nElicitationStatus::Accepted is a unit variant and does not retain the submission —\nso this is written when we send the answer, not when the agent confirms it.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "created": {
+                    "type": "string"
+                },
+                "entry_index": {
+                    "description": "EntryIndex is the position in Zed's thread entries, which is also the accumulator's\nmessage_id — that is what puts the question in the right place in the transcript.",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is Zed's ElicitationEntryId — opaque to Helix, stable for the elicitation's life.",
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "last_seen_at": {
+                    "description": "LastSeenAt is refreshed every time the agent re-affirms it still holds this\nquestion (the resync heartbeat). A pending row whose LastSeenAt has gone stale is\nthe only evidence that the agent holding it is gone — a WebSocket reconnect is\nnot, since the commonest cause of one is the Helix API restarting while the\ndesktop container, Zed and its respond_tx all survive untouched.",
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "request_id": {
+                    "description": "RequestID is the turn that asked. Used to route the question to the right\ninteraction, the same way message_added is routed.",
+                    "type": "string"
+                },
+                "resolution_reason": {
+                    "description": "ResolutionReason distinguishes the ways a question stops being answerable, so the\nUI can say \"you replied instead\" rather than a bare \"cancelled\".",
+                    "type": "string"
+                },
+                "schema": {
+                    "description": "Schema is the ACP ` + "`" + `requestedSchema` + "`" + `, stored verbatim. The frontend renders the\nquestion from this, so anything dropped here is a control the user never sees.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AgentHelixConfig": {
             "type": "object",
             "properties": {
@@ -28628,7 +28844,8 @@ const docTemplate = `{
                 "pr_ready",
                 "org_message",
                 "ci_passed",
-                "ci_failed"
+                "ci_failed",
+                "agent_question"
             ],
             "x-enum-varnames": [
                 "AttentionEventSpecsPushed",
@@ -28638,7 +28855,8 @@ const docTemplate = `{
                 "AttentionEventPRReady",
                 "AttentionEventOrgMessage",
                 "AttentionEventCIPassed",
-                "AttentionEventCIFailed"
+                "AttentionEventCIFailed",
+                "AttentionEventAgentQuestion"
             ]
         },
         "types.AttentionEventUpdateRequest": {
@@ -30325,6 +30543,31 @@ const docTemplate = `{
                 "EffectAllow",
                 "EffectDeny"
             ]
+        },
+        "types.ElicitationRespondRequest": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "description": "Action is \"accept\" or \"decline\". \"decline\" is not an abort — the ACP adapter turns\nit into an empty answers map and the agent's turn continues, which is why the UI\nlabels it \"Skip\".",
+                    "type": "string"
+                },
+                "content": {
+                    "description": "Content maps schema field names to the user's answers.",
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "types.ElicitationRespondResponse": {
+            "type": "object",
+            "properties": {
+                "elicitation_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
         },
         "types.EvaluationAssertion": {
             "type": "object",

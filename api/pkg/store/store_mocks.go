@@ -25,7 +25,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -2226,6 +2225,20 @@ func (mr *MockStoreMockRecorder) DetachRepositoryFromProject(ctx, projectID, rep
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DetachRepositoryFromProject", reflect.TypeOf((*MockStore)(nil).DetachRepositoryFromProject), ctx, projectID, repoID)
 }
 
+// DismissAttentionEventByIdempotencyKey mocks base method.
+func (m *MockStore) DismissAttentionEventByIdempotencyKey(ctx context.Context, idempotencyKey string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DismissAttentionEventByIdempotencyKey", ctx, idempotencyKey)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DismissAttentionEventByIdempotencyKey indicates an expected call of DismissAttentionEventByIdempotencyKey.
+func (mr *MockStoreMockRecorder) DismissAttentionEventByIdempotencyKey(ctx, idempotencyKey any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DismissAttentionEventByIdempotencyKey", reflect.TypeOf((*MockStore)(nil).DismissAttentionEventByIdempotencyKey), ctx, idempotencyKey)
+}
+
 // DismissAttentionEventsForTask mocks base method.
 func (m *MockStore) DismissAttentionEventsForTask(ctx context.Context, specTaskID string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -2344,6 +2357,21 @@ func (m *MockStore) GetAccessGrantRoleBindings(ctx context.Context, q *GetAccess
 func (mr *MockStoreMockRecorder) GetAccessGrantRoleBindings(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccessGrantRoleBindings", reflect.TypeOf((*MockStore)(nil).GetAccessGrantRoleBindings), ctx, q)
+}
+
+// GetAgentElicitation mocks base method.
+func (m *MockStore) GetAgentElicitation(ctx context.Context, id string) (*types.AgentElicitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentElicitation", ctx, id)
+	ret0, _ := ret[0].(*types.AgentElicitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentElicitation indicates an expected call of GetAgentElicitation.
+func (mr *MockStoreMockRecorder) GetAgentElicitation(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentElicitation", reflect.TypeOf((*MockStore)(nil).GetAgentElicitation), ctx, id)
 }
 
 // GetAgentRunner mocks base method.
@@ -4222,6 +4250,21 @@ func (mr *MockStoreMockRecorder) GetZedSettingsOverride(ctx, sessionID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).GetZedSettingsOverride), ctx, sessionID)
 }
 
+// HasLiveAgentElicitation mocks base method.
+func (m *MockStore) HasLiveAgentElicitation(ctx context.Context, interactionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasLiveAgentElicitation", ctx, interactionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HasLiveAgentElicitation indicates an expected call of HasLiveAgentElicitation.
+func (mr *MockStoreMockRecorder) HasLiveAgentElicitation(ctx, interactionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasLiveAgentElicitation", reflect.TypeOf((*MockStore)(nil).HasLiveAgentElicitation), ctx, interactionID)
+}
+
 // IncrementGlobalTaskNumber mocks base method.
 func (m *MockStore) IncrementGlobalTaskNumber(ctx context.Context) (int, error) {
 	m.ctrl.T.Helper()
@@ -4687,6 +4730,36 @@ func (m *MockStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*
 func (mr *MockStoreMockRecorder) ListLLMCalls(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLLMCalls", reflect.TypeOf((*MockStore)(nil).ListLLMCalls), ctx, q)
+}
+
+// ListLiveAgentElicitationsForSession mocks base method.
+func (m *MockStore) ListLiveAgentElicitationsForSession(ctx context.Context, sessionID string) ([]*types.AgentElicitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListLiveAgentElicitationsForSession", ctx, sessionID)
+	ret0, _ := ret[0].([]*types.AgentElicitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListLiveAgentElicitationsForSession indicates an expected call of ListLiveAgentElicitationsForSession.
+func (mr *MockStoreMockRecorder) ListLiveAgentElicitationsForSession(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLiveAgentElicitationsForSession", reflect.TypeOf((*MockStore)(nil).ListLiveAgentElicitationsForSession), ctx, sessionID)
+}
+
+// ListLiveAgentElicitationsForSessions mocks base method.
+func (m *MockStore) ListLiveAgentElicitationsForSessions(ctx context.Context, sessionIDs []string) ([]*types.AgentElicitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListLiveAgentElicitationsForSessions", ctx, sessionIDs)
+	ret0, _ := ret[0].([]*types.AgentElicitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListLiveAgentElicitationsForSessions indicates an expected call of ListLiveAgentElicitationsForSessions.
+func (mr *MockStoreMockRecorder) ListLiveAgentElicitationsForSessions(ctx, sessionIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLiveAgentElicitationsForSessions", reflect.TypeOf((*MockStore)(nil).ListLiveAgentElicitationsForSessions), ctx, sessionIDs)
 }
 
 // ListMemories mocks base method.
@@ -5736,6 +5809,21 @@ func (mr *MockStoreMockRecorder) ParseAndCreateImplementationTasks(ctx, specTask
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseAndCreateImplementationTasks", reflect.TypeOf((*MockStore)(nil).ParseAndCreateImplementationTasks), ctx, specTaskID, implementationPlan)
 }
 
+// ReapStaleAgentElicitations mocks base method.
+func (m *MockStore) ReapStaleAgentElicitations(ctx context.Context, olderThan time.Time) ([]*types.AgentElicitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReapStaleAgentElicitations", ctx, olderThan)
+	ret0, _ := ret[0].([]*types.AgentElicitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReapStaleAgentElicitations indicates an expected call of ReapStaleAgentElicitations.
+func (mr *MockStoreMockRecorder) ReapStaleAgentElicitations(ctx, olderThan any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapStaleAgentElicitations", reflect.TypeOf((*MockStore)(nil).ReapStaleAgentElicitations), ctx, olderThan)
+}
+
 // ReapWaitingInteractions mocks base method.
 func (m *MockStore) ReapWaitingInteractions(ctx context.Context, sessionID string, newState types.InteractionState, reason string) ([]*types.Interaction, error) {
 	m.ctrl.T.Helper()
@@ -6155,6 +6243,20 @@ func (mr *MockStoreMockRecorder) SyncPromptHistory(ctx, userID, req any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPromptHistory", reflect.TypeOf((*MockStore)(nil).SyncPromptHistory), ctx, userID, req)
 }
 
+// TouchAgentElicitations mocks base method.
+func (m *MockStore) TouchAgentElicitations(ctx context.Context, ids []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TouchAgentElicitations", ctx, ids)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// TouchAgentElicitations indicates an expected call of TouchAgentElicitations.
+func (mr *MockStoreMockRecorder) TouchAgentElicitations(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TouchAgentElicitations", reflect.TypeOf((*MockStore)(nil).TouchAgentElicitations), ctx, ids)
+}
+
 // TouchSession mocks base method.
 func (m *MockStore) TouchSession(ctx context.Context, sessionID string) error {
 	m.ctrl.T.Helper()
@@ -6181,6 +6283,21 @@ func (m *MockStore) TouchUserLastSeen(ctx context.Context, userID string, at tim
 func (mr *MockStoreMockRecorder) TouchUserLastSeen(ctx, userID, at any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TouchUserLastSeen", reflect.TypeOf((*MockStore)(nil).TouchUserLastSeen), ctx, userID, at)
+}
+
+// TransitionAgentElicitation mocks base method.
+func (m *MockStore) TransitionAgentElicitation(ctx context.Context, id string, fromStatuses []string, toStatus, reason string, content []byte) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TransitionAgentElicitation", ctx, id, fromStatuses, toStatus, reason, content)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TransitionAgentElicitation indicates an expected call of TransitionAgentElicitation.
+func (mr *MockStoreMockRecorder) TransitionAgentElicitation(ctx, id, fromStatuses, toStatus, reason, content any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TransitionAgentElicitation", reflect.TypeOf((*MockStore)(nil).TransitionAgentElicitation), ctx, id, fromStatuses, toStatus, reason, content)
 }
 
 // TransitionSpecTaskStatus mocks base method.
@@ -7125,6 +7242,21 @@ func (m *MockStore) UpdateWebServiceDeploy(ctx context.Context, id string, updat
 func (mr *MockStoreMockRecorder) UpdateWebServiceDeploy(ctx, id, updates any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWebServiceDeploy", reflect.TypeOf((*MockStore)(nil).UpdateWebServiceDeploy), ctx, id, updates)
+}
+
+// UpsertAgentElicitation mocks base method.
+func (m *MockStore) UpsertAgentElicitation(ctx context.Context, elicitation *types.AgentElicitation) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertAgentElicitation", ctx, elicitation)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertAgentElicitation indicates an expected call of UpsertAgentElicitation.
+func (mr *MockStoreMockRecorder) UpsertAgentElicitation(ctx, elicitation any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertAgentElicitation", reflect.TypeOf((*MockStore)(nil).UpsertAgentElicitation), ctx, elicitation)
 }
 
 // UpsertProjectWebServiceState mocks base method.

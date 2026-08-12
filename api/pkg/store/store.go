@@ -707,7 +707,18 @@ type Store interface {
 	UpdateAttentionEvent(ctx context.Context, id string, update *types.AttentionEventUpdateRequest) error
 	BulkDismissAttentionEvents(ctx context.Context, userID, organizationID string) (int64, error)
 	DismissAttentionEventsForTask(ctx context.Context, specTaskID string) (int64, error)
+	DismissAttentionEventByIdempotencyKey(ctx context.Context, idempotencyKey string) error
 	CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error)
+
+	// Agent elicitation methods — questions an ACP agent asked the user mid-turn.
+	UpsertAgentElicitation(ctx context.Context, elicitation *types.AgentElicitation) (bool, error)
+	GetAgentElicitation(ctx context.Context, id string) (*types.AgentElicitation, error)
+	TransitionAgentElicitation(ctx context.Context, id string, fromStatuses []string, toStatus, reason string, content []byte) (bool, error)
+	TouchAgentElicitations(ctx context.Context, ids []string) error
+	ListLiveAgentElicitationsForSession(ctx context.Context, sessionID string) ([]*types.AgentElicitation, error)
+	ListLiveAgentElicitationsForSessions(ctx context.Context, sessionIDs []string) ([]*types.AgentElicitation, error)
+	HasLiveAgentElicitation(ctx context.Context, interactionID string) (bool, error)
+	ReapStaleAgentElicitations(ctx context.Context, olderThan time.Time) ([]*types.AgentElicitation, error)
 
 	// Clone Group methods
 	CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error)

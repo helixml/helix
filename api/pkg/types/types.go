@@ -1018,6 +1018,10 @@ type EntryPatch struct {
 	TotalLength int    `json:"total_length,omitempty"` // Final content length of this entry after patch
 	ToolName    string `json:"tool_name,omitempty"`    // For tool_call: the tool label
 	ToolStatus  string `json:"tool_status,omitempty"`  // For tool_call: "Completed", "In Progress", etc.
+	// Elicitation is set for Type == "elicitation": the question payload the frontend
+	// renders as an answerable card. Sent whole rather than as a string patch — it is
+	// structured data, and the card must never render from a half-applied delta.
+	Elicitation json.RawMessage `json:"elicitation,omitempty"`
 }
 
 type StepInfoType string

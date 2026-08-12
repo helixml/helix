@@ -2430,6 +2430,185 @@ func (s *HelixAPIServer) cancelSessionTurn(_ http.ResponseWriter, r *http.Reques
 	return map[string]string{"status": status}, nil
 }
 
+// respondToElicitation godoc
+// @Summary Answer a question the agent asked
+// @Description Answers a pending ACP elicitation, unblocking the agent's turn. Action is
+// @Description "accept" (with the user's answers in content) or "decline", which the ACP
+// @Description adapter turns into an empty answer set — the turn continues either way.
+// @Tags Sessions
+// @Accept json
+// @Produce json
+// @Param id path string true "Session ID"
+// @Param elicitation_id path string true "Elicitation ID"
+// @Param request body types.ElicitationRespondRequest true "Answer"
+// @Success 200 {object} types.ElicitationRespondResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 409 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/elicitations/{elicitation_id}/respond [post]
+func (s *HelixAPIServer) respondToElicitation(_ http.ResponseWriter, r *http.Request) (*types.ElicitationRespondResponse, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	sessionID := vars["id"]
+	elicitationID := vars["elicitation_id"]
+
+	var body types.ElicitationRespondRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, system.NewHTTPError400("invalid request body")
+	}
+	if body.Action != "accept" && body.Action != "decline" {
+		return nil, system.NewHTTPError400("action must be 'accept' or 'decline'")
+	}
+
+	// The session comes from the URL and only from the URL. Nothing in the body names a
+	// session, and nothing in it would be trusted to.
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	elicitation, err := s.Store.GetAgentElicitation(ctx, elicitationID)
+	if err != nil {
+		return nil, system.NewHTTPError404("question not found")
+	}
+	// A question belonging to another session is reported as missing rather than
+	// forbidden — the caller is authorised here, so "forbidden" would confirm that this
+	// id exists somewhere else.
+	if elicitation.SessionID != sessionID {
+		return nil, system.NewHTTPError404("question not found")
+	}
+	if !elicitation.IsLive() {
+		return nil, system.NewHTTPError409(fmt.Sprintf("question is already %s", elicitation.Status))
+	}
+
+	// A pending question implies a live agent blocked on it. If the WebSocket is gone the
+	// answer has nowhere to go, and the reaper will retire the question shortly.
+	if _, connected := s.externalAgentWSManager.getConnection(sessionID); !connected {
+		return nil, system.NewHTTPError409("agent is not connected")
+	}
+
+	if httpErr := s.claimAndDeliverElicitationAnswer(ctx, sessionID, elicitation, body.Action, body.Content); httpErr != nil {
+		return nil, httpErr
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("elicitation_id", elicitationID).
+		Str("action", body.Action).
+		Str("user_id", user.ID).
+		Msg("[ELICITATION] Answer delivered to agent")
+
+	// The authoritative terminal status arrives from the agent via elicitation_resolved.
+	return &types.ElicitationRespondResponse{
+		ElicitationID: elicitationID,
+		Status:        types.ElicitationStatusSubmitting,
+	}, nil
+}
+
+// claimAndDeliverElicitationAnswer claims a pending question and sends the answer to the
+// agent, rolling the claim back if the send fails.
+//
+// Split out from the HTTP handler so the WebSocket-sync e2e can drive the identical
+// production sequence without standing up an auth router — the alternative was a second
+// implementation of the claim/rollback logic, which is exactly where the two would drift.
+// Authorisation stays in the caller; this function assumes it has already happened.
+func (s *HelixAPIServer) claimAndDeliverElicitationAnswer(
+	ctx context.Context,
+	sessionID string,
+	elicitation *types.AgentElicitation,
+	action string,
+	content map[string]interface{},
+) *system.HTTPError {
+	var contentJSON []byte
+	if action == "accept" && len(content) > 0 {
+		encoded, err := json.Marshal(content)
+		if err != nil {
+			return system.NewHTTPError400("invalid content")
+		}
+		contentJSON = encoded
+	}
+
+	// Claim the question before sending. Two clients answering at once both pass the
+	// checks above; only one wins this transition, and the loser gets a clean 409
+	// instead of a second answer racing into the agent.
+	claimed, err := s.Store.TransitionAgentElicitation(
+		ctx, elicitation.ID,
+		[]string{types.ElicitationStatusPending},
+		types.ElicitationStatusSubmitting, "", contentJSON,
+	)
+	if err != nil {
+		return system.NewHTTPError500(err.Error())
+	}
+	if !claimed {
+		return system.NewHTTPError409("question was already answered")
+	}
+
+	command := types.ExternalAgentCommand{
+		Type: "respond_elicitation",
+		Data: map[string]interface{}{
+			"acp_thread_id":  elicitation.AcpThreadID,
+			"elicitation_id": elicitation.ID,
+			"action":         action,
+			"content":        content,
+		},
+	}
+	if err := s.sendCommandToExternalAgent(sessionID, command); err != nil {
+		// Hand the question back so the user can retry, rather than stranding it in
+		// submitting until the reaper gets to it.
+		if _, rollbackErr := s.Store.TransitionAgentElicitation(
+			ctx, elicitation.ID,
+			[]string{types.ElicitationStatusSubmitting},
+			types.ElicitationStatusPending, "", nil,
+		); rollbackErr != nil {
+			log.Warn().Err(rollbackErr).Str("elicitation_id", elicitation.ID).
+				Msg("Failed to roll back elicitation claim after send failure")
+		}
+		return system.NewHTTPError500(fmt.Sprintf("failed to deliver answer: %v", err))
+	}
+	return nil
+}
+
+// listSessionElicitations godoc
+// @Summary List answerable questions for a session
+// @Description Returns the questions the agent is currently waiting on for this session.
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {array} types.AgentElicitation
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/elicitations [get]
+func (s *HelixAPIServer) listSessionElicitations(_ http.ResponseWriter, r *http.Request) ([]*types.AgentElicitation, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	sessionID := mux.Vars(r)["id"]
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	elicitations, err := s.Store.ListLiveAgentElicitationsForSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	return elicitations, nil
+}
+
 // stopExternalAgentSession godoc
 // @Summary Stop external Zed agent session
 // @Description Stop the external Zed agent for any session (stops container, keeps session record)

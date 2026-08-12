@@ -2332,6 +2332,54 @@ export interface TypesAgentConfig {
   secrets?: Record<string, string>;
 }
 
+export interface TypesAgentElicitation {
+  acp_thread_id?: string;
+  /**
+   * Content is the answer Helix sent. Zed cannot report it back —
+   * ElicitationStatus::Accepted is a unit variant and does not retain the submission —
+   * so this is written when we send the answer, not when the agent confirms it.
+   */
+  content?: number[];
+  created?: string;
+  /**
+   * EntryIndex is the position in Zed's thread entries, which is also the accumulator's
+   * message_id — that is what puts the question in the right place in the transcript.
+   */
+  entry_index?: string;
+  /** ID is Zed's ElicitationEntryId — opaque to Helix, stable for the elicitation's life. */
+  id?: string;
+  interaction_id?: string;
+  /**
+   * LastSeenAt is refreshed every time the agent re-affirms it still holds this
+   * question (the resync heartbeat). A pending row whose LastSeenAt has gone stale is
+   * the only evidence that the agent holding it is gone — a WebSocket reconnect is
+   * not, since the commonest cause of one is the Helix API restarting while the
+   * desktop container, Zed and its respond_tx all survive untouched.
+   */
+  last_seen_at?: string;
+  message?: string;
+  mode?: string;
+  /**
+   * RequestID is the turn that asked. Used to route the question to the right
+   * interaction, the same way message_added is routed.
+   */
+  request_id?: string;
+  /**
+   * ResolutionReason distinguishes the ways a question stops being answerable, so the
+   * UI can say "you replied instead" rather than a bare "cancelled".
+   */
+  resolution_reason?: string;
+  /**
+   * Schema is the ACP `requestedSchema`, stored verbatim. The frontend renders the
+   * question from this, so anything dropped here is a control the user never sees.
+   */
+  schema?: number[];
+  session_id?: string;
+  status?: string;
+  tool_call_id?: string;
+  updated?: string;
+}
+
 export interface TypesAgentHelixConfig {
   assistants?: TypesAssistantConfig[];
   avatar?: string;
@@ -2706,6 +2754,7 @@ export enum TypesAttentionEventType {
   AttentionEventOrgMessage = "org_message",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
+  AttentionEventAgentQuestion = "agent_question",
 }
 
 export interface TypesAttentionEventUpdateRequest {
@@ -3508,6 +3557,22 @@ export interface TypesDynamicModelInfo {
 export enum TypesEffect {
   EffectAllow = "allow",
   EffectDeny = "deny",
+}
+
+export interface TypesElicitationRespondRequest {
+  /**
+   * Action is "accept" or "decline". "decline" is not an abort — the ACP adapter turns
+   * it into an empty answers map and the agent's turn continues, which is why the UI
+   * labels it "Skip".
+   */
+  action?: string;
+  /** Content maps schema field names to the user's answers. */
+  content?: Record<string, any>;
+}
+
+export interface TypesElicitationRespondResponse {
+  elicitation_id?: string;
+  status?: string;
 }
 
 export interface TypesEvaluationAssertion {
@@ -16494,6 +16559,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/codex-credentials`,
         method: "PUT",
         body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the questions the agent is currently waiting on for this session.
+     *
+     * @tags Sessions
+     * @name V1SessionsElicitationsDetail
+     * @summary List answerable questions for a session
+     * @request GET:/api/v1/sessions/{id}/elicitations
+     * @secure
+     */
+    v1SessionsElicitationsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAgentElicitation[], SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/elicitations`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Answers a pending ACP elicitation, unblocking the agent's turn. Action is "accept" (with the user's answers in content) or "decline", which the ACP adapter turns into an empty answer set — the turn continues either way.
+     *
+     * @tags Sessions
+     * @name V1SessionsElicitationsRespondCreate
+     * @summary Answer a question the agent asked
+     * @request POST:/api/v1/sessions/{id}/elicitations/{elicitation_id}/respond
+     * @secure
+     */
+    v1SessionsElicitationsRespondCreate: (
+      id: string,
+      elicitationId: string,
+      request: TypesElicitationRespondRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesElicitationRespondResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/elicitations/${elicitationId}/respond`,
+        method: "POST",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",

@@ -496,7 +496,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           for (const ep of entryPatches) {
             if (ep.index < currentEntries.length) {
               currentEntries[ep.index] = {
-                type: ep.type as "text" | "tool_call",
+                type: ep.type as "text" | "tool_call" | "elicitation",
                 content: applyPatch(
                   currentEntries[ep.index].content,
                   ep.patch_offset,
@@ -506,6 +506,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                 message_id: ep.message_id,
                 tool_name: ep.tool_name || currentEntries[ep.index].tool_name,
                 tool_status: ep.tool_status || currentEntries[ep.index].tool_status,
+                // Questions travel whole rather than as a string patch — a card must
+                // never render from a half-applied delta. Keep the previous payload if
+                // this patch didn't carry one.
+                elicitation: ep.elicitation || currentEntries[ep.index].elicitation,
               };
             }
           }

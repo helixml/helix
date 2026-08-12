@@ -3636,6 +3636,69 @@ definitions:
           type: string
         type: object
     type: object
+  types.AgentElicitation:
+    properties:
+      acp_thread_id:
+        type: string
+      content:
+        description: |-
+          Content is the answer Helix sent. Zed cannot report it back —
+          ElicitationStatus::Accepted is a unit variant and does not retain the submission —
+          so this is written when we send the answer, not when the agent confirms it.
+        items:
+          type: integer
+        type: array
+      created:
+        type: string
+      entry_index:
+        description: |-
+          EntryIndex is the position in Zed's thread entries, which is also the accumulator's
+          message_id — that is what puts the question in the right place in the transcript.
+        type: string
+      id:
+        description: ID is Zed's ElicitationEntryId — opaque to Helix, stable for
+          the elicitation's life.
+        type: string
+      interaction_id:
+        type: string
+      last_seen_at:
+        description: |-
+          LastSeenAt is refreshed every time the agent re-affirms it still holds this
+          question (the resync heartbeat). A pending row whose LastSeenAt has gone stale is
+          the only evidence that the agent holding it is gone — a WebSocket reconnect is
+          not, since the commonest cause of one is the Helix API restarting while the
+          desktop container, Zed and its respond_tx all survive untouched.
+        type: string
+      message:
+        type: string
+      mode:
+        type: string
+      request_id:
+        description: |-
+          RequestID is the turn that asked. Used to route the question to the right
+          interaction, the same way message_added is routed.
+        type: string
+      resolution_reason:
+        description: |-
+          ResolutionReason distinguishes the ways a question stops being answerable, so the
+          UI can say "you replied instead" rather than a bare "cancelled".
+        type: string
+      schema:
+        description: |-
+          Schema is the ACP `requestedSchema`, stored verbatim. The frontend renders the
+          question from this, so anything dropped here is a control the user never sees.
+        items:
+          type: integer
+        type: array
+      session_id:
+        type: string
+      status:
+        type: string
+      tool_call_id:
+        type: string
+      updated:
+        type: string
+    type: object
   types.AgentHelixConfig:
     properties:
       assistants:
@@ -4236,6 +4299,7 @@ definitions:
     - org_message
     - ci_passed
     - ci_failed
+    - agent_question
     type: string
     x-enum-varnames:
     - AttentionEventSpecsPushed
@@ -4246,6 +4310,7 @@ definitions:
     - AttentionEventOrgMessage
     - AttentionEventCIPassed
     - AttentionEventCIFailed
+    - AttentionEventAgentQuestion
   types.AttentionEventUpdateRequest:
     properties:
       acknowledge:
@@ -5495,6 +5560,26 @@ definitions:
     x-enum-varnames:
     - EffectAllow
     - EffectDeny
+  types.ElicitationRespondRequest:
+    properties:
+      action:
+        description: |-
+          Action is "accept" or "decline". "decline" is not an abort — the ACP adapter turns
+          it into an empty answers map and the agent's turn continues, which is why the UI
+          labels it "Skip".
+        type: string
+      content:
+        additionalProperties: true
+        description: Content maps schema field names to the user's answers.
+        type: object
+    type: object
+  types.ElicitationRespondResponse:
+    properties:
+      elicitation_id:
+        type: string
+      status:
+        type: string
+    type: object
   types.EvaluationAssertion:
     properties:
       llm_judge_prompt:
@@ -24266,6 +24351,107 @@ paths:
       summary: Update Codex credentials for a session
       tags:
       - Codex
+  /api/v1/sessions/{id}/elicitations:
+    get:
+      description: Returns the questions the agent is currently waiting on for this
+        session.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AgentElicitation'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List answerable questions for a session
+      tags:
+      - Sessions
+  /api/v1/sessions/{id}/elicitations/{elicitation_id}/respond:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Answers a pending ACP elicitation, unblocking the agent's turn. Action is
+        "accept" (with the user's answers in content) or "decline", which the ACP
+        adapter turns into an empty answer set — the turn continues either way.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Elicitation ID
+        in: path
+        name: elicitation_id
+        required: true
+        type: string
+      - description: Answer
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ElicitationRespondRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ElicitationRespondResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Answer a question the agent asked
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/foreground-thread:
     post:
       description: |-

@@ -324,6 +324,9 @@ export interface IEntryPatch {
   total_length: number,
   tool_name?: string,
   tool_status?: string,
+  // For type === "elicitation": the question payload, sent whole rather than as a
+  // string patch so a card never renders from a half-applied delta.
+  elicitation?: any,
 }
 
 export interface IWebsocketEvent {

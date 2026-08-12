@@ -35,6 +35,11 @@ func (s *AutoWakeColdStartSuite) SetupTest() {
 	s.store = store.NewMockStore(s.ctrl)
 	s.executor = external_agent.NewMockExecutor(s.ctrl)
 
+	// Gate 0 asks whether the turn is blocked on an agent question before any other
+	// gate runs. These suites are about the other gates, so the default is "not
+	// blocked"; TestAutoWake_SkipsInteractionBlockedOnUserQuestion covers the true case.
+	s.store.EXPECT().HasLiveAgentElicitation(gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
+
 	s.server = &HelixAPIServer{
 		Store:                  s.store,
 		externalAgentExecutor:  s.executor,
@@ -358,6 +363,12 @@ func TestAutoWakeConnectedSuite(t *testing.T) {
 func (s *AutoWakeConnectedSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
+
+	// Gate 0 asks whether the turn is blocked on an agent question before any other
+	// gate runs. These suites are about the other gates, so the default is "not
+	// blocked"; TestAutoWake_SkipsInteractionBlockedOnUserQuestion covers the true case.
+	s.store.EXPECT().HasLiveAgentElicitation(gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
+
 	s.server = &HelixAPIServer{
 		Store:                  s.store,
 		externalAgentWSManager: NewExternalAgentWSManager(),

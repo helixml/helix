@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -218,6 +219,25 @@ func (s *HelixAPIServer) FindConnectedSessionForSpecTask(ctx context.Context, sp
 // for the turn_cancelled response. Exposed for E2E tests.
 func (s *HelixAPIServer) SendCancelToExternalAgent(sessionID, requestID string, timeout time.Duration) (string, error) {
 	return s.sendCancelToExternalAgent(sessionID, requestID, timeout)
+}
+
+// RespondToElicitation answers a question the agent asked, running the same
+// claim-then-send sequence the REST endpoint runs (minus authorisation, which the
+// endpoint does before calling in). Exposed for E2E tests so the elicitation phase
+// exercises the production egress path rather than a parallel implementation.
+func (s *HelixAPIServer) RespondToElicitation(
+	ctx context.Context,
+	sessionID, elicitationID, action string,
+	content map[string]interface{},
+) error {
+	elicitation, err := s.Store.GetAgentElicitation(ctx, elicitationID)
+	if err != nil {
+		return fmt.Errorf("get elicitation %s: %w", elicitationID, err)
+	}
+	if httpErr := s.claimAndDeliverElicitationAnswer(ctx, sessionID, elicitation, action, content); httpErr != nil {
+		return fmt.Errorf("respond to elicitation %s: %s", elicitationID, httpErr.Error())
+	}
+	return nil
 }
 
 // SyncEventHook is a callback invoked after each sync event is processed.

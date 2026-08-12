@@ -672,6 +672,7 @@ func NewServer(
 	// session_update notifications only flush on a fresh session/prompt.
 	// See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
 	apiServer.startAutoWakeStuckInteractionsWorker(context.Background())
+	apiServer.startElicitationReaper(context.Background())
 
 	// Clear sessions stuck in "starting" state from a previous API crash.
 	// If the API just started, no session can legitimately be mid-startup.
@@ -1058,6 +1059,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/workspace-status", system.Wrapper(apiServer.workspaceStatus)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}/cancel", system.Wrapper(apiServer.cancelSessionTurn)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/elicitations", system.Wrapper(apiServer.listSessionElicitations)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/elicitations/{elicitation_id}/respond", system.Wrapper(apiServer.respondToElicitation)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/restart-agent", system.Wrapper(apiServer.restartCrashedAgentThread)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/foreground-thread", system.Wrapper(apiServer.foregroundSessionThread)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/output", system.Wrapper(apiServer.getSessionOutput)).Methods(http.MethodGet)
