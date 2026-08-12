@@ -65,6 +65,7 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   Celebration as CelebrationIcon,
+  KeyboardReturn as KeyboardReturnIcon,
 } from "@mui/icons-material";
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from "@mui/material/styles";
@@ -1733,7 +1734,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                   <Box component="span">
                     {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
                   </Box>
-                  <Box component="span">Enter</Box>
+                  <KeyboardReturnIcon sx={{ fontSize: 14 }} />
                 </Box>
               </Button>
             </Tooltip>
