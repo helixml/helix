@@ -39,6 +39,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -533,6 +534,32 @@ func TestInboundDeliveryIDIsMessageID(t *testing.T) {
 	msg, _ := events[0].Message()
 	if msg.MessageID != "particular-uuid-here" {
 		t.Fatalf("MessageID = %q, want particular-uuid-here", msg.MessageID)
+	}
+}
+
+func TestInboundDuplicateDeliveryDispatchesOnce(t *testing.T) {
+	t.Parallel()
+	tp, st, dispatcher, _, reg := newTestTransport(t)
+	setGitHubConfig(t, reg, "tok", testWebhookSecret)
+	seedGitHubTopic(t, st, "s-github", "helixml/helix-org", []string{"issues"})
+
+	body, _ := json.Marshal(issuesOpenedPayload("helixml/helix-org"))
+	for range 2 {
+		if got := post(t, tp.HandleInbound(), body, "issues", "same-delivery", "").StatusCode; got != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", got)
+		}
+	}
+
+	events, err := st.Events.ListForTopic(context.Background(), "org-test", "s-github", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || len(dispatcher.snapshot()) != 1 {
+		t.Fatalf("events = %d, dispatches = %d; want 1 each", len(events), len(dispatcher.snapshot()))
+	}
+	wantID := streaming.EventID("e-" + uuid.NewSHA1(uuid.NameSpaceOID, []byte("s-github\x00same-delivery")).String())
+	if events[0].ID != wantID {
+		t.Fatalf("event ID = %q, want %q", events[0].ID, wantID)
 	}
 }
 

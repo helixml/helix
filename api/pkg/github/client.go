@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v61/github"
@@ -222,6 +223,49 @@ type WebhookSummary struct {
 	ID     int64
 	Events []string
 	Active bool
+}
+
+type WebhookDelivery struct {
+	ID          int64
+	GUID        string
+	DeliveredAt time.Time
+	StatusCode  int
+}
+
+func (c *Client) ListWebhookDeliveries(owner, repo string, hookID int64, cursor string) ([]WebhookDelivery, string, error) {
+	deliveries, resp, err := c.client.Repositories.ListHookDeliveries(c.ctx, owner, repo, hookID, &github.ListCursorOptions{
+		PerPage: 100,
+		Cursor:  cursor,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]WebhookDelivery, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		if delivery == nil {
+			continue
+		}
+		out = append(out, WebhookDelivery{
+			ID:          delivery.GetID(),
+			GUID:        delivery.GetGUID(),
+			DeliveredAt: delivery.GetDeliveredAt().Time,
+			StatusCode:  delivery.GetStatusCode(),
+		})
+	}
+	next := ""
+	if resp != nil {
+		next = resp.Cursor
+	}
+	return out, next, nil
+}
+
+func (c *Client) RedeliverWebhookDelivery(owner, repo string, hookID, deliveryID int64) error {
+	_, _, err := c.client.Repositories.RedeliverHookDelivery(c.ctx, owner, repo, hookID, deliveryID)
+	var accepted *github.AcceptedError
+	if errors.As(err, &accepted) {
+		return nil
+	}
+	return err
 }
 
 // FindWebhook returns the repo webhook whose payload URL matches `url`.
