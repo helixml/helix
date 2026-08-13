@@ -24,6 +24,8 @@ func (l *UsageLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*
 		AppID:             call.AppID,
 		UserID:            call.UserID,
 		InteractionID:     call.InteractionID,
+		SessionID:         call.SessionID,
+		CodeAgentRuntime:  call.CodeAgentRuntime,
 		Model:             call.Model,
 		Provider:          call.Provider,
 		Source:            types.UsageMetricSourceHelixProxy,

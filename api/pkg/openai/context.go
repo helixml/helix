@@ -35,12 +35,13 @@ type Step struct {
 }
 
 type ContextValues struct {
-	OwnerID         string
-	SessionID       string
-	InteractionID   string
-	ProjectID       string
-	SpecTaskID      string
-	OriginalRequest []byte
+	OwnerID          string
+	SessionID        string
+	InteractionID    string
+	ProjectID        string
+	SpecTaskID       string
+	CodeAgentRuntime types.CodeAgentRuntime
+	OriginalRequest  []byte
 }
 
 func SetContextAppID(ctx context.Context, appID string) context.Context {

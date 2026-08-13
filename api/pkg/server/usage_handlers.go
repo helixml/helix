@@ -130,6 +130,7 @@ func (s *HelixAPIServer) getUsage(_ http.ResponseWriter, r *http.Request) ([]*ty
 // @Param   to query string false "End date"
 // @Param   user_id query string false "User ID"
 // @Param   project_id query string false "Project ID"
+// @Param   task_id query string false "Task ID"
 // @Param   app_id query string false "App ID"
 // @Param   session_id query string false "Session ID"
 // @Param   provider query string false "Provider"
@@ -249,6 +250,7 @@ func (s *HelixAPIServer) getOrgUsageSummary(_ http.ResponseWriter, r *http.Reque
 		To:             to,
 		UserID:         r.URL.Query().Get("user_id"),
 		ProjectID:      r.URL.Query().Get("project_id"),
+		TaskID:         r.URL.Query().Get("task_id"),
 		AppID:          r.URL.Query().Get("app_id"),
 		SessionID:      r.URL.Query().Get("session_id"),
 		Provider:       r.URL.Query().Get("provider"),
@@ -275,6 +277,7 @@ func (s *HelixAPIServer) getOrgUsageSummary(_ http.ResponseWriter, r *http.Reque
 	compute, err := s.Store.GetOrgComputeUsage(r.Context(), &store.GetOrgComputeUsageQuery{
 		OrganizationID: orgID,
 		ProjectID:      r.URL.Query().Get("project_id"),
+		TaskID:         r.URL.Query().Get("task_id"),
 		From:           from,
 		To:             to,
 	})

@@ -21559,6 +21559,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Task ID",
+                        "name": "task_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "App ID",
                         "name": "app_id",
                         "in": "query"
@@ -32168,6 +32174,9 @@ const docTemplate = `{
                     "description": "prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)",
                     "type": "integer"
                 },
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
                 "completion_cost": {
                     "type": "number"
                 },
@@ -33157,6 +33166,12 @@ const docTemplate = `{
                     }
                 },
                 "filter_projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UsageFilterOption"
+                    }
+                },
+                "filter_tasks": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.UsageFilterOption"

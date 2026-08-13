@@ -203,14 +203,21 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	chatCompletionRequest.Model = modelName
 
 	responseID := system.GenerateOpenAIResponseID()
+	usageAttribution, err := s.resolveProxyUsageAttribution(r.Context(), user, responseID)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to resolve proxy usage attribution")
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
-		OwnerID:         ownerID,
-		ProjectID:       user.ProjectID,
-		SpecTaskID:      user.SpecTaskID,
-		SessionID:       responseID,
-		InteractionID:   "n/a",
-		OriginalRequest: body,
+		OwnerID:          ownerID,
+		ProjectID:        user.ProjectID,
+		SpecTaskID:       user.SpecTaskID,
+		CodeAgentRuntime: usageAttribution.CodeAgentRuntime,
+		SessionID:        usageAttribution.SessionID,
+		InteractionID:    "n/a",
+		OriginalRequest:  body,
 	})
 
 	options := &controller.ChatCompletionOptions{
@@ -231,6 +238,14 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 
 	var app *types.App
+	if usageAttribution.AppID != "" {
+		if options.AppID != "" && options.AppID != usageAttribution.AppID {
+			log.Error().Str("app_id", usageAttribution.AppID).Str("requested_app_id", options.AppID).Msg("app IDs do not match")
+			http.Error(rw, "URL query app_id does not match authenticated session app_id", http.StatusBadRequest)
+			return
+		}
+		options.AppID = usageAttribution.AppID
+	}
 
 	switch {
 	// If app ID is set from authentication token
@@ -282,6 +297,10 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 		// Get any existing session ID from the query parameters to tie the responses to a specific session
 		if sessionID := r.URL.Query().Get("session_id"); sessionID != "" {
+			if user.SessionID != "" && sessionID != user.SessionID {
+				http.Error(rw, "URL query session_id does not match authenticated session_id", http.StatusBadRequest)
+				return
+			}
 			ctx = oai.SetContextSessionID(ctx, sessionID)
 			log.Debug().Str("session_id", sessionID).Msg("setting session_id in context for document tracking")
 		}

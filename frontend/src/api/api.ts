@@ -4308,6 +4308,7 @@ export interface TypesLLMCall {
   cache_write_cost?: number;
   /** prompt tokens written to provider cache (Anthropic only; subset of PromptTokens) */
   cache_write_tokens?: number;
+  code_agent_runtime?: TypesCodeAgentRuntime;
   completion_cost?: number;
   completion_tokens?: number;
   created?: string;
@@ -4702,6 +4703,7 @@ export interface TypesOrgUsageSummaryResponse {
   filter_apps?: TypesUsageFilterOption[];
   filter_models?: TypesUsageFilterOption[];
   filter_projects?: TypesUsageFilterOption[];
+  filter_tasks?: TypesUsageFilterOption[];
   filter_users?: TypesUsageFilterOption[];
   helix_credits?: number;
   metrics?: TypesAggregatedUsageMetric[];
@@ -18280,6 +18282,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         user_id?: string;
         /** Project ID */
         project_id?: string;
+        /** Task ID */
+        task_id?: string;
         /** App ID */
         app_id?: string;
         /** Session ID */

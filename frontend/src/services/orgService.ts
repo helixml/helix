@@ -16,6 +16,7 @@ export const orgUsageQueryKey = (
   filters?: {
     userId?: string
     projectId?: string
+    taskId?: string
     appId?: string
     sessionId?: string
     provider?: string
@@ -38,6 +39,7 @@ export const orgUsageQueryKey = (
   to,
   filters?.userId,
   filters?.projectId,
+  filters?.taskId,
   filters?.appId,
   filters?.sessionId,
   filters?.provider,
@@ -133,6 +135,7 @@ export function useGetOrgUsage(
     to?: string
     userId?: string
     projectId?: string
+    taskId?: string
     appId?: string
     sessionId?: string
     provider?: string
@@ -160,6 +163,7 @@ export function useGetOrgUsage(
       {
         userId: options?.userId,
         projectId: options?.projectId,
+        taskId: options?.taskId,
         appId: options?.appId,
         sessionId: options?.sessionId,
         provider: options?.provider,
@@ -182,6 +186,7 @@ export function useGetOrgUsage(
         to: options?.to,
         user_id: options?.userId,
         project_id: options?.projectId,
+        task_id: options?.taskId,
         app_id: options?.appId,
         session_id: options?.sessionId,
         provider: options?.provider,
