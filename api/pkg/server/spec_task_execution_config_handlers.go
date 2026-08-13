@@ -152,11 +152,7 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 		agentID:           task.HelixAppID,
 		overrides:         task.CodeAgentOverrides,
 		handoffReason:     "The coding agent or model configuration changed for this task.",
-		persist: func(ctx context.Context, agentID string, overrides *types.CodeAgentOverrides) error {
-			task.HelixAppID = agentID
-			task.CodeAgentOverrides = overrides
-			return s.Store.UpdateSpecTask(ctx, task)
-		},
+		persist:           s.persistSpecTaskCodeAgentConfig(task),
 	}, types.SessionExecutionConfigUpdateRequest{
 		AgentID:            req.AgentID,
 		CodeAgentOverrides: req.CodeAgentOverrides,

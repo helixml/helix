@@ -165,24 +165,18 @@ func (s *HelixAPIServer) updateSessionExecutionConfig(w http.ResponseWriter, r *
 		response.SpecTaskID = surface.task.ID
 	}
 
+	persist := s.persistSessionCodeAgentConfig(session)
+	if surface.task != nil {
+		persist = s.persistSpecTaskCodeAgentConfig(surface.task)
+	}
+
 	_, restarted, httpErr := s.applyCodeAgentExecutionConfig(ctx, user, codeAgentConfigTarget{
 		surface:       "coding sessions",
 		session:       session,
 		agentID:       surface.agentID,
 		overrides:     surface.overrides,
 		handoffReason: "The coding agent or model configuration changed for this session.",
-		persist: func(ctx context.Context, agentID string, overrides *types.CodeAgentOverrides) error {
-			if surface.task != nil {
-				surface.task.HelixAppID = agentID
-				surface.task.CodeAgentOverrides = overrides
-				return s.Store.UpdateSpecTask(ctx, surface.task)
-			}
-			// switchAgentInPlaceForNextTurn repoints ParentApp itself; persist
-			// the overrides and let it own the agent binding.
-			session.Metadata.CodeAgentOverrides = overrides
-			_, err := s.Store.UpdateSession(ctx, *session)
-			return err
-		},
+		persist:       persist,
 	}, req)
 	if httpErr != nil {
 		http.Error(w, httpErr.Message, httpErr.StatusCode)

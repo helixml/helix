@@ -61,6 +61,7 @@ import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import TaskAttachmentsPanel from "./TaskAttachmentsPanel";
 import useSnackbar from "../../hooks/useSnackbar";
+import useCodeAgentConfigChange from "../../hooks/useCodeAgentConfigChange";
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useRouter from "../../hooks/useRouter";
@@ -421,20 +422,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     return selectCodingAgents(apps.apps);
   }, [apps.apps]);
 
-  const handleAgentModelChange = useCallback(async (
-    agentId: string,
-    codeAgentOverrides: TypesCodeAgentOverrides,
-  ) => {
-    const result = await updateExecutionConfig.mutateAsync({
-      agent_id: agentId,
-      code_agent_overrides: codeAgentOverrides,
-    });
-    snackbar.success(
-      result?.agent_thread_restarted
-        ? "Coding configuration updated — a new agent thread is starting"
-        : "Coding configuration updated",
-    );
-  }, [updateExecutionConfig, snackbar]);
+  const handleAgentModelChange = useCodeAgentConfigChange(updateExecutionConfig.mutateAsync);
 
   const handleSandboxResourcesChange = useCallback(async (sandboxResourceOverrides: TypesSandboxResourceOverrides) => {
     const result = await updateExecutionConfig.mutateAsync({

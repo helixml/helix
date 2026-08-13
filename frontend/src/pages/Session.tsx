@@ -17,6 +17,7 @@ import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
 import useSnackbar from '../hooks/useSnackbar'
+import useCodeAgentConfigChange from '../hooks/useCodeAgentConfigChange'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -315,20 +316,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
     return [sessionAgent, ...coding]
   }, [apps.apps, sessionAgentID])
 
-  const handleAgentModelChange = useCallback(async (
-    agentId: string,
-    codeAgentOverrides: TypesCodeAgentOverrides,
-  ) => {
-    const result = await updateExecutionConfig.mutateAsync({
-      agent_id: agentId,
-      code_agent_overrides: codeAgentOverrides,
-    })
-    snackbar.success(
-      result?.agent_thread_restarted
-        ? 'Coding configuration updated — a new agent thread is starting'
-        : 'Coding configuration updated',
-    )
-  }, [updateExecutionConfig, snackbar])
+  const handleAgentModelChange = useCodeAgentConfigChange(updateExecutionConfig.mutateAsync)
 
   const handleCancelTurn = useCallback(async () => {
     if (isCancelling) return

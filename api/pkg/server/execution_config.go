@@ -240,6 +240,32 @@ type codeAgentConfigTarget struct {
 	handoffReason string
 }
 
+// persistSpecTaskCodeAgentConfig writes a coding identity onto a SpecTask row.
+// Both endpoints use it: the task's own, and the session's when that session is
+// driven by a task and so writes through to it.
+func (s *HelixAPIServer) persistSpecTaskCodeAgentConfig(
+	task *types.SpecTask,
+) func(context.Context, string, *types.CodeAgentOverrides) error {
+	return func(ctx context.Context, agentID string, overrides *types.CodeAgentOverrides) error {
+		task.HelixAppID = agentID
+		task.CodeAgentOverrides = overrides
+		return s.Store.UpdateSpecTask(ctx, task)
+	}
+}
+
+// persistSessionCodeAgentConfig writes a coding identity onto a session row.
+// The agent id is ignored on purpose: switchAgentInPlaceForNextTurn repoints
+// ParentApp itself, and it owns that binding.
+func (s *HelixAPIServer) persistSessionCodeAgentConfig(
+	session *types.Session,
+) func(context.Context, string, *types.CodeAgentOverrides) error {
+	return func(ctx context.Context, _ string, overrides *types.CodeAgentOverrides) error {
+		session.Metadata.CodeAgentOverrides = overrides
+		_, err := s.Store.UpdateSession(ctx, *session)
+		return err
+	}
+}
+
 // applyCodeAgentExecutionConfig validates the requested identity, persists it,
 // and — when a session is live — cancels the in-flight turn and starts a fresh
 // ACP thread seeded with the prior transcript. Returns whether anything changed
