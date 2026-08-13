@@ -1,6 +1,91 @@
-import { describe, expect, it } from 'vitest'
+import React, { useContext } from 'react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getDialogStyleTokens, getFlatSelectOverrides, getTooltipStyleOverrides } from './theme'
+import {
+  getDialogStyleTokens,
+  getFlatSelectOverrides,
+  getTooltipStyleOverrides,
+  ThemeContext,
+  ThemeProviderWrapper,
+} from './theme'
+
+const { updateColorScheme, api } = vi.hoisted(() => {
+  const updateColorScheme = vi.fn(() => Promise.resolve())
+  return {
+    updateColorScheme,
+    api: {
+      getApiClient: () => ({ v1UsersMeColorSchemeUpdate: updateColorScheme }),
+    },
+  }
+})
+
+vi.mock('../hooks/useApi', () => ({ default: () => api }))
+
+let systemThemeHandler: ((event: MediaQueryListEvent) => void) | undefined
+
+function setSystemLightMode(matches: boolean) {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({
+    matches,
+    addEventListener: (_event: string, handler: (event: MediaQueryListEvent) => void) => {
+      systemThemeHandler = handler
+    },
+    removeEventListener: vi.fn(),
+  })))
+}
+
+function ThemeToggle() {
+  const { mode, toggleMode } = useContext(ThemeContext)
+  return React.createElement('button', { onClick: toggleMode }, mode)
+}
+
+beforeEach(() => {
+  localStorage.clear()
+  window.history.replaceState({}, '', '/')
+  systemThemeHandler = undefined
+  updateColorScheme.mockClear()
+  setSystemLightMode(true)
+})
+
+describe('theme mode preference', () => {
+  it('persists a manual toggle and ignores later OS changes', () => {
+    const { unmount } = render(React.createElement(
+      ThemeProviderWrapper,
+      null,
+      React.createElement(ThemeToggle),
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: 'light' }))
+    expect(screen.getByRole('button', { name: 'dark' })).toBeInTheDocument()
+    expect(localStorage.getItem('themeMode')).toBe('dark')
+
+    act(() => systemThemeHandler?.({ matches: true } as MediaQueryListEvent))
+    expect(screen.getByRole('button', { name: 'dark' })).toBeInTheDocument()
+    expect(updateColorScheme).toHaveBeenCalledTimes(1)
+    expect(updateColorScheme).toHaveBeenCalledWith({ color_scheme: 'dark' })
+
+    unmount()
+    render(React.createElement(
+      ThemeProviderWrapper,
+      null,
+      React.createElement(ThemeToggle),
+    ))
+    expect(screen.getByRole('button', { name: 'dark' })).toBeInTheDocument()
+  })
+
+  it('gives an explicit query mode precedence over the stored mode', () => {
+    localStorage.setItem('themeMode', 'dark')
+    window.history.replaceState({}, '', '/?theme=light')
+
+    render(React.createElement(
+      ThemeProviderWrapper,
+      null,
+      React.createElement(ThemeToggle),
+    ))
+
+    expect(screen.getByRole('button', { name: 'light' })).toBeInTheDocument()
+  })
+})
 
 describe('tooltip theme', () => {
   it('uses the compact bordered surface in dark mode', () => {

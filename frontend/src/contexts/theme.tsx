@@ -5,6 +5,8 @@ import useApi from '../hooks/useApi'
 import { PaletteMode } from '@mui/material'
 import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY } from '../styles/typography'
 
+const THEME_MODE_KEY = 'themeMode'
+
 // themePinnedByQuery reports whether the embedder stated the mode explicitly.
 function themePinnedByQuery(): boolean {
   try {
@@ -15,8 +17,17 @@ function themePinnedByQuery(): boolean {
   }
 }
 
+function storedThemeMode(): PaletteMode | null {
+  try {
+    const stored = localStorage.getItem(THEME_MODE_KEY)
+    return stored === 'dark' || stored === 'light' ? stored : null
+  } catch {
+    return null
+  }
+}
+
 function getInitialMode(): PaletteMode {
-  // An explicit ?theme= wins over the OS preference.
+  // An explicit ?theme= wins over the browser override and OS preference.
   //
   // This exists for embedding. An iframe inherits the VIEWER's OS setting, not
   // the host page's, so a dark site embedding Helix gets a white panel dropped
@@ -26,16 +37,14 @@ function getInitialMode(): PaletteMode {
   try {
     const q = new URLSearchParams(window.location.search).get('theme')
     if (q === 'dark' || q === 'light') return q
-  } catch { /* malformed query string — fall through to the OS preference */ }
+  } catch { /* malformed query string — fall through to the browser override */ }
+
+  const stored = storedThemeMode()
+  if (stored) return stored
 
   if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light'
   return 'dark'
 }
-
-// Drop a stale preference from earlier versions that pinned the mode in
-// localStorage. We now keep the mode in memory only — every reload re-resolves
-// from the OS, and OS transitions or manual toggles set the current mode.
-try { localStorage.removeItem('themeMode') } catch { /* ignore */ }
 
 export const ThemeContext = React.createContext({
   mode: 'dark' as PaletteMode,
@@ -110,10 +119,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const api = useApi()
   const [mode, setMode] = useState<PaletteMode>(getInitialMode)
 
-  // Live OS preference sync. The most recent change wins, regardless of source —
-  // an OS transition here, a manual toggle in toggleMode below. We always update
-  // local state and push to the API so the user's spec-task GNOME desktops and
-  // Zed editors flip too via the settings-sync-daemon's WS subscription.
+  // Live OS preference sync while the browser has no explicit override.
   useEffect(() => {
     // A pinned ?theme= must stay pinned. Otherwise an embedder's dark panel
     // would flip to light the moment the VIEWER's OS changed — a setting the
@@ -122,6 +128,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
 
     const mql = window.matchMedia('(prefers-color-scheme: light)')
     const handler = (e: MediaQueryListEvent) => {
+      if (storedThemeMode()) return
       const next: PaletteMode = e.matches ? 'light' : 'dark'
       setMode(next)
       api.getApiClient().v1UsersMeColorSchemeUpdate({ color_scheme: next })
@@ -406,6 +413,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const toggleMode = () => {
     setMode((prevMode) => {
       const next = prevMode === 'dark' ? 'light' : 'dark'
+      try { localStorage.setItem(THEME_MODE_KEY, next) } catch { /* ignore */ }
       // Fire-and-forget: persist to the user's account so any spec-task
       // sessions they own can mirror the theme into GNOME and Zed within
       // ~100ms via the settings-sync-daemon's WS subscription.
