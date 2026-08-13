@@ -316,7 +316,10 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 		t.Fatalf("Ensure: %v", err)
 	}
 	if projectID != "prj_test" || agentAppID != "app_test" {
-		t.Fatalf("ids = (%q,%q,%q); want (prj_test, app_test, repo-w-eng)", projectID, agentAppID, repoID)
+		t.Fatalf("ids = (%q,%q,%q); want (prj_test, app_test, repo-w-eng-prj_test)", projectID, agentAppID, repoID)
+	}
+	if repoID != "repo-w-eng-prj_test" {
+		t.Fatalf("repo = %q, want project-specific repo-w-eng-prj_test", repoID)
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
@@ -486,8 +489,8 @@ func TestEnsureDeletesOrphanRepoOnAttachFailure(t *testing.T) {
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if len(svc.deleteGitRepoIDs) != 1 || svc.deleteGitRepoIDs[0] != "repo-w-eng" {
-		t.Fatalf("orphan repo not deleted: deleteGitRepoIDs = %v, want [repo-w-eng]", svc.deleteGitRepoIDs)
+	if len(svc.deleteGitRepoIDs) != 1 || svc.deleteGitRepoIDs[0] != "repo-w-eng-prj_test" {
+		t.Fatalf("orphan repo not deleted: deleteGitRepoIDs = %v, want [repo-w-eng-prj_test]", svc.deleteGitRepoIDs)
 	}
 }
 
@@ -499,7 +502,7 @@ func TestEnsureDeletesRacedDuplicateRepo(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role: engineer")
 	svc := newFakeProjectService()
-	svc.createGitRepoNameReturn = "w-eng-2" // simulate auto-increment on collision
+	svc.createGitRepoNameReturn = "w-eng-prj_test-2" // simulate auto-increment on collision
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
 
@@ -508,8 +511,8 @@ func TestEnsureDeletesRacedDuplicateRepo(t *testing.T) {
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if len(svc.deleteGitRepoIDs) != 1 || svc.deleteGitRepoIDs[0] != "repo-w-eng-2" {
-		t.Fatalf("raced duplicate not deleted: deleteGitRepoIDs = %v, want [repo-w-eng-2]", svc.deleteGitRepoIDs)
+	if len(svc.deleteGitRepoIDs) != 1 || svc.deleteGitRepoIDs[0] != "repo-w-eng-prj_test-2" {
+		t.Fatalf("raced duplicate not deleted: deleteGitRepoIDs = %v, want [repo-w-eng-prj_test-2]", svc.deleteGitRepoIDs)
 	}
 	if svc.attachRepoCalls != 0 {
 		t.Errorf("must not attach a raced duplicate; attachRepoCalls = %d", svc.attachRepoCalls)
@@ -535,8 +538,8 @@ func TestEnsureFastPathReprovisionsDeletedRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	if rid != "repo-w-eng" {
-		t.Fatalf("fast path did not re-provision the deleted repo: rid = %q, want repo-w-eng", rid)
+	if rid != "repo-w-eng-prj_existing" {
+		t.Fatalf("fast path did not re-provision the deleted repo: rid = %q, want repo-w-eng-prj_existing", rid)
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
@@ -548,8 +551,8 @@ func TestEnsureFastPathReprovisionsDeletedRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
-	if state.RepoID != "repo-w-eng" {
-		t.Errorf("re-provisioned repo id not persisted: state.RepoID = %q, want repo-w-eng", state.RepoID)
+	if state.RepoID != "repo-w-eng-prj_existing" {
+		t.Errorf("re-provisioned repo id not persisted: state.RepoID = %q, want repo-w-eng-prj_existing", state.RepoID)
 	}
 }
 

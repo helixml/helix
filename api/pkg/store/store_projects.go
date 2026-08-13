@@ -249,7 +249,8 @@ func (s *PostgresStore) populateProjectStats(ctx context.Context, projects []*ty
 	return nil
 }
 
-// DeleteProject deletes a project by ID
+// DeleteProject soft-deletes a project by ID. Repository rows and their
+// project attachments are retained as restore metadata.
 func (s *PostgresStore) DeleteProject(ctx context.Context, projectID string) error {
 	if projectID == "" {
 		return fmt.Errorf("project ID is required")

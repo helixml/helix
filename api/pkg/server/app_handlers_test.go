@@ -14,7 +14,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	orgbots "github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	orgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -25,8 +27,109 @@ import (
 
 type failingAgentCreator struct{}
 
+type stateLinkedDeleteRuntime struct {
+	store *orgstore.Store
+}
+
+type missingRuntimeState struct{}
+
+func (missingRuntimeState) Get(context.Context, string, orgchart.NodeID, string) (map[string]string, error) {
+	return nil, orgstore.ErrNotFound
+}
+func (missingRuntimeState) Set(context.Context, string, orgchart.NodeID, string, string, string) error {
+	return nil
+}
+func (missingRuntimeState) SetMany(context.Context, string, orgchart.NodeID, string, map[string]string) error {
+	return nil
+}
+func (missingRuntimeState) Clear(context.Context, string, orgchart.NodeID, string) error { return nil }
+
+func (*stateLinkedDeleteRuntime) DeleteProject(context.Context, string) error { return nil }
+func (*stateLinkedDeleteRuntime) DeleteApp(context.Context, string) error     { return nil }
+func (r *stateLinkedDeleteRuntime) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, _, _ string) error {
+	if err := r.store.NodeRuntimeState.Clear(ctx, orgID, botID, runtimehelix.Backend); err != nil {
+		return err
+	}
+	return r.store.Nodes.Delete(ctx, orgID, botID)
+}
+
 func (failingAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (string, error) {
 	return "", fmt.Errorf("reconcile failed")
+}
+
+func TestDeleteAppUsesStateOnlyOrgAgentLifecycle(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	ctx := context.Background()
+	node, err := orgchart.NewNode("b-linked", "# Linked", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.Empty(t, node.AgentID)
+	require.NoError(t, orgStore.Nodes.Create(ctx, node))
+	require.NoError(t, runtimehelix.SaveProject(ctx, orgStore, "org-test", node.ID, "", "app-linked", ""))
+	existing := &types.App{ID: "app-linked", Owner: "user-test", OrganizationID: "org-test"}
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID:         existing.Owner,
+		OrganizationID: existing.OrganizationID,
+		Role:           types.OrganizationRoleOwner,
+	}, nil)
+	runtime := &stateLinkedDeleteRuntime{store: orgStore}
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store:     orgStore,
+			lifecycle: &lifecycle.Service{Store: orgStore, Helix: runtime},
+		},
+	}
+	req, err := http.NewRequest(http.MethodDelete, "/api/v1/agents/"+existing.ID, nil)
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
+
+	deleted, httpErr := server.deleteAgent(nil, req)
+
+	require.Nil(t, httpErr)
+	require.Equal(t, existing, deleted)
+	_, err = orgStore.Nodes.Get(ctx, "org-test", node.ID)
+	require.ErrorIs(t, err, orgstore.ErrNotFound)
+}
+
+func TestDeleteStandaloneAppIgnoresUnlinkedNodeWithoutRuntimeState(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	baseOrgStore := orgmemory.New()
+	ctx := context.Background()
+	node, err := orgchart.NewNode("b-unprovisioned", "# Unprovisioned", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, baseOrgStore.Nodes.Create(ctx, node))
+	orgStore := *baseOrgStore
+	orgStore.NodeRuntimeState = missingRuntimeState{}
+	existing := &types.App{ID: "app-standalone", Owner: "user-test", OrganizationID: "org-test"}
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID: existing.Owner, OrganizationID: existing.OrganizationID, Role: types.OrganizationRoleOwner,
+	}, nil)
+	helixStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return(nil, nil)
+	helixStore.EXPECT().DeleteApp(gomock.Any(), existing.ID).Return(nil)
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store:     &orgStore,
+			lifecycle: &lifecycle.Service{Store: &orgStore},
+		},
+	}
+	req, err := http.NewRequest(http.MethodDelete, "/api/v1/agents/"+existing.ID, nil)
+	require.NoError(t, err)
+	req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
+
+	deleted, httpErr := server.deleteAgent(nil, req)
+
+	require.Nil(t, httpErr)
+	require.Equal(t, existing, deleted)
+	_, err = orgStore.Nodes.Get(ctx, "org-test", node.ID)
+	require.NoError(t, err)
 }
 
 func TestUpdateAppRejectsInvalidLinkedOrgAgentShape(t *testing.T) {

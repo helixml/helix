@@ -829,8 +829,8 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 		return fmt.Errorf("delete linked agent: store %T has no shared database", c.server.Store)
 	}
 	return accessor.GormDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Projects outlive org agents. Clear only the deleted app's default-agent
-		// link; repositories, tasks, secrets, and all other project state remain.
+		// The lifecycle archives the runtime-owned project first. Detach the app
+		// from any other configured projects without touching their repositories.
 		if err := tx.Model(&types.Project{}).
 			Where("default_helix_app_id = ?", appID).
 			Update("default_helix_app_id", "").Error; err != nil {

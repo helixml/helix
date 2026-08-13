@@ -24,6 +24,8 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/oauth"
+	orgdomainstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
@@ -1263,7 +1265,15 @@ func (s *HelixAPIServer) deleteAgent(_ http.ResponseWriter, r *http.Request) (*t
 			return nil, system.NewHTTPError500(listErr.Error())
 		}
 		for _, bot := range bots {
-			if bot.AgentID == id {
+			linked := bot.AgentID == id
+			if !linked && bot.AgentID == "" {
+				state, stateErr := runtimehelix.LoadState(r.Context(), s.helixOrg.store, existing.OrganizationID, bot.ID)
+				if stateErr != nil && !errors.Is(stateErr, orgdomainstore.ErrNotFound) {
+					return nil, system.NewHTTPError500(stateErr.Error())
+				}
+				linked = stateErr == nil && state.AgentID == id
+			}
+			if linked {
 				if keepKnowledge {
 					return nil, system.NewHTTPError400("keep_knowledge is not supported when deleting an org-linked agent")
 				}

@@ -101,7 +101,14 @@ func (s *orgGraphSeeder) RemoveHumanNode(ctx context.Context, orgID, userID stri
 // When CoS already exists, OwnerBotTools is unioned onto its tool list so
 // upgrades (e.g. new repository tools) land without recreating the bot.
 func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) error {
-	if s == nil {
+	if s == nil || s.lifecycle == nil {
+		return nil
+	}
+	deleted, err := s.lifecycle.ChiefOfStaffDeletionMarked(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	if deleted {
 		return nil
 	}
 	existing, err := s.botStore.Get(ctx, orgID, chiefOfStaffBotID)

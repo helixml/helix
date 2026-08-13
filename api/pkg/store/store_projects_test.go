@@ -2,11 +2,33 @@ package store
 
 import (
 	"context"
+	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+func TestDeleteProjectPreservesRepositoryAndAttachment(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.GitRepository{}, &types.ProjectRepository{}))
+	project := &types.Project{ID: "project-agent", Name: "Agent Project"}
+	repository := &types.GitRepository{ID: "repo-agent", Name: "agent-repo"}
+	attachment := &types.ProjectRepository{ProjectID: project.ID, RepositoryID: repository.ID, OrganizationID: "org-test"}
+	require.NoError(t, db.Create(project).Error)
+	require.NoError(t, db.Create(repository).Error)
+	require.NoError(t, db.Create(attachment).Error)
+	store := &PostgresStore{gdb: db}
+
+	require.NoError(t, store.DeleteProject(context.Background(), project.ID))
+	require.ErrorIs(t, db.First(&types.Project{}, "id = ?", project.ID).Error, gorm.ErrRecordNotFound)
+	require.NoError(t, db.First(&types.GitRepository{}, "id = ?", repository.ID).Error)
+	require.NoError(t, db.First(&types.ProjectRepository{}, "project_id = ? AND repository_id = ?", project.ID, repository.ID).Error)
+}
 
 func (suite *PostgresStoreTestSuite) TestListProjects_WithStats_EmptyProject() {
 	project := &types.Project{

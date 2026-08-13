@@ -211,6 +211,7 @@ type Configs interface {
 	Get(ctx context.Context, orgID, key string) (config.Config, error)
 	List(ctx context.Context, orgID, prefix string) ([]config.Config, error)
 	Delete(ctx context.Context, orgID, key string) error
+	DeleteIfValue(ctx context.Context, orgID, key, value string) error
 }
 
 // ChartPositions persists free-placed (x, y) canvas coordinates for

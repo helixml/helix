@@ -19,9 +19,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/config"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -47,14 +50,17 @@ type TopicSubscriber interface {
 }
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
-// Delete cascade needs to tear down a Node's Helix-side agent app.
-// The configured project is deliberately preserved. Production wiring
+// Delete cascade needs to tear down a Node's Helix-side project and agent app.
+// Repositories are deliberately preserved. Production wiring
 // satisfies this with the in-process adapter used everywhere else; the
 // interface exists so tests can stub.
 type HelixRuntime interface {
+	DeleteProject(ctx context.Context, id string) error
 	DeleteApp(ctx context.Context, id string) error
 	DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, appID, sessionID string) error
 }
+
+const chiefOfStaffDeletedConfigKey = "lifecycle.chief_of_staff_deleted"
 
 type AgentCreator interface {
 	CreateAgent(ctx context.Context, orgID, name, instructions string, config AgentConfig) (string, error)
@@ -257,10 +263,19 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 	rollback := func(createErr error) (CreateResult, error) {
 		cleanupCtx, cancel := cleanupContext(ctx)
 		defer cancel()
-		if err := s.Delete(cleanupCtx, orgID, id); err != nil {
+		if err := s.delete(cleanupCtx, orgID, id, false); err != nil {
 			return CreateResult{}, fmt.Errorf("%w; rollback failed: %v", createErr, err)
 		}
 		return CreateResult{}, createErr
+	}
+	clearChiefOfStaffDeletionMarker := func() error {
+		if id != seedprompts.ChiefOfStaffBotID || s.Store.Configs == nil {
+			return nil
+		}
+		if err := s.Store.Configs.Delete(ctx, orgID, chiefOfStaffDeletedConfigKey); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("clear chief of staff deletion marker: %w", err)
+		}
+		return nil
 	}
 
 	// Wire the initial reporting line now that both node rows exist.
@@ -310,11 +325,13 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 			return rollback(fmt.Errorf("create handler: %w", err))
 		}
 	}
-
 	if s.AgentDelivery != nil {
 		s.AgentDelivery.RestoreAgent(orgID, id)
 	}
 	if p.DeferActivation {
+		if err := clearChiefOfStaffDeletionMarker(); err != nil {
+			return rollback(err)
+		}
 		return CreateResult{Node: node}, nil
 	}
 
@@ -332,6 +349,9 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		if err := s.Store.Activations.Create(ctx, act); err != nil {
 			return rollback(fmt.Errorf("persist create activation: %w", err))
 		}
+	}
+	if err := clearChiefOfStaffDeletionMarker(); err != nil {
+		return rollback(err)
 	}
 	if s.Dispatcher != nil {
 		s.Dispatcher.DispatchHire(ctx, orgID, id, actID)
@@ -399,9 +419,13 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 //
 // Subscriptions are node-anchored, so they die with the node. Activation
 // events themselves are intentionally left behind as an audit trail; only
-// the Topic row is dropped. A configured Helix project is not node-owned and
-// survives deletion; only its reference to the deleted default agent is unset.
+// the Topic row is dropped. The runtime-owned Helix project is archived;
+// repositories and explicitly allowed other projects survive deletion.
 func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) (err error) {
+	return s.delete(ctx, orgID, id, true)
+}
+
+func (s *Service) delete(ctx context.Context, orgID string, id orgchart.NodeID, explicit bool) (err error) {
 	if id == "" {
 		return errors.New("node id is empty")
 	}
@@ -411,6 +435,35 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 	node, err := s.Store.Nodes.Get(ctx, orgID, id)
 	if err != nil {
 		return fmt.Errorf("get node %q: %w", id, err)
+	}
+	deleteSucceeded := false
+	var chiefOfStaffDeletionMarker config.Config
+	if explicit && id == seedprompts.ChiefOfStaffBotID && s.Store.Configs != nil {
+		markerValue := `"` + uuid.NewString() + `"`
+		marker, err := config.New(chiefOfStaffDeletedConfigKey, markerValue, time.Now().UTC(), orgID)
+		if err != nil {
+			return fmt.Errorf("build chief of staff deletion marker: %w", err)
+		}
+		if err := s.Store.Configs.Set(ctx, marker); err != nil {
+			return fmt.Errorf("persist chief of staff deletion marker: %w", err)
+		}
+		chiefOfStaffDeletionMarker = marker
+		defer func() {
+			if deleteSucceeded {
+				return
+			}
+			cleanupCtx, cancel := cleanupContext(ctx)
+			defer cancel()
+			if _, nodeErr := s.Store.Nodes.Get(cleanupCtx, orgID, id); errors.Is(nodeErr, store.ErrNotFound) {
+				return
+			} else if nodeErr != nil {
+				err = fmt.Errorf("%w; verify chief of staff before marker rollback: %v", err, nodeErr)
+				return
+			}
+			if rollbackErr := s.Store.Configs.DeleteIfValue(cleanupCtx, orgID, chiefOfStaffDeletedConfigKey, markerValue); rollbackErr != nil {
+				err = fmt.Errorf("%w; rollback chief of staff deletion marker: %v", err, rollbackErr)
+			}
+		}()
 	}
 	if s.AgentDelivery != nil {
 		if err := s.AgentDelivery.CleanupAgent(ctx, orgID, id); err != nil {
@@ -438,6 +491,11 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 	}
 
 	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
+	if s.Helix != nil && state.ProjectID != "" {
+		if err := s.Helix.DeleteProject(ctx, state.ProjectID); err != nil && !errors.Is(err, helix.ErrProjectNotFound) {
+			return fmt.Errorf("delete project %s: %w", state.ProjectID, err)
+		}
+	}
 
 	agentAppID := node.AgentID
 	if agentAppID == "" {
@@ -478,7 +536,29 @@ func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) 
 	// Run the whole-org reconcilers so the deleted Node's Slack auto-route is
 	// GC'd. Best-effort, like topology above.
 	s.runOrgReconcilers(ctx, orgID, "delete", id)
+	if chiefOfStaffDeletionMarker.Key != "" {
+		cleanupCtx, cancel := cleanupContext(ctx)
+		defer cancel()
+		if err := s.Store.Configs.Set(cleanupCtx, chiefOfStaffDeletionMarker); err != nil {
+			return fmt.Errorf("confirm chief of staff deletion marker: %w", err)
+		}
+	}
+	deleteSucceeded = true
 	return nil
+}
+
+func (s *Service) ChiefOfStaffDeletionMarked(ctx context.Context, orgID string) (bool, error) {
+	if s == nil || s.Store == nil || s.Store.Configs == nil {
+		return false, nil
+	}
+	_, err := s.Store.Configs.Get(ctx, orgID, chiefOfStaffDeletedConfigKey)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	return false, fmt.Errorf("read chief of staff deletion marker: %w", err)
 }
 
 // runOrgReconcilers runs every whole-org reconciler best-effort, logging (not

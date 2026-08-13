@@ -358,10 +358,10 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 
 // deleteBot tears down a Bot via the lifecycle service. Cascades the
 // Helix app, runtime state, subscriptions, reporting lines, then the bot
-// row. The configured project is preserved.
+// row. Its runtime-owned project is archived and repositories are preserved.
 //
 // @Summary Helix-org: delete a bot
-// @Description Delete a Bot. Cascades: detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Only the project's default agent ID is unset; the configured project, repositories, tasks, other project configuration, and activations are preserved.
+// @Description Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Repositories and activations are preserved.
 // @Tags HelixOrg
 // @Param id path string true "Bot ID"
 // @Success 204

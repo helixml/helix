@@ -474,8 +474,9 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 	if ownerID == "" {
 		return "", fmt.Errorf("cannot create per-Worker repo — WhoAmI returned empty owner id (host wiring forgot to supply a service user?)")
 	}
+	repoName := fmt.Sprintf("%s-%s", workerID, projectID)
 	repo, err := a.Service.CreateGitRepo(ctx, types.GitRepositoryCreateRequest{
-		Name:           string(workerID),
+		Name:           repoName,
 		OwnerID:        ownerID,
 		OrganizationID: orgID,
 		InitialFiles: map[string]string{
@@ -491,11 +492,11 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 	// replica, which repoEnsureMu can't serialise) won the create race. Don't
 	// keep the duplicate: delete it and error, so the caller retries and the
 	// outer re-check picks up the winner's now-attached repo.
-	if repo.Name != string(workerID) {
+	if repo.Name != repoName {
 		if derr := a.Service.DeleteGitRepo(ctx, repo.ID); derr != nil && a.Logger != nil {
 			a.Logger.Warn("delete raced duplicate repo", "worker", workerID, "repo", repo.ID, "err", derr)
 		}
-		return "", fmt.Errorf("per-Worker repo %q already exists (create race); retrying", string(workerID))
+		return "", fmt.Errorf("per-Worker repo %q was created concurrently; retry activation", repoName)
 	}
 	if err := a.Service.AttachRepoToProject(ctx, projectID, repo.ID, true); err != nil {
 		// The repo was created but couldn't be attached — it's an orphan with

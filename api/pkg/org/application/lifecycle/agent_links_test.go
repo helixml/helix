@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -21,16 +23,79 @@ type lifecycleRuntime struct {
 	store            *store.Store
 	linkedErr        error
 	deleteAppErr     error
+	deleteProjectErr error
 	projectDeleted   bool
+	deletedProjects  []string
 	deletedApps      []string
 	cleanupCancelled bool
 	linkedCancelled  bool
 	stoppedSessions  []string
 }
 
-func (r *lifecycleRuntime) DeleteProject(context.Context, string) error {
-	r.projectDeleted = true
+type interleavedDeleteRuntime struct {
+	store   *store.Store
+	started chan struct{}
+	resume  chan struct{}
+	mu      sync.Mutex
+	calls   int
+}
+
+type olderSuccessfulDeleteRuntime struct {
+	store   *store.Store
+	started chan struct{}
+	resume  chan struct{}
+	mu      sync.Mutex
+	calls   int
+}
+
+func (r *olderSuccessfulDeleteRuntime) DeleteProject(context.Context, string) error {
+	r.mu.Lock()
+	r.calls++
+	call := r.calls
+	r.mu.Unlock()
+	if call == 1 {
+		close(r.started)
+		<-r.resume
+		return nil
+	}
+	return errors.New("newer project delete failed")
+}
+
+func (*olderSuccessfulDeleteRuntime) DeleteApp(context.Context, string) error { return nil }
+
+func (r *olderSuccessfulDeleteRuntime) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, _, _ string) error {
+	if err := r.store.NodeRuntimeState.Clear(ctx, orgID, botID, runtimehelix.Backend); err != nil {
+		return err
+	}
+	return r.store.Nodes.Delete(ctx, orgID, botID)
+}
+
+func (r *interleavedDeleteRuntime) DeleteProject(context.Context, string) error {
+	r.mu.Lock()
+	r.calls++
+	call := r.calls
+	r.mu.Unlock()
+	if call == 1 {
+		close(r.started)
+		<-r.resume
+		return errors.New("project delete failed")
+	}
 	return nil
+}
+
+func (*interleavedDeleteRuntime) DeleteApp(context.Context, string) error { return nil }
+
+func (r *interleavedDeleteRuntime) DeleteLinkedAgent(ctx context.Context, orgID string, botID orgchart.NodeID, _, _ string) error {
+	if err := r.store.NodeRuntimeState.Clear(ctx, orgID, botID, runtimehelix.Backend); err != nil {
+		return err
+	}
+	return r.store.Nodes.Delete(ctx, orgID, botID)
+}
+
+func (r *lifecycleRuntime) DeleteProject(_ context.Context, id string) error {
+	r.projectDeleted = true
+	r.deletedProjects = append(r.deletedProjects, id)
+	return r.deleteProjectErr
 }
 
 func (r *lifecycleRuntime) DeleteApp(ctx context.Context, id string) error {
@@ -169,20 +234,21 @@ func TestReconcileAgentLinksReportsClaimAndCleanupFailures(t *testing.T) {
 	}
 }
 
-func TestDeletePreservesConfiguredProject(t *testing.T) {
+func TestDeleteArchivesOwnedProjectAndPreservesAllowedProjects(t *testing.T) {
 	st := memory.New()
 	ctx := context.Background()
 	bot, err := orgchart.NewNode("b-agent", "instructions", nil, time.Now().UTC(), "org-test")
 	require.NoError(t, err)
 	bot = bot.WithAgentID("app-agent")
+	bot = bot.WithProjectIDs([]string{"project-configured"})
 	require.NoError(t, st.Nodes.Create(ctx, bot))
-	require.NoError(t, runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-configured", "app-agent", "repo-configured"))
+	require.NoError(t, runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-owned", "app-agent", "repo-owned"))
 	require.NoError(t, runtimehelix.SaveSession(ctx, st, "org-test", bot.ID, "session-agent"))
 	runtime := &lifecycleRuntime{store: st}
 	svc := &lifecycle.Service{Store: st, Helix: runtime}
 
 	require.NoError(t, svc.Delete(ctx, "org-test", bot.ID))
-	require.False(t, runtime.projectDeleted, "configured project was deleted")
+	require.Equal(t, []string{"project-owned"}, runtime.deletedProjects)
 	require.Equal(t, []string{"session-agent"}, runtime.stoppedSessions)
 	if _, err := st.Nodes.Get(ctx, "org-test", bot.ID); err == nil {
 		t.Fatal("node still exists")
@@ -192,10 +258,12 @@ func TestDeletePreservesConfiguredProject(t *testing.T) {
 
 func TestDeleteFailurePreservesGraphAnchorAndRetry(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		linkedErr error
+		name             string
+		linkedErr        error
+		deleteProjectErr error
 	}{
 		{name: "app", linkedErr: errors.New("app delete failed")},
+		{name: "project", deleteProjectErr: errors.New("project delete failed")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := memory.New()
@@ -211,7 +279,7 @@ func TestDeleteFailurePreservesGraphAnchorAndRetry(t *testing.T) {
 			if err := runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-agent", "app-agent", "repo-agent"); err != nil {
 				t.Fatal(err)
 			}
-			runtime := &lifecycleRuntime{store: st, linkedErr: tc.linkedErr}
+			runtime := &lifecycleRuntime{store: st, linkedErr: tc.linkedErr, deleteProjectErr: tc.deleteProjectErr}
 			svc := &lifecycle.Service{Store: st, Helix: runtime}
 
 			if err := svc.Delete(ctx, "org-test", bot.ID); err == nil {
@@ -233,6 +301,7 @@ func TestDeleteFailurePreservesGraphAnchorAndRetry(t *testing.T) {
 			}
 
 			runtime.linkedErr = nil
+			runtime.deleteProjectErr = nil
 			if err := svc.Delete(ctx, "org-test", bot.ID); err != nil {
 				t.Fatalf("retry delete: %v", err)
 			}
@@ -242,6 +311,68 @@ func TestDeleteFailurePreservesGraphAnchorAndRetry(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDeleteChiefOfStaffFailureRollsBackDeletionMarker(t *testing.T) {
+	st := memory.New()
+	ctx := context.Background()
+	bot, err := orgchart.NewNode(seedprompts.ChiefOfStaffBotID, "instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	bot = bot.WithAgentID("app-agent")
+	require.NoError(t, st.Nodes.Create(ctx, bot))
+	require.NoError(t, runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-agent", "app-agent", "repo-agent"))
+	svc := &lifecycle.Service{Store: st, Helix: &lifecycleRuntime{deleteProjectErr: errors.New("project delete failed")}}
+
+	require.Error(t, svc.Delete(ctx, "org-test", bot.ID))
+	marked, err := svc.ChiefOfStaffDeletionMarked(ctx, "org-test")
+	require.NoError(t, err)
+	require.False(t, marked)
+	_, err = st.Nodes.Get(ctx, "org-test", bot.ID)
+	require.NoError(t, err)
+}
+
+func TestConcurrentChiefOfStaffDeleteFailurePreservesSuccessfulMarker(t *testing.T) {
+	st := memory.New()
+	ctx := context.Background()
+	bot, err := orgchart.NewNode(seedprompts.ChiefOfStaffBotID, "instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	bot = bot.WithAgentID("app-agent")
+	require.NoError(t, st.Nodes.Create(ctx, bot))
+	require.NoError(t, runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-agent", "app-agent", "repo-agent"))
+	runtime := &interleavedDeleteRuntime{store: st, started: make(chan struct{}), resume: make(chan struct{})}
+	svc := &lifecycle.Service{Store: st, Helix: runtime}
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- svc.Delete(ctx, "org-test", bot.ID) }()
+	<-runtime.started
+
+	require.NoError(t, svc.Delete(ctx, "org-test", bot.ID))
+	close(runtime.resume)
+	require.Error(t, <-firstDone)
+	marked, err := svc.ChiefOfStaffDeletionMarked(ctx, "org-test")
+	require.NoError(t, err)
+	require.True(t, marked)
+}
+
+func TestOlderSuccessfulChiefOfStaffDeleteRestoresMarkerAfterNewerFailure(t *testing.T) {
+	st := memory.New()
+	ctx := context.Background()
+	bot, err := orgchart.NewNode(seedprompts.ChiefOfStaffBotID, "instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	bot = bot.WithAgentID("app-agent")
+	require.NoError(t, st.Nodes.Create(ctx, bot))
+	require.NoError(t, runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-agent", "app-agent", "repo-agent"))
+	runtime := &olderSuccessfulDeleteRuntime{store: st, started: make(chan struct{}), resume: make(chan struct{})}
+	svc := &lifecycle.Service{Store: st, Helix: runtime}
+	olderDone := make(chan error, 1)
+	go func() { olderDone <- svc.Delete(ctx, "org-test", bot.ID) }()
+	<-runtime.started
+
+	require.Error(t, svc.Delete(ctx, "org-test", bot.ID))
+	close(runtime.resume)
+	require.NoError(t, <-olderDone)
+	marked, err := svc.ChiefOfStaffDeletionMarked(ctx, "org-test")
+	require.NoError(t, err)
+	require.True(t, marked)
 }
 
 func TestCreateCleanupIgnoresCancelledRequestContext(t *testing.T) {
