@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -144,6 +146,41 @@ func TestResolveCachesRelease(t *testing.T) {
 		require.NoError(t, err)
 	}
 	assert.Equal(t, int32(1), calls.Load())
+}
+
+func TestResolveCollapsesConcurrentCacheMisses(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		time.Sleep(100 * time.Millisecond)
+		_, _ = w.Write([]byte(releaseJSON("1.19.0", map[string]string{
+			"opencode-linux-x64.tar.gz":   "sha256:aaa",
+			"opencode-linux-arm64.tar.gz": "sha256:bbb",
+		})))
+	}))
+	defer server.Close()
+
+	resolver := NewResolver(nil, server.URL)
+	const callers = 20
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var ready sync.WaitGroup
+	ready.Add(callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			ready.Done()
+			<-start
+			_, err := resolver.Resolve(context.Background(), "1.19.0")
+			errs <- err
+		}()
+	}
+	ready.Wait()
+	close(start)
+
+	for i := 0; i < callers; i++ {
+		require.NoError(t, <-errs)
+	}
+	assert.Equal(t, int32(1), calls.Load(), "concurrent cache misses must share one release-index request")
 }
 
 func TestResolveBlankVersionIsNoop(t *testing.T) {

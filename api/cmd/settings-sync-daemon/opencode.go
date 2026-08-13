@@ -285,10 +285,14 @@ func extractOpenCodeBinary(archive io.Reader, dest io.Writer) error {
 	defer gz.Close()
 
 	tr := tar.NewReader(gz)
+	found := false
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
-			return fmt.Errorf("archive contains no regular file")
+			if !found {
+				return fmt.Errorf("archive contains no opencode binary")
+			}
+			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("read tar: %w", err)
@@ -296,10 +300,16 @@ func extractOpenCodeBinary(archive io.Reader, dest io.Writer) error {
 		if header.Typeflag != tar.TypeReg {
 			continue
 		}
+		if filepath.Base(header.Name) != "opencode" {
+			return fmt.Errorf("archive contains unexpected regular file %q", header.Name)
+		}
+		if found {
+			return fmt.Errorf("archive contains multiple opencode binaries")
+		}
 		if _, err := io.Copy(dest, tr); err != nil {
 			return fmt.Errorf("extract %s: %w", header.Name, err)
 		}
-		return nil
+		found = true
 	}
 }
 

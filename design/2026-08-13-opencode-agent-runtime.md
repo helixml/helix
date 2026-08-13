@@ -1,8 +1,8 @@
 # opencode as a Helix code agent runtime
 
 Date: 2026-08-13
-Status: implemented (Phase 1 + 1b). Not yet exercised end-to-end in a live
-sandbox — see "What is NOT verified" at the bottom.
+Status: implemented (Phase 1 + 1b) and exercised end-to-end in a live sandbox.
+The remaining version-override checks require a release newer than 1.18.18.
 
 ## Summary
 
@@ -322,28 +322,32 @@ sha verification we control. `autoupdate: false` stays in the config.
 
 ## Testing checklist (before merge)
 
-- [ ] `./stack build-ubuntu` — confirm `opencode --version` in the image
-- [ ] Start a **spec task** with `code_agent_runtime=opencode` (a bare
+- [x] `./stack build-ubuntu` — confirm `opencode --version` in the image
+- [x] Start a **spec task** with `code_agent_runtime=opencode` (a bare
       `zed_external` chat session won't do — no repo means Zed never connects)
-- [ ] Confirm `config->>'zed_thread_id'` is a non-empty UUID (live Zed)
-- [ ] Send a message, confirm streaming + tool calls land in the Helix chat UI
-- [ ] Confirm token usage/cost is recorded (opencode reports `usage` per turn)
-- [ ] Exercise the lifecycle seam: clear thread → send another message; resume
+- [x] Confirm `config->>'zed_thread_id'` is non-empty (live Zed)
+- [x] Send a message, confirm streaming + tool calls land in the Helix chat
+- [x] Confirm token usage is recorded (opencode reports `usage` per turn)
+- [ ] Exercise the remaining lifecycle seam: clear thread → send another
+      message. Stop → resume → send and a second turn were verified.
 - [ ] Confirm the model picker shows exactly one Helix-routed model
 
 ## What was verified during implementation
 
 Automated, runs in CI:
 
-- `pkg/opencode` — 6 tests: semver validation (including `v` prefixes, path
+- `pkg/opencode` — 8 tests: semver validation (including `v` prefixes, path
   traversal and URL-injection attempts), both-architectures resolution, partial
-  release rejection, missing-digest rejection, 404 handling, response caching.
-- `cmd/settings-sync-daemon` — 12 tests: baked binary by default, the
+  release rejection, missing-digest rejection, 404 handling, response caching,
+  and concurrent cache-miss deduplication.
+- `cmd/settings-sync-daemon` — 13 tests: baked binary by default, the
   `enabled_providers` gate, `permission: allow` + `autoupdate: false`,
   provider-qualified model id, omitted unknown limits, reasoning effort,
   install-and-verify, digest-mismatch rejection (with no partial file left
   behind), no-agent-server-on-failure, retry throttling, pin-equals-baked
-  skipping the download, and cache reuse.
+  skipping the download, cache reuse, and unexpected archive-file rejection.
+- `pkg/store` — the system-settings update test verifies that
+  `opencode_version` is persisted and survives partial updates.
 - `pkg/server` — the runtime-selection table gains an opencode row.
 
 Manual, run once during development:
@@ -353,6 +357,14 @@ Manual, run once during development:
   the cache dir created retro-writable, and the binary root-owned so the agent
   user cannot overwrite its own runtime. The arm64 digest was verified by
   download.
+- `./stack build-ubuntu` produced image `227cc1`. A live OpenCode spec task
+  (`spt_01kzx26k7nnwwrpjpxjvh4a2fb`) started Zed, spawned
+  `/usr/local/bin/opencode acp`, created thread
+  `ses_005ce3035ffeqQAxiNg8XyYQey`, streamed a shell tool call, returned
+  `OPENCODE_READY`, and recorded a 10,755-token usage event. A second turn on
+  the same thread also completed. This run caught and fixed the build-time
+  `opencode --version` smoke check creating root-owned state under
+  `/home/retro/.local`; the smoke check now uses an isolated temporary home.
 - `cmd/settings-sync-daemon/opencode_live_test.go` (build tag `livetest`) feeds
   the daemon's generated config to a **real `opencode acp` process** and asserts
   the ACP handshake succeeds and `session/new` offers exactly one model. It
@@ -361,10 +373,8 @@ Manual, run once during development:
 
 ## What is NOT verified
 
-- **No live spec-task run.** The runtime has not been exercised inside a real
-  sandbox with Zed connected. The desktop image has not been rebuilt, so
-  nothing has run `opencode acp` under Zed's ACP client. The pre-merge checklist
-  above is the remaining work.
+- **Clear-thread lifecycle.** Stop → resume → first turn and a second turn on
+  the same live thread passed, but clear thread → next turn is still unchecked.
 - **The version override has never been exercised against a real newer
   release.** 1.18.18 is the newest published version, so `ValidateVersion`
   rejects every real value today; the install path is covered only by tests

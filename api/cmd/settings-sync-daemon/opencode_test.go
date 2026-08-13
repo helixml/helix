@@ -173,6 +173,28 @@ func buildOpenCodeArchive(t *testing.T, contents string) ([]byte, string) {
 	return buf.Bytes(), hex.EncodeToString(sum[:])
 }
 
+func TestExtractOpenCodeBinaryRejectsUnexpectedRegularFile(t *testing.T) {
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gz)
+	contents := []byte("release notes")
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name:     "README.md",
+		Mode:     0644,
+		Size:     int64(len(contents)),
+		Typeflag: tar.TypeReg,
+	}))
+	_, err := tw.Write(contents)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+
+	var dest bytes.Buffer
+	err = extractOpenCodeBinary(bytes.NewReader(archive.Bytes()), &dest)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unexpected regular file")
+}
+
 func TestOpenCodeInstallsPinnedVersion(t *testing.T) {
 	archive, digest := buildOpenCodeArchive(t, "#!/bin/sh\necho pinned\n")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

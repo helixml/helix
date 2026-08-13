@@ -1291,7 +1291,13 @@ echo "${OPENCODE_VERSION}" > /opt/helix/opencode.version
 # here is the mountpoint and the fallback when no mount is present.
 mkdir -p /opt/helix/agent-cache/opencode
 chown -R retro:retro /opt/helix/agent-cache
-/usr/local/bin/opencode --version
+# Keep the build-time smoke check out of the runtime user's home. Even
+# `--version` initialises opencode's data directories; running it with the
+# image's HOME would leave /home/retro/.local root-owned and prevent desktop
+# startup from creating Zed's state symlink there.
+OPENCODE_SMOKE_HOME="$(mktemp -d)"
+HOME="${OPENCODE_SMOKE_HOME}" /usr/local/bin/opencode --version
+rm -r "${OPENCODE_SMOKE_HOME}"
 _INSTALL_OPENCODE
 
 WORKDIR /

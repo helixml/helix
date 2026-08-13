@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"golang.org/x/sync/singleflight"
 )
 
 // BakedVersion is the opencode release compiled into the desktop image.
@@ -135,6 +136,7 @@ type Resolver struct {
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
+	fetch singleflight.Group
 }
 
 // NewResolver builds a Resolver. Pass an empty releasesURL to use the public
@@ -174,19 +176,35 @@ func (r *Resolver) Resolve(ctx context.Context, version string) (*types.CodeAgen
 	}
 	r.mu.Unlock()
 
-	binary, err := r.fetch(ctx, version)
+	result, err, _ := r.fetch.Do(version, func() (interface{}, error) {
+		r.mu.Lock()
+		if entry, ok := r.cache[version]; ok && time.Since(entry.fetched) < r.ttl {
+			r.mu.Unlock()
+			return entry.binary, nil
+		}
+		r.mu.Unlock()
+
+		binary, err := r.fetchRelease(ctx, version)
+		if err != nil {
+			return nil, err
+		}
+
+		r.mu.Lock()
+		r.cache[version] = cacheEntry{binary: binary, fetched: time.Now()}
+		r.mu.Unlock()
+		return binary, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	r.mu.Lock()
-	r.cache[version] = cacheEntry{binary: binary, fetched: time.Now()}
-	r.mu.Unlock()
-
+	binary, ok := result.(*types.CodeAgentBinary)
+	if !ok {
+		return nil, fmt.Errorf("opencode resolver returned unexpected result type %T", result)
+	}
 	return binary, nil
 }
 
-func (r *Resolver) fetch(ctx context.Context, version string) (*types.CodeAgentBinary, error) {
+func (r *Resolver) fetchRelease(ctx context.Context, version string) (*types.CodeAgentBinary, error) {
 	url := fmt.Sprintf("%s/tags/v%s", r.releasesURL, version)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

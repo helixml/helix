@@ -44,6 +44,7 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 		DefaultNewProjectAgentProvider:        "old-project-provider",
 		DefaultNewProjectAgentModel:           "old-project-model",
 		DefaultNewProjectAgentReasoningEffort: types.ReasoningEffortLow,
+		OpenCodeVersion:                       "1.18.19",
 		ProvidersManagementEnabled:            false,
 		EnforceQuotas:                         false,
 		SandboxBillingEnabled:                 false,
@@ -71,6 +72,7 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 		DefaultNewProjectAgentProvider:        strPtr("new-project-provider"),
 		DefaultNewProjectAgentModel:           strPtr("new-project-model"),
 		DefaultNewProjectAgentReasoningEffort: strPtr(types.ReasoningEffortHigh),
+		OpenCodeVersion:                       strPtr("1.19.0"),
 		ProvidersManagementEnabled:            boolPtr(true),
 		EnforceQuotas:                         boolPtr(true),
 		SandboxBillingEnabled:                 boolPtr(true),
@@ -100,6 +102,7 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 	require.Equal(t, "new-project-provider", updated.DefaultNewProjectAgentProvider)
 	require.Equal(t, "new-project-model", updated.DefaultNewProjectAgentModel)
 	require.Equal(t, types.ReasoningEffortHigh, updated.DefaultNewProjectAgentReasoningEffort)
+	require.Equal(t, "1.19.0", updated.OpenCodeVersion)
 	require.True(t, updated.ProvidersManagementEnabled)
 	require.True(t, updated.EnforceQuotas)
 	require.True(t, updated.SandboxBillingEnabled)
@@ -122,6 +125,7 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 	var persisted types.SystemSettings
 	require.NoError(t, store.gdb.WithContext(ctx).Where("id = ?", types.SystemSettingsID).First(&persisted).Error)
 	require.Equal(t, updated.HuggingFaceToken, persisted.HuggingFaceToken)
+	require.Equal(t, updated.OpenCodeVersion, persisted.OpenCodeVersion)
 	require.Equal(t, updated.OptimusSmallGenerationModel, persisted.OptimusSmallGenerationModel)
 }
 
@@ -140,6 +144,7 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 		DefaultNewProjectAgentProvider:        "seed-project-provider",
 		DefaultNewProjectAgentModel:           "seed-project-model",
 		DefaultNewProjectAgentReasoningEffort: types.ReasoningEffortMedium,
+		OpenCodeVersion:                       "1.18.19",
 		ProvidersManagementEnabled:            true,
 		EnforceQuotas:                         false,
 		SandboxBillingEnabled:                 true,
@@ -179,6 +184,7 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 	require.Equal(t, "seed-project-provider", updated.DefaultNewProjectAgentProvider)
 	require.Equal(t, "seed-project-model", updated.DefaultNewProjectAgentModel)
 	require.Equal(t, types.ReasoningEffortMedium, updated.DefaultNewProjectAgentReasoningEffort)
+	require.Equal(t, "1.18.19", updated.OpenCodeVersion)
 	require.True(t, updated.ProvidersManagementEnabled)
 	require.False(t, updated.EnforceQuotas)
 	require.True(t, updated.SandboxBillingEnabled)
