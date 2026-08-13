@@ -245,9 +245,18 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 		return nil, fmt.Errorf("failed to list tree entries: %w", err)
 	}
 
+	treePath := path
+	if treePath == "." {
+		treePath = ""
+	}
+	commitsInfo, _, err := entries.GetCommitsInfo(ctx, "", commit, treePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tree entry commits: %w", err)
+	}
+
 	// Build tree entries
 	result := make([]types.TreeEntry, 0, len(entries))
-	for _, entry := range entries {
+	for i, entry := range entries {
 		entryPath := path
 		if entryPath == "." || entryPath == "" {
 			entryPath = entry.Name()
@@ -264,11 +273,17 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 			size = entry.Size()
 		}
 
+		var lastCommitAt *time.Time
+		if commitsInfo[i].Commit != nil {
+			lastCommitAt = &commitsInfo[i].Commit.Author.When
+		}
+
 		result = append(result, types.TreeEntry{
-			Name:  entry.Name(),
-			Path:  entryPath,
-			IsDir: isDir,
-			Size:  size,
+			Name:         entry.Name(),
+			Path:         entryPath,
+			IsDir:        isDir,
+			Size:         size,
+			LastCommitAt: lastCommitAt,
 		})
 	}
 

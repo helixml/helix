@@ -7493,6 +7493,7 @@ export interface TypesToolZapierConfig {
 
 export interface TypesTreeEntry {
   is_dir?: boolean;
+  last_commit_at?: string;
   name?: string;
   path?: string;
   size?: number;
