@@ -1688,11 +1688,34 @@ steps:
     depends_on:
       - zed-e2e-image
 
-  # Step 3e: Full multi-phase E2E suite (17 phases per agent).
-  # Both zed-agent and claude rounds must pass to gate the build.
-  # The cancel drop fix in acp_thread.rs ensures Phase 8 (mid-stream
-  # interrupt) works with Claude Code despite agent-side cancel bugs.
-  - name: zed-e2e-test
+  # Step 3e: Blocking protocol correctness lane. The scripted ACP agent runs
+  # all 17 lifecycle phases without model or provider variability.
+  - name: zed-e2e-protocol-lifecycle
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - |
+        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
+
+        echo "Running deterministic ACP lifecycle test (all 17 phases)..."
+        docker run --rm \
+          -e E2E_AGENTS="lifecycle-test-agent" \
+          -e TEST_TIMEOUT=600 \
+          zed-ws-e2e:$${ZED_COMMIT}
+
+        echo "Deterministic ACP lifecycle test passed"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+    depends_on:
+      - zed-e2e-image
+
+  # Step 3f: Live compatibility lane against claude-agent-acp@latest as
+  # resolved at run start. This remains separate from protocol correctness.
+  - name: zed-e2e-live-claude-latest
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
@@ -1702,14 +1725,14 @@ steps:
       - |
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
 
-        echo "Running E2E test: zed-agent + claude (all phases each)..."
+        echo "Running live compatibility test: claude-agent-acp@latest (all phases)..."
         docker run --rm \
           -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
-          -e E2E_AGENTS="zed-agent,claude" \
+          -e E2E_AGENTS="claude" \
           -e TEST_TIMEOUT=600 \
           zed-ws-e2e:$${ZED_COMMIT}
 
-        echo "Zed WebSocket E2E test passed (both agents)"
+        echo "Live claude-agent-acp@latest compatibility test passed"
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1863,7 +1886,8 @@ steps:
         path: /var/run/docker.sock
     depends_on:
       - build-sandbox
-      - zed-e2e-test
+      - zed-e2e-protocol-lifecycle
+      - zed-e2e-live-claude-latest
     # Publishing step — main + tags only.
     when:
       ref:

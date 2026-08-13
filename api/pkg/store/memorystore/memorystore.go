@@ -32,6 +32,8 @@ type MemoryStore struct {
 	apps         map[string]*types.App
 	projects     map[string]*types.Project
 	specTasks    map[string]*types.SpecTask
+	workSessions map[string]*types.SpecTaskWorkSession
+	zedThreads   map[string]*types.SpecTaskZedThread
 	prompts      map[string]*types.PromptHistoryEntry // prompt_history_entries by id
 	// planningSessionClaims tracks the atomic claim set by
 	// SetPlanningSessionIDIfEmpty; keyed by taskID, value is the winning
@@ -52,6 +54,8 @@ func New() *MemoryStore {
 		apps:         make(map[string]*types.App),
 		projects:     make(map[string]*types.Project),
 		specTasks:    make(map[string]*types.SpecTask),
+		workSessions: make(map[string]*types.SpecTaskWorkSession),
+		zedThreads:   make(map[string]*types.SpecTaskZedThread),
 		prompts:      make(map[string]*types.PromptHistoryEntry),
 	}
 }
@@ -677,8 +681,104 @@ func (m *MemoryStore) SetPlanningSessionIDIfEmpty(_ context.Context, taskID stri
 	return true, nil
 }
 
-func (m *MemoryStore) GetSpecTaskZedThreadByZedThreadID(_ context.Context, _ string) (*types.SpecTaskZedThread, error) {
+func (m *MemoryStore) CreateSpecTaskWorkSession(_ context.Context, workSession *types.SpecTaskWorkSession) error {
+	if workSession.SpecTaskID == "" {
+		return fmt.Errorf("spec_task_id is required")
+	}
+	if workSession.HelixSessionID == "" {
+		return fmt.Errorf("helix_session_id is required")
+	}
+	if workSession.ID == "" {
+		workSession.ID = types.GenerateSpecTaskWorkSessionID()
+	}
+	if workSession.Phase == "" {
+		workSession.Phase = types.SpecTaskPhaseImplementation
+	}
+	if workSession.Status == "" {
+		workSession.Status = types.SpecTaskWorkSessionStatusPending
+	}
+	now := time.Now()
+	workSession.CreatedAt = now
+	workSession.UpdatedAt = now
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *workSession
+	m.workSessions[workSession.ID] = &cp
+	return nil
+}
+
+func (m *MemoryStore) ListWorkSessionsBySpecTask(_ context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]*types.SpecTaskWorkSession, 0)
+	for _, workSession := range m.workSessions {
+		if workSession.SpecTaskID != specTaskID || phase != nil && workSession.Phase != *phase {
+			continue
+		}
+		cp := *workSession
+		for _, zedThread := range m.zedThreads {
+			if zedThread.WorkSessionID == workSession.ID {
+				zedThreadCopy := *zedThread
+				cp.ZedThread = &zedThreadCopy
+				break
+			}
+		}
+		result = append(result, &cp)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
+}
+
+func (m *MemoryStore) CreateSpecTaskZedThread(_ context.Context, zedThread *types.SpecTaskZedThread) error {
+	if zedThread.WorkSessionID == "" {
+		return fmt.Errorf("work_session_id is required")
+	}
+	if zedThread.SpecTaskID == "" {
+		return fmt.Errorf("spec_task_id is required")
+	}
+	if zedThread.ZedThreadID == "" {
+		return fmt.Errorf("zed_thread_id is required")
+	}
+	if zedThread.ID == "" {
+		zedThread.ID = types.GenerateSpecTaskZedThreadID()
+	}
+	if zedThread.Status == "" {
+		zedThread.Status = types.SpecTaskZedStatusPending
+	}
+	now := time.Now()
+	zedThread.CreatedAt = now
+	zedThread.UpdatedAt = now
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *zedThread
+	m.zedThreads[zedThread.ID] = &cp
+	return nil
+}
+
+func (m *MemoryStore) GetSpecTaskZedThreadByZedThreadID(_ context.Context, zedThreadID string) (*types.SpecTaskZedThread, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, zedThread := range m.zedThreads {
+		if zedThread.ZedThreadID != zedThreadID {
+			continue
+		}
+		cp := *zedThread
+		if workSession := m.workSessions[zedThread.WorkSessionID]; workSession != nil {
+			workSessionCopy := *workSession
+			cp.WorkSession = &workSessionCopy
+		}
+		return &cp, nil
+	}
 	return nil, store.ErrNotFound
+}
+
+func (m *MemoryStore) UpdateSpecTaskZedThread(_ context.Context, zedThread *types.SpecTaskZedThread) error {
+	zedThread.UpdatedAt = time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *zedThread
+	m.zedThreads[zedThread.ID] = &cp
+	return nil
 }
 
 func (m *MemoryStore) GetSpecTaskExternalAgent(_ context.Context, _ string) (*types.SpecTaskExternalAgent, error) {
