@@ -172,6 +172,12 @@ type Sandboxes struct {
 	// DefaultRuntime is the runtime applied when the create request omits
 	// both `runtime` and `image`. Must match one of the names in Runtimes.
 	DefaultRuntime string `envconfig:"HELIX_SANDBOX_DEFAULT_RUNTIME" default:"headless-ubuntu"`
+
+	// OpenCodeReleasesURL is the release index used to resolve the admin's
+	// opencode version override into download URLs + digests. Point it at an
+	// internal mirror serving the same JSON shape for air-gapped installs.
+	// Empty uses the public GitHub API.
+	OpenCodeReleasesURL string `envconfig:"HELIX_OPENCODE_RELEASES_URL"`
 }
 
 // Compute configures the cloud-provisioning side of Helix's sandbox

@@ -21,6 +21,7 @@ const runtimeLabel = (runtime?: string): string => {
     case 'codex_cli': return 'Codex'
     case 'qwen_code': return 'Qwen Code'
     case 'goose_code': return 'Goose'
+    case 'opencode': return 'opencode'
     case 'zed_agent': return 'Zed Agent'
     case 'zed_external': return 'External Agent'
     case 'helix': return 'Helix'

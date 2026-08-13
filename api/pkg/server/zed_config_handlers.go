@@ -621,6 +621,9 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 			cfg := apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL, snapshot)
 			_, modelName := external_agent.AssistantModelSelection(&assistant)
 			apiServer.applyAdvertisedModelLimits(ctx, cfg, modelName, endpoints)
+			if cfg != nil && cfg.Runtime == types.CodeAgentRuntimeOpenCode {
+				apiServer.applyOpenCodeVersionOverride(ctx, cfg)
+			}
 			if cfg != nil && cfg.Runtime == types.CodeAgentRuntimeGooseCode && projectID != "" && len(assistant.GooseRecipes) > 0 {
 				if err := apiServer.resolveGooseRecipesIntoConfig(ctx, app, &assistant, projectID, cfg); err != nil {
 					log.Warn().Err(err).Str("app_id", app.ID).Str("project_id", projectID).Msg("buildCodeAgentConfig: failed to resolve goose recipes; slash commands will be unavailable in this session")
@@ -705,6 +708,16 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			model = modelName
 		}
 
+	case types.CodeAgentRuntimeOpenCode:
+		// opencode: `opencode acp` as a custom agent_server. Like qwen, every
+		// provider is reached through Helix's OpenAI-compatible proxy, so
+		// there is a single code path here — the provider prefix is part of
+		// the model id the proxy routes on.
+		baseURL = helixURL + "/v1"
+		apiType = "openai"
+		agentName = "opencode"
+		model = fmt.Sprintf("%s/%s", providerName, modelName)
+
 	case types.CodeAgentRuntimeCodexCLI:
 		agentName = "codex"
 		model = modelName
@@ -766,6 +779,37 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		MaxTokens:        maxTokens,
 		MaxOutputTokens:  maxOutputTokens,
 	}
+}
+
+// applyOpenCodeVersionOverride attaches the admin-pinned opencode release to
+// the config so the container installs it instead of the build baked into the
+// desktop image. A blank setting (the default) leaves OpenCodeBinary nil and
+// the container uses its baked binary with no network access at all.
+//
+// Resolution failures are logged and leave OpenCodeBinary nil, which means the
+// session runs the baked build. That is safe here — and only here — because
+// the version was already resolved successfully when the admin saved it, so a
+// failure at this point is a transient outage of the release index rather than
+// a bad pin. The daemon applies the opposite rule: once it has been handed a
+// pinned artifact it refuses to start the agent unless it can install exactly
+// that artifact.
+func (apiServer *HelixAPIServer) applyOpenCodeVersionOverride(ctx context.Context, cfg *types.CodeAgentConfig) {
+	settings, err := apiServer.Store.GetSystemSettings(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("applyOpenCodeVersionOverride: failed to read system settings; using the bundled opencode build")
+		return
+	}
+	version := strings.TrimSpace(settings.OpenCodeVersion)
+	if version == "" {
+		return
+	}
+
+	binary, err := apiServer.openCodeResolver.Resolve(ctx, version)
+	if err != nil {
+		log.Error().Err(err).Str("opencode_version", version).Msg("applyOpenCodeVersionOverride: failed to resolve the pinned opencode release; falling back to the bundled build for this session")
+		return
+	}
+	cfg.OpenCodeBinary = binary
 }
 
 // applyAdvertisedModelLimits makes the selected provider's /v1/models response

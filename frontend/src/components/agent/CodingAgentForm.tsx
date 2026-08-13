@@ -326,6 +326,17 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
               </Box>
             </Stack>
           </MenuItem>
+          <MenuItem value="opencode">
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <AgentHarness runtime="opencode" variant="short" size={18} />
+              <Box>
+              <Typography variant="body2">opencode</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Open-source, model-agnostic ACP agent
+              </Typography>
+              </Box>
+            </Stack>
+          </MenuItem>
         </Select>
       </FormControl>
 

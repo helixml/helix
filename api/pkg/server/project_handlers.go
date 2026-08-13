@@ -3127,6 +3127,8 @@ func projectAgentRuntimeToTypes(runtime string) (types.AgentType, types.CodeAgen
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeCodexCLI
 	case "goose_code":
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeGooseCode
+	case "opencode":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeOpenCode
 	default:
 		// "claude_code" or empty/unrecognised → Claude Code CLI (default)
 		return types.AgentTypeZedExternal, types.CodeAgentRuntimeClaudeCode

@@ -3053,6 +3053,20 @@ export interface TypesCodeAgentBakedRecipe {
   name?: string;
 }
 
+export interface TypesCodeAgentBinary {
+  /** Artifacts maps GOARCH to the downloadable archive for that platform. */
+  artifacts?: Record<string, TypesCodeAgentBinaryArtifact>;
+  /** Version is the semver of the pinned release (no leading "v"). */
+  version?: string;
+}
+
+export interface TypesCodeAgentBinaryArtifact {
+  /** SHA256 is the hex digest of the archive, as published by the release. */
+  sha256?: string;
+  /** URL is the archive to download (tar.gz containing a single binary). */
+  url?: string;
+}
+
 export interface TypesCodeAgentConfig {
   /** AgentName is the name used in Zed's agent_servers config (e.g., "qwen", "claude-code") */
   agent_name?: string;
@@ -3092,6 +3106,15 @@ export interface TypesCodeAgentConfig {
   max_tokens?: number;
   /** Model is the model identifier (e.g., "claude-sonnet-4-5-latest", "gpt-4o") */
   model?: string;
+  /**
+   * OpenCodeBinary, when set, pins the opencode build the container must run
+   * instead of the one baked into the desktop image. It is only populated
+   * when an admin has set SystemSettings.OpenCodeVersion to a version newer
+   * than the baked floor. The API resolves the artifact (URL + digest) so
+   * the container never has to know the release URL scheme — that keeps the
+   * mirror decision in one place for air-gapped installs.
+   */
+  opencode_binary?: TypesCodeAgentBinary;
   /** Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter") */
   provider?: string;
   /**
@@ -3141,6 +3164,7 @@ export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeGeminiCLI = "gemini_cli",
   CodeAgentRuntimeCodexCLI = "codex_cli",
   CodeAgentRuntimeGooseCode = "goose_code",
+  CodeAgentRuntimeOpenCode = "opencode",
 }
 
 export interface TypesCodexAuthCredentials {
@@ -7197,6 +7221,7 @@ export interface TypesSystemSettingsRequest {
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
+  opencode_version?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -7239,6 +7264,13 @@ export interface TypesSystemSettingsResponse {
   kodit_vision_embedding_provider?: string;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
+  opencode_bundled_version?: string;
+  /**
+   * OpenCodeVersion is the admin override; empty means the bundled build.
+   * OpenCodeBundledVersion tells the UI what "bundled" currently is so it
+   * can show the floor without hardcoding it.
+   */
+  opencode_version?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;

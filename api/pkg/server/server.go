@@ -38,6 +38,7 @@ import (
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/opencode"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -127,6 +128,7 @@ type HelixAPIServer struct {
 	connman                     *connman.ConnectionManager
 	providerManager             manager.ProviderManager
 	modelInfoProvider           model.ModelInfoProvider
+	openCodeResolver            *opencode.Resolver
 	externalAgentExecutor       external_agent.Executor
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
@@ -389,6 +391,7 @@ func NewServer(
 		sessionManager:              auth.NewSessionManager(store, oidcClient, cfg),
 		providerManager:             providerManager,
 		modelInfoProvider:           modelInfoProvider,
+		openCodeResolver:            opencode.NewResolver(nil, cfg.Sandboxes.OpenCodeReleasesURL),
 		pubsub:                      ps,
 		mcpClientGetter: &mcp.DefaultClientGetter{
 			TLSSkipVerify: cfg.Tools.TLSSkipVerify,

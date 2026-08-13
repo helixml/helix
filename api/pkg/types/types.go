@@ -2497,6 +2497,38 @@ type CodeAgentConfig struct {
 	// writes it to disk and registers a single slash_command so an initial
 	// "/<slug>" prompt fires the recipe.
 	GooseBakedRecipe *CodeAgentBakedRecipe `json:"goose_baked_recipe,omitempty"`
+
+	// OpenCodeBinary, when set, pins the opencode build the container must run
+	// instead of the one baked into the desktop image. It is only populated
+	// when an admin has set SystemSettings.OpenCodeVersion to a version newer
+	// than the baked floor. The API resolves the artifact (URL + digest) so
+	// the container never has to know the release URL scheme — that keeps the
+	// mirror decision in one place for air-gapped installs.
+	OpenCodeBinary *CodeAgentBinary `json:"opencode_binary,omitempty"`
+}
+
+// CodeAgentBinary is a resolved, integrity-checked agent binary release. The
+// daemon refuses to run an artifact whose SHA256 does not match, and refuses
+// to start the agent at all rather than falling back to the baked binary — a
+// silent downgrade would make an admin believe a rollout landed when it did
+// not.
+//
+// Artifacts is keyed by GOARCH ("amd64", "arm64") and carries every platform
+// the release publishes. The API does not know which architecture the sandbox
+// host runs, so the daemon selects its own.
+type CodeAgentBinary struct {
+	// Version is the semver of the pinned release (no leading "v").
+	Version string `json:"version"`
+	// Artifacts maps GOARCH to the downloadable archive for that platform.
+	Artifacts map[string]CodeAgentBinaryArtifact `json:"artifacts"`
+}
+
+// CodeAgentBinaryArtifact is one platform's archive plus its digest.
+type CodeAgentBinaryArtifact struct {
+	// URL is the archive to download (tar.gz containing a single binary).
+	URL string `json:"url"`
+	// SHA256 is the hex digest of the archive, as published by the release.
+	SHA256 string `json:"sha256"`
 }
 
 // CodeAgentGooseRecipe is the daemon-facing view of a project-declared
