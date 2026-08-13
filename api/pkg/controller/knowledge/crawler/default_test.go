@@ -2,6 +2,10 @@ package crawler
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -15,16 +19,45 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const deterministicHTML = `<!doctype html><html><head><title>Deterministic Crawler Fixture</title><meta name="description" content="A local crawler fixture."></head><body><article><h1>Deterministic Crawler Fixture</h1><p>This deterministic page exercises the real Chrome navigation and readability extraction path without relying on public DNS.</p><p>Its <strong>browser-backed markdown</strong> output proves HTML conversion still runs.</p></article></body></html>`
+
+func startCrawlerFixture(t *testing.T, cfg *config.ServerConfig) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	require.NoError(t, err)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(deterministicHTML))
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
+
+	host := "127.0.0.1"
+	if cfg.RAG.Crawler.LauncherEnabled {
+		launcherURL, err := url.Parse(cfg.RAG.Crawler.LauncherURL)
+		require.NoError(t, err)
+		conn, err := net.Dial("udp", launcherURL.Host)
+		require.NoError(t, err)
+		host = conn.LocalAddr().(*net.UDPAddr).IP.String()
+		require.NoError(t, conn.Close())
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	return fmt.Sprintf("http://%s/", net.JoinHostPort(host, fmt.Sprint(port)))
+}
+
 func TestDefault_Crawl(t *testing.T) {
 	// Skip test if Chrome service is not available (e.g., in local development)
 	if testing.Short() {
 		t.Skip("Skipping crawler test in short mode")
 	}
 
+	cfg, err := config.LoadServerConfig()
+	require.NoError(t, err)
+	fixtureURL := startCrawlerFixture(t, &cfg)
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{
-				URLs: []string{"https://example.com"},
+				URLs: []string{fixtureURL},
 				Crawler: &types.WebsiteCrawler{
 					Enabled: false,
 				},
@@ -33,9 +66,6 @@ func TestDefault_Crawl(t *testing.T) {
 		},
 	}
 
-	cfg, err := config.LoadServerConfig()
-	require.NoError(t, err)
-
 	browserManager, err := browser.New(&cfg)
 	require.NoError(t, err)
 
@@ -46,65 +76,18 @@ func TestDefault_Crawl(t *testing.T) {
 	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
+	d.disableDomainCheck = true
 	docs, err := d.Crawl(context.Background())
 	require.NoError(t, err)
-
-	// This integration smoke test verifies browser crawling against a stable
-	// public page. Crawl errors are returned as diagnostic documents.
-	var (
-		exampleDomainFound bool
-		successfulDocs     int
-	)
-	for _, doc := range docs {
-		if doc.Message != "" || doc.StatusCode < 200 || doc.StatusCode >= 300 {
-			continue
-		}
-		successfulDocs++
-
-		if strings.Contains(doc.Title, "Example Domain") {
-			exampleDomainFound = true
-		}
-	}
-
-	require.Positive(t, successfulDocs, "no successful documents crawled")
-	require.True(t, exampleDomainFound, "Example Domain token not found in any crawled doc")
-
-	t.Logf("successful docs: %d", successfulDocs)
-}
-
-func TestDefault_CrawlSingle(t *testing.T) {
-	// Skip test if Chrome service is not available (e.g., in local development)
-	if testing.Short() {
-		t.Skip("Skipping crawler test in short mode")
-	}
-	k := &types.Knowledge{
-		Source: types.KnowledgeSource{
-			Web: &types.KnowledgeSourceWeb{
-				URLs: []string{"https://www.theguardian.com/uk-news/2024/sep/13/plans-unveiled-for-cheaper-high-speed-alternative-to-scrapped-hs2-northern-leg"},
-				Crawler: &types.WebsiteCrawler{
-					Enabled: false, // Will do single URL
-				},
-			},
-		},
-	}
-
-	cfg, err := config.LoadServerConfig()
-	require.NoError(t, err)
-
-	browserManager, err := browser.New(&cfg)
-	require.NoError(t, err)
-
-	updateProgress := func(progress types.KnowledgeProgress) {
-		t.Logf("progress: %+v", progress)
-	}
-
-	d, err := NewDefault(browserManager, k, updateProgress)
-	require.NoError(t, err)
-
-	docs, err := d.Crawl(context.Background())
-	require.NoError(t, err)
-
-	assert.Equal(t, 1, len(docs))
+	require.Len(t, docs, 1)
+	doc := docs[0]
+	require.Equal(t, 200, doc.StatusCode)
+	require.Equal(t, fixtureURL, doc.SourceURL)
+	require.Equal(t, "Deterministic Crawler Fixture", doc.Title)
+	require.Contains(t, doc.Description, "local crawler fixture")
+	require.Contains(t, doc.Content, "real Chrome navigation")
+	require.Contains(t, doc.Content, "**browser-backed markdown**")
+	require.NotContains(t, doc.Content, "<strong>")
 }
 
 func TestDefault_CrawlSingle_Slow(t *testing.T) {
@@ -238,8 +221,10 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 	b, err := browserManager.GetBrowser()
 	require.NoError(t, err)
 
-	doc, err := d.crawlWithBrowser(ctx, b, "https://news.ycombinator.com/news")
+	fixtureURL := "data:text/html;charset=utf-8," + url.PathEscape(deterministicHTML)
+	doc, err := d.crawlWithBrowser(ctx, b, fixtureURL)
 	require.NoError(t, err)
 
-	assert.True(t, strings.Contains(doc.Content, "points"))
+	assert.Equal(t, 200, doc.StatusCode)
+	assert.Contains(t, doc.Content, "browser-backed markdown")
 }
