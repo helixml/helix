@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,10 +23,12 @@ type fakeTransport struct {
 	cancelled    []string
 	commandsSent []types.ExternalAgentCommand
 	sendErr      error
+	cancelErr    error
 }
 
-func (f *fakeTransport) cancelCurrentTurnIfActive(_ context.Context, sessionID string) {
+func (f *fakeTransport) cancelCurrentTurnIfActive(_ context.Context, sessionID string) error {
 	f.cancelled = append(f.cancelled, sessionID)
+	return f.cancelErr
 }
 
 func (f *fakeTransport) sendCommandToExternalAgent(_ string, command types.ExternalAgentCommand) error {
@@ -125,6 +128,17 @@ func (suite *SessionClearSuite) TestZedBackend_AlreadyFreshThread_NoPersist() {
 
 	suite.NoError(b.Clear(suite.ctx, "ses_zed"))
 	suite.Equal([]string{"ses_zed"}, transport.cancelled)
+}
+
+func (suite *SessionClearSuite) TestZedBackend_DoesNotResetThreadBeforeCancellationIsConfirmed() {
+	transport := &fakeTransport{cancelErr: errors.New("cancellation pending")}
+	b := &zedACPBackend{store: suite.store, transport: transport}
+
+	err := b.Clear(suite.ctx, "ses_zed")
+	suite.ErrorContains(err, "cancellation pending")
+	suite.Equal([]string{"ses_zed"}, transport.cancelled)
+	// No session read or metadata update is expected: the existing thread must
+	// remain authoritative until its active turn is definitely stopped.
 }
 
 // --- backendFor dispatch ---
@@ -231,4 +245,3 @@ func (suite *SessionClearSuite) TestHandler_Unauthorized() {
 	suite.Require().NotNil(herr)
 	suite.Equal(http.StatusForbidden, herr.StatusCode)
 }
-

@@ -89,6 +89,8 @@ const AgentChat: FC<AgentChatProps> = ({
       const response = await api.getApiClient().v1SessionsCancelCreate(sessionId)
       if (response.data?.status === 'noop') {
         snackbar.info('The agent is no longer running a turn')
+      } else if (response.data?.status === 'pending') {
+        snackbar.info('Cancellation queued; waiting for the agent to reconnect and acknowledge it')
       }
       await refetchLatestInteraction()
     } catch (error: any) {

@@ -28,7 +28,7 @@ type SessionBackend interface {
 // the Zed backend needs. *HelixAPIServer satisfies it in production; tests pass a
 // fake so the backend can be exercised without a live WebSocket connection.
 type externalAgentTransport interface {
-	cancelCurrentTurnIfActive(ctx context.Context, sessionID string)
+	cancelCurrentTurnIfActive(ctx context.Context, sessionID string) error
 	sendCommandToExternalAgent(sessionID string, command types.ExternalAgentCommand) error
 }
 
@@ -69,9 +69,12 @@ type zedACPBackend struct {
 
 func (b *zedACPBackend) Clear(ctx context.Context, sessionID string) error {
 	// 1. Cancel any in-flight turn first so an in-flight handleMessageCompleted
-	//    can't re-insert an interaction after the DB clear. Best-effort: a
-	//    disconnected agent or absent turn is fine.
-	b.transport.cancelCurrentTurnIfActive(ctx, sessionID)
+	//    can't re-insert an interaction after the DB clear. Do not clear local
+	//    history until cancellation is acknowledged; otherwise the runtime can
+	//    keep editing after the UI has reported a successful reset.
+	if err := b.transport.cancelCurrentTurnIfActive(ctx, sessionID); err != nil {
+		return fmt.Errorf("cancel active external-agent turn before clear: %w", err)
+	}
 
 	// 2. Reset the Zed thread association so the next chat_message opens a fresh
 	//    thread (acp_thread_id=nil). If there is no live WebSocket connection the
@@ -118,14 +121,16 @@ func (apiServer *HelixAPIServer) ClearSession(ctx context.Context, sessionID str
 		return nil, fmt.Errorf("session %s not found", sessionID)
 	}
 
+	// Runtime-specific reset must happen first. In particular, a Zed-backed
+	// session needs the still-present Waiting interaction to correlate and
+	// acknowledge cancellation before the rows are deleted.
+	if err := apiServer.backendFor(session).Clear(ctx, sessionID); err != nil {
+		return nil, err
+	}
+
 	// Shared, source-of-truth clear: removes all interactions from the DB.
 	if err := apiServer.Store.ClearSessionInteractions(ctx, sessionID); err != nil {
 		return nil, fmt.Errorf("failed to clear session interactions: %w", err)
-	}
-
-	// Runtime-specific reset.
-	if err := apiServer.backendFor(session).Clear(ctx, sessionID); err != nil {
-		return nil, err
 	}
 
 	if err := apiServer.Store.TouchSession(ctx, sessionID); err != nil {

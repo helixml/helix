@@ -689,7 +689,10 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 			}
 		}
 		if requestID == "" {
-			requestID = interactionID
+			requestID = currentInteraction.ExternalAgentRequestID
+			if requestID == "" {
+				requestID = interactionID
+			}
 			if apiServer.requestToSessionMapping == nil {
 				apiServer.requestToSessionMapping = make(map[string]string)
 			}
@@ -725,6 +728,36 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 		apiServer.requestToInteractionMapping[requestID] = interactionID
 		apiServer.contextMappingsMutex.Unlock()
 
+		if currentInteraction.ExternalAgentRequestID != requestID {
+			bound, bindErr := apiServer.Store.BindInteractionExternalAgentRequest(ctx, interactionID, currentInteraction.GenerationID, requestID)
+			if bindErr != nil || !bound {
+				apiServer.releaseInteractionDispatch(interactionID)
+				log.Error().Err(bindErr).
+					Str("interaction_id", interactionID).
+					Str("request_id", requestID).
+					Msg("Failed to persist external-agent request mapping before pickup")
+				return ""
+			}
+			currentInteraction.ExternalAgentRequestID = requestID
+		}
+
+		// A cancel request can outlive the API WebSocket connection. On reconnect,
+		// deliver cancellation instead of replaying the chat message that the user
+		// explicitly asked to stop.
+		if currentInteraction.ExternalAgentCancelRequestedAt != nil {
+			cancelCommand := types.ExternalAgentCommand{
+				Type: "cancel_current_turn",
+				Data: map[string]interface{}{"request_id": requestID, "session_id": helixSessionID},
+			}
+			if !apiServer.externalAgentWSManager.queueOrSend(helixSessionID, cancelCommand) {
+				log.Warn().
+					Str("helix_session_id", helixSessionID).
+					Str("request_id", requestID).
+					Msg("Failed to queue durable cancellation on reconnect")
+			}
+			return requestID
+		}
+
 		// Combine system prompt and user message into a single message
 		fullMessage := interactions[i].PromptMessage
 		if interactions[i].SystemPrompt != "" {
@@ -752,23 +785,38 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 		command := types.ExternalAgentCommand{
 			Type: "chat_message",
 			Data: map[string]interface{}{
-				"message":            fullMessage,
-				"request_id":         requestID,
-				"acp_thread_id":      acpThreadID,
-				"agent_name":         agentName,
-				"interaction_id":     interactionID,
-				"track_code_changes": helixSession.Metadata.SpecTaskID != "",
+				"message":                   fullMessage,
+				"request_id":                requestID,
+				"acp_thread_id":             acpThreadID,
+				"agent_name":                agentName,
+				"interaction_id":            interactionID,
+				"interaction_generation_id": currentInteraction.GenerationID,
+				"track_code_changes":        helixSession.Metadata.SpecTaskID != "",
 			},
 		}
 		apiServer.captureInteractionBeforeCheckpoint(helixSessionID, command)
+		apiServer.contextMappingsMutex.Lock()
+		rollbackDispatch, dispatchErr := apiServer.markExternalAgentCommandDispatched(ctx, command)
+		if dispatchErr != nil {
+			apiServer.contextMappingsMutex.Unlock()
+			apiServer.releaseInteractionDispatch(interactionID)
+			log.Error().Err(dispatchErr).
+				Str("interaction_id", interactionID).
+				Str("request_id", requestID).
+				Msg("Failed to persist reconnect dispatch")
+			return ""
+		}
 
-		if apiServer.externalAgentWSManager.queueOrSend(helixSessionID, command) {
+		queued := apiServer.externalAgentWSManager.queueOrSend(helixSessionID, command)
+		apiServer.contextMappingsMutex.Unlock()
+		if queued {
 			log.Info().
 				Str("agent_session_id", agentID).
 				Str("request_id", requestID).
 				Str("helix_session_id", helixSessionID).
 				Msg("✅ [HELIX] Queued initial chat_message for Zed (will send when agent_ready)")
 		} else {
+			rollbackDispatch()
 			// Nothing was delivered — drop the claim so the next reconnect or
 			// retry can pick this interaction up again.
 			apiServer.releaseInteractionDispatch(interactionID)
@@ -1154,19 +1202,22 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Msg("🆕 [HELIX] Creating initial interaction for new Zed thread")
 
 	interaction := &types.Interaction{
-		ID:              "", // Will be generated
-		GenerationID:    0,
-		Created:         time.Now(),
-		Updated:         time.Now(),
-		Scheduled:       time.Now(),
-		Completed:       time.Time{},
-		SessionID:       createdSession.ID,
-		UserID:          createdSession.Owner,
-		Mode:            types.SessionModeInference,
-		PromptMessage:   "New conversation started via Zed", // Default message
-		State:           types.InteractionStateWaiting,
-		ResponseMessage: "",
+		ID:                     "", // Will be generated
+		GenerationID:           0,
+		Created:                time.Now(),
+		Updated:                time.Now(),
+		Scheduled:              time.Now(),
+		Completed:              time.Time{},
+		SessionID:              createdSession.ID,
+		UserID:                 createdSession.Owner,
+		Mode:                   types.SessionModeInference,
+		PromptMessage:          "New conversation started via Zed", // Default message
+		State:                  types.InteractionStateWaiting,
+		ResponseMessage:        "",
+		ExternalAgentRequestID: requestID,
 	}
+	now := time.Now()
+	interaction.ExternalAgentDispatchedAt = &now
 
 	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
 	if err != nil {
@@ -1266,6 +1317,15 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		return fmt.Errorf("session is paused (reason: %s)", session.Metadata.PausedReason)
 	}
 
+	bound, err := apiServer.Store.BindInteractionExternalAgentRequest(context.Background(), interaction.ID, interaction.GenerationID, interaction.ID)
+	if err != nil {
+		return fmt.Errorf("persist external-agent request mapping: %w", err)
+	}
+	if !bound {
+		return fmt.Errorf("interaction %s is no longer waiting", interaction.ID)
+	}
+	interaction.ExternalAgentRequestID = interaction.ID
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("interaction_id", interaction.ID).
@@ -1279,10 +1339,11 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 	// genuine prompt sent through this path was being silently discarded (#2642). The
 	// queue path (sendQueuedPromptToSession) never set role and works; this matches it.
 	commandData := map[string]interface{}{
-		"message":            interaction.PromptMessage,
-		"request_id":         interaction.ID, // Use interaction ID as request ID for response tracking
-		"interaction_id":     interaction.ID,
-		"track_code_changes": session.Metadata.SpecTaskID != "",
+		"message":                   interaction.PromptMessage,
+		"request_id":                interaction.ID, // Use interaction ID as request ID for response tracking
+		"interaction_id":            interaction.ID,
+		"interaction_generation_id": interaction.GenerationID,
+		"track_code_changes":        session.Metadata.SpecTaskID != "",
 	}
 
 	if session.Metadata.ZedThreadID != "" {
@@ -1706,16 +1767,19 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			}
 
 			interaction := &types.Interaction{
-				ID:            "", // Will be generated
-				Created:       time.Now(),
-				Updated:       time.Now(),
-				SessionID:     helixSessionID,
-				UserID:        helixSession.Owner,
-				GenerationID:  helixSession.GenerationID, // Must match session's generation for query to find it
-				Mode:          types.SessionModeInference,
-				PromptMessage: content,
-				State:         types.InteractionStateWaiting,
+				ID:                     "", // Will be generated
+				Created:                time.Now(),
+				Updated:                time.Now(),
+				SessionID:              helixSessionID,
+				UserID:                 helixSession.Owner,
+				GenerationID:           helixSession.GenerationID, // Must match session's generation for query to find it
+				Mode:                   types.SessionModeInference,
+				PromptMessage:          content,
+				State:                  types.InteractionStateWaiting,
+				ExternalAgentRequestID: messageRequestID,
 			}
+			now := time.Now()
+			interaction.ExternalAgentDispatchedAt = &now
 
 			// Create the interaction in the store
 			createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
@@ -2006,8 +2070,10 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			apiServer.requestToInteractionMapping = make(map[string]string)
 		}
 		existing, alreadySeen := apiServer.requestToInteractionMapping[requestID]
+		staleRequestID := false
 		switch {
 		case alreadySeen && existing == "":
+			staleRequestID = true
 			// Stale wrapper replay — leave the consumed sentinel in place so the
 			// follow-up message_completed is dropped by the dedup. Streaming
 			// tokens still flow into the current interaction via the most-recent-
@@ -2020,6 +2086,10 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				Msg("🛡️ [HELIX] Ignoring stale request_id rebind (mapping previously consumed by completion)")
 		case existing != newInteractionID:
 			apiServer.requestToInteractionMapping[requestID] = newInteractionID
+			if apiServer.requestToSessionMapping == nil {
+				apiServer.requestToSessionMapping = make(map[string]string)
+			}
+			apiServer.requestToSessionMapping[requestID] = helixSessionID
 			apiServer.contextMappingsMutex.Unlock()
 			log.Info().
 				Str("session_id", helixSessionID).
@@ -2027,7 +2097,28 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				Str("interaction_id", newInteractionID).
 				Msg("🗺️ [HELIX] Populated requestToInteractionMapping from streaming context (Zed-initiated message)")
 		default:
+			if apiServer.requestToSessionMapping == nil {
+				apiServer.requestToSessionMapping = make(map[string]string)
+			}
+			apiServer.requestToSessionMapping[requestID] = helixSessionID
 			apiServer.contextMappingsMutex.Unlock()
+		}
+
+		if !staleRequestID && (targetInteraction.ExternalAgentRequestID != requestID || targetInteraction.ExternalAgentDispatchedAt == nil) {
+			if updated, err := apiServer.Store.MarkInteractionExternalAgentDispatched(ctx, targetInteraction.ID, targetInteraction.GenerationID, requestID); err != nil {
+				log.Error().Err(err).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", targetInteraction.ID).
+					Str("request_id", requestID).
+					Msg("Failed to persist recovered external-agent dispatch")
+			} else if updated {
+				now := time.Now()
+				targetInteraction.ExternalAgentRequestID = requestID
+				targetInteraction.ExternalAgentDispatchedAt = &now
+			}
+		}
+		if !staleRequestID && targetInteraction.ExternalAgentCancelRequestedAt != nil {
+			go apiServer.retryPendingExternalAgentCancellation(helixSessionID, targetInteraction.ID, requestID)
 		}
 	}
 
@@ -2263,6 +2354,7 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			PromptMessage:           message,
 			State:                   types.InteractionStateWaiting,
 			CodeAgentConfigSnapshot: configSnapshot,
+			ExternalAgentRequestID:  requestID,
 		}
 
 		createdInteraction, createErr := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
@@ -2309,18 +2401,65 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
-			"message":            outgoingMessage,
-			"request_id":         requestID,
-			"acp_thread_id":      acpThreadID, // Use existing thread if available, nil = create new
-			"agent_name":         agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
-			"interrupt":          interrupt,   // Tell agent to cancel current turn before sending (mirrors prompt-queue path)
-			"interaction_id":     interactionID,
+			"message":        outgoingMessage,
+			"request_id":     requestID,
+			"acp_thread_id":  acpThreadID, // Use existing thread if available, nil = create new
+			"agent_name":     agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
+			"interrupt":      interrupt,   // Tell agent to cancel current turn before sending (mirrors prompt-queue path)
+			"interaction_id": interactionID,
+			"interaction_generation_id": func() int {
+				if session != nil {
+					return session.GenerationID
+				}
+				return 0
+			}(),
 			"track_code_changes": session != nil && session.Metadata.SpecTaskID != "",
 		},
 	}
 
 	err = apiServer.sendCommandToExternalAgent(sessionID, command)
 	return interactionID, err
+}
+
+func externalAgentCommandIDs(command types.ExternalAgentCommand) (interactionID, requestID string, generationID int) {
+	if command.Type != "chat_message" || command.Data == nil {
+		return "", "", 0
+	}
+	interactionID, _ = command.Data["interaction_id"].(string)
+	requestID, _ = command.Data["request_id"].(string)
+	generationID, _ = command.Data["interaction_generation_id"].(int)
+	return interactionID, requestID, generationID
+}
+
+// markExternalAgentCommandDispatched persists the correlation and dispatch
+// boundary before a chat command enters the WebSocket queue. The returned
+// rollback is used when enqueueing fails, so a later cancel can distinguish a
+// durable queued turn from one the external runtime may be executing.
+func (apiServer *HelixAPIServer) markExternalAgentCommandDispatched(ctx context.Context, command types.ExternalAgentCommand) (func(), error) {
+	interactionID, requestID, generationID := externalAgentCommandIDs(command)
+	if interactionID == "" {
+		// Recovery-only continue prompts have no interaction and are outside the
+		// user-turn cancellation lifecycle.
+		return func() {}, nil
+	}
+	if requestID == "" {
+		return nil, fmt.Errorf("chat_message for interaction %s has no request_id", interactionID)
+	}
+	updated, err := apiServer.Store.MarkInteractionExternalAgentDispatched(ctx, interactionID, generationID, requestID)
+	if err != nil {
+		return nil, fmt.Errorf("persist dispatch for interaction %s: %w", interactionID, err)
+	}
+	if !updated {
+		return nil, fmt.Errorf("interaction %s is no longer waiting; refusing external-agent dispatch", interactionID)
+	}
+	return func() {
+		if err := apiServer.Store.ClearInteractionExternalAgentDispatched(context.Background(), interactionID, generationID, requestID); err != nil {
+			log.Error().Err(err).
+				Str("interaction_id", interactionID).
+				Str("request_id", requestID).
+				Msg("Failed to roll back external-agent dispatch marker")
+		}
+	}, nil
 }
 
 // sendCommandToExternalAgent sends a command to the external agent
@@ -2348,6 +2487,16 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 	// agent's first file edit and make historical per-turn diffs incorrect.
 	apiServer.captureInteractionBeforeCheckpoint(sessionID, command)
 
+	interactionID, _, _ := externalAgentCommandIDs(command)
+	if interactionID != "" {
+		apiServer.contextMappingsMutex.Lock()
+		defer apiServer.contextMappingsMutex.Unlock()
+	}
+	rollbackDispatch, err := apiServer.markExternalAgentCommandDispatched(context.Background(), command)
+	if err != nil {
+		return err
+	}
+
 	// Send command to the specific Zed agent.
 	// Use a deferred recover to handle the case where the connection's SendChan
 	// was closed between getConnection and the send (race on reconnection).
@@ -2372,6 +2521,9 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 			sendErr = fmt.Errorf("external agent send channel full for session %s", sessionID)
 		}
 	}()
+	if sendErr != nil {
+		rollbackDispatch()
+	}
 	return sendErr
 }
 
@@ -2420,6 +2572,12 @@ func (apiServer *HelixAPIServer) sendCancelToExternalAgent(sessionID, requestID 
 func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *types.SyncMessage) error {
 	requestID, _ := syncMsg.Data["request_id"].(string)
 	status, _ := syncMsg.Data["status"].(string)
+	if requestID == "" {
+		return fmt.Errorf("turn_cancelled missing request_id")
+	}
+	if status != "cancelled" && status != "noop" {
+		return fmt.Errorf("turn_cancelled for %s has invalid status %q", requestID, status)
+	}
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -2427,30 +2585,44 @@ func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *
 		Str("status", status).
 		Msg("Received turn_cancelled from Zed")
 
-	// If the turn was actually cancelled, mark the interaction as interrupted
-	if status == "cancelled" {
-		apiServer.contextMappingsMutex.RLock()
-		interactionID, hasInteraction := apiServer.requestToInteractionMapping[requestID]
-		apiServer.contextMappingsMutex.RUnlock()
+	apiServer.contextMappingsMutex.RLock()
+	interactionID := apiServer.requestToInteractionMapping[requestID]
+	apiServer.contextMappingsMutex.RUnlock()
 
-		if hasInteraction {
-			interaction, err := apiServer.Controller.Options.Store.GetInteraction(context.Background(), interactionID)
-			if err == nil && interaction.State == types.InteractionStateWaiting {
-				interaction.State = types.InteractionStateInterrupted
-				interaction.Completed = time.Now()
-				interaction.Updated = time.Now()
-				if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), interaction); err != nil {
-					log.Error().Err(err).Str("interaction_id", interactionID).Msg("Failed to mark interaction as interrupted")
-				} else {
-					log.Info().Str("interaction_id", interactionID).Msg("Marked interaction as interrupted")
-					// Publish update to frontend
-					session, sessionErr := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
-					if sessionErr == nil {
-						apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, interaction)
-					}
-				}
-			}
+	var interaction *types.Interaction
+	var err error
+	if interactionID != "" {
+		interaction, err = apiServer.Store.GetInteraction(context.Background(), interactionID)
+	} else {
+		interaction, err = apiServer.Store.GetInteractionByExternalAgentRequestID(context.Background(), requestID)
+	}
+	if err != nil {
+		return fmt.Errorf("resolve interaction for acknowledged cancellation %s: %w", requestID, err)
+	}
+	if interaction == nil {
+		return fmt.Errorf("resolve interaction for acknowledged cancellation %s: interaction not found", requestID)
+	}
+
+	transitioned, err := apiServer.Store.MarkInteractionInterruptedIfWaiting(context.Background(), interaction.ID, interaction.GenerationID)
+	if err != nil {
+		return fmt.Errorf("persist acknowledged cancellation for %s: %w", interaction.ID, err)
+	}
+	if transitioned {
+		interaction, err = apiServer.Store.GetInteraction(context.Background(), interaction.ID)
+		if err != nil {
+			return fmt.Errorf("reload acknowledged cancellation for %s: %w", interaction.ID, err)
 		}
+		session, sessionErr := apiServer.Store.GetSession(context.Background(), interaction.SessionID)
+		if sessionErr != nil {
+			return fmt.Errorf("load session for acknowledged cancellation %s: %w", interaction.ID, sessionErr)
+		}
+		if err := apiServer.publishInteractionUpdateToFrontend(interaction.SessionID, session.Owner, interaction); err != nil {
+			log.Warn().Err(err).Str("interaction_id", interaction.ID).Msg("Failed to publish acknowledged cancellation")
+		}
+		log.Info().
+			Str("interaction_id", interaction.ID).
+			Str("runtime_status", status).
+			Msg("Persisted acknowledged external-agent cancellation")
 	}
 
 	// Acknowledge the HTTP caller only after the interaction state transition is
@@ -2466,7 +2638,44 @@ func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *
 		}
 	}
 
+	go apiServer.processAnyPendingPrompt(context.Background(), interaction.SessionID)
+
 	return nil
+}
+
+func (apiServer *HelixAPIServer) retryPendingExternalAgentCancellation(sessionID, interactionID, requestID string) {
+	if interactionID == "" || requestID == "" {
+		return
+	}
+	if _, loaded := apiServer.pendingCancelRetries.LoadOrStore(interactionID, struct{}{}); loaded {
+		return
+	}
+	defer apiServer.pendingCancelRetries.Delete(interactionID)
+
+	for attempt := 0; ; attempt++ {
+		interaction, err := apiServer.Store.GetInteraction(context.Background(), interactionID)
+		if err != nil || interaction.State != types.InteractionStateWaiting || interaction.ExternalAgentCancelRequestedAt == nil {
+			return
+		}
+		if attempt > 0 {
+			delay := time.Duration(1<<uint(min(attempt-1, 5))) * time.Second
+			time.Sleep(delay)
+		}
+		unlock := apiServer.lockCancelTurn(sessionID)
+		_, err = apiServer.sendCancelToExternalAgent(sessionID, requestID, 3*time.Second)
+		unlock()
+		if err == nil {
+			return
+		}
+		if attempt < 5 || attempt%10 == 9 {
+			log.Warn().Err(err).
+				Str("session_id", sessionID).
+				Str("interaction_id", interactionID).
+				Str("request_id", requestID).
+				Int("attempt", attempt+1).
+				Msg("Durable external-agent cancellation retry was not acknowledged")
+		}
+	}
 }
 
 // registerConnection registers a new external agent connection
@@ -2584,14 +2793,15 @@ func (manager *ExternalAgentWSManager) markSessionReady(sessionID string, onRead
 	pendingQueue := state.PendingQueue
 	state.PendingQueue = nil // Clear the queue
 
-	manager.readinessMu.Unlock()
-
 	log.Trace().
 		Str("session_id", sessionID).
 		Int("pending_count", len(pendingQueue)).
 		Msg("[READINESS] Session marked as ready, flushing pending messages")
 
-	// Flush pending messages (after releasing lock to avoid deadlock)
+	// Enqueue pending messages before releasing readinessMu. Cancellation removes
+	// a not-yet-ready chat command under this same lock; if it loses that race,
+	// the chat command is guaranteed to be ahead of cancel_current_turn in the
+	// WebSocket SendChan rather than being sent after a misleading noop cancel.
 	if len(pendingQueue) > 0 {
 		conn, exists := manager.getConnection(sessionID)
 		if exists {
@@ -2611,11 +2821,28 @@ func (manager *ExternalAgentWSManager) markSessionReady(sessionID string, onRead
 			}
 		}
 	}
+	manager.readinessMu.Unlock()
 
 	// Call the onReady callback (e.g., to send continue prompt)
 	if onReady != nil {
 		onReady()
 	}
+}
+
+// cancelQueuedChatMessage removes a chat command that has not crossed the
+// readiness gate. Returning true proves the external agent never received it.
+func (manager *ExternalAgentWSManager) cancelQueuedChatMessage(sessionID, requestID string) bool {
+	manager.readinessMu.Lock()
+	defer manager.readinessMu.Unlock()
+	state := manager.readinessState[sessionID]
+	if state == nil || len(state.PendingQueue) == 0 {
+		return false
+	}
+	before := len(state.PendingQueue)
+	state.PendingQueue = slices.DeleteFunc(state.PendingQueue, func(command types.ExternalAgentCommand) bool {
+		return command.Type == "chat_message" && command.Data["request_id"] == requestID
+	})
+	return len(state.PendingQueue) < before
 }
 
 // isSessionReady checks if a session is ready to receive messages
@@ -3639,8 +3866,9 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	if err != nil {
 		return fmt.Errorf("resolve code-agent configuration for queue prompt: %w", err)
 	}
+	interactionID := system.GenerateInteractionID()
 	interaction := &types.Interaction{
-		ID:                      "", // Will be generated
+		ID:                      interactionID,
 		Created:                 time.Now(),
 		Updated:                 time.Now(),
 		Scheduled:               time.Now(),
@@ -3652,6 +3880,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		State:                   types.InteractionStateWaiting,
 		PromptID:                prompt.ID,
 		CodeAgentConfigSnapshot: configSnapshot,
+		ExternalAgentRequestID:  interactionID,
 	}
 
 	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
@@ -3672,7 +3901,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	agentName := apiServer.getAgentNameForSession(ctx, session)
 
 	// Use interaction ID as request ID for better tracing
-	requestID := createdInteraction.ID
+	requestID := createdInteraction.ExternalAgentRequestID
 
 	// Commenter response routing + design-review comment linkage. These carry the
 	// context the old synchronous direct send set up at call time; on the queue
@@ -3728,14 +3957,15 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
-			"acp_thread_id":      session.Metadata.ZedThreadID, // Empty on first message triggers thread creation
-			"message":            outgoingMessage,
-			"request_id":         requestID,
-			"agent_name":         agentName,
-			"from_queue":         true,             // Indicate this came from the queue
-			"interrupt":          prompt.Interrupt, // Tell Zed to cancel the current turn before sending
-			"interaction_id":     createdInteraction.ID,
-			"track_code_changes": session.Metadata.SpecTaskID != "",
+			"acp_thread_id":             session.Metadata.ZedThreadID, // Empty on first message triggers thread creation
+			"message":                   outgoingMessage,
+			"request_id":                requestID,
+			"agent_name":                agentName,
+			"from_queue":                true,             // Indicate this came from the queue
+			"interrupt":                 prompt.Interrupt, // Tell Zed to cancel the current turn before sending
+			"interaction_id":            createdInteraction.ID,
+			"interaction_generation_id": createdInteraction.GenerationID,
+			"track_code_changes":        session.Metadata.SpecTaskID != "",
 		},
 	}
 
@@ -3910,9 +4140,11 @@ func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessi
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
-			"message":    message,
-			"request_id": requestID,
-			"agent_name": apiServer.getAgentNameForSession(ctx, session),
+			"message":                   message,
+			"request_id":                requestID,
+			"interaction_id":            interaction.ID,
+			"interaction_generation_id": interaction.GenerationID,
+			"agent_name":                apiServer.getAgentNameForSession(ctx, session),
 		},
 	}
 	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {

@@ -98,9 +98,31 @@ func TestOpenCodeConfigAutoApprovesToolCalls(t *testing.T) {
 
 	decoded := decodeOpenCodeConfig(t, d.generateAgentServerConfig())
 
-	assert.Equal(t, "allow", decoded["permission"])
+	permissions, ok := decoded["permission"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "allow", permissions["*"])
+	assert.Equal(t, "allow", permissions["external_directory"])
+	assert.Equal(t, "deny", permissions["doom_loop"],
+		"headless mode must reject OpenCode's third identical tool call instead of approving an infinite loop")
 	assert.Equal(t, false, decoded["autoupdate"],
 		"opencode must never swap its own binary mid-session; the version is pinned by the image or the admin override")
+}
+
+func TestOpenCodeConfigBoundsDeepSeekV4FlashTurns(t *testing.T) {
+	d := openCodeDaemon()
+	d.codeAgentConfig.Model = "ds4-flash-node06/deepseek-v4-flash"
+
+	decoded := decodeOpenCodeConfig(t, d.generateAgentServerConfig())
+	agents, ok := decoded["agent"].(map[string]interface{})
+	require.True(t, ok)
+	build, ok := agents["build"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, float64(openCodeDeepSeekV4FlashSteps), build["steps"])
+}
+
+func TestOpenCodeConfigDoesNotCapOtherModels(t *testing.T) {
+	decoded := decodeOpenCodeConfig(t, openCodeDaemon().generateAgentServerConfig())
+	assert.NotContains(t, decoded, "agent")
 }
 
 func TestOpenCodeConfigModelIsProviderQualified(t *testing.T) {

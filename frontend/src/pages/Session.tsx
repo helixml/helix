@@ -325,6 +325,8 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
       const response = await api.getApiClient().v1SessionsCancelCreate(sessionID)
       if (response.data?.status === 'noop') {
         snackbar.info('The agent is no longer running a turn')
+      } else if (response.data?.status === 'pending') {
+        snackbar.info('Cancellation queued; waiting for the agent to reconnect and acknowledge it')
       }
       await refetchSession()
     } catch (error: any) {
