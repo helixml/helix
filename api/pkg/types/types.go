@@ -79,6 +79,21 @@ type Interaction struct {
 	// current message's portion during streaming updates, preserving earlier messages.
 	LastZedMessageOffset int `json:"last_zed_message_offset,omitempty"`
 
+	// ExternalAgentRequestID is the durable correlation ID sent with the
+	// external agent's chat_message command. The in-memory request maps are
+	// caches only; cancellation and restart recovery use this persisted value.
+	ExternalAgentRequestID string `json:"-" gorm:"index"`
+
+	// ExternalAgentDispatchedAt distinguishes an interaction that only exists in
+	// the durable queue from one that has been handed to the external agent.
+	// It is set before the command is enqueued and cleared if enqueueing fails.
+	ExternalAgentDispatchedAt *time.Time `json:"-"`
+
+	// ExternalAgentCancelRequestedAt makes cancellation intent durable. If the
+	// WebSocket is temporarily unavailable, reconnect recovery sends the cancel
+	// before it considers re-delivering the waiting chat message.
+	ExternalAgentCancelRequestedAt *time.Time `json:"-"`
+
 	// ResponseEntries holds the structured response as an ordered list of typed entries.
 	// Each entry is "text" (assistant prose), "tool_call" (tool invocation), or
 	// "plan" (the latest structured plan snapshot),
@@ -3093,8 +3108,8 @@ type OrgUsageSummaryResponse struct {
 	// Compute is sandbox runtime spend. It answers the date range, project, and
 	// task filters; the token-shaped filters (model, provider, session)
 	// don't apply to a container and leave it untouched.
-	Compute *OrgComputeUsage `json:"compute,omitempty"`
-	CostBreakdown          []UsageCostBreakdownRow       `json:"-" swaggerignore:"true"`
+	Compute       *OrgComputeUsage        `json:"compute,omitempty"`
+	CostBreakdown []UsageCostBreakdownRow `json:"-" swaggerignore:"true"`
 }
 
 // Response for the user access endpoint

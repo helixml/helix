@@ -17,6 +17,15 @@ import (
 func (s *PostgresStore) ResetRunningInteractions(ctx context.Context) error {
 	err := s.gdb.WithContext(ctx).Model(&types.Interaction{}).
 		Where("state = ?", types.InteractionStateWaiting).
+		// External-agent runtimes live outside the API process and commonly keep
+		// working through an API hot reload. Their Waiting rows are therefore not
+		// abandoned. Reconnect/cancel recovery owns their eventual transition.
+		Where(`session_id NOT IN (
+			SELECT id FROM sessions
+			WHERE metadata->>'agent_type' = ?
+			   OR COALESCE(metadata->>'external_agent_id', '') <> ''
+			   OR jsonb_exists(metadata, 'external_agent_config')
+		)`, "zed_external").
 		Updates(map[string]any{
 			"state": types.InteractionStateError,
 			"error": "Interrupted",
@@ -262,6 +271,87 @@ func (s *PostgresStore) UpdateInteractionStreamingFields(ctx context.Context, in
 			"last_zed_message_id":     lastZedMessageID,
 			"updated":                 time.Now(),
 		}).Error
+}
+
+func (s *PostgresStore) BindInteractionExternalAgentRequest(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error) {
+	if interactionID == "" || requestID == "" {
+		return false, errors.New("interaction_id and request_id are required")
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Update("external_agent_request_id", requestID)
+	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) MarkInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error) {
+	if interactionID == "" || requestID == "" {
+		return false, errors.New("interaction_id and request_id are required")
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Updates(map[string]interface{}{
+			"external_agent_request_id":    requestID,
+			"external_agent_dispatched_at": time.Now(),
+			"updated":                      time.Now(),
+		})
+	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) ClearInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) error {
+	if interactionID == "" || requestID == "" {
+		return errors.New("interaction_id and request_id are required")
+	}
+	return s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ? AND external_agent_request_id = ?", interactionID, generationID, types.InteractionStateWaiting, requestID).
+		Update("external_agent_dispatched_at", nil).Error
+}
+
+func (s *PostgresStore) RequestInteractionCancellationIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error) {
+	if interactionID == "" {
+		return false, errors.New("interaction_id is required")
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Updates(map[string]interface{}{
+			"external_agent_cancel_requested_at": time.Now(),
+			"updated":                            time.Now(),
+		})
+	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) MarkInteractionInterruptedIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error) {
+	if interactionID == "" {
+		return false, errors.New("interaction_id is required")
+	}
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Updates(map[string]interface{}{
+			"state":     types.InteractionStateInterrupted,
+			"completed": now,
+			"updated":   now,
+		})
+	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) GetInteractionByExternalAgentRequestID(ctx context.Context, requestID string) (*types.Interaction, error) {
+	if requestID == "" {
+		return nil, errors.New("request_id is required")
+	}
+	var interaction types.Interaction
+	err := s.gdb.WithContext(ctx).
+		Where("external_agent_request_id = ?", requestID).
+		Order("created DESC").
+		First(&interaction).Error
+	if err != nil {
+		return nil, err
+	}
+	return &interaction, nil
 }
 
 // MarkInteractionCompleteIfWaiting atomically transitions an interaction from

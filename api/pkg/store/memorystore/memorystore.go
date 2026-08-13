@@ -301,6 +301,87 @@ func (m *MemoryStore) UpdateInteractionStreamingFields(_ context.Context, intera
 	return nil
 }
 
+func (m *MemoryStore) BindInteractionExternalAgentRequest(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting {
+		return false, nil
+	}
+	existing.ExternalAgentRequestID = requestID
+	return true, nil
+}
+
+func (m *MemoryStore) MarkInteractionExternalAgentDispatched(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting {
+		return false, nil
+	}
+	now := time.Now()
+	existing.ExternalAgentRequestID = requestID
+	existing.ExternalAgentDispatchedAt = &now
+	existing.Updated = now
+	return true, nil
+}
+
+func (m *MemoryStore) ClearInteractionExternalAgentDispatched(_ context.Context, interactionID string, generationID int, requestID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if ok && existing.GenerationID == generationID && existing.State == types.InteractionStateWaiting && existing.ExternalAgentRequestID == requestID {
+		existing.ExternalAgentDispatchedAt = nil
+	}
+	return nil
+}
+
+func (m *MemoryStore) RequestInteractionCancellationIfWaiting(_ context.Context, interactionID string, generationID int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting {
+		return false, nil
+	}
+	now := time.Now()
+	existing.ExternalAgentCancelRequestedAt = &now
+	existing.Updated = now
+	return true, nil
+}
+
+func (m *MemoryStore) MarkInteractionInterruptedIfWaiting(_ context.Context, interactionID string, generationID int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting {
+		return false, nil
+	}
+	now := time.Now()
+	existing.State = types.InteractionStateInterrupted
+	existing.Completed = now
+	existing.Updated = now
+	return true, nil
+}
+
+func (m *MemoryStore) GetInteractionByExternalAgentRequestID(_ context.Context, requestID string) (*types.Interaction, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var latest *types.Interaction
+	for _, interaction := range m.interactions {
+		if interaction.ExternalAgentRequestID != requestID {
+			continue
+		}
+		if latest == nil || interaction.Created.After(latest.Created) {
+			cp := *interaction
+			latest = &cp
+		}
+	}
+	if latest == nil {
+		return nil, store.ErrNotFound
+	}
+	return latest, nil
+}
+
 // MarkInteractionCompleteIfWaiting transitions Waiting → Complete atomically.
 // Returns true only if the row was actually transitioned, so a streaming flush
 // cannot resurrect a cancelled or errored turn as "complete".

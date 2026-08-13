@@ -288,3 +288,64 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ClearSessionInteractions(
 	err = suite.db.ClearSessionInteractions(ctx, session.ID)
 	suite.NoError(err)
 }
+
+func (suite *PostgresStoreTestSuite) TestExternalAgentInteractionLifecycleSurvivesAPIRestart() {
+	ctx := context.Background()
+	owner := "external-lifecycle-test"
+	externalSession, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: owner, Created: time.Now(), Updated: time.Now(),
+		Metadata: types.SessionMetadata{AgentType: "zed_external"},
+	})
+	suite.Require().NoError(err)
+	internalSession, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: owner, Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(ctx, externalSession.ID)
+		_, _ = suite.db.DeleteSession(ctx, internalSession.ID)
+	})
+
+	external, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: externalSession.ID, UserID: owner,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	internal, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: internalSession.ID, UserID: owner,
+		GenerationID: 1, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+
+	bound, err := suite.db.BindInteractionExternalAgentRequest(ctx, external.ID, external.GenerationID, "req-durable")
+	suite.NoError(err)
+	suite.True(bound)
+	dispatched, err := suite.db.MarkInteractionExternalAgentDispatched(ctx, external.ID, external.GenerationID, "req-durable")
+	suite.NoError(err)
+	suite.True(dispatched)
+
+	byRequest, err := suite.db.GetInteractionByExternalAgentRequestID(ctx, "req-durable")
+	suite.NoError(err)
+	suite.Equal(external.ID, byRequest.ID)
+	suite.NotNil(byRequest.ExternalAgentDispatchedAt)
+
+	suite.NoError(suite.db.ResetRunningInteractions(ctx))
+	externalAfterRestart, err := suite.db.GetInteraction(ctx, external.ID)
+	suite.NoError(err)
+	suite.Equal(types.InteractionStateWaiting, externalAfterRestart.State,
+		"an API restart must not terminate a runtime that lives in Zed")
+	internalAfterRestart, err := suite.db.GetInteraction(ctx, internal.ID)
+	suite.NoError(err)
+	suite.Equal(types.InteractionStateError, internalAfterRestart.State)
+
+	requested, err := suite.db.RequestInteractionCancellationIfWaiting(ctx, external.ID, external.GenerationID)
+	suite.NoError(err)
+	suite.True(requested)
+	interrupted, err := suite.db.MarkInteractionInterruptedIfWaiting(ctx, external.ID, external.GenerationID)
+	suite.NoError(err)
+	suite.True(interrupted)
+	final, err := suite.db.GetInteraction(ctx, external.ID)
+	suite.NoError(err)
+	suite.Equal(types.InteractionStateInterrupted, final.State)
+	suite.NotNil(final.ExternalAgentCancelRequestedAt)
+}

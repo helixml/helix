@@ -197,6 +197,9 @@ func (s *HelixAPIServer) cancelTurnsForSwitch(ctx context.Context, sessionID str
 		if status == "noop" {
 			return nil
 		}
+		if status == "pending" {
+			return fmt.Errorf("external agent cancellation is pending acknowledgement")
+		}
 	}
 	return fmt.Errorf("more than %d active turns remain", maxTurns)
 }

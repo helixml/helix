@@ -312,6 +312,22 @@ type Store interface {
 	// handleMessageCompleted. See the lost-update fix in
 	// websocket_external_agent_sync.go.
 	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
+	// BindInteractionExternalAgentRequest persists the request ID before an
+	// external-agent turn is dispatched, so queued turns remain identifiable
+	// across API restarts.
+	BindInteractionExternalAgentRequest(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error)
+	// MarkInteractionExternalAgentDispatched records that the chat command is
+	// being handed to the external agent. The update is guarded by state=waiting.
+	MarkInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error)
+	// ClearInteractionExternalAgentDispatched rolls back a failed command enqueue.
+	ClearInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) error
+	// RequestInteractionCancellationIfWaiting durably records user intent before
+	// attempting the WebSocket cancellation protocol.
+	RequestInteractionCancellationIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
+	// MarkInteractionInterruptedIfWaiting atomically completes cancellation
+	// without racing streaming or message-completion writes.
+	MarkInteractionInterruptedIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
+	GetInteractionByExternalAgentRequestID(ctx context.Context, requestID string) (*types.Interaction, error)
 	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
 	// from Waiting → Complete and sets completed=now. Returns true if the row
 	// was transitioned, false if the row was already in a terminal state (no

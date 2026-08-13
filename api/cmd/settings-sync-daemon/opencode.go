@@ -60,10 +60,15 @@ type openCodeConfig struct {
 	Schema           string                    `json:"$schema"`
 	Model            string                    `json:"model"`
 	SmallModel       string                    `json:"small_model"`
-	Permission       string                    `json:"permission"`
+	Permission       map[string]string         `json:"permission"`
+	Agent            map[string]openCodeAgent  `json:"agent,omitempty"`
 	Autoupdate       bool                      `json:"autoupdate"`
 	EnabledProviders []string                  `json:"enabled_providers"`
 	Provider         map[string]openCodeVendor `json:"provider"`
+}
+
+type openCodeAgent struct {
+	Steps int `json:"steps"`
 }
 
 type openCodeVendor struct {
@@ -100,6 +105,12 @@ type openCodeModelOption struct {
 // is exactly the provider-prefixed id the Helix proxy routes on.
 const openCodeProviderID = "helix"
 
+// DS4 Flash is useful for fast tool work but can keep choosing another agentic
+// step when its stop signal degrades. A bounded turn forces a text handoff
+// instead of allowing an unbounded sequence of distinct calls that the exact
+// duplicate detector cannot catch.
+const openCodeDeepSeekV4FlashSteps = 30
+
 // buildOpenCodeConfig renders the config for the current code agent settings.
 func (d *SettingsDaemon) buildOpenCodeConfig(baseURL string) openCodeConfig {
 	modelID := d.codeAgentConfig.Model
@@ -121,14 +132,20 @@ func (d *SettingsDaemon) buildOpenCodeConfig(baseURL string) openCodeConfig {
 		model.Options = &openCodeModelOption{ReasoningEffort: d.codeAgentConfig.ReasoningEffort}
 	}
 
-	return openCodeConfig{
+	config := openCodeConfig{
 		Schema:     "https://opencode.ai/config.json",
 		Model:      qualified,
 		SmallModel: qualified,
 		// Headless sandbox: nobody is there to answer a permission prompt, so
 		// the agent would stall on the first edit. This is opencode's
 		// equivalent of the --yolo flag we pass to qwen.
-		Permission: "allow",
+		Permission: map[string]string{
+			"*":                  "allow",
+			"external_directory": "allow",
+			// OpenCode raises doom_loop after three identical tool calls. A blanket
+			// allow disabled that safety mechanism in our headless runtime.
+			"doom_loop": "deny",
+		},
 		// Never let opencode swap its own binary mid-session: the running
 		// version is pinned by the image or by the admin override, and an
 		// in-place upgrade would bypass both plus our digest check.
@@ -149,6 +166,12 @@ func (d *SettingsDaemon) buildOpenCodeConfig(baseURL string) openCodeConfig {
 			},
 		},
 	}
+	if strings.HasSuffix(strings.ToLower(modelID), "deepseek-v4-flash") {
+		config.Agent = map[string]openCodeAgent{
+			"build": {Steps: openCodeDeepSeekV4FlashSteps},
+		}
+	}
+	return config
 }
 
 // resolveOpenCodeCommand returns the opencode binary this session must run.

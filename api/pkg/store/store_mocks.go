@@ -88,6 +88,21 @@ func (mr *MockStoreMockRecorder) BackfillSandboxMaxSandboxes(ctx, value any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BackfillSandboxMaxSandboxes", reflect.TypeOf((*MockStore)(nil).BackfillSandboxMaxSandboxes), ctx, value)
 }
 
+// BindInteractionExternalAgentRequest mocks base method.
+func (m *MockStore) BindInteractionExternalAgentRequest(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BindInteractionExternalAgentRequest", ctx, interactionID, generationID, requestID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BindInteractionExternalAgentRequest indicates an expected call of BindInteractionExternalAgentRequest.
+func (mr *MockStoreMockRecorder) BindInteractionExternalAgentRequest(ctx, interactionID, generationID, requestID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BindInteractionExternalAgentRequest", reflect.TypeOf((*MockStore)(nil).BindInteractionExternalAgentRequest), ctx, interactionID, generationID, requestID)
+}
+
 // BulkDismissAttentionEvents mocks base method.
 func (m *MockStore) BulkDismissAttentionEvents(ctx context.Context, userID, organizationID string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -146,6 +161,20 @@ func (m *MockStore) CleanupStaleAgentRunners(ctx context.Context, staleThreshold
 func (mr *MockStoreMockRecorder) CleanupStaleAgentRunners(ctx, staleThreshold any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleAgentRunners", reflect.TypeOf((*MockStore)(nil).CleanupStaleAgentRunners), ctx, staleThreshold)
+}
+
+// ClearInteractionExternalAgentDispatched mocks base method.
+func (m *MockStore) ClearInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearInteractionExternalAgentDispatched", ctx, interactionID, generationID, requestID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearInteractionExternalAgentDispatched indicates an expected call of ClearInteractionExternalAgentDispatched.
+func (mr *MockStoreMockRecorder) ClearInteractionExternalAgentDispatched(ctx, interactionID, generationID, requestID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearInteractionExternalAgentDispatched", reflect.TypeOf((*MockStore)(nil).ClearInteractionExternalAgentDispatched), ctx, interactionID, generationID, requestID)
 }
 
 // ClearSessionInteractions mocks base method.
@@ -2824,6 +2853,21 @@ func (m *MockStore) GetInteraction(ctx context.Context, id string) (*types.Inter
 func (mr *MockStoreMockRecorder) GetInteraction(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteraction", reflect.TypeOf((*MockStore)(nil).GetInteraction), ctx, id)
+}
+
+// GetInteractionByExternalAgentRequestID mocks base method.
+func (m *MockStore) GetInteractionByExternalAgentRequestID(ctx context.Context, requestID string) (*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInteractionByExternalAgentRequestID", ctx, requestID)
+	ret0, _ := ret[0].(*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInteractionByExternalAgentRequestID indicates an expected call of GetInteractionByExternalAgentRequestID.
+func (mr *MockStoreMockRecorder) GetInteractionByExternalAgentRequestID(ctx, requestID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteractionByExternalAgentRequestID", reflect.TypeOf((*MockStore)(nil).GetInteractionByExternalAgentRequestID), ctx, requestID)
 }
 
 // GetInteractionsSummary mocks base method.
@@ -5621,6 +5665,36 @@ func (mr *MockStoreMockRecorder) MarkInteractionErrorIfWaiting(ctx, interactionI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkInteractionErrorIfWaiting", reflect.TypeOf((*MockStore)(nil).MarkInteractionErrorIfWaiting), ctx, interactionID, generationID, reason)
 }
 
+// MarkInteractionExternalAgentDispatched mocks base method.
+func (m *MockStore) MarkInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkInteractionExternalAgentDispatched", ctx, interactionID, generationID, requestID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkInteractionExternalAgentDispatched indicates an expected call of MarkInteractionExternalAgentDispatched.
+func (mr *MockStoreMockRecorder) MarkInteractionExternalAgentDispatched(ctx, interactionID, generationID, requestID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkInteractionExternalAgentDispatched", reflect.TypeOf((*MockStore)(nil).MarkInteractionExternalAgentDispatched), ctx, interactionID, generationID, requestID)
+}
+
+// MarkInteractionInterruptedIfWaiting mocks base method.
+func (m *MockStore) MarkInteractionInterruptedIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkInteractionInterruptedIfWaiting", ctx, interactionID, generationID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkInteractionInterruptedIfWaiting indicates an expected call of MarkInteractionInterruptedIfWaiting.
+func (mr *MockStoreMockRecorder) MarkInteractionInterruptedIfWaiting(ctx, interactionID, generationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkInteractionInterruptedIfWaiting", reflect.TypeOf((*MockStore)(nil).MarkInteractionInterruptedIfWaiting), ctx, interactionID, generationID)
+}
+
 // MarkPromptAsCrashed mocks base method.
 func (m *MockStore) MarkPromptAsCrashed(ctx context.Context, promptID, errorMsg string) error {
 	m.ctrl.T.Helper()
@@ -5792,6 +5866,21 @@ func (m *MockStore) RemoveSpecTaskLabel(ctx context.Context, taskID, label strin
 func (mr *MockStoreMockRecorder) RemoveSpecTaskLabel(ctx, taskID, label any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveSpecTaskLabel", reflect.TypeOf((*MockStore)(nil).RemoveSpecTaskLabel), ctx, taskID, label)
+}
+
+// RequestInteractionCancellationIfWaiting mocks base method.
+func (m *MockStore) RequestInteractionCancellationIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequestInteractionCancellationIfWaiting", ctx, interactionID, generationID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RequestInteractionCancellationIfWaiting indicates an expected call of RequestInteractionCancellationIfWaiting.
+func (mr *MockStoreMockRecorder) RequestInteractionCancellationIfWaiting(ctx, interactionID, generationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestInteractionCancellationIfWaiting", reflect.TypeOf((*MockStore)(nil).RequestInteractionCancellationIfWaiting), ctx, interactionID, generationID)
 }
 
 // RequeueBouncedPrompt mocks base method.
