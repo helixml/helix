@@ -298,6 +298,9 @@ func (c *InternalHelixServer) dispatchAndPublish(req *types.RunnerLLMInferenceRe
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if req.SessionID != "" {
+		httpReq.Header.Set(types.SessionIDHeader, req.SessionID)
+	}
 
 	if err := httpReq.Write(conn); err != nil {
 		publishErr("write request to tunnel: " + err.Error())
