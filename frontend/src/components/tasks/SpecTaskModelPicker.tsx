@@ -7,6 +7,7 @@ import {
   InputBase,
   Popover,
   Stack,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { ChevronDown, Search } from "lucide-react";
@@ -130,22 +131,36 @@ const SpecTaskModelPickerView: FC<{
 
   return (
     <>
-      <Button
-        aria-label="Change coding model"
-        disabled={disabled}
-        onClick={(event) => setAnchor(event.currentTarget)}
-        sx={triggerSx}
+      <Tooltip
+        title={(
+          <AgentHarness
+            runtime={activeRuntime}
+            variant="long"
+            size={16}
+            showTooltip={false}
+          />
+        )}
+        placement="top"
       >
-        <Box component="span" sx={{ display: "inline-flex", flexShrink: 0 }}>
-          {activeModel?.provider
-            ? <ProviderIcon provider={activeModel.provider} size={16} />
-            : <AgentHarness runtime={activeRuntime} variant="short" size={16} showTooltip={false} />}
+        <Box component="span" sx={{ display: "inline-flex", minWidth: 0 }}>
+          <Button
+            aria-label="Change coding model"
+            disabled={disabled}
+            onClick={(event) => setAnchor(event.currentTarget)}
+            sx={triggerSx}
+          >
+            <Box component="span" sx={{ display: "inline-flex", flexShrink: 0 }}>
+              {activeModel?.provider
+                ? <ProviderIcon provider={activeModel.provider} size={16} />
+                : <AgentHarness runtime={activeRuntime} variant="short" size={16} showTooltip={false} />}
+            </Box>
+            <Box component="span" sx={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {activeModelLabel}
+            </Box>
+            <ChevronDown size={13} aria-hidden="true" />
+          </Button>
         </Box>
-        <Box component="span" sx={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {activeModelLabel}
-        </Box>
-        <ChevronDown size={13} aria-hidden="true" />
-      </Button>
+      </Tooltip>
 
       <Popover
         open={!!anchor}

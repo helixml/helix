@@ -22,6 +22,7 @@ import {
   DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
   DEFAULT_CODEX_SUBSCRIPTION_MODEL,
 } from "../agent/CodingAgentForm";
+import AgentHarness, { getAgentHarnessLabel } from "../agent/AgentHarness";
 import { getCodeAgentEffortOptions } from "../agent/CodeAgentEffortSelect";
 import SpecTaskModelPicker from "./SpecTaskModelPicker";
 
@@ -37,6 +38,7 @@ interface SpecTaskExecutionControlsProps {
   onSandboxResourceOverridesChange: (value: TypesSandboxResourceOverrides) => MaybePromise;
   disabled?: boolean;
   compact?: boolean;
+  showHarness?: boolean;
 }
 
 const SANDBOX_PRESETS = [
@@ -107,6 +109,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   onSandboxResourceOverridesChange,
   disabled = false,
   compact = false,
+  showHarness = false,
 }) => {
   const snackbar = useSnackbar();
   const [agentSettingsAnchor, setAgentSettingsAnchor] = useState<HTMLElement | null>(null);
@@ -185,6 +188,21 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
         spacing={0.25}
         sx={{ minWidth: 0, flexWrap: compact ? "nowrap" : "wrap" }}
       >
+        {showHarness && (
+          <Box
+            aria-label={`Harness: ${getAgentHarnessLabel(runtime)}`}
+            sx={{
+              height: 28,
+              px: 0.75,
+              display: "inline-flex",
+              alignItems: "center",
+              flexShrink: 0,
+            }}
+          >
+            <AgentHarness runtime={runtime} variant="long" size={16} showTooltip={false} />
+          </Box>
+        )}
+
         {(agent || currentExecutionConfig || agents.length > 0) && (
           <SpecTaskModelPicker
             agents={agents}
