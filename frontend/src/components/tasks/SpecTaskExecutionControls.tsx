@@ -38,7 +38,7 @@ interface SpecTaskExecutionControlsProps {
   onSandboxResourceOverridesChange: (value: TypesSandboxResourceOverrides) => MaybePromise;
   disabled?: boolean;
   compact?: boolean;
-  showHarness?: boolean;
+  grouped?: boolean;
 }
 
 const SANDBOX_PRESETS = [
@@ -109,7 +109,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   onSandboxResourceOverridesChange,
   disabled = false,
   compact = false,
-  showHarness = false,
+  grouped = false,
 }) => {
   const snackbar = useSnackbar();
   const [agentSettingsAnchor, setAgentSettingsAnchor] = useState<HTMLElement | null>(null);
@@ -180,74 +180,104 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     }
   };
 
+  const modelControl = (agent || currentExecutionConfig || agents.length > 0) ? (
+    <SpecTaskModelPicker
+      agents={agents}
+      selectedAgentId={selectedAgentId}
+      model={effectiveModel}
+      providerRefValue={effectiveProvider}
+      currentExecutionConfig={currentExecutionConfig}
+      disabled={controlsDisabled}
+      onSelectAgentModel={selectModel}
+    />
+  ) : null;
+
+  const reasoningControl = agent || currentExecutionConfig ? (
+    agent ? (
+      <Tooltip title="Change reasoning and service tier">
+        <Box component="span" sx={{ display: "inline-flex" }}>
+          <Button
+            size="small"
+            disabled={controlsDisabled}
+            aria-label="Change reasoning and service tier"
+            onClick={(event) => setAgentSettingsAnchor(event.currentTarget)}
+            endIcon={<ChevronDown size={13} />}
+            sx={compactButtonSx}
+          >
+            {agentSettingsLabel}
+          </Button>
+        </Box>
+      </Tooltip>
+    ) : (
+      <Box sx={{ height: 28, px: 0.75, display: "inline-flex", alignItems: "center" }}>
+        <Typography variant="body2" color="text.secondary">
+          {agentSettingsLabel}
+        </Typography>
+      </Box>
+    )
+  ) : null;
+
+  const computeControl = (
+    <Tooltip title={`Change sandbox size (${sandboxLabel})`}>
+      <Box component="span" sx={{ display: "inline-flex" }}>
+        <Button
+          size="small"
+          disabled={controlsDisabled}
+          aria-label="Change sandbox size"
+          onClick={(event) => setCpuAnchor(event.currentTarget)}
+          startIcon={<Cpu size={15} />}
+          endIcon={<ChevronDown size={13} />}
+          sx={compactButtonSx}
+        >
+          {sandboxLabel}
+        </Button>
+      </Box>
+    </Tooltip>
+  );
+
   return (
     <>
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={0.25}
-        sx={{ minWidth: 0, flexWrap: compact ? "nowrap" : "wrap" }}
-      >
-        {showHarness && (
+      {grouped ? (
+        <Box
+          aria-label="Execution configuration"
+          sx={{
+            display: "grid",
+            gridTemplateColumns: "64px minmax(0, 1fr)",
+            alignItems: "center",
+            columnGap: 0.75,
+            rowGap: 0.5,
+            minWidth: 0,
+          }}
+        >
+          <Typography variant="body2" color="text.secondary">Harness:</Typography>
           <Box
             aria-label={`Harness: ${getAgentHarnessLabel(runtime)}`}
-            sx={{
-              height: 28,
-              px: 0.75,
-              display: "inline-flex",
-              alignItems: "center",
-              flexShrink: 0,
-            }}
+            sx={{ height: 28, px: 0.75, display: "inline-flex", alignItems: "center" }}
           >
             <AgentHarness runtime={runtime} variant="long" size={16} showTooltip={false} />
           </Box>
-        )}
 
-        {(agent || currentExecutionConfig || agents.length > 0) && (
-          <SpecTaskModelPicker
-            agents={agents}
-            selectedAgentId={selectedAgentId}
-            model={effectiveModel}
-            providerRefValue={effectiveProvider}
-            currentExecutionConfig={currentExecutionConfig}
-            disabled={controlsDisabled}
-            onSelectAgentModel={selectModel}
-          />
-        )}
+          <Typography variant="body2" color="text.secondary">Model:</Typography>
+          <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: "wrap" }}>
+            {modelControl}
+            {reasoningControl}
+          </Stack>
 
-        {agent && (
-          <Tooltip title="Change reasoning and service tier">
-            <Box component="span" sx={{ display: "inline-flex" }}>
-              <Button
-                size="small"
-                disabled={controlsDisabled}
-                aria-label="Change reasoning and service tier"
-                onClick={(event) => setAgentSettingsAnchor(event.currentTarget)}
-                endIcon={<ChevronDown size={13} />}
-                sx={compactButtonSx}
-              >
-                {agentSettingsLabel}
-              </Button>
-            </Box>
-          </Tooltip>
-        )}
-
-        <Tooltip title={`Change sandbox size (${sandboxLabel})`}>
-          <Box component="span" sx={{ display: "inline-flex" }}>
-            <Button
-              size="small"
-              disabled={controlsDisabled}
-              aria-label="Change sandbox size"
-              onClick={(event) => setCpuAnchor(event.currentTarget)}
-              startIcon={<Cpu size={15} />}
-              endIcon={<ChevronDown size={13} />}
-              sx={compactButtonSx}
-            >
-              {sandboxLabel}
-            </Button>
-          </Box>
-        </Tooltip>
-      </Stack>
+          <Typography variant="body2" color="text.secondary">Compute:</Typography>
+          <Box sx={{ minWidth: 0 }}>{computeControl}</Box>
+        </Box>
+      ) : (
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={0.25}
+          sx={{ minWidth: 0, flexWrap: compact ? "nowrap" : "wrap" }}
+        >
+          {modelControl}
+          {reasoningControl}
+          {computeControl}
+        </Stack>
+      )}
 
       <Menu
         anchorEl={agentSettingsAnchor}

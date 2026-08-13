@@ -1883,7 +1883,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           onAgentModelChange={handleAgentModelChange}
           onSandboxResourceOverridesChange={handleSandboxResourcesChange}
           disabled={updateExecutionConfig.isPending || !!task?.archived}
-          showHarness
+          grouped
         />
       </Box>
 

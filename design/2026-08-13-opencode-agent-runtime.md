@@ -211,8 +211,8 @@ air-gapped/proxied enterprise installs, and it re-downloads per container. Use
      `cdn.agentclientprotocol.com/registry/v1/latest/opencode.svg`). Per our UI
      rules this is the canonical asset — do not substitute a Lucide glyph.
    - `components/tasks/SpecTaskModelPicker.tsx` — expose the active harness mark
-     and name in the model control tooltip; Task Details renders the long
-     harness variant beside the execution controls.
+     and name in the model control tooltip; Task Details groups the long
+     harness variant, model/reasoning, and compute controls into labeled rows.
    - `components/helix-org/BotRuntimeForm.tsx` — same option for org bots.
    - `./stack update_openapi` afterwards.
 
@@ -370,8 +370,10 @@ Manual, run once during development:
   `/home/retro/.local`; the smoke check now uses an isolated temporary home.
 - The same live task was checked through the production task UI: hovering the
   chat composer model control showed the OpenCode mark and `opencode`, while
-  Task Details showed the long harness badge in the Execution row. The focused
-  component suite (9 tests) and the production frontend build passed.
+  Task Details showed labeled Harness, Model, and Compute rows. The running
+  container also reported PID 2542 as `/usr/local/bin/opencode acp`, with the
+  matching command and `acp` argument in Zed settings. The focused component
+  suite (9 tests) and the production frontend build passed.
 - `cmd/settings-sync-daemon/opencode_live_test.go` (build tag `livetest`) feeds
   the daemon's generated config to a **real `opencode acp` process** and asserts
   the ACP handshake succeeds and `session/new` offers exactly one model. It

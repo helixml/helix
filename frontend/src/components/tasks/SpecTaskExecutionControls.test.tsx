@@ -96,7 +96,7 @@ describe("SpecTaskExecutionControls", () => {
     expect(tooltip.querySelector('[data-harness-mark="opencode"]')).toBeInTheDocument();
   });
 
-  it("can show the active harness inline for task details", () => {
+  it("groups harness, model, and compute controls for task details", () => {
     render(
       <SpecTaskExecutionControls
         agents={[]}
@@ -104,13 +104,21 @@ describe("SpecTaskExecutionControls", () => {
         currentExecutionConfig={{
           runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
           model: "deepseek-v4-flash",
+          reasoning_effort: "medium",
         }}
         onAgentModelChange={vi.fn()}
         onSandboxResourceOverridesChange={vi.fn()}
-        showHarness
+        grouped
       />,
     );
 
+    const executionConfig = screen.getByLabelText("Execution configuration");
+    expect(executionConfig).toHaveTextContent("Harness:");
+    expect(executionConfig).toHaveTextContent("Model:");
+    expect(executionConfig).toHaveTextContent("Compute:");
+    expect(executionConfig).toHaveTextContent("deepseek-v4-flash");
+    expect(executionConfig).toHaveTextContent("Medium");
+    expect(executionConfig).toHaveTextContent("4 vCPU");
     const harness = screen.getByLabelText("Harness: opencode");
     expect(harness).toHaveTextContent("opencode");
     expect(harness.querySelector('[data-harness-mark="opencode"]')).toBeInTheDocument();
