@@ -23,7 +23,10 @@ func TestResolveProxyUsageAttributionUsesCurrentSessionApp(t *testing.T) {
 		ID:             "ses_123",
 		OrganizationID: "org_123",
 		ParentApp:      "app_current",
-		Metadata:       types.SessionMetadata{SpecTaskID: "spt_123"},
+		Metadata: types.SessionMetadata{
+			SpecTaskID:       "spt_123",
+			CodeAgentRuntime: types.CodeAgentRuntimeOpenCode,
+		},
 	}, nil)
 
 	attribution, err := server.resolveProxyUsageAttribution(context.Background(), user, "response_123")
