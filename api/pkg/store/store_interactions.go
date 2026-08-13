@@ -22,9 +22,9 @@ func (s *PostgresStore) ResetRunningInteractions(ctx context.Context) error {
 		// abandoned. Reconnect/cancel recovery owns their eventual transition.
 		Where(`session_id NOT IN (
 			SELECT id FROM sessions
-			WHERE metadata->>'agent_type' = ?
-			   OR COALESCE(metadata->>'external_agent_id', '') <> ''
-			   OR jsonb_exists(metadata, 'external_agent_config')
+			WHERE config->>'agent_type' = ?
+			   OR COALESCE(config->>'external_agent_id', '') <> ''
+			   OR jsonb_exists(config, 'external_agent_config')
 		)`, "zed_external").
 		Updates(map[string]any{
 			"state": types.InteractionStateError,
