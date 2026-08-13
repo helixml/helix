@@ -1251,6 +1251,55 @@ RUN chmod +x dist/cli.js && \
 COPY --from=goose-build /goose-binary /usr/local/bin/goose
 RUN chmod +x /usr/local/bin/goose
 
+# opencode CLI (ACP agent, `opencode acp`).
+#
+# Downloaded from the upstream release rather than built: opencode ships a
+# single self-contained binary per platform, and the release digests are
+# published in the ACP registry manifest so we can verify what we install.
+#
+# The version is recorded at /opt/helix/opencode.version. settings-sync-daemon
+# reads that file to decide whether an admin-pinned override (system settings →
+# opencode_version) differs from what ships here; if it does, it downloads the
+# pinned release into the shared cache below instead of using this binary.
+# Keep OPENCODE_VERSION, OPENCODE_SHA256_* , sandbox-versions.txt and
+# pkg/opencode.BakedVersion in sync.
+ARG OPENCODE_VERSION=1.18.18
+ARG OPENCODE_SHA256_AMD64=0cddc222418b8553669905a8980c0cda7088f00da24d83d6ac76b01c9fdb2aaf
+ARG OPENCODE_SHA256_ARM64=dcb1b5ec5687b43f87749560021f9203f3809e0ce5ae44ff9be8ae17083fe4ba
+RUN <<_INSTALL_OPENCODE
+set -eu
+case "${TARGETARCH}" in
+  amd64) OC_ASSET="opencode-linux-x64.tar.gz";   OC_SHA="${OPENCODE_SHA256_AMD64}" ;;
+  arm64) OC_ASSET="opencode-linux-arm64.tar.gz"; OC_SHA="${OPENCODE_SHA256_ARM64}" ;;
+  *) echo "unsupported TARGETARCH=${TARGETARCH} for opencode" >&2; exit 1 ;;
+esac
+echo "=== Installing opencode ${OPENCODE_VERSION} (${OC_ASSET}) ==="
+curl -fsSL -o /tmp/opencode.tar.gz \
+  "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/${OC_ASSET}"
+echo "${OC_SHA}  /tmp/opencode.tar.gz" | sha256sum -c -
+# --no-same-owner: the archive carries uid 1000, which is `retro` in this
+# image. Without it the agent user would own its own runtime binary and could
+# overwrite it — the thing autoupdate=false is there to prevent.
+tar -xzf /tmp/opencode.tar.gz --no-same-owner -C /usr/local/bin opencode
+rm -f /tmp/opencode.tar.gz
+chown root:root /usr/local/bin/opencode
+chmod 755 /usr/local/bin/opencode
+mkdir -p /opt/helix
+echo "${OPENCODE_VERSION}" > /opt/helix/opencode.version
+# Shared cache for admin-pinned releases. Bind-mounted from the sandbox host
+# so one download serves every container on that host; the empty directory
+# here is the mountpoint and the fallback when no mount is present.
+mkdir -p /opt/helix/agent-cache/opencode
+chown -R retro:retro /opt/helix/agent-cache
+# Keep the build-time smoke check out of the runtime user's home. Even
+# `--version` initialises opencode's data directories; running it with the
+# image's HOME would leave /home/retro/.local root-owned and prevent desktop
+# startup from creating Zed's state symlink there.
+OPENCODE_SMOKE_HOME="$(mktemp -d)"
+HOME="${OPENCODE_SMOKE_HOME}" /usr/local/bin/opencode --version
+rm -r "${OPENCODE_SMOKE_HOME}"
+_INSTALL_OPENCODE
+
 WORKDIR /
 
 # Helix startup scripts

@@ -47,6 +47,10 @@ type SettingsDaemon struct {
 	// Code agent configuration (from Helix API)
 	codeAgentConfig *CodeAgentConfig
 
+	// openCodeLastAttempt is when we last tried (and failed) to install an
+	// admin-pinned opencode release. Zero means "no failure pending".
+	openCodeLastAttempt time.Time
+
 	// Whether user has a Claude subscription available for credential sync
 	claudeSubscriptionAvailable bool
 	codexSubscriptionAvailable  bool
@@ -85,6 +89,24 @@ type CodeAgentConfig struct {
 	GooseRecipes       []GooseRecipe     `json:"goose_recipes,omitempty"`
 	GooseRecipeRootDir string            `json:"goose_recipe_root_dir,omitempty"`
 	GooseBakedRecipe   *GooseBakedRecipe `json:"goose_baked_recipe,omitempty"`
+
+	// OpenCodeBinary, when set, pins an opencode release newer than the one
+	// baked into this image. Only populated when Runtime == "opencode" and an
+	// admin has set the override.
+	OpenCodeBinary *CodeAgentBinary `json:"opencode_binary,omitempty"`
+}
+
+// CodeAgentBinary is a pinned agent release resolved by the API, keyed by
+// GOARCH because the API does not know which architecture this host runs.
+type CodeAgentBinary struct {
+	Version   string                             `json:"version"`
+	Artifacts map[string]CodeAgentBinaryArtifact `json:"artifacts"`
+}
+
+// CodeAgentBinaryArtifact is one platform's archive and its expected digest.
+type CodeAgentBinaryArtifact struct {
+	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
 }
 
 // GooseRecipe maps a slash-command name to a recipe YAML on disk (container path).
@@ -393,6 +415,57 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 				"name":    "goose",
 				"type":    "custom",
 				"command": "goose",
+				"args":    []string{"acp"},
+				"env":     env,
+			},
+		}
+
+	case "opencode":
+		// opencode: `opencode acp` as a custom agent_server. Unlike goose and
+		// qwen, the entire LLM configuration travels in one env var
+		// (OPENCODE_CONFIG_CONTENT) instead of a config file — opencode merges
+		// it over its own defaults, so there is nothing to write to disk and
+		// nothing to clean up between agent switches.
+		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+
+		// Resolve the binary first: with an admin-pinned version this may
+		// download and verify a release, and if that fails we must not emit an
+		// agent_servers entry at all. Returning nil leaves the session without
+		// an opencode agent and the daemon retries on the next poll, which is
+		// the same deferral the claude_code branch uses while it waits for
+		// credentials. Falling back to the bundled binary would silently
+		// undo the admin's rollout.
+		command, err := d.resolveOpenCodeCommand()
+		if err != nil {
+			log.Printf("ERROR: opencode agent server cannot be registered: %v", err)
+			return nil
+		}
+
+		configContent, err := marshalOpenCodeConfig(d.buildOpenCodeConfig(baseURL))
+		if err != nil {
+			log.Printf("ERROR: opencode agent server cannot be registered: %v", err)
+			return nil
+		}
+
+		env := map[string]interface{}{
+			"OPENCODE_CONFIG_CONTENT": configContent,
+			// Referenced as {env:HELIX_API_KEY} from the config above.
+			"HELIX_API_KEY": d.userAPIKey,
+			// Per-session config dir so opencode's plugin bootstrap cannot
+			// collide with anything else under ~/.config.
+			"XDG_CONFIG_HOME": OpenCodeConfigHome,
+			// Session state under the workspace so it survives a restart.
+			"XDG_DATA_HOME": OpenCodeDataHome,
+		}
+
+		log.Printf("Using opencode runtime: command=%s, model=%s, base_url=%s",
+			command, d.codeAgentConfig.Model, baseURL)
+
+		return map[string]interface{}{
+			"opencode": map[string]interface{}{
+				"name":    "opencode",
+				"type":    "custom",
+				"command": command,
 				"args":    []string{"acp"},
 				"env":     env,
 			},

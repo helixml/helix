@@ -129,6 +129,9 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 		}
 		settings.DefaultNewProjectAgentReasoningEffort = effort
 	}
+	if req.OpenCodeVersion != nil {
+		settings.OpenCodeVersion = *req.OpenCodeVersion
+	}
 	if req.OptimusReasoningModelProvider != nil {
 		settings.OptimusReasoningModelProvider = *req.OptimusReasoningModelProvider
 	}

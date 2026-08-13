@@ -279,6 +279,21 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 		},
 		{
+			// opencode reaches every provider through the Helix
+			// OpenAI-compatible proxy, so the model stays provider-prefixed —
+			// that prefix is what the proxy routes on.
+			name: "opencode routes through the helix proxy",
+			assistant: &types.AssistantConfig{
+				Provider:         "anthropic",
+				Model:            "claude-opus-4-8",
+				CodeAgentRuntime: types.CodeAgentRuntimeOpenCode,
+			},
+			want: &types.CodeAgentConfig{
+				Provider: "anthropic", Model: "anthropic/claude-opus-4-8", AgentName: "opencode",
+				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeOpenCode,
+			},
+		},
+		{
 			name: "codex_cli omits none reasoning effort",
 			assistant: &types.AssistantConfig{
 				GenerationModelProvider: "openai",

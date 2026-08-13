@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/opencode"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -36,7 +38,16 @@ func (apiServer *HelixAPIServer) getSystemSettings(rw http.ResponseWriter, r *ht
 
 	// Return masked response with source information
 	envToken := os.Getenv("HF_TOKEN")
-	writeResponse(rw, settings.ToResponseWithSource(settings.HuggingFaceToken, envToken), http.StatusOK)
+	writeResponse(rw, systemSettingsResponse(settings, envToken), http.StatusOK)
+}
+
+// systemSettingsResponse builds the API response, filling in the fields that
+// types.SystemSettings cannot compute itself because pkg/types must not import
+// higher-level packages.
+func systemSettingsResponse(settings *types.SystemSettings, envToken string) *types.SystemSettingsResponse {
+	resp := settings.ToResponseWithSource(settings.HuggingFaceToken, envToken)
+	resp.OpenCodeBundledVersion = opencode.BakedVersion
+	return resp
 }
 
 // updateSystemSettings godoc
@@ -63,6 +74,26 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		log.Error().Err(err).Msg("error decoding updateSystemSettings request body")
 		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// Validate the opencode override before it is persisted: the version ends
+	// up in an outbound release URL, and an unreachable or bogus pin would
+	// otherwise only surface later as sessions that refuse to start an agent.
+	// Resolving it here means the admin gets the error in the settings form,
+	// where they can act on it.
+	if req.OpenCodeVersion != nil {
+		version := strings.TrimSpace(*req.OpenCodeVersion)
+		if err := opencode.ValidateVersion(version); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if version != "" {
+			if _, err := apiServer.openCodeResolver.Resolve(r.Context(), version); err != nil {
+				http.Error(rw, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		req.OpenCodeVersion = &version
 	}
 
 	wasSandboxBillingEnabled := false
@@ -96,6 +127,7 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		Bool("kodit_model_updated", req.KoditEnrichmentProvider != nil || req.KoditEnrichmentModel != nil).
 		Bool("providers_management_enabled_updated", req.ProvidersManagementEnabled != nil).
 		Bool("enforce_quotas_updated", req.EnforceQuotas != nil).
+		Bool("opencode_version_updated", req.OpenCodeVersion != nil).
 		Msg("system settings updated by admin")
 
 	// Sandbox-absorbs-runner pivot: the old "push system settings to runners
@@ -124,5 +156,5 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 
 	// Return masked response with source information (same format as GET)
 	envToken := os.Getenv("HF_TOKEN")
-	writeResponse(rw, settings.ToResponseWithSource(settings.HuggingFaceToken, envToken), http.StatusOK)
+	writeResponse(rw, systemSettingsResponse(settings, envToken), http.StatusOK)
 }

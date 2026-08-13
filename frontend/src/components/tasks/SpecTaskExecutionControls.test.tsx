@@ -75,6 +75,55 @@ describe("SpecTaskExecutionControls", () => {
     ));
   });
 
+  it("shows the active harness icon and name when hovering the model control", async () => {
+    render(
+      <SpecTaskExecutionControls
+        agents={[]}
+        selectedAgentId=""
+        currentExecutionConfig={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+          model: "deepseek-v4-flash",
+        }}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseOver(screen.getByRole("button", { name: "Change coding model" }));
+
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("opencode");
+    expect(tooltip.querySelector('[data-harness-mark="opencode"]')).toBeInTheDocument();
+  });
+
+  it("groups harness, model, and compute controls for task details", () => {
+    render(
+      <SpecTaskExecutionControls
+        agents={[]}
+        selectedAgentId=""
+        currentExecutionConfig={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+          model: "deepseek-v4-flash",
+          reasoning_effort: "medium",
+        }}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+        grouped
+      />,
+    );
+
+    const executionConfig = screen.getByLabelText("Execution configuration");
+    expect(executionConfig).toHaveTextContent("Harness:");
+    expect(executionConfig).toHaveTextContent("Model:");
+    expect(executionConfig).toHaveTextContent("Compute:");
+    expect(executionConfig).toHaveTextContent("deepseek-v4-flash");
+    expect(executionConfig).toHaveTextContent("Medium");
+    expect(executionConfig).toHaveTextContent("4 vCPU");
+    const harness = screen.getByLabelText("Harness: opencode");
+    expect(harness).toHaveTextContent("opencode");
+    expect(harness.querySelector('[data-harness-mark="opencode"]')).toBeInTheDocument();
+  });
+
   it("uses coding agents in the left rail and models in the right pane", async () => {
     const update = vi.fn();
     render(

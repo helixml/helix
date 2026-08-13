@@ -28,6 +28,11 @@ type QuotaManager interface {
 // can inject them on every container start without each caller remembering.
 type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
 
+// agentBinaryCacheDir is the sandbox-host directory holding admin-pinned agent
+// binaries. Shared by every container on the host and keyed by version, so a
+// pinned release is downloaded once rather than once per session.
+const agentBinaryCacheDir = "/data/agent-cache"
+
 // HydraExecutor implements the Executor interface using Hydra for dev container management.
 //
 // Architecture: Helix API -> Hydra -> Docker -> Dev Container
@@ -1559,6 +1564,17 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
 		Destination: "/var/lib/docker",
 		Type:        "volume", // Docker named volume, backed by host ext4
+	})
+
+	// Shared cache for admin-pinned agent binaries (currently opencode).
+	// Host-level, not per-session: the opencode release archive is ~60MB, so
+	// without this every container on the host would re-download the same
+	// pinned version. Entries are version-keyed and written atomically, which
+	// makes concurrent readers and writers safe.
+	mounts = append(mounts, hydra.MountConfig{
+		Source:      agentBinaryCacheDir,
+		Destination: "/opt/helix/agent-cache",
+		ReadOnly:    false,
 	})
 
 	// NOTE: Shared BuildKit cache mount (/buildkit-cache) and BUILDKIT_HOST env var

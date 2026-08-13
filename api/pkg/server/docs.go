@@ -29517,6 +29517,35 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CodeAgentBinary": {
+            "type": "object",
+            "properties": {
+                "artifacts": {
+                    "description": "Artifacts maps GOARCH to the downloadable archive for that platform.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.CodeAgentBinaryArtifact"
+                    }
+                },
+                "version": {
+                    "description": "Version is the semver of the pinned release (no leading \"v\").",
+                    "type": "string"
+                }
+            }
+        },
+        "types.CodeAgentBinaryArtifact": {
+            "type": "object",
+            "properties": {
+                "sha256": {
+                    "description": "SHA256 is the hex digest of the archive, as published by the release.",
+                    "type": "string"
+                },
+                "url": {
+                    "description": "URL is the archive to download (tar.gz containing a single binary).",
+                    "type": "string"
+                }
+            }
+        },
         "types.CodeAgentConfig": {
             "type": "object",
             "properties": {
@@ -29562,6 +29591,14 @@ const docTemplate = `{
                 "model": {
                     "description": "Model is the model identifier (e.g., \"claude-sonnet-4-5-latest\", \"gpt-4o\")",
                     "type": "string"
+                },
+                "opencode_binary": {
+                    "description": "OpenCodeBinary, when set, pins the opencode build the container must run\ninstead of the one baked into the desktop image. It is only populated\nwhen an admin has set SystemSettings.OpenCodeVersion to a version newer\nthan the baked floor. The API resolves the artifact (URL + digest) so\nthe container never has to know the release URL scheme — that keeps the\nmirror decision in one place for air-gapped installs.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentBinary"
+                        }
+                    ]
                 },
                 "provider": {
                     "description": "Provider is the LLM provider name (e.g., \"anthropic\", \"openai\", \"openrouter\")",
@@ -29636,7 +29673,8 @@ const docTemplate = `{
                 "claude_code",
                 "gemini_cli",
                 "codex_cli",
-                "goose_code"
+                "goose_code",
+                "opencode"
             ],
             "x-enum-varnames": [
                 "CodeAgentRuntimeZedAgent",
@@ -29644,7 +29682,8 @@ const docTemplate = `{
                 "CodeAgentRuntimeClaudeCode",
                 "CodeAgentRuntimeGeminiCLI",
                 "CodeAgentRuntimeCodexCLI",
-                "CodeAgentRuntimeGooseCode"
+                "CodeAgentRuntimeGooseCode",
+                "CodeAgentRuntimeOpenCode"
             ]
         },
         "types.CodexAuthCredentials": {
@@ -38395,6 +38434,9 @@ const docTemplate = `{
                 "max_concurrent_headless_sandboxes": {
                     "type": "integer"
                 },
+                "opencode_version": {
+                    "type": "string"
+                },
                 "optimus_generation_model": {
                     "type": "string"
                 },
@@ -38504,6 +38546,13 @@ const docTemplate = `{
                 },
                 "max_concurrent_headless_sandboxes": {
                     "type": "integer"
+                },
+                "opencode_bundled_version": {
+                    "type": "string"
+                },
+                "opencode_version": {
+                    "description": "OpenCodeVersion is the admin override; empty means the bundled build.\nOpenCodeBundledVersion tells the UI what \"bundled\" currently is so it\ncan show the floor without hardcoding it.",
+                    "type": "string"
                 },
                 "optimus_generation_model": {
                     "type": "string"

@@ -203,6 +203,15 @@ const (
 	// *_BASE_URL env vars passed to the goose command.
 	// Zed agent name: "goose"
 	CodeAgentRuntimeGooseCode CodeAgentRuntime = "goose_code"
+
+	// CodeAgentRuntimeOpenCode uses the opencode CLI as a custom agent_server.
+	// Requires the opencode binary to be installed in the container (baked by
+	// Dockerfile.ubuntu-helix, optionally overridden per-deployment via the
+	// admin OpenCodeVersion setting). The LLM is configured entirely through
+	// the OPENCODE_CONFIG_CONTENT env var, which declares a single
+	// OpenAI-compatible provider pointing at the Helix proxy.
+	// Zed agent name: "opencode"
+	CodeAgentRuntimeOpenCode CodeAgentRuntime = "opencode"
 )
 
 // CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
@@ -236,6 +245,8 @@ func (r CodeAgentRuntime) ZedAgentName() string {
 		return "gemini"
 	case CodeAgentRuntimeCodexCLI:
 		return "codex"
+	case CodeAgentRuntimeOpenCode:
+		return "opencode"
 	default: // CodeAgentRuntimeZedAgent or empty
 		return "zed-agent"
 	}

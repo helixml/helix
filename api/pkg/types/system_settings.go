@@ -48,6 +48,12 @@ type SystemSettings struct {
 	DefaultNewProjectAgentModel           string `json:"default_new_project_agent_model,omitempty" gorm:"column:default_new_project_agent_model"`
 	DefaultNewProjectAgentReasoningEffort string `json:"default_new_project_agent_reasoning_effort,omitempty" gorm:"column:default_new_project_agent_reasoning_effort"`
 
+	// OpenCodeVersion pins the opencode release used by the opencode code
+	// agent runtime. Empty means "use the build baked into the desktop image".
+	// Must be a bare semver newer than the baked version — see
+	// pkg/opencode.ValidateVersion.
+	OpenCodeVersion string `json:"opencode_version,omitempty" gorm:"column:opencode_version"`
+
 	// Optimus configuration
 	OptimusReasoningModelProvider string `json:"optimus_reasoning_model_provider" yaml:"optimus_reasoning_model_provider"`
 	OptimusReasoningModel         string `json:"optimus_reasoning_model" yaml:"optimus_reasoning_model"`
@@ -93,6 +99,8 @@ type SystemSettingsRequest struct {
 	DefaultNewProjectAgentProvider        *string `json:"default_new_project_agent_provider"`
 	DefaultNewProjectAgentModel           *string `json:"default_new_project_agent_model"`
 	DefaultNewProjectAgentReasoningEffort *string `json:"default_new_project_agent_reasoning_effort"`
+
+	OpenCodeVersion *string `json:"opencode_version"`
 
 	OptimusReasoningModelProvider *string `json:"optimus_reasoning_model_provider"`
 	OptimusReasoningModel         *string `json:"optimus_reasoning_model"`
@@ -147,6 +155,12 @@ type SystemSettingsResponse struct {
 	DefaultNewProjectAgentProvider        string `json:"default_new_project_agent_provider"`
 	DefaultNewProjectAgentModel           string `json:"default_new_project_agent_model"`
 	DefaultNewProjectAgentReasoningEffort string `json:"default_new_project_agent_reasoning_effort"`
+
+	// OpenCodeVersion is the admin override; empty means the bundled build.
+	// OpenCodeBundledVersion tells the UI what "bundled" currently is so it
+	// can show the floor without hardcoding it.
+	OpenCodeVersion        string `json:"opencode_version"`
+	OpenCodeBundledVersion string `json:"opencode_bundled_version"`
 
 	// Optimus configuration
 	OptimusReasoningModelProvider string `json:"optimus_reasoning_model_provider"`
@@ -205,6 +219,9 @@ func (s *SystemSettings) ToResponseWithSource(dbToken, envToken string) *SystemS
 		DefaultNewProjectAgentProvider:        s.DefaultNewProjectAgentProvider,
 		DefaultNewProjectAgentModel:           s.DefaultNewProjectAgentModel,
 		DefaultNewProjectAgentReasoningEffort: s.DefaultNewProjectAgentReasoningEffort,
+		// OpenCodeBundledVersion is filled by the handler — types cannot import
+		// pkg/opencode (which imports types).
+		OpenCodeVersion:                       s.OpenCodeVersion,
 		OptimusReasoningModelProvider:         s.OptimusReasoningModelProvider,
 		OptimusReasoningModel:                 s.OptimusReasoningModel,
 		OptimusReasoningModelEffort:           s.OptimusReasoningModelEffort,

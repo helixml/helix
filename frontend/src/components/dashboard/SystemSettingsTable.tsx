@@ -59,6 +59,8 @@ const SystemSettingsTable: FC = () => {
   const [sandboxHeadlessLimitValue, setSandboxHeadlessLimitValue] = useState('')
   const [editingSandboxDesktopLimit, setEditingSandboxDesktopLimit] = useState(false)
   const [sandboxDesktopLimitValue, setSandboxDesktopLimitValue] = useState('')
+  const [editingOpenCodeVersion, setEditingOpenCodeVersion] = useState(false)
+  const [openCodeVersionValue, setOpenCodeVersionValue] = useState('')
 
   const saving = updateSettings.isPending
 
@@ -92,6 +94,29 @@ const SystemSettingsTable: FC = () => {
       snackbar.success('Hugging Face token cleared')
     } catch (err: any) {
       snackbar.error(`Failed to clear token: ${err.message}`)
+    }
+  }
+
+  // The API validates the version and resolves it against the opencode release
+  // index before saving, so a typo or an unreachable index surfaces here as a
+  // 400 rather than as sessions that later refuse to start an agent.
+  const handleSaveOpenCodeVersion = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        opencode_version: openCodeVersionValue.trim(),
+      })
+      setEditingOpenCodeVersion(false)
+      snackbar.success(
+        openCodeVersionValue.trim()
+          ? `opencode pinned to ${openCodeVersionValue.trim()} — new sessions will install it`
+          : 'opencode override cleared — new sessions use the bundled build',
+      )
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(err.response?.data || `Failed to update settings: ${err.message}`)
+      }
     }
   }
 
@@ -1176,6 +1201,75 @@ const SystemSettingsTable: FC = () => {
                           onClick={() => {
                             setSandboxDesktopLimitValue(String(settings?.max_concurrent_desktop_sandboxes ?? 10))
                             setEditingSandboxDesktopLimit(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      opencode Version
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Pin a newer opencode release than the one bundled in the desktop image
+                      {settings?.opencode_bundled_version
+                        ? ` (bundled: ${settings.opencode_bundled_version})`
+                        : ''}
+                      . Leave blank to use the bundled build.
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.opencode_version ? 'Pinned' : 'Bundled'}
+                      color={settings?.opencode_version ? 'primary' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.opencode_version || settings?.opencode_bundled_version || '—'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingOpenCodeVersion ? (
+                        <>
+                          <TextField
+                            size="small"
+                            placeholder={settings?.opencode_bundled_version || '1.18.18'}
+                            value={openCodeVersionValue}
+                            onChange={(e) => setOpenCodeVersionValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={handleSaveOpenCodeVersion}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingOpenCodeVersion(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setOpenCodeVersionValue(settings?.opencode_version || '')
+                            setEditingOpenCodeVersion(true)
                           }}
                           size="small"
                         >
