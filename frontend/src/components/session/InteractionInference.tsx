@@ -114,11 +114,8 @@ export function buildActivityTimeline(
       return;
     }
 
-    // Any text entry ends the current tool run, even when its thinking content
-    // is hidden while streaming.
-    currentToolSegment = undefined;
-
     if (index === finalTextIndex) {
+      currentToolSegment = undefined;
       if (hasThinking(entry.content)) {
         activitySegments.push({
           type: "text",
@@ -134,6 +131,7 @@ export function buildActivityTimeline(
     const renderThinking = !isStreaming && hasThinking(entry.content);
     const renderContent = hasVisibleAssistantText(entry.content);
     if (renderThinking || renderContent) {
+      currentToolSegment = undefined;
       activitySegments.push({
         type: "text",
         entry,
