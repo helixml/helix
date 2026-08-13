@@ -13,7 +13,7 @@ import {
 import { ChevronDown, Search } from "lucide-react";
 import type {
   TypesProviderEndpoint,
-  TypesSpecTaskExecutionConfig,
+  TypesAgentExecutionConfig,
 } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, IAssistantConfig } from "../../types";
 import { useGetOrgByName } from "../../services/orgService";
@@ -38,7 +38,7 @@ interface SpecTaskModelPickerProps {
   selectedAgentId: string;
   model: string;
   providerRefValue: string;
-  currentExecutionConfig?: TypesSpecTaskExecutionConfig;
+  currentExecutionConfig?: TypesAgentExecutionConfig;
   disabled?: boolean;
   onSelectAgentModel: (agentId: string, provider: string, model: string) => void;
 }
@@ -78,7 +78,7 @@ const SpecTaskModelPickerView: FC<{
   selectedAgentId: string;
   model: string;
   providerRefValue: string;
-  currentExecutionConfig?: TypesSpecTaskExecutionConfig;
+  currentExecutionConfig?: TypesAgentExecutionConfig;
   loading?: boolean;
   disabled?: boolean;
   onSelectAgentModel: (agentId: string, provider: string, model: string) => void;

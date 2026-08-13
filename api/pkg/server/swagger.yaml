@@ -3636,6 +3636,34 @@ definitions:
           type: string
         type: object
     type: object
+  types.AgentExecutionConfig:
+    properties:
+      agent_available:
+        type: boolean
+      agent_id:
+        type: string
+      agent_name:
+        type: string
+      code_agent_overrides:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentOverrides'
+        description: |-
+          CodeAgentOverrides is the override set the fields above were resolved
+          with, so a caller can round-trip an edit without having to know which
+          record (task or session) stores it.
+      credential_type:
+        $ref: '#/definitions/types.CodeAgentCredentialType'
+      model:
+        type: string
+      provider_ref:
+        type: string
+      reasoning_effort:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      service_tier:
+        type: string
+    type: object
   types.AgentHelixConfig:
     properties:
       assistants:
@@ -7442,8 +7470,8 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.OrgComputeUsage'
         description: |-
-          Compute is sandbox runtime spend. It answers the date range and the
-          project filter; the token-shaped filters (model, provider, session)
+          Compute is sandbox runtime spend. It answers the date range, project, and
+          task filters; the token-shaped filters (model, provider, session)
           don't apply to a container and leave it untouched.
       export_apps:
         items:
@@ -9840,6 +9868,26 @@ definitions:
         - $ref: '#/definitions/types.SessionType'
         description: e.g. text, image
     type: object
+  types.SessionExecutionConfigUpdateRequest:
+    properties:
+      agent_id:
+        type: string
+      code_agent_overrides:
+        $ref: '#/definitions/types.CodeAgentOverrides'
+    type: object
+  types.SessionExecutionConfigUpdateResponse:
+    properties:
+      agent_id:
+        type: string
+      agent_thread_restarted:
+        type: boolean
+      code_agent_overrides:
+        $ref: '#/definitions/types.CodeAgentOverrides'
+      session_id:
+        type: string
+      spec_task_id:
+        type: string
+    type: object
   types.SessionInfo:
     properties:
       auth_provider:
@@ -9907,6 +9955,15 @@ definitions:
       callback_url:
         description: Webhook URL to POST on session completion
         type: string
+      code_agent_overrides:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentOverrides'
+        description: |-
+          CodeAgentOverrides customizes the coding model for THIS session without
+          mutating its Agent. Set from the chat composer's execution controls on
+          sessions that own their configuration (org bot chat, project chat).
+          SpecTask sessions leave this nil — SpecTask.CodeAgentOverrides is
+          authoritative there, so there is exactly one source of truth per session.
       code_agent_runtime:
         allOf:
         - $ref: '#/definitions/types.CodeAgentRuntime'
@@ -10853,27 +10910,6 @@ definitions:
     required:
     - decision
     - review_id
-    type: object
-  types.SpecTaskExecutionConfig:
-    properties:
-      agent_available:
-        type: boolean
-      agent_id:
-        type: string
-      agent_name:
-        type: string
-      credential_type:
-        $ref: '#/definitions/types.CodeAgentCredentialType'
-      model:
-        type: string
-      provider_ref:
-        type: string
-      reasoning_effort:
-        type: string
-      runtime:
-        $ref: '#/definitions/types.CodeAgentRuntime'
-      service_tier:
-        type: string
     type: object
   types.SpecTaskExecutionConfigUpdateRequest:
     properties:
@@ -24377,6 +24413,83 @@ paths:
       summary: Update Codex credentials for a session
       tags:
       - Codex
+  /api/v1/sessions/{id}/execution-config:
+    get:
+      description: Returns the session's current coding identity without exposing
+        Agent secrets. Sessions belonging to a SpecTask report the task's configuration.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.AgentExecutionConfig'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get session execution configuration
+      tags:
+      - Sessions
+    patch:
+      consumes:
+      - application/json
+      description: Replaces the session's code-agent overrides, and optionally switches
+        it to a different Agent. The in-flight turn is cancelled and a new ACP thread
+        starts with the prior transcript. Sessions belonging to a SpecTask write through
+        to the task.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Execution configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SessionExecutionConfigUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionExecutionConfigUpdateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update session execution configuration
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/foreground-thread:
     post:
       description: |-
@@ -26138,7 +26251,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.SpecTaskExecutionConfig'
+            $ref: '#/definitions/types.AgentExecutionConfig'
         "404":
           description: Not Found
           schema:

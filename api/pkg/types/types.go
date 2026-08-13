@@ -490,6 +490,14 @@ type SessionMetadata struct {
 	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
 	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
 	StatusMessage           string               `json:"status_message,omitempty"`            // Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)")
+
+	// CodeAgentOverrides customizes the coding model for THIS session without
+	// mutating its Agent. Set from the chat composer's execution controls on
+	// sessions that own their configuration (org bot chat, project chat).
+	// SpecTask sessions leave this nil — SpecTask.CodeAgentOverrides is
+	// authoritative there, so there is exactly one source of truth per session.
+	CodeAgentOverrides *CodeAgentOverrides `json:"code_agent_overrides,omitempty"`
+
 	// Container fields (Hydra executor)
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
 	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID

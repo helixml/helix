@@ -191,8 +191,7 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if req.CodeAgentOverrides != nil {
-		candidate := &types.SpecTask{HelixAppID: req.AppID}
-		if err := s.validateTaskCodeAgentOverrides(ctx, candidate, req.CodeAgentOverrides, user.ID); err != nil {
+		if err := s.validateCodeAgentOverrides(ctx, req.AppID, req.CodeAgentOverrides, user.ID); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

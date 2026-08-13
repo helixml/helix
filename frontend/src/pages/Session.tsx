@@ -17,12 +17,19 @@ import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
 import useSnackbar from '../hooks/useSnackbar'
+import useCodeAgentConfigChange from '../hooks/useCodeAgentConfigChange'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import { useTheme } from '@mui/material/styles'
 import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
-import { useGetSession, useUpdateSession, useGetSessionIdleStatus } from '../services/sessionService'
+import {
+  useGetSession,
+  useUpdateSession,
+  useGetSessionIdleStatus,
+  useGetSessionExecutionConfig,
+  useUpdateSessionExecutionConfig,
+} from '../services/sessionService'
 
 import {
   INTERACTION_STATE_EDITING,
@@ -33,11 +40,12 @@ import {
   IShareSessionInstructions,
 } from '../types'
 
-import { TypesAgentType, TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
+import { TypesAgentType, TypesCodeAgentOverrides, TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
 
 import { useStreaming } from '../contexts/streaming'
 
-import { getAssistant } from '../utils/apps'
+import { getAssistant, selectCodingAgents } from '../utils/apps'
+import SpecTaskExecutionControls from '../components/tasks/SpecTaskExecutionControls'
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
@@ -271,6 +279,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   const [appID, setAppID] = useState<string | null>(null)
   const [assistantID, setAssistantID] = useState<string | null>(null)
   const [filterMap, setFilterMap] = useState<Record<string, string>>({})
+  const [isCancelling, setIsCancelling] = useState(false)
 
   const isExternalAgent = session?.data?.config?.agent_type === TypesAgentType.AgentTypeZedExternal
 
@@ -290,6 +299,41 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
 
   // Add ref to store current scroll position
   const scrollPositionRef = useRef<number>(0)
+
+  // External coding-agent sessions (org bot chat, project chat) get the same
+  // composer controls as a spec task: model/provider, reasoning, harness — and
+  // a stop button, because their turns are long-running.
+  const { data: executionConfig } = useGetSessionExecutionConfig(sessionID, isExternalAgent)
+  const updateExecutionConfig = useUpdateSessionExecutionConfig(sessionID)
+  const sessionAgentID = executionConfig?.agent_id || session?.data?.parent_app || ''
+  // The session's OWN agent always belongs in the picker, even when it isn't a
+  // coding agent — an org chart's bots run on org_agent apps, and their model
+  // and reasoning are exactly what this composer edits.
+  const executionAgents = useMemo(() => {
+    const coding = selectCodingAgents(apps.apps)
+    const sessionAgent = apps.apps?.find((app) => app.id === sessionAgentID)
+    if (!sessionAgent || coding.some((app) => app.id === sessionAgent.id)) return coding
+    return [sessionAgent, ...coding]
+  }, [apps.apps, sessionAgentID])
+
+  const handleAgentModelChange = useCodeAgentConfigChange(updateExecutionConfig.mutateAsync)
+
+  const handleCancelTurn = useCallback(async () => {
+    if (isCancelling) return
+    setIsCancelling(true)
+    try {
+      const response = await api.getApiClient().v1SessionsCancelCreate(sessionID)
+      if (response.data?.status === 'noop') {
+        snackbar.info('The agent is no longer running a turn')
+      }
+      await refetchSession()
+    } catch (error: any) {
+      snackbar.error(error?.message || 'Failed to interrupt current turn')
+    } finally {
+      setIsCancelling(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionID, isCancelling])
 
   // Callback to handle model changes from AdvancedModelPicker
   const handleModelChange = useCallback((provider: string, modelName: string) => {
@@ -1379,6 +1423,19 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
                     onHeightChange={scrollToBottom}
                     autoFocus
                     isAgentBusy={loading}
+                    onCancel={isExternalAgent ? handleCancelTurn : undefined}
+                    isCancelling={isCancelling}
+                    leadingActions={isExternalAgent ? (
+                      <SpecTaskExecutionControls
+                        agents={executionAgents}
+                        selectedAgentId={sessionAgentID}
+                        codeAgentOverrides={executionConfig?.code_agent_overrides}
+                        currentExecutionConfig={executionConfig}
+                        onAgentModelChange={handleAgentModelChange}
+                        disabled={updateExecutionConfig.isPending}
+                        compact
+                      />
+                    ) : undefined}
                     placeholder={
                       session.data.type === SESSION_TYPE_TEXT
                         ? session.data.parent_app
