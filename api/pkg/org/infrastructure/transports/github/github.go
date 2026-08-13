@@ -325,27 +325,13 @@ func (t *Transport) HandleInbound() http.Handler {
 
 		now := nowUTC()
 		for _, s := range topics {
-			event, err := streaming.NewMessageEvent(
-				streaming.EventID("e-"+uuid.NewString()),
-				s.ID,
-				"", // system-emitted: external sender, no helix Worker source
-				msg,
-				now,
-				t.orgID,
-			)
+			appended, err := t.appendInbound(r.Context(), s.ID, deliveryID, msg, now)
 			if err != nil {
-				t.logger.Error("github.inbound: build event", "topic", s.ID, "err", err)
-				continue
-			}
-			if err := t.store.Events.Append(r.Context(), event); err != nil {
 				t.logger.Error("github.inbound: append", "topic", s.ID, "err", err)
 				continue
 			}
-			if t.broadcaster != nil {
-				t.broadcaster.Notify(t.orgID, s.ID)
-			}
-			if t.dispatcher != nil {
-				t.dispatcher.Dispatch(r.Context(), event)
+			if !appended {
+				continue
 			}
 			t.logger.Info("github.inbound",
 				"topic", s.ID, "repo", repo, "event", eventType,
@@ -462,35 +448,45 @@ func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handle
 			Extra:     extraJSON,
 		}
 		now := nowUTC()
-		event, err := streaming.NewMessageEvent(
-			streaming.EventID("e-"+uuid.NewString()),
-			topic.ID,
-			"",
-			msg,
-			now,
-			t.orgID,
-		)
+		appended, err := t.appendInbound(r.Context(), topic.ID, deliveryID, msg, now)
 		if err != nil {
-			t.logger.Error("github.inbound.topic: build event", "topic", topicID, "err", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		if err := t.store.Events.Append(r.Context(), event); err != nil {
 			t.logger.Error("github.inbound.topic: append", "topic", topicID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if t.broadcaster != nil {
-			t.broadcaster.Notify(t.orgID, topic.ID)
-		}
-		if t.dispatcher != nil {
-			t.dispatcher.Dispatch(r.Context(), event)
+		if !appended {
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
 		t.logger.Info("github.inbound.topic",
 			"topic", topic.ID, "repo", repo, "event", eventType,
 			"delivery", deliveryID, "from", msg.From)
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+func (t *Transport) appendInbound(ctx context.Context, topicID streaming.TopicID, deliveryID string, msg streaming.Message, now time.Time) (bool, error) {
+	eventID := streaming.EventID("e-" + uuid.NewString())
+	if deliveryID != "" {
+		eventID = streaming.EventID("e-" + uuid.NewSHA1(uuid.NameSpaceOID, []byte(string(topicID)+"\x00"+deliveryID)).String())
+	}
+	event, err := streaming.NewMessageEvent(eventID, topicID, "", msg, now, t.orgID)
+	if err != nil {
+		return false, err
+	}
+	if err := t.store.Events.Append(ctx, event); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			return false, nil
+		}
+		return false, err
+	}
+	if t.broadcaster != nil {
+		t.broadcaster.Notify(t.orgID, topicID)
+	}
+	if t.dispatcher != nil {
+		t.dispatcher.Dispatch(ctx, event)
+	}
+	return true, nil
 }
 
 // matchingTopics returns every github-transport Topic whose repo

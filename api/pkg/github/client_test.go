@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestWebhookSettingsURL(t *testing.T) {
@@ -35,6 +36,37 @@ func TestWebhookSettingsURL(t *testing.T) {
 	want := "https://github.com/helixml/helix/settings/hooks/123"
 	if got != want {
 		t.Errorf("WebhookSettingsURL = %q, want %q", got, want)
+	}
+}
+
+func TestWebhookDeliveryRecoveryClient(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/repos/helixml/helix/hooks/42/deliveries", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Query().Get("per_page") != "100" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.String())
+		}
+		w.Header().Set("Link", `<http://`+r.Host+r.URL.Path+`?cursor=next>; rel="next"`)
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"id": 7, "guid": "g-1", "delivered_at": now, "status_code": 521}})
+	})
+	mux.HandleFunc("/api/v3/repos/helixml/helix/hooks/42/deliveries/7/attempts", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := newTestGitHubClient(t, srv)
+
+	deliveries, cursor, err := c.ListWebhookDeliveries("helixml", "helix", 42, "")
+	if err != nil || cursor != "next" || len(deliveries) != 1 || deliveries[0].ID != 7 || deliveries[0].StatusCode != 521 {
+		t.Fatalf("deliveries = %+v, cursor = %q, err = %v", deliveries, cursor, err)
+	}
+	if err := c.RedeliverWebhookDelivery("helixml", "helix", 42, 7); err != nil {
+		t.Fatalf("redeliver: %v", err)
 	}
 }
 

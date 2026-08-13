@@ -82,7 +82,8 @@ type helixOrgHandlers struct {
 	// streamCron is the in-process scheduler that fires events on
 	// KindCron topics. The server's run loop calls Start on it in a
 	// goroutine so it runs for the lifetime of the API process.
-	streamCron *streamcron.Scheduler
+	streamCron        *streamcron.Scheduler
+	githubDeliveryRun func(ctx context.Context)
 	// publicGitHubWebhook is the inbound /github/webhook handler
 	// mounted on the INSECURE router. GitHub deliveries carry no
 	// helix session cookie or API key — they authenticate via the
@@ -333,6 +334,9 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 				log.Error().Err(err).Msg("streamcron scheduler exited with error")
 			}
 		}()
+	}
+	if orgHandlers.githubDeliveryRun != nil {
+		go orgHandlers.githubDeliveryRun(ctx)
 	}
 	if orgHandlers.assetSSHProxyRun != nil {
 		go func() {
@@ -732,6 +736,12 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	if err != nil {
 		return nil, fmt.Errorf("init streamcron scheduler: %w", err)
 	}
+	githubDeliveryReconciler := githubtransport.NewDeliveryReconciler(
+		st,
+		githubtransport.TokenResolver(gitHubTokenResolver),
+		cfg.APIServer.Cfg.GitHub.APIBaseURL(),
+		logger,
+	)
 
 	// Prompts registry — drives slash-command typeahead in the chat
 	// composer (/help, /role, /worker, …) and surfaces the same set as
@@ -1224,6 +1234,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		lifecycle:                    lifecycleSvc,
 		seeder:                       seeder,
 		streamCron:                   streamCronScheduler,
+		githubDeliveryRun:            githubDeliveryReconciler.Run,
 		publicGitHubWebhook:          publicGitHubWebhook,
 		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
 		publicGitLabWebhookForTopic:  publicGitLabWebhookForTopic,
