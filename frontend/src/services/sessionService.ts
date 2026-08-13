@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { ServerForkSessionRequest, ServerSwitchAgentRequest, TypesSession } from '../api/api';
+import {
+  ServerForkSessionRequest,
+  ServerSwitchAgentRequest,
+  TypesSession,
+  TypesSessionExecutionConfigUpdateRequest,
+} from '../api/api';
 import { QueryClient } from '@tanstack/react-query';
 
 export const SESSION_STEPS_QUERY_KEY = (id: string) => [
@@ -199,6 +204,44 @@ export function useSwitchAgent(sessionId: string) {
       apiClient.v1SessionsSwitchAgentCreate(sessionId, request).then((res) => res.data),
     onSuccess: () => {
       // The session's agent changed in place; refresh its row + any lists.
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
+export const SESSION_EXECUTION_CONFIG_QUERY_KEY = (sessionId: string) => [
+  "session-execution-config",
+  sessionId,
+]
+
+// The session's current coding identity (agent, runtime, provider, model,
+// reasoning effort) — the same shape a spec task reports, because both run the
+// same external coding agent.
+export function useGetSessionExecutionConfig(sessionId: string, enabled = true) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: SESSION_EXECUTION_CONFIG_QUERY_KEY(sessionId),
+    queryFn: () => apiClient.v1SessionsExecutionConfigDetail(sessionId).then((res) => res.data),
+    enabled: enabled && !!sessionId,
+  })
+}
+
+// Changing the model/reasoning cancels the in-flight turn and starts a fresh
+// agent thread seeded with the prior transcript, so the session row itself
+// changes too.
+export function useUpdateSessionExecutionConfig(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (request: TypesSessionExecutionConfigUpdateRequest) =>
+      apiClient.v1SessionsExecutionConfigPartialUpdate(sessionId, request).then((res) => res.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SESSION_EXECUTION_CONFIG_QUERY_KEY(sessionId) })
       queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
     },

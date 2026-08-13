@@ -14,7 +14,7 @@ import { ChevronDown, Cpu } from "lucide-react";
 import {
   TypesCodeAgentOverrides,
   TypesSandboxResourceOverrides,
-  TypesSpecTaskExecutionConfig,
+  TypesAgentExecutionConfig,
 } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, IAssistantConfig } from "../../types";
 import useSnackbar from "../../hooks/useSnackbar";
@@ -32,10 +32,12 @@ interface SpecTaskExecutionControlsProps {
   agents: IApp[];
   selectedAgentId: string;
   codeAgentOverrides?: TypesCodeAgentOverrides;
-  currentExecutionConfig?: TypesSpecTaskExecutionConfig;
+  currentExecutionConfig?: TypesAgentExecutionConfig;
   sandboxResourceOverrides?: TypesSandboxResourceOverrides;
   onAgentModelChange: (agentId: string, value: TypesCodeAgentOverrides) => MaybePromise;
-  onSandboxResourceOverridesChange: (value: TypesSandboxResourceOverrides) => MaybePromise;
+  // Omitted by surfaces that don't own a resizable sandbox (plain chat
+  // sessions); the compute control is then hidden rather than inert.
+  onSandboxResourceOverridesChange?: (value: TypesSandboxResourceOverrides) => MaybePromise;
   disabled?: boolean;
   compact?: boolean;
   grouped?: boolean;
@@ -167,6 +169,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
 
   const selectSandbox = async (preset: typeof SANDBOX_PRESETS[number]) => {
     setCpuAnchor(null);
+    if (!onSandboxResourceOverridesChange) return;
     setIsSaving(true);
     try {
       await onSandboxResourceOverridesChange({
@@ -217,7 +220,7 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     )
   ) : null;
 
-  const computeControl = (
+  const computeControl = !onSandboxResourceOverridesChange ? null : (
     <Tooltip title={`Change sandbox size (${sandboxLabel})`}>
       <Box component="span" sx={{ display: "inline-flex" }}>
         <Button
@@ -263,8 +266,12 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
             {reasoningControl}
           </Stack>
 
-          <Typography variant="body2" color="text.secondary">Compute:</Typography>
-          <Box sx={{ minWidth: 0 }}>{computeControl}</Box>
+          {computeControl && (
+            <>
+              <Typography variant="body2" color="text.secondary">Compute:</Typography>
+              <Box sx={{ minWidth: 0 }}>{computeControl}</Box>
+            </>
+          )}
         </Box>
       ) : (
         <Stack

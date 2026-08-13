@@ -2332,6 +2332,24 @@ export interface TypesAgentConfig {
   secrets?: Record<string, string>;
 }
 
+export interface TypesAgentExecutionConfig {
+  agent_available?: boolean;
+  agent_id?: string;
+  agent_name?: string;
+  /**
+   * CodeAgentOverrides is the override set the fields above were resolved
+   * with, so a caller can round-trip an edit without having to know which
+   * record (task or session) stores it.
+   */
+  code_agent_overrides?: TypesCodeAgentOverrides;
+  credential_type?: TypesCodeAgentCredentialType;
+  model?: string;
+  provider_ref?: string;
+  reasoning_effort?: string;
+  runtime?: TypesCodeAgentRuntime;
+  service_tier?: string;
+}
+
 export interface TypesAgentHelixConfig {
   assistants?: TypesAssistantConfig[];
   avatar?: string;
@@ -4689,8 +4707,8 @@ export interface TypesOrgUsageSummaryResponse {
   apps?: TypesUsageBreakdownRow[];
   cache_savings?: number;
   /**
-   * Compute is sandbox runtime spend. It answers the date range and the
-   * project filter; the token-shaped filters (model, provider, session)
+   * Compute is sandbox runtime spend. It answers the date range, project, and
+   * task filters; the token-shaped filters (model, provider, session)
    * don't apply to a container and leave it untouched.
    */
   compute?: TypesOrgComputeUsage;
@@ -6222,6 +6240,19 @@ export interface TypesSessionChatRequest {
   type?: TypesSessionType;
 }
 
+export interface TypesSessionExecutionConfigUpdateRequest {
+  agent_id?: string;
+  code_agent_overrides?: TypesCodeAgentOverrides;
+}
+
+export interface TypesSessionExecutionConfigUpdateResponse {
+  agent_id?: string;
+  agent_thread_restarted?: boolean;
+  code_agent_overrides?: TypesCodeAgentOverrides;
+  session_id?: string;
+  spec_task_id?: string;
+}
+
 export interface TypesSessionInfo {
   auth_provider?: TypesAuthProvider;
   created_at?: string;
@@ -6269,6 +6300,14 @@ export interface TypesSessionMetadata {
   avatar?: string;
   /** Webhook URL to POST on session completion */
   callback_url?: string;
+  /**
+   * CodeAgentOverrides customizes the coding model for THIS session without
+   * mutating its Agent. Set from the chat composer's execution controls on
+   * sessions that own their configuration (org bot chat, project chat).
+   * SpecTask sessions leave this nil — SpecTask.CodeAgentOverrides is
+   * authoritative there, so there is exactly one source of truth per session.
+   */
+  code_agent_overrides?: TypesCodeAgentOverrides;
   /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
   code_agent_runtime?: TypesCodeAgentRuntime;
   /** Docker container ID */
@@ -6845,18 +6884,6 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
   decision: "approve" | "request_changes";
   overall_comment?: string;
   review_id: string;
-}
-
-export interface TypesSpecTaskExecutionConfig {
-  agent_available?: boolean;
-  agent_id?: string;
-  agent_name?: string;
-  credential_type?: TypesCodeAgentCredentialType;
-  model?: string;
-  provider_ref?: string;
-  reasoning_effort?: string;
-  runtime?: TypesCodeAgentRuntime;
-  service_tier?: string;
 }
 
 export interface TypesSpecTaskExecutionConfigUpdateRequest {
@@ -16566,6 +16593,48 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns the session's current coding identity without exposing Agent secrets. Sessions belonging to a SpecTask report the task's configuration.
+     *
+     * @tags Sessions
+     * @name V1SessionsExecutionConfigDetail
+     * @summary Get session execution configuration
+     * @request GET:/api/v1/sessions/{id}/execution-config
+     * @secure
+     */
+    v1SessionsExecutionConfigDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAgentExecutionConfig, TypesAPIError>({
+        path: `/api/v1/sessions/${id}/execution-config`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Replaces the session's code-agent overrides, and optionally switches it to a different Agent. The in-flight turn is cancelled and a new ACP thread starts with the prior transcript. Sessions belonging to a SpecTask write through to the task.
+     *
+     * @tags Sessions
+     * @name V1SessionsExecutionConfigPartialUpdate
+     * @summary Update session execution configuration
+     * @request PATCH:/api/v1/sessions/{id}/execution-config
+     * @secure
+     */
+    v1SessionsExecutionConfigPartialUpdate: (
+      id: string,
+      request: TypesSessionExecutionConfigUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSessionExecutionConfigUpdateResponse, TypesAPIError>({
+        path: `/api/v1/sessions/${id}/execution-config`,
+        method: "PATCH",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Tells the per-spec-task Zed desktop to open (foreground) the thread that belongs to THIS session, so the streamed desktop tracks the session the user is viewing. A spec task can have multiple sessions/threads sharing one desktop; the chat panel and message routing are already session-scoped, but nothing previously told the desktop to follow the selected session — so the foregrounded thread could differ from the one messages were sent to. This is session-scoped and never guesses a "latest" thread. It no-ops (200) when the session has no thread yet or the desktop WS is not connected, and crucially NEVER auto-starts a dev container (foregrounding must not boot a desktop).
      *
      * @tags Sessions
@@ -17676,7 +17745,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SpecTasksExecutionConfigDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskExecutionConfig, TypesAPIError>({
+      this.request<TypesAgentExecutionConfig, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/execution-config`,
         method: "GET",
         secure: true,

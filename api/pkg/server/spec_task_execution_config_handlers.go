@@ -3,16 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
-	external_agent "github.com/helixml/helix/api/pkg/external-agent"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -23,7 +19,7 @@ import (
 // @Tags spec-driven-tasks
 // @Produce json
 // @Param taskId path string true "SpecTask ID"
-// @Success 200 {object} types.SpecTaskExecutionConfig
+// @Success 200 {object} types.AgentExecutionConfig
 // @Failure 404 {object} types.APIError
 // @Router /api/v1/spec-tasks/{taskId}/execution-config [get]
 // @Security BearerAuth
@@ -54,98 +50,8 @@ func (s *HelixAPIServer) getSpecTaskExecutionConfig(w http.ResponseWriter, r *ht
 	writeResponse(w, config, http.StatusOK)
 }
 
-func (s *HelixAPIServer) resolveSpecTaskExecutionConfig(ctx context.Context, task *types.SpecTask) (*types.SpecTaskExecutionConfig, error) {
-	config := &types.SpecTaskExecutionConfig{AgentID: task.HelixAppID}
-
-	if task.HelixAppID != "" {
-		app, err := s.Store.GetApp(ctx, task.HelixAppID)
-		switch {
-		case err == nil:
-			config.AgentAvailable = true
-			config.AgentName = app.Config.Helix.Name
-			effectiveApp := external_agent.ApplyCodeAgentOverrides(app, task.CodeAgentOverrides)
-			if assistant := external_agent.FindZedExternalAssistant(effectiveApp); assistant != nil {
-				config.Runtime = assistant.CodeAgentRuntime
-				if config.Runtime == "" {
-					config.Runtime = types.CodeAgentRuntimeZedAgent
-				}
-				config.CredentialType = assistant.CodeAgentCredentialType
-				config.ProviderRef, config.Model = acpUsageProviderAndModel(assistant)
-				if assistant.CodeAgentRuntime != types.CodeAgentRuntimeClaudeCode &&
-					assistant.CodeAgentRuntime != types.CodeAgentRuntimeCodexCLI {
-					if assistant.GenerationModelProvider != "" {
-						config.ProviderRef = assistant.GenerationModelProvider
-					}
-					if assistant.GenerationModel != "" {
-						config.Model = assistant.GenerationModel
-					}
-				}
-				config.ReasoningEffort = assistant.ReasoningEffort
-			}
-		case errors.Is(err, store.ErrNotFound):
-			// Continue with interaction/session snapshots below.
-		default:
-			return nil, fmt.Errorf("failed to load task agent: %w", err)
-		}
-	}
-
-	if !config.AgentAvailable && task.PlanningSessionID != "" {
-		interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-			SessionID: task.PlanningSessionID,
-			Page:      0,
-			PerPage:   20,
-			Order:     "created DESC",
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to load task interactions: %w", err)
-		}
-		for _, interaction := range interactions {
-			if interaction.CodeAgentConfigSnapshot == nil {
-				continue
-			}
-			snapshot := interaction.CodeAgentConfigSnapshot
-			config.Runtime = snapshot.Runtime
-			config.CredentialType = snapshot.CredentialType
-			config.ProviderRef = snapshot.Provider
-			config.Model = snapshot.Model
-			break
-		}
-
-		session, err := s.Store.GetSession(ctx, task.PlanningSessionID)
-		switch {
-		case err == nil:
-			if config.Runtime == "" {
-				config.Runtime = session.Metadata.CodeAgentRuntime
-			}
-			if config.AgentName == "" {
-				config.AgentName = session.Metadata.ZedAgentName
-			}
-		case errors.Is(err, store.ErrNotFound):
-		default:
-			return nil, fmt.Errorf("failed to load task session: %w", err)
-		}
-	}
-
-	if config.Runtime == "" {
-		config.Runtime = types.CodeAgentRuntimeZedAgent
-	}
-	if config.AgentName == "" {
-		config.AgentName = string(config.Runtime)
-	}
-	if task.CodeAgentOverrides != nil {
-		if task.CodeAgentOverrides.ProviderRef != "" {
-			config.ProviderRef = task.CodeAgentOverrides.ProviderRef
-		}
-		if task.CodeAgentOverrides.Model != "" {
-			config.Model = task.CodeAgentOverrides.Model
-		}
-		if task.CodeAgentOverrides.ReasoningEffort != "" {
-			config.ReasoningEffort = task.CodeAgentOverrides.ReasoningEffort
-		}
-		config.ServiceTier = task.CodeAgentOverrides.ServiceTier
-	}
-
-	return config, nil
+func (s *HelixAPIServer) resolveSpecTaskExecutionConfig(ctx context.Context, task *types.SpecTask) (*types.AgentExecutionConfig, error) {
+	return s.resolveExecutionConfig(ctx, task.HelixAppID, task.CodeAgentOverrides, task.PlanningSessionID)
 }
 
 // updateSpecTaskExecutionConfig godoc
@@ -228,33 +134,8 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 		return
 	}
 
-	targetAgentID := task.HelixAppID
-	if req.AgentID != "" {
-		targetAgentID = req.AgentID
-		targetApp, appErr := s.Store.GetApp(ctx, targetAgentID)
-		if appErr != nil {
-			http.Error(w, "selected agent not found", http.StatusBadRequest)
-			return
-		}
-		if authErr := s.authorizeUserToApp(ctx, user, targetApp, types.ActionGet); authErr != nil {
-			http.Error(w, authErr.Error(), http.StatusForbidden)
-			return
-		}
-		if kindErr := requireAgentKind(targetApp, types.AgentKindCoding, "spec tasks"); kindErr != nil {
-			http.Error(w, kindErr.Error(), http.StatusBadRequest)
-			return
-		}
-	}
-	candidate := *task
-	candidate.HelixAppID = targetAgentID
-	if err := s.validateTaskCodeAgentOverrides(ctx, &candidate, req.CodeAgentOverrides, user.ID); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if task.HelixAppID == targetAgentID && reflect.DeepEqual(task.CodeAgentOverrides, req.CodeAgentOverrides) {
-		writeResponse(w, response, http.StatusOK)
-		return
-	}
+	// A task that has already started owns a live session; the switch has to
+	// land on it as well as on the task row.
 	var session *types.Session
 	if task.PlanningSessionID != "" {
 		session, err = s.Store.GetSession(ctx, task.PlanningSessionID)
@@ -262,108 +143,33 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 			http.Error(w, "task session not found", http.StatusConflict)
 			return
 		}
-		if cancelErr := s.cancelSpecTaskTurnsForSwitch(ctx, session.ID); cancelErr != nil {
-			http.Error(w, fmt.Sprintf("failed to stop the current agent turn before switching: %v", cancelErr), http.StatusConflict)
-			return
-		}
 	}
 
-	oldOverrides := task.CodeAgentOverrides
-	oldAgentID := task.HelixAppID
-	task.HelixAppID = targetAgentID
-	task.CodeAgentOverrides = req.CodeAgentOverrides
-	if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
-		http.Error(w, fmt.Sprintf("failed to save code-agent overrides: %v", err), http.StatusInternalServerError)
+	changed, restarted, httpErr := s.applyCodeAgentExecutionConfig(ctx, user, codeAgentConfigTarget{
+		surface:           "spec tasks",
+		requiredAgentKind: types.AgentKindCoding,
+		session:           session,
+		agentID:           task.HelixAppID,
+		overrides:         task.CodeAgentOverrides,
+		handoffReason:     "The coding agent or model configuration changed for this task.",
+		persist: func(ctx context.Context, agentID string, overrides *types.CodeAgentOverrides) error {
+			task.HelixAppID = agentID
+			task.CodeAgentOverrides = overrides
+			return s.Store.UpdateSpecTask(ctx, task)
+		},
+	}, types.SessionExecutionConfigUpdateRequest{
+		AgentID:            req.AgentID,
+		CodeAgentOverrides: req.CodeAgentOverrides,
+	})
+	if httpErr != nil {
+		http.Error(w, httpErr.Message, httpErr.StatusCode)
 		return
 	}
-	if task.PlanningSessionID != "" {
-		runtime, err := s.codeAgentRuntimeForTask(ctx, task)
-		if err != nil {
-			task.HelixAppID = oldAgentID
-			task.CodeAgentOverrides = oldOverrides
-			_ = s.Store.UpdateSpecTask(ctx, task)
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if switchErr := s.switchAgentInPlaceForNextTurn(ctx, session, runtime, targetAgentID, true, "The coding agent or model configuration changed for this task."); switchErr != nil {
-			task.HelixAppID = oldAgentID
-			task.CodeAgentOverrides = oldOverrides
-			_ = s.Store.UpdateSpecTask(ctx, task)
-			http.Error(w, switchErr.Error(), switchErr.StatusCode)
-			return
-		}
-		response.AgentThreadRestarted = true
+	if !changed {
+		writeResponse(w, response, http.StatusOK)
+		return
 	}
+	response.AgentThreadRestarted = restarted
 	response.Task = task
 	writeResponse(w, response, http.StatusOK)
-}
-
-func (s *HelixAPIServer) cancelSpecTaskTurnsForSwitch(ctx context.Context, sessionID string) error {
-	const maxTurns = 100
-	for i := 0; i < maxTurns; i++ {
-		status, err := s.cancelActiveTurn(ctx, sessionID)
-		if err != nil {
-			return err
-		}
-		if status == "noop" {
-			return nil
-		}
-	}
-	return fmt.Errorf("more than %d active turns remain", maxTurns)
-}
-
-func (s *HelixAPIServer) validateTaskCodeAgentOverrides(ctx context.Context, task *types.SpecTask, overrides *types.CodeAgentOverrides, actorID string) error {
-	if overrides == nil {
-		return fmt.Errorf("code-agent overrides are required")
-	}
-	if overrides.ProviderRef != "" && overrides.Model == "" {
-		return fmt.Errorf("model is required when provider_ref is set")
-	}
-	effort := strings.ToLower(strings.TrimSpace(overrides.ReasoningEffort))
-	switch effort {
-	case "", "none", "low", "medium", "high", "xhigh", "max", "ultra":
-	default:
-		return fmt.Errorf("unsupported reasoning effort %q", overrides.ReasoningEffort)
-	}
-	if overrides.ServiceTier != "" && overrides.ServiceTier != "fast" {
-		return fmt.Errorf("unsupported service tier %q", overrides.ServiceTier)
-	}
-	app, err := s.Store.GetApp(ctx, task.HelixAppID)
-	if err != nil {
-		return fmt.Errorf("failed to load task agent: %w", err)
-	}
-	effectiveApp := external_agent.ApplyCodeAgentOverrides(app, overrides)
-	assistant := external_agent.FindZedExternalAssistant(effectiveApp)
-	if assistant == nil {
-		return fmt.Errorf("task agent has no coding assistant")
-	}
-	if overrides.ServiceTier != "" && assistant.CodeAgentRuntime != types.CodeAgentRuntimeCodexCLI {
-		return fmt.Errorf("service tier is only supported by Codex")
-	}
-	if assistant.CodeAgentCredentialType.IsSubscription() && overrides.ProviderRef != "" {
-		return fmt.Errorf("subscription agents cannot override provider_ref")
-	}
-	snapshot, err := s.getProviderSnapshot(ctx, actorID, app)
-	if err != nil {
-		return fmt.Errorf("failed to load providers: %w", err)
-	}
-	if reason := external_agent.ValidateAssistantModelConfig(effectiveApp, snapshot); reason != "" {
-		return fmt.Errorf("%s", reason)
-	}
-	return nil
-}
-
-func (s *HelixAPIServer) codeAgentRuntimeForTask(ctx context.Context, task *types.SpecTask) (types.CodeAgentRuntime, error) {
-	app, err := s.Store.GetApp(ctx, task.HelixAppID)
-	if err != nil {
-		return "", fmt.Errorf("failed to load task agent: %w", err)
-	}
-	assistant := external_agent.FindZedExternalAssistant(app)
-	if assistant == nil {
-		return "", fmt.Errorf("task agent has no coding assistant")
-	}
-	if assistant.CodeAgentRuntime == "" {
-		return types.CodeAgentRuntimeZedAgent, nil
-	}
-	return assistant.CodeAgentRuntime, nil
 }

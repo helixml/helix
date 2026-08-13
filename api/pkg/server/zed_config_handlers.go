@@ -85,12 +85,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			Config: types.AppConfig{},
 		}
 	}
-	app = external_agent.ApplyCodeAgentOverrides(app, func() *types.CodeAgentOverrides {
-		if specTask == nil {
-			return nil
-		}
-		return specTask.CodeAgentOverrides
-	}())
+	app = external_agent.ApplyCodeAgentOverrides(app, effectiveCodeAgentOverrides(session, specTask))
 
 	// Generate Zed MCP config
 	// Use SERVER_URL for external-facing URLs (browser access)

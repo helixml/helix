@@ -121,7 +121,7 @@ func TestGetSpecTaskExecutionConfigReturnsLegacyPersonalAgentSnapshot(t *testing
 	server.getSpecTaskExecutionConfig(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
-	var response types.SpecTaskExecutionConfig
+	var response types.AgentExecutionConfig
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
 	require.True(t, response.AgentAvailable)
 	require.Equal(t, "Opus 4.5 in Zed Agent (1)", response.AgentName)
@@ -163,7 +163,7 @@ func TestGetSpecTaskExecutionConfigFallsBackToSessionForDeletedAgent(t *testing.
 	server.getSpecTaskExecutionConfig(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
-	var response types.SpecTaskExecutionConfig
+	var response types.AgentExecutionConfig
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
 	require.False(t, response.AgentAvailable)
 	require.Equal(t, "deleted-app", response.AgentID)

@@ -105,17 +105,18 @@ func (s *HelixAPIServer) codeAgentConfigSnapshot(ctx context.Context, session *t
 	}
 
 	appID := session.ParentApp
-	var overrides *types.CodeAgentOverrides
+	var task *types.SpecTask
 	if session.Metadata.SpecTaskID != "" {
-		task, err := s.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+		loaded, err := s.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get spec task %s for ACP usage: %w", session.Metadata.SpecTaskID, err)
 		}
+		task = loaded
 		if task.HelixAppID != "" {
 			appID = task.HelixAppID
 		}
-		overrides = task.CodeAgentOverrides
 	}
+	overrides := effectiveCodeAgentOverrides(session, task)
 	if appID == "" {
 		return nil, nil
 	}
