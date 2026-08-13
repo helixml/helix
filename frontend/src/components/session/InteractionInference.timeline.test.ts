@@ -79,7 +79,7 @@ describe("buildActivityTimeline", () => {
     ]);
   });
 
-  it("groups only contiguous live tool calls and hides thoughts while working", () => {
+  it("groups live tool calls across hidden thoughts while working", () => {
     const entries = [
       entry("1", "text", "Visible progress update"),
       entry("2", "tool_call", "first output", "first tool"),
@@ -99,11 +99,10 @@ describe("buildActivityTimeline", () => {
       },
       {
         type: "tools",
-        entries: [{ toolName: "first tool" }],
-      },
-      {
-        type: "tools",
-        entries: [{ toolName: "second tool" }],
+        entries: [
+          { toolName: "first tool" },
+          { toolName: "second tool" },
+        ],
       },
     ]);
   });
