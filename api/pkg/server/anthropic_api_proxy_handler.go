@@ -97,14 +97,23 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		// OK
 	}
 
+	usageAttribution, err := s.resolveProxyUsageAttribution(r.Context(), user, "n/a")
+	if err != nil {
+		logger.Error().Err(err).Str("user_id", user.ID).Msg("failed to resolve proxy usage attribution")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
-		OwnerID:         user.ID,
-		SessionID:       "n/a",
-		InteractionID:   "n/a",
-		OriginalRequest: bts,
-		ProjectID:       user.ProjectID,
-		SpecTaskID:      user.SpecTaskID,
+		OwnerID:          user.ID,
+		SessionID:        usageAttribution.SessionID,
+		InteractionID:    "n/a",
+		OriginalRequest:  bts,
+		ProjectID:        user.ProjectID,
+		SpecTaskID:       user.SpecTaskID,
+		CodeAgentRuntime: usageAttribution.CodeAgentRuntime,
 	})
+	ctx = oai.SetContextAppID(ctx, usageAttribution.AppID)
 
 	// Restore the buffer
 	r.Body = io.NopCloser(bytes.NewBuffer(bts))

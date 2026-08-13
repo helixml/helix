@@ -2604,23 +2604,24 @@ const (
 // LLMCall used to store the request and response of LLM calls
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
-	ID              string         `json:"id" gorm:"primaryKey"`
-	AppID           string         `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
-	OrganizationID  string         `json:"organization_id" gorm:"index"`
-	UserID          string         `json:"user_id" gorm:"index"`
-	Created         time.Time      `json:"created"`
-	Updated         time.Time      `json:"updated"`
-	SessionID       string         `json:"session_id" gorm:"index"`
-	InteractionID   string         `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
-	ProjectID       string         `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
-	SpecTaskID      string         `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
-	Model           string         `json:"model"`
-	Provider        string         `json:"provider"`
-	Step            LLMCallStep    `json:"step" gorm:"index"`
-	OriginalRequest datatypes.JSON `json:"original_request" gorm:"type:jsonb"`
-	Request         datatypes.JSON `json:"request" gorm:"type:jsonb"`
-	Response        datatypes.JSON `json:"response" gorm:"type:jsonb"`
-	DurationMs      int64          `json:"duration_ms"`
+	ID               string           `json:"id" gorm:"primaryKey"`
+	AppID            string           `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
+	OrganizationID   string           `json:"organization_id" gorm:"index"`
+	UserID           string           `json:"user_id" gorm:"index"`
+	Created          time.Time        `json:"created"`
+	Updated          time.Time        `json:"updated"`
+	SessionID        string           `json:"session_id" gorm:"index"`
+	CodeAgentRuntime CodeAgentRuntime `json:"code_agent_runtime" gorm:"index"`
+	InteractionID    string           `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
+	ProjectID        string           `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID       string           `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
+	Model            string           `json:"model"`
+	Provider         string           `json:"provider"`
+	Step             LLMCallStep      `json:"step" gorm:"index"`
+	OriginalRequest  datatypes.JSON   `json:"original_request" gorm:"type:jsonb"`
+	Request          datatypes.JSON   `json:"request" gorm:"type:jsonb"`
+	Response         datatypes.JSON   `json:"response" gorm:"type:jsonb"`
+	DurationMs       int64            `json:"duration_ms"`
 	// TimeToFirstTokenMs is the wall time from request start to the first
 	// streamed chunk. It isolates provider prefill / cold-start latency from
 	// generation time (a cold or overloaded provider shows a large TTFT while
@@ -2839,6 +2840,8 @@ type UsageMetric struct {
 	AppID             string            `json:"app_id" gorm:"index:idx_app_time,priority:1"`
 	OrganizationID    string            `json:"organization_id" gorm:"index:idx_org_created,priority:1"`
 	InteractionID     string            `json:"interaction_id" gorm:"index"`
+	SessionID         string            `json:"session_id" gorm:"index"`
+	CodeAgentRuntime  CodeAgentRuntime  `json:"code_agent_runtime" gorm:"index"`
 	ProjectID         string            `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
 	SpecTaskID        string            `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
 	UserID            string            `json:"user_id" gorm:"index"`
@@ -3067,6 +3070,7 @@ type OrgUsageSummaryResponse struct {
 	FilterUsers            []UsageFilterOption           `json:"filter_users"`
 	FilterProjects         []UsageFilterOption           `json:"filter_projects"`
 	FilterApps             []UsageFilterOption           `json:"filter_apps"`
+	FilterTasks            []UsageFilterOption           `json:"filter_tasks"`
 	FilterModels           []UsageFilterOption           `json:"filter_models"`
 	ExportProjects         []UsageBreakdownRow           `json:"export_projects"`
 	ExportApps             []UsageBreakdownRow           `json:"export_apps"`
@@ -3078,8 +3082,8 @@ type OrgUsageSummaryResponse struct {
 	SubscriptionSavings    float64                       `json:"subscription_savings"`
 	CacheSavings           float64                       `json:"cache_savings"`
 	HelixCredits           float64                       `json:"helix_credits"`
-	// Compute is sandbox runtime spend. It answers the date range and the
-	// project filter; the token-shaped filters (model, provider, session)
+	// Compute is sandbox runtime spend. It answers the date range, project, and
+	// task filters; the token-shaped filters (model, provider, session)
 	// don't apply to a container and leave it untouched.
 	Compute *OrgComputeUsage `json:"compute,omitempty"`
 	CostBreakdown          []UsageCostBreakdownRow       `json:"-" swaggerignore:"true"`

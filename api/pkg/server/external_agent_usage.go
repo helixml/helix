@@ -74,6 +74,8 @@ func (s *HelixAPIServer) recordACPUsage(
 		AppID:            snapshot.AppID,
 		UserID:           session.Owner,
 		InteractionID:    interaction.ID,
+		SessionID:        session.ID,
+		CodeAgentRuntime: snapshot.Runtime,
 		ProjectID:        session.ProjectID,
 		SpecTaskID:       session.Metadata.SpecTaskID,
 		Provider:         snapshot.Provider,

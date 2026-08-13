@@ -411,6 +411,15 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_PaginatesAndExportsAl
 	suite.EqualValues(3, resp.UsersTotal)
 	suite.Require().Len(resp.Users, 2)
 	suite.Len(resp.ExportUsers, 3)
+
+	cronResp, err := suite.db.GetOrgUsageSummary(suite.ctx, &GetOrgUsageSummaryQuery{
+		OrganizationID: orgID,
+		From:           from,
+		To:             to,
+		TaskID:         cronTask.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(900, sumAggregatedTokens(cronResp.Metrics))
 }
 
 func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_FiltersAcrossMonths() {
@@ -507,6 +516,134 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_FiltersAcrossMonths()
 	suite.EqualValues(1, userSearchResp.UsersTotal)
 	suite.Require().Len(userSearchResp.Users, 1)
 	suite.Equal(alice.ID, userSearchResp.Users[0].ID)
+}
+
+func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_AttributesProxyMetricsAndFiltersTasks() {
+	orgID := "org_" + system.GenerateID()
+	user := types.User{ID: "user_" + system.GenerateID(), Email: "proxy.usage@example.com"}
+	project := types.Project{ID: "prj_" + system.GenerateID(), Name: "Proxy usage", OrganizationID: orgID, UserID: user.ID}
+	appOpenCode := types.App{ID: "app_" + system.GenerateID(), OrganizationID: orgID, Owner: user.ID, Config: types.AppConfig{Helix: types.AppHelixConfig{Name: "OpenCode agent"}}}
+	appCodex := types.App{ID: "app_" + system.GenerateID(), OrganizationID: orgID, Owner: user.ID, Config: types.AppConfig{Helix: types.AppHelixConfig{Name: "Codex agent"}}}
+	day := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+	sessionOpenCode := types.Session{
+		ID: "ses_" + system.GenerateID(), Name: "OpenCode session", Created: day, Updated: day,
+		OrganizationID: orgID, ProjectID: project.ID, ParentApp: appOpenCode.ID, Owner: user.ID,
+		Metadata: types.SessionMetadata{CodeAgentRuntime: types.CodeAgentRuntimeOpenCode},
+	}
+	sessionCodex := types.Session{
+		ID: "ses_" + system.GenerateID(), Name: "Codex session", Created: day, Updated: day,
+		OrganizationID: orgID, ProjectID: project.ID, ParentApp: appCodex.ID, Owner: user.ID,
+		Metadata: types.SessionMetadata{CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI},
+	}
+	taskOpenCode := types.SpecTask{
+		ID: "spt_" + system.GenerateID(), Name: "OpenCode task", ProjectID: project.ID, UserID: user.ID, OrganizationID: orgID,
+		HelixAppID: appOpenCode.ID, PlanningSessionID: sessionOpenCode.ID,
+	}
+	taskCodex := types.SpecTask{
+		ID: "spt_" + system.GenerateID(), Name: "Codex task", ProjectID: project.ID, UserID: user.ID, OrganizationID: orgID,
+		HelixAppID: appCodex.ID, PlanningSessionID: sessionCodex.ID,
+	}
+	sessionOpenCode.Metadata.SpecTaskID = taskOpenCode.ID
+	sessionCodex.Metadata.SpecTaskID = taskCodex.ID
+	suite.insertOrgUsageDimensions(
+		[]types.User{user}, []types.Project{project}, []types.App{appOpenCode, appCodex},
+		[]types.SpecTask{taskOpenCode, taskCodex}, []types.Session{sessionOpenCode, sessionCodex},
+	)
+
+	// Historical proxy row: task/project survived, while session/app/runtime were
+	// never persisted. The bounded spec-task fallback keeps existing reports useful.
+	suite.insertUsageMetric(&types.UsageMetric{
+		OrganizationID: orgID, UserID: user.ID, ProjectID: project.ID, SpecTaskID: taskOpenCode.ID,
+		InteractionID: "n/a", Created: day, Provider: "deepseek", Model: "deepseek-v4-flash", TotalTokens: 100,
+		Source: types.UsageMetricSourceHelixProxy,
+	})
+	// New row: immutable request-time snapshots take precedence over relational fallbacks.
+	suite.insertUsageMetric(&types.UsageMetric{
+		OrganizationID: orgID, UserID: user.ID, ProjectID: project.ID, SpecTaskID: taskCodex.ID,
+		InteractionID: "n/a", SessionID: sessionCodex.ID, AppID: appCodex.ID,
+		CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+		Created:          day.Add(time.Minute), Provider: "openai", Model: "gpt-5", TotalTokens: 50,
+		Source: types.UsageMetricSourceHelixProxy,
+	})
+
+	resp, err := suite.db.GetOrgUsageSummary(suite.ctx, &GetOrgUsageSummaryQuery{
+		OrganizationID: orgID, From: day.Add(-time.Hour), To: day.Add(time.Hour),
+	})
+	suite.Require().NoError(err)
+	suite.Equal(2, resp.ActiveApps)
+	suite.Equal(2, resp.ActiveSessions)
+	suite.Require().Len(resp.FilterTasks, 2)
+	suite.ElementsMatch([]string{taskOpenCode.ID, taskCodex.ID}, []string{resp.FilterTasks[0].ID, resp.FilterTasks[1].ID})
+
+	runtimeTokens := make(map[types.CodeAgentRuntime]int)
+	for _, series := range resp.AgentRuntimeTimeSeries {
+		for _, metric := range series.Metrics {
+			runtimeTokens[series.Runtime] += metric.TotalTokens
+		}
+	}
+	suite.Equal(100, runtimeTokens[types.CodeAgentRuntimeOpenCode])
+	suite.Equal(50, runtimeTokens[types.CodeAgentRuntimeCodexCLI])
+
+	filtered, err := suite.db.GetOrgUsageSummary(suite.ctx, &GetOrgUsageSummaryQuery{
+		OrganizationID: orgID, From: day.Add(-time.Hour), To: day.Add(time.Hour), TaskID: taskOpenCode.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(100, sumAggregatedTokens(filtered.Metrics))
+	suite.Require().Len(filtered.Apps, 1)
+	suite.Equal(appOpenCode.ID, filtered.Apps[0].ID)
+	suite.Require().Len(filtered.Sessions, 1)
+	suite.Equal(sessionOpenCode.ID, filtered.Sessions[0].SessionID)
+}
+
+func (suite *UsageMetricsTestSuite) TestGetOrgComputeUsage_FiltersSpecAndScheduledTasks() {
+	orgID := "org_" + system.GenerateID()
+	userID := "user_" + system.GenerateID()
+	projectID := "prj_" + system.GenerateID()
+	specTaskID := "spt_" + system.GenerateID()
+	scheduledSessionID := "ses_" + system.GenerateID()
+	day := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	wallet := &types.Wallet{ID: "wal_" + system.GenerateID(), OrgID: orgID}
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(wallet).Error)
+
+	specSandbox := &types.Sandbox{
+		ID: "sbx_" + system.GenerateID(), Name: "Spec sandbox", OrganizationID: orgID, ProjectID: projectID,
+		Owner: userID, Runtime: types.SandboxRuntimeUbuntuDesktop, Status: types.SandboxStatusRunning, SpecTaskID: specTaskID,
+	}
+	scheduledSandbox := &types.Sandbox{
+		ID: "sbx_" + system.GenerateID(), Name: "Scheduled sandbox", OrganizationID: orgID, ProjectID: projectID,
+		Owner: userID, Runtime: types.SandboxRuntimeHeadlessUbuntu, Status: types.SandboxStatusRunning, SessionID: scheduledSessionID,
+	}
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(specSandbox).Error)
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(scheduledSandbox).Error)
+
+	app := &types.App{ID: "app_" + system.GenerateID(), OrganizationID: orgID, Owner: userID}
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(app).Error)
+	trigger := suite.insertTriggerConfiguration(orgID, userID, app.ID, "Scheduled compute task")
+	suite.insertTriggerExecution(trigger.ID, scheduledSessionID, trigger.Name, day)
+	for _, transaction := range []types.Transaction{
+		{ID: "txn_" + system.GenerateID(), CreatedAt: day, UpdatedAt: day, WalletID: wallet.ID, Amount: -1.25, Type: types.TransactionTypeUsage, SandboxID: specSandbox.ID, SandboxPricingType: sandboxPricingTypeDesktop},
+		{ID: "txn_" + system.GenerateID(), CreatedAt: day, UpdatedAt: day, WalletID: wallet.ID, Amount: -2.5, Type: types.TransactionTypeUsage, SandboxID: scheduledSandbox.ID, SandboxPricingType: "headless"},
+	} {
+		suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(&transaction).Error)
+	}
+
+	specUsage, err := suite.db.GetOrgComputeUsage(suite.ctx, &GetOrgComputeUsageQuery{
+		OrganizationID: orgID, TaskID: specTaskID, From: day.Add(-time.Hour), To: day.Add(time.Hour),
+	})
+	suite.Require().NoError(err)
+	suite.InDelta(1.25, specUsage.TotalCredits, 1e-9)
+	suite.Equal(1, specUsage.RunningSandboxes)
+	suite.Require().Len(specUsage.Sandboxes, 1)
+	suite.Equal(specTaskID, specUsage.Sandboxes[0].SpecTaskID)
+
+	scheduledUsage, err := suite.db.GetOrgComputeUsage(suite.ctx, &GetOrgComputeUsageQuery{
+		OrganizationID: orgID, TaskID: trigger.ID, From: day.Add(-time.Hour), To: day.Add(time.Hour),
+	})
+	suite.Require().NoError(err)
+	suite.InDelta(2.5, scheduledUsage.TotalCredits, 1e-9)
+	suite.Equal(1, scheduledUsage.RunningSandboxes)
+	suite.Require().Len(scheduledUsage.Sandboxes, 1)
+	suite.Equal(scheduledSandbox.ID, scheduledUsage.Sandboxes[0].SandboxID)
 }
 
 func (suite *UsageMetricsTestSuite) TestGetUserMonthlyTokenUsage_User() {

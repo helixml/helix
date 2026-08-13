@@ -25811,6 +25811,14 @@
                         }
                     },
                     {
+                        "description": "Task ID",
+                        "name": "task_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "description": "App ID",
                         "name": "app_id",
                         "in": "query",
@@ -36707,6 +36715,9 @@
                         "description": "prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)",
                         "type": "integer"
                     },
+                    "code_agent_runtime": {
+                        "$ref": "#/components/schemas/types.CodeAgentRuntime"
+                    },
                     "completion_cost": {
                         "type": "number"
                     },
@@ -37696,6 +37707,12 @@
                         }
                     },
                     "filter_projects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UsageFilterOption"
+                        }
+                    },
+                    "filter_tasks": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/types.UsageFilterOption"

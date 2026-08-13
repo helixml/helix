@@ -6780,6 +6780,8 @@ definitions:
         description: prompt tokens written to provider cache (Anthropic only; subset
           of PromptTokens)
         type: integer
+      code_agent_runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
       completion_cost:
         type: number
       completion_tokens:
@@ -7476,6 +7478,10 @@ definitions:
           $ref: '#/definitions/types.UsageFilterOption'
         type: array
       filter_projects:
+        items:
+          $ref: '#/definitions/types.UsageFilterOption'
+        type: array
+      filter_tasks:
         items:
           $ref: '#/definitions/types.UsageFilterOption'
         type: array
@@ -26978,6 +26984,10 @@ paths:
       - description: Project ID
         in: query
         name: project_id
+        type: string
+      - description: Task ID
+        in: query
+        name: task_id
         type: string
       - description: App ID
         in: query
