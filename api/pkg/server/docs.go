@@ -39659,6 +39659,12 @@ const docTemplate = `{
                 "completion_tokens": {
                     "type": "integer"
                 },
+                "context_length": {
+                    "type": "integer"
+                },
+                "context_tokens": {
+                    "type": "integer"
+                },
                 "duration_ms": {
                     "description": "How long the request took in milliseconds",
                     "type": "integer"

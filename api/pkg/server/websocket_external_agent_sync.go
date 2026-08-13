@@ -3356,6 +3356,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 		targetInteraction.CodeAgentConfigSnapshot = snapshot
 	}
+	if err := applyACPInteractionUsage(targetInteraction, syncMsg); err != nil {
+		return err
+	}
 
 	// A completed turn proves any latched launch failure on the owning spec task
 	// is no longer true. Work can resume through session inference (the chat's

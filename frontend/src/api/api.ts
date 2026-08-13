@@ -7693,6 +7693,8 @@ export interface TypesUpdateUserGuidelinesRequest {
 
 export interface TypesUsage {
   completion_tokens?: number;
+  context_length?: number;
+  context_tokens?: number;
   /** How long the request took in milliseconds */
   duration_ms?: number;
   prompt_tokens?: number;

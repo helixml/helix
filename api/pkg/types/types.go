@@ -1163,6 +1163,8 @@ type Usage struct {
 	CompletionTokens int   `json:"completion_tokens"`
 	TotalTokens      int   `json:"total_tokens"`
 	DurationMs       int64 `json:"duration_ms"` // How long the request took in milliseconds
+	ContextTokens    int   `json:"context_tokens"`
+	ContextLength    int   `json:"context_length"`
 }
 
 // this is returned by the api server so that clients can see what

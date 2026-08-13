@@ -831,6 +831,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 onCancel={handleCancelTurn}
                 isAgentBusy={isAgentBusy}
                 enableSandboxCompletions
+                showContextUsage
               />
             </Box>
           </Box>

@@ -84,6 +84,7 @@ import {
   appendWorkspaceReviewComments,
   type WorkspaceReviewComment,
 } from '../workspace-inspector/workspaceReviewComments'
+import { SessionContextUsageIndicator } from './ContextUsageIndicator'
 
 // Threshold for converting large text paste to file attachment (10KB)
 const LARGE_TEXT_THRESHOLD = 10 * 1024
@@ -104,6 +105,7 @@ interface RobustPromptInputProps {
   validateAttachment?: (file: File) => string | null
   leadingActions?: React.ReactNode
   trailingActions?: React.ReactNode
+  showContextUsage?: boolean
   contextMenuAppId?: string
   formatContextMenuInsert?: (text: string) => string
   autoFocus?: boolean
@@ -539,6 +541,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   validateAttachment,
   leadingActions,
   trailingActions,
+  showContextUsage = false,
   contextMenuAppId,
   formatContextMenuInsert,
   autoFocus = false,
@@ -1724,6 +1727,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           <Box sx={{ flex: 1 }} />
 
           {trailingActions}
+
+          {showContextUsage && <SessionContextUsageIndicator sessionId={sessionId} />}
 
           {/* Cancel button - visible when agent is busy */}
           {isAgentBusy && onCancel && (

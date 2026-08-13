@@ -151,6 +151,7 @@ const TeamDesktopPage: FC = () => {
             }}
             placeholder="Send message to agent..."
             enableSandboxCompletions
+            showContextUsage
           />
         </Box>
       </Box>

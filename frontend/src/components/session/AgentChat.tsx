@@ -170,6 +170,7 @@ const AgentChat: FC<AgentChatProps> = ({
               isAgentBusy={isAgentBusy}
               isCancelling={isCancelling}
               leadingActions={leadingActions}
+              showContextUsage
               placeholder={placeholder}
               disabled={disabled}
               enableSandboxCompletions
