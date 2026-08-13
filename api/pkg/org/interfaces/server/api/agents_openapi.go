@@ -46,7 +46,7 @@ func (a *apiHandler) updateAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary Helix-org: delete an agent
-// @Description Delete an Agent after atomically detaching and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Only the project's default agent ID is unset; the configured project, repositories, tasks, and other project configuration are preserved.
+// @Description Delete an Agent after archiving its runtime-owned project and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Repositories are preserved.
 // @Tags HelixOrg
 // @Param org path string true "Organization slug or ID"
 // @Param id path string true "Agent ID"

@@ -856,6 +856,16 @@ func (c *configsRepo) Delete(_ context.Context, orgID, key string) error {
 	return nil
 }
 
+func (c *configsRepo) DeleteIfValue(_ context.Context, orgID, key, value string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	k := orgKey{OrgID: orgID, ID: key}
+	if cfg, ok := c.rows[k]; ok && cfg.Value == value {
+		delete(c.rows, k)
+	}
+	return nil
+}
+
 // ---- Activations -------------------------------------------------------
 
 type activationsRepo struct {

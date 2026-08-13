@@ -764,8 +764,8 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// chat-driven hire both call the same workers.Hire service (wired
 	// into apiDeps.Workers below) — one implementation, no drift.
 
-	// Fire (DELETE /workers/{id}) cascades Helix-side agent teardown
-	// while preserving its project, plus full org-store cleanup. The Helix
+	// Delete cascades Helix-side Agent teardown, archives its runtime-owned
+	// project, preserves repositories, and performs full org-store cleanup. The Helix
 	// runtime port is satisfied by the same in-process adapter every
 	// other Helix call goes through.
 	lifecycleSvc := &lifecycle.Service{
