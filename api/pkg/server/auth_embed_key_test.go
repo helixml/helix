@@ -1,8 +1,10 @@
 package server
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -24,6 +26,10 @@ func req(method, target string) *http.Request {
 	return httptest.NewRequest(method, target, nil)
 }
 
+func jsonReq(method, target, body string) *http.Request {
+	return httptest.NewRequest(method, target, strings.NewReader(body))
+}
+
 func TestEmbedKeyAllowsItsOwnTaskAndSession(t *testing.T) {
 	u := embedUser()
 	allowed := []struct{ method, path string }{
@@ -39,8 +45,11 @@ func TestEmbedKeyAllowsItsOwnTaskAndSession(t *testing.T) {
 		{"GET", "/api/v1/sessions/ses_A/interactions"},
 		{"GET", "/api/v1/sessions/ses_A/step-info"},
 		{"POST", "/api/v1/sessions/ses_A/cancel"},
-		{"POST", "/api/v1/sessions/chat"},
+		{"POST", "/api/v1/sessions/ses_A/foreground-thread"},
+		{"GET", "/api/v1/spec-tasks/spt_A/progress"},
 		{"GET", "/api/v1/external-agents/ses_A/file"},
+		{"GET", "/api/v1/external-agents/ses_A/ws/stream"},
+		{"GET", "/api/v1/prompt-history?spec_task_id=spt_A&project_id=prj_1"},
 	}
 	for _, c := range allowed {
 		if !embedKeyAllows(u, req(c.method, c.path)) {
@@ -59,12 +68,80 @@ func TestEmbedKeyCannotReachAnotherTaskOrSession(t *testing.T) {
 		{"GET", "/api/v1/sessions/ses_B"},
 		{"GET", "/api/v1/sessions/ses_B/interactions"},
 		{"POST", "/api/v1/sessions/ses_B/cancel"},
+		{"POST", "/api/v1/sessions/ses_B/foreground-thread"},
+		{"GET", "/api/v1/spec-tasks/spt_B/progress"},
 		{"GET", "/api/v1/external-agents/ses_B/file"},
+		{"GET", "/api/v1/external-agents/ses_B/ws/stream"},
+		{"GET", "/api/v1/prompt-history?spec_task_id=spt_B&project_id=prj_1"},
+		// No subject named at all is not "unscoped", it is out of scope.
+		{"GET", "/api/v1/prompt-history"},
 	}
 	for _, c := range denied {
 		if embedKeyAllows(u, req(c.method, c.path)) {
 			t.Errorf("SECURITY: embed key reached another tenant's %s %s", c.method, c.path)
 		}
+	}
+}
+
+// Writes that name their subject in the BODY. These are the two ways a message
+// reaches an agent, and the handlers behind them authorize on the key's owner —
+// which every embed key shares. If the bound is not applied here, one visitor
+// can drive another visitor's conversation.
+func TestEmbedKeyBodyScopedWritesAreBoundToItsOwnSubject(t *testing.T) {
+	u := embedUser()
+
+	allowed := []struct{ name, method, path, body string }{
+		{"chat to own session", "POST", "/api/v1/sessions/chat", `{"session_id":"ses_A","messages":[]}`},
+		{"queue sync for own task", "POST", "/api/v1/prompt-history/sync", `{"spec_task_id":"spt_A","project_id":"prj_1","entries":[]}`},
+	}
+	for _, c := range allowed {
+		if !embedKeyAllows(u, jsonReq(c.method, c.path, c.body)) {
+			t.Errorf("should allow %s: %s %s", c.name, c.method, c.path)
+		}
+	}
+
+	denied := []struct{ name, method, path, body string }{
+		{"chat to another session", "POST", "/api/v1/sessions/chat", `{"session_id":"ses_B","messages":[]}`},
+		{"queue sync for another task", "POST", "/api/v1/prompt-history/sync", `{"spec_task_id":"spt_B","entries":[]}`},
+		// Omitting the field must not read as "no restriction". For
+		// sessions/chat an absent session_id would otherwise start a brand new
+		// session owned by the service account.
+		{"chat with no session named", "POST", "/api/v1/sessions/chat", `{"messages":[]}`},
+		{"sync with no task named", "POST", "/api/v1/prompt-history/sync", `{"session_id":"ses_A","entries":[]}`},
+		{"empty subject", "POST", "/api/v1/sessions/chat", `{"session_id":""}`},
+		{"unparseable body", "POST", "/api/v1/prompt-history/sync", `not json`},
+		{"subject is not a string", "POST", "/api/v1/sessions/chat", `{"session_id":{"$ne":null}}`},
+	}
+	for _, c := range denied {
+		if embedKeyAllows(u, jsonReq(c.method, c.path, c.body)) {
+			t.Errorf("SECURITY: embed key allowed %s: %s %s", c.name, c.method, c.path)
+		}
+	}
+
+	// A missing body is not a way around the check either.
+	for _, p := range []string{"/api/v1/sessions/chat", "/api/v1/prompt-history/sync"} {
+		if embedKeyAllows(u, req("POST", p)) {
+			t.Errorf("SECURITY: embed key allowed POST %s with no body", p)
+		}
+	}
+}
+
+// The middleware reads the body to vet it, and the handler must still see every
+// byte the client sent.
+func TestEmbedKeyBodyIsRestoredForTheHandler(t *testing.T) {
+	u := embedUser()
+	body := `{"spec_task_id":"spt_A","project_id":"prj_1","entries":[{"id":"e1","content":"hello"}]}`
+	r := jsonReq("POST", "/api/v1/prompt-history/sync", body)
+
+	if !embedKeyAllows(u, r) {
+		t.Fatal("should allow sync for its own task")
+	}
+	got, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatalf("read restored body: %v", err)
+	}
+	if string(got) != body {
+		t.Errorf("body not restored for handler:\n got %q\nwant %q", got, body)
 	}
 }
 
@@ -103,8 +180,10 @@ func TestEmbedKeyCannotMutateOrDriveDesktop(t *testing.T) {
 		{"DELETE", "/api/v1/sessions/ses_A/stop-external-agent"},
 		{"POST", "/api/v1/sessions/ses_A/resume"},
 		{"GET", "/api/v1/external-agents/ses_A/screenshot"},
-		{"GET", "/api/v1/external-agents/ses_A/ws/stream"},
 		{"POST", "/api/v1/external-agents/ses_A/clipboard"},
+		// The dedicated INPUT socket. The video socket is allowed and forced
+		// read-only; this one is pure control and has no read-only mode.
+		{"GET", "/api/v1/external-agents/ses_A/ws/input"},
 		{"GET", "/api/v1/sessions/ses_A/terminal"},
 		{"GET", "/api/v1/external-agents/ses_A/workspace-files"},
 		{"GET", "/api/v1/external-agents/ses_A/workspace-skills"},
@@ -163,7 +242,6 @@ func TestNeuteredEndpointsReturnEmptyNotData(t *testing.T) {
 		{"/api/v1/agents?organization_id=", "[]"},
 		{"/api/v1/claude-subscriptions", "[]"},
 		{"/api/v1/oauth/providers", "[]"},
-		{"/api/v1/prompt-history?spec_task_id=spt_A", "[]"},
 		{"/api/v1/projects/prj_x", "{}"},
 		{"/api/v1/projects/prj_x/labels", "[]"},
 		{"/api/v1/users/user_other", "{}"},
@@ -201,6 +279,11 @@ func TestOwnTaskAndSessionAreNotNeutered(t *testing.T) {
 		"/api/v1/spec-tasks/spt_A",
 		"/api/v1/sessions/ses_A",
 		"/api/v1/sessions/ses_A/interactions",
+		// Neutering this one is worse than hiding data: the composer treats a
+		// queued message absent from this list as permanently failed, so an
+		// empty stub silently breaks every send.
+		"/api/v1/prompt-history",
+		"/api/v1/prompt-history?spec_task_id=spt_A",
 	} {
 		if _, ok := embedNeuteredResponse(req("GET", p)); ok {
 			t.Errorf("%s must return real data, not an empty stub", p)

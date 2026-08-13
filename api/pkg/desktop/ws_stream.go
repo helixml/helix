@@ -1820,7 +1820,14 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		}
 	}
 
-	logger.Info("stream WebSocket connected", "remote", r.RemoteAddr)
+	// Read-only viewers get video and no input. Set by the Helix API on the
+	// upgrade it sends us, from the caller's credential — an embed key handed to
+	// a member of the public on an untrusted page. The client's own request is
+	// never forwarded here, so this header cannot be spoofed by a browser.
+	// See pkg/server/desktop_stream_readonly.go.
+	readOnly := r.Header.Get("X-Helix-Readonly") != ""
+
+	logger.Info("stream WebSocket connected", "remote", r.RemoteAddr, "read_only", readOnly)
 
 	// Set up pong handler with read deadline as defense-in-depth against dead connections.
 	// The server heartbeat sends WebSocket pings every 5s; the client's browser automatically
@@ -2016,6 +2023,13 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 						streamer.SetVideoEnabled(*ctrl.SetVideoEnabled)
 					}
 				}
+				continue
+			}
+
+			// Everything below this point is input: keyboard 0x10, mouse
+			// 0x11-0x13, touch 0x14. A read-only viewer is watching, not driving.
+			if readOnly {
+				logger.Debug("dropping input from read-only viewer", "type", msgType)
 				continue
 			}
 

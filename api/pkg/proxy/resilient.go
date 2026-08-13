@@ -673,8 +673,22 @@ type ProxyStats struct {
 	IsReconnecting      bool
 }
 
-// CreateWebSocketUpgradeFunc creates an UpgradeFunc for WebSocket connections
-func CreateWebSocketUpgradeFunc(path string, wsKey string) UpgradeFunc {
+// CreateWebSocketUpgradeFunc creates an UpgradeFunc for WebSocket connections.
+//
+// extraHeaders (name, value, name, value, …) are added to the upgrade request
+// this server sends to the sandbox. They are set server-side from what the API
+// already knows about the caller; the client's own request is never forwarded
+// verbatim, so a browser cannot supply or strip them. That is what makes them
+// safe to authorize on — see X-Helix-Readonly on the desktop stream.
+//
+// They belong here rather than only on the initial handshake because this func
+// also runs on RECONNECT, and a reconnect that dropped them would silently
+// restore the privilege mid-session.
+func CreateWebSocketUpgradeFunc(path string, wsKey string, extraHeaders ...string) UpgradeFunc {
+	var extra string
+	for i := 0; i+1 < len(extraHeaders); i += 2 {
+		extra += fmt.Sprintf("%s: %s\r\n", extraHeaders[i], extraHeaders[i+1])
+	}
 	return func(conn net.Conn) error {
 		// Send WebSocket upgrade request
 		upgradeReq := fmt.Sprintf("GET %s HTTP/1.1\r\n"+
@@ -683,7 +697,8 @@ func CreateWebSocketUpgradeFunc(path string, wsKey string) UpgradeFunc {
 			"Connection: Upgrade\r\n"+
 			"Sec-WebSocket-Key: %s\r\n"+
 			"Sec-WebSocket-Version: 13\r\n"+
-			"\r\n", path, wsKey)
+			"%s"+
+			"\r\n", path, wsKey, extra)
 
 		if _, err := conn.Write([]byte(upgradeReq)); err != nil {
 			return fmt.Errorf("failed to send WebSocket upgrade: %w", err)

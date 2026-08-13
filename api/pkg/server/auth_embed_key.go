@@ -1,6 +1,9 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -24,6 +27,11 @@ import (
 // FAIL CLOSED. Anything not explicitly matched is denied. A missing entry costs
 // a visibly broken panel in the embed, which we fix by adding it; the opposite
 // default would cost a silent cross-tenant read.
+//
+// Every subject is bounded HERE, never delegated to the handler. Embed keys for
+// a given product are minted for one service account, so "the caller owns this
+// session" is true for every visitor about every other visitor. The only
+// trustworthy bound is the one recorded on the key itself.
 
 // embedScope is what a matched path is allowed to address.
 type embedScope int
@@ -49,6 +57,10 @@ type embedRule struct {
 	prefix  string
 	suffix  string // "" = prefix must match the whole remaining path
 	scope   embedScope
+
+	// queryParam names a query parameter to read the scoped id from, for
+	// endpoints that take their subject there rather than in the path.
+	queryParam string
 }
 
 // embedRules is the complete allowlist for an embed key.
@@ -58,8 +70,10 @@ type embedRule struct {
 //     other candidate's chat. This is the single most important omission.
 //   - /api/v1/agents, /api/v1/organizations, /api/v1/projects/... — tenant-wide
 //     inventory the embed does not need to render a conversation.
-//   - /api/v1/external-agents/{id}/ws/stream and the desktop endpoints — the
-//     video/desktop surface. Headless chat does not need it.
+//   - /api/v1/external-agents/{id}/ws/input, /clipboard, /screenshot, the
+//     terminal and the workspace-file endpoints — everything that DRIVES or
+//     reads the desktop. The video stream is allowed but forced read-only; see
+//     desktop_stream_readonly.go.
 //   - Every mutation of the task itself (PUT /spec-tasks/{id}, labels, archive,
 //     execution-config PATCH, start-planning) — an end user must not be able to
 //     re-point or reconfigure the agent run they are talking to.
@@ -86,13 +100,58 @@ var embedRules = []embedRule{
 	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/cancel", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/external-agents/", suffix: "/file", scope: scopeSession},
 
-	// Sending a message. The session is named in the BODY, not the path, so this
-	// rule cannot bound it here — sessions/chat is bounded by the handler, which
-	// resolves the session and authorizes the owning user.
-	{methods: []string{"POST"}, prefix: "/api/v1/sessions/chat", scope: scopeGlobal},
+	// Watching the agent work. This socket is bidirectional — it carries input
+	// as well as video — so allowing it is only safe because the API marks embed
+	// connections read-only on the upgrade it sends to the sandbox, which then
+	// drops keyboard/mouse/touch. See desktop_stream_readonly.go. Note that
+	// /ws/input, the dedicated input socket, has no rule and stays denied.
+	{methods: []string{"GET"}, prefix: "/api/v1/external-agents/", suffix: "/ws/stream", scope: scopeSession},
 
 	// Streaming updates. The session id arrives as a query param; checked below.
 	{methods: []string{"GET"}, prefix: "/api/v1/ws/user", scope: scopeGlobal},
+
+	// The chat composer's own state. The spec-task UI marks a message "sent" by
+	// reconciling against this list, and treats an entry MISSING from it as
+	// permanently failed — so neutering it to [] does not merely hide data, it
+	// actively breaks the queue. Bounded by the query parameter.
+	{methods: []string{"GET"}, prefix: "/api/v1/prompt-history", queryParam: "spec_task_id", scope: scopeTask},
+
+	// Which thread the UI is looking at, and how far the run has got. Both are
+	// about the one session/task the key already reads.
+	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/foreground-thread", scope: scopeSession},
+	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/progress", scope: scopeTask},
+}
+
+// embedBodyRules covers endpoints whose subject is in the JSON body rather than
+// the path or query.
+//
+// These MUST be enforced here rather than left to the handler. Every Find AI
+// embed key is minted for the same service account — one owner for every
+// candidate's chat — so a handler that authorizes "does this user own the
+// session/task" authorizes every visitor for every other visitor's
+// conversation. The bound has to come from the key, and the key only knows one
+// session and one task.
+//
+// The path is matched exactly and the verdict is final: a request to one of
+// these paths is never re-examined against embedRules.
+var embedBodyRules = []embedBodyRule{
+	// Sending a message directly.
+	{method: "POST", path: "/api/v1/sessions/chat", field: "session_id", scope: scopeSession},
+
+	// Sending a message via the composer's queue — what the spec-task UI
+	// actually does. The sync IS the dispatch: syncPromptHistory kicks
+	// processPendingPromptsForIdleSessions for the spec task named here, which
+	// is why this is a write bounded on spec_task_id and not a read.
+	{method: "POST", path: "/api/v1/prompt-history/sync", field: "spec_task_id", scope: scopeTask},
+}
+
+// embedBodyRule matches an exact path and reads the scoped id from a top-level
+// string field of the JSON body.
+type embedBodyRule struct {
+	method string
+	path   string
+	field  string
+	scope  embedScope
 }
 
 // embedNeutered maps paths the embed SPA *requires* to the empty response it
@@ -119,7 +178,6 @@ var embedNeutered = map[string]string{
 	"/api/v1/oauth/connections":      "[]",
 	"/api/v1/provider-endpoints":     "[]",
 	"/api/v1/providers/detect-local": "[]",
-	"/api/v1/prompt-history":         "[]",
 }
 
 // embedNeuteredPrefixes covers id-bearing paths, which cannot be exact-matched.
@@ -168,6 +226,19 @@ func embedKeyAllows(user *types.User, r *http.Request) bool {
 		}
 	}
 
+	// Body-scoped paths are decided here and nowhere else — matching one is a
+	// final verdict, so a denial can't be rescued by a later path rule.
+	for _, rule := range embedBodyRules {
+		if !strings.EqualFold(rule.method, r.Method) || path != rule.path {
+			continue
+		}
+		id, ok := embedBodySubject(r, rule.field)
+		if !ok {
+			return false
+		}
+		return embedSubjectInScope(user, rule.scope, id)
+	}
+
 	for _, rule := range embedRules {
 		if !rule.matchesMethod(r.Method) {
 			continue
@@ -176,20 +247,65 @@ func embedKeyAllows(user *types.User, r *http.Request) bool {
 		if !ok {
 			continue
 		}
-		switch rule.scope {
-		case scopeGlobal:
+		if rule.queryParam != "" {
+			id = r.URL.Query().Get(rule.queryParam)
+		}
+		if embedSubjectInScope(user, rule.scope, id) {
 			return true
-		case scopeTask:
-			if id != "" && id == user.SpecTaskID {
-				return true
-			}
-		case scopeSession:
-			if id != "" && user.SessionID != "" && id == user.SessionID {
-				return true
-			}
 		}
 	}
 	return false
+}
+
+// embedSubjectInScope reports whether an id the request named is the one the
+// key is bound to. An empty id is always out of scope: "unspecified" must not
+// mean "unrestricted".
+func embedSubjectInScope(user *types.User, scope embedScope, id string) bool {
+	switch scope {
+	case scopeGlobal:
+		return true
+	case scopeTask:
+		return id != "" && id == user.SpecTaskID
+	case scopeSession:
+		return id != "" && user.SessionID != "" && id == user.SessionID
+	}
+	return false
+}
+
+// embedMaxBodyPeek caps what we will buffer to vet a request body. Chat prompts
+// and queue syncs are text; anything larger is not something an embed sends.
+const embedMaxBodyPeek = 1 << 20 // 1 MiB
+
+// embedBodySubject reads one top-level string field from a JSON body without
+// consuming it, returning ok=false if the body cannot be vetted.
+//
+// The middleware runs before any handler, so the body is always restored — the
+// handler downstream must see exactly the bytes the client sent.
+func embedBodySubject(r *http.Request, field string) (string, bool) {
+	if r.Body == nil {
+		return "", false
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, embedMaxBodyPeek+1))
+	// Put the body back whatever happens next, so the request stays intact for
+	// the handler on the allow path.
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if err != nil || len(body) > embedMaxBodyPeek {
+		return "", false
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return "", false
+	}
+	raw, ok := fields[field]
+	if !ok {
+		return "", false
+	}
+	var id string
+	if err := json.Unmarshal(raw, &id); err != nil {
+		return "", false
+	}
+	return id, true
 }
 
 func (rule embedRule) matchesMethod(method string) bool {
