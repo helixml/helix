@@ -39075,6 +39075,9 @@ const docTemplate = `{
                 "is_dir": {
                     "type": "boolean"
                 },
+                "last_commit_at": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },

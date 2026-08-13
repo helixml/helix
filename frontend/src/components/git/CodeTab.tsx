@@ -61,6 +61,7 @@ import {
 import useSnackbar from '../../hooks/useSnackbar'
 import BranchSelect from './BranchSelect'
 import ExternalStatus from './ExternalStatus'
+import { formatDate, formatRelativeTime } from '../../utils/format'
 
 const getFallbackBranch = (defaultBranch: string | undefined, branches: string[] | null | undefined): string => {
   if (!branches || branches.length === 0) {
@@ -587,6 +588,13 @@ const CodeTab: FC<CodeTabProps> = ({
                           <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>
                             {entry?.name}
                           </Typography>
+                          {entry?.last_commit_at && (
+                            <Tooltip title={formatDate(entry.last_commit_at)}>
+                              <Typography variant="caption" color="text.secondary">
+                                {formatRelativeTime(entry.last_commit_at)}
+                              </Typography>
+                            </Tooltip>
+                          )}
                           {!entry?.is_dir && entry?.size !== undefined && (
                             <Typography variant="caption" color="text.secondary">
                               {entry.size > 1024

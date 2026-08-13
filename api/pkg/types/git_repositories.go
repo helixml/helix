@@ -218,10 +218,11 @@ type CreateSampleRepositoryRequest struct {
 
 // TreeEntry represents a file or directory in a repository
 type TreeEntry struct {
-	Name  string `json:"name"`
-	Path  string `json:"path"`
-	IsDir bool   `json:"is_dir"`
-	Size  int64  `json:"size"`
+	Name         string     `json:"name"`
+	Path         string     `json:"path"`
+	IsDir        bool       `json:"is_dir"`
+	Size         int64      `json:"size"`
+	LastCommitAt *time.Time `json:"last_commit_at,omitempty"`
 }
 
 // GitRepositoryTreeResponse represents the response for browsing repository tree
