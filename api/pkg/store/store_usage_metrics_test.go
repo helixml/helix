@@ -537,11 +537,11 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_AttributesProxyMetric
 	}
 	taskOpenCode := types.SpecTask{
 		ID: "spt_" + system.GenerateID(), Name: "OpenCode task", ProjectID: project.ID, UserID: user.ID, OrganizationID: orgID,
-		HelixAppID: appOpenCode.ID, PlanningSessionID: sessionOpenCode.ID,
+		HelixAppID: appOpenCode.ID, PlanningSessionID: sessionOpenCode.ID, CreatedAt: day,
 	}
 	taskCodex := types.SpecTask{
 		ID: "spt_" + system.GenerateID(), Name: "Codex task", ProjectID: project.ID, UserID: user.ID, OrganizationID: orgID,
-		HelixAppID: appCodex.ID, PlanningSessionID: sessionCodex.ID,
+		HelixAppID: appCodex.ID, PlanningSessionID: sessionCodex.ID, CreatedAt: day.Add(-time.Hour),
 	}
 	sessionOpenCode.Metadata.SpecTaskID = taskOpenCode.ID
 	sessionCodex.Metadata.SpecTaskID = taskCodex.ID
@@ -573,7 +573,8 @@ func (suite *UsageMetricsTestSuite) TestGetOrgUsageSummary_AttributesProxyMetric
 	suite.Equal(2, resp.ActiveApps)
 	suite.Equal(2, resp.ActiveSessions)
 	suite.Require().Len(resp.FilterTasks, 2)
-	suite.ElementsMatch([]string{taskOpenCode.ID, taskCodex.ID}, []string{resp.FilterTasks[0].ID, resp.FilterTasks[1].ID})
+	suite.Equal(taskOpenCode.ID, resp.FilterTasks[0].ID)
+	suite.Equal(taskCodex.ID, resp.FilterTasks[1].ID)
 
 	runtimeTokens := make(map[types.CodeAgentRuntime]int)
 	for _, series := range resp.AgentRuntimeTimeSeries {

@@ -125,11 +125,13 @@ import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
 import {
   FileText,
+  ChartNoAxesCombined,
   PanelLeft,
   PanelRight,
   Wand2,
   Share,
 } from "lucide-react";
+import { buildTaskUsageQuery } from "../../utils/usageDateRange";
 import SpecTaskViewToolbar, {
   TaskView,
   ToolbarDensity,
@@ -1885,6 +1887,23 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           disabled={updateExecutionConfig.isPending || !!task?.archived}
           grouped
         />
+      </Box>
+
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Usage
+        </Typography>
+        <Button
+          variant="outlined"
+          fullWidth
+          startIcon={<ChartNoAxesCombined size={16} />}
+          onClick={() =>
+            account.orgNavigate("usage", {}, buildTaskUsageQuery(taskId))
+          }
+          sx={{ justifyContent: "flex-start", textTransform: "none" }}
+        >
+          View task usage
+        </Button>
       </Box>
 
       {/* Timestamps */}

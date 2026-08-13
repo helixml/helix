@@ -880,13 +880,14 @@ func (s *PostgresStore) orgUsageFilterOptions(ctx context.Context, q *GetOrgUsag
 
 	g.Go(func() error {
 		taskNameExpr := "COALESCE(NULLIF(trigger_configurations.name, ''), NULLIF(usage_spec_tasks.name, ''), " + usageTaskIDExpr + ")"
+		taskCreatedExpr := "COALESCE(trigger_configurations.created, usage_spec_tasks.created_at, MAX(usage_metrics.created))"
 		return s.orgUsageBaseQuery(gctx, &optionQuery).
 			Joins(usageTriggerExecutionsJoin).
 			Joins("LEFT JOIN trigger_configurations ON trigger_configurations.id = usage_trigger_executions.trigger_configuration_id").
 			Where(usageTaskIDExpr + " <> ''").
 			Select(usageTaskIDExpr + " as id, " + taskNameExpr + " as name").
-			Group(usageTaskIDExpr + ", trigger_configurations.name, usage_spec_tasks.name").
-			Order("name ASC").
+			Group(usageTaskIDExpr + ", trigger_configurations.name, trigger_configurations.created, usage_spec_tasks.name, usage_spec_tasks.created_at").
+			Order(taskCreatedExpr + " DESC").
 			Limit(1000).
 			Find(&resp.FilterTasks).Error
 	})

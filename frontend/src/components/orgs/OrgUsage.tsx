@@ -37,6 +37,7 @@ import {
   getTotalInputTokens,
   getUncachedInputTokens,
 } from '../../utils/usageMetrics'
+import { initialUsageParam, toUsageDateInput, usageRangeFrom } from '../../utils/usageDateRange'
 
 type RangeKey = '7d' | '30d' | '90d'
 type UsageLoadingScope = 'filters' | 'projects' | 'tasks' | 'sessions' | 'users'
@@ -77,14 +78,6 @@ const PROVIDER_COLORS: Record<string, string> = {
   helix: '#2563eb',
 }
 
-const toDateInput = (date: Date) => date.toISOString().slice(0, 10)
-
-const rangeFrom = (days: number) => {
-  const from = new Date()
-  from.setDate(from.getDate() - (days - 1))
-  return toDateInput(from)
-}
-
 const toRFC3339 = (value: string, endOfDay = false) => {
   if (!value) return undefined
   return new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`).toISOString()
@@ -95,7 +88,7 @@ const fromURLDate = (value: string | null, fallback: string) => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return fallback
-  return toDateInput(parsed)
+  return toUsageDateInput(parsed)
 }
 
 const currentSearchParams = () => new URLSearchParams(window.location.search)
@@ -597,19 +590,20 @@ const OrgUsage: FC = () => {
   const account = useAccount()
   const lightTheme = useLightTheme()
   const orgID = router.params.org_id as string
-  const today = toDateInput(new Date())
+  const today = toUsageDateInput(new Date())
   const initialParams = useMemo(() => currentSearchParams(), [])
-  const [range, setRange] = useState<RangeKey | null>(() => (initialParams.has('from') || initialParams.has('to') ? null : '7d'))
-  const [from, setFrom] = useState(() => fromURLDate(initialParams.get('from'), rangeFrom(7)))
-  const [to, setTo] = useState(() => fromURLDate(initialParams.get('to'), today))
-  const [userId, setUserId] = useState(() => initialParams.get('user_id') || '')
-  const [projectId, setProjectId] = useState(() => initialParams.get('project_id') || '')
-  const [taskId, setTaskId] = useState(() => initialParams.get('task_id') || '')
-  const [appId, setAppId] = useState(() => initialParams.get('app_id') || '')
-  const [sessionIdInput, setSessionIdInput] = useState(() => initialParams.get('session_id') || '')
-  const [provider, setProvider] = useState(() => initialParams.get('provider') || '')
-  const [model, setModel] = useState(() => initialParams.get('model') || '')
-  const [userSearchInput, setUserSearchInput] = useState(() => initialParams.get('user_search') || '')
+  const initialParam = (key: string) => initialUsageParam(router.params, initialParams, key)
+  const [range, setRange] = useState<RangeKey | null>(() => (initialParam('from') || initialParam('to') ? null : '7d'))
+  const [from, setFrom] = useState(() => fromURLDate(initialParam('from'), usageRangeFrom(7)))
+  const [to, setTo] = useState(() => fromURLDate(initialParam('to'), today))
+  const [userId, setUserId] = useState(() => initialParam('user_id'))
+  const [projectId, setProjectId] = useState(() => initialParam('project_id'))
+  const [taskId, setTaskId] = useState(() => initialParam('task_id'))
+  const [appId, setAppId] = useState(() => initialParam('app_id'))
+  const [sessionIdInput, setSessionIdInput] = useState(() => initialParam('session_id'))
+  const [provider, setProvider] = useState(() => initialParam('provider'))
+  const [model, setModel] = useState(() => initialParam('model'))
+  const [userSearchInput, setUserSearchInput] = useState(() => initialParam('user_search'))
   const [userPage, setUserPage] = useState(0)
   const [userRowsPerPage, setUserRowsPerPage] = useState(10)
   const [projectPage, setProjectPage] = useState(0)
@@ -917,7 +911,7 @@ const OrgUsage: FC = () => {
     markFilterChange()
     setRange(next)
     const days = next === '7d' ? 7 : next === '30d' ? 30 : 90
-    setFrom(rangeFrom(days))
+    setFrom(usageRangeFrom(days))
     setTo(today)
   }
 

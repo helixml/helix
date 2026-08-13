@@ -26,7 +26,12 @@ dimension as a filter.
   trigger configuration for scheduled tasks, otherwise spec task.
 - Apply that same task identity to sandbox compute through the sandbox's spec
   task or owning trigger session.
-- Return task filter options and add a Task selector to the Usage filter bar.
+- Return task filter options newest-first and add a Task selector to the Usage
+  filter bar.
+- Add a task-details action that opens the inclusive seven-day Usage report
+  with the current task selected. Usage initializes filters from router
+  parameters so internal navigation cannot lose the task filter before the URL
+  state synchronizer runs.
 
 ## Verification
 
@@ -41,3 +46,5 @@ Verified live on the `unmanned-org` Usage page for task
 session, Agent `OpenCode`, harness `opencode`, and the task's DeepSeek model.
 Sandbox compute narrowed from the org total to the task's one running sandbox.
 Clearing the filter removed `task_id` from the URL and restored the full report.
+The task-details Usage action opened the same filtered report directly, and the
+dropdown order matched descending task creation timestamps.
