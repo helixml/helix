@@ -379,6 +379,7 @@ func NewServer(
 		contextMappings:            make(map[string]string),
 
 		requestToSessionMapping:     make(map[string]string),
+		requestToInteractionMapping: make(map[string]string),
 		interactionDispatchClaims:   make(map[string]dispatchClaim),
 		credentialTokens:            make(map[string]map[string]struct{}),
 		pendingCancelChannels:       make(map[string]chan string),
