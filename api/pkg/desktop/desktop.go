@@ -24,6 +24,7 @@ type Config struct {
 	HTTPPort      string // HTTP server port (default: 9876)
 	XDGRuntimeDir string // XDG_RUNTIME_DIR for sockets
 	SessionID     string // HELIX_SESSION_ID for session identification
+	WorkspaceOnly bool   // Serve workspace APIs without compositor/video initialization
 }
 
 // Server is the main desktop integration server.
@@ -226,6 +227,10 @@ func (s *Server) GetCursorState() (x, y int32, cursorName string) {
 
 // Run starts the server and blocks until context is cancelled.
 func (s *Server) Run(ctx context.Context) error {
+	if s.config.WorkspaceOnly {
+		return s.runWorkspaceServer(ctx)
+	}
+
 	s.logger.Info("starting desktop server",
 		"port", s.config.HTTPPort,
 		"session_id", s.config.SessionID,
@@ -476,6 +481,42 @@ func (s *Server) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
+// runWorkspaceServer serves the git/file APIs needed by headless tasks without
+// initializing GStreamer, D-Bus, a compositor, or any input/video resources.
+func (s *Server) runWorkspaceServer(ctx context.Context) error {
+	s.logger.Info("starting headless workspace server",
+		"port", s.config.HTTPPort,
+		"session_id", s.config.SessionID,
+	)
+	s.running.Store(true)
+	defer s.running.Store(false)
+
+	httpServer := &http.Server{
+		Addr:    ":" + s.config.HTTPPort,
+		Handler: s.workspaceHTTPHandler(),
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- fmt.Errorf("http: %w", err)
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		s.logger.Info("shutting down headless workspace server")
+	case err := <-errCh:
+		return err
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown workspace server: %w", err)
+	}
+	return ctx.Err()
+}
+
 // httpHandler returns the HTTP handler with all routes.
 func (s *Server) httpHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -484,27 +525,10 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/clipboard", s.handleClipboard)
 	mux.HandleFunc("/upload", s.handleUpload)
 	mux.HandleFunc("/file", s.handleFile)
-	mux.HandleFunc("/ws/input", s.handleWSInput)      // Direct WebSocket input
-	mux.HandleFunc("/ws/stream", s.handleWSStream)    // Direct WebSocket video streaming
-	mux.HandleFunc("/exec", s.handleExec)             // Execute command in container (for benchmarking)
-	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
-	mux.HandleFunc("/workspace/review", s.handleWorkspaceReview)
-	mux.HandleFunc("/workspace/files", s.handleWorkspaceFiles)
-	mux.HandleFunc("/workspace/file", s.handleWorkspaceFile)
-	mux.HandleFunc("/workspace/skills", s.handleWorkspaceSkills)
-	mux.HandleFunc("/workspace/checkpoints/capture", s.handleWorkspaceCheckpointCapture)
-	mux.HandleFunc("/workspace/checkpoints/diff", s.handleWorkspaceCheckpointDiff)
-	// Workspace git plumbing used by the fork-and-pause safety net.
-	// Kept as dedicated endpoints (not /exec) because /exec is
-	// allowlist-restricted by design — adding git status/add/commit/push
-	// to the allowlist would weaken that gate. These run trusted, fixed
-	// command sequences with no caller-controlled command strings.
-	mux.HandleFunc("/workspace/status", s.handleWorkspaceStatus)
-	mux.HandleFunc("/workspace/commit-and-push", s.handleWorkspaceCommitAndPush)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
+	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input
+	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming
+	mux.HandleFunc("/exec", s.handleExec)          // Execute command in container (for benchmarking)
+	s.registerWorkspaceRoutes(mux)
 	mux.HandleFunc("/clients", s.handleClients)
 	mux.HandleFunc("/video/stats", s.handleVideoStats)
 
@@ -514,6 +538,33 @@ func (s *Server) httpHandler() http.Handler {
 	}
 
 	return mux
+}
+
+// workspaceHTTPHandler is the complete HTTP surface exposed by a headless
+// task. Desktop-only screenshot, clipboard, input, video, and MCP routes are
+// intentionally absent.
+func (s *Server) workspaceHTTPHandler() http.Handler {
+	mux := http.NewServeMux()
+	s.registerWorkspaceRoutes(mux)
+	return mux
+}
+
+func (s *Server) registerWorkspaceRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/workspaces", s.handleWorkspaces)
+	mux.HandleFunc("/workspace/review", s.handleWorkspaceReview)
+	mux.HandleFunc("/workspace/files", s.handleWorkspaceFiles)
+	mux.HandleFunc("/workspace/file", s.handleWorkspaceFile)
+	mux.HandleFunc("/workspace/skills", s.handleWorkspaceSkills)
+	mux.HandleFunc("/workspace/checkpoints/capture", s.handleWorkspaceCheckpointCapture)
+	mux.HandleFunc("/workspace/checkpoints/diff", s.handleWorkspaceCheckpointDiff)
+	// Git plumbing used by the fork-and-pause safety net stays on fixed,
+	// dedicated endpoints rather than weakening the generic /exec allowlist.
+	mux.HandleFunc("/workspace/status", s.handleWorkspaceStatus)
+	mux.HandleFunc("/workspace/commit-and-push", s.handleWorkspaceCommitAndPush)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
 }
 
 // isRunning returns whether the server is still running.

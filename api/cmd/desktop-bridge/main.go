@@ -31,6 +31,7 @@ func main() {
 		HTTPPort:      os.Getenv("SCREENSHOT_PORT"),
 		XDGRuntimeDir: os.Getenv("XDG_RUNTIME_DIR"),
 		SessionID:     os.Getenv("HELIX_SESSION_ID"),
+		WorkspaceOnly: os.Getenv("HELIX_HEADLESS") == "1",
 	}
 
 	// Apply defaults
@@ -65,7 +66,7 @@ func main() {
 	// Mount MCP handler on the desktop HTTP server so it's reachable via RevDial.
 	// RevDial tunnels to port 9876 (this server), so the API gateway proxy
 	// sends MCP requests to /mcp on this server.
-	if mcpEnabled {
+	if mcpEnabled && !cfg.WorkspaceOnly {
 		mcpCfg := desktop.MCPConfig{
 			ScreenshotURL: fmt.Sprintf("http://localhost:%s/screenshot", cfg.HTTPPort),
 		}

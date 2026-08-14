@@ -1318,6 +1318,7 @@ ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
+ADD desktop/shared/start-headless-workspace-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
 ADD desktop/shared/start-zed-headless.sh /usr/local/bin/start-zed-headless.sh
 # D-Bus policy for logind-stub (macOS ARM scanout mode)
@@ -1330,7 +1331,8 @@ ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
     /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
-    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh \
+    /usr/local/bin/start-settings-sync-daemon.sh \
     /usr/local/bin/start-zed-headless.sh /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
 
 # Ubuntu desktop theming (includes cursor-size=48 for fingerprinting)

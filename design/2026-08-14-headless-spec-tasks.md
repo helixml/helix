@@ -12,10 +12,13 @@ and nested Docker toolchain. `HELIX_HEADLESS=1` selects an agent-only startup
 path in that image:
 
 - Zed starts with `--headless`.
-- GNOME, desktop-bridge, streaming, render-node detection, scanout setup, and
-  NVIDIA runtime configuration do not start.
-- Hydra does not inject display or GPU configuration and does not wait for the
-  desktop bridge.
+- GNOME, streaming, render-node detection, scanout setup, and NVIDIA runtime
+  configuration do not start.
+- The desktop bridge runs in workspace-only mode. It exposes the file, diff,
+  checkpoint, and fixed git-plumbing APIs through RevDial without initializing
+  GStreamer, D-Bus, a compositor, input, video, screenshots, or desktop MCP.
+- Hydra does not inject display or GPU configuration. It waits for the
+  workspace-only bridge before declaring the headless sandbox ready.
 - Workspace setup, settings sync, and nested Docker remain available.
 
 The owning task is the source of truth for runtime on every launch path,

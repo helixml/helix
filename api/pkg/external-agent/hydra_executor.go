@@ -553,24 +553,23 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// No bridging needed - desktop runs its own dockerd, so all containers
 	// are on the same Docker network inside the desktop container.
 
-	// Wait for desktop-bridge to be ready before returning.
-	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init.
+	// Wait for the container bridge to be ready before returning. Desktop
+	// runtimes initialize D-Bus, Wayland, portals, and GStreamer first; headless
+	// runtimes expose only the workspace API from the same bridge binary.
 	// Uses RevDial for health check since container IP is inside sandbox's DinD network.
 	//
 	// IMPORTANT: use an independent context here (issue #1 from ZFS deployment).
 	// The caller's ctx may have been partially consumed by the ZFS clone (which can take
 	// 10-90s). If we reuse it, the bridge wait budget is whatever is left over, which may
 	// be far less than the 90s we need. Using context.Background() gives the full 90s.
-	if containerType != "headless" {
-		bridgeCtx, bridgeCancel := context.WithTimeout(context.Background(), 90*time.Second)
-		defer bridgeCancel()
-		if err := h.waitForDesktopBridge(bridgeCtx, agent.SessionID); err != nil {
-			log.Warn().Err(err).
-				Str("session_id", agent.SessionID).
-				Msg("Desktop bridge not ready (continuing anyway, frontend may need to retry)")
-			// Don't fail - container is running, just not fully ready yet.
-			// Frontend should handle this gracefully with retry logic.
-		}
+	bridgeCtx, bridgeCancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer bridgeCancel()
+	if err := h.waitForDesktopBridge(bridgeCtx, agent.SessionID); err != nil {
+		log.Warn().Err(err).
+			Str("session_id", agent.SessionID).
+			Msg("Container bridge not ready (continuing anyway, frontend may need to retry)")
+		// Don't fail - the container is running, just not fully ready yet.
+		// Frontend callers retry once the service becomes reachable.
 	}
 
 	// Track session
@@ -1637,9 +1636,9 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 	return mounts
 }
 
-// waitForDesktopBridge polls the desktop-bridge health endpoint via RevDial until it's ready.
-// Desktop-bridge startup includes: D-Bus wait, Wayland socket wait, portal wait, GStreamer init.
-// This can take 10-30 seconds depending on the compositor and GPU.
+// waitForDesktopBridge polls the bridge health endpoint via RevDial until it's ready.
+// Desktop startup includes D-Bus, Wayland, portal, and GStreamer initialization;
+// headless startup serves the workspace APIs without those dependencies.
 // Uses RevDial connection because the container IP is inside the sandbox's DinD network
 // and not directly reachable from the API container.
 func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, sessionID string) error {

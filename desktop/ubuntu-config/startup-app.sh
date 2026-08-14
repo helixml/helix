@@ -87,6 +87,7 @@ gow_log "[start] Codex state directory set: $CODEX_STATE_DIR"
 if [ "${HELIX_HEADLESS}" = "1" ]; then
     gow_log "[start] Starting headless Zed agent without GNOME or streaming services"
     exec dbus-run-session -- bash -c '
+        /usr/local/bin/start-headless-workspace-bridge.sh &
         /usr/local/bin/start-settings-sync-daemon.sh &
         exec /usr/local/bin/start-zed-headless.sh
     '
