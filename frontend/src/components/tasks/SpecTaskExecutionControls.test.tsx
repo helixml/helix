@@ -208,13 +208,33 @@ describe("SpecTaskExecutionControls", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Change sandbox size" }));
+    const computeButton = screen.getByRole("button", { name: "Change sandbox size" });
+    expect(computeButton.querySelector(".lucide-monitor"))
+      .toBeInTheDocument();
+    fireEvent.click(computeButton);
     expect(screen.getByRole("menuitem", { name: /Full Desktop.*Selected/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Headless" }));
 
     await waitFor(() => expect(setRuntime).toHaveBeenCalledWith(
       TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
     ));
+  });
+
+  it("omits the desktop icon from the collapsed control for headless tasks", () => {
+    render(
+      <SpecTaskExecutionControls
+        agents={[codexAgent]}
+        selectedAgentId={codexAgent.id}
+        sandboxResourceOverrides={{ vcpus: 4, memory_mb: 8192 }}
+        sandboxRuntime={TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+        onSandboxRuntimeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Change sandbox size" }).querySelector(".lucide-monitor"))
+      .not.toBeInTheDocument();
   });
 
   it("shows a locked environment with guidance after task creation", async () => {

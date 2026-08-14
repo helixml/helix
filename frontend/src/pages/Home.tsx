@@ -55,6 +55,10 @@ import {
   projectChatAgentStorageKey,
   readNewChatReasoningEffort,
 } from './newChatLogic'
+import {
+  preferredSpecTaskSandboxRuntime,
+  saveSpecTaskSandboxRuntimePreference,
+} from '../utils/specTaskSandboxRuntime'
 
 const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
 const TASK_ATTACHMENT_ACCEPT = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
@@ -138,8 +142,8 @@ const Home: FC = () => {
     vcpus: 4,
     memory_mb: 8192,
   })
-  const [taskSandboxRuntime, setTaskSandboxRuntime] = useState<TypesSandboxRuntime>(
-    TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+  const [taskSandboxRuntime, setTaskSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
+    preferredSpecTaskSandboxRuntime(requestedProjectId),
   )
   const [taskMode, setTaskMode] = useState<NewChatTaskMode>('build')
   const [modeMenuAnchor, setModeMenuAnchor] = useState<HTMLElement | null>(null)
@@ -183,8 +187,16 @@ const Home: FC = () => {
   useEffect(() => {
     setTaskCodeAgentOverrides({})
     setTaskSandboxResources({ vcpus: 4, memory_mb: 8192 })
-    setTaskSandboxRuntime(TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop)
-  }, [selectedProjectId])
+    setTaskSandboxRuntime(preferredSpecTaskSandboxRuntime(
+      selectedProjectId,
+      selectedProject?.default_sandbox_runtime,
+    ))
+  }, [selectedProjectId, selectedProject?.default_sandbox_runtime])
+
+  const handleTaskSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
+    setTaskSandboxRuntime(runtime)
+    saveSpecTaskSandboxRuntimePreference(selectedProjectId, runtime)
+  }
 
   const taskAgents = codingAgents.flatMap((summary) => {
     const app = apps.apps.find((candidate) => candidate.id === summary.id)
@@ -344,7 +356,7 @@ const Home: FC = () => {
           setTaskCodeAgentOverrides(overrides)
         }}
         onSandboxResourceOverridesChange={setTaskSandboxResources}
-        onSandboxRuntimeChange={setTaskSandboxRuntime}
+        onSandboxRuntimeChange={handleTaskSandboxRuntimeChange}
         disabled={submitting}
         compact
       />

@@ -62,6 +62,10 @@ import {
   useUploadSpecTaskAttachments,
 } from "../../services/specTaskAttachmentsService";
 import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
+import {
+  preferredSpecTaskSandboxRuntime,
+  saveSpecTaskSandboxRuntimePreference,
+} from "../../utils/specTaskSandboxRuntime";
 
 const ATTACHMENT_ACCEPT_ATTR = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
   .flatMap(([mime, exts]) => [mime, ...exts])
@@ -147,8 +151,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     vcpus: 4,
     memory_mb: 8192,
   });
-  const [sandboxRuntime, setSandboxRuntime] = useState<TypesSandboxRuntime>(
-    TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+  const [sandboxRuntime, setSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
+    preferredSpecTaskSandboxRuntime(projectId),
   );
   // Goose recipe selection — only meaningful when the selected agent's runtime
   // is goose_code. Empty selectedRecipeName means "use vanilla goose"; the
@@ -369,6 +373,18 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setSelectedRecipeName("");
     setRecipeParams({});
   }, [selectedHelixAgent]);
+
+  useEffect(() => {
+    setSandboxRuntime(preferredSpecTaskSandboxRuntime(
+      projectId,
+      project?.default_sandbox_runtime,
+    ));
+  }, [projectId, project?.default_sandbox_runtime]);
+
+  const handleSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
+    setSandboxRuntime(runtime);
+    saveSpecTaskSandboxRuntimePreference(projectId, runtime);
+  };
 
   // Load apps on mount
   useEffect(() => {
@@ -1146,7 +1162,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                     setCodeAgentOverrides(overrides);
                   }}
                   onSandboxResourceOverridesChange={setSandboxResourceOverrides}
-                  onSandboxRuntimeChange={setSandboxRuntime}
+                  onSandboxRuntimeChange={handleSandboxRuntimeChange}
                 />
                 {selectedAgentIsGoose && (
                   <GooseRecipeSelector
@@ -1226,7 +1242,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   sandboxRuntime={sandboxRuntime}
                   onAgentModelChange={() => undefined}
                   onSandboxResourceOverridesChange={setSandboxResourceOverrides}
-                  onSandboxRuntimeChange={setSandboxRuntime}
+                  onSandboxRuntimeChange={handleSandboxRuntimeChange}
                 />
               )}
             </Box>

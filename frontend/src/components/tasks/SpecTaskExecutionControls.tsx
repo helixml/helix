@@ -10,7 +10,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { ChevronDown, Cpu } from "lucide-react";
+import { ChevronDown, Cpu, Monitor } from "lucide-react";
 import {
   TypesCodeAgentOverrides,
   TypesSandboxResourceOverrides,
@@ -250,7 +250,14 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
           disabled={controlsDisabled}
           aria-label="Change sandbox size"
           onClick={(event) => setCpuAnchor(event.currentTarget)}
-          startIcon={<Cpu size={15} />}
+          startIcon={(
+            <Stack direction="row" spacing={0.375} alignItems="center">
+              <Cpu size={15} />
+              {effectiveSandboxRuntime === TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop && (
+                <Monitor size={15} />
+              )}
+            </Stack>
+          )}
           endIcon={<ChevronDown size={13} />}
           sx={compactButtonSx}
         >
@@ -377,9 +384,10 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
             selected={preset.vcpus === effectiveSandboxResources.vcpus}
             disabled={controlsDisabled}
             onClick={() => void selectSandbox(preset)}
+            sx={{ columnGap: 2 }}
           >
-            <Typography variant="body2" sx={{ flex: 1 }}>{preset.vcpus} vCPU</Typography>
-            <Typography variant="caption" color="text.secondary">
+            <Typography variant="body2" sx={{ flex: 1, whiteSpace: "nowrap" }}>{preset.vcpus} vCPU</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
               {preset.description}
               {preset.vcpus === DEFAULT_SANDBOX_PRESET.vcpus ? " · Default" : ""}
             </Typography>
@@ -409,7 +417,10 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
                 onClick={sandboxRuntimeLocked
                   ? undefined
                   : () => void selectSandboxRuntime(option.value)}
-                sx={sandboxRuntimeLocked ? { cursor: "not-allowed" } : undefined}
+                sx={{
+                  columnGap: 2,
+                  ...(sandboxRuntimeLocked ? { cursor: "not-allowed" } : {}),
+                }}
               >
                 <Typography variant="body2" sx={{ flex: 1 }}>{option.label}</Typography>
                 {selected && (

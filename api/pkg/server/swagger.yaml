@@ -7894,6 +7894,12 @@ definitions:
           Project-level repository management
           DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
         type: string
+      default_sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          Default sandbox environment for new spec tasks. Empty values from legacy
+          projects resolve to the full desktop runtime.
       deleted_at:
         allOf:
         - $ref: '#/definitions/gorm.DeletedAt'
@@ -8111,6 +8117,10 @@ definitions:
         type: string
       default_repo_id:
         type: string
+      default_sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: Default sandbox environment for spec tasks
       description:
         type: string
       github_repo_url:
@@ -8251,6 +8261,10 @@ definitions:
         type: string
       default_repo_id:
         type: string
+      default_sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: Default sandbox environment for spec tasks
       description:
         type: string
       github_repo_url:

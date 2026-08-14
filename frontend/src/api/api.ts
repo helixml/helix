@@ -4944,6 +4944,11 @@ export interface TypesProject {
    * DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
    */
   default_repo_id?: string;
+  /**
+   * Default sandbox environment for new spec tasks. Empty values from legacy
+   * projects resolve to the full desktop runtime.
+   */
+  default_sandbox_runtime?: TypesSandboxRuntime;
   /** Soft delete timestamp */
   deleted_at?: GormDeletedAt;
   description?: string;
@@ -5085,6 +5090,8 @@ export interface TypesProjectCreateRequest {
   /** Default agent for spec tasks */
   default_helix_app_id?: string;
   default_repo_id?: string;
+  /** Default sandbox environment for spec tasks */
+  default_sandbox_runtime?: TypesSandboxRuntime;
   description?: string;
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
@@ -5169,6 +5176,8 @@ export interface TypesProjectUpdateRequest {
   /** Default agent for spec tasks */
   default_helix_app_id?: string;
   default_repo_id?: string;
+  /** Default sandbox environment for spec tasks */
+  default_sandbox_runtime?: TypesSandboxRuntime;
   description?: string;
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */

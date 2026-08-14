@@ -33867,6 +33867,14 @@ const docTemplate = `{
                     "description": "Project-level repository management\nDefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo",
                     "type": "string"
                 },
+                "default_sandbox_runtime": {
+                    "description": "Default sandbox environment for new spec tasks. Empty values from legacy\nprojects resolve to the full desktop runtime.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
                 "deleted_at": {
                     "description": "Soft delete timestamp",
                     "allOf": [
@@ -34173,6 +34181,14 @@ const docTemplate = `{
                 "default_repo_id": {
                     "type": "string"
                 },
+                "default_sandbox_runtime": {
+                    "description": "Default sandbox environment for spec tasks",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
                 "description": {
                     "type": "string"
                 },
@@ -34385,6 +34401,14 @@ const docTemplate = `{
                 },
                 "default_repo_id": {
                     "type": "string"
+                },
+                "default_sandbox_runtime": {
+                    "description": "Default sandbox environment for spec tasks",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
                 },
                 "description": {
                     "type": "string"

@@ -30,3 +30,9 @@ views omit the Desktop tab and initially collapse the task panel; users can
 expand it to inspect changes and task details. The environment remains visible
 in that menu after launch but is locked, with a tooltip directing users to
 start a new task if they need a different runtime.
+
+The last environment a user selects is stored per project in the browser and
+becomes that user's next-task default. A project owner can also set the shared
+baseline in Project Settings → Sandbox. The personal preference wins once a
+user makes an explicit choice; otherwise the project default is used. API
+clients that omit `sandbox_runtime` inherit the project default on the server.

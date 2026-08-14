@@ -136,14 +136,17 @@ func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
 	service.SetTestMode(true)
 
 	ctx := context.Background()
-	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{ID: "test-project"}, nil)
+	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{
+		ID:                    "test-project",
+		DefaultSandboxRuntime: types.SandboxRuntimeHeadlessUbuntu,
+	}, nil)
 	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
 	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
 		func(_ context.Context, task *types.SpecTask) error {
 			require.Equal(t, "starter", task.AssigneeID)
 			require.Equal(t, "starter", task.PlanningStartedBy)
 			require.Equal(t, types.DefaultSpecTaskSandboxResources(), task.SandboxResourceOverrides)
-			require.Equal(t, types.SandboxRuntimeUbuntuDesktop, task.SandboxRuntime)
+			require.Equal(t, types.SandboxRuntimeHeadlessUbuntu, task.SandboxRuntime)
 			return nil
 		},
 	)
