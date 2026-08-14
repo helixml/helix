@@ -142,6 +142,7 @@ import SpecTaskViewToolbar, {
 import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
 import { loadPanelLayout, savePanelLayout } from "../../lib/panelLayoutStorage";
 import SpecTaskTerminalDrawer from "./SpecTaskTerminalDrawer";
+import { resolveSpecTaskChatDefaultLayout } from "./specTaskPanelLayout";
 import {
   isSpecTaskTerminalToggleShortcut,
   loadSpecTaskTerminalDrawerState,
@@ -358,15 +359,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [contentCollapsed, setContentCollapsed] = useState(false);
   const contentPanelRef = useRef<PanelImperativeHandle>(null);
   const collapseContentAfterSplitRef = useRef(false);
-  const headlessInitialCollapseAppliedRef = useRef(false);
-
-  useEffect(() => {
-    headlessInitialCollapseAppliedRef.current = false;
-  }, [taskId]);
+  const headlessInitialCollapseTaskRef = useRef<string | null>(null);
 
   const collapseContentPanel = useCallback(() => {
     if (chatCollapsed) {
       collapseContentAfterSplitRef.current = true;
+      setContentCollapsed(true);
       setChatCollapsed(false);
       return;
     }
@@ -384,12 +382,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     panel.expand();
     panel.resize(`${restoredSize}%`);
   }, []);
-
-  useEffect(() => {
-    if (chatCollapsed || !collapseContentAfterSplitRef.current) return;
-    collapseContentAfterSplitRef.current = false;
-    contentPanelRef.current?.collapse();
-  }, [chatCollapsed]);
 
   const [terminalDrawerState, setTerminalDrawerState] = useState(() =>
     loadSpecTaskTerminalDrawerState(taskId),
@@ -756,14 +748,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       !isHeadless
       || !allowContentCollapse
       || !isBigScreen
+      || !activeSessionId
       || launchPhase
-      || headlessInitialCollapseAppliedRef.current
+      || chatCollapsed
     ) return;
-    const panel = contentPanelRef.current;
-    if (!panel) return;
-    headlessInitialCollapseAppliedRef.current = true;
-    panel.collapse();
-  }, [activeSessionId, allowContentCollapse, isBigScreen, isHeadless, launchPhase]);
+    headlessInitialCollapseTaskRef.current = taskId;
+  }, [
+    activeSessionId,
+    allowContentCollapse,
+    chatCollapsed,
+    isBigScreen,
+    isHeadless,
+    launchPhase,
+    taskId,
+  ]);
 
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || "", {
@@ -2402,10 +2400,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           />
         ) : activeSessionId && isBigScreen && !chatCollapsed ? (
           <PanelGroup
-            key="spec-task-chat-layout"
+            id={`spec-task-chat-layout-${taskId}`}
+            key={`spec-task-chat-layout-${taskId}-${isHeadless ? "headless" : "desktop"}`}
             orientation="horizontal"
-            defaultLayout={savedSpecTaskChatLayout ?? { "spec-task-chat": 50, "spec-task-content": 50 }}
+            defaultLayout={resolveSpecTaskChatDefaultLayout(
+              savedSpecTaskChatLayout,
+              allowContentCollapse && (
+                collapseContentAfterSplitRef.current
+                || (isHeadless && headlessInitialCollapseTaskRef.current !== taskId)
+              ),
+            )}
             onLayoutChange={(layout) => {
+              if (layout["spec-task-content"] === 0) {
+                collapseContentAfterSplitRef.current = false;
+                if (isHeadless) headlessInitialCollapseTaskRef.current = taskId;
+              }
               // A collapsed panel is transient UI state; retain the last useful
               // split so restoring or reloading does not produce a zero-width pane.
               if (layout["spec-task-chat"] > 0 && layout["spec-task-content"] > 0) {
