@@ -500,6 +500,7 @@ func NewServer(
 	apiServer.Controller.SetExternalAgentHooks(controller.ExternalAgentHooks{
 		WaitForExternalAgentReady:    apiServer.waitForExternalAgentReady,
 		GetAgentNameForSession:       apiServer.getAgentNameForSession,
+		PrepareMessage:               apiServer.maybePrependTranscript,
 		SendCommand:                  apiServer.sendCommandToExternalAgent,
 		StoreResponseChannel:         apiServer.storeResponseChannel,
 		CleanupResponseChannel:       apiServer.cleanupResponseChannel,

@@ -48,8 +48,8 @@ type SwitchAgentResponse struct {
 }
 
 // switchAgent godoc
-// @Summary Switch the agent framework on a running session in place
-// @Description Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.
+// @Summary Switch the agent framework on a session in place
+// @Description Switches the agentic framework on the SAME session without forking. A running sandbox hot-reloads the new agent and starts a fresh thread with the prior transcript. A stopped sandbox only records the change and applies it on the next start.
 // @Tags    sessions
 // @Accept  json
 // @Produce json
@@ -117,7 +117,16 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 			fmt.Sprintf("session is already using %s in this app; pick a different agent or runtime", targetRuntime))
 	}
 
-	if switchErr := apiServer.switchAgentInPlace(ctx, session, targetRuntime, targetAppID); switchErr != nil {
+	live := apiServer.hasRunningAgentContainer(ctx, session.ID)
+	if !live {
+		if err := apiServer.cancelOfflineTurnsForSwitch(ctx, session); err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to clear queued turns before switching: %v", err))
+		}
+	}
+	if switchErr := apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, targetAppID, agentSwitchOptions{
+		createHandoff: live,
+		deliverLive:   live,
+	}); switchErr != nil {
 		return nil, switchErr
 	}
 
@@ -152,7 +161,16 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 	targetRuntime types.CodeAgentRuntime,
 	targetAppID string,
 ) *system.HTTPError {
-	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, targetAppID, true, "")
+	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, targetAppID, agentSwitchOptions{
+		createHandoff: true,
+		deliverLive:   true,
+	})
+}
+
+type agentSwitchOptions struct {
+	createHandoff bool
+	handoffReason string
+	deliverLive   bool
 }
 
 // reconcileSessionAgentWithApp repairs sessions whose persisted ACP binding
@@ -190,7 +208,9 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 		Str("target_agent_name", targetRuntime.ZedAgentName()).
 		Msg("reconciling stale session agent binding before next turn")
 
-	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, session.ParentApp, false, "")
+	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, session.ParentApp, agentSwitchOptions{
+		deliverLive: true,
+	})
 }
 
 func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
@@ -198,8 +218,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	session *types.Session,
 	targetRuntime types.CodeAgentRuntime,
 	targetAppID string,
-	createHandoff bool,
-	handoffReason string,
+	options agentSwitchOptions,
 ) *system.HTTPError {
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    session.ID,
@@ -290,7 +309,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	// "review the whole transcript and acknowledge" instruction made the model
 	// generate a big summary before the user could continue, which is the bulk
 	// of the perceived switch latency.
-	if createHandoff {
+	if options.createHandoff {
 		configSnapshot, snapshotErr := apiServer.codeAgentConfigSnapshot(ctx, session)
 		if snapshotErr != nil {
 			return system.NewHTTPError500(snapshotErr.Error())
@@ -304,12 +323,12 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 				"confirming you're ready, then wait for the user's next message.]",
 			newLabel, prevLabel,
 		)
-		if handoffReason != "" {
+		if options.handoffReason != "" {
 			handoffPrompt = fmt.Sprintf(
 				"[System: %s The environment, files, and workspace are unchanged, and the prior "+
 					"conversation is included above for context. Do not summarise or restate it — "+
 					"just reply with a single short line confirming you're ready, then wait for the user's next message.]",
-				handoffReason,
+				options.handoffReason,
 			)
 		}
 		handoffInteraction := &types.Interaction{
@@ -338,15 +357,17 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 	// calls back /agent-config-applied so we deliver the new thread over the
 	// live WebSocket. The in-flight turn, if any, is abandoned with the old
 	// thread (a new thread is created for the new agent).
-	apiServer.publishAgentConfigChange(ctx, session, "agent")
+	if options.deliverLive {
+		apiServer.publishAgentConfigChange(ctx, session, "agent")
 
-	// Restart fallback: if the live path doesn't produce a new Zed thread
-	// within the timeout (e.g. the daemon callback was lost, or a brand-new
-	// custom agent_server didn't register from the hot-reload), force a clean
-	// Zed restart so the reconnect path delivers the handoff. Keyed on
-	// ZedThreadID: a successful switch always ends with a fresh thread id.
-	switchedAt := now
-	go apiServer.agentSwitchRestartFallback(context.Background(), session.ID, switchedAt)
+		// Restart fallback: if the live path doesn't produce a new Zed thread
+		// within the timeout (e.g. the daemon callback was lost, or a brand-new
+		// custom agent_server didn't register from the hot-reload), force a clean
+		// Zed restart so the reconnect path delivers the handoff. Keyed on
+		// ZedThreadID: a successful switch always ends with a fresh thread id.
+		switchedAt := now
+		go apiServer.agentSwitchRestartFallback(context.Background(), session.ID, switchedAt)
+	}
 
 	log.Info().
 		Str("session_id", session.ID).
@@ -356,7 +377,8 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 		Str("target_app", childAppID).
 		Int("seed_completed_count", completedCount).
 		Int("seed_transcript_len", len(transcript)).
-		Msg("switch-agent: repointed session to new agent in place (live hot-reload path)")
+		Bool("deliver_live", options.deliverLive).
+		Msg("switch-agent: repointed session to new agent in place")
 
 	return nil
 }

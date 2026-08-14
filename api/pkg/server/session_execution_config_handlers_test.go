@@ -7,12 +7,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func seedCodingAgent(mem *memorystore.MemoryStore, id, provider, model string) {
@@ -126,11 +129,15 @@ func TestGetSessionExecutionConfigPrefersSpecTask(t *testing.T) {
 
 func TestUpdateSessionExecutionConfigPersistsOverridesAndRestartsThread(t *testing.T) {
 	srv, mem := newForkTestServer(t)
+	ctrl := gomock.NewController(t)
+	executor := external_agent.NewMockExecutor(ctrl)
+	srv.externalAgentExecutor = executor
 	ctx := context.Background()
 	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
 	session := newOrgChatSession("user_a")
 	session.Metadata.ZedThreadID = "ctx_old_thread"
 	seedParentWithInteractions(t, mem, session, 2)
+	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(true)
 
 	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{
@@ -155,6 +162,77 @@ func TestUpdateSessionExecutionConfigPersistsOverridesAndRestartsThread(t *testi
 	// The next turn must open a NEW Zed thread on the new configuration.
 	assert.Empty(t, updated.Metadata.ZedThreadID)
 	assert.False(t, updated.Metadata.AgentSwitchedAt.IsZero())
+}
+
+func TestUpdateSessionExecutionConfigWhileStoppedStaysIdleAndSeedsNextTurn(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctrl := gomock.NewController(t)
+	executor := external_agent.NewMockExecutor(ctrl)
+	srv.externalAgentExecutor = executor
+	ctx := context.Background()
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	session := newOrgChatSession("user_a")
+	session.Metadata.ZedThreadID = "ctx_stopped_thread"
+	session.Metadata.ExternalAgentStatus = "stopped"
+	seedParentWithInteractions(t, mem, session, 2)
+	staleHandoff, err := mem.CreateInteraction(ctx, &types.Interaction{
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		SessionID:     session.ID,
+		UserID:        session.Owner,
+		GenerationID:  session.GenerationID,
+		Mode:          types.SessionModeInference,
+		Trigger:       types.InteractionTriggerForkHandoff,
+		State:         types.InteractionStateWaiting,
+		PromptMessage: "stale offline handoff",
+	})
+	require.NoError(t, err)
+	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(false)
+
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{
+			CodeAgentOverrides: &types.CodeAgentOverrides{
+				ProviderRef: "anthropic",
+				Model:       "claude-sonnet-4-7",
+			},
+		})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	var response types.SessionExecutionConfigUpdateResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
+	assert.False(t, response.AgentThreadRestarted, "a stopped sandbox must not report a live thread restart")
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "stopped", updated.Metadata.ExternalAgentStatus)
+	assert.Empty(t, updated.Metadata.ZedThreadID)
+	assert.False(t, updated.Metadata.AgentSwitchedAt.IsZero())
+	require.NotNil(t, updated.Metadata.CodeAgentOverrides)
+	assert.Equal(t, "claude-sonnet-4-7", updated.Metadata.CodeAgentOverrides.Model)
+
+	interactions, _, err := mem.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: session.ID,
+		PerPage:   100,
+	})
+	require.NoError(t, err)
+	var seedCount, waitingCount int
+	for _, interaction := range interactions {
+		if interaction.Trigger == types.InteractionTriggerForkSeed {
+			seedCount++
+		}
+		if interaction.State == types.InteractionStateWaiting {
+			waitingCount++
+		}
+	}
+	assert.Equal(t, 1, seedCount, "the next started thread needs one transcript seed")
+	assert.Zero(t, waitingCount, "offline model changes must not make the chat look active")
+
+	interrupted, err := mem.GetInteraction(ctx, staleHandoff.ID)
+	require.NoError(t, err)
+	assert.Equal(t, types.InteractionStateInterrupted, interrupted.State)
+	seededPrompt := srv.maybePrependTranscript(ctx, updated, "first message after start")
+	assert.Contains(t, seededPrompt, "agent reply 1")
+	assert.Contains(t, seededPrompt, "first message after start")
 }
 
 // The session endpoint is the generic one: a SpecTask session writes through to

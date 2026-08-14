@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func callSwitchAgentHTTP(t *testing.T, srv *HelixAPIServer, user *types.User, sessionID string, body SwitchAgentRequest) *httptest.ResponseRecorder {
@@ -145,6 +147,54 @@ func TestSwitchAgent_RepairsStaleAgentNameForCurrentApp(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.CodeAgentRuntimeCodexCLI.ZedAgentName(), updated.Metadata.ZedAgentName)
 	assert.Empty(t, updated.Metadata.ZedThreadID)
+}
+
+func TestSwitchAgentWhileStoppedRecordsChangeWithoutHandoff(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctrl := gomock.NewController(t)
+	executor := external_agent.NewMockExecutor(ctrl)
+	srv.externalAgentExecutor = executor
+	ctx := context.Background()
+	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
+
+	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+		}},
+	}}})
+	session := newTestParentSession(user.ID)
+	session.Metadata.ExternalAgentStatus = "stopped"
+	session.Metadata.ZedThreadID = "thread_before_stop"
+	seedParentWithInteractions(t, mem, session, 1)
+	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(false)
+
+	rr := callSwitchAgentHTTP(t, srv, user, session.ID, SwitchAgentRequest{HelixAppID: "app_target"})
+	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "stopped", updated.Metadata.ExternalAgentStatus)
+	assert.Equal(t, "app_target", updated.ParentApp)
+	assert.Equal(t, types.CodeAgentRuntimeCodexCLI, updated.Metadata.CodeAgentRuntime)
+	assert.Empty(t, updated.Metadata.ZedThreadID)
+
+	interactions, _, err := mem.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID})
+	require.NoError(t, err)
+	var seedCount, handoffCount, waitingCount int
+	for _, interaction := range interactions {
+		switch interaction.Trigger {
+		case types.InteractionTriggerForkSeed:
+			seedCount++
+		case types.InteractionTriggerForkHandoff:
+			handoffCount++
+		}
+		if interaction.State == types.InteractionStateWaiting {
+			waitingCount++
+		}
+	}
+	assert.Equal(t, 1, seedCount)
+	assert.Zero(t, handoffCount)
+	assert.Zero(t, waitingCount)
 }
 
 func TestSwitchAgent_RejectsOrgAgentForCodingSession(t *testing.T) {

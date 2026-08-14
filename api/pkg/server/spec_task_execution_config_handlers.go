@@ -56,7 +56,7 @@ func (s *HelixAPIServer) resolveSpecTaskExecutionConfig(ctx context.Context, tas
 
 // updateSpecTaskExecutionConfig godoc
 // @Summary Update task execution configuration
-// @Description Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place; code-agent changes start a new ACP thread with normalized prior context.
+// @Description Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.
 // @Tags spec-driven-tasks
 // @Accept json
 // @Produce json
