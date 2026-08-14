@@ -56,6 +56,36 @@ func (suite *MultiClientManagerTestSuite) Test_VLLM() {
 	suite.NotNil(client)
 }
 
+func (suite *MultiClientManagerTestSuite) Test_ListProviderEndpointsForOwner_UsesOrgScope() {
+	suite.store.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+		Owner:      "org_123",
+		OwnerType:  types.OwnerTypeOrg,
+		WithGlobal: true,
+	}).Return([]*types.ProviderEndpoint{{ID: "pe_org", Name: "org-provider"}}, nil)
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	endpoints, err := manager.ListProviderEndpointsForOwner(context.Background(), "org_123", types.OwnerTypeOrg)
+	suite.NoError(err)
+	suite.Contains(endpoints, &types.ProviderEndpoint{ID: "pe_org", Name: "org-provider"})
+}
+
+func (suite *MultiClientManagerTestSuite) Test_GetClient_UsesOrgScope() {
+	suite.store.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+		Owner:      "org_123",
+		OwnerType:  types.OwnerTypeOrg,
+		WithGlobal: true,
+	}).Return([]*types.ProviderEndpoint{{
+		ID: "pe_org", Name: "org-provider", BaseURL: "https://example.com/v1", APIKey: "key",
+	}}, nil)
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	client, err := manager.GetClient(context.Background(), &GetClientRequest{
+		Provider: "pe_org", Owner: "org_123", OwnerType: types.OwnerTypeOrg,
+	})
+	suite.NoError(err)
+	suite.NotNil(client)
+}
+
 func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 	// Create a temporary file for testing
 	tmpDir := suite.T().TempDir()

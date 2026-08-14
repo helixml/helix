@@ -498,7 +498,7 @@ func TestBuildCodeAgentConfigProviderAdvertisedContextLength(t *testing.T) {
 			}
 
 			providerManager.EXPECT().
-				ListProviderEndpoints(gomock.Any(), "user-1").
+				ListProviderEndpointsForOwner(gomock.Any(), "user-1", types.OwnerTypeUser).
 				Return(func() []*types.ProviderEndpoint {
 					if tt.providerListErr != nil {
 						return nil

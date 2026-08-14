@@ -29970,6 +29970,9 @@
                     "config": {
                         "$ref": "#/components/schemas/types.AgentConfig"
                     },
+                    "configuration_warning": {
+                        "type": "string"
+                    },
                     "created": {
                         "type": "string"
                     },
@@ -32546,6 +32549,9 @@
                     },
                     "config": {
                         "$ref": "#/components/schemas/types.AgentConfig"
+                    },
+                    "configuration_warning": {
+                        "type": "string"
                     },
                     "created": {
                         "type": "string"

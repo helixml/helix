@@ -2010,6 +2010,8 @@ type Agent struct {
 
 	// AgentKind classifies where an agent belongs in the product.
 	AgentKind string `json:"agent_kind" gorm:"not null;default:helix_agent;index"`
+
+	ConfigurationWarning string `json:"configuration_warning,omitempty" gorm:"-"`
 }
 
 func (Agent) TableName() string { return "apps" }

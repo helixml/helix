@@ -1191,6 +1191,7 @@ export interface ServerAgentCreateResponse {
   /** AgentKind classifies where an agent belongs in the product. */
   agent_kind?: string;
   config?: TypesAgentConfig;
+  configuration_warning?: string;
   created?: string;
   global?: boolean;
   id?: string;
@@ -2313,6 +2314,7 @@ export interface TypesAgent {
   /** AgentKind classifies where an agent belongs in the product. */
   agent_kind?: string;
   config?: TypesAgentConfig;
+  configuration_warning?: string;
   created?: string;
   global?: boolean;
   id?: string;

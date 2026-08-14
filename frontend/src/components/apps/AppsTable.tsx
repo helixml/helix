@@ -33,6 +33,7 @@ import {
 // Import DuplicateDialog
 import DuplicateDialog from '../app/DuplicateDialog'
 import AgentHarness, { getAgentHarnessRuntime } from '../agent/AgentHarness'
+import { ConfigurationWarningChip } from './ConfigurationWarning'
 
 const AppsDataGrid: FC<React.PropsWithChildren<{
   authenticated: boolean,
@@ -254,6 +255,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
                 {description}
               </Typography>
             )}
+            <ConfigurationWarningChip warning={app.configuration_warning} />
           </Box>
         ),
         skills: (

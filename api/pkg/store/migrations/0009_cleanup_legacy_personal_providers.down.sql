@@ -1,0 +1,1 @@
+-- No-op rollback. Deleted unused personal provider credentials cannot be restored.

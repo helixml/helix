@@ -776,6 +776,7 @@ export interface IApp {
   owner_type: IOwnerType;
   user?: IUser;
   agent_kind: string;
+  configuration_warning?: string;
 }
 
 export interface IAppUpdate {

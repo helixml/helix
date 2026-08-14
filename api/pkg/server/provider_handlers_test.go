@@ -287,7 +287,7 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 		Name:         "my-ollama",
 		BaseURL:      "http://localhost:11434",
 		APIKey:       "real-secret-key",
-		EndpointType: types.ProviderEndpointTypeUser,
+		EndpointType: types.ProviderEndpointTypeGlobal,
 	}
 
 	body, err := json.Marshal(endpoint)
@@ -298,7 +298,7 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 		ProvidersManagementEnabled: true,
 	}, nil)
 
-	s.manager.EXPECT().ListProviders(gomock.Any(), "user_id").Return([]types.Provider{}, nil)
+	s.manager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), "user_id", types.OwnerTypeUser).Return([]*types.ProviderEndpoint{}, nil)
 
 	createdEndpoint := &types.ProviderEndpoint{
 		ID:           "ep_123",
@@ -307,7 +307,7 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 		APIKey:       "real-secret-key",
 		Owner:        "user_id",
 		OwnerType:    types.OwnerTypeUser,
-		EndpointType: types.ProviderEndpointTypeUser,
+		EndpointType: types.ProviderEndpointTypeGlobal,
 	}
 	s.store.EXPECT().CreateProviderEndpoint(gomock.Any(), gomock.Any()).Return(createdEndpoint, nil)
 
@@ -316,8 +316,9 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 	warmDone := make(chan struct{})
 
 	s.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
-		Provider: "my-ollama",
-		Owner:    "user_id",
+		Provider:  "my-ollama",
+		Owner:     "user_id",
+		OwnerType: types.OwnerTypeUser,
 	}).DoAndReturn(func(_ context.Context, req *manager.GetClientRequest) (openai.Client, error) {
 		defer close(warmDone)
 		// The warm goroutine shouldn't see "*****" — it should use the copy with the real key.
@@ -352,6 +353,34 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 	case <-time.After(5 * time.Second):
 		s.Fail("cache warm goroutine did not complete in time")
 	}
+}
+
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_RejectsPersonalProvider() {
+	s.server.authMiddleware = &authMiddleware{
+		store: s.store,
+		cfg: authMiddlewareConfig{
+			adminUserIDs: []string{"user_id"},
+		},
+	}
+
+	body, err := json.Marshal(types.ProviderEndpoint{
+		Name: "personal-provider",
+	})
+	s.Require().NoError(err)
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+
+	req, err := http.NewRequest("POST", "/v1/provider-endpoints", bytes.NewReader(body))
+	s.Require().NoError(err)
+	req = req.WithContext(s.authCtx)
+
+	rr := httptest.NewRecorder()
+	s.server.createProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusBadRequest, rr.Code)
+	s.Contains(rr.Body.String(), "Personal inference providers are no longer supported")
 }
 
 // When a custom endpoint has a static Models list and upstream /v1/models
@@ -791,7 +820,7 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_AdminUpdatesPresentat
 			s.True(ep.BillingEnabled)
 			return ep, nil
 		})
-	s.manager.EXPECT().ListProviders(gomock.Any(), "admin_id").Return([]types.Provider{}, nil)
+	s.manager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), "admin_id", types.OwnerTypeUser).Return([]*types.ProviderEndpoint{}, nil)
 
 	update := types.UpdateProviderEndpoint{
 		Name:           "DeepSeek Production",
@@ -975,7 +1004,7 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_RenameInvalidatesOldK
 	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
 		ID: endpointID,
 	}).Return(existing, nil)
-	s.manager.EXPECT().ListProviders(gomock.Any(), "user_id").Return([]types.Provider{}, nil)
+	s.manager.EXPECT().ListProviderEndpointsForOwner(gomock.Any(), "user_id", types.OwnerTypeUser).Return([]*types.ProviderEndpoint{}, nil)
 	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
 			s.Equal("new-name", ep.Name)

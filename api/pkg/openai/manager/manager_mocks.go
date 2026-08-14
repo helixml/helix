@@ -110,6 +110,21 @@ func (mr *MockProviderManagerMockRecorder) ListProviderEndpoints(ctx, owner any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviderEndpoints", reflect.TypeOf((*MockProviderManager)(nil).ListProviderEndpoints), ctx, owner)
 }
 
+// ListProviderEndpointsForOwner mocks base method.
+func (m *MockProviderManager) ListProviderEndpointsForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]*types.ProviderEndpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProviderEndpointsForOwner", ctx, owner, ownerType)
+	ret0, _ := ret[0].([]*types.ProviderEndpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProviderEndpointsForOwner indicates an expected call of ListProviderEndpointsForOwner.
+func (mr *MockProviderManagerMockRecorder) ListProviderEndpointsForOwner(ctx, owner, ownerType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviderEndpointsForOwner", reflect.TypeOf((*MockProviderManager)(nil).ListProviderEndpointsForOwner), ctx, owner, ownerType)
+}
+
 // ListProviders mocks base method.
 func (m *MockProviderManager) ListProviders(ctx context.Context, owner string) ([]types.Provider, error) {
 	m.ctrl.T.Helper()

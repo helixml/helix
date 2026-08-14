@@ -1087,10 +1087,12 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 		return nil, nil
 	}
 	owner := actorID
+	ownerType := types.OwnerTypeUser
 	if app != nil && app.OrganizationID != "" {
 		owner = app.OrganizationID
+		ownerType = types.OwnerTypeOrg
 	}
-	return apiServer.providerManager.ListProviderEndpoints(ctx, owner)
+	return apiServer.providerManager.ListProviderEndpointsForOwner(ctx, owner, ownerType)
 }
 
 // validateSpecTaskAgentConfig pre-flights the agent's provider/model snapshot

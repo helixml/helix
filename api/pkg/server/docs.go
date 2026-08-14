@@ -25400,6 +25400,9 @@ const docTemplate = `{
                 "config": {
                     "$ref": "#/definitions/types.AgentConfig"
                 },
+                "configuration_warning": {
+                    "type": "string"
+                },
                 "created": {
                     "type": "string"
                 },
@@ -27976,6 +27979,9 @@ const docTemplate = `{
                 },
                 "config": {
                     "$ref": "#/definitions/types.AgentConfig"
+                },
+                "configuration_warning": {
+                    "type": "string"
                 },
                 "created": {
                     "type": "string"

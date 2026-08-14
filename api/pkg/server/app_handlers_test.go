@@ -643,7 +643,7 @@ func TestApplyModelSubstitutions(t *testing.T) {
 	t.Run("substitutes model when provider unavailable", func(t *testing.T) {
 		// Mock provider manager to return only "helix" as available
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, user.ID).
+			ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 		app := &types.App{
@@ -676,7 +676,7 @@ func TestApplyModelSubstitutions(t *testing.T) {
 
 	t.Run("leaves unavailable provider ID for organization validation", func(t *testing.T) {
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "org1").
+			ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).
 			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil).
 			Times(2)
 
@@ -705,7 +705,7 @@ func TestApplyModelSubstitutions(t *testing.T) {
 
 	t.Run("substitutes unavailable provider ID for personal app", func(t *testing.T) {
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, user.ID).
+			ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 		app := &types.App{
@@ -729,7 +729,7 @@ func TestApplyModelSubstitutions(t *testing.T) {
 	t.Run("preserves all other fields during substitution", func(t *testing.T) {
 		// Mock provider manager to return only "helix" as available
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, user.ID).
+			ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 		// Create an assistant with all possible fields populated
@@ -803,7 +803,7 @@ func TestApplyModelSubstitutions(t *testing.T) {
 	t.Run("preserves original values when no substitution needed", func(t *testing.T) {
 		// Mock provider manager to return "together" as available
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, user.ID).
+			ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 			Return([]*types.ProviderEndpoint{{Name: "together"}}, nil)
 
 		originalAssistant := types.AssistantConfig{
@@ -838,7 +838,7 @@ func TestApplyModelSubstitutions(t *testing.T) {
 	t.Run("handles multiple assistants independently", func(t *testing.T) {
 		// Mock provider manager to return only "helix" as available
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, user.ID).
+			ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 		app := &types.App{
@@ -908,7 +908,7 @@ func TestCreateAppWithModelSubstitutions(t *testing.T) {
 
 	// Mock provider manager to return only "helix" as available (forcing substitution)
 	mockProviderManager.EXPECT().
-		ListProviderEndpoints(ctx, user.ID).
+		ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 		Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 	app := &types.App{
@@ -976,7 +976,7 @@ func TestApplyModelSubstitutions_AgentMode(t *testing.T) {
 
 	// Mock provider manager to return only "helix" as available
 	mockProviderManager.EXPECT().
-		ListProviderEndpoints(ctx, user.ID).
+		ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 		Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 	app := &types.App{
@@ -1067,7 +1067,7 @@ func TestApplyModelSubstitutions_AgentModePartialSubstitution(t *testing.T) {
 
 	// Mock provider manager to return "helix" and "anthropic" as available
 	mockProviderManager.EXPECT().
-		ListProviderEndpoints(ctx, user.ID).
+		ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 		Return([]*types.ProviderEndpoint{{Name: "helix"}, {Name: "anthropic"}}, nil)
 
 	app := &types.App{
@@ -1171,7 +1171,7 @@ func TestO3MiniSubstitution(t *testing.T) {
 
 	// Mock provider manager to return only "helix" and "anthropic" as available (no openai)
 	mockProviderManager.EXPECT().
-		ListProviderEndpoints(ctx, user.ID).
+		ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 		Return([]*types.ProviderEndpoint{{Name: "helix"}, {Name: "anthropic"}}, nil)
 
 	app := &types.App{
@@ -1308,7 +1308,7 @@ func TestValidateProvidersAndModels_HelixAgentRejectsTopLevelProviderModel(t *te
 	user := &types.User{ID: "user1"}
 
 	mockProviderManager.EXPECT().
-		ListProviderEndpoints(ctx, user.ID).
+		ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 		Return([]*types.ProviderEndpoint{{Name: "openai"}}, nil)
 
 	app := &types.App{
@@ -1362,7 +1362,7 @@ func TestValidateProvidersAndModels_HelixAgentRequiresModelProviders(t *testing.
 	user := &types.User{ID: "user1"}
 
 	mockProviderManager.EXPECT().
-		ListProviderEndpoints(ctx, user.ID).
+		ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).
 		Return([]*types.ProviderEndpoint{{Name: "openai"}}, nil)
 
 	app := &types.App{
@@ -1406,11 +1406,11 @@ func TestValidateProvidersAndModels_UnavailableProviderMessage(t *testing.T) {
 		}
 	}
 
-	mockProviderManager.EXPECT().ListProviderEndpoints(ctx, "org1").Return([]*types.ProviderEndpoint{}, nil)
+	mockProviderManager.EXPECT().ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).Return([]*types.ProviderEndpoint{}, nil)
 	err := server.validateProvidersAndModels(ctx, user, app("org1"))
 	require.EqualError(t, err, types.OrganizationProviderUnavailableMessage)
 
-	mockProviderManager.EXPECT().ListProviderEndpoints(ctx, user.ID).Return([]*types.ProviderEndpoint{}, nil)
+	mockProviderManager.EXPECT().ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).Return([]*types.ProviderEndpoint{}, nil)
 	err = server.validateProvidersAndModels(ctx, user, app(""))
 	require.ErrorContains(t, err, "provider 'pe_provider' is not available")
 }
@@ -1426,7 +1426,7 @@ func TestListEndpointsForApp(t *testing.T) {
 
 	t.Run("personal app uses user owner only", func(t *testing.T) {
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "user1").
+			ListProviderEndpointsForOwner(ctx, "user1", types.OwnerTypeUser).
 			Return([]*types.ProviderEndpoint{{ID: "pe_user_01", Name: "user-prov"}}, nil)
 		app := &types.App{ID: "app1"}
 		eps, err := server.listEndpointsForApp(ctx, "user1", app)
@@ -1437,7 +1437,7 @@ func TestListEndpointsForApp(t *testing.T) {
 
 	t.Run("org app excludes personal bucket", func(t *testing.T) {
 		mockProviderManager.EXPECT().
-			ListProviderEndpoints(ctx, "org1").
+			ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).
 			Return([]*types.ProviderEndpoint{
 				{ID: "pe_org_01", Name: "org-prov"},
 				{Name: "openai"},
@@ -1450,4 +1450,37 @@ func TestListEndpointsForApp(t *testing.T) {
 		require.Equal(t, "pe_org_01", eps[0].ID)
 		require.Equal(t, "openai", eps[1].Name)
 	})
+}
+
+func TestPopulateAgentConfigurationWarnings(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockProviderManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{providerManager: mockProviderManager}
+	ctx := context.Background()
+	user := &types.User{ID: "user1"}
+
+	personal := &types.App{ID: "personal", Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+		Provider: "pe_personal", Model: "model",
+	}}}}}
+	mockProviderManager.EXPECT().ListProviderEndpointsForOwner(ctx, user.ID, types.OwnerTypeUser).Return([]*types.ProviderEndpoint{{
+		ID: "pe_personal", OwnerType: types.OwnerTypeUser, EndpointType: types.ProviderEndpointTypeUser,
+	}}, nil)
+	server.populateAgentConfigurationWarnings(ctx, user, []*types.App{personal})
+	require.Contains(t, personal.ConfigurationWarning, "legacy personal inference provider")
+
+	orphan := &types.App{ID: "orphan", OrganizationID: "org1", Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+		Provider: "pe_missing", Model: "model",
+	}}}}}
+	mockProviderManager.EXPECT().ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).Return(nil, nil)
+	server.populateAgentConfigurationWarnings(ctx, user, []*types.App{orphan})
+	require.Equal(t, types.OrganizationProviderUnavailableMessage, orphan.ConfigurationWarning)
+
+	valid := &types.App{ID: "valid", OrganizationID: "org1", Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+		Provider: "pe_org", Model: "model",
+	}}}}}
+	mockProviderManager.EXPECT().ListProviderEndpointsForOwner(ctx, "org1", types.OwnerTypeOrg).Return([]*types.ProviderEndpoint{{
+		ID: "pe_org", OwnerType: types.OwnerTypeOrg, EndpointType: types.ProviderEndpointTypeOrg,
+	}}, nil)
+	server.populateAgentConfigurationWarnings(ctx, user, []*types.App{valid})
+	require.Empty(t, valid.ConfigurationWarning)
 }

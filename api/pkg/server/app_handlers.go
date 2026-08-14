@@ -276,6 +276,7 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 		}
 
 		orgApps = s.populateAppOwner(ctx, orgApps)
+		s.populateAgentConfigurationWarnings(ctx, user, orgApps)
 
 		return orgApps, nil
 	}
@@ -306,6 +307,7 @@ func (s *HelixAPIServer) listAgents(_ http.ResponseWriter, r *http.Request) ([]*
 	allApps := append(nonGlobalUserApps, globalApps...)
 
 	filteredApps := s.populateAppOwner(ctx, allApps)
+	s.populateAgentConfigurationWarnings(ctx, user, filteredApps)
 
 	return filteredApps, nil
 }
@@ -683,12 +685,6 @@ func applyDefaultNewProjectAgentConfig(settings *types.SystemSettings, app *type
 // validateProvidersAndModels checks if the provider and model are valid. Provider
 // can be empty, however model is required
 func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *types.User, app *types.Agent) error {
-	for _, assistant := range app.Config.Helix.Assistants {
-		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
-			return fmt.Errorf("assistant %q: %w", assistant.Name, err)
-		}
-	}
-
 	endpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
 	if err != nil {
 		log.Error().
@@ -696,6 +692,15 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 			Str("user_id", user.ID).
 			Msg("Failed to get available providers during validation")
 		return fmt.Errorf("failed to get available providers: %w", err)
+	}
+	return validateProvidersAndModelsWithEndpoints(user, app, endpoints)
+}
+
+func validateProvidersAndModelsWithEndpoints(user *types.User, app *types.Agent, endpoints []*types.ProviderEndpoint) error {
+	for _, assistant := range app.Config.Helix.Assistants {
+		if err := types.ValidateCodeAgentModelCompatibility(assistant); err != nil {
+			return fmt.Errorf("assistant %q: %w", assistant.Name, err)
+		}
 	}
 
 	// Provider references are IDs for DB-backed providers, canonical names
@@ -1097,6 +1102,7 @@ func (s *HelixAPIServer) getAgent(_ http.ResponseWriter, r *http.Request) (*type
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	s.populateAgentConfigurationWarnings(r.Context(), user, []*types.Agent{app})
 	return app, nil
 }
 
@@ -2349,6 +2355,45 @@ func newSafeFetchClient(timeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout:   timeout,
 		Transport: transport,
+	}
+}
+
+func (s *HelixAPIServer) populateAgentConfigurationWarnings(ctx context.Context, user *types.User, apps []*types.Agent) {
+	for _, app := range apps {
+		app.ConfigurationWarning = ""
+		endpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
+		if err != nil {
+			log.Warn().Err(err).Str("app_id", app.ID).Msg("failed to populate agent configuration warning")
+			continue
+		}
+		if err := validateProvidersAndModelsWithEndpoints(user, app, endpoints); err != nil {
+			app.ConfigurationWarning = err.Error()
+			continue
+		}
+		personalIDs := make(map[string]struct{})
+		for _, endpoint := range endpoints {
+			if endpoint.OwnerType == types.OwnerTypeUser && endpoint.EndpointType == types.ProviderEndpointTypeUser {
+				personalIDs[endpoint.ID] = struct{}{}
+			}
+		}
+		for _, assistant := range app.Config.Helix.Assistants {
+			refs := []string{
+				assistant.Provider,
+				assistant.ReasoningModelProvider,
+				assistant.GenerationModelProvider,
+				assistant.SmallReasoningModelProvider,
+				assistant.SmallGenerationModelProvider,
+			}
+			for _, ref := range refs {
+				if _, ok := personalIDs[ref]; ok {
+					app.ConfigurationWarning = "This agent uses a legacy personal inference provider. Select an organization or global provider in agent settings."
+					break
+				}
+			}
+			if app.ConfigurationWarning != "" {
+				break
+			}
+		}
 	}
 }
 

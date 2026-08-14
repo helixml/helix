@@ -46,6 +46,7 @@ import {
 } from '../services/helixOrgService'
 import { AGENT_TYPE_ZED_EXTERNAL } from '../types'
 import { isOrgAgent, usesFocusedAgentDetails } from '../utils/apps'
+import { ConfigurationWarningAlert } from '../components/apps/ConfigurationWarning'
 
 const App: FC = () => {
   const account = useAccount()  
@@ -172,6 +173,7 @@ const App: FC = () => {
         }}
       >
         <Box sx={{ width: '100%', pl: 2, pr: 2, mt: 2 }}>
+          <ConfigurationWarningAlert warning={appTools.app.configuration_warning} />
           <Grid container>
             <Grid item xs={12} sx={{
               p: 0,

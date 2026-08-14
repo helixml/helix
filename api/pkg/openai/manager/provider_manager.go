@@ -20,9 +20,10 @@ import (
 )
 
 type GetClientRequest struct {
-	Provider string
-	Owner    string
-	AppID    string
+	Provider  string
+	Owner     string
+	OwnerType types.OwnerType
+	AppID     string
 }
 
 // RunnerControllerStatus defines the minimum interface needed to check runner status
@@ -45,6 +46,8 @@ type ProviderManager interface {
 	// provider reference (an immutable ID for DB-backed, the canonical name
 	// for globals) to the current canonical name.
 	ListProviderEndpoints(ctx context.Context, owner string) ([]*types.ProviderEndpoint, error)
+	// ListProviderEndpointsForOwner uses the explicit owner scope required for organization providers.
+	ListProviderEndpointsForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]*types.ProviderEndpoint, error)
 	// SetRunnerController sets the runner controller for checking runner availability
 	SetRunnerController(controller RunnerControllerStatus)
 }
@@ -348,6 +351,11 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 // — the agent record stores the immutable ID, settings.json carries the
 // current name. Renames flow into running sessions on the next sync poll.
 func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner string) ([]*types.ProviderEndpoint, error) {
+	return m.ListProviderEndpointsForOwner(ctx, owner, types.OwnerTypeUser)
+}
+
+// ListProviderEndpointsForOwner returns global endpoints plus DB endpoints in exactly the requested owner scope.
+func (m *MultiClientManager) ListProviderEndpointsForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]*types.ProviderEndpoint, error) {
 	// Always list global providers including Helix — runner availability is
 	// checked by the inferencerouter at request-routing time post sandbox-
 	// absorbs-runner pivot, not at provider-listing time. Matches
@@ -368,6 +376,7 @@ func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner st
 
 	userProviders, err := m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      owner,
+		OwnerType:  ownerType,
 		WithGlobal: true,
 	})
 	if err != nil {
@@ -377,7 +386,7 @@ func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner st
 	return endpoints, nil
 }
 
-func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest) (openai.Client, error) {
+func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -401,8 +410,9 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 		return client.client, nil
 	}
 
-	userProviders, err := m.store.ListProviderEndpoints(context.Background(), &store.ListProviderEndpointsQuery{
+	userProviders, err := m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      req.Owner,
+		OwnerType:  req.OwnerType,
 		WithGlobal: true,
 	})
 	if err != nil {

@@ -461,8 +461,9 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 		}
 
 		provider, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
-			Provider: providerEndpoint.Name,
-			Owner:    providerEndpoint.Owner,
+			Provider:  providerEndpoint.Name,
+			Owner:     providerEndpoint.Owner,
+			OwnerType: providerEndpoint.OwnerType,
 		})
 		if err != nil {
 			log.Err(err).
@@ -610,11 +611,6 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	if !isAdmin && !s.Cfg.Providers.EnableCustomUserProviders {
-		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
-		return
-	}
-
 	var endpoint types.ProviderEndpoint
 	if err := json.NewDecoder(r.Body).Decode(&endpoint); err != nil {
 		log.Err(err).Msg("error decoding request body")
@@ -636,8 +632,22 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		endpoint.Owner = user.ID
 	}
 
+	// Default endpoint type from the requested owner scope.
+	if endpoint.EndpointType == "" {
+		if endpoint.OwnerType == types.OwnerTypeOrg {
+			endpoint.EndpointType = types.ProviderEndpointTypeOrg
+		} else {
+			endpoint.EndpointType = types.ProviderEndpointTypeUser
+		}
+	}
+
+	if endpoint.OwnerType == types.OwnerTypeUser && endpoint.EndpointType == types.ProviderEndpointTypeUser {
+		http.Error(rw, "Personal inference providers are no longer supported; create an organization provider instead", http.StatusBadRequest)
+		return
+	}
+
 	// Check for duplicate names
-	existingProviders, err := s.providerManager.ListProviders(r.Context(), endpoint.Owner)
+	existingProviders, err := s.providerManager.ListProviderEndpointsForOwner(r.Context(), endpoint.Owner, endpoint.OwnerType)
 	if err != nil {
 		log.Err(err).Msg("error listing providers")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
@@ -645,15 +655,10 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 
 	for _, provider := range existingProviders {
-		if string(provider) == endpoint.Name {
+		if provider.Name == endpoint.Name {
 			http.Error(rw, fmt.Sprintf("Provider with name '%s' already exists", endpoint.Name), http.StatusBadRequest)
 			return
 		}
-	}
-
-	// Default to user endpoint type if not specified
-	if endpoint.EndpointType == "" {
-		endpoint.EndpointType = types.ProviderEndpointTypeUser
 	}
 
 	// Only admins can add global endpoints
@@ -806,14 +811,14 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	if updatedEndpoint.Name != "" && updatedEndpoint.Name != existingEndpoint.Name {
 		newName := strings.TrimSpace(updatedEndpoint.Name)
 		// Check for duplicate names with other providers
-		existingProviders, err := s.providerManager.ListProviders(ctx, existingEndpoint.Owner)
+		existingProviders, err := s.providerManager.ListProviderEndpointsForOwner(ctx, existingEndpoint.Owner, existingEndpoint.OwnerType)
 		if err != nil {
 			log.Err(err).Msg("error listing providers for name validation")
 			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		for _, provider := range existingProviders {
-			if string(provider) == newName {
+			if provider.Name == newName {
 				http.Error(rw, fmt.Sprintf("Provider with name '%s' already exists", newName), http.StatusBadRequest)
 				return
 			}
