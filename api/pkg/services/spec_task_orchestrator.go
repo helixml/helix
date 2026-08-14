@@ -1118,6 +1118,14 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			task.RepoPullRequests[i].PRState = newState
 			updated = true
 		}
+		if pr.Number > 0 && task.RepoPullRequests[i].PRNumber != pr.Number {
+			task.RepoPullRequests[i].PRNumber = pr.Number
+			updated = true
+		}
+		if pr.URL != "" && task.RepoPullRequests[i].PRURL != pr.URL {
+			task.RepoPullRequests[i].PRURL = pr.URL
+			updated = true
+		}
 
 		// CI status: poll the provider for the PR's head SHA, fire
 		// transition notifications, persist if anything changed.
