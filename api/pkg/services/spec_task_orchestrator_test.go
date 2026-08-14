@@ -987,6 +987,33 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 	assert.NotNil(s.T(), task.MergedAt)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_BackfillsPRMetadata() {
+	ctx := context.Background()
+	task := makePullRequestTask(2)
+	task.RepoPullRequests[1].PRNumber = 0
+	task.RepoPullRequests[1].PRURL = ""
+
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-1", "1").
+		Return(&types.PullRequest{Number: 1, State: types.PullRequestStateOpen}, nil)
+	s.gitService.EXPECT().
+		GetPullRequest(ctx, "repo-2", "2").
+		Return(&types.PullRequest{
+			Number: 42,
+			URL:    "https://github.com/helixml/helix/pull/42",
+			State:  types.PullRequestStateMerged,
+		}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, task).Return(nil)
+
+	err := s.orchestrator.processExternalPullRequestStatus(ctx, task)
+	s.Require().NoError(err)
+
+	assert.Equal(s.T(), 42, task.RepoPullRequests[1].PRNumber)
+	assert.Equal(s.T(), "https://github.com/helixml/helix/pull/42", task.RepoPullRequests[1].PRURL)
+	assert.Equal(s.T(), "merged", task.RepoPullRequests[1].PRState)
+	assert.Equal(s.T(), types.TaskStatusPullRequest, task.Status)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestCheckTaskForExternalPRActivity_NoPRDoesNotTreatBranchAsMerged() {
 	ctx := context.Background()
 	task := &types.SpecTask{
