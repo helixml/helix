@@ -1022,26 +1022,35 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           this project. It can still be changed before a task starts.
         </Typography>
         <Divider sx={{ mb: 3 }} />
-        <FormControl size="small" sx={{ minWidth: 240 }}>
-          <InputLabel id="default-task-environment-label">Environment</InputLabel>
-          <Select
-            labelId="default-task-environment-label"
-            label="Environment"
-            value={effectiveSpecTaskSandboxRuntime(project.default_sandbox_runtime)}
-            onChange={(event) => {
-              const runtime = event.target.value as TypesSandboxRuntime;
-              saveSpecTaskSandboxRuntimePreference(projectId, runtime);
-              updateProjectMutation.mutate({ default_sandbox_runtime: runtime });
-            }}
-          >
-            <MenuItem value={TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop}>
-              Full Desktop
-            </MenuItem>
-            <MenuItem value={TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu}>
-              Headless
-            </MenuItem>
-          </Select>
-        </FormControl>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Typography variant="body2">Environment:</Typography>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <Select
+              value={effectiveSpecTaskSandboxRuntime(
+                project.default_sandbox_runtime,
+              )}
+              inputProps={{ "aria-label": "Default task environment" }}
+              onChange={(event) => {
+                const runtime = event.target.value as TypesSandboxRuntime;
+                saveSpecTaskSandboxRuntimePreference(projectId, runtime);
+                updateProjectMutation.mutate({
+                  default_sandbox_runtime: runtime,
+                });
+              }}
+            >
+              <MenuItem
+                value={TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop}
+              >
+                Full Desktop
+              </MenuItem>
+              <MenuItem
+                value={TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu}
+              >
+                Headless
+              </MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
       </Box>
 
       {/* Startup Script */}
