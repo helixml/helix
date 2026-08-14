@@ -3429,6 +3429,7 @@ export interface TypesCreateTaskRequest {
   project_id?: string;
   prompt?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  sandbox_runtime?: TypesSandboxRuntime;
   type?: string;
   /** Optional: User email for audit trail */
   user_email?: string;
@@ -6697,6 +6698,7 @@ export interface TypesSpecTask {
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */
@@ -7078,6 +7080,7 @@ export interface TypesSpecTaskWithProject {
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */

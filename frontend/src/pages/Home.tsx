@@ -15,6 +15,7 @@ import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo, MessageCircle } from
 import {
   TypesCodeAgentOverrides,
   TypesSandboxResourceOverrides,
+  TypesSandboxRuntime,
 } from '../api/api'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import RobustPromptInput from '../components/common/RobustPromptInput'
@@ -137,6 +138,9 @@ const Home: FC = () => {
     vcpus: 4,
     memory_mb: 8192,
   })
+  const [taskSandboxRuntime, setTaskSandboxRuntime] = useState<TypesSandboxRuntime>(
+    TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+  )
   const [taskMode, setTaskMode] = useState<NewChatTaskMode>('build')
   const [modeMenuAnchor, setModeMenuAnchor] = useState<HTMLElement | null>(null)
   const [effortMenuAnchor, setEffortMenuAnchor] = useState<HTMLElement | null>(null)
@@ -179,6 +183,7 @@ const Home: FC = () => {
   useEffect(() => {
     setTaskCodeAgentOverrides({})
     setTaskSandboxResources({ vcpus: 4, memory_mb: 8192 })
+    setTaskSandboxRuntime(TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop)
   }, [selectedProjectId])
 
   const taskAgents = codingAgents.flatMap((summary) => {
@@ -250,6 +255,7 @@ const Home: FC = () => {
         prompt: message,
         codeAgentOverrides: taskCodeAgentOverrides,
         sandboxResourceOverrides: taskSandboxResources,
+        sandboxRuntime: taskSandboxRuntime,
       }))
       taskId = task?.id || ''
       if (!taskId) throw new Error('Task creation returned no task ID')
@@ -332,11 +338,13 @@ const Home: FC = () => {
         selectedAgentId={selectedAgentId}
         codeAgentOverrides={taskCodeAgentOverrides}
         sandboxResourceOverrides={taskSandboxResources}
+        sandboxRuntime={taskSandboxRuntime}
         onAgentModelChange={(agentId, overrides) => {
           setSelectedAgentId(agentId)
           setTaskCodeAgentOverrides(overrides)
         }}
         onSandboxResourceOverridesChange={setTaskSandboxResources}
+        onSandboxRuntimeChange={setTaskSandboxRuntime}
         disabled={submitting}
         compact
       />

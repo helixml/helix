@@ -1,7 +1,8 @@
 #!/bin/bash
 # Shared init script for settings-sync-daemon
 # Used by both Ubuntu and Sway startup scripts
-# Waits for Wayland socket, then starts settings-sync-daemon with log prefix
+# Waits for Wayland when a desktop is present, then starts settings-sync-daemon
+# with a log prefix. Headless sessions only require D-Bus.
 # Must be launched from within dbus-run-session (inherits DBUS_SESSION_BUS_ADDRESS)
 
 set -e
@@ -36,33 +37,36 @@ if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
 fi
 log "D-Bus session: ${DBUS_SESSION_BUS_ADDRESS}"
 
-# Wait for Wayland socket (settings-sync-daemon may need display access)
-# Sway uses wayland-1, GNOME uses wayland-0
 WAYLAND_SOCKET=""
-log "Waiting for Wayland socket..."
-for i in $(seq 1 60); do
-    if [ -S "${XDG_RUNTIME_DIR}/wayland-1" ]; then
-        WAYLAND_SOCKET="wayland-1"
-        break
-    elif [ -S "${XDG_RUNTIME_DIR}/wayland-0" ]; then
-        WAYLAND_SOCKET="wayland-0"
-        break
-    fi
-    sleep 0.5
-done
+if [ "${HELIX_HEADLESS}" = "1" ]; then
+    log "Headless mode: no Wayland socket required"
+else
+    # Sway uses wayland-1, GNOME uses wayland-0.
+    log "Waiting for Wayland socket..."
+    for i in $(seq 1 60); do
+        if [ -S "${XDG_RUNTIME_DIR}/wayland-1" ]; then
+            WAYLAND_SOCKET="wayland-1"
+            break
+        elif [ -S "${XDG_RUNTIME_DIR}/wayland-0" ]; then
+            WAYLAND_SOCKET="wayland-0"
+            break
+        fi
+        sleep 0.5
+    done
 
-if [ -z "$WAYLAND_SOCKET" ]; then
-    log "ERROR: No Wayland socket found after 30 seconds"
-    exit 1
+    if [ -z "$WAYLAND_SOCKET" ]; then
+        log "ERROR: No Wayland socket found after 30 seconds"
+        exit 1
+    fi
+    log "Wayland socket: ${WAYLAND_SOCKET}"
+    export WAYLAND_DISPLAY="$WAYLAND_SOCKET"
 fi
-log "Wayland socket: ${WAYLAND_SOCKET}"
 
 # Export environment for settings-sync-daemon
-export WAYLAND_DISPLAY="$WAYLAND_SOCKET"
 export DBUS_SESSION_BUS_ADDRESS
 
 # Set XDG_CURRENT_DESKTOP if not already set
-if [ -z "$XDG_CURRENT_DESKTOP" ]; then
+if [ -z "$XDG_CURRENT_DESKTOP" ] && [ -n "$WAYLAND_SOCKET" ]; then
     if [ "$WAYLAND_SOCKET" = "wayland-1" ]; then
         export XDG_CURRENT_DESKTOP="sway"
     else

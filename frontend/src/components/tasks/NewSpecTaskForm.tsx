@@ -42,6 +42,7 @@ import {
   TypesSpecTaskPriority,
   TypesBranchMode,
   TypesSandboxResourceOverrides,
+  TypesSandboxRuntime,
   TypesSpecTask,
   TypesSpecTaskStatus,
 } from "../../api/api";
@@ -146,6 +147,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     vcpus: 4,
     memory_mb: 8192,
   });
+  const [sandboxRuntime, setSandboxRuntime] = useState<TypesSandboxRuntime>(
+    TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+  );
   // Goose recipe selection — only meaningful when the selected agent's runtime
   // is goose_code. Empty selectedRecipeName means "use vanilla goose"; the
   // backend skips baking and the agent's declared recipes are still available
@@ -432,6 +436,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setSelectedHelixAgent("");
     setCodeAgentOverrides({});
     setSandboxResourceOverrides({ vcpus: 4, memory_mb: 8192 });
+    setSandboxRuntime(TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop);
     setSelectedRecipeName("");
     setRecipeParams({});
     // justDoItMode and autoStart intentionally kept — they persist to the next
@@ -511,6 +516,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           ? codeAgentOverrides
           : undefined,
         sandbox_resource_overrides: sandboxResourceOverrides,
+        sandbox_runtime: sandboxRuntime,
       };
 
       const response = await api
@@ -1134,11 +1140,13 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   selectedAgentId={selectedHelixAgent}
                   codeAgentOverrides={codeAgentOverrides}
                   sandboxResourceOverrides={sandboxResourceOverrides}
+                  sandboxRuntime={sandboxRuntime}
                   onAgentModelChange={(agentId, overrides) => {
                     setSelectedHelixAgent(agentId);
                     setCodeAgentOverrides(overrides);
                   }}
                   onSandboxResourceOverridesChange={setSandboxResourceOverrides}
+                  onSandboxRuntimeChange={setSandboxRuntime}
                 />
                 {selectedAgentIsGoose && (
                   <GooseRecipeSelector
@@ -1215,8 +1223,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   agents={[]}
                   selectedAgentId=""
                   sandboxResourceOverrides={sandboxResourceOverrides}
+                  sandboxRuntime={sandboxRuntime}
                   onAgentModelChange={() => undefined}
                   onSandboxResourceOverridesChange={setSandboxResourceOverrides}
+                  onSandboxRuntimeChange={setSandboxRuntime}
                 />
               )}
             </Box>

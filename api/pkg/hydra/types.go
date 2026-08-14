@@ -34,7 +34,7 @@ type DevContainerType string
 const (
 	DevContainerTypeSway     DevContainerType = "sway"     // Sway compositor with Zed
 	DevContainerTypeUbuntu   DevContainerType = "ubuntu"   // GNOME with Zed
-	DevContainerTypeHeadless DevContainerType = "headless" // No GUI, just agent (future)
+	DevContainerTypeHeadless DevContainerType = "headless" // No GUI, agent-only runtime
 )
 
 // DevContainerStatus represents the current status of a dev container

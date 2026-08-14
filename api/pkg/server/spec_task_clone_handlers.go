@@ -200,6 +200,7 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		TechnicalDesign:     technicalDesign,
 		ImplementationPlan:  implementationPlan,
 		JustDoItMode:        source.JustDoItMode,
+		SandboxRuntime:      types.EffectiveSpecTaskSandboxRuntime(source.SandboxRuntime),
 		ClonedFromID:        source.ID,
 		ClonedFromProjectID: source.ProjectID,
 		CloneGroupID:        cloneGroupID,

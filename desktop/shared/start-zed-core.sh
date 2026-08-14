@@ -188,7 +188,11 @@ run_zed_restart_loop() {
     while true; do
         echo "Launching Zed..."
         # ZED_EXTRA_FILES can be set by desktop-specific script (e.g., user guide)
-        /zed-build/zed "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
+        if [ "${HELIX_HEADLESS}" = "1" ]; then
+            /zed-build/zed --headless "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
+        else
+            /zed-build/zed "${ZED_FOLDERS[@]}" "${ZED_EXTRA_FILES[@]}" || true
+        fi
         echo "Zed exited, restarting in 2 seconds..."
         sleep 2
     done

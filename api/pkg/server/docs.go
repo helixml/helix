@@ -24456,7 +24456,7 @@ const docTemplate = `{
                 "headless"
             ],
             "x-enum-comments": {
-                "DevContainerTypeHeadless": "No GUI, just agent (future)",
+                "DevContainerTypeHeadless": "No GUI, agent-only runtime",
                 "DevContainerTypeSway": "Sway compositor with Zed",
                 "DevContainerTypeUbuntu": "GNOME with Zed"
             },
@@ -30372,6 +30372,9 @@ const docTemplate = `{
                 },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
                 },
                 "type": {
                     "type": "string"
@@ -37374,6 +37377,9 @@ const docTemplate = `{
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
+                "sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
+                },
                 "sandbox_state": {
                     "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
                     "type": "string"
@@ -38216,6 +38222,9 @@ const docTemplate = `{
                 },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
                 },
                 "sandbox_state": {
                     "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",

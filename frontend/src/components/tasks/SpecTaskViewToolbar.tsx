@@ -151,6 +151,8 @@ export interface SpecTaskViewToolbarProps {
   hasSession: boolean;
   /** Show the Chat tab (single-column layouts where chat has no panel). */
   showChatTab?: boolean;
+  /** Headless tasks have no stream and cannot be converted to a desktop. */
+  showDesktop?: boolean;
   /** Status-specific action buttons (Reject / Open PR / …). */
   renderActions?: (density: ToolbarDensity) => ReactNode;
 
@@ -201,6 +203,7 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   onViewChange,
   hasSession,
   showChatTab = false,
+  showDesktop = true,
   renderActions,
   onToggleTerminal,
   terminalOpen,
@@ -238,7 +241,9 @@ const SpecTaskViewToolbar: React.FC<SpecTaskViewToolbarProps> = ({
   const controlIconSize = ICON_BUTTON_METRICS[density].icon;
 
   const tabs = VIEW_TABS.filter(
-    (t) => (!t.sessionOnly || hasSession) && (!t.chatOnly || showChatTab),
+    (t) => (!t.sessionOnly || hasSession)
+      && (!t.chatOnly || showChatTab)
+      && (t.value !== "desktop" || showDesktop),
   );
 
   const controls: SecondaryControl[] = [];

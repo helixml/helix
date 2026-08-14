@@ -190,6 +190,10 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		http.Error(w, "sandbox size must be 1 CPU/2 GB, 4 CPU/8 GB, or 8 CPU/16 GB", http.StatusBadRequest)
 		return
 	}
+	if !types.ValidSpecTaskSandboxRuntime(req.SandboxRuntime) {
+		http.Error(w, "sandbox runtime must be ubuntu-desktop or headless-ubuntu", http.StatusBadRequest)
+		return
+	}
 	if req.CodeAgentOverrides != nil {
 		if err := s.validateCodeAgentOverrides(ctx, req.AppID, req.CodeAgentOverrides, user.ID); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

@@ -136,6 +136,9 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
 		return nil, fmt.Errorf("invalid sandbox resource preset")
 	}
+	if !types.ValidSpecTaskSandboxRuntime(req.SandboxRuntime) {
+		return nil, fmt.Errorf("invalid spec task sandbox runtime %q", req.SandboxRuntime)
+	}
 	sandboxResources := req.SandboxResourceOverrides
 	if sandboxResources == nil {
 		sandboxResources = types.DefaultSpecTaskSandboxResources()
@@ -221,6 +224,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		HelixAppID:               helixAppID, // Helix agent used for entire workflow
 		CodeAgentOverrides:       req.CodeAgentOverrides,
 		SandboxResourceOverrides: sandboxResources,
+		SandboxRuntime:           types.EffectiveSpecTaskSandboxRuntime(req.SandboxRuntime),
 		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
 		// Credential-only override: whose Claude subscription authenticates this
 		// task's agent. Enforced at resolution time against the named user's

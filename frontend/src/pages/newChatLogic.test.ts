@@ -7,6 +7,7 @@ import {
   projectChatAgentStorageKey,
   readNewChatReasoningEffort,
 } from './newChatLogic'
+import { TypesSandboxRuntime } from '../api/api'
 
 describe('new chat project mode', () => {
   it('uses the normal-chat heading without project context', () => {
@@ -53,6 +54,7 @@ describe('new chat project mode', () => {
       projectId: 'prj_1',
       prompt: 'Fix the tests',
       sandboxResourceOverrides: { vcpus: 8, memory_mb: 16384 },
+      sandboxRuntime: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
     })).toMatchObject({
       app_id: 'app_codex',
       code_agent_overrides: {
@@ -61,6 +63,7 @@ describe('new chat project mode', () => {
         service_tier: 'fast',
       },
       sandbox_resource_overrides: { vcpus: 8, memory_mb: 16384 },
+      sandbox_runtime: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
     })
   })
 

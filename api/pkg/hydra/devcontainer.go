@@ -491,8 +491,9 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		return nil, fmt.Errorf("failed to build host config: %w", err)
 	}
 
-	// Configure GPU passthrough
-	dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
+	if req.ContainerType != DevContainerTypeHeadless {
+		dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
+	}
 
 	// Network configuration is nil for host network mode
 	// (host network mode shares the sandbox's network namespace, so no separate network config needed)
@@ -856,99 +857,103 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		}
 	}
 
-	// Add GPU_VENDOR for detect-render-node.sh inside the container
-	// This tells the container which GPU to look for in /sys/class/drm
-	if req.GPUVendor != "" {
-		env = append(env, fmt.Sprintf("GPU_VENDOR=%s", req.GPUVendor))
-	}
+	if req.ContainerType != DevContainerTypeHeadless {
+		// Add GPU_VENDOR for detect-render-node.sh inside the container
+		// This tells the container which GPU to look for in /sys/class/drm
+		if req.GPUVendor != "" {
+			env = append(env, fmt.Sprintf("GPU_VENDOR=%s", req.GPUVendor))
+		}
 
-	// Enable GStreamer debug logging for vsockenc debugging
-	// TODO: Remove this after vsockenc receive thread issue is fixed
-	env = append(env, "GST_DEBUG=vsockenc:5")
+		// Enable GStreamer debug logging for vsockenc debugging
+		// TODO: Remove this after vsockenc receive thread issue is fixed
+		env = append(env, "GST_DEBUG=vsockenc:5")
+	}
 
 	// Tell claude-code-acp that we're in a sandbox environment.
 	// The ACP checks (!IS_ROOT || IS_SANDBOX) to allow bypassPermissions mode.
 	// Our containers run as root, so without this Claude Code prompts for every tool use.
 	env = append(env, "IS_SANDBOX=1")
 
-	// Add GPU-specific environment variables
-	switch req.GPUVendor {
-	case "nvidia":
-		// Check if already set
-		hasVisibleDevices := false
-		hasDriverCaps := false
-		for _, e := range env {
-			if strings.HasPrefix(e, "NVIDIA_VISIBLE_DEVICES=") {
-				hasVisibleDevices = true
+	if req.ContainerType != DevContainerTypeHeadless {
+		// Add GPU-specific environment variables
+		switch req.GPUVendor {
+		case "nvidia":
+			// Check if already set
+			hasVisibleDevices := false
+			hasDriverCaps := false
+			for _, e := range env {
+				if strings.HasPrefix(e, "NVIDIA_VISIBLE_DEVICES=") {
+					hasVisibleDevices = true
+				}
+				if strings.HasPrefix(e, "NVIDIA_DRIVER_CAPABILITIES=") {
+					hasDriverCaps = true
+				}
 			}
-			if strings.HasPrefix(e, "NVIDIA_DRIVER_CAPABILITIES=") {
-				hasDriverCaps = true
+			if !hasVisibleDevices {
+				// Decision 15: per-session GPU pinning on multi-GPU hosts.
+				// If the request specifies GPUIndex, expose only that GPU.
+				// Otherwise default to "all" (legacy behaviour).
+				//
+				// IMPORTANT: in nested-DinD setups (sandbox -> inner dockerd
+				// -> desktop container) the cgroup-level device restriction
+				// from NVIDIA_VISIBLE_DEVICES does NOT actually take effect
+				// because the outer sandbox container was launched with
+				// `--gpus all` so all /dev/nvidia* nodes are inherited.
+				// Verified live on a 2x Blackwell box: nvidia-smi inside
+				// pin-0 still saw GPU 1. The DRM device pinning (PCI walk)
+				// IS effective (Mutter+GStreamer get the right card), but
+				// CUDA visibility leaks. We set both NVIDIA_VISIBLE_DEVICES
+				// AND CUDA_VISIBLE_DEVICES to the index so CUDA workloads
+				// inside the desktop respect the pin even if /dev/nvidia*
+				// nodes leak. Real cgroup-level restriction in nested DinD
+				// is a separate problem documented in Decision 15 follow-ups.
+				if req.GPUIndex != nil {
+					env = append(env, fmt.Sprintf("NVIDIA_VISIBLE_DEVICES=%d", *req.GPUIndex))
+					env = append(env, fmt.Sprintf("CUDA_VISIBLE_DEVICES=%d", *req.GPUIndex))
+				} else {
+					env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
+				}
+			}
+			if !hasDriverCaps {
+				// Use explicit capabilities instead of "all" for GKE/cloud compatibility
+				env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
 			}
 		}
-		if !hasVisibleDevices {
-			// Decision 15: per-session GPU pinning on multi-GPU hosts.
-			// If the request specifies GPUIndex, expose only that GPU.
-			// Otherwise default to "all" (legacy behaviour).
-			//
-			// IMPORTANT: in nested-DinD setups (sandbox -> inner dockerd
-			// -> desktop container) the cgroup-level device restriction
-			// from NVIDIA_VISIBLE_DEVICES does NOT actually take effect
-			// because the outer sandbox container was launched with
-			// `--gpus all` so all /dev/nvidia* nodes are inherited.
-			// Verified live on a 2x Blackwell box: nvidia-smi inside
-			// pin-0 still saw GPU 1. The DRM device pinning (PCI walk)
-			// IS effective (Mutter+GStreamer get the right card), but
-			// CUDA visibility leaks. We set both NVIDIA_VISIBLE_DEVICES
-			// AND CUDA_VISIBLE_DEVICES to the index so CUDA workloads
-			// inside the desktop respect the pin even if /dev/nvidia*
-			// nodes leak. Real cgroup-level restriction in nested DinD
-			// is a separate problem documented in Decision 15 follow-ups.
-			if req.GPUIndex != nil {
-				env = append(env, fmt.Sprintf("NVIDIA_VISIBLE_DEVICES=%d", *req.GPUIndex))
-				env = append(env, fmt.Sprintf("CUDA_VISIBLE_DEVICES=%d", *req.GPUIndex))
-			} else {
-				env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
-			}
-		}
-		if !hasDriverCaps {
-			// Use explicit capabilities instead of "all" for GKE/cloud compatibility
-			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
-		}
-	}
 
-	// Decision 15: tell detect-render-node.sh which GPU to pick. This drives
-	// Mutter via udev tags + the GStreamer encoder via HELIX_RENDER_NODE.
-	// Set for all vendors so AMD/Intel paths also pin via the script's
-	// PCI walk fast-path. Live-tested on 2x Blackwell box: each desktop
-	// correctly picked its assigned card via PCI BDF (not by index suffix).
-	if req.GPUIndex != nil {
-		env = append(env, fmt.Sprintf("HELIX_GPU_INDEX=%d", *req.GPUIndex))
-		// AMD equivalent of CUDA_VISIBLE_DEVICES — ROCm honours this for
-		// HIP workloads even when /dev/dri leaks (same nested-DinD caveat).
-		if req.GPUVendor == "amd" {
-			env = append(env, fmt.Sprintf("HIP_VISIBLE_DEVICES=%d", *req.GPUIndex))
-			env = append(env, fmt.Sprintf("ROCR_VISIBLE_DEVICES=%d", *req.GPUIndex))
+		// Decision 15: tell detect-render-node.sh which GPU to pick. This drives
+		// Mutter via udev tags + the GStreamer encoder via HELIX_RENDER_NODE.
+		// Set for all vendors so AMD/Intel paths also pin via the script's
+		// PCI walk fast-path. Live-tested on 2x Blackwell box: each desktop
+		// correctly picked its assigned card via PCI BDF (not by index suffix).
+		if req.GPUIndex != nil {
+			env = append(env, fmt.Sprintf("HELIX_GPU_INDEX=%d", *req.GPUIndex))
+			// AMD equivalent of CUDA_VISIBLE_DEVICES — ROCm honours this for
+			// HIP workloads even when /dev/dri leaks (same nested-DinD caveat).
+			if req.GPUVendor == "amd" {
+				env = append(env, fmt.Sprintf("HIP_VISIBLE_DEVICES=%d", *req.GPUIndex))
+				env = append(env, fmt.Sprintf("ROCR_VISIBLE_DEVICES=%d", *req.GPUIndex))
+			}
 		}
-	}
 
-	// For virtio-gpu (macOS ARM): set scanout mode environment variables
-	// These tell detect-render-node.sh and desktop-bridge to use the
-	// DRM lease → QEMU VideoToolbox H.264 pipeline instead of PipeWire.
-	drmSock := "/run/helix-drm/drm.sock"
-	if _, err := os.Stat(drmSock); err == nil {
-		env = append(env,
-			"GPU_VENDOR=virtio",
-			"HELIX_SCANOUT_MODE=1",
-			"HELIX_VIDEO_MODE=scanout",
-			"XDG_RUNTIME_DIR=/run/user/1000",
-		)
-		log.Debug().Str("socket", drmSock).Msg("DRM manager socket found, setting scanout env vars")
-	}
-	// Pass QEMU frame export port unconditionally — detect-render-node.sh can
-	// independently trigger scanout mode (GPU_VENDOR=virtio) even without the
-	// DRM socket, and desktop-bridge needs the correct port either way.
-	if fePort := os.Getenv("HELIX_FRAME_EXPORT_PORT"); fePort != "" {
-		env = append(env, "HELIX_FRAME_EXPORT_PORT="+fePort)
+		// For virtio-gpu (macOS ARM): set scanout mode environment variables
+		// These tell detect-render-node.sh and desktop-bridge to use the
+		// DRM lease → QEMU VideoToolbox H.264 pipeline instead of PipeWire.
+		drmSock := "/run/helix-drm/drm.sock"
+		if _, err := os.Stat(drmSock); err == nil {
+			env = append(env,
+				"GPU_VENDOR=virtio",
+				"HELIX_SCANOUT_MODE=1",
+				"HELIX_VIDEO_MODE=scanout",
+				"XDG_RUNTIME_DIR=/run/user/1000",
+			)
+			log.Debug().Str("socket", drmSock).Msg("DRM manager socket found, setting scanout env vars")
+		}
+		// Pass QEMU frame export port unconditionally — detect-render-node.sh can
+		// independently trigger scanout mode (GPU_VENDOR=virtio) even without the
+		// DRM socket, and desktop-bridge needs the correct port either way.
+		if fePort := os.Getenv("HELIX_FRAME_EXPORT_PORT"); fePort != "" {
+			env = append(env, "HELIX_FRAME_EXPORT_PORT="+fePort)
+		}
 	}
 
 	// Pass Docker nesting depth for address pool isolation.
@@ -1032,10 +1037,12 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 	}
 
 	resources := container.Resources{
-		DeviceCgroupRules: dm.getDeviceCgroupRules(),
 		Ulimits: []*units.Ulimit{
 			{Name: "nofile", Soft: 65536, Hard: 65536},
 		},
+	}
+	if req.ContainerType != DevContainerTypeHeadless {
+		resources.DeviceCgroupRules = dm.getDeviceCgroupRules()
 	}
 	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
 	resources.NanoCPUs, resources.Memory, resources.MemorySwap = sandboxResourceLimits(req.VCPUs, req.MemoryMB)
