@@ -53,11 +53,13 @@ function normalizePRState(state?: string): PRStateKind {
   return "open";
 }
 
-const PR_STATE_CHIP_COLOR: Record<PRStateKind, "info" | "success" | "default"> = {
+const PR_STATE_CHIP_COLOR: Record<PRStateKind, "info" | "default"> = {
   open: "info",
-  merged: "success",
+  merged: "default",
   closed: "default",
 };
+
+const MERGED_PR_COLOR = "#8b5cf6";
 
 const PRStateBadge: React.FC<{ state?: string }> = ({ state }) => {
   const kind = normalizePRState(state);
@@ -67,14 +69,22 @@ const PRStateBadge: React.FC<{ state?: string }> = ({ state }) => {
       size="small"
       variant="outlined"
       color={PR_STATE_CHIP_COLOR[kind]}
-      sx={{ height: 20, fontSize: "0.7rem", flexShrink: 0 }}
+      sx={{
+        height: 20,
+        fontSize: "0.7rem",
+        flexShrink: 0,
+        ...(kind === "merged" && {
+          color: MERGED_PR_COLOR,
+          borderColor: MERGED_PR_COLOR,
+        }),
+      }}
     />
   );
 };
 
 const PR_STATE_ICON_COLOR: Record<PRStateKind, string> = {
   open: "#10b981",
-  merged: "#8b5cf6",
+  merged: MERGED_PR_COLOR,
   closed: "#6b7280",
 };
 
