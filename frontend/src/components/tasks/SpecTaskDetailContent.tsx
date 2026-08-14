@@ -1877,18 +1877,26 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         />
       </Box>
 
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 1,
+          mb: 2,
+        }}
+      >
+        <Typography variant="subtitle2" color="text.secondary">
           Usage
         </Typography>
         <Button
           variant="outlined"
-          fullWidth
+          size="small"
           startIcon={<ChartNoAxesCombined size={16} />}
           onClick={() =>
             account.orgNavigate("usage", {}, buildTaskUsageQuery(taskId))
           }
-          sx={{ justifyContent: "flex-start", textTransform: "none" }}
+          sx={{ flexShrink: 0, textTransform: "none" }}
         >
           View task usage
         </Button>

@@ -75,6 +75,51 @@ func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsSubscriptionTurn() {
 	require.NoError(s.T(), err)
 }
 
+func TestApplyACPInteractionUsage(t *testing.T) {
+	interaction := &types.Interaction{}
+	syncMsg := &types.SyncMessage{Data: map[string]interface{}{
+		"usage": map[string]interface{}{
+			"total_tokens":  float64(175),
+			"input_tokens":  float64(100),
+			"output_tokens": float64(75),
+		},
+		"context_usage": map[string]interface{}{
+			"used_tokens": float64(120_000),
+			"max_tokens":  float64(200_000),
+		},
+	}}
+
+	err := applyACPInteractionUsage(interaction, syncMsg)
+	require.NoError(t, err)
+	assert.Equal(t, 100, interaction.Usage.PromptTokens)
+	assert.Equal(t, 75, interaction.Usage.CompletionTokens)
+	assert.Equal(t, 175, interaction.Usage.TotalTokens)
+	assert.Equal(t, 120_000, interaction.Usage.ContextTokens)
+	assert.Equal(t, 200_000, interaction.Usage.ContextLength)
+}
+
+func TestApplyACPTotalProcessedUsage(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	session := newOrgChatSession("user_a")
+	prior := seedParentWithInteractions(t, mem, session, 2)
+	prior[0].Usage.TotalTokens = 1_200
+	prior[1].Usage.TotalTokens = 2_300
+	_, err := mem.UpdateInteraction(ctx, prior[0])
+	require.NoError(t, err)
+	_, err = mem.UpdateInteraction(ctx, prior[1])
+	require.NoError(t, err)
+
+	current := &types.Interaction{
+		ID:           "int_current",
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		Usage:        types.Usage{TotalTokens: 3_400},
+	}
+	require.NoError(t, srv.applyACPTotalProcessedUsage(ctx, current))
+	assert.Equal(t, 6_900, current.Usage.TotalProcessedTokens)
+}
+
 func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsUnknownUsageAsActivity() {
 	app := &types.App{ID: "app_123", Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{

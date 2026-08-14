@@ -34,6 +34,7 @@ const (
 type ExternalAgentHooks struct {
 	WaitForExternalAgentReady func(ctx context.Context, sessionID string, timeout time.Duration) error
 	GetAgentNameForSession    func(ctx context.Context, session *types.Session) string
+	PrepareMessage            func(ctx context.Context, session *types.Session, message string) string
 	SendCommand               func(sessionID string, command types.ExternalAgentCommand) error
 	StoreResponseChannel      func(sessionID, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error)
 	// CleanupResponseChannel drops the waiter channels registered under
@@ -174,12 +175,16 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	if hooks.GetAgentNameForSession != nil {
 		agentName = hooks.GetAgentNameForSession(ctx, req.Session)
 	}
+	outgoingMessage := userMessage
+	if hooks.PrepareMessage != nil {
+		outgoingMessage = hooks.PrepareMessage(ctx, req.Session, userMessage)
+	}
 
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
 			"acp_thread_id": req.Session.Metadata.ZedThreadID,
-			"message":       userMessage,
+			"message":       outgoingMessage,
 			"request_id":    requestID,
 			"agent_name":    agentName,
 		},

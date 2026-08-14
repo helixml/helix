@@ -182,7 +182,8 @@ func requireUnpaused(session *types.Session) *system.HTTPError {
 // marker created at fork time. Returns nil if absent (i.e. this session was
 // not created by forking).
 func findForkSeed(interactions []*types.Interaction) *types.Interaction {
-	for _, in := range interactions {
+	for i := len(interactions) - 1; i >= 0; i-- {
+		in := interactions[i]
 		if in == nil {
 			continue
 		}

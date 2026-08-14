@@ -81,7 +81,11 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 		GetAgentNameForSession: func(_ context.Context, _ *types.Session) string {
 			return "zed-agent"
 		},
+		PrepareMessage: func(_ context.Context, _ *types.Session, message string) string {
+			return "seeded transcript\n\n" + message
+		},
 		SendCommand: func(_ string, command types.ExternalAgentCommand) error {
+			require.Equal(t, "seeded transcript\n\nhello external agent", command.Data["message"])
 			requestID, ok := command.Data["request_id"].(string)
 			require.True(t, ok)
 			mu.Lock()

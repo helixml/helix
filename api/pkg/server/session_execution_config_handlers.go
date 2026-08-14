@@ -91,7 +91,7 @@ func (s *HelixAPIServer) getSessionExecutionConfig(w http.ResponseWriter, r *htt
 
 // updateSessionExecutionConfig godoc
 // @Summary Update session execution configuration
-// @Description Replaces the session's code-agent overrides, and optionally switches it to a different Agent. The in-flight turn is cancelled and a new ACP thread starts with the prior transcript. Sessions belonging to a SpecTask write through to the task.
+// @Description Replaces the session's code-agent overrides, and optionally switches it to a different Agent. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start. Sessions belonging to a SpecTask write through to the task.
 // @Tags Sessions
 // @Accept json
 // @Produce json

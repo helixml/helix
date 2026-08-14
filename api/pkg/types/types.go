@@ -1159,10 +1159,13 @@ type RunnerTaskResponse struct {
 }
 
 type Usage struct {
-	PromptTokens     int   `json:"prompt_tokens"`
-	CompletionTokens int   `json:"completion_tokens"`
-	TotalTokens      int   `json:"total_tokens"`
-	DurationMs       int64 `json:"duration_ms"` // How long the request took in milliseconds
+	PromptTokens         int   `json:"prompt_tokens"`
+	CompletionTokens     int   `json:"completion_tokens"`
+	TotalTokens          int   `json:"total_tokens"`
+	TotalProcessedTokens int   `json:"total_processed_tokens"`
+	DurationMs           int64 `json:"duration_ms"` // How long the request took in milliseconds
+	ContextTokens        int   `json:"context_tokens"`
+	ContextLength        int   `json:"context_length"`
 }
 
 // this is returned by the api server so that clients can see what

@@ -229,9 +229,8 @@ export function useGetSessionExecutionConfig(sessionId: string, enabled = true) 
   })
 }
 
-// Changing the model/reasoning cancels the in-flight turn and starts a fresh
-// agent thread seeded with the prior transcript, so the session row itself
-// changes too.
+// A running agent starts a fresh thread after a model/reasoning change. A
+// stopped agent records the same change for its next start.
 export function useUpdateSessionExecutionConfig(sessionId: string) {
   const api = useApi()
   const apiClient = api.getApiClient()

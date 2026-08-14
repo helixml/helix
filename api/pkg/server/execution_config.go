@@ -204,6 +204,34 @@ func (s *HelixAPIServer) cancelTurnsForSwitch(ctx context.Context, sessionID str
 	return fmt.Errorf("more than %d active turns remain", maxTurns)
 }
 
+func (s *HelixAPIServer) hasRunningAgentContainer(ctx context.Context, sessionID string) bool {
+	return s.externalAgentExecutor != nil && s.externalAgentExecutor.HasRunningContainer(ctx, sessionID)
+}
+
+// cancelOfflineTurnsForSwitch clears queued rows without contacting an agent.
+// HasRunningContainer is authoritative: when it is false, no sandbox process
+// can acknowledge a cancellation and leaving a Waiting row would make the UI
+// look active indefinitely.
+func (s *HelixAPIServer) cancelOfflineTurnsForSwitch(ctx context.Context, session *types.Session) error {
+	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		PerPage:      10_000,
+	})
+	if err != nil {
+		return fmt.Errorf("list queued interactions: %w", err)
+	}
+	for _, interaction := range interactions {
+		if interaction == nil || interaction.State != types.InteractionStateWaiting {
+			continue
+		}
+		if _, err := s.interruptWaitingInteraction(ctx, session, interaction); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *HelixAPIServer) codeAgentRuntimeForApp(ctx context.Context, appID string) (types.CodeAgentRuntime, error) {
 	app, err := s.Store.GetApp(ctx, appID)
 	if err != nil {
@@ -306,8 +334,15 @@ func (s *HelixAPIServer) applyCodeAgentExecutionConfig(
 		return false, false, nil
 	}
 
+	live := target.session != nil && s.hasRunningAgentContainer(ctx, target.session.ID)
 	if target.session != nil {
-		if cancelErr := s.cancelTurnsForSwitch(ctx, target.session.ID); cancelErr != nil {
+		var cancelErr error
+		if live {
+			cancelErr = s.cancelTurnsForSwitch(ctx, target.session.ID)
+		} else {
+			cancelErr = s.cancelOfflineTurnsForSwitch(ctx, target.session)
+		}
+		if cancelErr != nil {
 			return false, false, system.NewHTTPError409(
 				fmt.Sprintf("failed to stop the current agent turn before switching: %v", cancelErr))
 		}
@@ -335,10 +370,14 @@ func (s *HelixAPIServer) applyCodeAgentExecutionConfig(
 		return false, false, system.NewHTTPError400(err.Error())
 	}
 	if switchErr := s.switchAgentInPlaceForNextTurn(
-		ctx, target.session, runtime, targetAgentID, true, target.handoffReason,
+		ctx, target.session, runtime, targetAgentID, agentSwitchOptions{
+			createHandoff: live,
+			handoffReason: target.handoffReason,
+			deliverLive:   live,
+		},
 	); switchErr != nil {
 		rollback()
 		return false, false, switchErr
 	}
-	return true, true, nil
+	return true, live, nil
 }

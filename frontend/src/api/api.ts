@@ -7693,9 +7693,12 @@ export interface TypesUpdateUserGuidelinesRequest {
 
 export interface TypesUsage {
   completion_tokens?: number;
+  context_length?: number;
+  context_tokens?: number;
   /** How long the request took in milliseconds */
   duration_ms?: number;
   prompt_tokens?: number;
+  total_processed_tokens?: number;
   total_tokens?: number;
 }
 
@@ -13226,7 +13229,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete an Agent after atomically detaching and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Only the project's default agent ID is unset; the configured project, repositories, tasks, and other project configuration are preserved.
+     * @description Delete an Agent after archiving its runtime-owned project and deleting its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row. Repositories are preserved.
      *
      * @tags HelixOrg
      * @name V1OrgsAgentsDelete
@@ -13650,7 +13653,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a Bot. Cascades: detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Only the project's default agent ID is unset; the configured project, repositories, tasks, other project configuration, and activations are preserved.
+     * @description Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Repositories and activations are preserved.
      *
      * @tags HelixOrg
      * @name V1OrgsBotsDelete
@@ -16612,7 +16615,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Replaces the session's code-agent overrides, and optionally switches it to a different Agent. The in-flight turn is cancelled and a new ACP thread starts with the prior transcript. Sessions belonging to a SpecTask write through to the task.
+     * @description Replaces the session's code-agent overrides, and optionally switches it to a different Agent. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start. Sessions belonging to a SpecTask write through to the task.
      *
      * @tags Sessions
      * @name V1SessionsExecutionConfigPartialUpdate
@@ -16994,11 +16997,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.
+     * @description Switches the agentic framework on the SAME session without forking. A running sandbox hot-reloads the new agent and starts a fresh thread with the prior transcript. A stopped sandbox only records the change and applies it on the next start.
      *
      * @tags sessions
      * @name V1SessionsSwitchAgentCreate
-     * @summary Switch the agent framework on a running session in place
+     * @summary Switch the agent framework on a session in place
      * @request POST:/api/v1/sessions/{id}/switch-agent
      * @secure
      */
@@ -17755,7 +17758,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place; code-agent changes start a new ACP thread with normalized prior context.
+     * @description Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigPartialUpdate

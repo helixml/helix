@@ -1427,6 +1427,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
                     isAgentBusy={loading}
                     onCancel={isExternalAgent ? handleCancelTurn : undefined}
                     isCancelling={isCancelling}
+                    showContextUsage
                     leadingActions={isExternalAgent ? (
                       <SpecTaskExecutionControls
                         agents={executionAgents}
