@@ -9,6 +9,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInjectAvailableModels(t *testing.T) {
@@ -256,6 +257,32 @@ func TestInjectAvailableModels(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInjectAvailableModelsPropagatesProviderContextWindowToZed(t *testing.T) {
+	const providerContextWindow = 258_400
+	d := &SettingsDaemon{
+		codeAgentConfig: &CodeAgentConfig{
+			Model:     "deepseek/deepseek-v4-flash",
+			APIType:   "openai",
+			Runtime:   "zed_agent",
+			MaxTokens: providerContextWindow,
+		},
+		helixSettings: map[string]interface{}{
+			"language_models": map[string]interface{}{
+				"openai": map[string]interface{}{},
+			},
+		},
+	}
+
+	d.injectAvailableModels()
+
+	languageModels := d.helixSettings["language_models"].(map[string]interface{})
+	provider := languageModels["openai"].(map[string]interface{})
+	models := provider["available_models"].([]interface{})
+	require.Len(t, models, 1)
+	model := models[0].(AvailableModel)
+	assert.Equal(t, providerContextWindow, model.MaxTokens)
 }
 
 // TestMergeAgentBlock_HelixManagedFieldsProtected verifies that the daemon's

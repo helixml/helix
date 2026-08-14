@@ -3359,6 +3359,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if err := applyACPInteractionUsage(targetInteraction, syncMsg); err != nil {
 		return err
 	}
+	if err := apiServer.applyACPTotalProcessedUsage(context.Background(), targetInteraction); err != nil {
+		return err
+	}
 
 	// A completed turn proves any latched launch failure on the owning spec task
 	// is no longer true. Work can resume through session inference (the chat's

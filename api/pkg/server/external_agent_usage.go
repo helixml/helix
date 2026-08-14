@@ -71,6 +71,33 @@ func applyACPInteractionUsage(interaction *types.Interaction, syncMsg *types.Syn
 	return nil
 }
 
+// applyACPTotalProcessedUsage records the cumulative number of tokens the
+// harness has processed across turns in this Helix session. ACP exposes the
+// active context window and the completed turn separately, so Helix derives
+// the cumulative value from its durable interaction history.
+func (s *HelixAPIServer) applyACPTotalProcessedUsage(ctx context.Context, interaction *types.Interaction) error {
+	if interaction == nil || interaction.Usage.TotalTokens <= 0 {
+		return nil
+	}
+	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    interaction.SessionID,
+		GenerationID: interaction.GenerationID,
+		PerPage:      10_000,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list interactions for cumulative ACP usage: %w", err)
+	}
+	total := interaction.Usage.TotalTokens
+	for _, prior := range interactions {
+		if prior == nil || prior.ID == interaction.ID || prior.State != types.InteractionStateComplete {
+			continue
+		}
+		total += prior.Usage.TotalTokens
+	}
+	interaction.Usage.TotalProcessedTokens = total
+	return nil
+}
+
 func (s *HelixAPIServer) recordACPUsage(
 	ctx context.Context,
 	session *types.Session,

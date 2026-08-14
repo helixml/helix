@@ -1,11 +1,13 @@
 import { FC } from 'react'
 import { Box, Tooltip, Typography, alpha } from '@mui/material'
 
-import { useListInteractions } from '../../services/sessionService'
+import { useGetSessionExecutionConfig, useListInteractions } from '../../services/sessionService'
 
 interface ContextUsageIndicatorProps {
-  usedTokens: number
-  maxTokens: number
+  usedTokens?: number
+  maxTokens?: number
+  totalProcessedTokens?: number
+  compactionAgentName?: string
 }
 
 const formatTokens = (value: number): string => {
@@ -22,12 +24,18 @@ const formatPercentage = (value: number): string => (
 export const ContextUsageIndicator: FC<ContextUsageIndicatorProps> = ({
   usedTokens,
   maxTokens,
+  totalProcessedTokens,
+  compactionAgentName,
 }) => {
-  if (!Number.isFinite(usedTokens) || !Number.isFinite(maxTokens) || usedTokens < 0 || maxTokens <= 0) {
-    return null
-  }
-
-  const percentage = Math.max(0, Math.min(100, (usedTokens / maxTokens) * 100))
+  const usageAvailable = (
+    Number.isFinite(usedTokens) &&
+    Number.isFinite(maxTokens) &&
+    (usedTokens ?? -1) >= 0 &&
+    (maxTokens ?? 0) > 0
+  )
+  const percentage = usageAvailable
+    ? Math.max(0, Math.min(100, ((usedTokens ?? 0) / (maxTokens ?? 1)) * 100))
+    : 0
   const percentageLabel = formatPercentage(percentage)
   const radius = 8.5
   const circumference = 2 * Math.PI * radius
@@ -38,14 +46,14 @@ export const ContextUsageIndicator: FC<ContextUsageIndicatorProps> = ({
     <Tooltip
       placement="top"
       arrow
-      title={(
+      title={usageAvailable ? (
         <Box sx={{ width: 210, p: 0.5 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mb: 0.75 }}>
             <Typography variant="caption" sx={{ fontWeight: 600 }}>
               Context window
             </Typography>
             <Typography variant="caption" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-              {percentageLabel} · {formatTokens(usedTokens)}/{formatTokens(maxTokens)}
+              {percentageLabel} · {formatTokens(usedTokens ?? 0)}/{formatTokens(maxTokens ?? 0)}
             </Typography>
           </Box>
           <Box
@@ -65,16 +73,42 @@ export const ContextUsageIndicator: FC<ContextUsageIndicatorProps> = ({
               }}
             />
           </Box>
+          {!!totalProcessedTokens && totalProcessedTokens > 0 && (
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mt: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Total processed
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatTokens(totalProcessedTokens)}
+              </Typography>
+            </Box>
+          )}
+          {!!compactionAgentName && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              {compactionAgentName} automatically compacts its context when needed.
+            </Typography>
+          )}
+        </Box>
+      ) : (
+        <Box sx={{ p: 0.5 }}>
+          <Typography variant="caption" sx={{ display: 'block', fontWeight: 600 }}>
+            Context window
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Available after the next agent response
+          </Typography>
         </Box>
       )}
     >
       <Box
         data-context-usage-indicator
-        role="progressbar"
-        aria-label={`Context window ${percentageLabel} used`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(percentage)}
+        role={usageAvailable ? 'progressbar' : 'img'}
+        aria-label={usageAvailable
+          ? `Context window ${percentageLabel} used`
+          : 'Context window usage unavailable'}
+        aria-valuemin={usageAvailable ? 0 : undefined}
+        aria-valuemax={usageAvailable ? 100 : undefined}
+        aria-valuenow={usageAvailable ? Math.round(percentage) : undefined}
         sx={{
           width: 30,
           height: 30,
@@ -86,7 +120,7 @@ export const ContextUsageIndicator: FC<ContextUsageIndicatorProps> = ({
             ? 'error.main'
             : 'text.secondary',
           '& .context-usage-track': {
-            stroke: (theme) => alpha(theme.palette.text.secondary, 0.22),
+            stroke: (theme) => alpha(theme.palette.text.secondary, usageAvailable ? 0.22 : 0.42),
           },
         }}
       >
@@ -127,17 +161,29 @@ export const SessionContextUsageIndicator: FC<{ sessionId: string }> = ({ sessio
     enabled: !!sessionId,
     refetchInterval: 3000,
   })
+  const { data: executionConfig } = useGetSessionExecutionConfig(sessionId)
   const interactions = data?.data?.interactions ?? []
   const usage = interactions.find((interaction) => (
     (interaction.usage?.context_length ?? 0) > 0 &&
     (interaction.usage?.context_tokens ?? -1) >= 0
   ))?.usage
+  const compactionAgentName = (() => {
+    switch (executionConfig?.runtime) {
+      case 'codex_cli':
+        return 'Codex'
+      case 'zed_agent':
+        return (usage?.context_length ?? 0) >= 80_000 ? 'Zed Agent' : undefined
+      default:
+        return undefined
+    }
+  })()
 
-  if (usage?.context_tokens === undefined || !usage.context_length) return null
   return (
     <ContextUsageIndicator
-      usedTokens={usage.context_tokens}
-      maxTokens={usage.context_length}
+      usedTokens={usage?.context_tokens}
+      maxTokens={usage?.context_length}
+      totalProcessedTokens={usage?.total_processed_tokens}
+      compactionAgentName={compactionAgentName}
     />
   )
 }

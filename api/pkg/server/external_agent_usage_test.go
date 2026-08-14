@@ -98,6 +98,28 @@ func TestApplyACPInteractionUsage(t *testing.T) {
 	assert.Equal(t, 200_000, interaction.Usage.ContextLength)
 }
 
+func TestApplyACPTotalProcessedUsage(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	session := newOrgChatSession("user_a")
+	prior := seedParentWithInteractions(t, mem, session, 2)
+	prior[0].Usage.TotalTokens = 1_200
+	prior[1].Usage.TotalTokens = 2_300
+	_, err := mem.UpdateInteraction(ctx, prior[0])
+	require.NoError(t, err)
+	_, err = mem.UpdateInteraction(ctx, prior[1])
+	require.NoError(t, err)
+
+	current := &types.Interaction{
+		ID:           "int_current",
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		Usage:        types.Usage{TotalTokens: 3_400},
+	}
+	require.NoError(t, srv.applyACPTotalProcessedUsage(ctx, current))
+	assert.Equal(t, 6_900, current.Usage.TotalProcessedTokens)
+}
+
 func (s *WebSocketSyncSuite) TestRecordACPUsage_RecordsUnknownUsageAsActivity() {
 	app := &types.App{ID: "app_123", Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
