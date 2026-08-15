@@ -3,6 +3,7 @@ package sandbox
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -32,6 +33,11 @@ type RuntimeSpec struct {
 	// hydra heartbeat (e.g. ubuntu-desktop -> "ubuntu"). Empty for
 	// fixed-image runtimes.
 	VersionKey string
+	// RequiresDisplay is true for runtimes that run a compositor and are
+	// streamed, and therefore need a host with a real render node. Headless
+	// runtimes leave it false and place on any online host, including
+	// CPU-only ones.
+	RequiresDisplay bool
 }
 
 // RuntimeRegistry is the lookup table of all runtimes available on this
@@ -46,10 +52,11 @@ type RuntimeRegistry struct {
 // config) because its image is heartbeat-versioned and it has special
 // container-type/privileged handling.
 var builtinDesktop = &RuntimeSpec{
-	Name:          string(types.SandboxRuntimeUbuntuDesktop),
-	ContainerType: hydra.DevContainerTypeUbuntu,
-	Privileged:    true,
-	VersionKey:    "ubuntu",
+	Name:            string(types.SandboxRuntimeUbuntuDesktop),
+	ContainerType:   hydra.DevContainerTypeUbuntu,
+	Privileged:      true,
+	VersionKey:      "ubuntu",
+	RequiresDisplay: true,
 }
 
 // NewRuntimeRegistry parses cfg.Runtimes and builds the lookup. The format is
@@ -167,5 +174,37 @@ func (r *RuntimeRegistry) Names() []string {
 	for name := range r.specs {
 		out = append(out, name)
 	}
+	return out
+}
+
+// RuntimeAvailability describes one runtime to API callers: whether it needs a
+// display-capable host, and whether this deployment currently has one. A UI can
+// grey out unavailable runtimes instead of letting the user pick one that will
+// be rejected.
+type RuntimeAvailability struct {
+	Name            string `json:"name"`
+	RequiresDisplay bool   `json:"requires_display"`
+	Available       bool   `json:"available"`
+	// Reason is set only when Available is false.
+	Reason string `json:"reason,omitempty"`
+}
+
+// Availability describes every registered runtime given whether the fleet has
+// a display-capable host right now.
+func (r *RuntimeRegistry) Availability(hasDisplayHost bool) []RuntimeAvailability {
+	out := make([]RuntimeAvailability, 0, len(r.specs))
+	for name, spec := range r.specs {
+		entry := RuntimeAvailability{
+			Name:            name,
+			RequiresDisplay: spec.RequiresDisplay,
+			Available:       true,
+		}
+		if spec.RequiresDisplay && !hasDisplayHost {
+			entry.Available = false
+			entry.Reason = "no online sandbox host has a display/render node"
+		}
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }

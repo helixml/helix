@@ -162,6 +162,14 @@ func (s *ProvisionSuite) expectCreateOK(orgID string, sb *types.Sandbox) {
 	)
 }
 
+// expectDisplayCapableFleet satisfies the display-capability probe Create()
+// runs before accepting a desktop runtime.
+func (s *ProvisionSuite) expectDisplayCapableFleet() {
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{
+		{ID: "host-a", Status: "online", GPUVendor: "nvidia", RenderNode: "/dev/dri/renderD128"},
+	}, nil)
+}
+
 // expectProvisionStoreCalls wires up the store sequence inside provision()
 // for a successful run targeting host-a.
 func (s *ProvisionSuite) expectProvisionStoreCalls(sb *types.Sandbox, host *types.SandboxInstance, hostListed bool) {
@@ -170,7 +178,7 @@ func (s *ProvisionSuite) expectProvisionStoreCalls(sb *types.Sandbox, host *type
 		s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{host}, nil)
 	} else {
 		// Heartbeat-versioned (desktop) path.
-		s.store.EXPECT().FindAvailableSandboxInstance(gomock.Any(), gomock.Any()).Return(host, nil)
+		s.store.EXPECT().FindAvailableSandboxInstance(gomock.Any(), gomock.Any(), gomock.Any()).Return(host, nil)
 	}
 	// IncrementSandboxContainerCount is called after CreateDevContainer
 	// succeeds so the autoscaler sees user-facing sandbox API load.
@@ -376,6 +384,7 @@ func (s *ProvisionSuite) TestProvisionDesktopBuildsFullEnvAndMounts() {
 	versions := mustMarshal(map[string]string{"ubuntu": "abc123"})
 	host := &types.SandboxInstance{ID: "host-a", Status: "online", DesktopVersions: versions}
 
+	s.expectDisplayCapableFleet() // Create() rejects desktop runtimes on a fleet with no render node
 	s.expectCreateOK("org_1", sb)
 	s.expectProvisionStoreCalls(sb, host, false) // versioned -> FindAvailable path
 	// Desktop runtime mints an API token.

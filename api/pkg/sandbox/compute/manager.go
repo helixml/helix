@@ -418,7 +418,7 @@ func (m *Manager) demandPressureExists(rows []*types.SandboxInstance) bool {
 		// can't run sandboxes at all, so they never contribute sandbox
 		// capacity or absorb demand - exclude them so a neuron fleet
 		// never masks real desktop demand nor scales up to "meet" it.
-		if !isReadyAndOnline(r) || !r.CanHostSandbox() {
+		if !isReadyAndOnline(r) || !r.CanHostDesktop() {
 			continue
 		}
 		readyAny = true
@@ -485,7 +485,7 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 		}
 		readyByID[r.ID] = r
 		readyCount++
-		if isReadyAndOnline(r) && r.CanHostSandbox() && r.MaxSandboxes > 0 && r.ActiveSandboxes >= r.MaxSandboxes {
+		if isReadyAndOnline(r) && r.CanHostDesktop() && r.MaxSandboxes > 0 && r.ActiveSandboxes >= r.MaxSandboxes {
 			fleetAtCap = true
 		}
 	}
@@ -759,7 +759,7 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 		// capacity/demand or it would suppress real scale-up. Floor
 		// counting above (isAliveForFloor) stays vendor-blind so a neuron
 		// floor runner is still kept alive.
-		if isReadyAndOnline(r) && r.CanHostSandbox() {
+		if isReadyAndOnline(r) && r.CanHostDesktop() {
 			readyOnlineCount++
 			readyCapacity += int(r.MaxSandboxes)
 			readyDemand += int(r.ActiveSandboxes)

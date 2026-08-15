@@ -3604,14 +3604,18 @@ func (SandboxInstance) TableName() string {
 	return "sandbox_instances"
 }
 
-// CanHostSandbox reports whether this host can run a sandbox (desktop or
-// headless dev container). Sandboxes need display/encode hardware, so we
-// exclude the accelerators that lack it: AWS Inferentia/Trainium
-// (GPUVendor "neuron") has no /dev/dri render node - its desktop startup
-// FATALs - and "none" is a CPU-only host. A SOFTWARE render node has no
-// hardware encoder for streaming. Everything else (nvidia / amd / intel,
-// and not-yet-reported hosts) is treated as capable.
-func (s *SandboxInstance) CanHostSandbox() bool {
+// CanHostDesktop reports whether this host can run a *streamed desktop*
+// container. Desktops need display and encode hardware, so we exclude the
+// hosts that lack it: AWS Inferentia/Trainium (GPUVendor "neuron") has no
+// /dev/dri render node - its desktop startup FATALs - and "none" is a
+// CPU-only host. A SOFTWARE render node has no hardware encoder for
+// streaming. Everything else (nvidia / amd / intel, and not-yet-reported
+// hosts) is treated as capable.
+//
+// This gates desktop placement and desktop capacity accounting ONLY.
+// Headless containers run no compositor and no encoder, so they place on any
+// online host regardless of what this returns - see pickHostForSandbox.
+func (s *SandboxInstance) CanHostDesktop() bool {
 	switch s.GPUVendor {
 	case "neuron", "none":
 		return false

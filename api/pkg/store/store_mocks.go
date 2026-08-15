@@ -2301,18 +2301,18 @@ func (mr *MockStoreMockRecorder) FailInFlightWebServiceDeploys(ctx any) *gomock.
 }
 
 // FindAvailableSandboxInstance mocks base method.
-func (m *MockStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
+func (m *MockStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string, requiresDisplay bool) (*types.SandboxInstance, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindAvailableSandboxInstance", ctx, desktopType)
+	ret := m.ctrl.Call(m, "FindAvailableSandboxInstance", ctx, desktopType, requiresDisplay)
 	ret0, _ := ret[0].(*types.SandboxInstance)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindAvailableSandboxInstance indicates an expected call of FindAvailableSandboxInstance.
-func (mr *MockStoreMockRecorder) FindAvailableSandboxInstance(ctx, desktopType any) *gomock.Call {
+func (mr *MockStoreMockRecorder) FindAvailableSandboxInstance(ctx, desktopType, requiresDisplay any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAvailableSandboxInstance", reflect.TypeOf((*MockStore)(nil).FindAvailableSandboxInstance), ctx, desktopType)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAvailableSandboxInstance", reflect.TypeOf((*MockStore)(nil).FindAvailableSandboxInstance), ctx, desktopType, requiresDisplay)
 }
 
 // FinishTriggerExecution mocks base method.

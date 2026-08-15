@@ -30,6 +30,16 @@ type SandboxListFilter struct {
 	ProjectID string
 }
 
+// SandboxRuntimeInfo describes one runtime and whether this deployment can
+// actually run it. Desktop runtimes are unavailable on a fleet whose sandbox
+// hosts have no render node.
+type SandboxRuntimeInfo struct {
+	Name            string `json:"name"`
+	RequiresDisplay bool   `json:"requires_display"`
+	Available       bool   `json:"available"`
+	Reason          string `json:"reason,omitempty"`
+}
+
 // ListSandboxRuntimes returns the runtime names this server is configured to
 // expose. The UI uses it to populate the runtime dropdown; the CLI uses it
 // for tab-completion and validation.
@@ -41,6 +51,21 @@ func (c *HelixClient) ListSandboxRuntimes(ctx context.Context) ([]string, error)
 		return nil, err
 	}
 	return resp.Runtimes, nil
+}
+
+// ListSandboxRuntimeDetails returns per-runtime availability alongside whether
+// the deployment has any display-capable sandbox host at all. Servers older
+// than this field return an empty slice, in which case callers should fall
+// back to ListSandboxRuntimes.
+func (c *HelixClient) ListSandboxRuntimeDetails(ctx context.Context) ([]SandboxRuntimeInfo, bool, error) {
+	var resp struct {
+		RuntimeDetails []SandboxRuntimeInfo `json:"runtime_details"`
+		DesktopCapable bool                 `json:"desktop_capable"`
+	}
+	if err := c.makeRequest(ctx, http.MethodGet, "/sandbox-runtimes", nil, &resp); err != nil {
+		return nil, false, err
+	}
+	return resp.RuntimeDetails, resp.DesktopCapable, nil
 }
 
 // ListSandboxes returns the sandboxes belonging to an organization.

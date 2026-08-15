@@ -58,12 +58,31 @@ func newRuntimesCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			runtimes, err := c.ListSandboxRuntimes(ctx)
+			details, desktopCapable, err := c.ListSandboxRuntimeDetails(ctx)
 			if err != nil {
 				return err
 			}
-			for _, r := range runtimes {
-				fmt.Println(r)
+			if len(details) == 0 {
+				// Older server: no availability information published.
+				runtimes, err := c.ListSandboxRuntimes(ctx)
+				if err != nil {
+					return err
+				}
+				for _, r := range runtimes {
+					fmt.Println(r)
+				}
+				return nil
+			}
+			for _, r := range details {
+				if r.Available {
+					fmt.Println(r.Name)
+					continue
+				}
+				fmt.Printf("%s  (unavailable: %s)\n", r.Name, r.Reason)
+			}
+			if !desktopCapable {
+				fmt.Println("\nNo sandbox host on this deployment has a display/render node, so desktop")
+				fmt.Println("runtimes cannot run. Headless runtimes are unaffected — they need no GPU.")
 			}
 			return nil
 		},
