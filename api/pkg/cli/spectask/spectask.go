@@ -34,6 +34,20 @@ func New() *cobra.Command {
 		Aliases: []string{"st"},
 	}
 
+	// Board / task lifecycle management (see task_cmd.go)
+	cmd.AddCommand(newBoardCommand())
+	cmd.AddCommand(newGetCommand())
+	cmd.AddCommand(newCreateCommand())
+	cmd.AddCommand(newUpdateCommand())
+	cmd.AddCommand(newMoveCommand())
+	cmd.AddCommand(newLabelCommand())
+	cmd.AddCommand(newAttachCommand())
+	cmd.AddCommand(newAttachmentsCommand())
+	cmd.AddCommand(newApproveCommand())
+	cmd.AddCommand(newArchiveCommand())
+	cmd.AddCommand(newDeleteCommand())
+	cmd.AddCommand(newProgressCommand())
+
 	cmd.AddCommand(newStartCommand())
 	cmd.AddCommand(newScreenshotCommand())
 	cmd.AddCommand(newListCommand())
