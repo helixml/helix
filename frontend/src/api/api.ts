@@ -3553,6 +3553,12 @@ export enum TypesEffect {
   EffectDeny = "deny",
 }
 
+export enum TypesEffortSource {
+  EffortSourceProbed = "probed",
+  EffortSourceCatalogue = "catalogue",
+  EffortSourceVendor = "vendor",
+}
+
 export interface TypesEvaluationAssertion {
   /** Custom prompt for LLM judge mode */
   llm_judge_prompt?: string;
@@ -4481,6 +4487,11 @@ export interface TypesModel {
 export interface TypesModelInfo {
   author?: string;
   context_length?: number;
+  /**
+   * DefaultReasoningEffort is the value the model applies when none is sent.
+   * Empty when unknown.
+   */
+  default_reasoning_effort?: string;
   description?: string;
   input_modalities?: TypesModality[];
   max_completion_tokens?: number;
@@ -4638,6 +4649,16 @@ export interface TypesOpenAIModel {
   owned_by?: string;
   parent?: string;
   permission?: TypesOpenAIPermission[];
+  /**
+   * ReasoningEfforts is the curated set of reasoning-effort values this model
+   * accepts. It is a separate field from ModelInfo on purpose: ModelInfo being
+   * non-nil is what the billing path reads as "this model is priceable", so
+   * effort capability — which is known for models that have no pricing entry,
+   * e.g. self-hosted vLLM deployments — must not be smuggled in through it.
+   * Nil means Helix does not know; a UI must not offer a guessed effort list,
+   * because sending a value the provider rejects aborts the whole turn.
+   */
+  reasoning_efforts?: TypesReasoningEffortProfile;
   root?: string;
   type?: string;
 }
@@ -5490,6 +5511,32 @@ export interface TypesRAGSettings {
   text_splitter?: TypesTextSplitterType;
   /** this is the threshold for a "good" answer - will default to 0.2 */
   threshold?: number;
+}
+
+export interface TypesReasoningEffortProfile {
+  /** Default is the value applied when none is sent. Empty when unknown. */
+  default?: string;
+  /** Family is the normalized model-id prefix this profile applies to. */
+  family?: string;
+  /** Notes carries anything a debugger needs that the fields above do not say. */
+  notes?: string;
+  /** Parameter is the wire field that carries the value. */
+  parameter?: string;
+  /**
+   * Rejected lists values known to fail with an error. Deliberately separate
+   * from "absent from Supported": a value can be missing from Supported because
+   * it is silently coerced rather than because it errors, and only the erroring
+   * ones abort a turn.
+   */
+  rejected?: string[];
+  /** Source is how this entry was established. */
+  source?: TypesEffortSource;
+  /** Supported lists the values the model accepts and acts on. */
+  supported?: string[];
+  /** SupportsEffort is false for models that accept no effort value at all. */
+  supports_effort?: boolean;
+  /** VerifiedAt is the date the entry was last checked (YYYY-MM-DD). */
+  verified_at?: string;
 }
 
 export interface TypesRegisterRequest {

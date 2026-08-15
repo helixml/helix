@@ -30598,6 +30598,19 @@
                 "EffectDeny"
             ]
         },
+        "types.EffortSource": {
+            "type": "string",
+            "enum": [
+                "probed",
+                "catalogue",
+                "vendor"
+            ],
+            "x-enum-varnames": [
+                "EffortSourceProbed",
+                "EffortSourceCatalogue",
+                "EffortSourceVendor"
+            ]
+        },
         "types.EvaluationAssertion": {
             "type": "object",
             "properties": {
@@ -32670,6 +32683,10 @@
                 "context_length": {
                     "type": "integer"
                 },
+                "default_reasoning_effort": {
+                    "description": "DefaultReasoningEffort is the value the model applies when none is sent.\nEmpty when unknown.",
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -33070,6 +33087,14 @@
                     "items": {
                         "$ref": "#/definitions/types.OpenAIPermission"
                     }
+                },
+                "reasoning_efforts": {
+                    "description": "ReasoningEfforts is the curated set of reasoning-effort values this model\naccepts. It is a separate field from ModelInfo on purpose: ModelInfo being\nnon-nil is what the billing path reads as \"this model is priceable\", so\neffort capability — which is known for models that have no pricing entry,\ne.g. self-hosted vLLM deployments — must not be smuggled in through it.\nNil means Helix does not know; a UI must not offer a guessed effort list,\nbecause sending a value the provider rejects aborts the whole turn.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ReasoningEffortProfile"
+                        }
+                    ]
                 },
                 "root": {
                     "type": "string"
@@ -35056,6 +35081,57 @@
                 "threshold": {
                     "description": "this is the threshold for a \"good\" answer - will default to 0.2",
                     "type": "number"
+                }
+            }
+        },
+        "types.ReasoningEffortProfile": {
+            "type": "object",
+            "properties": {
+                "default": {
+                    "description": "Default is the value applied when none is sent. Empty when unknown.",
+                    "type": "string"
+                },
+                "family": {
+                    "description": "Family is the normalized model-id prefix this profile applies to.",
+                    "type": "string"
+                },
+                "notes": {
+                    "description": "Notes carries anything a debugger needs that the fields above do not say.",
+                    "type": "string"
+                },
+                "parameter": {
+                    "description": "Parameter is the wire field that carries the value.",
+                    "type": "string"
+                },
+                "rejected": {
+                    "description": "Rejected lists values known to fail with an error. Deliberately separate\nfrom \"absent from Supported\": a value can be missing from Supported because\nit is silently coerced rather than because it errors, and only the erroring\nones abort a turn.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "source": {
+                    "description": "Source is how this entry was established.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.EffortSource"
+                        }
+                    ]
+                },
+                "supported": {
+                    "description": "Supported lists the values the model accepts and acts on.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "supports_effort": {
+                    "description": "SupportsEffort is false for models that accept no effort value at all.",
+                    "type": "boolean"
+                },
+                "verified_at": {
+                    "description": "VerifiedAt is the date the entry was last checked (YYYY-MM-DD).",
+                    "type": "string"
                 }
             }
         },

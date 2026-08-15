@@ -155,6 +155,77 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 41222 ubuntu@
   "cd ~/helix && docker compose -f docker-compose.dev.yaml restart api"
 ```
 
+## Reasoning Effort per Model
+
+**Source of truth: `api/pkg/model/reasoning_efforts.go`.** If an agent turn dies with a
+400 mentioning `reasoning effort`, start there.
+
+Reasoning-effort support is **not discoverable at runtime**. An OpenAI-compatible
+`/v1/models` response carries no capability data — vLLM returns only `id`, `owned_by`,
+`root`, `max_model_len`, `permission`. The accepted set lives in the model's chat
+template and is only learnable by sending a request and reading the 400. So Helix keeps
+a curated table, and **every entry records the source it came from** (`probed`,
+`catalogue`, `vendor`) plus a `verified_at` date.
+
+Passing an unsupported value is not a soft failure: the provider 400s, the coding agent
+retries the same 400 ~9 times over ~70s, then aborts the turn with no work done and a
+generic "agent turn aborted" in the UI.
+
+### Traps this table exists to record
+
+| Model | Accepts | **Rejects** | Default |
+|---|---|---|---|
+| `qwen3.8-27b` | `none`, `low`, `medium`, `xhigh` | **`high`**, `max`, `minimal` | `xhigh` |
+| `deepseek-v4-flash` / `-pro` | `high`, `xhigh` | — | `high` |
+| Claude Opus 5 / 4.8 / 4.7, Sonnet 5, Fable 5 | `low`…`max` incl. `xhigh` | — | `high` |
+| Claude Opus 4.6 / Sonnet 4.6 | `low`, `medium`, `high`, `max` | **`xhigh`** | `high` |
+| Claude Sonnet 4.5 / Haiku 4.5 | *(none — predates the parameter)* | any value | — |
+
+- **`qwen3.8-27b` rejects `high` but accepts `xhigh`** — the reverse of every other model,
+  and the exact bug that made a spec task fail. Its template also **silently coerces** any
+  unrecognized value (`foo`, `HIGH`, `ultra`) to the `xhigh` default, so probing only for
+  rejections does not reveal the supported set.
+- **Claude reads `output_config.effort`, never a top-level `reasoning_effort`.** A value
+  sent under the wrong key is ignored with no error — the symptom is "the setting does
+  nothing", not a 400.
+- **`xhigh` arrived with Opus 4.7.** Offering it on a 4.6-generation model errors.
+
+### How it flows
+
+`LookupReasoningEfforts(modelID)` matches on the **longest family prefix**, so dated and
+suffixed builds (`deepseek-v4-flash-0731`, `qwen3.8-27b-instruct`, `provider/model`)
+resolve without their own row. Adding a model is a data edit — append a profile, no code
+change. It reaches the frontend two ways:
+
+- `types.OpenAIModel.ReasoningEfforts` on `/v1/provider-endpoints?load_models=true` —
+  deliberately **separate from `ModelInfo`**, because a non-nil `ModelInfo` is what the
+  Anthropic proxy and usage handlers read as "this model is priceable". Self-hosted models
+  have effort profiles but no pricing entry, so the two must not be conflated.
+- `ModelInfo.SupportedReasoningEfforts` / `DefaultReasoningEffort` — the curated table only
+  **fills gaps** here; `model_info.json` wins where it has data.
+
+Frontend: `useModelReasoningEfforts(modelId)` →
+`getCodeAgentEffortOptions(runtime, supportedEfforts)`. The runtime only decides which
+tiers the *harness* can express; the model decides which the provider will accept. An
+unknown model returns `undefined` and the full runtime list stands — **never guess a
+narrower list**, and never offer an effort for a model with no profile.
+
+### Debugging a suspected effort problem
+
+```bash
+# What did Helix actually send vs what did the caller ask for?
+docker exec helix-postgres-1 psql -U postgres -d postgres -c \
+  "SELECT id, model, original_request->>'reasoning_effort' AS asked, \
+   request->>'reasoning_effort' AS sent, left(error,120) AS err \
+   FROM llm_calls WHERE session_id='ses_…' ORDER BY created DESC LIMIT 10;"
+
+# Probe a provider directly — prompt_tokens reveals the template branch taken;
+# equal counts across values mean they collapse to the same default.
+curl -s $BASE_URL/chat/completions -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"…","max_tokens":1,"messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high"}'
+```
+
 ## Code Patterns
 
 ### Go
