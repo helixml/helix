@@ -108,6 +108,9 @@ import AgentChat from "../session/AgentChat";
 import { getChatColors } from "../session/chatStyles";
 import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
 import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
+import SandboxStatusIndicator, {
+  type SandboxIndicatorState,
+} from "./SandboxStatusIndicator";
 import SharePreviewSection from "./SharePreviewSection";
 import SandboxBrowser from "./SandboxBrowser";
 import SpecTaskLaunchWindow, {
@@ -700,6 +703,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // immediately after clicking "Start Planning" rather than a confusing flash of the stopped state.
   const isQueuedForPlanning = task?.status === "queued_spec_generation";
   const effectiveIsDesktopPaused = isDesktopPaused && !isQueuedForPlanning;
+  const sandboxIndicatorState: SandboxIndicatorState = isDesktopRunning
+    ? "running"
+    : isDesktopStarting
+      ? "starting"
+      : "stopped";
 
   // Subscribe to WebSocket updates for the active session when chat is visible
   // On big screens: chat is visible unless collapsed
@@ -2530,6 +2538,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       );
                     })()}
                   </Box>
+                  <SandboxStatusIndicator state={sandboxIndicatorState} />
                   {contentCollapsed ? (
                     <Tooltip title="Show task panel">
                       <IconButton

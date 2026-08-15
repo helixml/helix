@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { TypesCodeAgentRuntime } from '../../api/api'
+import { TypesCodeAgentRuntime, TypesSandboxRuntime } from '../../api/api'
 import { AppsContext, IAppsContext } from '../../contexts/apps'
 import type { IApp } from '../../types'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
@@ -47,7 +47,7 @@ describe('ProjectChatItemTooltip', () => {
     expect(screen.getByText('claude-opus-4-6')).toBeInTheDocument()
   })
 
-  it('uses the agent configured on a spec task when no session summary is available', async () => {
+  it('uses the task configuration for agent, compute, and environment details', async () => {
     const agent = {
       id: 'app-codex',
       config: { helix: { assistants: [{ code_agent_runtime: 'codex_cli', model: 'gpt-5.6-sol' }] } },
@@ -59,7 +59,12 @@ describe('ProjectChatItemTooltip', () => {
             id: 'task-codex',
             kind: 'spec-task',
             title: 'Fix CI',
-            task: { id: 'task-codex', helix_app_id: agent.id },
+            task: {
+              id: 'task-codex',
+              helix_app_id: agent.id,
+              sandbox_resource_overrides: { vcpus: 8, memory_mb: 16384 },
+              sandbox_runtime: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
+            },
           }}
         >
           <button>Spec task row</button>
@@ -71,5 +76,27 @@ describe('ProjectChatItemTooltip', () => {
 
     expect(await screen.findByText('Codex')).toBeInTheDocument()
     expect(screen.getByText('gpt-5.6-sol')).toBeInTheDocument()
+    expect(screen.getByText('8 vCPU · 16 GB RAM')).toBeInTheDocument()
+    expect(screen.getByText('Headless')).toBeInTheDocument()
+  })
+
+  it('shows legacy spec tasks with the default compute and desktop environment', async () => {
+    render(
+      <ProjectChatItemTooltip
+        item={{
+          id: 'task-defaults',
+          kind: 'spec-task',
+          title: 'Legacy task',
+          task: { id: 'task-defaults' },
+        }}
+      >
+        <button>Legacy task row</button>
+      </ProjectChatItemTooltip>,
+    )
+
+    fireEvent.mouseOver(screen.getByRole('button', { name: 'Legacy task row' }))
+
+    expect(await screen.findByText('4 vCPU · 8 GB RAM')).toBeInTheDocument()
+    expect(screen.getByText('Full Desktop')).toBeInTheDocument()
   })
 })
