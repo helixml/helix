@@ -1,4 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { TypesCodeAgentRuntime, TypesSandboxRuntime } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
@@ -7,6 +9,17 @@ import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
 vi.mock("../../hooks/useSnackbar", () => ({
   default: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
+
+// The controls read the selected model's supported reasoning efforts through
+// React Query (useModelReasoningEfforts), so they need a client the same way
+// they do under App.tsx. Retries off so a query that has nothing to resolve
+// fails fast instead of holding the test open.
+const render = (ui: ReactElement) => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  return rtlRender(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+};
 
 const codexAgent = {
   id: "app_codex",

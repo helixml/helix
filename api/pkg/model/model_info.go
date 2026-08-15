@@ -125,6 +125,12 @@ func toModelInfo(m ModelInfoData) types.ModelInfo {
 			}
 			return m.ReasoningConfig.SupportedReasoningEfforts
 		}(),
+		DefaultReasoningEffort: func() string {
+			if m.ReasoningConfig == nil {
+				return ""
+			}
+			return m.ReasoningConfig.DefaultReasoningEffort
+		}(),
 		ContextLength:       m.ContextLength,
 		SupportedParameters: m.Endpoint.SupportedParameters,
 		MaxCompletionTokens: m.Endpoint.MaxCompletionTokens,
@@ -136,7 +142,22 @@ func isAnthropicDirectSlug(s string) bool {
 	return s == "anthropic"
 }
 
-func (p *BaseModelInfoProvider) GetModelInfo(_ context.Context, request *ModelInfoRequest) (*types.ModelInfo, error) {
+// GetModelInfo resolves a model against the bundled catalogue, then fills in
+// reasoning-effort fields from the curated table for catalogue entries that
+// don't carry them. It deliberately does NOT synthesize an entry for a model the
+// catalogue has never heard of: a non-nil ModelInfo is what the Anthropic proxy
+// and the usage handlers treat as "this model is priceable", so inventing one
+// would wave unpriced models through the billing gate.
+func (p *BaseModelInfoProvider) GetModelInfo(ctx context.Context, request *ModelInfoRequest) (*types.ModelInfo, error) {
+	info, err := p.getModelInfo(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	applyReasoningEffortProfile(info, request.Model)
+	return info, nil
+}
+
+func (p *BaseModelInfoProvider) getModelInfo(_ context.Context, request *ModelInfoRequest) (*types.ModelInfo, error) {
 	p.dataMu.RLock()
 	defer p.dataMu.RUnlock()
 

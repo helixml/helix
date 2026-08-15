@@ -210,9 +210,60 @@ type ModelInfo struct { //nolint:revive
 	// SupportedReasoningEfforts lists the effort values the model accepts,
 	// e.g. ["high","low","medium","none","xhigh"]. Empty when unknown.
 	SupportedReasoningEfforts []string `json:"supported_reasoning_efforts"`
-	ContextLength             int      `json:"context_length"`
+	// DefaultReasoningEffort is the value the model applies when none is sent.
+	// Empty when unknown.
+	DefaultReasoningEffort string `json:"default_reasoning_effort,omitempty"`
+	ContextLength          int    `json:"context_length"`
 	MaxCompletionTokens       int      `json:"max_completion_tokens"`
 	Pricing                   Pricing  `json:"pricing"`
+}
+
+// EffortSource records how a ReasoningEffortProfile was established, so a
+// mismatch between the curated table and a live provider can be triaged without
+// re-deriving it: "probed" was observed against a real endpoint, "catalogue"
+// came from the bundled model_info.json, "vendor" from published API docs.
+type EffortSource string
+
+const (
+	EffortSourceProbed    EffortSource = "probed"
+	EffortSourceCatalogue EffortSource = "catalogue"
+	EffortSourceVendor    EffortSource = "vendor"
+)
+
+// Wire parameters that carry the reasoning-effort value. Models differ, and
+// sending the value under the wrong key is silently ignored rather than
+// rejected — Claude reads output_config.effort and never a top-level
+// reasoning_effort.
+const (
+	EffortParamReasoningEffort    = "reasoning_effort"
+	EffortParamOutputConfigEffort = "output_config.effort"
+)
+
+// ReasoningEffortProfile is the set of reasoning-effort values one model family
+// accepts. See api/pkg/model/reasoning_efforts.go for the curated table and why
+// it cannot be discovered at runtime.
+type ReasoningEffortProfile struct {
+	// Family is the normalized model-id prefix this profile applies to.
+	Family string `json:"family"`
+	// Parameter is the wire field that carries the value.
+	Parameter string `json:"parameter"`
+	// Supported lists the values the model accepts and acts on.
+	Supported []string `json:"supported,omitempty"`
+	// Default is the value applied when none is sent. Empty when unknown.
+	Default string `json:"default,omitempty"`
+	// Rejected lists values known to fail with an error. Deliberately separate
+	// from "absent from Supported": a value can be missing from Supported because
+	// it is silently coerced rather than because it errors, and only the erroring
+	// ones abort a turn.
+	Rejected []string `json:"rejected,omitempty"`
+	// SupportsEffort is false for models that accept no effort value at all.
+	SupportsEffort bool `json:"supports_effort"`
+	// Source is how this entry was established.
+	Source EffortSource `json:"source"`
+	// VerifiedAt is the date the entry was last checked (YYYY-MM-DD).
+	VerifiedAt string `json:"verified_at,omitempty"`
+	// Notes carries anything a debugger needs that the fields above do not say.
+	Notes string `json:"notes,omitempty"`
 }
 
 type Pricing struct {

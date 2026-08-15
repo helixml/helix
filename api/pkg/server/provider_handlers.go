@@ -520,6 +520,13 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 				models[idx].ModelInfo = modelInfo
 			}
 
+			// Effort capability is resolved independently of the pricing
+			// catalogue: self-hosted models (vLLM and friends) have no catalogue
+			// entry and never will, but we still know what efforts they accept.
+			if profile, ok := model.LookupReasoningEfforts(m.ID); ok {
+				models[idx].ReasoningEfforts = profile
+			}
+
 			// If billing is enabled and we don't have pricing, disable the model
 			if providerEndpoint.BillingEnabled {
 				if modelInfo == nil {

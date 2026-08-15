@@ -120,6 +120,14 @@ type OpenAIModel struct {
 	ContextLength int                `json:"context_length,omitempty"`
 	Enabled       bool               `json:"enabled,omitempty"`
 	ModelInfo     *ModelInfo         `json:"model_info,omitempty"`
+	// ReasoningEfforts is the curated set of reasoning-effort values this model
+	// accepts. It is a separate field from ModelInfo on purpose: ModelInfo being
+	// non-nil is what the billing path reads as "this model is priceable", so
+	// effort capability — which is known for models that have no pricing entry,
+	// e.g. self-hosted vLLM deployments — must not be smuggled in through it.
+	// Nil means Helix does not know; a UI must not offer a guessed effort list,
+	// because sending a value the provider rejects aborts the whole turn.
+	ReasoningEfforts *ReasoningEffortProfile `json:"reasoning_efforts,omitempty"`
 }
 
 // UnmarshalJSON accepts the context-window fields commonly returned by

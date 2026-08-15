@@ -25,6 +25,7 @@ import {
 } from "../agent/CodingAgentForm";
 import AgentHarness, { getAgentHarnessLabel } from "../agent/AgentHarness";
 import { getCodeAgentEffortOptions } from "../agent/CodeAgentEffortSelect";
+import { useModelReasoningEfforts } from "../../hooks/useModelReasoningEfforts";
 import SpecTaskModelPicker from "./SpecTaskModelPicker";
 
 type MaybePromise = void | Promise<unknown>;
@@ -136,7 +137,11 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     || currentExecutionConfig?.reasoning_effort
     || "default";
   const effectiveTier = codeAgentOverrides.service_tier || currentExecutionConfig?.service_tier || "standard";
-  const effortOptions = getCodeAgentEffortOptions(runtime);
+  // Narrow the harness tier list to what the selected model actually accepts.
+  // Undefined means Helix has no profile for the model, in which case the full
+  // runtime list stands. See api/pkg/model/reasoning_efforts.go.
+  const supportedEfforts = useModelReasoningEfforts(effectiveModel);
+  const effortOptions = getCodeAgentEffortOptions(runtime, supportedEfforts);
   const effectiveSandboxResources = sandboxResourceOverrides?.vcpus
     ? sandboxResourceOverrides
     : DEFAULT_SANDBOX_PRESET;
