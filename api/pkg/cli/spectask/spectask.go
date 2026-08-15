@@ -75,7 +75,6 @@ func New() *cobra.Command {
 func newStartCommand() *cobra.Command {
 	var taskName string
 	var projectID string
-	var agentID string
 	var prompt string
 	var promptFile string
 	var attachFiles []string
@@ -91,7 +90,6 @@ func newStartCommand() *cobra.Command {
 
 If no task-id is provided, a new spec task will be created.
 Use --project to specify which project to create the task in.
-Use --agent to specify which Helix agent/app to use (e.g., app_01xxx).
 Use --runtime to pick the sandbox environment:
   ubuntu-desktop   full GNOME desktop you can stream and screenshot (default)
   headless-ubuntu  agent-only, no compositor or streaming — faster and cheaper
@@ -99,8 +97,8 @@ The runtime is fixed for the life of the task; omit --runtime to inherit the
 project default.
 
 Example workflow:
-  1. Fork a sample project:  helix project fork modern-todo-app --name "My Project"
-  2. Start a spec task:      helix spectask start --project prj_xxx --agent app_xxx -n "Add dark mode"
+  1. Fork a sample project:  helix project fork modern-todo-app --name "My Project" --provider openai --model gpt-5.6-sol
+  2. Start a spec task:      helix spectask start --project prj_xxx -n "Add dark mode"
   3. Connect via browser:    Visit /sessions/<session-id> to access the desktop`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -147,16 +145,13 @@ Example workflow:
 				if taskPrompt == "" {
 					taskPrompt = "Testing RevDial connectivity"
 				}
-				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, agentID, runtime)
+				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, runtime)
 				if err != nil {
 					return fmt.Errorf("failed to create spec task: %w", err)
 				}
 				taskID = task.ID
 				if !quiet {
 					fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
-					if agentID != "" {
-						fmt.Printf("   Agent: %s\n", agentID)
-					}
 					fmt.Printf("   Environment: %s\n", types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime))
 				}
 				// Attach files (e.g. logfiles) — the agent reads them at
@@ -260,7 +255,6 @@ Example workflow:
 
 	cmd.Flags().StringVarP(&taskName, "name", "n", "CLI Test Task", "Task name")
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required when creating new task)")
-	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent ID to use (e.g., app_01xxx)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
 	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). Uploaded as spec-task attachments the agent reads at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt.")
@@ -372,8 +366,8 @@ func newListCommand() *cobra.Command {
 			if count == 0 {
 				fmt.Println("No sessions with active external agents found.")
 				fmt.Println("\nTo start a session:")
-				fmt.Println("  1. Fork a sample project:  helix project fork modern-todo-app --name \"My Project\"")
-				fmt.Println("  2. Create a spec task:     helix spectask start <project-id> -n \"Task Name\"")
+				fmt.Println("  1. Fork a sample project:  helix project fork modern-todo-app --name \"My Project\" --provider openai --model gpt-5.6-sol")
+				fmt.Println("  2. Create a spec task:     helix spectask start --project <project-id> -n \"Task Name\"")
 			} else {
 				fmt.Printf("Found %d session(s) with external agents.\n", count)
 			}
@@ -544,16 +538,13 @@ type SessionMetadata struct {
 	StatusMessage   string `json:"status_message"`
 }
 
-func createSpecTask(apiURL, token, name, prompt, projectID, agentID, runtime string) (*SpecTask, error) {
+func createSpecTask(apiURL, token, name, prompt, projectID, runtime string) (*SpecTask, error) {
 	payload := map[string]string{
 		"name":   name,
 		"prompt": prompt, // API expects "prompt" not "description"
 	}
 	if projectID != "" {
 		payload["project_id"] = projectID
-	}
-	if agentID != "" {
-		payload["app_id"] = agentID // API expects "app_id" not "helix_app_id"
 	}
 	// Omitted means "inherit the project default" — the server resolves it.
 	if runtime != "" {
@@ -804,18 +795,17 @@ func newListAgentsCommand() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "list-agents",
-		Short: "List agents (apps) in an organization",
+		Short: "List reusable Helix agents in an organization",
 		Long: `List agents in an organization.
 
 Agents are organization-scoped. If --org is omitted and you belong to a
 single org, that org is used; if you belong to multiple, you will be
 prompted. The HELIX_ORG environment variable is also honoured.
 
-By default every agent the user has access to in the org is listed, with
-the assistant type shown so it is obvious which can be launched with
-"helix spectask start" (zed_external) vs other agent kinds. Pass
---zed-external-only to restore the old behaviour and hide non-spec-task
-agents.`,
+This is a read-only utility for general and org-chart Helix agents. SpecTasks
+do not consume these App IDs; their execution configuration comes from the
+project or task. Pass --zed-external-only to show only agents that expose an
+external coding assistant.`,
 		Aliases: []string{"agents"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -860,10 +850,8 @@ agents.`,
 
 			shown := 0
 			for _, agent := range agents {
-				// Surface the most relevant assistant per agent: prefer zed_external
-				// (the only kind launchable via `spectask start` today), fall back
-				// to the first assistant otherwise so non-spec-task agents are
-				// still visible to the user.
+				// Surface the most relevant assistant per agent: prefer zed_external,
+				// then fall back to the first assistant.
 				var primary *Assistant
 				for i, assistant := range agent.Config.Helix.Assistants {
 					if assistant.AgentType == "zed_external" {
@@ -883,17 +871,11 @@ agents.`,
 				}
 
 				shown++
-				usable := primary.AgentType == "zed_external"
-				marker := " (not launchable via spectask start)"
-				if usable {
-					marker = ""
-				}
-
 				name := agent.Config.Helix.Name
 				if name == "" {
 					name = agent.Name
 				}
-				fmt.Printf("Agent: %s%s\n", name, marker)
+				fmt.Printf("Agent: %s\n", name)
 				fmt.Printf("  ID: %s\n", agent.ID)
 				fmt.Printf("  Assistant: %s\n", primary.Name)
 				if primary.AgentType != "" {
@@ -904,9 +886,6 @@ agents.`,
 				}
 				if primary.Model != "" {
 					fmt.Printf("  Model: %s\n", primary.Model)
-				}
-				if usable {
-					fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", agent.ID)
 				}
 				fmt.Println()
 			}
@@ -926,7 +905,7 @@ agents.`,
 	}
 
 	cmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID (defaults to $HELIX_ORG, then your only org, or prompts)")
-	cmd.Flags().BoolVar(&zedExternalOnly, "zed-external-only", false, "Hide agents whose assistant is not zed_external (the only kind launchable via spectask start today)")
+	cmd.Flags().BoolVar(&zedExternalOnly, "zed-external-only", false, "Hide agents whose assistant is not zed_external")
 	return cmd
 }
 

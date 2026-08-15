@@ -5888,6 +5888,8 @@ definitions:
     type: object
   types.ForkSimpleProjectRequest:
     properties:
+      code_agent_config:
+        $ref: '#/definitions/types.CodeAgentExecutionConfig'
       configured_skill_env_vars:
         additionalProperties:
           additionalProperties:
@@ -5909,9 +5911,6 @@ definitions:
         description: |-
           GitHub OAuth connection ID for authenticated cloning
           Required for sample projects with RequiresGitHubAuth=true
-        type: string
-      helix_app_id:
-        description: 'Optional: agent app to use for spec tasks (uses default if empty)'
         type: string
       organization_id:
         description: 'Optional: if empty, project is personal'

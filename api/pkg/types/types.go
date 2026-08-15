@@ -3391,11 +3391,12 @@ type ListMemoryRequest struct {
 
 // ForkSimpleProjectRequest represents request to fork a simple sample project
 type ForkSimpleProjectRequest struct {
-	SampleProjectID string `json:"sample_project_id"`
-	ProjectName     string `json:"project_name"`
-	Description     string `json:"description,omitempty"`
-	OrganizationID  string `json:"organization_id,omitempty"` // Optional: if empty, project is personal
-	HelixAppID      string `json:"helix_app_id,omitempty"`    // Optional: agent app to use for spec tasks (uses default if empty)
+	SampleProjectID string                    `json:"sample_project_id"`
+	ProjectName     string                    `json:"project_name"`
+	Description     string                    `json:"description,omitempty"`
+	OrganizationID  string                    `json:"organization_id,omitempty"` // Optional: if empty, project is personal
+	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	HelixAppID      string                    `json:"helix_app_id,omitempty" swaggerignore:"true"` // Rejected legacy field
 
 	// GitHub OAuth connection ID for authenticated cloning
 	// Required for sample projects with RequiresGitHubAuth=true

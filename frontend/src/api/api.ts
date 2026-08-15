@@ -3745,6 +3745,7 @@ export interface TypesForkRepositoriesResponse {
 }
 
 export interface TypesForkSimpleProjectRequest {
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   /**
    * ConfiguredSkillEnvVars contains user-configured env vars for skills
    * Outer key: skill name, Inner key: env var name, Value: user-provided value
@@ -3762,8 +3763,6 @@ export interface TypesForkSimpleProjectRequest {
    * Required for sample projects with RequiresGitHubAuth=true
    */
   github_connection_id?: string;
-  /** Optional: agent app to use for spec tasks (uses default if empty) */
-  helix_app_id?: string;
   /** Optional: if empty, project is personal */
   organization_id?: string;
   project_name?: string;

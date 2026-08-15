@@ -31080,6 +31080,9 @@ const docTemplate = `{
         "types.ForkSimpleProjectRequest": {
             "type": "object",
             "properties": {
+                "code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
                 "configured_skill_env_vars": {
                     "description": "ConfiguredSkillEnvVars contains user-configured env vars for skills\nOuter key: skill name, Inner key: env var name, Value: user-provided value\nThis allows users to configure skills (like API tokens) during project creation",
                     "type": "object",
@@ -31099,10 +31102,6 @@ const docTemplate = `{
                 },
                 "github_connection_id": {
                     "description": "GitHub OAuth connection ID for authenticated cloning\nRequired for sample projects with RequiresGitHubAuth=true",
-                    "type": "string"
-                },
-                "helix_app_id": {
-                    "description": "Optional: agent app to use for spec tasks (uses default if empty)",
                     "type": "string"
                 },
                 "organization_id": {

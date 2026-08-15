@@ -314,8 +314,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
-  const projectDefaultAgentId = project?.default_helix_app_id ||
-    findCodeAgentAppForConfig(apps.apps, project?.code_agent_config)?.id ||
+  const projectDefaultAgentId = findCodeAgentAppForConfig(apps.apps, project?.code_agent_config)?.id ||
     "";
 
   // Show coding agents only, with the project default first.

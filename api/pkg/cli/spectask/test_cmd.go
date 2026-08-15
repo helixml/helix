@@ -245,15 +245,16 @@ func testScreenshot(apiURL, token, sessionID string, timeout int) TestResult {
 		return result
 	}
 
-	// Check it's a valid PNG
-	if len(body) < 8 || string(body[:4]) != "\x89PNG" {
-		result.Error = "response is not a valid PNG image"
+	contentType := http.DetectContentType(body)
+	if contentType != "image/png" && contentType != "image/jpeg" {
+		result.Error = fmt.Sprintf("response is not a supported screenshot image (%s)", contentType)
 		return result
 	}
 
 	result.Passed = true
 	result.Details = map[string]interface{}{
-		"size_bytes": len(body),
+		"content_type": contentType,
+		"size_bytes":   len(body),
 	}
 	return result
 }

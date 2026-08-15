@@ -335,41 +335,9 @@ const SpecTasksPage: FC = () => {
   // Track newly created task ID for focusing "Start Planning" button
   const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);
 
-  // Get display settings from the project's default app for exploratory sessions
-  const exploratoryDisplaySettings = useMemo(() => {
-    if (!project?.default_helix_app_id || !apps.apps) {
-      return { width: 1920, height: 1080, fps: 60 };
-    }
-    const defaultApp = apps.apps.find(
-      (a) => a.id === project.default_helix_app_id,
-    );
-    const config = defaultApp?.config?.helix?.external_agent_config;
-    if (!config) {
-      return { width: 1920, height: 1080, fps: 60 };
-    }
+  const exploratoryDisplaySettings = { width: 1920, height: 1080, fps: 60 };
 
-    // Get dimensions from resolution preset or explicit values
-    let width = config.display_width || 1920;
-    let height = config.display_height || 1080;
-    if (config.resolution === "5k") {
-      width = 5120;
-      height = 2880;
-    } else if (config.resolution === "4k") {
-      width = 3840;
-      height = 2160;
-    } else if (config.resolution === "1080p") {
-      width = 1920;
-      height = 1080;
-    }
-
-    return {
-      width,
-      height,
-      fps: config.display_refresh_rate || 60,
-    };
-  }, [project?.default_helix_app_id, apps.apps]);
-
-  // Check if the project's default app uses Claude Code with subscription credentials
+  // Check if the project uses Claude Code with subscription credentials
   const { data: claudeSubscriptions } = useClaudeSubscriptions();
   const claudeTokenExpiry = useMemo(() => {
 	const config = project?.code_agent_config;

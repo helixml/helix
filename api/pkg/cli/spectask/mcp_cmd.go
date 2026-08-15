@@ -562,7 +562,6 @@ func listMCPTools(apiURL, token, sessionID, mcpType string) ([]string, error) {
 // Integration test command that runs a full end-to-end scenario
 func newE2ECommand() *cobra.Command {
 	var projectID string
-	var agentID string
 	var prompt string
 	var cleanup bool
 
@@ -582,8 +581,8 @@ This command:
   8. Optionally cleans up
 
 Examples:
-  helix spectask e2e --project prj_xxx --agent app_xxx --prompt "List files"
-  helix spectask e2e --project prj_xxx --agent app_xxx --cleanup
+  helix spectask e2e --project prj_xxx --prompt "List files"
+  helix spectask e2e --project prj_xxx --cleanup
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if projectID == "" {
@@ -609,7 +608,7 @@ Examples:
 
 			// Pinned to the desktop runtime: step 5 screenshots the session, which
 			// a headless project default would not provide.
-			task, err := createSpecTask(apiURL, token, "E2E Test Task", taskPrompt, projectID, agentID,
+			task, err := createSpecTask(apiURL, token, "E2E Test Task", taskPrompt, projectID,
 				string(types.SandboxRuntimeUbuntuDesktop))
 			if err != nil {
 				return fmt.Errorf("failed to create task: %w", err)
@@ -659,28 +658,25 @@ Examples:
 			// Step 5: Test screenshot
 			fmt.Printf("\n5️⃣  Testing screenshot...\n")
 			screenshotResult := testScreenshot(apiURL, token, session.ID, 30)
-			if screenshotResult.Passed {
-				fmt.Printf("   ✅ Screenshot works\n")
-			} else {
-				fmt.Printf("   ❌ Screenshot failed: %s\n", screenshotResult.Error)
+			if !screenshotResult.Passed {
+				return fmt.Errorf("screenshot failed: %s", screenshotResult.Error)
 			}
+			fmt.Printf("   ✅ Screenshot works\n")
 
 			// Step 6: Test Session MCP
 			fmt.Printf("\n6️⃣  Testing Session MCP tools...\n")
 
 			mcpResult := testMCPTool(apiURL, token, session.ID, "current_session", nil, 30)
-			if mcpResult.Passed {
-				fmt.Printf("   ✅ current_session works\n")
-			} else {
-				fmt.Printf("   ❌ current_session failed: %s\n", mcpResult.Error)
+			if !mcpResult.Passed {
+				return fmt.Errorf("current_session failed: %s", mcpResult.Error)
 			}
+			fmt.Printf("   ✅ current_session works\n")
 
 			mcpResult = testMCPTool(apiURL, token, session.ID, "session_toc", nil, 30)
-			if mcpResult.Passed {
-				fmt.Printf("   ✅ session_toc works\n")
-			} else {
-				fmt.Printf("   ❌ session_toc failed: %s\n", mcpResult.Error)
+			if !mcpResult.Passed {
+				return fmt.Errorf("session_toc failed: %s", mcpResult.Error)
 			}
+			fmt.Printf("   ✅ session_toc works\n")
 
 			// Step 7: Cleanup
 			if cleanup {
@@ -706,7 +702,6 @@ Examples:
 	}
 
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required)")
-	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent/App ID to use")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Test prompt to send")
 	cmd.Flags().BoolVar(&cleanup, "cleanup", false, "Stop session after test")
 

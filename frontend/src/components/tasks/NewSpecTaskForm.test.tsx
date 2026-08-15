@@ -27,7 +27,7 @@ vi.mock("../../hooks/useApps", () => ({
 }));
 vi.mock("../../utils/apps", () => ({ isCodingAgent: () => true }));
 vi.mock("../../services", () => ({
-  useGetProject: () => ({ data: { default_helix_app_id: "app-1" } }),
+  useGetProject: () => ({ data: { code_agent_config: undefined } }),
   useGetProjectRepositories: () => ({ data: [] }),
 }));
 vi.mock("../../services/specTaskService", () => ({

@@ -54,7 +54,7 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
   children,
 }) => {
   const { apps } = useApps()
-  const configuredAppID = item.task?.helix_app_id || item.session?.app_id
+  const configuredAppID = item.kind === 'spec-task' ? undefined : item.session?.app_id
   const configuredApp = apps.find((app) => app.id === configuredAppID)
   const runtime = item.task?.code_agent_config?.runtime || (configuredApp
     ? getAgentHarnessRuntime(configuredApp)

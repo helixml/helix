@@ -273,7 +273,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const isHeadless = task?.sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu;
   const { data: currentExecutionConfig } = useGetSpecTaskExecutionConfig(
     taskId,
-    !!task?.code_agent_config || !!task?.helix_app_id || !!task?.planning_session_id,
+    !!task,
   );
   const { data: projectTasks = [] } = useSpecTasks({
     projectId: task?.project_id,

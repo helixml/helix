@@ -589,8 +589,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     if (!apps) return [];
     return selectCodingAgents(apps);
   }, [apps]);
-  const projectDefaultAgentId = project?.default_helix_app_id ||
-    findCodeAgentAppForConfig(apps, project?.code_agent_config)?.id ||
+  const projectDefaultAgentId = findCodeAgentAppForConfig(apps, project?.code_agent_config)?.id ||
     "";
 
   const primaryRepoIsExternal = useMemo(() => {

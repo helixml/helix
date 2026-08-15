@@ -28,7 +28,7 @@ import useApps from "../hooks/useApps";
 import useSubscriptionGate from "../hooks/useSubscriptionGate";
 import Paywall from "../components/subscription/Paywall";
 import HelixOrgTopNav from "../components/helix-org/HelixOrgTopNav";
-import { TypesGitRepositoryType } from "../api/api";
+import { TypesCodeAgentExecutionConfig, TypesGitRepositoryType } from "../api/api";
 import {
   useListProjects,
   useListSampleProjects,
@@ -40,6 +40,7 @@ import {
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
 import { matchesAllTokens } from "../utils/searchUtils";
+import { codeAgentExecutionConfigFromApp } from "../utils/codeAgentExecutionConfig";
 import type {
   TypesExternalRepositoryType,
   TypesGitRepository,
@@ -166,8 +167,8 @@ const Projects: FC = () => {
   // GitHub auth wizard for sample projects that require it (e.g., helix-in-helix)
   const [sampleWizardOpen, setSampleWizardOpen] = useState(false);
   const [sampleWizardProject, setSampleWizardProject] = useState<any>(null);
-  const [selectedAgentForWizard, setSelectedAgentForWizard] = useState<
-    string | undefined
+  const [selectedCodeAgentConfigForWizard, setSelectedCodeAgentConfigForWizard] = useState<
+    TypesCodeAgentExecutionConfig | undefined
   >(undefined);
 
   // Pagination for projects
@@ -521,6 +522,13 @@ const Projects: FC = () => {
   const handleAgentSelected = async (agentId: string) => {
     if (!pendingSampleFork) return;
 
+    const selectedAgent = apps.apps?.find((app) => app.id === agentId);
+    const codeAgentConfig = codeAgentExecutionConfigFromApp(selectedAgent);
+    if (!codeAgentConfig) {
+      snackbar.error("Selected agent has no code-agent configuration");
+      return;
+    }
+
     const { sampleId, sampleName, sampleProject } = pendingSampleFork;
     setPendingSampleFork(null);
 
@@ -530,7 +538,7 @@ const Projects: FC = () => {
       (sampleProject?.required_repositories?.length || 0) > 0
     ) {
       // Store the selected agent and open the GitHub wizard
-      setSelectedAgentForWizard(agentId);
+      setSelectedCodeAgentConfigForWizard(codeAgentConfig);
       setSampleWizardProject(sampleProject);
       setSampleWizardOpen(true);
     } else {
@@ -543,7 +551,7 @@ const Projects: FC = () => {
           request: {
             project_name: sampleName,
             organization_id: account.organizationTools.organization?.id,
-            helix_app_id: agentId,
+            code_agent_config: codeAgentConfig,
           },
         });
 
@@ -737,7 +745,7 @@ const Projects: FC = () => {
         }}
         sampleProject={sampleWizardProject}
         organizationId={account.organizationTools.organization?.id}
-        selectedAgentId={selectedAgentForWizard}
+        codeAgentConfig={selectedCodeAgentConfigForWizard}
       />
 
     </Page>
