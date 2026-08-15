@@ -791,6 +791,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		apiServer.Cfg.SandboxStaleThreshold,
 	)
 
+	// Reconcile dev-container state against every online sandbox on a timer.
+	// Discovery otherwise only runs on sandbox register / RevDial connect, so a
+	// container that dies while its sandbox stays connected leaves its session
+	// pinned at external_agent_status="running" forever. Interval configurable
+	// via HELIX_SANDBOX_CONTAINER_RECONCILE_INTERVAL.
+	go apiServer.startSandboxContainerReconciler(ctx, apiServer.Cfg.SandboxContainerReconcileInterval)
+
 	// Compute manager reconcile loop: brings sandbox hosts into
 	// existence via a cloud Provider (currently only YellowDog) and
 	// keeps the count at Floor. Nil when HELIX_COMPUTE_PROVIDER is

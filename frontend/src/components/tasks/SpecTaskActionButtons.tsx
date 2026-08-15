@@ -153,6 +153,8 @@ export interface SpecTaskForActions {
   repo_pull_requests?: RepoPR[];
   last_push_at?: string;
   rebase_requested_at?: string;
+  /** "running" | "starting" | "absent" — derived server-side from the session's live container state. */
+  sandbox_state?: string;
 }
 
 interface SpecTaskActionButtonsProps {
@@ -188,6 +190,9 @@ interface SpecTaskActionButtonsProps {
   /** Tooltip text explaining why start action is blocked */
   blockedReason?: string;
 }
+
+export const SANDBOX_STOPPED_TOOLTIP =
+  "Sandbox is stopped. The agent pushes its branch from inside the sandbox — start it to open a PR.";
 
 const COMPACT_BUTTON_METRICS: Record<
   ToolbarDensity,
@@ -399,6 +404,19 @@ export default function SpecTaskActionButtons({
     !!task.rebase_requested_at &&
     (!task.last_push_at ||
       new Date(task.last_push_at).getTime() <= new Date(task.rebase_requested_at).getTime());
+
+  // Approving an implementation instructs the agent to push its branch from
+  // inside the sandbox before the PR is opened. The sandbox owns the working
+  // copy — it is not necessarily on a filesystem the control plane can reach —
+  // so with a stopped sandbox there is nothing to push from and the approval
+  // silently produces a PR against whatever was last pushed, or none at all.
+  // Gate the action until the sandbox is back.
+  //
+  // Only "running" enables it: "starting" means the container exists but the
+  // agent has not connected yet and cannot receive the push instruction.
+  // sandbox_state is absent on tasks that never had a session, which likewise
+  // cannot push.
+  const sandboxStopped = task.sandbox_state !== "running";
 
   // Button size based on variant
   const buttonSize = "small";
@@ -714,15 +732,17 @@ export default function SpecTaskActionButtons({
             tooltip={
               isArchived
                 ? "Task is archived"
-                : rebasePending
-                  ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
-                  : !hasPushed
-                    ? "Waiting for agent to push code..."
-                    : ""
+                : sandboxStopped
+                  ? SANDBOX_STOPPED_TOOLTIP
+                  : rebasePending
+                    ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
+                    : !hasPushed
+                      ? "Waiting for agent to push code..."
+                      : ""
             }
             variant="contained"
             color="success"
-            disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending}
+            disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending || sandboxStopped}
             icon={
               approveImplementationMutation.isPending || rebasePending ? (
                 <CircularProgress size={16} color="inherit" />
@@ -802,11 +822,13 @@ export default function SpecTaskActionButtons({
             title={
               isArchived
                 ? "Task is archived"
-                : rebasePending
-                  ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
-                  : !hasPushed
-                    ? "Waiting for agent to push code..."
-                    : ""
+                : sandboxStopped
+                  ? SANDBOX_STOPPED_TOOLTIP
+                  : rebasePending
+                    ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
+                    : !hasPushed
+                      ? "Waiting for agent to push code..."
+                      : ""
             }
             placement="top"
           >
@@ -823,7 +845,7 @@ export default function SpecTaskActionButtons({
                   )
                 }
                 onClick={handleOpenPR}
-                disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending}
+                disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending || sandboxStopped}
                 fullWidth
                 sx={buttonSx}
               >

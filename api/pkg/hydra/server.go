@@ -308,7 +308,7 @@ func (s *Server) handleCreateDevContainer(w http.ResponseWriter, r *http.Request
 
 // handleListDevContainers lists all active dev containers
 func (s *Server) handleListDevContainers(w http.ResponseWriter, r *http.Request) {
-	resp := s.devContainerManager.ListDevContainers()
+	resp := s.devContainerManager.ListDevContainers(r.Context())
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -773,7 +773,7 @@ func (s *Server) handleGCReconcile(w http.ResponseWriter, r *http.Request) {
 // handleSystemStats returns GPU stats and session counts
 func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
 	gpus := getGPUInfo()
-	containers := s.devContainerManager.ListDevContainers()
+	containers := s.devContainerManager.ListDevContainers(r.Context())
 
 	resp := &SystemStatsResponse{
 		GPUs:             gpus,

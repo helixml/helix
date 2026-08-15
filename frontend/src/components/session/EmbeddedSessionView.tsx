@@ -63,6 +63,7 @@ import {
   resolveChatTurnAssistantPreview,
 } from "./ChatTurnNavigator.logic";
 import { splitSystemPrefix } from "./CollapsibleSystemPrefix";
+import { isSandboxOffline } from "../external-agent/sandboxState";
 
 interface EmbeddedSessionViewProps {
   sessionId: string;
@@ -249,6 +250,14 @@ const EmbeddedSessionView = forwardRef<
   // below so a forbidden / missing session degrades gracefully instead of
   // spinning on "Loading session…" forever.
   const sessionErrorStatus = (sessionError as any)?.response?.status as number | undefined;
+
+  // Whether this session's sandbox has stopped. Derived from the session we
+  // already poll above rather than via useSandboxState, so we don't open a
+  // second query against the same row with different parameters.
+  const agentOffline = useMemo(
+    () => isSandboxOffline(session?.config),
+    [session?.config],
+  );
 
   // Fetch paginated interactions (newest first via order=desc)
   // Page 0 = newest interactions, higher pages = older interactions.
@@ -717,6 +726,7 @@ const EmbeddedSessionView = forwardRef<
                     session_id={sessionId}
                     interaction={interaction}
                     session={session}
+                    agentOffline={agentOffline}
                     serverConfig={account.serverConfig}
                     onMessageUpdate={scrollToBottom}
                   />
