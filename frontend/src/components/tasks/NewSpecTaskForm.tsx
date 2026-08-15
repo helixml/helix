@@ -36,6 +36,7 @@ import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
 import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
 import { isCodingAgent } from "../../utils/apps";
+import { codeAgentExecutionConfigFromApp, findCodeAgentAppForConfig } from "../../utils/codeAgentExecutionConfig";
 import {
   TypesCodeAgentOverrides,
   TypesCreateTaskRequest,
@@ -313,16 +314,19 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
+  const projectDefaultAgentId = project?.default_helix_app_id ||
+    findCodeAgentAppForConfig(apps.apps, project?.code_agent_config)?.id ||
+    "";
+
   // Show coding agents only, with the project default first.
   const sortedApps = useMemo(() => {
     if (!apps.apps) return [];
     const codingApps: IApp[] = [];
     let defaultApp: IApp | null = null;
-    const projectDefaultId = project?.default_helix_app_id;
 
     apps.apps.forEach((app) => {
       if (!isCodingAgent(app)) return;
-      if (projectDefaultId && app.id === projectDefaultId) {
+      if (projectDefaultAgentId && app.id === projectDefaultAgentId) {
         defaultApp = app;
         return;
       }
@@ -343,7 +347,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     if (defaultApp) result.push(defaultApp);
     result.push(...codingApps);
     return result;
-  }, [apps.apps, project?.default_helix_app_id]);
+  }, [apps.apps, projectDefaultAgentId]);
 
   // Auto-generate agent name when model or runtime changes
   useEffect(() => {
@@ -395,8 +399,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
   // Auto-select default agent
   useEffect(() => {
-    if (project?.default_helix_app_id) {
-      setSelectedHelixAgent(project.default_helix_app_id);
+    if (projectDefaultAgentId) {
+      setSelectedHelixAgent(projectDefaultAgentId);
       setShowCreateAgentForm(false);
     } else if (sortedApps.length === 0) {
       setShowCreateAgentForm(true);
@@ -405,7 +409,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       setSelectedHelixAgent(sortedApps[0]?.id || "");
       setShowCreateAgentForm(false);
     }
-  }, [sortedApps, project?.default_helix_app_id]);
+  }, [sortedApps, projectDefaultAgentId]);
 
   // Focus text field on mount
   useEffect(() => {
@@ -488,7 +492,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setIsCreating(true);
 
     try {
-      let agentId = selectedHelixAgent;
+      let selectedAgent = apps.apps?.find((app) => app.id === selectedHelixAgent);
 
       // Create agent inline if showing create form
       if (showCreateAgentForm) {
@@ -498,14 +502,21 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           setIsCreating(false);
           return;
         }
-        agentId = createdAgent.id;
+        selectedAgent = createdAgent;
+      }
+
+      const codeAgentConfig = codeAgentExecutionConfigFromApp(selectedAgent, codeAgentOverrides);
+      if (!codeAgentConfig) {
+        snackbar.error("Select a valid coding agent configuration");
+        setIsCreating(false);
+        return;
       }
 
       const createTaskRequest: TypesCreateTaskRequest = {
         prompt: taskPrompt,
         priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId,
-        app_id: agentId || undefined,
+        code_agent_config: codeAgentConfig,
         assignee_id: assigneeId || undefined,
         just_do_it_mode: justDoItMode,
         auto_start: autoStart,
@@ -528,9 +539,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           selectedRecipeName && Object.keys(recipeParams).length > 0
             ? recipeParams
             : undefined,
-        code_agent_overrides: Object.values(codeAgentOverrides).some(Boolean)
-          ? codeAgentOverrides
-          : undefined,
         sandbox_resource_overrides: sandboxResourceOverrides,
         sandbox_runtime: sandboxRuntime,
       };

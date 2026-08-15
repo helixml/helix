@@ -133,6 +133,12 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+	if req.AppID != "" {
+		return nil, fmt.Errorf("app_id is no longer supported; provide code_agent_config")
+	}
+	if req.CodeAgentOverrides != nil {
+		return nil, fmt.Errorf("code_agent_overrides is no longer supported; provide code_agent_config")
+	}
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
 		return nil, fmt.Errorf("invalid sandbox resource preset")
 	}
@@ -158,21 +164,14 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	}
 	sandboxRuntime = types.EffectiveSpecTaskSandboxRuntime(sandboxRuntime)
 
-	// Determine which agent to use (single agent for entire workflow)
-	// Priority: request.AppID > project.DefaultHelixAppID > error if not found
-	helixAppID := ""
-	if req.AppID != "" {
-		helixAppID = req.AppID
-	} else if project != nil && project.DefaultHelixAppID != "" {
-		helixAppID = project.DefaultHelixAppID
+	codeAgentConfig := cloneCodeAgentExecutionConfig(req.CodeAgentConfig)
+	if codeAgentConfig == nil && project != nil {
+		codeAgentConfig = cloneCodeAgentExecutionConfig(project.CodeAgentConfig)
 	}
-
-	// Validate that the app exists if one is configured
-	if helixAppID != "" {
-		app, err := s.store.GetApp(ctx, helixAppID)
-		if err != nil || app == nil {
-			return nil, fmt.Errorf("configured agent '%s' not found - check project settings", helixAppID)
-		}
+	// A legacy project is allowed to defer materialization until task start.
+	// This is the only remaining read path for DefaultHelixAppID.
+	if codeAgentConfig == nil && (project == nil || project.DefaultHelixAppID == "") {
+		return nil, fmt.Errorf("project has no code-agent configuration")
 	}
 
 	// Default branch mode to "new" if not specified
@@ -226,8 +225,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		OriginalPrompt:           req.Prompt,
 		CreatedBy:                req.UserID,
 		PlanningStartedBy:        planningStartedBy,
-		HelixAppID:               helixAppID, // Helix agent used for entire workflow
-		CodeAgentOverrides:       req.CodeAgentOverrides,
+		CodeAgentConfig:          codeAgentConfig,
 		SandboxResourceOverrides: sandboxResources,
 		SandboxRuntime:           sandboxRuntime,
 		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
@@ -316,7 +314,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		}
 	}()
 
-	log.Debug().Str("task_id", task.ID).Str("helix_app_id", task.HelixAppID).Msg("DEBUG: StartSpecGeneration entered")
+	log.Debug().Str("task_id", task.ID).Msg("StartSpecGeneration entered")
 
 	// Get project first - needed for agent inheritance and guidelines
 	var project *types.Project
@@ -346,26 +344,15 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		}
 	}
 
-	// Ensure HelixAppID is set - inherit from project default
-	helixAppIDChanged := false
-	if task.HelixAppID == "" {
-		if project != nil && project.DefaultHelixAppID != "" {
-			task.HelixAppID = project.DefaultHelixAppID
-			helixAppIDChanged = true
-			log.Info().
-				Str("task_id", task.ID).
-				Str("helix_app_id", project.DefaultHelixAppID).
-				Msg("Inherited HelixAppID from project default")
-		} else {
-			s.markTaskFailed(ctx, task, "no agent configured - set DefaultHelixAppID on project")
-			return
-		}
+	if err := s.migrateSpecTaskCodeAgentConfig(ctx, task, project); err != nil {
+		s.markTaskFailed(ctx, task, fmt.Sprintf("failed to prepare code-agent configuration: %v", err))
+		return
 	}
 
 	log.Info().
 		Str("task_id", task.ID).
 		Str("original_prompt", task.OriginalPrompt).
-		Str("helix_app_id", task.HelixAppID).
+		Str("code_agent_runtime", string(task.CodeAgentConfig.Runtime)).
 		Msg("Starting spec generation")
 
 	// Note: Task number and design doc path are now assigned at creation time
@@ -397,11 +384,6 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
-	// If we inherited the agent ID, it's now persisted via the UpdateSpecTask above
-	if helixAppIDChanged {
-		log.Debug().Str("task_id", task.ID).Str("helix_app_id", task.HelixAppID).Msg("HelixAppID persisted to task")
-	}
-
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
 	koditDoc := ""
 	if project != nil && project.KoditEnabled {
@@ -420,7 +402,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	planningPrompt := BuildPlanningPrompt(task, guidelines, koditDoc, repoSection, attachmentsSection)
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
-	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
+	codeAgentRuntime := codeAgentRuntimeForSpecTask(task)
 
 	sessionMetadata := types.SessionMetadata{
 		SystemPrompt:     "",             // Don't override agent's system prompt
@@ -447,7 +429,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Provider:       "anthropic",      // Use Claude for spec generation
 		ModelName:      "external_agent", // Model name for external agents
 		Owner:          task.CreatedBy,
-		ParentApp:      task.HelixAppID, // Use the Helix agent for entire workflow
+		ParentApp:      "",
 		OrganizationID: orgID,
 		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
@@ -593,37 +575,14 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	launchTask := task
 	launchSession := session
 
-	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	// Display settings are sandbox concerns. Legacy App display preferences are
+	// intentionally not part of the task execution-config migration.
 	displayWidth := 1920
 	displayHeight := 1080
 	displayRefreshRate := 60
 	resolution := ""
 	zoomLevel := 0
 	desktopType := ""
-	if task.HelixAppID != "" {
-		app, err := s.store.GetApp(ctx, task.HelixAppID)
-		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
-			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
-			displayWidth = width
-			displayHeight = height
-			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
-				displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
-			}
-			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
-			resolution = app.Config.Helix.ExternalAgentConfig.Resolution
-			zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
-			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
-			log.Debug().
-				Str("task_id", task.ID).
-				Int("display_width", displayWidth).
-				Int("display_height", displayHeight).
-				Int("display_refresh_rate", displayRefreshRate).
-				Str("resolution", resolution).
-				Int("zoom_level", zoomLevel).
-				Str("desktop_type", desktopType).
-				Msg("Using display settings from app's ExternalAgentConfig")
-		}
-	}
 
 	// Ensure desktopType has a sensible default (ubuntu) when not set by app config
 	// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
@@ -759,18 +718,9 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		}
 	}
 
-	// Ensure HelixAppID is set - inherit from project default
-	if task.HelixAppID == "" {
-		if project != nil && project.DefaultHelixAppID != "" {
-			task.HelixAppID = project.DefaultHelixAppID
-			log.Info().
-				Str("task_id", task.ID).
-				Str("helix_app_id", project.DefaultHelixAppID).
-				Msg("Inherited HelixAppID from project default")
-		} else {
-			s.markTaskFailed(ctx, task, "no agent configured - set DefaultHelixAppID on project")
-			return
-		}
+	if err := s.migrateSpecTaskCodeAgentConfig(ctx, task, project); err != nil {
+		s.markTaskFailed(ctx, task, fmt.Sprintf("failed to prepare code-agent configuration: %v", err))
+		return
 	}
 
 	// Use Description (user-editable) with fallback to OriginalPrompt (immutable original)
@@ -782,7 +732,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	log.Info().
 		Str("task_id", task.ID).
 		Str("user_prompt", userPrompt).
-		Str("helix_app_id", task.HelixAppID).
+		Str("code_agent_runtime", string(task.CodeAgentConfig.Runtime)).
 		Msg("Starting Just Do It mode - skipping spec generation")
 
 	// Note: Task number and design doc path are now assigned at creation time
@@ -822,7 +772,6 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	}
 
 	// Update task status directly to implementation (skip all spec phases)
-	// NOTE: If HelixAppID was inherited from project, it will be persisted here
 	now := time.Now()
 	task.Status = types.TaskStatusImplementation
 	task.StatusUpdatedAt = &now
@@ -837,7 +786,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	}
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
-	codeAgentRuntimeJDI := s.getCodeAgentRuntimeForTask(ctx, task)
+	codeAgentRuntimeJDI := codeAgentRuntimeForSpecTask(task)
 
 	sessionMetadata := types.SessionMetadata{
 		SystemPrompt:     "",             // Don't override agent's system prompt
@@ -866,7 +815,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Provider:       "anthropic",      // Use Claude
 		ModelName:      "external_agent", // Model name for external agents
 		Owner:          task.CreatedBy,
-		ParentApp:      task.HelixAppID, // Use the Helix agent for workflow
+		ParentApp:      "",
 		OrganizationID: orgID,
 		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
@@ -1042,37 +991,14 @@ Follow these guidelines when making changes:
 		return
 	}
 
-	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	// Use task/session sandbox defaults; execution config no longer references
+	// an App-owned display profile.
 	displayWidthJDI := 1920
 	displayHeightJDI := 1080
 	displayRefreshRateJDI := 60
 	resolutionJDI := ""
 	zoomLevelJDI := 0
 	desktopTypeJDI := ""
-	if task.HelixAppID != "" {
-		app, err := s.store.GetApp(ctx, task.HelixAppID)
-		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
-			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
-			displayWidthJDI = width
-			displayHeightJDI = height
-			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
-				displayRefreshRateJDI = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
-			}
-			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
-			resolutionJDI = app.Config.Helix.ExternalAgentConfig.Resolution
-			zoomLevelJDI = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
-			desktopTypeJDI = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
-			log.Debug().
-				Str("task_id", task.ID).
-				Int("display_width", displayWidthJDI).
-				Int("display_height", displayHeightJDI).
-				Int("display_refresh_rate", displayRefreshRateJDI).
-				Str("resolution", resolutionJDI).
-				Int("zoom_level", zoomLevelJDI).
-				Str("desktop_type", desktopTypeJDI).
-				Msg("Just Do It: Using display settings from app's ExternalAgentConfig")
-		}
-	}
 
 	// Build env vars (base + locale; project secrets injected by HydraExecutor.StartDesktop)
 	envVarsJDI := buildEnvWithLocale(userAPIKey, task.PlanningOptions)
@@ -1267,33 +1193,28 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		}
 	}
 
+	var project *types.Project
+	if task.CodeAgentConfig == nil || task.HelixAppID != "" || task.CodeAgentOverrides != nil {
+		project, err = s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			return fmt.Errorf("failed to get project for code-agent migration: %w", err)
+		}
+		if err := s.migrateSpecTaskCodeAgentConfig(ctx, task, project); err != nil {
+			return fmt.Errorf("failed to migrate task code-agent configuration: %w", err)
+		}
+	}
+
 	if task.SpecApproval.Approved {
 		// Get project and repository info
-		project, err := s.store.GetProject(ctx, task.ProjectID)
-		if err != nil {
-			return fmt.Errorf("failed to get project: %w", err)
+		if project == nil {
+			project, err = s.store.GetProject(ctx, task.ProjectID)
+			if err != nil {
+				return fmt.Errorf("failed to get project: %w", err)
+			}
 		}
 
-		// Ensure HelixAppID is set - inherit from project default for old tasks
-		if task.HelixAppID == "" && project.DefaultHelixAppID != "" {
-			task.HelixAppID = project.DefaultHelixAppID
-			log.Info().
-				Str("task_id", task.ID).
-				Str("helix_app_id", project.DefaultHelixAppID).
-				Msg("[ApproveSpecs] Inherited HelixAppID from project default")
-
-			// Also update the planning session's ParentApp if it was empty
-			if task.PlanningSessionID != "" {
-				session, sessionErr := s.store.GetSession(ctx, task.PlanningSessionID)
-				if sessionErr == nil && session != nil && session.ParentApp == "" {
-					session.ParentApp = task.HelixAppID
-					if _, updateErr := s.store.UpdateSession(ctx, *session); updateErr != nil {
-						log.Warn().Err(updateErr).Str("session_id", session.ID).Msg("Failed to update session ParentApp (continuing)")
-					} else {
-						log.Info().Str("session_id", session.ID).Str("parent_app", task.HelixAppID).Msg("[ApproveSpecs] Updated session ParentApp")
-					}
-				}
-			}
+		if task.CodeAgentConfig == nil {
+			return fmt.Errorf("task has no code-agent configuration")
 		}
 
 		if project.DefaultRepoID == "" {
@@ -1362,9 +1283,6 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			"branch_name": branchName,
 			"started_at":  now,
 			"base_branch": task.BaseBranch,
-		}
-		if task.HelixAppID != "" {
-			extraFields["helix_app_id"] = task.HelixAppID
 		}
 		// Persist the synthesized SpecApproval struct (only set when the
 		// caller arrived with task.SpecApproval == nil). The pre-PR2260
@@ -1489,29 +1407,8 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		task.StatusUpdatedAt = &now
 		task.SpecRevisionCount++
 
-		// Ensure HelixAppID is set - inherit from project default for old tasks
-		if task.HelixAppID == "" {
-			project, projErr := s.store.GetProject(ctx, task.ProjectID)
-			if projErr == nil && project != nil && project.DefaultHelixAppID != "" {
-				task.HelixAppID = project.DefaultHelixAppID
-				log.Info().
-					Str("task_id", task.ID).
-					Str("helix_app_id", project.DefaultHelixAppID).
-					Msg("[RequestRevision] Inherited HelixAppID from project default")
-
-				// Also update the planning session's ParentApp if it was empty
-				if task.PlanningSessionID != "" {
-					session, sessionErr := s.store.GetSession(ctx, task.PlanningSessionID)
-					if sessionErr == nil && session != nil && session.ParentApp == "" {
-						session.ParentApp = task.HelixAppID
-						if _, updateErr := s.store.UpdateSession(ctx, *session); updateErr != nil {
-							log.Warn().Err(updateErr).Str("session_id", session.ID).Msg("Failed to update session ParentApp (continuing)")
-						} else {
-							log.Info().Str("session_id", session.ID).Str("parent_app", task.HelixAppID).Msg("[RequestRevision] Updated session ParentApp")
-						}
-					}
-				}
-			}
+		if task.CodeAgentConfig == nil {
+			return fmt.Errorf("task has no code-agent configuration")
 		}
 
 		err = s.store.UpdateSpecTask(ctx, task)
@@ -2091,45 +1988,6 @@ func (s *SpecDrivenTaskService) RevokeSessionAPIKeys(ctx context.Context, sessio
 	return nil
 }
 
-// getCodeAgentRuntimeForTask gets the CodeAgentRuntime from the task's associated app configuration.
-// This is used to send the correct agent_name in open_thread commands when resuming sessions.
-func (s *SpecDrivenTaskService) getCodeAgentRuntimeForTask(ctx context.Context, task *types.SpecTask) types.CodeAgentRuntime {
-	if task.HelixAppID == "" {
-		log.Debug().Str("spec_task_id", task.ID).Msg("Spec task has no HelixAppID, defaulting to zed_agent runtime")
-		return types.CodeAgentRuntimeZedAgent
-	}
-
-	app, err := s.store.GetApp(ctx, task.HelixAppID)
-	if err != nil {
-		log.Warn().Err(err).
-			Str("spec_task_id", task.ID).
-			Str("helix_app_id", task.HelixAppID).
-			Msg("Failed to get app for code agent runtime, defaulting to zed_agent")
-		return types.CodeAgentRuntimeZedAgent
-	}
-
-	// Find the zed_external assistant in the app config
-	for _, assistant := range app.Config.Helix.Assistants {
-		if assistant.AgentType == types.AgentTypeZedExternal {
-			if assistant.CodeAgentRuntime != "" {
-				log.Debug().
-					Str("spec_task_id", task.ID).
-					Str("helix_app_id", task.HelixAppID).
-					Str("code_agent_runtime", string(assistant.CodeAgentRuntime)).
-					Msg("Found code agent runtime from app config")
-				return assistant.CodeAgentRuntime
-			}
-			break
-		}
-	}
-
-	log.Debug().
-		Str("spec_task_id", task.ID).
-		Str("helix_app_id", task.HelixAppID).
-		Msg("No code agent runtime configured in app, defaulting to zed_agent")
-	return types.CodeAgentRuntimeZedAgent
-}
-
 // ResumeSession restarts a desktop container for an existing session
 // Used by the reconciler to restart sessions after Wolf crash or sandbox restart
 func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.SpecTask, session *types.Session) error {
@@ -2138,11 +1996,14 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		Str("session_id", session.ID).
 		Msg("Resuming session after container loss")
 
-	// Get project for repository IDs
+	// Get project for repository IDs and migrate legacy App-backed execution
+	// configuration before recreating the agent container.
 	var repositoryIDs []string
 	var primaryRepoID string
+	var project *types.Project
 	if task.ProjectID != "" {
-		project, err := s.store.GetProject(ctx, task.ProjectID)
+		var err error
+		project, err = s.store.GetProject(ctx, task.ProjectID)
 		if err != nil {
 			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for resume")
 		} else if project != nil {
@@ -2158,6 +2019,14 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 					primaryRepoID = repositoryIDs[0]
 				}
 			}
+		}
+	}
+	if task.CodeAgentConfig == nil || task.HelixAppID != "" || task.CodeAgentOverrides != nil || session.ParentApp != "" || session.Metadata.CodeAgentOverrides != nil {
+		if project == nil {
+			return fmt.Errorf("project is required to migrate task code-agent configuration")
+		}
+		if err := s.migrateSpecTaskCodeAgentConfig(ctx, task, project); err != nil {
+			return fmt.Errorf("failed to migrate task code-agent configuration before resume: %w", err)
 		}
 	}
 
@@ -2179,23 +2048,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		displayRefreshRate = 60
 	}
 
-	// Get desktop type from app config
-	// Task must have a valid HelixAppID - error if not found
 	desktopType := "ubuntu" // Default
-	if task.HelixAppID != "" {
-		app, err := s.store.GetApp(ctx, task.HelixAppID)
-		if err != nil || app == nil {
-			return fmt.Errorf("configured agent '%s' not found - check project settings", task.HelixAppID)
-		}
-		if app.Config.Helix.ExternalAgentConfig != nil {
-			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
-			log.Debug().
-				Str("task_id", task.ID).
-				Str("app_id", task.HelixAppID).
-				Str("desktop_type", desktopType).
-				Msg("Got desktop type from app config")
-		}
-	}
 
 	// Build the ZedAgent for restart
 	zedAgent := &types.DesktopAgent{

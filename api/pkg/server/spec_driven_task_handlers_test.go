@@ -15,6 +15,25 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestCreateTaskFromPromptRejectsLegacyAgentFields(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	user := types.User{ID: "user1"}
+	project := &types.Project{ID: "project1", UserID: user.ID}
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+
+	body := `{"project_id":"project1","prompt":"do work","app_id":"app-legacy"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/from-prompt", bytes.NewBufferString(body))
+	req = req.WithContext(setRequestUser(req.Context(), user))
+	response := httptest.NewRecorder()
+
+	server.createTaskFromPrompt(response, req)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Contains(t, response.Body.String(), "code_agent_config")
+}
+
 func TestSpecTaskProviderPreflightHandlers(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -17637,7 +17637,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Replaces the session's code-agent overrides, and optionally switches it to a different Agent. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start. Sessions belonging to a SpecTask write through to the task.",
+                "description": "General sessions replace App overrides and may switch Apps. SpecTask sessions instead replace the task-owned code_agent_config. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start.",
                 "consumes": [
                     "application/json"
                 ],
@@ -20466,7 +20466,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the task's current coding identity without exposing Agent secrets. Legacy tasks whose Agent was deleted fall back to their session and interaction snapshots.",
+                "description": "Returns the task-owned code-agent configuration. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.",
                 "produces": [
                     "application/json"
                 ],
@@ -20504,7 +20504,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.",
+                "description": "Replaces a task's complete code-agent configuration or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.",
                 "consumes": [
                     "application/json"
                 ],
@@ -28046,6 +28046,9 @@ const docTemplate = `{
                 "agent_name": {
                     "type": "string"
                 },
+                "code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
                 "code_agent_overrides": {
                     "description": "CodeAgentOverrides is the override set the fields above were resolved\nwith, so a caller can round-trip an edit without having to know which\nrecord (task or session) stores it.",
                     "allOf": [
@@ -29797,6 +29800,39 @@ const docTemplate = `{
                 "CodeAgentCredentialTypeSubscription"
             ]
         },
+        "types.CodeAgentExecutionConfig": {
+            "type": "object",
+            "properties": {
+                "credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "goose_recipe_repo_url": {
+                    "description": "Goose declarations are execution inputs, not Agent identity. They are\ncopied while migrating legacy coding Apps so existing Goose tasks keep\ntheir project recipe catalogue after the App link is cleared.",
+                    "type": "string"
+                },
+                "goose_recipes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantGooseRecipe"
+                    }
+                },
+                "model": {
+                    "type": "string"
+                },
+                "provider_ref": {
+                    "type": "string"
+                },
+                "reasoning_effort": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "service_tier": {
+                    "type": "string"
+                }
+            }
+        },
         "types.CodeAgentGooseRecipe": {
             "type": "object",
             "properties": {
@@ -30301,10 +30337,6 @@ const docTemplate = `{
         "types.CreateTaskRequest": {
             "type": "object",
             "properties": {
-                "app_id": {
-                    "description": "Optional: Helix agent to use for spec generation",
-                    "type": "string"
-                },
                 "assignee_id": {
                     "description": "Optional: team member assigned to the task",
                     "type": "string"
@@ -30329,8 +30361,8 @@ const docTemplate = `{
                     "description": "For new mode: user-specified prefix (task# appended)",
                     "type": "string"
                 },
-                "code_agent_overrides": {
-                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                "code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
                 },
                 "credential_owner_id": {
                     "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate this task's agent, for orchestrators dispatching work on a\nhuman's behalf under one service API key. Credential resolution only — the\ntask is still created by, owned by, and attributed to the caller. Ignored\nunless that user has delegated their subscription to this organization.",
@@ -33878,6 +33910,14 @@ const docTemplate = `{
                     "description": "Automation settings",
                     "type": "boolean"
                 },
+                "code_agent_config": {
+                    "description": "CodeAgentConfig is the project default copied into each new SpecTask.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -33885,7 +33925,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "default_helix_app_id": {
-                    "description": "Default agent for spec tasks in this project (App ID)\nNew spec tasks inherit this agent; can be overridden per-task",
+                    "description": "Legacy coding-App migration source. Coding projects clear this after\nmaterializing CodeAgentConfig. Org Worker projects retain it as their Bot\nidentity link until that separate overload is removed.",
                     "type": "string"
                 },
                 "default_repo_id": {
@@ -34196,11 +34236,14 @@ const docTemplate = `{
         "types.ProjectCreateRequest": {
             "type": "object",
             "properties": {
+                "code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
                 "default_branch": {
                     "type": "string"
                 },
                 "default_helix_app_id": {
-                    "description": "Default agent for spec tasks",
+                    "description": "Org-agent identity only; coding projects use CodeAgentConfig",
                     "type": "string"
                 },
                 "default_repo_id": {
@@ -34417,11 +34460,14 @@ const docTemplate = `{
                 "auto_start_backlog_tasks": {
                     "type": "boolean"
                 },
+                "code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
                 "default_branch": {
                     "type": "string"
                 },
                 "default_helix_app_id": {
-                    "description": "Default agent for spec tasks",
+                    "description": "Org-agent identity only; coding projects use CodeAgentConfig",
                     "type": "string"
                 },
                 "default_repo_id": {
@@ -36561,6 +36607,9 @@ const docTemplate = `{
                 "agent_id": {
                     "type": "string"
                 },
+                "code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
                 "code_agent_overrides": {
                     "$ref": "#/definitions/types.CodeAgentOverrides"
                 }
@@ -36574,6 +36623,9 @@ const docTemplate = `{
                 },
                 "agent_thread_restarted": {
                     "type": "boolean"
+                },
+                "code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
                 },
                 "code_agent_overrides": {
                     "$ref": "#/definitions/types.CodeAgentOverrides"
@@ -36661,7 +36713,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "code_agent_overrides": {
-                    "description": "CodeAgentOverrides customizes the coding model for THIS session without\nmutating its Agent. Set from the chat composer's execution controls on\nsessions that own their configuration (org bot chat, project chat).\nSpecTask sessions leave this nil — SpecTask.CodeAgentOverrides is\nauthoritative there, so there is exactly one source of truth per session.",
+                    "description": "CodeAgentOverrides customizes the coding model for THIS session without\nmutating its Agent. Set from the chat composer's execution controls on\nsessions that own their configuration (org bot chat, project chat).\nSpecTask sessions leave this nil — SpecTask.CodeAgentConfig is\nauthoritative there, so there is exactly one source of truth per session.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/types.CodeAgentOverrides"
@@ -37288,8 +37340,16 @@ const docTemplate = `{
                     "description": "Original project",
                     "type": "string"
                 },
+                "code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
                 "code_agent_overrides": {
-                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                    "description": "Legacy migration source; cleared together with HelixAppID on task start.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentOverrides"
+                        }
+                    ]
                 },
                 "completed_at": {
                     "type": "string"
@@ -37340,7 +37400,7 @@ const docTemplate = `{
                     }
                 },
                 "helix_app_id": {
-                    "description": "NEW: Single Helix Agent for entire workflow (App type in code)",
+                    "description": "Legacy migration source. New API writes are rejected and task start clears\nthis after materializing CodeAgentConfig. Remove the column after the\nmigration window.",
                     "type": "string"
                 },
                 "id": {
@@ -37928,11 +37988,8 @@ const docTemplate = `{
         "types.SpecTaskExecutionConfigUpdateRequest": {
             "type": "object",
             "properties": {
-                "agent_id": {
-                    "type": "string"
-                },
-                "code_agent_overrides": {
-                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                "code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
                 },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
@@ -38049,10 +38106,6 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
-                "helix_app_id": {
-                    "description": "Agent to use for this task",
-                    "type": "string"
-                },
                 "just_do_it_mode": {
                     "description": "Pointer to allow explicit false",
                     "type": "boolean"
@@ -38131,8 +38184,16 @@ const docTemplate = `{
                     "description": "Original project",
                     "type": "string"
                 },
+                "code_agent_config": {
+                    "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
                 "code_agent_overrides": {
-                    "$ref": "#/definitions/types.CodeAgentOverrides"
+                    "description": "Legacy migration source; cleared together with HelixAppID on task start.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentOverrides"
+                        }
+                    ]
                 },
                 "completed_at": {
                     "type": "string"
@@ -38183,7 +38244,7 @@ const docTemplate = `{
                     }
                 },
                 "helix_app_id": {
-                    "description": "NEW: Single Helix Agent for entire workflow (App type in code)",
+                    "description": "Legacy migration source. New API writes are rejected and task start clears\nthis after materializing CodeAgentConfig. Remove the column after the\nmigration window.",
                     "type": "string"
                 },
                 "id": {

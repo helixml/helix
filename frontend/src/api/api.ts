@@ -2336,6 +2336,7 @@ export interface TypesAgentExecutionConfig {
   agent_available?: boolean;
   agent_id?: string;
   agent_name?: string;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   /**
    * CodeAgentOverrides is the override set the fields above were resolved
    * with, so a caller can round-trip an edit without having to know which
@@ -3163,6 +3164,22 @@ export enum TypesCodeAgentCredentialType {
   CodeAgentCredentialTypeSubscription = "subscription",
 }
 
+export interface TypesCodeAgentExecutionConfig {
+  credential_type?: TypesCodeAgentCredentialType;
+  /**
+   * Goose declarations are execution inputs, not Agent identity. They are
+   * copied while migrating legacy coding Apps so existing Goose tasks keep
+   * their project recipe catalogue after the App link is cleared.
+   */
+  goose_recipe_repo_url?: string;
+  goose_recipes?: TypesAssistantGooseRecipe[];
+  model?: string;
+  provider_ref?: string;
+  reasoning_effort?: string;
+  runtime?: TypesCodeAgentRuntime;
+  service_tier?: string;
+}
+
 export interface TypesCodeAgentGooseRecipe {
   name?: string;
   path?: string;
@@ -3389,8 +3406,6 @@ export interface TypesCreateSecretRequest {
 }
 
 export interface TypesCreateTaskRequest {
-  /** Optional: Helix agent to use for spec generation */
-  app_id?: string;
   /** Optional: team member assigned to the task */
   assignee_id?: string;
   /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
@@ -3401,7 +3416,7 @@ export interface TypesCreateTaskRequest {
   branch_mode?: TypesBranchMode;
   /** For new mode: user-specified prefix (task# appended) */
   branch_prefix?: string;
-  code_agent_overrides?: TypesCodeAgentOverrides;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   /**
    * CredentialOwnerID optionally names the user whose Claude subscription should
    * authenticate this task's agent, for orchestrators dispatching work on a
@@ -4953,11 +4968,14 @@ export interface TypesProfileModel {
 export interface TypesProject {
   /** Automation settings */
   auto_start_backlog_tasks?: boolean;
+  /** CodeAgentConfig is the project default copied into each new SpecTask. */
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   created_at?: string;
   default_branch?: string;
   /**
-   * Default agent for spec tasks in this project (App ID)
-   * New spec tasks inherit this agent; can be overridden per-task
+   * Legacy coding-App migration source. Coding projects clear this after
+   * materializing CodeAgentConfig. Org Worker projects retain it as their Bot
+   * identity link until that separate overload is removed.
    */
   default_helix_app_id?: string;
   /**
@@ -5107,8 +5125,9 @@ export interface TypesProjectAuditLogResponse {
 }
 
 export interface TypesProjectCreateRequest {
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   default_branch?: string;
-  /** Default agent for spec tasks */
+  /** Org-agent identity only; coding projects use CodeAgentConfig */
   default_helix_app_id?: string;
   default_repo_id?: string;
   /** Default sandbox environment for spec tasks */
@@ -5193,8 +5212,9 @@ export interface TypesProjectTaskSpec {
 
 export interface TypesProjectUpdateRequest {
   auto_start_backlog_tasks?: boolean;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   default_branch?: string;
-  /** Default agent for spec tasks */
+  /** Org-agent identity only; coding projects use CodeAgentConfig */
   default_helix_app_id?: string;
   default_repo_id?: string;
   /** Default sandbox environment for spec tasks */
@@ -6299,12 +6319,14 @@ export interface TypesSessionChatRequest {
 
 export interface TypesSessionExecutionConfigUpdateRequest {
   agent_id?: string;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   code_agent_overrides?: TypesCodeAgentOverrides;
 }
 
 export interface TypesSessionExecutionConfigUpdateResponse {
   agent_id?: string;
   agent_thread_restarted?: boolean;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   code_agent_overrides?: TypesCodeAgentOverrides;
   session_id?: string;
   spec_task_id?: string;
@@ -6361,7 +6383,7 @@ export interface TypesSessionMetadata {
    * CodeAgentOverrides customizes the coding model for THIS session without
    * mutating its Agent. Set from the chat composer's execution controls on
    * sessions that own their configuration (org bot chat, project chat).
-   * SpecTask sessions leave this nil — SpecTask.CodeAgentOverrides is
+   * SpecTask sessions leave this nil — SpecTask.CodeAgentConfig is
    * authoritative there, so there is exactly one source of truth per session.
    */
   code_agent_overrides?: TypesCodeAgentOverrides;
@@ -6647,6 +6669,8 @@ export interface TypesSpecTask {
   cloned_from_id?: string;
   /** Original project */
   cloned_from_project_id?: string;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
+  /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
   created_at?: string;
@@ -6690,7 +6714,11 @@ export interface TypesSpecTask {
    */
   goose_recipe_name?: string;
   goose_recipe_params?: Record<string, string>;
-  /** NEW: Single Helix Agent for entire workflow (App type in code) */
+  /**
+   * Legacy migration source. New API writes are rejected and task start clears
+   * this after materializing CodeAgentConfig. Remove the column after the
+   * migration window.
+   */
   helix_app_id?: string;
   id?: string;
   implementation_approved_at?: string;
@@ -6945,8 +6973,7 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
 }
 
 export interface TypesSpecTaskExecutionConfigUpdateRequest {
-  agent_id?: string;
-  code_agent_overrides?: TypesCodeAgentOverrides;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
 }
 
@@ -6992,8 +7019,6 @@ export interface TypesSpecTaskUpdateRequest {
   /** IDs of tasks this task depends on */
   depends_on?: string[];
   description?: string;
-  /** Agent to use for this task */
-  helix_app_id?: string;
   /** Pointer to allow explicit false */
   just_do_it_mode?: boolean;
   /** Pointer to allow explicit false — prevent auto-idle-shutdown */
@@ -7028,6 +7053,8 @@ export interface TypesSpecTaskWithProject {
   cloned_from_id?: string;
   /** Original project */
   cloned_from_project_id?: string;
+  code_agent_config?: TypesCodeAgentExecutionConfig;
+  /** Legacy migration source; cleared together with HelixAppID on task start. */
   code_agent_overrides?: TypesCodeAgentOverrides;
   completed_at?: string;
   created_at?: string;
@@ -7071,7 +7098,11 @@ export interface TypesSpecTaskWithProject {
    */
   goose_recipe_name?: string;
   goose_recipe_params?: Record<string, string>;
-  /** NEW: Single Helix Agent for entire workflow (App type in code) */
+  /**
+   * Legacy migration source. New API writes are rejected and task start clears
+   * this after materializing CodeAgentConfig. Remove the column after the
+   * migration window.
+   */
   helix_app_id?: string;
   id?: string;
   implementation_approved_at?: string;
@@ -16674,7 +16705,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Replaces the session's code-agent overrides, and optionally switches it to a different Agent. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start. Sessions belonging to a SpecTask write through to the task.
+     * @description General sessions replace App overrides and may switch Apps. SpecTask sessions instead replace the task-owned code_agent_config. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start.
      *
      * @tags Sessions
      * @name V1SessionsExecutionConfigPartialUpdate
@@ -17799,7 +17830,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns the task's current coding identity without exposing Agent secrets. Legacy tasks whose Agent was deleted fall back to their session and interaction snapshots.
+     * @description Returns the task-owned code-agent configuration. Unmigrated historical tasks are resolved through their legacy App until task start materializes the configuration.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigDetail
@@ -17817,7 +17848,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Replaces a task's code-agent overrides or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.
+     * @description Replaces a task's complete code-agent configuration or sandbox resource preset. Running sandboxes are resized in place and code-agent changes start a fresh ACP thread; stopped sandboxes record code-agent changes for the next start.
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksExecutionConfigPartialUpdate

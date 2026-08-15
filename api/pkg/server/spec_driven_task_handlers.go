@@ -162,29 +162,8 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		http.Error(w, "prompt is required", http.StatusBadRequest)
 		return
 	}
-	if req.AppID == "" {
-		project, err := s.Store.GetProject(ctx, req.ProjectID)
-		if err != nil {
-			http.Error(w, "project not found", http.StatusBadRequest)
-			return
-		}
-		req.AppID = project.DefaultHelixAppID
-	}
-	if req.AppID == "" {
-		http.Error(w, "project has no default coding agent", http.StatusBadRequest)
-		return
-	}
-	app, err := s.Store.GetApp(ctx, req.AppID)
-	if err != nil {
-		http.Error(w, "selected agent not found", http.StatusBadRequest)
-		return
-	}
-	if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
-	}
-	if err := requireAgentKind(app, types.AgentKindCoding, "spec tasks"); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if req.AppID != "" || req.CodeAgentOverrides != nil {
+		http.Error(w, "app_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
 		return
 	}
 	if req.SandboxResourceOverrides != nil && !req.SandboxResourceOverrides.ValidPreset() {
@@ -209,8 +188,13 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-	if req.CodeAgentOverrides != nil {
-		if err := s.validateCodeAgentOverrides(ctx, req.AppID, req.CodeAgentOverrides, user.ID); err != nil {
+	if req.CodeAgentConfig != nil {
+		project, err := s.Store.GetProject(ctx, req.ProjectID)
+		if err != nil {
+			http.Error(w, "project not found", http.StatusBadRequest)
+			return
+		}
+		if err := s.validateCodeAgentExecutionConfig(ctx, req.CodeAgentConfig, user.ID, user.ID, project.OrganizationID); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -1218,39 +1202,8 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		task.JustDoItMode = *updateReq.JustDoItMode
 	}
 	if updateReq.HelixAppID != "" {
-		app, err := s.Store.GetApp(ctx, updateReq.HelixAppID)
-		if err != nil {
-			http.Error(w, "selected agent not found", http.StatusBadRequest)
-			return
-		}
-		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		if err := requireAgentKind(app, types.AgentKindCoding, "spec tasks"); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		task.HelixAppID = updateReq.HelixAppID
-
-		// Sync session's ParentApp so restart uses new agent's display settings
-		if task.PlanningSessionID != "" {
-			session, err := s.Store.GetSession(ctx, task.PlanningSessionID)
-			if err == nil && session != nil && session.ParentApp != updateReq.HelixAppID {
-				session.ParentApp = updateReq.HelixAppID
-				if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
-					log.Warn().Err(err).
-						Str("session_id", task.PlanningSessionID).
-						Str("new_agent", updateReq.HelixAppID).
-						Msg("Failed to update session ParentApp (continuing)")
-				} else {
-					log.Info().
-						Str("session_id", task.PlanningSessionID).
-						Str("new_agent", updateReq.HelixAppID).
-						Msg("Updated session ParentApp to match spec task agent")
-				}
-			}
-		}
+		http.Error(w, "helix_app_id is no longer supported; use the execution-config endpoint", http.StatusBadRequest)
+		return
 	}
 	// Update user short title (pointer allows clearing with empty string)
 	if updateReq.UserShortTitle != nil {

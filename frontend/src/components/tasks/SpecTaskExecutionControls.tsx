@@ -13,6 +13,7 @@ import {
 import { ChevronDown, Cpu, Monitor } from "lucide-react";
 import {
   TypesCodeAgentOverrides,
+  TypesCodeAgentExecutionConfig,
   TypesSandboxResourceOverrides,
   TypesAgentExecutionConfig,
   TypesSandboxRuntime,
@@ -27,6 +28,7 @@ import AgentHarness, { getAgentHarnessLabel } from "../agent/AgentHarness";
 import { getCodeAgentEffortOptions } from "../agent/CodeAgentEffortSelect";
 import { useModelReasoningEfforts } from "../../hooks/useModelReasoningEfforts";
 import SpecTaskModelPicker from "./SpecTaskModelPicker";
+import { codeAgentExecutionConfigFromApp } from "../../utils/codeAgentExecutionConfig";
 
 type MaybePromise = void | Promise<unknown>;
 
@@ -37,7 +39,11 @@ interface SpecTaskExecutionControlsProps {
   currentExecutionConfig?: TypesAgentExecutionConfig;
   sandboxResourceOverrides?: TypesSandboxResourceOverrides;
   sandboxRuntime?: TypesSandboxRuntime;
-  onAgentModelChange: (agentId: string, value: TypesCodeAgentOverrides) => MaybePromise;
+  onAgentModelChange: (
+    agentId: string,
+    value: TypesCodeAgentOverrides,
+    config?: TypesCodeAgentExecutionConfig,
+  ) => MaybePromise;
   // Omitted by surfaces that don't own a resizable sandbox (plain chat
   // sessions); the compute control is then hidden rather than inert.
   onSandboxResourceOverridesChange?: (value: TypesSandboxResourceOverrides) => MaybePromise;
@@ -162,7 +168,19 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   ) => {
     setIsSaving(true);
     try {
-      await onAgentModelChange(agentId, next);
+      const targetAgent = agents.find((candidate) => candidate.id === agentId);
+      const taskConfig = targetAgent
+        ? codeAgentExecutionConfigFromApp(targetAgent, next)
+        : currentExecutionConfig?.code_agent_config
+          ? {
+              ...currentExecutionConfig.code_agent_config,
+              provider_ref: next.provider_ref || currentExecutionConfig.code_agent_config.provider_ref,
+              model: next.model || currentExecutionConfig.code_agent_config.model,
+              reasoning_effort: next.reasoning_effort,
+              service_tier: next.service_tier,
+            }
+          : undefined;
+      await onAgentModelChange(agentId, next, taskConfig);
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : "Failed to update model configuration");
     } finally {

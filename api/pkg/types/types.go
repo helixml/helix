@@ -114,9 +114,9 @@ type Interaction struct {
 	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
 
 	// CodeAgentConfigSnapshot records the effective coding configuration that
-	// executed this turn. SpecTask overrides can change while the Helix session
-	// stays the same, so usage attribution cannot be reconstructed from the
-	// session or task after the fact.
+	// executed this turn. A task or session config can change while the Helix
+	// session stays the same, so usage attribution cannot be reconstructed from
+	// current state after the fact.
 	CodeAgentConfigSnapshot *InteractionCodeAgentConfigSnapshot `json:"-" gorm:"type:jsonb;serializer:json"`
 
 	Feedback        Feedback `json:"feedback" gorm:"index"`
@@ -509,7 +509,7 @@ type SessionMetadata struct {
 	// CodeAgentOverrides customizes the coding model for THIS session without
 	// mutating its Agent. Set from the chat composer's execution controls on
 	// sessions that own their configuration (org bot chat, project chat).
-	// SpecTask sessions leave this nil — SpecTask.CodeAgentOverrides is
+	// SpecTask sessions leave this nil — SpecTask.CodeAgentConfig is
 	// authoritative there, so there is exactly one source of truth per session.
 	CodeAgentOverrides *CodeAgentOverrides `json:"code_agent_overrides,omitempty"`
 

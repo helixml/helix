@@ -22,6 +22,7 @@ import (
 type sessionExecutionConfigSurface struct {
 	session   *types.Session
 	task      *types.SpecTask
+	config    *types.CodeAgentExecutionConfig
 	agentID   string
 	overrides *types.CodeAgentOverrides
 }
@@ -40,6 +41,7 @@ func (s *HelixAPIServer) sessionExecutionConfigSurface(ctx context.Context, sess
 		return nil, fmt.Errorf("failed to load session's spec task: %w", err)
 	}
 	surface.task = task
+	surface.config = task.CodeAgentConfig
 	surface.overrides = task.CodeAgentOverrides
 	if task.HelixAppID != "" {
 		surface.agentID = task.HelixAppID
@@ -81,7 +83,12 @@ func (s *HelixAPIServer) getSessionExecutionConfig(w http.ResponseWriter, r *htt
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	config, err := s.resolveExecutionConfig(ctx, surface.agentID, surface.overrides, session.ID)
+	var config *types.AgentExecutionConfig
+	if surface.task != nil && surface.config != nil {
+		config = taskAgentExecutionConfig(surface.config)
+	} else {
+		config, err = s.resolveExecutionConfig(ctx, surface.agentID, surface.overrides, session.ID)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -91,7 +98,7 @@ func (s *HelixAPIServer) getSessionExecutionConfig(w http.ResponseWriter, r *htt
 
 // updateSessionExecutionConfig godoc
 // @Summary Update session execution configuration
-// @Description Replaces the session's code-agent overrides, and optionally switches it to a different Agent. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start. Sessions belonging to a SpecTask write through to the task.
+// @Description General sessions replace App overrides and may switch Apps. SpecTask sessions instead replace the task-owned code_agent_config. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start.
 // @Tags Sessions
 // @Accept json
 // @Produce json
@@ -113,10 +120,6 @@ func (s *HelixAPIServer) updateSessionExecutionConfig(w http.ResponseWriter, r *
 	var req types.SessionExecutionConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.CodeAgentOverrides == nil {
-		http.Error(w, "code_agent_overrides is required", http.StatusBadRequest)
 		return
 	}
 
@@ -151,6 +154,41 @@ func (s *HelixAPIServer) updateSessionExecutionConfig(w http.ResponseWriter, r *
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if surface.task != nil {
+		if req.AgentID != "" || req.CodeAgentOverrides != nil {
+			http.Error(w, "agent_id and code_agent_overrides are not supported for SpecTask sessions; provide code_agent_config", http.StatusBadRequest)
+			return
+		}
+		if req.CodeAgentConfig == nil {
+			http.Error(w, "code_agent_config is required", http.StatusBadRequest)
+			return
+		}
+		response := &types.SessionExecutionConfigUpdateResponse{
+			SessionID:       session.ID,
+			SpecTaskID:      surface.task.ID,
+			CodeAgentConfig: surface.config,
+		}
+		_, restarted, httpErr := s.applySpecTaskExecutionConfig(
+			ctx, user, surface.task, session, req.CodeAgentConfig,
+			"The coding agent or model configuration changed for this session.",
+		)
+		if httpErr != nil {
+			http.Error(w, httpErr.Message, httpErr.StatusCode)
+			return
+		}
+		response.AgentThreadRestarted = restarted
+		response.CodeAgentConfig = req.CodeAgentConfig
+		writeResponse(w, response, http.StatusOK)
+		return
+	}
+	if req.CodeAgentConfig != nil {
+		http.Error(w, "code_agent_config is only supported for SpecTask sessions", http.StatusBadRequest)
+		return
+	}
+	if req.CodeAgentOverrides == nil {
+		http.Error(w, "code_agent_overrides is required", http.StatusBadRequest)
+		return
+	}
 	if surface.agentID == "" {
 		http.Error(w, "session has no agent to configure", http.StatusBadRequest)
 		return
@@ -166,9 +204,6 @@ func (s *HelixAPIServer) updateSessionExecutionConfig(w http.ResponseWriter, r *
 	}
 
 	persist := s.persistSessionCodeAgentConfig(session)
-	if surface.task != nil {
-		persist = s.persistSpecTaskCodeAgentConfig(surface.task)
-	}
 
 	_, restarted, httpErr := s.applyCodeAgentExecutionConfig(ctx, user, codeAgentConfigTarget{
 		surface:       "coding sessions",

@@ -47,7 +47,6 @@ func newTestParentSession(owner string) *types.Session {
 			CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode,
 			ZedAgentName:     "claude",
 			SystemPrompt:     "be helpful",
-			SpecTaskID:       "task_test",
 			SessionRole:      "planning",
 		},
 	}

@@ -30,6 +30,7 @@ import CodingAgentForm from '../agent/CodingAgentForm'
 import type { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 import { getAgentHarnessLabel } from '../agent/AgentHarness'
 import BrowseProvidersDialog from './BrowseProvidersDialog'
+import { codeAgentExecutionConfigFromApp } from '../../utils/codeAgentExecutionConfig'
 
 
 
@@ -293,7 +294,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
         description: '',
         default_repo_id: repoIdToUse,
         organization_id: account.organizationTools.organization?.id,
-        default_helix_app_id: createdAgent.id,
+        code_agent_config: codeAgentExecutionConfigFromApp(createdAgent),
       })
       snackbar.success('Project created successfully')
       onClose()

@@ -125,6 +125,45 @@ func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectRejectsInvalidDefaultS
 	s.Equal(http.StatusBadRequest, httpErr.StatusCode)
 }
 
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectRejectsCodingAppID() {
+	project := s.makeProject("proj-agent", "repo-1")
+	appID := "app-coding"
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(&types.App{
+		ID: appID, Owner: s.userID, AgentKind: types.AgentKindCoding,
+	}, nil)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"default_helix_app_id":"app-coding"}`),
+	)
+	s.Nil(resp)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusBadRequest, httpErr.StatusCode)
+	s.Contains(httpErr.Message, "code_agent_config")
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectAcceptsCodeAgentConfig() {
+	project := s.makeProject("proj-agent-config", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.Project) error {
+			s.Require().NotNil(updated.CodeAgentConfig)
+			s.Equal(types.CodeAgentRuntimeClaudeCode, updated.CodeAgentConfig.Runtime)
+			s.Equal("claude-opus-5", updated.CodeAgentConfig.Model)
+			return nil
+		},
+	)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"code_agent_config":{"runtime":"claude_code","credential_type":"subscription","model":"claude-opus-5"}}`),
+	)
+	s.Nil(httpErr)
+	s.Require().NotNil(resp)
+	s.Require().NotNil(resp.CodeAgentConfig)
+}
+
 // ---------------------------------------------------------------------------
 // Attach tests
 // ---------------------------------------------------------------------------

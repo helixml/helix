@@ -63,6 +63,7 @@ import {
 import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
 import { selectCodingAgents } from "../utils/apps";
 import { RECOMMENDED_CODING_MODELS } from "../constants/models";
+import { codeAgentExecutionConfigFromApp, findCodeAgentAppForConfig } from "../utils/codeAgentExecutionConfig";
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AttachProjectRepositoryDialog from "../components/project/AttachProjectRepositoryDialog";
@@ -588,6 +589,9 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     if (!apps) return [];
     return selectCodingAgents(apps);
   }, [apps]);
+  const projectDefaultAgentId = project?.default_helix_app_id ||
+    findCodeAgentAppForConfig(apps, project?.code_agent_config)?.id ||
+    "";
 
   const primaryRepoIsExternal = useMemo(() => {
     if (!project?.default_repo_id || repositories.length === 0) return false;
@@ -622,7 +626,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setAutoWarmDockerCache(
         project.metadata?.auto_warm_docker_cache || false,
       );
-      setSelectedAgentId(project.default_helix_app_id || "");
+      setSelectedAgentId(projectDefaultAgentId);
       setSelectedProjectManagerAgentId(
         project.project_manager_helix_app_id || "",
       );
@@ -641,7 +645,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
       setProjectSkills(project.skills);
     }
-  }, [project]);
+  }, [project?.id, project?.updated_at, projectDefaultAgentId]);
 
   const handleSave = async (showSuccessMessage = true) => {
     if (savingProject) return false;
@@ -690,7 +694,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     setSelectedAgentId(createdAgent.id);
     setShowCreateAgentForm(false);
     await updateProjectMutation.mutateAsync({
-      default_helix_app_id: createdAgent.id,
+      code_agent_config: codeAgentExecutionConfigFromApp(createdAgent),
     });
     snackbar.success("Agent created and set as default");
   };
@@ -1468,8 +1472,9 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                   value={selectedAgentId}
                   onChange={(newAgentId) => {
                     setSelectedAgentId(newAgentId);
+                    const selectedAgent = sortedApps.find((app) => app.id === newAgentId);
                     updateProjectMutation.mutate({
-                      default_helix_app_id: newAgentId || undefined,
+                      code_agent_config: codeAgentExecutionConfigFromApp(selectedAgent),
                     });
                   }}
                   agents={sortedApps}

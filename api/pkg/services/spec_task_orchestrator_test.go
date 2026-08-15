@@ -828,14 +828,15 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecA
 
 	// Simulate the broken state: spec_approved status but SpecApproval is nil
 	task := &types.SpecTask{
-		ID:             "task-stuck",
-		ProjectID:      "project-1",
-		Status:         types.TaskStatusSpecApproved,
-		SpecApprovedBy: "user-1",
-		SpecApprovedAt: &approvedAt,
-		SpecApproval:   nil,
-		TaskNumber:     42,
-		Name:           "stuck-task",
+		ID:              "task-stuck",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		SpecApprovedBy:  "user-1",
+		SpecApprovedAt:  &approvedAt,
+		SpecApproval:    nil,
+		TaskNumber:      42,
+		Name:            "stuck-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
 
 	// Set up the specTaskService on the orchestrator
@@ -885,11 +886,12 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishes
 
 	// Verify processTask dispatches to handleSpecApproved
 	task := &types.SpecTask{
-		ID:         "task-test",
-		ProjectID:  "project-1",
-		Status:     types.TaskStatusSpecApproved,
-		TaskNumber: 99,
-		Name:       "test-task",
+		ID:              "task-test",
+		ProjectID:       "project-1",
+		Status:          types.TaskStatusSpecApproved,
+		TaskNumber:      99,
+		Name:            "test-task",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
 
 	service := NewSpecDrivenTaskService(

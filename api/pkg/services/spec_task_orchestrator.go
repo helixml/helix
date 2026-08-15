@@ -446,7 +446,6 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 
 	log.Info().
 		Str("task_id", latestTask.ID).
-		Str("helix_app_id", latestTask.HelixAppID).
 		Msg("Auto-starting SpecTask planning phase")
 
 	// Delegate to the canonical StartSpecGeneration implementation

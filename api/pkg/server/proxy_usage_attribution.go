@@ -51,8 +51,19 @@ func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user 
 		if task.PlanningSessionID != "" && task.PlanningSessionID != session.ID {
 			return nil, fmt.Errorf("API key session %q does not own spec task %q", session.ID, task.ID)
 		}
-		attribution.CodeAgentOverrides = task.CodeAgentOverrides
-		if task.HelixAppID != "" {
+		if task.CodeAgentConfig != nil {
+			attribution.AppID = ""
+			attribution.CodeAgentRuntime = task.CodeAgentConfig.Runtime
+			attribution.CodeAgentOverrides = &types.CodeAgentOverrides{
+				ProviderRef:     task.CodeAgentConfig.ProviderRef,
+				Model:           task.CodeAgentConfig.Model,
+				ReasoningEffort: task.CodeAgentConfig.ReasoningEffort,
+				ServiceTier:     task.CodeAgentConfig.ServiceTier,
+			}
+		} else {
+			attribution.CodeAgentOverrides = task.CodeAgentOverrides
+		}
+		if task.CodeAgentConfig == nil && task.HelixAppID != "" {
 			attribution.AppID = task.HelixAppID
 		}
 	}

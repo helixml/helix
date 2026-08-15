@@ -35,6 +35,7 @@ func callSwitchAgentHTTP(t *testing.T, srv *HelixAPIServer, user *types.User, se
 func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
 	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
 			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeQwenCode, Model: "qwen-test",
@@ -43,7 +44,6 @@ func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	session := newTestParentSession("user_a")
 	session.Metadata.ZedThreadID = "ctx_old_thread" // pretend a thread is open
 	seedParentWithInteractions(t, mem, session, 2)
-	mem.SeedSpecTask(&types.SpecTask{ID: session.Metadata.SpecTaskID, HelixAppID: session.ParentApp, PlanningSessionID: session.ID})
 	srv.contextMappings[session.Metadata.ZedThreadID] = session.ID
 	srv.requestToSessionMapping["req_old"] = session.ID
 	srv.requestToInteractionMapping["req_old"] = "int_old"
@@ -138,7 +138,6 @@ func TestSwitchAgent_RepairsStaleAgentNameForCurrentApp(t *testing.T) {
 	session.Metadata.ZedAgentName = types.CodeAgentRuntimeClaudeCode.ZedAgentName()
 	session.Metadata.ZedThreadID = "thread_from_claude"
 	seedParentWithInteractions(t, mem, session, 1)
-	mem.SeedSpecTask(&types.SpecTask{ID: session.Metadata.SpecTaskID, HelixAppID: session.ParentApp, PlanningSessionID: session.ID})
 
 	rr := callSwitchAgentHTTP(t, srv, user, session.ID, SwitchAgentRequest{HelixAppID: "app_target"})
 	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
@@ -156,6 +155,7 @@ func TestSwitchAgentWhileStoppedRecordsChangeWithoutHandoff(t *testing.T) {
 	srv.externalAgentExecutor = executor
 	ctx := context.Background()
 	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
 
 	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
@@ -262,6 +262,7 @@ func TestReconcileSessionAgentWithApp_RepairsBeforeUserTurn(t *testing.T) {
 func TestMaybePrependTranscript_PrependsAfterInPlaceSwitch(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
 	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
 			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeQwenCode,
@@ -270,7 +271,6 @@ func TestMaybePrependTranscript_PrependsAfterInPlaceSwitch(t *testing.T) {
 	session := newTestParentSession("user_a")
 	session.Metadata.ZedThreadID = "ctx_old_thread"
 	seedParentWithInteractions(t, mem, session, 2)
-	mem.SeedSpecTask(&types.SpecTask{ID: session.Metadata.SpecTaskID, HelixAppID: session.ParentApp, PlanningSessionID: session.ID})
 
 	httpErr := srv.switchAgentInPlace(ctx, session, types.CodeAgentRuntimeQwenCode, "app_target")
 	require.Nil(t, httpErr)
@@ -284,15 +284,9 @@ func TestMaybePrependTranscript_PrependsAfterInPlaceSwitch(t *testing.T) {
 	assert.Contains(t, got, "continue please", "the user message must still be present")
 }
 
-// Regression for the opus→sonnet "model didn't actually switch" bug: getZedConfig
-// resolves the claude_code model (managed-settings.json) from specTask.HelixAppID
-// FIRST, so an in-place switch MUST repoint the spec task too — not just
-// session.ParentApp. This asserts on the resolved config source, which is the
-// real switch signal, rather than trusting the agent's self-report (it parrots
-// the handoff text and will claim the new model regardless).
-func TestSwitchAgentInPlace_RepointsSpecTaskHelixAppID(t *testing.T) {
+func TestSwitchAgentHTTPRejectsAppForSpecTask(t *testing.T) {
 	srv, mem := newForkTestServer(t)
-	ctx := context.Background()
+	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
 
 	mem.SeedApp(&types.App{ID: "app_opus", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Name: "Opus",
@@ -312,17 +306,15 @@ func TestSwitchAgentInPlace_RepointsSpecTaskHelixAppID(t *testing.T) {
 	session.Metadata.SpecTaskID = "spt_test"
 	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeClaudeCode
 	seedParentWithInteractions(t, mem, session, 1)
-	mem.SeedSpecTask(&types.SpecTask{ID: "spt_test", HelixAppID: "app_opus", PlanningSessionID: session.ID})
+	mem.SeedSpecTask(&types.SpecTask{
+		ID: "spt_test", PlanningSessionID: session.ID,
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model: "claude-opus-4-7",
+		},
+	})
 
-	httpErr := srv.switchAgentInPlace(ctx, session, types.CodeAgentRuntimeClaudeCode, "app_sonnet")
-	require.Nil(t, httpErr)
-
-	updated, err := mem.GetSession(ctx, session.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "app_sonnet", updated.ParentApp, "session must repoint to the new app")
-
-	task, err := mem.GetSpecTask(ctx, "spt_test")
-	require.NoError(t, err)
-	assert.Equal(t, "app_sonnet", task.HelixAppID,
-		"spec task HelixAppID must repoint — otherwise getZedConfig keeps resolving the claude_code model from the OLD app and the underlying model never switches")
+	rr := callSwitchAgentHTTP(t, srv, user, session.ID, SwitchAgentRequest{HelixAppID: "app_sonnet"})
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "code_agent_config")
 }

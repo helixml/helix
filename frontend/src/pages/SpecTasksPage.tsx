@@ -372,21 +372,17 @@ const SpecTasksPage: FC = () => {
   // Check if the project's default app uses Claude Code with subscription credentials
   const { data: claudeSubscriptions } = useClaudeSubscriptions();
   const claudeTokenExpiry = useMemo(() => {
-    if (!project?.default_helix_app_id || !apps.apps) return null;
-    const defaultApp = apps.apps.find(
-      (a) => a.id === project.default_helix_app_id,
-    );
-    const assistant = defaultApp?.config?.helix?.assistants?.[0];
-    if (
-      assistant?.code_agent_runtime !== "claude_code" ||
-      assistant?.code_agent_credential_type !== "subscription"
-    )
-      return null;
+	const config = project?.code_agent_config;
+	if (
+	  config?.runtime !== "claude_code" ||
+	  config?.credential_type !== "subscription"
+	)
+	  return null;
     const sub = claudeSubscriptions?.[0];
     if (!sub) return null;
     if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
     return getTokenExpiryStatus(sub.access_token_expires_at);
-  }, [project?.default_helix_app_id, apps.apps, claudeSubscriptions]);
+  }, [project?.code_agent_config, claudeSubscriptions]);
 
   // Load tasks and apps on mount
   useEffect(() => {

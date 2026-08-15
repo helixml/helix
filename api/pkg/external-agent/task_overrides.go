@@ -2,7 +2,7 @@ package external_agent
 
 import "github.com/helixml/helix/api/pkg/types"
 
-// ApplyCodeAgentOverrides returns an Agent copy with the SpecTask's model
+// ApplyCodeAgentOverrides returns an Agent copy with session or legacy-task
 // overrides applied to its effective zed_external assistant. The original
 // reusable Agent is never mutated.
 func ApplyCodeAgentOverrides(app *types.App, overrides *types.CodeAgentOverrides) *types.App {

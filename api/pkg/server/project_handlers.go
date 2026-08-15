@@ -14,6 +14,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/agent/optimus"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -399,8 +400,8 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError400("primary repository (default_repo_id) is required")
 	}
 
-	if req.DefaultHelixAppID == "" {
-		return nil, system.NewHTTPError400("default helix app ID is required")
+	if req.CodeAgentConfig == nil && req.DefaultHelixAppID == "" {
+		return nil, system.NewHTTPError400("code_agent_config is required")
 	}
 	if !types.ValidSpecTaskSandboxRuntime(req.DefaultSandboxRuntime) {
 		return nil, system.NewHTTPError400(fmt.Sprintf("invalid default sandbox runtime %q", req.DefaultSandboxRuntime))
@@ -422,18 +423,28 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		}
 	}
 
-	defaultApp, err := s.Store.GetApp(r.Context(), req.DefaultHelixAppID)
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+	var defaultApp *types.App
+	var err error
+	if req.DefaultHelixAppID != "" {
+		defaultApp, err = s.Store.GetApp(r.Context(), req.DefaultHelixAppID)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		if req.OrganizationID != "" && defaultApp.OrganizationID != "" && defaultApp.OrganizationID != req.OrganizationID {
+			return nil, system.NewHTTPError400("default app must be in the same organization as the project")
+		}
+		if err := s.authorizeUserToApp(r.Context(), user, defaultApp, types.ActionGet); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+		if defaultApp.AgentKind != types.AgentKindOrg {
+			return nil, system.NewHTTPError400("default_helix_app_id is reserved for org-agent projects; provide code_agent_config for spec tasks")
+		}
 	}
-	if req.OrganizationID != "" && defaultApp.OrganizationID != "" && defaultApp.OrganizationID != req.OrganizationID {
-		return nil, system.NewHTTPError400("default app must be in the same organization as the project")
-	}
-	if err := s.authorizeUserToApp(r.Context(), user, defaultApp, types.ActionGet); err != nil {
-		return nil, system.NewHTTPError403(err.Error())
-	}
-	if err := requireAgentKind(defaultApp, types.AgentKindCoding, "project spec tasks"); err != nil {
-		return nil, system.NewHTTPError400(err.Error())
+	if req.CodeAgentConfig != nil {
+		if err := s.validateCodeAgentExecutionConfig(r.Context(), req.CodeAgentConfig, user.ID, user.ID, req.OrganizationID); err != nil {
+			return nil, system.NewHTTPError400(err.Error())
+		}
+		defaultApp = external_agent.AppFromCodeAgentConfig(req.CodeAgentConfig, user.ID, req.OrganizationID)
 	}
 
 	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
@@ -484,6 +495,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		DefaultRepoID:         req.DefaultRepoID,
 		StartupScript:         req.StartupScript,
 		DefaultHelixAppID:     req.DefaultHelixAppID,
+		CodeAgentConfig:       req.CodeAgentConfig,
 		DefaultSandboxRuntime: types.EffectiveSpecTaskSandboxRuntime(req.DefaultSandboxRuntime),
 		Guidelines:            req.Guidelines,
 	}
@@ -673,8 +685,19 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		if appErr := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet); appErr != nil {
 			return nil, system.NewHTTPError403(appErr.Error())
 		}
+		if selection.field == "default_helix_app_id" {
+			if app.AgentKind != types.AgentKindOrg {
+				return nil, system.NewHTTPError400("default_helix_app_id is reserved for org-agent projects; provide code_agent_config for spec tasks")
+			}
+			continue
+		}
 		if appErr := requireAgentKind(app, types.AgentKindCoding, "project agent configuration"); appErr != nil {
 			return nil, system.NewHTTPError400(appErr.Error())
+		}
+	}
+	if req.CodeAgentConfig != nil {
+		if err := s.validateCodeAgentExecutionConfig(r.Context(), req.CodeAgentConfig, user.ID, project.UserID, project.OrganizationID); err != nil {
+			return nil, system.NewHTTPError400(err.Error())
 		}
 	}
 
@@ -705,6 +728,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if req.DefaultHelixAppID != nil {
 		project.DefaultHelixAppID = *req.DefaultHelixAppID
+	}
+	if req.CodeAgentConfig != nil {
+		project.CodeAgentConfig = req.CodeAgentConfig
 	}
 	if req.DefaultSandboxRuntime != nil {
 		if !types.ValidSpecTaskSandboxRuntime(*req.DefaultSandboxRuntime) {
@@ -3032,6 +3058,17 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			project.DefaultHelixAppID = agentApp.ID
 			if err := s.Store.UpdateProject(r.Context(), project); err != nil {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to link agent app to project: %v", err))
+			}
+		}
+
+		if agentApp != nil && agentType == types.AgentTypeZedExternal {
+			codeAgentConfig, err := external_agent.MaterializeCodeAgentConfig(agentApp, nil)
+			if err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to materialize project code-agent config: %v", err))
+			}
+			project.CodeAgentConfig = codeAgentConfig
+			if err := s.Store.UpdateProject(r.Context(), project); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to save project code-agent config: %v", err))
 			}
 		}
 	}

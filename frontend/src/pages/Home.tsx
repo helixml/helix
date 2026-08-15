@@ -29,6 +29,7 @@ import useLightTheme from '../hooks/useLightTheme'
 import useApps from '../hooks/useApps'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import { codeAgentExecutionConfigFromApp } from '../utils/codeAgentExecutionConfig'
 import { useListProjectSpecTaskAgents, useListProjects } from '../services'
 import { useListProviders } from '../services/providersService'
 import { invalidateSessionsQuery } from '../services/sessionService'
@@ -261,11 +262,13 @@ const Home: FC = () => {
     let taskId = ''
     try {
       const task = await createTask.mutateAsync(buildNewChatTaskRequest({
-        appId: selectedAgentId,
         mode: taskMode,
         projectId: selectedProjectId,
         prompt: message,
-        codeAgentOverrides: taskCodeAgentOverrides,
+        codeAgentConfig: codeAgentExecutionConfigFromApp(
+          taskAgents.find((agent) => agent.id === selectedAgentId),
+          taskCodeAgentOverrides,
+        ),
         sandboxResourceOverrides: taskSandboxResources,
         sandboxRuntime: taskSandboxRuntime,
       }))

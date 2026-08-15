@@ -320,8 +320,8 @@ func newGetCommand() *cobra.Command {
 			if len(task.Labels) > 0 {
 				fmt.Printf("  Labels:    %s\n", strings.Join(task.Labels, ", "))
 			}
-			if task.HelixAppID != "" {
-				fmt.Printf("  Agent:     %s\n", task.HelixAppID)
+			if task.CodeAgentConfig != nil {
+				fmt.Printf("  Agent:     %s / %s\n", task.CodeAgentConfig.Runtime, task.CodeAgentConfig.Model)
 			}
 			fmt.Printf("  Runtime:   %s\n", types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime))
 			if task.PlanningSessionID != "" {
@@ -356,7 +356,6 @@ func newGetCommand() *cobra.Command {
 
 func newCreateCommand() *cobra.Command {
 	var projectID string
-	var agentID string
 	var taskName string
 	var prompt string
 	var promptFile string
@@ -412,7 +411,6 @@ Examples:
 				Name:           taskName,
 				Type:           taskType,
 				Priority:       types.SpecTaskPriority(priority),
-				AppID:          agentID,
 				JustDoItMode:   justDoIt,
 				AutoStart:      autoStart,
 				SandboxRuntime: types.SandboxRuntime(runtime),
@@ -444,7 +442,6 @@ Examples:
 	}
 
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required)")
-	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent ID to use (e.g. app_01xxx). Defaults to the project's coding agent.")
 	cmd.Flags().StringVarP(&taskName, "name", "n", "", "Task name (defaults to one derived from the prompt)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file. Appended after --prompt if both are set.")
@@ -463,7 +460,6 @@ func newUpdateCommand() *cobra.Command {
 	var description string
 	var status string
 	var priority string
-	var agentID string
 	var assignee string
 	var unassign bool
 	var justDoIt bool
@@ -495,7 +491,6 @@ Examples:
 				Description: description,
 				Status:      types.SpecTaskStatus(status),
 				Priority:    types.SpecTaskPriority(priority),
-				HelixAppID:  agentID,
 			}
 			if cmd.Flags().Changed("assignee") || unassign {
 				value := assignee
@@ -524,7 +519,6 @@ Examples:
 	cmd.Flags().StringVar(&description, "description", "", "New task description")
 	cmd.Flags().StringVar(&status, "status", "", "New status (see 'helix spectask move' for column names)")
 	cmd.Flags().StringVar(&priority, "priority", "", "New priority: low, medium, high, critical")
-	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Switch the task to a different agent (app_01xxx)")
 	cmd.Flags().StringVar(&assignee, "assignee", "", "Assign the task to a user ID (must be an org member)")
 	cmd.Flags().BoolVar(&unassign, "unassign", false, "Clear the assignee")
 	cmd.Flags().BoolVar(&justDoIt, "just-do-it", false, "Skip spec planning and go straight to implementation")

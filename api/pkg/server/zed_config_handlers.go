@@ -54,8 +54,8 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Get app (for external agents, parent_app may be empty). SpecTasks are
-	// authoritative for both the Agent reference and task-level overrides.
+	// SpecTasks carry a complete execution config and do not resolve a Helix
+	// App. General and org-agent sessions remain App-backed.
 	var app *types.App
 	var specTask *types.SpecTask
 	if session.Metadata.SpecTaskID != "" {
@@ -64,10 +64,15 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		}
 	}
 	appID := session.ParentApp
-	if specTask != nil && specTask.HelixAppID != "" {
+	if specTask != nil && specTask.CodeAgentConfig != nil {
+		app = external_agent.AppFromCodeAgentConfig(specTask.CodeAgentConfig, specTask.UserID, specTask.OrganizationID)
+		appID = ""
+	} else if specTask != nil && specTask.HelixAppID != "" {
+		// Pre-start legacy task. Start-time migration clears this path before a
+		// sandbox can request Zed configuration.
 		appID = specTask.HelixAppID
 	}
-	if appID != "" {
+	if app == nil && appID != "" {
 		app, err = apiServer.Store.GetApp(ctx, appID)
 		if err != nil {
 			log.Warn().Err(err).Str("app_id", appID).Str("session_id", sessionID).Msg("Parent app not found - falling back to default config")
@@ -77,7 +82,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 				Config: types.AppConfig{},
 			}
 		}
-	} else {
+	} else if app == nil {
 		// External agent sessions don't have a parent app - create minimal app config
 		log.Debug().Str("session_id", sessionID).Msg("Session has no parent_app (likely external agent), using default config")
 		app = &types.App{
@@ -85,7 +90,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			Config: types.AppConfig{},
 		}
 	}
-	app = external_agent.ApplyCodeAgentOverrides(app, effectiveCodeAgentOverrides(session, specTask))
+	if specTask == nil || specTask.CodeAgentConfig == nil {
+		app = external_agent.ApplyCodeAgentOverrides(app, effectiveCodeAgentOverrides(session, specTask))
+	}
 
 	// Generate Zed MCP config
 	// Use SERVER_URL for external-facing URLs (browser access)
@@ -290,9 +297,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		version = session.Updated.Unix()
 	}
 
-	// Build CodeAgentConfig from whichever app drives this session's
-	// runtime. Mirrors getAgentNameForSession's source order: spec
-	// task's HelixAppID first, then session.ParentApp — so any
+	// Build CodeAgentConfig from whichever execution config drives this
+	// session's runtime. Spec tasks use a synthetic, non-persisted App built
+	// from task-owned configuration; general sessions use session.ParentApp. Any
 	// zed_external session opened via /sessions/chat against a
 	// claude_code (or other custom-runtime) agent ships the full
 	// CodeAgentConfig, not just an "agent_name". Previously only the
@@ -304,7 +311,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			sessionProjectID = specTask.ProjectID
 		}
 		codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
-		if codeAgentConfig != nil && specTask.CodeAgentOverrides != nil {
+		if codeAgentConfig != nil && specTask.CodeAgentConfig != nil {
+			codeAgentConfig.ServiceTier = specTask.CodeAgentConfig.ServiceTier
+		} else if codeAgentConfig != nil && specTask.CodeAgentOverrides != nil {
 			codeAgentConfig.ServiceTier = specTask.CodeAgentOverrides.ServiceTier
 		}
 		apiServer.applySpecTaskGooseRecipe(ctx, specTask, codeAgentConfig)
@@ -529,10 +538,10 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 
 	agentName := "zed-agent" // Default to Zed's built-in agent
 
-	// Resolve the app whose code_agent_runtime drives this session's
-	// runtime choice. Two sources, in order:
-	//   - spec task's HelixAppID, for spec-task-driven sessions
-	//   - session.ParentApp, for any direct /sessions/chat caller that
+	// Resolve the execution source whose code_agent_runtime drives this
+	// session's runtime choice. Two sources, in order:
+	//   - task-owned CodeAgentConfig for spec-task-driven sessions
+	//   - session.ParentApp for any direct /sessions/chat caller that
 	//     opens a session against an agent app (e.g. helix-org's
 	//     embedded Spawner). Previously the function early-returned
 	//     "zed-agent" for non-spec-task sessions, ignoring the parent
@@ -544,10 +553,15 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 		source     string
 	)
 	if session.Metadata.SpecTaskID != "" {
-		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil && specTask.HelixAppID != "" {
-			if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
-				runtimeApp = app
+		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil {
+			if specTask.CodeAgentConfig != nil {
+				runtimeApp = external_agent.AppFromCodeAgentConfig(specTask.CodeAgentConfig, specTask.UserID, specTask.OrganizationID)
 				source = "spec_task"
+			} else if specTask.HelixAppID != "" {
+				if app, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID); err == nil {
+					runtimeApp = app
+					source = "legacy_spec_task"
+				}
 			}
 		}
 	}
@@ -1093,20 +1107,27 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 	return apiServer.providerManager.ListProviderEndpoints(ctx, owner)
 }
 
-// validateSpecTaskAgentConfig pre-flights the agent's provider/model snapshot
+// validateSpecTaskAgentConfig pre-flights the task's provider/model snapshot
 // against the registered providers visible to the actor. Returns a
 // human-readable reason (suitable for HTTP 422) when the agent is
 // misconfigured, or "" when usable. Used by spec-task entry handlers
-// (start-planning, approve-specs) to refuse to queue a task whose agent
-// would fail at session start. Without this, a stale agent record would
+// (start-planning, approve-specs) to refuse to queue a task whose config
+// would fail at session start. Without this, a stale provider reference would
 // spawn a desktop that boots but can't reach a routable model — the user
 // has to dig through API logs to find the cause.
 //
-// Resolves the agent the same way the spec-driven task service does:
-// task.HelixAppID first, falling back to project.DefaultHelixAppID. If
-// neither is set, returns "" — the absent-agent failure is surfaced
-// downstream with its own dedicated message.
+// Unmigrated historical tasks temporarily fall back through the task and
+// project App links. Startup migration removes those links.
 func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context, task *types.SpecTask, actorID string) (string, error) {
+	if task.CodeAgentConfig != nil {
+		app := external_agent.AppFromCodeAgentConfig(task.CodeAgentConfig, task.UserID, task.OrganizationID)
+		snapshot, err := apiServer.getProviderSnapshot(ctx, actorID, app)
+		if err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("spec-task: failed to list providers; skipping code-agent config validation")
+			return "", nil
+		}
+		return external_agent.ValidateAssistantModelConfig(app, snapshot), nil
+	}
 	appID := task.HelixAppID
 	if appID == "" {
 		project, err := apiServer.Store.GetProject(ctx, task.ProjectID)

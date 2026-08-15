@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/data"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -1249,7 +1250,10 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			// Set code repo as default
 			createdShapeProject.DefaultRepoID = codeRepo.ID
 			if demoAgentApp != nil {
-				createdShapeProject.DefaultHelixAppID = demoAgentApp.ID
+				createdShapeProject.CodeAgentConfig, err = external_agent.MaterializeCodeAgentConfig(demoAgentApp, nil)
+				if err != nil {
+					return nil, system.NewHTTPError500(fmt.Sprintf("materialize clone demo code-agent config: %v", err))
+				}
 			}
 			if updateErr := s.Store.UpdateProject(ctx, createdShapeProject); updateErr != nil {
 				log.Warn().Err(updateErr).Msg("Failed to update shape project defaults")
@@ -1289,7 +1293,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 					}
 
 					if demoAgentApp != nil {
-						task.HelixAppID = demoAgentApp.ID
+						task.CodeAgentConfig = createdShapeProject.CodeAgentConfig
 					}
 
 					task.Labels = taskPrompt.Labels
@@ -1513,11 +1517,14 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			}
 		}
 		if agentApp != nil {
-			createdProject.DefaultHelixAppID = agentApp.ID
+			createdProject.CodeAgentConfig, err = external_agent.MaterializeCodeAgentConfig(agentApp, nil)
+			if err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("materialize sample project code-agent config: %v", err))
+			}
 			log.Info().
 				Str("project_id", createdProject.ID).
-				Str("default_helix_app_id", agentApp.ID).
-				Msg("Set project's default agent for GitHub-based sample project")
+				Str("code_agent_runtime", string(createdProject.CodeAgentConfig.Runtime)).
+				Msg("Set project code-agent config for GitHub-based sample project")
 		}
 
 		if updateErr := s.Store.UpdateProject(ctx, createdProject); updateErr != nil {
@@ -1636,18 +1643,21 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 	// Set the project's default agent if we have one
 	if agentApp != nil {
-		createdProject.DefaultHelixAppID = agentApp.ID
+		createdProject.CodeAgentConfig, err = external_agent.MaterializeCodeAgentConfig(agentApp, nil)
+		if err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("materialize sample project code-agent config: %v", err))
+		}
 		err = s.Store.UpdateProject(ctx, createdProject)
 		if err != nil {
 			log.Warn().Err(err).
 				Str("project_id", createdProject.ID).
-				Str("default_helix_app_id", agentApp.ID).
-				Msg("Failed to set project's default agent (continuing)")
+				Str("code_agent_runtime", string(createdProject.CodeAgentConfig.Runtime)).
+				Msg("Failed to set project code-agent config (continuing)")
 		} else {
 			log.Info().
 				Str("project_id", createdProject.ID).
-				Str("default_helix_app_id", agentApp.ID).
-				Msg("Set project's default agent")
+				Str("code_agent_runtime", string(createdProject.CodeAgentConfig.Runtime)).
+				Msg("Set project code-agent config")
 		}
 	}
 
@@ -1678,9 +1688,9 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			UpdatedAt: time.Now(),
 		}
 
-		// Set HelixAppID if we found an agent app
+		// Snapshot the project-owned execution config onto each new task.
 		if agentApp != nil {
-			task.HelixAppID = agentApp.ID
+			task.CodeAgentConfig = createdProject.CodeAgentConfig
 		}
 
 		// Store labels directly (GORM serializer handles JSON conversion)

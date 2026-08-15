@@ -40,25 +40,23 @@ func TestSpecDrivenTaskService_StartSpecGeneration_NoDoubleStartDesktopOnConcurr
 	mockExecutor := external_agent.NewMockExecutor(ctrl)
 
 	project := &types.Project{
-		ID:                "project-race",
-		OrganizationID:    "org-1",
-		DefaultHelixAppID: "app-race",
+		ID:              "project-race",
+		OrganizationID:  "org-1",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
 	}
-	app := &types.App{ID: "app-race"}
 	baseTask := &types.SpecTask{
-		ID:         "task-race",
-		ProjectID:  "project-race",
-		HelixAppID: "app-race",
-		Status:     types.TaskStatusQueuedSpecGeneration,
-		CreatedBy:  "user-1",
-		BranchMode: types.BranchModeNew,
-		BaseBranch: "main",
-		Name:       "racing task",
+		ID:              "task-race",
+		ProjectID:       "project-race",
+		CodeAgentConfig: testSpecTaskCodeAgentConfig(),
+		Status:          types.TaskStatusQueuedSpecGeneration,
+		CreatedBy:       "user-1",
+		BranchMode:      types.BranchModeNew,
+		BaseBranch:      "main",
+		Name:            "racing task",
 	}
 
 	// All read-side store calls happen on both goroutines; allow any number.
 	mockStore.EXPECT().GetProject(gomock.Any(), "project-race").Return(project, nil).AnyTimes()
-	mockStore.EXPECT().GetApp(gomock.Any(), "app-race").Return(app, nil).AnyTimes()
 	mockStore.EXPECT().GetOrganization(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	// The TOCTOU read at spec_driven_task_service.go:417. We force it to ALWAYS

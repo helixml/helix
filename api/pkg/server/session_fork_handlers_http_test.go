@@ -127,13 +127,7 @@ func TestForkSessionHTTP_RejectsSameRuntime(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "already using")
 }
 
-// TestForkSessionHTTP_RepointsSpecTaskToChild covers the case where the
-// session being forked is the active session of a SpecTask. After the
-// fork, the task's PlanningSessionID must point at the child so the
-// spec-task page mounts the active session, not the now-paused parent.
-// Regression for the user-reported "session was forked — view remains
-// a frozen checkpoint" UX when revisiting a task after switching agent.
-func TestForkSessionHTTP_RepointsSpecTaskToChild(t *testing.T) {
+func TestForkSessionHTTPRejectsAppOverrideForSpecTask(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
 	parent := seedRunningParent(t, srv, user, types.CodeAgentRuntimeClaudeCode, 1)
@@ -143,10 +137,17 @@ func TestForkSessionHTTP_RepointsSpecTaskToChild(t *testing.T) {
 		ID:                "spt_test_" + randSuffix(),
 		Name:              "Repoint test",
 		PlanningSessionID: parent.ID,
-		HelixAppID:        parent.ParentApp,
 		Status:            types.TaskStatusImplementation,
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model: "claude-opus-4-7",
+		},
 	}
 	mem.SeedSpecTask(task)
+	parent.Metadata.SpecTaskID = task.ID
+	parent.ParentApp = ""
+	_, err := srv.Store.UpdateSession(context.Background(), *parent)
+	require.NoError(t, err)
 
 	// Seed a second app to fork to (different from the parent's app).
 	mem.SeedApp(&types.App{
@@ -165,16 +166,8 @@ func TestForkSessionHTTP_RepointsSpecTaskToChild(t *testing.T) {
 	rr := callForkHTTP(t, srv, user, parent.ID, ForkSessionRequest{
 		HelixAppID: "app_test_qwen",
 	})
-	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
-	var resp ForkSessionResponse
-	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-
-	updated, err := srv.Store.GetSpecTask(context.Background(), task.ID)
-	require.NoError(t, err)
-	assert.Equal(t, resp.NewSessionID, updated.PlanningSessionID,
-		"spec task must re-point at the forked child, not stay on the paused parent")
-	assert.Equal(t, "app_test_qwen", updated.HelixAppID,
-		"spec task must also adopt the child's new helix_app_id")
+	require.Equal(t, http.StatusBadRequest, rr.Code, "body: %s", rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "inherit code_agent_config")
 }
 
 // TestForkSessionHTTP_AllowsSameRuntimeDifferentApp covers the case

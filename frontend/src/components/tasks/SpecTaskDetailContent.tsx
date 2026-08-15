@@ -273,7 +273,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const isHeadless = task?.sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu;
   const { data: currentExecutionConfig } = useGetSpecTaskExecutionConfig(
     taskId,
-    !!task?.helix_app_id || !!task?.planning_session_id,
+    !!task?.code_agent_config || !!task?.helix_app_id || !!task?.planning_session_id,
   );
   const { data: projectTasks = [] } = useSpecTasks({
     projectId: task?.project_id,
@@ -437,28 +437,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     );
   }, [updateExecutionConfig, snackbar]);
 
-  // Get display settings from the task's app configuration
-  const displaySettings = useMemo(() => {
-    const taskApp = apps.apps?.find((a) => a.id === task?.helix_app_id);
-    return deriveDisplaySettings(taskApp);
-  }, [task?.helix_app_id, apps.apps]);
+  const displaySettings = useMemo(() => deriveDisplaySettings(undefined), []);
 
-  // Check if the task's app uses Claude Code with subscription credentials
+  // Check the task-owned execution config for Claude subscription credentials.
   const { data: claudeSubscriptions } = useClaudeSubscriptions();
   const claudeTokenExpiry = useMemo(() => {
-    if (!task?.helix_app_id || !apps.apps) return null;
-    const taskApp = apps.apps.find((a) => a.id === task.helix_app_id);
-    const assistant = taskApp?.config?.helix?.assistants?.[0];
     if (
-      assistant?.code_agent_runtime !== "claude_code" ||
-      assistant?.code_agent_credential_type !== "subscription"
+      task?.code_agent_config?.runtime !== "claude_code" ||
+      task.code_agent_config.credential_type !== "subscription"
     )
       return null;
     const sub = claudeSubscriptions?.[0];
     if (!sub) return null;
     if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
     return getTokenExpiryStatus(sub.access_token_expires_at);
-  }, [task?.helix_app_id, apps.apps, claudeSubscriptions]);
+  }, [task?.code_agent_config?.runtime, task?.code_agent_config?.credential_type, claudeSubscriptions]);
 
   // Load apps on mount
   useEffect(() => {
@@ -1900,8 +1893,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Typography>
         <SpecTaskExecutionControls
           agents={eligibleApps}
-          selectedAgentId={task?.helix_app_id || ""}
-          codeAgentOverrides={task?.code_agent_overrides}
+          selectedAgentId={currentExecutionConfig?.agent_id || ""}
+          codeAgentOverrides={currentExecutionConfig?.code_agent_overrides}
           currentExecutionConfig={currentExecutionConfig}
           sandboxResourceOverrides={task?.sandbox_resource_overrides}
           sandboxRuntime={task?.sandbox_runtime}
@@ -2578,8 +2571,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   leadingActions={(
                     <SpecTaskExecutionControls
                       agents={eligibleApps}
-                      selectedAgentId={task.helix_app_id || ""}
-                      codeAgentOverrides={task.code_agent_overrides}
+                      selectedAgentId={currentExecutionConfig?.agent_id || ""}
+                      codeAgentOverrides={currentExecutionConfig?.code_agent_overrides}
                       currentExecutionConfig={currentExecutionConfig}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
@@ -2893,8 +2886,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   leadingActions={(
                     <SpecTaskExecutionControls
                       agents={eligibleApps}
-                      selectedAgentId={task.helix_app_id || ""}
-                      codeAgentOverrides={task.code_agent_overrides}
+                      selectedAgentId={currentExecutionConfig?.agent_id || ""}
+                      codeAgentOverrides={currentExecutionConfig?.code_agent_overrides}
                       currentExecutionConfig={currentExecutionConfig}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}

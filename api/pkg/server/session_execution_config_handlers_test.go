@@ -108,14 +108,17 @@ func TestGetSessionExecutionConfigPrefersSpecTask(t *testing.T) {
 	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
 	seedCodingAgent(mem, "app_task", "anthropic", "claude-sonnet-4-7")
 	session := newTestParentSession("user_a")
+	session.Metadata.SpecTaskID = "task_test"
 	seedParentWithInteractions(t, mem, session, 1)
+	taskConfig := &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeClaudeCode,
+		CredentialType: types.CodeAgentCredentialTypeSubscription,
+		Model:          "claude-haiku-4-5",
+	}
 	mem.SeedSpecTask(&types.SpecTask{
 		ID:                session.Metadata.SpecTaskID,
-		HelixAppID:        "app_task",
 		PlanningSessionID: session.ID,
-		CodeAgentOverrides: &types.CodeAgentOverrides{
-			Model: "claude-haiku-4-5",
-		},
+		CodeAgentConfig:   taskConfig,
 	})
 
 	rr := callGetSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID)
@@ -123,8 +126,9 @@ func TestGetSessionExecutionConfigPrefersSpecTask(t *testing.T) {
 
 	var config types.AgentExecutionConfig
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &config))
-	assert.Equal(t, "app_task", config.AgentID)
+	assert.Empty(t, config.AgentID)
 	assert.Equal(t, "claude-haiku-4-5", config.Model)
+	require.Equal(t, taskConfig, config.CodeAgentConfig)
 }
 
 func TestUpdateSessionExecutionConfigPersistsOverridesAndRestartsThread(t *testing.T) {
@@ -242,21 +246,29 @@ func TestUpdateSessionExecutionConfigWritesThroughToSpecTask(t *testing.T) {
 	ctx := context.Background()
 	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
 	session := newTestParentSession("user_a")
+	session.Metadata.SpecTaskID = "task_test"
 	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeZedAgent
 	session.Metadata.ZedAgentName = types.CodeAgentRuntimeZedAgent.ZedAgentName()
 	seedParentWithInteractions(t, mem, session, 1)
 	mem.SeedSpecTask(&types.SpecTask{
 		ID:                session.Metadata.SpecTaskID,
-		HelixAppID:        "app_parent",
 		PlanningSessionID: session.ID,
+		CodeAgentConfig: &types.CodeAgentExecutionConfig{
+			Runtime:        types.CodeAgentRuntimeZedAgent,
+			CredentialType: types.CodeAgentCredentialTypeSubscription,
+			Model:          "claude-opus-4-7",
+		},
 	})
 
+	updatedConfig := &types.CodeAgentExecutionConfig{
+		Runtime:         types.CodeAgentRuntimeClaudeCode,
+		CredentialType:  types.CodeAgentCredentialTypeSubscription,
+		Model:           "claude-sonnet-4-7",
+		ReasoningEffort: "high",
+	}
 	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{
-			CodeAgentOverrides: &types.CodeAgentOverrides{
-				ProviderRef: "anthropic",
-				Model:       "claude-sonnet-4-7",
-			},
+			CodeAgentConfig: updatedConfig,
 		})
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
@@ -266,11 +278,13 @@ func TestUpdateSessionExecutionConfigWritesThroughToSpecTask(t *testing.T) {
 
 	task, err := mem.GetSpecTask(ctx, session.Metadata.SpecTaskID)
 	require.NoError(t, err)
-	require.NotNil(t, task.CodeAgentOverrides)
-	assert.Equal(t, "claude-sonnet-4-7", task.CodeAgentOverrides.Model)
+	assert.Equal(t, updatedConfig, task.CodeAgentConfig)
+	assert.Empty(t, task.HelixAppID)
+	assert.Nil(t, task.CodeAgentOverrides)
 
 	updated, err := mem.GetSession(ctx, session.ID)
 	require.NoError(t, err)
+	assert.Empty(t, updated.ParentApp)
 	assert.Nil(t, updated.Metadata.CodeAgentOverrides, "task-driven sessions must not carry competing overrides")
 }
 
