@@ -194,6 +194,10 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 
 These rules keep our list pages visually consistent. When in doubt, mirror `Sandboxes.tsx` / `Tasks.tsx`.
 
+#### Typography
+- **All font families and text sizes come from `frontend/src/styles/typography.ts`.** Edit the `TYPOGRAPHY` object there to restyle the app; never write a `fontFamily:` literal or a hardcoded chat/code font size in a component. Import `APP_FONT_FAMILY` / `APP_MONO_FONT_FAMILY`, or use `var(--helix-font-sans)` / `var(--helix-font-mono)` in plain CSS. Full reference: `design/2026-08-15-frontend-typography.md`.
+- Defaults match T3 Code: native OS UI font, 16px root / 14px prose (`0.875rem`, line-height `1.625`), 13px code, grayscale smoothing.
+
 #### Icons, toolbars, color, and spacing
 - **Use Lucide icons from `lucide-react` for product UI.** Do not mix MUI icons and Lucide icons in the same surface. Exceptions are brand/provider logos and a pre-existing shared component whose public API supplies its own icon.
 - **Use `AgentHarness` from `frontend/src/components/agent/AgentHarness.tsx` anywhere an agent harness is identified.** Use its `long` variant in tables, forms, and selectors, and its `short` variant in compact status rows and tooltips. Pass the raw `code_agent_runtime`; do not duplicate harness labels, brand marks, or brand colors in consumers. Its Zed Agent, Qwen Code, Goose, Claude Code, and Codex marks are the canonical official assets; never replace them with generic Lucide glyphs.

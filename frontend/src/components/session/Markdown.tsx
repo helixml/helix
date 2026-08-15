@@ -23,7 +23,7 @@ import ThinkingWidget from "./ThinkingWidget";
 
 // Import chat stats collector for performance monitoring
 import { getGlobalStatsCollector } from "./ChatStatsOverlay";
-import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import { APP_MONO_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";
 import { getChatColors } from "./chatStyles";
 import MarkdownTable from "./MarkdownTable";
 import MarkdownCodeBlock from "./MarkdownCodeBlock";
@@ -954,8 +954,8 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
         data-chat-markdown
         data-chat-markdown-visible={hasVisibleContent ? "true" : undefined}
         sx={{
-          fontSize: "0.875rem",
-          lineHeight: 1.625,
+          fontSize: TYPOGRAPHY.chatFontSize,
+          lineHeight: TYPOGRAPHY.chatLineHeight,
           "& .interactionMessage > *": {
             marginTop: 0,
             marginBottom: 0,
@@ -980,8 +980,22 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           },
           "& code": {
             backgroundColor: "transparent",
-            fontSize: "0.875rem",
+            fontSize: TYPOGRAPHY.chatFontSize,
             fontFamily: APP_MONO_FONT_FAMILY,
+          },
+          // Highlighted code owns its own surface — the block chrome lives on
+          // the wrapper, so the inner pre/code stay flat and unpadded.
+          "& [data-chat-code-block] pre": {
+            margin: 0,
+            border: "none",
+            borderRadius: 0,
+            background: "transparent",
+          },
+          "& pre > code": {
+            border: "none",
+            background: "transparent",
+            padding: 0,
+            fontSize: "inherit",
           },
           "& :not(pre) > code": {
             backgroundColor: chatColors.inlineCodeSurface,
@@ -989,7 +1003,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             border: `1px solid ${chatColors.inlineCodeBorder}`,
             padding: "0.1rem 0.35rem",
             borderRadius: "0.375rem",
-            fontSize: "0.75rem",
+            fontSize: TYPOGRAPHY.inlineCodeFontSize,
           },
           "& a": {
             color: theme.palette.mode === "light" ? "#333" : "inherit",
@@ -1240,7 +1254,7 @@ const WorkspaceFileReference: FC<{ path: string; label: string }> = ({ path, lab
         bgcolor: colors.inlineCodeSurface,
         color: colors.inlineCodeForeground,
         fontFamily: APP_MONO_FONT_FAMILY,
-        fontSize: "0.75rem",
+        fontSize: TYPOGRAPHY.inlineCodeFontSize,
         lineHeight: 1.5,
         verticalAlign: "text-bottom",
       }}

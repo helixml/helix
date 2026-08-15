@@ -24,7 +24,7 @@ describe("MarkdownCodeBlock", () => {
     });
   });
 
-  it("renders a T3-style header and code surface", () => {
+  it("renders a T3-style header on a single flat code surface", () => {
     const { container } = renderCodeBlock();
     const block = container.querySelector<HTMLElement>("[data-chat-code-block]");
     const header = container.querySelector<HTMLElement>("[data-chat-code-block-header]");
@@ -34,12 +34,23 @@ describe("MarkdownCodeBlock", () => {
       overflow: "hidden",
       border: "1px solid",
     });
+    // The header shares the block surface: no tint and no divider of its own.
     expect(header).toHaveStyle({
-      minHeight: "34px",
       display: "flex",
       justifyContent: "space-between",
-      borderBottom: "1px solid",
+      backgroundColor: "",
+      borderBottom: "",
     });
+  });
+
+  it("keeps the highlighted code free of its own background", () => {
+    const { container } = renderCodeBlock();
+    // react-markdown's inline-code chrome keys off `:not(pre) > code`, so the
+    // highlighter must emit a real <pre> wrapper with a transparent code tag.
+    const codeTag = container.querySelector<HTMLElement>("pre > code");
+
+    expect(codeTag).not.toBeNull();
+    expect(codeTag).toHaveStyle({ background: "transparent" });
   });
 
   it("toggles wrapping and copies normalized code", async () => {
