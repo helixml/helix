@@ -65,6 +65,7 @@ func newStartCommand() *cobra.Command {
 	var prompt string
 	var promptFile string
 	var attachFiles []string
+	var runtime string
 	var quiet bool
 	var wait bool
 	var noWait bool
@@ -72,11 +73,16 @@ func newStartCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start [task-id]",
 		Short: "Start a spec task planning session (creates sandbox)",
-		Long: `Start a spec task planning session which creates a sandbox desktop.
+		Long: `Start a spec task planning session which creates a sandbox.
 
 If no task-id is provided, a new spec task will be created.
 Use --project to specify which project to create the task in.
 Use --agent to specify which Helix agent/app to use (e.g., app_01xxx).
+Use --runtime to pick the sandbox environment:
+  ubuntu-desktop   full GNOME desktop you can stream and screenshot (default)
+  headless-ubuntu  agent-only, no compositor or streaming — faster and cheaper
+The runtime is fixed for the life of the task; omit --runtime to inherit the
+project default.
 
 Example workflow:
   1. Fork a sample project:  helix project fork modern-todo-app --name "My Project"
@@ -87,9 +93,20 @@ Example workflow:
 			apiURL := getAPIURL()
 			token := getToken()
 
+			if !types.ValidSpecTaskSandboxRuntime(types.SandboxRuntime(runtime)) {
+				return fmt.Errorf("invalid --runtime %q: must be %s or %s",
+					runtime, types.SandboxRuntimeUbuntuDesktop, types.SandboxRuntimeHeadlessUbuntu)
+			}
+
 			var taskID string
 			if len(args) > 0 {
 				taskID = args[0]
+				// The runtime is chosen at creation and is immutable — the
+				// owning task is the source of truth on every launch path, so
+				// silently ignoring it here would be misleading.
+				if runtime != "" {
+					return fmt.Errorf("--runtime can only be set when creating a task; %s already has a fixed runtime", taskID)
+				}
 			} else {
 				// Create a new spec task
 				if projectID == "" {
@@ -116,7 +133,7 @@ Example workflow:
 				if taskPrompt == "" {
 					taskPrompt = "Testing RevDial connectivity"
 				}
-				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, agentID)
+				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, agentID, runtime)
 				if err != nil {
 					return fmt.Errorf("failed to create spec task: %w", err)
 				}
@@ -126,6 +143,7 @@ Example workflow:
 					if agentID != "" {
 						fmt.Printf("   Agent: %s\n", agentID)
 					}
+					fmt.Printf("   Environment: %s\n", types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime))
 				}
 				// Attach files (e.g. logfiles) — the agent reads them at
 				// design/tasks/<task>/attachments/<name>, keeping large context
@@ -203,12 +221,23 @@ Example workflow:
 				fmt.Printf("\n✅ Sandbox is running!\n")
 				fmt.Printf("   Session ID: %s\n", session.ID)
 
-				// Show connection instructions
-				fmt.Printf("\n📺 Connect to Desktop:\n")
-				fmt.Printf("   Open in browser: %s/sessions/%s\n", apiURL, session.ID)
+				// Show connection instructions. Headless sandboxes run no
+				// compositor or streaming stack, so the desktop/screenshot
+				// hints don't apply to them.
+				if types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime) == types.SandboxRuntimeHeadlessUbuntu {
+					fmt.Printf("\n🤖 Headless sandbox — no desktop to stream.\n")
+					if taskURL := buildTaskURL(apiURL, task, projectID); taskURL != "" {
+						fmt.Printf("   Follow the agent: %s\n", taskURL)
+					}
+					fmt.Printf("\n💬 Interact from the CLI:\n")
+					fmt.Printf("   helix spectask interact %s\n", session.ID)
+				} else {
+					fmt.Printf("\n📺 Connect to Desktop:\n")
+					fmt.Printf("   Open in browser: %s/sessions/%s\n", apiURL, session.ID)
 
-				fmt.Printf("\n📷 Test screenshot:\n")
-				fmt.Printf("   helix spectask screenshot %s\n", session.ID)
+					fmt.Printf("\n📷 Test screenshot:\n")
+					fmt.Printf("   helix spectask screenshot %s\n", session.ID)
+				}
 			}
 
 			return nil
@@ -221,6 +250,7 @@ Example workflow:
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
 	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). Uploaded as spec-task attachments the agent reads at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt.")
+	cmd.Flags().StringVar(&runtime, "runtime", "", "Sandbox environment for the new task: ubuntu-desktop (streamable GNOME desktop) or headless-ubuntu (agent only, no desktop). Empty = project default. Immutable once the task exists.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output the task ID (session ID with --wait)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Block until the sandbox has booted, then print session-level connect info (default: return immediately with the task URL — the browser page shows it loading)")
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Deprecated: no-wait is now the default; kept as a no-op for back-compat")
@@ -456,13 +486,14 @@ func getToken() string {
 }
 
 type SpecTask struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	Status            string `json:"status"`
-	OrganizationID    string `json:"organization_id"`
-	ProjectID         string `json:"project_id"`
-	PlanningSessionID string `json:"planning_session_id"`
+	ID                string               `json:"id"`
+	Name              string               `json:"name"`
+	Description       string               `json:"description"`
+	Status            string               `json:"status"`
+	OrganizationID    string               `json:"organization_id"`
+	ProjectID         string               `json:"project_id"`
+	PlanningSessionID string               `json:"planning_session_id"`
+	SandboxRuntime    types.SandboxRuntime `json:"sandbox_runtime"`
 }
 
 // buildTaskURL returns the frontend task-detail page URL, which is known the
@@ -499,7 +530,7 @@ type SessionMetadata struct {
 	StatusMessage   string `json:"status_message"`
 }
 
-func createSpecTask(apiURL, token, name, prompt, projectID, agentID string) (*SpecTask, error) {
+func createSpecTask(apiURL, token, name, prompt, projectID, agentID, runtime string) (*SpecTask, error) {
 	payload := map[string]string{
 		"name":   name,
 		"prompt": prompt, // API expects "prompt" not "description"
@@ -509,6 +540,10 @@ func createSpecTask(apiURL, token, name, prompt, projectID, agentID string) (*Sp
 	}
 	if agentID != "" {
 		payload["app_id"] = agentID // API expects "app_id" not "helix_app_id"
+	}
+	// Omitted means "inherit the project default" — the server resolves it.
+	if runtime != "" {
+		payload["sandbox_runtime"] = runtime
 	}
 	jsonData, _ := json.Marshal(payload)
 
