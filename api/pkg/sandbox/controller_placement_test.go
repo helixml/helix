@@ -59,10 +59,11 @@ func (s *ControllerPlacementSuite) headlessSpec() *RuntimeSpec {
 // desktopSpec returns the heartbeat-versioned ubuntu-desktop spec.
 func (s *ControllerPlacementSuite) desktopSpec() *RuntimeSpec {
 	return &RuntimeSpec{
-		Name:          string(types.SandboxRuntimeUbuntuDesktop),
-		ContainerType: hydra.DevContainerTypeUbuntu,
-		Privileged:    true,
-		VersionKey:    "ubuntu",
+		Name:            string(types.SandboxRuntimeUbuntuDesktop),
+		ContainerType:   hydra.DevContainerTypeUbuntu,
+		Privileged:      true,
+		VersionKey:      "ubuntu",
+		RequiresDisplay: true,
 	}
 }
 
@@ -164,7 +165,7 @@ func (s *ControllerPlacementSuite) TestFirstTimePlacementHeadless() {
 func (s *ControllerPlacementSuite) TestFirstTimePlacementDesktopRequiresVersionMatch() {
 	sb := &types.Sandbox{ID: "sbx_new_desktop"}
 	hostA := &types.SandboxInstance{ID: "host-a", Status: "online"}
-	s.store.EXPECT().FindAvailableSandboxInstance(s.ctx, "ubuntu").Return(hostA, nil)
+	s.store.EXPECT().FindAvailableSandboxInstance(s.ctx, "ubuntu", true).Return(hostA, nil)
 
 	host, err := s.controller.pickHostForSandbox(s.ctx, sb, s.desktopSpec())
 	s.Require().NoError(err)
@@ -231,4 +232,69 @@ func (s *ControllerPlacementSuite) TestNoHostsAvailable() {
 	host, err := s.controller.pickHostForSandbox(s.ctx, sb, s.headlessSpec())
 	s.Require().Error(err)
 	s.Require().Nil(host)
+}
+
+// TestHeadlessPlacesOnHostWithoutRenderNode — headless containers run no
+// compositor and no encoder, so a CPU-only host (gpu_vendor "none",
+// render_node "SOFTWARE") is a perfectly good home for them. Before this,
+// headless placement shared the desktop capability check and such a host was
+// skipped entirely, leaving it online but permanently idle.
+func (s *ControllerPlacementSuite) TestHeadlessPlacesOnHostWithoutRenderNode() {
+	sb := &types.Sandbox{ID: "sbx_headless_cpu"}
+	cpuOnly := &types.SandboxInstance{
+		ID:         "host-cpu",
+		Status:     "online",
+		GPUVendor:  "none",
+		RenderNode: "SOFTWARE",
+	}
+	s.store.EXPECT().ListSandboxInstances(s.ctx).Return([]*types.SandboxInstance{cpuOnly}, nil)
+
+	host, err := s.controller.pickHostForSandbox(s.ctx, sb, s.headlessSpec())
+	s.Require().NoError(err)
+	s.Require().Equal("host-cpu", host.ID)
+}
+
+// TestHeadlessPlacesOnNeuronHost — same for inference accelerators, which
+// also have no render node.
+func (s *ControllerPlacementSuite) TestHeadlessPlacesOnNeuronHost() {
+	sb := &types.Sandbox{ID: "sbx_headless_neuron"}
+	neuron := &types.SandboxInstance{ID: "host-inf2", Status: "online", GPUVendor: "neuron"}
+	s.store.EXPECT().ListSandboxInstances(s.ctx).Return([]*types.SandboxInstance{neuron}, nil)
+
+	host, err := s.controller.pickHostForSandbox(s.ctx, sb, s.headlessSpec())
+	s.Require().NoError(err)
+	s.Require().Equal("host-inf2", host.ID)
+}
+
+// TestDesktopWithoutDisplayHostReturnsTypedError — when the store finds no
+// render-capable host for a desktop runtime, callers get ErrNoDisplayCapableHost
+// so the API can explain that this deployment cannot stream desktops at all,
+// rather than a generic "no host advertises image".
+func (s *ControllerPlacementSuite) TestDesktopWithoutDisplayHostReturnsTypedError() {
+	sb := &types.Sandbox{ID: "sbx_desktop_nogpu"}
+	s.store.EXPECT().FindAvailableSandboxInstance(s.ctx, "ubuntu", true).Return(nil, nil)
+
+	host, err := s.controller.pickHostForSandbox(s.ctx, sb, s.desktopSpec())
+	s.Require().Nil(host)
+	s.Require().ErrorIs(err, ErrNoDisplayCapableHost)
+}
+
+// TestHasDisplayCapableHost distinguishes a fleet that can stream desktops
+// from one that cannot.
+func (s *ControllerPlacementSuite) TestHasDisplayCapableHost() {
+	s.store.EXPECT().ListSandboxInstances(s.ctx).Return([]*types.SandboxInstance{
+		{ID: "host-cpu", Status: "online", GPUVendor: "none", RenderNode: "SOFTWARE"},
+		{ID: "host-inf2", Status: "online", GPUVendor: "neuron"},
+	}, nil)
+	ok, err := s.controller.HasDisplayCapableHost(s.ctx)
+	s.Require().NoError(err)
+	s.Require().False(ok)
+
+	s.store.EXPECT().ListSandboxInstances(s.ctx).Return([]*types.SandboxInstance{
+		{ID: "host-cpu", Status: "online", GPUVendor: "none", RenderNode: "SOFTWARE"},
+		{ID: "host-gpu", Status: "online", GPUVendor: "nvidia", RenderNode: "/dev/dri/renderD128"},
+	}, nil)
+	ok, err = s.controller.HasDisplayCapableHost(s.ctx)
+	s.Require().NoError(err)
+	s.Require().True(ok)
 }

@@ -45,9 +45,19 @@ var sandboxTerminalUpgrader = websocket.Upgrader{
 // @Success 200 {object} map[string][]string
 // @Security ApiKeyAuth
 // @Router /api/v1/sandbox-runtimes [get]
-func (s *HelixAPIServer) listSandboxRuntimes(rw http.ResponseWriter, _ *http.Request) {
+func (s *HelixAPIServer) listSandboxRuntimes(rw http.ResponseWriter, r *http.Request) {
+	// A deployment with no display-capable sandbox host cannot run desktop
+	// runtimes at all. Report that alongside the names so callers can grey the
+	// option out rather than discovering it when creation is rejected.
+	hasDisplayHost, err := s.sandboxController.HasDisplayCapableHost(r.Context())
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to determine display-capable host availability; reporting desktop runtimes as available")
+		hasDisplayHost = true
+	}
 	writeJSON(rw, http.StatusOK, map[string]any{
-		"runtimes": s.sandboxController.Runtimes().Names(),
+		"runtimes":        s.sandboxController.Runtimes().Names(),
+		"runtime_details": s.sandboxController.Runtimes().Availability(hasDisplayHost),
+		"desktop_capable": hasDisplayHost,
 	})
 }
 

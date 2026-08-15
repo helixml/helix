@@ -31,6 +31,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// ErrNoDisplayCapableHost is returned when a runtime that streams a desktop
+// is requested but no online sandbox host has a render node. Only the desktop
+// runtime hits this: headless containers run no compositor and no encoder, so
+// they place on CPU-only hosts happily. Callers should surface it as a 4xx —
+// it is a property of the deployment's hardware, not a transient failure.
+var ErrNoDisplayCapableHost = errors.New(
+	"this deployment has no sandbox host with a display/render node, so desktop runtimes are unavailable; " +
+		"use a headless runtime, or add a sandbox host with a GPU")
+
 // recoverGoroutine turns a panic in a detached goroutine into a logged error
 // instead of a process-wide crash (a panic in ANY goroutine kills the whole
 // API binary — every sandbox and web service with it). Guard every fire-and-
@@ -124,6 +133,19 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 	}
 	if err := c.ensureSandboxCredits(ctx, orgID, spec, settings, vcpus); err != nil {
 		return nil, err
+	}
+	// Reject desktop runtimes when the fleet has no render-capable host,
+	// rather than letting placement fail later with a generic "no available
+	// host". Deliberately after the quota and credit checks so those keep
+	// precedence — this only adds a rejection, it never masks one.
+	if spec.RequiresDisplay {
+		hasDisplay, err := c.HasDisplayCapableHost(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !hasDisplay {
+			return nil, ErrNoDisplayCapableHost
+		}
 	}
 	// Stamp the row with the resolved runtime name and image so the UI/CLI
 	// can show what's actually running, even when the caller used a custom

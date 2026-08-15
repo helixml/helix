@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -193,6 +194,20 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	if !types.ValidSpecTaskSandboxRuntime(req.SandboxRuntime) {
 		http.Error(w, "sandbox runtime must be ubuntu-desktop or headless-ubuntu", http.StatusBadRequest)
 		return
+	}
+	// A task pinned to the streamed desktop can never start on a fleet with no
+	// render node. Say so now rather than letting it sit in the backlog and
+	// fail at placement. The runtime is immutable once the task exists, so
+	// this is the only chance to catch it.
+	if types.EffectiveSpecTaskSandboxRuntime(req.SandboxRuntime) == types.SandboxRuntimeUbuntuDesktop {
+		hasDisplay, err := s.sandboxController.HasDisplayCapableHost(ctx)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to check display-capable hosts; allowing desktop spec task")
+		} else if !hasDisplay {
+			http.Error(w, sandbox.ErrNoDisplayCapableHost.Error()+
+				" — create the task with sandbox_runtime \"headless-ubuntu\"", http.StatusBadRequest)
+			return
+		}
 	}
 	if req.CodeAgentOverrides != nil {
 		if err := s.validateCodeAgentOverrides(ctx, req.AppID, req.CodeAgentOverrides, user.ID); err != nil {

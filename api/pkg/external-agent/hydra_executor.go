@@ -290,10 +290,14 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		// select a host advertising that image even though the created container
 		// itself has no compositor or display devices.
 		placementImage := containerType
+		requiresDisplay := true
 		if containerType == "headless" {
 			placementImage = "ubuntu"
+			// No compositor, no encoder — a CPU-only host is fine, it just
+			// has to advertise the toolchain image.
+			requiresDisplay = false
 		}
-		sandbox, err := h.store.FindAvailableSandboxInstance(ctx, placementImage)
+		sandbox, err := h.store.FindAvailableSandboxInstance(ctx, placementImage, requiresDisplay)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find available sandbox: %w", err)
 		}

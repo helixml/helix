@@ -833,7 +833,7 @@ type Store interface {
 	BackfillSandboxMaxSandboxes(ctx context.Context, value int) (int64, error)
 	ResetSandboxOnReconnect(ctx context.Context, id string) error
 	GetSandboxInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
-	FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
+	FindAvailableSandboxInstance(ctx context.Context, desktopType string, requiresDisplay bool) (*types.SandboxInstance, error)
 
 	// User Sandbox methods (Sandboxes API — POST /organizations/{org}/sandboxes etc.)
 	CreateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)

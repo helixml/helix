@@ -368,6 +368,23 @@ func (c *Controller) specForSandbox(sandbox *types.Sandbox) (*RuntimeSpec, error
 	return spec, nil
 }
 
+// HasDisplayCapableHost reports whether any online sandbox host can run a
+// streamed desktop. Used to reject desktop runtimes at create time and to
+// advertise per-runtime availability, so a CPU-only deployment tells callers
+// what it can do instead of failing at placement.
+func (c *Controller) HasDisplayCapableHost(ctx context.Context) (bool, error) {
+	hosts, err := c.store.ListSandboxInstances(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list hosts: %w", err)
+	}
+	for _, h := range hosts {
+		if h.Status == "online" && h.CanHostDesktop() {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // instanceAdvertisesVersion mirrors the version-matching logic in
 // store.FindAvailableSandboxInstance — it returns true iff the host's
 // heartbeat blob lists a non-empty image tag for desktopType. Used when
@@ -424,11 +441,14 @@ func (c *Controller) pickHostForSandbox(ctx context.Context, sandbox *types.Sand
 
 	// First-time placement (or non-persistent reschedule).
 	if spec.VersionKey != "" {
-		host, err := c.store.FindAvailableSandboxInstance(ctx, spec.VersionKey)
+		host, err := c.store.FindAvailableSandboxInstance(ctx, spec.VersionKey, spec.RequiresDisplay)
 		if err != nil {
 			return nil, fmt.Errorf("find available host: %w", err)
 		}
 		if host == nil {
+			if spec.RequiresDisplay {
+				return nil, ErrNoDisplayCapableHost
+			}
 			return nil, fmt.Errorf("no online sandbox host advertises image for runtime %s", spec.Name)
 		}
 		return host, nil
@@ -438,10 +458,10 @@ func (c *Controller) pickHostForSandbox(ctx context.Context, sandbox *types.Sand
 		return nil, fmt.Errorf("list hosts: %w", err)
 	}
 	for _, h := range hosts {
-		// Headless sandboxes are still sandboxes - keep them off
-		// non-render-capable (e.g. neuron/inf2) hosts, which are
-		// inference-only.
-		if h.Status == "online" && h.CanHostSandbox() {
+		// Headless containers run no compositor and no encoder, so any
+		// online host will do - including CPU-only and inference
+		// accelerator hosts that cannot stream a desktop.
+		if h.Status == "online" {
 			return h, nil
 		}
 	}
