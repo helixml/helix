@@ -3,7 +3,7 @@ import { createTheme, ThemeProvider } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useApi from '../hooks/useApi'
 import { PaletteMode } from '@mui/material'
-import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY } from '../styles/typography'
+import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY, TYPOGRAPHY, typographyCssVariables } from '../styles/typography'
 
 const THEME_MODE_KEY = 'themeMode'
 
@@ -163,6 +163,10 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       },
     }
 
+    const fontSmoothingStyles = TYPOGRAPHY.smoothing
+      ? { WebkitFontSmoothing: 'antialiased', MozOsxFontSmoothing: 'grayscale' }
+      : { WebkitFontSmoothing: 'auto', MozOsxFontSmoothing: 'auto' }
+
     const menuSurfaceBg = isLight ? 'rgba(255, 255, 255, 0.98)' : 'rgba(27, 27, 27, 0.98)'
     const menuBorder = isLight ? '1px solid rgba(0,0,0,0.12)' : '1px solid rgba(255,255,255,0.12)'
     const menuTextColor = isLight ? '#262626' : '#f1f1f1'
@@ -192,7 +196,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       typography: {
         fontFamily: APP_FONT_FAMILY,
         fontFamilyMono: APP_MONO_FONT_FAMILY,
-        fontSize: 14,
+        fontSize: TYPOGRAPHY.bodyFontSize,
         // Light mode is often viewed in sunlight — bump weights for readability.
         ...(isLight && {
           fontWeightLight: 400,
@@ -209,15 +213,17 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       components: {
         MuiCssBaseline: {
           styleOverrides: {
+            // Typography tokens live in styles/typography.ts; they are mirrored
+            // onto :root so plain-CSS surfaces can read them too.
+            ':root': typographyCssVariables(),
             html: {
               fontFamily: APP_FONT_FAMILY,
-              WebkitFontSmoothing: 'auto',
-              MozOsxFontSmoothing: 'auto',
+              fontSize: TYPOGRAPHY.rootFontSize,
+              ...fontSmoothingStyles,
             },
             body: {
               fontFamily: APP_FONT_FAMILY,
-              WebkitFontSmoothing: 'auto',
-              MozOsxFontSmoothing: 'auto',
+              ...fontSmoothingStyles,
               backgroundColor: bg,
               ...scrollbarStyles,
             },

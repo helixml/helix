@@ -1,15 +1,13 @@
-import CheckIcon from "@mui/icons-material/Check";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import WrapTextIcon from "@mui/icons-material/WrapText";
 import Box from "@mui/material/Box";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import { useTheme } from "@mui/material/styles";
+import { Check, Copy, WrapText } from "lucide-react";
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Prism as SyntaxHighlighterTS } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
-import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
+import { APP_MONO_FONT_FAMILY, TYPOGRAPHY } from "../../styles/typography";
 import { getChatColors } from "./chatStyles";
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any;
@@ -26,6 +24,7 @@ const MarkdownCodeBlock: FC<MarkdownCodeBlockProps> = React.memo(
     const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const theme = useTheme();
     const chatColors = getChatColors(theme);
+    const syntaxTheme = theme.palette.mode === "dark" ? oneDark : oneLight;
     const code = useMemo(() => children.replace(/\n$/, ""), [children]);
 
     const handleCopy = useCallback(async () => {
@@ -49,9 +48,21 @@ const MarkdownCodeBlock: FC<MarkdownCodeBlockProps> = React.memo(
       [],
     );
 
+    const actionSx = {
+      width: 24,
+      height: 24,
+      borderRadius: "6px",
+      color: chatColors.codeChrome,
+      "&:hover": {
+        color: chatColors.codeForeground,
+        backgroundColor: chatColors.codeActionHover,
+      },
+    } as const;
+
     return (
       <Box
         data-chat-code-block
+        data-language={language}
         data-wrap={wrapped ? "true" : "false"}
         sx={{
           my: "0.65rem",
@@ -66,16 +77,15 @@ const MarkdownCodeBlock: FC<MarkdownCodeBlockProps> = React.memo(
         <Box
           data-chat-code-block-header
           sx={{
-            minHeight: 34,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             gap: 1,
+            pt: 0.75,
+            pr: 0.75,
+            pb: 0,
             pl: 1.5,
-            pr: 0.5,
-            borderBottom: "1px solid",
-            borderColor: chatColors.codeBorder,
-            backgroundColor: chatColors.codeHeaderSurface,
+            userSelect: "none",
             color: chatColors.codeChrome,
           }}
         >
@@ -87,13 +97,17 @@ const MarkdownCodeBlock: FC<MarkdownCodeBlockProps> = React.memo(
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
               fontFamily: APP_MONO_FONT_FAMILY,
-              fontSize: "0.6875rem",
+              fontSize: TYPOGRAPHY.codeChromeFontSize,
               lineHeight: 1,
             }}
           >
             {language}
           </Box>
-          <Box role="toolbar" aria-label="Code block actions" sx={{ display: "flex", alignItems: "center" }}>
+          <Box
+            role="toolbar"
+            aria-label="Code block actions"
+            sx={{ display: "flex", alignItems: "center", gap: 0.25 }}
+          >
             <Tooltip title={wrapped ? "Disable line wrap" : "Wrap lines"}>
               <IconButton
                 aria-label={wrapped ? "Disable line wrap" : "Wrap lines"}
@@ -101,18 +115,16 @@ const MarkdownCodeBlock: FC<MarkdownCodeBlockProps> = React.memo(
                 onClick={() => setWrapped((value) => !value)}
                 size="small"
                 sx={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: "7px",
-                  color: wrapped ? chatColors.codeForeground : chatColors.codeChrome,
-                  backgroundColor: wrapped ? chatColors.codeActionActive : "transparent",
-                  "&:hover": {
-                    color: chatColors.codeForeground,
-                    backgroundColor: chatColors.codeActionHover,
-                  },
+                  ...actionSx,
+                  ...(wrapped
+                    ? {
+                        color: chatColors.codeForeground,
+                        backgroundColor: chatColors.codeActionActive,
+                      }
+                    : {}),
                 }}
               >
-                <WrapTextIcon sx={{ fontSize: 16 }} />
+                <WrapText size={14} />
               </IconButton>
             </Tooltip>
             <Tooltip title={copied ? "Copied" : "Copy code"}>
@@ -121,17 +133,11 @@ const MarkdownCodeBlock: FC<MarkdownCodeBlockProps> = React.memo(
                 onClick={handleCopy}
                 size="small"
                 sx={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: "7px",
-                  color: copied ? chatColors.codeForeground : chatColors.codeChrome,
-                  "&:hover": {
-                    color: chatColors.codeForeground,
-                    backgroundColor: chatColors.codeActionHover,
-                  },
+                  ...actionSx,
+                  ...(copied ? { color: chatColors.codeForeground } : {}),
                 }}
               >
-                {copied ? <CheckIcon sx={{ fontSize: 15 }} /> : <ContentCopyIcon sx={{ fontSize: 15 }} />}
+                {copied ? <Check size={14} /> : <Copy size={14} />}
               </IconButton>
             </Tooltip>
           </Box>
@@ -146,22 +152,27 @@ const MarkdownCodeBlock: FC<MarkdownCodeBlockProps> = React.memo(
         >
           <SyntaxHighlighter
             language={language}
-            style={oneDark}
-            PreTag="div"
+            style={syntaxTheme}
             wrapLongLines={wrapped}
             customStyle={{
               margin: 0,
-              padding: "14px 16px 16px",
+              padding: "0.6rem 0.9rem 0.8rem",
+              border: "none",
+              borderRadius: 0,
               overflow: "visible",
               background: "transparent",
               color: chatColors.codeForeground,
+              textShadow: "none",
               fontFamily: APP_MONO_FONT_FAMILY,
-              fontSize: "0.8125rem",
-              lineHeight: 1.55,
+              fontSize: TYPOGRAPHY.codeFontSize,
+              lineHeight: TYPOGRAPHY.codeLineHeight,
             }}
             codeTagProps={{
               style: {
+                background: "transparent",
+                textShadow: "none",
                 fontFamily: APP_MONO_FONT_FAMILY,
+                fontSize: "inherit",
               },
             }}
           >

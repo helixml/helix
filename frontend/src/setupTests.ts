@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import { createElement } from 'react'
 import { vi } from 'vitest'
 
 // Mock for DOMPurify that simulates basic sanitization behavior
@@ -57,12 +58,23 @@ vi.mock('react-markdown', () => {
   }
 })
 
-// Mock react-syntax-highlighter to pass through content
+// Mock react-syntax-highlighter: skip tokenizing, but keep the real
+// <pre><code> wrapper and the caller's styles so tests can assert the code
+// surface (inline-code CSS keys off `:not(pre) > code`).
 vi.mock('react-syntax-highlighter', () => {
-  const SyntaxHighlighterMock = ({ children }: { children: string }) => {
-    return children
-  }
-  
+  const SyntaxHighlighterMock = ({
+    children,
+    customStyle,
+    codeTagProps,
+    PreTag = 'pre',
+    CodeTag = 'code',
+  }: any) =>
+    createElement(
+      PreTag,
+      { style: customStyle },
+      createElement(CodeTag, codeTagProps, children),
+    )
+
   return {
     Prism: SyntaxHighlighterMock
   }
@@ -71,6 +83,7 @@ vi.mock('react-syntax-highlighter', () => {
 // Mock styles
 vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => {
   return {
-    oneDark: {}
+    oneDark: {},
+    oneLight: {}
   }
-}) 
+})
