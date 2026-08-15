@@ -197,6 +197,9 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 		}
 	}
 
+	// The accumulated response is a full completion, not a chunk.
+	resp.Object = "chat.completion"
+
 	if chunk.Model != "" {
 		resp.Model = chunk.Model
 	}
@@ -211,22 +214,65 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 
 	// Append the chunk to the response
 	if len(chunk.Choices) > 0 {
+		delta := chunk.Choices[0].Delta
+		msg := &resp.Choices[0].Message
+
 		// Role
-		if chunk.Choices[0].Delta.Role != "" {
-			resp.Choices[0].Message.Role = chunk.Choices[0].Delta.Role
+		if delta.Role != "" {
+			msg.Role = delta.Role
 		}
 
 		// Content
-		resp.Choices[0].Message.Content += chunk.Choices[0].Delta.Content
+		msg.Content += delta.Content
+		msg.ReasoningContent += delta.ReasoningContent
 
-		// Function calls
-		if chunk.Choices[0].Delta.FunctionCall != nil {
-			resp.Choices[0].Message.FunctionCall = chunk.Choices[0].Delta.FunctionCall
+		// Legacy function calls stream the arguments in fragments; only the
+		// first fragment carries the name.
+		if delta.FunctionCall != nil {
+			if msg.FunctionCall == nil {
+				msg.FunctionCall = &openai.FunctionCall{}
+			}
+			if delta.FunctionCall.Name != "" {
+				msg.FunctionCall.Name = delta.FunctionCall.Name
+			}
+			msg.FunctionCall.Arguments += delta.FunctionCall.Arguments
 		}
 
-		// Tool calls
-		if len(chunk.Choices[0].Delta.ToolCalls) > 0 {
-			resp.Choices[0].Message.ToolCalls = append(resp.Choices[0].Message.ToolCalls, chunk.Choices[0].Delta.ToolCalls...)
+		// A single tool call arrives as many deltas sharing an index: the first
+		// carries id/type/name, the rest only argument fragments. Merge by
+		// index instead of appending each fragment as its own tool call.
+		for _, tc := range delta.ToolCalls {
+			var idx int
+			if tc.Index != nil {
+				idx = *tc.Index
+			} else if tc.ID != "" || len(msg.ToolCalls) == 0 {
+				// No index: a fragment carrying an ID starts a new tool call,
+				// an ID-less fragment continues the last one.
+				idx = len(msg.ToolCalls)
+			} else {
+				idx = len(msg.ToolCalls) - 1
+			}
+			if idx < 0 {
+				continue
+			}
+			for idx >= len(msg.ToolCalls) {
+				msg.ToolCalls = append(msg.ToolCalls, openai.ToolCall{})
+			}
+			merged := &msg.ToolCalls[idx]
+			if tc.ID != "" {
+				merged.ID = tc.ID
+			}
+			if tc.Type != "" {
+				merged.Type = tc.Type
+			}
+			if tc.Function.Name != "" {
+				merged.Function.Name = tc.Function.Name
+			}
+			merged.Function.Arguments += tc.Function.Arguments
+		}
+
+		if chunk.Choices[0].FinishReason != "" {
+			resp.Choices[0].FinishReason = chunk.Choices[0].FinishReason
 		}
 	}
 

@@ -82,6 +82,121 @@ func TestAppendChunkAcceptsFinalOnlyUsage(t *testing.T) {
 	assert.Equal(t, 42, resp.Usage.TotalTokens)
 }
 
+func TestAppendChunkMergesToolCallDeltasByIndex(t *testing.T) {
+	resp := &openai.ChatCompletionResponse{}
+	idx0, idx1 := 0, 1
+
+	// First fragment carries id/type/name + start of arguments.
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				Role: "assistant",
+				ToolCalls: []openai.ToolCall{{
+					Index:    &idx0,
+					ID:       "call_1",
+					Type:     openai.ToolTypeFunction,
+					Function: openai.FunctionCall{Name: "get_weather", Arguments: `{"loc`},
+				}},
+			},
+		}},
+	})
+	// Subsequent fragments carry only argument pieces.
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				ToolCalls: []openai.ToolCall{{
+					Index:    &idx0,
+					Function: openai.FunctionCall{Arguments: `ation":"London"}`},
+				}},
+			},
+		}},
+	})
+	// A second tool call at index 1.
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				ToolCalls: []openai.ToolCall{{
+					Index:    &idx1,
+					ID:       "call_2",
+					Type:     openai.ToolTypeFunction,
+					Function: openai.FunctionCall{Name: "get_time", Arguments: `{}`},
+				}},
+			},
+		}},
+	})
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			FinishReason: openai.FinishReasonToolCalls,
+		}},
+	})
+
+	require.Len(t, resp.Choices[0].Message.ToolCalls, 2)
+	tc0 := resp.Choices[0].Message.ToolCalls[0]
+	assert.Equal(t, "call_1", tc0.ID)
+	assert.Equal(t, openai.ToolTypeFunction, tc0.Type)
+	assert.Equal(t, "get_weather", tc0.Function.Name)
+	assert.Equal(t, `{"location":"London"}`, tc0.Function.Arguments)
+	tc1 := resp.Choices[0].Message.ToolCalls[1]
+	assert.Equal(t, "call_2", tc1.ID)
+	assert.Equal(t, "get_time", tc1.Function.Name)
+	assert.Equal(t, `{}`, tc1.Function.Arguments)
+	assert.Equal(t, openai.FinishReasonToolCalls, resp.Choices[0].FinishReason)
+	assert.Equal(t, "chat.completion", resp.Object)
+}
+
+func TestAppendChunkMergesToolCallDeltasWithoutIndex(t *testing.T) {
+	resp := &openai.ChatCompletionResponse{}
+
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				ToolCalls: []openai.ToolCall{{
+					ID:       "call_1",
+					Type:     openai.ToolTypeFunction,
+					Function: openai.FunctionCall{Name: "run", Arguments: `{"a":`},
+				}},
+			},
+		}},
+	})
+	// Providers that omit index: fragments merge into the last tool call.
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				ToolCalls: []openai.ToolCall{{
+					Function: openai.FunctionCall{Arguments: `1}`},
+				}},
+			},
+		}},
+	})
+
+	require.Len(t, resp.Choices[0].Message.ToolCalls, 1)
+	assert.Equal(t, "call_1", resp.Choices[0].Message.ToolCalls[0].ID)
+	assert.Equal(t, `{"a":1}`, resp.Choices[0].Message.ToolCalls[0].Function.Arguments)
+}
+
+func TestAppendChunkAccumulatesFunctionCallArguments(t *testing.T) {
+	resp := &openai.ChatCompletionResponse{}
+
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				FunctionCall: &openai.FunctionCall{Name: "run", Arguments: `{"a":`},
+			},
+		}},
+	})
+	appendChunk(resp, &openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				FunctionCall: &openai.FunctionCall{Arguments: `1}`},
+			},
+		}},
+	})
+
+	require.NotNil(t, resp.Choices[0].Message.FunctionCall)
+	assert.Equal(t, "run", resp.Choices[0].Message.FunctionCall.Name)
+	assert.Equal(t, `{"a":1}`, resp.Choices[0].Message.FunctionCall.Arguments)
+}
+
 func TestCreateChatCompletionStreamLogsLatestUsageSnapshot(t *testing.T) {
 	chunks := []openai.ChatCompletionStreamResponse{
 		{
