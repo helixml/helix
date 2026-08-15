@@ -607,7 +607,10 @@ Examples:
 			taskPrompt = "E2E cancellation probe: immediately run the shell command `sleep 60` before doing any other work. " +
 				"After it finishes, continue with this request: " + taskPrompt
 
-			task, err := createSpecTask(apiURL, token, "E2E Test Task", taskPrompt, projectID, agentID)
+			// Pinned to the desktop runtime: step 5 screenshots the session, which
+			// a headless project default would not provide.
+			task, err := createSpecTask(apiURL, token, "E2E Test Task", taskPrompt, projectID, agentID,
+				string(types.SandboxRuntimeUbuntuDesktop))
 			if err != nil {
 				return fmt.Errorf("failed to create task: %w", err)
 			}
