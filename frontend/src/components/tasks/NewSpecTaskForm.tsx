@@ -378,11 +378,25 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   }, [selectedHelixAgent]);
 
   useEffect(() => {
-    setSandboxRuntime(preferredSpecTaskSandboxRuntime(
-      projectId,
-      project?.default_sandbox_runtime,
-    ));
+    setSandboxRuntime(
+      preferredSpecTaskSandboxRuntime(
+        projectId,
+        project?.default_sandbox_runtime,
+      ),
+    );
   }, [projectId, project?.default_sandbox_runtime]);
+
+  const projectDefaultSandboxVCPUs =
+    project?.default_sandbox_resource_overrides?.vcpus || 4;
+  const projectDefaultSandboxMemoryMB =
+    project?.default_sandbox_resource_overrides?.memory_mb || 8192;
+
+  useEffect(() => {
+    setSandboxResourceOverrides({
+      vcpus: projectDefaultSandboxVCPUs,
+      memory_mb: projectDefaultSandboxMemoryMB,
+    });
+  }, [projectId, projectDefaultSandboxVCPUs, projectDefaultSandboxMemoryMB]);
 
   const handleSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
     setSandboxRuntime(runtime);
@@ -454,8 +468,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
     setCodeAgentOverrides({});
-    setSandboxResourceOverrides({ vcpus: 4, memory_mb: 8192 });
-    setSandboxRuntime(TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop);
+    setSandboxResourceOverrides({
+      vcpus: projectDefaultSandboxVCPUs,
+      memory_mb: projectDefaultSandboxMemoryMB,
+    });
+    setSandboxRuntime(
+      preferredSpecTaskSandboxRuntime(
+        projectId,
+        project?.default_sandbox_runtime,
+      ),
+    );
     setSelectedRecipeName("");
     setRecipeParams({});
     // justDoItMode and autoStart intentionally kept — they persist to the next
@@ -474,7 +496,14 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setUserModifiedName(false);
     setAssigneeId(currentUserId || "");
     setAssigneeTouched(false);
-  }, [defaultBranchName, currentUserId]);
+  }, [
+    defaultBranchName,
+    currentUserId,
+    projectId,
+    project?.default_sandbox_runtime,
+    projectDefaultSandboxVCPUs,
+    projectDefaultSandboxMemoryMB,
+  ]);
 
   // Handle task creation
   const handleCreateTask = async () => {

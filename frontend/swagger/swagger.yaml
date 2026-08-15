@@ -7948,6 +7948,12 @@ definitions:
           Project-level repository management
           DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
         type: string
+      default_sandbox_resource_overrides:
+        allOf:
+        - $ref: '#/definitions/types.SandboxResourceOverrides'
+        description: |-
+          Default sandbox resources copied into each new SpecTask. Nil values from
+          legacy projects resolve to the standard 4 vCPU / 8 GB preset.
       default_sandbox_runtime:
         allOf:
         - $ref: '#/definitions/types.SandboxRuntime'
@@ -8173,6 +8179,10 @@ definitions:
         type: string
       default_repo_id:
         type: string
+      default_sandbox_resource_overrides:
+        allOf:
+        - $ref: '#/definitions/types.SandboxResourceOverrides'
+        description: Default sandbox resources for spec tasks
       default_sandbox_runtime:
         allOf:
         - $ref: '#/definitions/types.SandboxRuntime'
@@ -8319,6 +8329,10 @@ definitions:
         type: string
       default_repo_id:
         type: string
+      default_sandbox_resource_overrides:
+        allOf:
+        - $ref: '#/definitions/types.SandboxResourceOverrides'
+        description: Default sandbox resources for spec tasks
       default_sandbox_runtime:
         allOf:
         - $ref: '#/definitions/types.SandboxRuntime'

@@ -242,6 +242,9 @@ type Project struct {
 	// Default sandbox environment for new spec tasks. Empty values from legacy
 	// projects resolve to the full desktop runtime.
 	DefaultSandboxRuntime SandboxRuntime `json:"default_sandbox_runtime,omitempty" gorm:"size:64"`
+	// Default sandbox resources copied into each new SpecTask. Nil values from
+	// legacy projects resolve to the standard 4 vCPU / 8 GB preset.
+	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	ProjectManagerHelixAppID string `json:"project_manager_helix_app_id"`
 
@@ -369,42 +372,44 @@ type ProjectTasksResponse struct {
 
 // ProjectCreateRequest represents a request to create a new project
 type ProjectCreateRequest struct {
-	OrganizationID        string                    `json:"organization_id"`
-	Name                  string                    `json:"name"`
-	Description           string                    `json:"description"`
-	GitHubRepoURL         string                    `json:"github_repo_url,omitempty"`
-	DefaultBranch         string                    `json:"default_branch,omitempty"`
-	Technologies          []string                  `json:"technologies,omitempty"`
-	DefaultRepoID         string                    `json:"default_repo_id,omitempty"`
-	StartupScript         string                    `json:"startup_script,omitempty"`
-	DefaultHelixAppID     string                    `json:"default_helix_app_id,omitempty"` // Org-agent identity only; coding projects use CodeAgentConfig
-	CodeAgentConfig       *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
-	DefaultSandboxRuntime SandboxRuntime            `json:"default_sandbox_runtime,omitempty"` // Default sandbox environment for spec tasks
-	Guidelines            string                    `json:"guidelines,omitempty"`              // Project-specific AI agent guidelines
-	Skills                *AssistantSkills          `json:"skills,omitempty"`                  // Project-level skills
+	OrganizationID                  string                    `json:"organization_id"`
+	Name                            string                    `json:"name"`
+	Description                     string                    `json:"description"`
+	GitHubRepoURL                   string                    `json:"github_repo_url,omitempty"`
+	DefaultBranch                   string                    `json:"default_branch,omitempty"`
+	Technologies                    []string                  `json:"technologies,omitempty"`
+	DefaultRepoID                   string                    `json:"default_repo_id,omitempty"`
+	StartupScript                   string                    `json:"startup_script,omitempty"`
+	DefaultHelixAppID               string                    `json:"default_helix_app_id,omitempty"` // Org-agent identity only; coding projects use CodeAgentConfig
+	CodeAgentConfig                 *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	DefaultSandboxRuntime           SandboxRuntime            `json:"default_sandbox_runtime,omitempty"`            // Default sandbox environment for spec tasks
+	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty"` // Default sandbox resources for spec tasks
+	Guidelines                      string                    `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
+	Skills                          *AssistantSkills          `json:"skills,omitempty"`                             // Project-level skills
 }
 
 // ProjectUpdateRequest represents a request to update a project
 type ProjectUpdateRequest struct {
-	Name                          *string                   `json:"name,omitempty"`
-	Description                   *string                   `json:"description,omitempty"`
-	GitHubRepoURL                 *string                   `json:"github_repo_url,omitempty"`
-	DefaultBranch                 *string                   `json:"default_branch,omitempty"`
-	Technologies                  []string                  `json:"technologies,omitempty"`
-	Status                        *string                   `json:"status,omitempty"`
-	DefaultRepoID                 *string                   `json:"default_repo_id,omitempty"`
-	StartupScript                 *string                   `json:"startup_script,omitempty"`
-	AutoStartBacklogTasks         *bool                     `json:"auto_start_backlog_tasks,omitempty"`
-	DefaultHelixAppID             *string                   `json:"default_helix_app_id,omitempty"` // Org-agent identity only; coding projects use CodeAgentConfig
-	CodeAgentConfig               *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
-	DefaultSandboxRuntime         *SandboxRuntime           `json:"default_sandbox_runtime,omitempty"`            // Default sandbox environment for spec tasks
-	ProjectManagerHelixAppID      *string                   `json:"project_manager_helix_app_id,omitempty"`       // Project manager agent
-	PullRequestReviewerHelixAppID *string                   `json:"pull_request_reviewer_helix_app_id,omitempty"` // Pull request reviewer agent
-	PullRequestReviewsEnabled     *bool                     `json:"pull_request_reviews_enabled,omitempty"`       // Whether pull request reviews are enabled
-	KoditEnabled                  *bool                     `json:"kodit_enabled,omitempty"`                      // Whether Kodit code intelligence is enabled
-	Guidelines                    *string                   `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
-	Skills                        *AssistantSkills          `json:"skills,omitempty"`                             // Project-level skills
-	Metadata                      *ProjectMetadata          `json:"metadata,omitempty"`
+	Name                            *string                   `json:"name,omitempty"`
+	Description                     *string                   `json:"description,omitempty"`
+	GitHubRepoURL                   *string                   `json:"github_repo_url,omitempty"`
+	DefaultBranch                   *string                   `json:"default_branch,omitempty"`
+	Technologies                    []string                  `json:"technologies,omitempty"`
+	Status                          *string                   `json:"status,omitempty"`
+	DefaultRepoID                   *string                   `json:"default_repo_id,omitempty"`
+	StartupScript                   *string                   `json:"startup_script,omitempty"`
+	AutoStartBacklogTasks           *bool                     `json:"auto_start_backlog_tasks,omitempty"`
+	DefaultHelixAppID               *string                   `json:"default_helix_app_id,omitempty"` // Org-agent identity only; coding projects use CodeAgentConfig
+	CodeAgentConfig                 *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+	DefaultSandboxRuntime           *SandboxRuntime           `json:"default_sandbox_runtime,omitempty"`            // Default sandbox environment for spec tasks
+	DefaultSandboxResourceOverrides *SandboxResourceOverrides `json:"default_sandbox_resource_overrides,omitempty"` // Default sandbox resources for spec tasks
+	ProjectManagerHelixAppID        *string                   `json:"project_manager_helix_app_id,omitempty"`       // Project manager agent
+	PullRequestReviewerHelixAppID   *string                   `json:"pull_request_reviewer_helix_app_id,omitempty"` // Pull request reviewer agent
+	PullRequestReviewsEnabled       *bool                     `json:"pull_request_reviews_enabled,omitempty"`       // Whether pull request reviews are enabled
+	KoditEnabled                    *bool                     `json:"kodit_enabled,omitempty"`                      // Whether Kodit code intelligence is enabled
+	Guidelines                      *string                   `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
+	Skills                          *AssistantSkills          `json:"skills,omitempty"`                             // Project-level skills
+	Metadata                        *ProjectMetadata          `json:"metadata,omitempty"`
 }
 
 // MoveProjectRequest represents a request to move a project to an organization

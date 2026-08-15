@@ -125,6 +125,39 @@ func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectRejectsInvalidDefaultS
 	s.Equal(http.StatusBadRequest, httpErr.StatusCode)
 }
 
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectSetsDefaultSandboxResources() {
+	project := s.makeProject("proj-resources", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.Project) error {
+			s.Require().NotNil(updated.DefaultSandboxResourceOverrides)
+			s.Equal(8, updated.DefaultSandboxResourceOverrides.VCPUs)
+			s.Equal(16384, updated.DefaultSandboxResourceOverrides.MemoryMB)
+			return nil
+		},
+	)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"default_sandbox_resource_overrides":{"vcpus":8,"memory_mb":16384}}`),
+	)
+	s.Nil(httpErr)
+	s.Require().NotNil(resp.DefaultSandboxResourceOverrides)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectRejectsInvalidDefaultSandboxResources() {
+	project := s.makeProject("proj-resources-invalid", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"default_sandbox_resource_overrides":{"vcpus":3,"memory_mb":4096}}`),
+	)
+	s.Nil(resp)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusBadRequest, httpErr.StatusCode)
+}
+
 func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectRejectsCodingAppID() {
 	project := s.makeProject("proj-agent", "repo-1")
 	appID := "app-coding"

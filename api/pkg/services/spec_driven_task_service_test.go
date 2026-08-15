@@ -146,8 +146,9 @@ func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
 
 	ctx := context.Background()
 	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{
-		ID:                    "test-project",
-		DefaultSandboxRuntime: types.SandboxRuntimeHeadlessUbuntu,
+		ID:                              "test-project",
+		DefaultSandboxRuntime:           types.SandboxRuntimeHeadlessUbuntu,
+		DefaultSandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384},
 		CodeAgentConfig: &types.CodeAgentExecutionConfig{
 			Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
 		},
@@ -157,7 +158,7 @@ func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
 		func(_ context.Context, task *types.SpecTask) error {
 			require.Equal(t, "starter", task.AssigneeID)
 			require.Equal(t, "starter", task.PlanningStartedBy)
-			require.Equal(t, types.DefaultSpecTaskSandboxResources(), task.SandboxResourceOverrides)
+			require.Equal(t, &types.SandboxResourceOverrides{VCPUs: 8, MemoryMB: 16384}, task.SandboxResourceOverrides)
 			require.Equal(t, types.SandboxRuntimeHeadlessUbuntu, task.SandboxRuntime)
 			return nil
 		},

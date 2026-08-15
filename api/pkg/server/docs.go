@@ -33931,6 +33931,14 @@ const docTemplate = `{
                     "description": "Project-level repository management\nDefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo",
                     "type": "string"
                 },
+                "default_sandbox_resource_overrides": {
+                    "description": "Default sandbox resources copied into each new SpecTask. Nil values from\nlegacy projects resolve to the standard 4 vCPU / 8 GB preset.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxResourceOverrides"
+                        }
+                    ]
+                },
                 "default_sandbox_runtime": {
                     "description": "Default sandbox environment for new spec tasks. Empty values from legacy\nprojects resolve to the full desktop runtime.",
                     "allOf": [
@@ -34248,6 +34256,14 @@ const docTemplate = `{
                 "default_repo_id": {
                     "type": "string"
                 },
+                "default_sandbox_resource_overrides": {
+                    "description": "Default sandbox resources for spec tasks",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxResourceOverrides"
+                        }
+                    ]
+                },
                 "default_sandbox_runtime": {
                     "description": "Default sandbox environment for spec tasks",
                     "allOf": [
@@ -34471,6 +34487,14 @@ const docTemplate = `{
                 },
                 "default_repo_id": {
                     "type": "string"
+                },
+                "default_sandbox_resource_overrides": {
+                    "description": "Default sandbox resources for spec tasks",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxResourceOverrides"
+                        }
+                    ]
                 },
                 "default_sandbox_runtime": {
                     "description": "Default sandbox environment for spec tasks",

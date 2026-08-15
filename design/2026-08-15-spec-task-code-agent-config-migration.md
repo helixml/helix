@@ -26,6 +26,12 @@ Spec-task create, task update, task execution-config, task-session execution-con
 
 Project create/update accepts `code_agent_config` for coding work. A non-empty `default_helix_app_id` is accepted only for an `org_agent` project identity.
 
+## Project task defaults
+
+Project Settings exposes provider ID, model, sandbox runtime, and sandbox size together under **Task Defaults**. Provider and model update `Project.CodeAgentConfig`; environment updates `Project.DefaultSandboxRuntime`; size updates `Project.DefaultSandboxResourceOverrides`.
+
+New tasks snapshot these project values when the create request omits a task-level choice. An explicit task value wins. Legacy projects without a sandbox-size default resolve to 4 vCPU / 8 GB.
+
 ## Compatibility
 
 Zed configuration, provider preflight, usage attribution, proxy attribution, and Goose recipe resolution read task/project configs first. Legacy App lookup remains only to let an unmigrated historical task reach the one-way migration boundary.

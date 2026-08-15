@@ -4983,6 +4983,11 @@ export interface TypesProject {
    */
   default_repo_id?: string;
   /**
+   * Default sandbox resources copied into each new SpecTask. Nil values from
+   * legacy projects resolve to the standard 4 vCPU / 8 GB preset.
+   */
+  default_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  /**
    * Default sandbox environment for new spec tasks. Empty values from legacy
    * projects resolve to the full desktop runtime.
    */
@@ -5129,6 +5134,8 @@ export interface TypesProjectCreateRequest {
   /** Org-agent identity only; coding projects use CodeAgentConfig */
   default_helix_app_id?: string;
   default_repo_id?: string;
+  /** Default sandbox resources for spec tasks */
+  default_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   /** Default sandbox environment for spec tasks */
   default_sandbox_runtime?: TypesSandboxRuntime;
   description?: string;
@@ -5216,6 +5223,8 @@ export interface TypesProjectUpdateRequest {
   /** Org-agent identity only; coding projects use CodeAgentConfig */
   default_helix_app_id?: string;
   default_repo_id?: string;
+  /** Default sandbox resources for spec tasks */
+  default_sandbox_resource_overrides?: TypesSandboxResourceOverrides;
   /** Default sandbox environment for spec tasks */
   default_sandbox_runtime?: TypesSandboxRuntime;
   description?: string;

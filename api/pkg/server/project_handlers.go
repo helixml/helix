@@ -406,6 +406,9 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	if !types.ValidSpecTaskSandboxRuntime(req.DefaultSandboxRuntime) {
 		return nil, system.NewHTTPError400(fmt.Sprintf("invalid default sandbox runtime %q", req.DefaultSandboxRuntime))
 	}
+	if req.DefaultSandboxResourceOverrides != nil && !req.DefaultSandboxResourceOverrides.ValidPreset() {
+		return nil, system.NewHTTPError400("invalid default sandbox resource preset")
+	}
 
 	if req.OrganizationID != "" {
 		org, err := s.lookupOrg(r.Context(), req.OrganizationID)
@@ -483,21 +486,22 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	project := &types.Project{
-		OrganizationID:        req.OrganizationID,
-		ID:                    system.GenerateProjectID(),
-		Name:                  req.Name,
-		Description:           req.Description,
-		UserID:                user.ID,
-		GitHubRepoURL:         req.GitHubRepoURL,
-		DefaultBranch:         req.DefaultBranch,
-		Technologies:          req.Technologies,
-		Status:                "active",
-		DefaultRepoID:         req.DefaultRepoID,
-		StartupScript:         req.StartupScript,
-		DefaultHelixAppID:     req.DefaultHelixAppID,
-		CodeAgentConfig:       req.CodeAgentConfig,
-		DefaultSandboxRuntime: types.EffectiveSpecTaskSandboxRuntime(req.DefaultSandboxRuntime),
-		Guidelines:            req.Guidelines,
+		OrganizationID:                  req.OrganizationID,
+		ID:                              system.GenerateProjectID(),
+		Name:                            req.Name,
+		Description:                     req.Description,
+		UserID:                          user.ID,
+		GitHubRepoURL:                   req.GitHubRepoURL,
+		DefaultBranch:                   req.DefaultBranch,
+		Technologies:                    req.Technologies,
+		Status:                          "active",
+		DefaultRepoID:                   req.DefaultRepoID,
+		StartupScript:                   req.StartupScript,
+		DefaultHelixAppID:               req.DefaultHelixAppID,
+		CodeAgentConfig:                 req.CodeAgentConfig,
+		DefaultSandboxRuntime:           types.EffectiveSpecTaskSandboxRuntime(req.DefaultSandboxRuntime),
+		DefaultSandboxResourceOverrides: req.DefaultSandboxResourceOverrides,
+		Guidelines:                      req.Guidelines,
 	}
 
 	created, err := s.Store.CreateProject(r.Context(), project)
@@ -738,6 +742,12 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		}
 		project.DefaultSandboxRuntime = types.EffectiveSpecTaskSandboxRuntime(*req.DefaultSandboxRuntime)
 	}
+	if req.DefaultSandboxResourceOverrides != nil {
+		if !req.DefaultSandboxResourceOverrides.ValidPreset() {
+			return nil, system.NewHTTPError400("invalid default sandbox resource preset")
+		}
+		project.DefaultSandboxResourceOverrides = req.DefaultSandboxResourceOverrides
+	}
 	if req.ProjectManagerHelixAppID != nil {
 		project.ProjectManagerHelixAppID = *req.ProjectManagerHelixAppID
 	}
@@ -900,6 +910,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		}
 		if req.DefaultSandboxRuntime != nil {
 			changedFields = append(changedFields, "default_sandbox_runtime")
+		}
+		if req.DefaultSandboxResourceOverrides != nil {
+			changedFields = append(changedFields, "default_sandbox_resource_overrides")
 		}
 		if req.ProjectManagerHelixAppID != nil {
 			changedFields = append(changedFields, "project_manager_helix_app_id")

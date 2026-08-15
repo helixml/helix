@@ -145,11 +145,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	if !types.ValidSpecTaskSandboxRuntime(req.SandboxRuntime) {
 		return nil, fmt.Errorf("invalid spec task sandbox runtime %q", req.SandboxRuntime)
 	}
-	sandboxResources := req.SandboxResourceOverrides
-	if sandboxResources == nil {
-		sandboxResources = types.DefaultSpecTaskSandboxResources()
-	}
-	// Fetch project to get organization ID and default agent
+	// Fetch project to get organization ID and task defaults.
 	var project *types.Project
 	if req.ProjectID != "" {
 		var err error
@@ -157,6 +153,14 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		if err != nil {
 			return nil, fmt.Errorf("failed to get project: %w", err)
 		}
+	}
+	sandboxResources := req.SandboxResourceOverrides
+	if sandboxResources == nil && project != nil && project.DefaultSandboxResourceOverrides != nil {
+		projectResources := *project.DefaultSandboxResourceOverrides
+		sandboxResources = &projectResources
+	}
+	if sandboxResources == nil {
+		sandboxResources = types.DefaultSpecTaskSandboxResources()
 	}
 	sandboxRuntime := req.SandboxRuntime
 	if sandboxRuntime == "" && project != nil {

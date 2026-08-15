@@ -50,7 +50,17 @@ import HubIcon from "@mui/icons-material/Hub";
 import SettingsIcon from "@mui/icons-material/Settings";
 
 import Skills from "../components/app/Skills";
-import { TypesAssistantSkills, TypesCreateAccessGrantRequest, TypesProject, TypesSandboxRuntime, TypesSecretScope, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
+import {
+  TypesAssistantSkills,
+  TypesCodeAgentCredentialType,
+  TypesCreateAccessGrantRequest,
+  TypesProject,
+  TypesSandboxResourceOverrides,
+  TypesSandboxRuntime,
+  TypesSecretScope,
+  TypesZFSTree,
+  TypesZFSTreeNode,
+} from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
 import WebServiceTab from "../components/project/WebServiceTab";
@@ -100,6 +110,18 @@ interface ProjectSettingsProps {
   projectId: string;
   tab?: string;
 }
+
+const DEFAULT_TASK_SANDBOX_RESOURCES: TypesSandboxResourceOverrides = {
+  vcpus: 4,
+  memory_mb: 8192,
+};
+
+const taskSandboxPresetValue = (
+  resources?: TypesSandboxResourceOverrides,
+): string => {
+  const effective = resources || DEFAULT_TASK_SANDBOX_RESOURCES;
+  return `${effective.vcpus}:${effective.memory_mb}`;
+};
 
 // Human-readable label for a secret's environment scope. Treats an empty/
 // unknown scope as "Dev" (the default).
@@ -191,6 +213,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [startupScript, setStartupScript] = useState("");
   const [guidelines, setGuidelines] = useState("");
   const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false);
+  const [taskDefaultProvider, setTaskDefaultProvider] = useState("");
+  const [taskDefaultModel, setTaskDefaultModel] = useState("");
   const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] =
     useState(false);
   const [koditEnabled, setKoditEnabled] = useState(true);
@@ -588,6 +612,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setStartupScript(project.startup_script || "");
       setGuidelines(project.guidelines || "");
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false);
+      setTaskDefaultProvider(project.code_agent_config?.provider_ref || "");
+      setTaskDefaultModel(project.code_agent_config?.model || "");
       setPullRequestReviewsEnabled(
         project.pull_request_reviews_enabled || false,
       );
@@ -614,6 +640,35 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setProjectSkills(project.skills);
     }
   }, [project?.id, project?.updated_at]);
+
+  const updateTaskDefaultCodeAgentConfig = (
+    field: "provider_ref" | "model",
+    value: string,
+  ) => {
+    if (!project.code_agent_config) return;
+    const normalized = value.trim();
+    if ((project.code_agent_config[field] || "") === normalized) return;
+    updateProjectMutation.mutate(
+      {
+        code_agent_config: {
+          ...project.code_agent_config,
+          [field]: normalized,
+        },
+      },
+      {
+        onError: () => {
+          if (field === "provider_ref") {
+            setTaskDefaultProvider(
+              project.code_agent_config?.provider_ref || "",
+            );
+          } else {
+            setTaskDefaultModel(project.code_agent_config?.model || "");
+          }
+          snackbar.error("Failed to update task defaults");
+        },
+      },
+    );
+  };
 
   const handleSave = async (showSuccessMessage = true) => {
     if (savingProject) return false;
@@ -976,20 +1031,64 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <Box>
         <Typography variant="h6" gutterBottom>
-          Default Task Environment
+          Task Defaults
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Choose the sandbox environment selected by default for new tasks in
-          this project. It can still be changed before a task starts.
+          Configure the code agent and sandbox selected for new tasks in this
+          project. These values can still be changed before a task starts.
         </Typography>
         <Divider sx={{ mb: 3 }} />
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          <Typography variant="body2">Environment:</Typography>
-          <FormControl size="small" sx={{ minWidth: 180 }}>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: {
+              xs: "1fr",
+              md: "repeat(2, minmax(0, 1fr))",
+              xl: "repeat(4, minmax(0, 1fr))",
+            },
+            gap: 2,
+          }}
+        >
+          <TextField
+            label="Provider ID"
+            size="small"
+            value={taskDefaultProvider}
+            disabled={
+              !project.code_agent_config ||
+              project.code_agent_config.credential_type ===
+                TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
+            }
+            helperText={
+              project.code_agent_config?.credential_type ===
+              TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
+                ? "Not used for subscription agents"
+                : undefined
+            }
+            onChange={(event) => setTaskDefaultProvider(event.target.value)}
+            onBlur={() =>
+              updateTaskDefaultCodeAgentConfig(
+                "provider_ref",
+                taskDefaultProvider,
+              )
+            }
+          />
+          <TextField
+            label="Model"
+            size="small"
+            value={taskDefaultModel}
+            disabled={!project.code_agent_config}
+            onChange={(event) => setTaskDefaultModel(event.target.value)}
+            onBlur={() =>
+              updateTaskDefaultCodeAgentConfig("model", taskDefaultModel)
+            }
+          />
+          <FormControl size="small" fullWidth>
+            <InputLabel>Environment</InputLabel>
             <Select
               value={effectiveSpecTaskSandboxRuntime(
                 project.default_sandbox_runtime,
               )}
+              label="Environment"
               inputProps={{ "aria-label": "Default task environment" }}
               onChange={(event) => {
                 const runtime = event.target.value as TypesSandboxRuntime;
@@ -1009,6 +1108,31 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               >
                 Headless
               </MenuItem>
+            </Select>
+          </FormControl>
+          <FormControl size="small" fullWidth>
+            <InputLabel>Sandbox Size</InputLabel>
+            <Select
+              value={taskSandboxPresetValue(
+                project.default_sandbox_resource_overrides,
+              )}
+              label="Sandbox Size"
+              inputProps={{ "aria-label": "Default task sandbox size" }}
+              onChange={(event) => {
+                const [vcpus, memoryMb] = event.target.value
+                  .split(":")
+                  .map(Number);
+                updateProjectMutation.mutate({
+                  default_sandbox_resource_overrides: {
+                    vcpus,
+                    memory_mb: memoryMb,
+                  },
+                });
+              }}
+            >
+              <MenuItem value="1:2048">1 vCPU · 2 GB</MenuItem>
+              <MenuItem value="4:8192">4 vCPU · 8 GB</MenuItem>
+              <MenuItem value="8:16384">8 vCPU · 16 GB</MenuItem>
             </Select>
           </FormControl>
         </Box>
