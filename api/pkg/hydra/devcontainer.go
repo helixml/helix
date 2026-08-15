@@ -2141,49 +2141,16 @@ func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID st
 		return nil, fmt.Errorf("dev container not found for session: %s", sessionID)
 	}
 
-	// Refresh status AND IP from Docker. The container's IP can change across
-	// a container restart; a stale cached IP causes "no route to host" 502s on
-	// the proxy path. Since the proxy calls GetDevContainer on every request,
-	// refreshing the IP here keeps routing correct without any retry logic.
-	var vcpus, memoryMB int
-	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
-	if err == nil {
-		defer dockerClient.Close()
-		inspect, err := dockerClient.ContainerInspect(ctx, dc.ContainerID)
-		if err == nil {
-			status := DevContainerStatusStopped
-			if inspect.State.Running {
-				status = DevContainerStatusRunning
-			}
-			ip := ""
-			for _, network := range inspect.NetworkSettings.Networks {
-				if network.IPAddress != "" {
-					ip = network.IPAddress
-					break
-				}
-			}
-			if ip == "" {
-				ip = inspect.NetworkSettings.IPAddress
-			}
-			dm.mu.Lock()
-			dc.Status = status
-			if ip != "" {
-				dc.IPAddress = ip
-			}
-			dm.mu.Unlock()
-			if inspect.HostConfig != nil {
-				vcpus = int(inspect.HostConfig.NanoCPUs / 1_000_000_000)
-				memoryMB = int(inspect.HostConfig.Memory / (1024 * 1024))
-			}
-		}
-	}
+	// Since the proxy calls GetDevContainer on every request, refreshing the
+	// status and IP here keeps routing correct without any retry logic.
+	status, ipAddress, vcpus, memoryMB := dm.inspectContainerState(ctx, dc)
 
 	return &DevContainerResponse{
 		SessionID:     dc.SessionID,
 		ContainerID:   dc.ContainerID,
 		ContainerName: dc.ContainerName,
-		Status:        dc.Status,
-		IPAddress:     dc.IPAddress,
+		Status:        status,
+		IPAddress:     ipAddress,
 		ContainerType: dc.ContainerType,
 		VCPUs:         vcpus,
 		MemoryMB:      memoryMB,
@@ -2252,19 +2219,36 @@ func (dm *DevContainerManager) UpdateDevContainerResources(ctx context.Context, 
 	}, nil
 }
 
-// ListDevContainers returns all active dev containers
-func (dm *DevContainerManager) ListDevContainers() *ListDevContainersResponse {
+// ListDevContainers returns all tracked dev containers with a status refreshed
+// from Docker.
+//
+// The cached `dc.Status` is only written when hydra itself stops a container
+// (StopDevContainer) or lazily by GetDevContainer. A container whose entrypoint
+// exits on its own — a workspace-setup FATAL, an OOM kill, a crashed compositor —
+// leaves the cached value at "running" indefinitely. The control plane treats
+// this list as its live-set when reconciling session status, so a stale
+// "running" here resurrects dead sessions and the UI shows a green "Sandbox
+// running" dot for a container that exited hours ago.
+//
+// One ContainerInspect per tracked container is local to the sandbox host and
+// cheap relative to the RevDial round-trip that carries the response.
+func (dm *DevContainerManager) ListDevContainers(ctx context.Context) *ListDevContainersResponse {
 	dm.mu.RLock()
-	defer dm.mu.RUnlock()
-
-	containers := make([]DevContainerResponse, 0, len(dm.containers))
+	tracked := make([]*DevContainer, 0, len(dm.containers))
 	for _, dc := range dm.containers {
+		tracked = append(tracked, dc)
+	}
+	dm.mu.RUnlock()
+
+	containers := make([]DevContainerResponse, 0, len(tracked))
+	for _, dc := range tracked {
+		status, ip, _, _ := dm.inspectContainerState(ctx, dc)
 		containers = append(containers, DevContainerResponse{
 			SessionID:     dc.SessionID,
 			ContainerID:   dc.ContainerID,
 			ContainerName: dc.ContainerName,
-			Status:        dc.Status,
-			IPAddress:     dc.IPAddress,
+			Status:        status,
+			IPAddress:     ip,
 			ContainerType: dc.ContainerType,
 		})
 	}
@@ -2272,6 +2256,57 @@ func (dm *DevContainerManager) ListDevContainers() *ListDevContainersResponse {
 	return &ListDevContainersResponse{
 		Containers: containers,
 	}
+}
+
+// inspectContainerState refreshes a tracked container's status and IP from
+// Docker and writes them back to the cached entry, also returning its current
+// cgroup limits. If Docker can't be reached or the container has been removed
+// the container is reported stopped — a container we cannot confirm is running
+// must never be advertised as running, because the control plane uses this to
+// decide whether a session is alive.
+//
+// The IP is refreshed because it can change across a container restart, and a
+// stale cached IP causes "no route to host" 502s on the proxy path.
+func (dm *DevContainerManager) inspectContainerState(ctx context.Context, dc *DevContainer) (status DevContainerStatus, ipAddress string, vcpus int, memoryMB int) {
+	// Default to stopped and only upgrade on a successful inspect that reports
+	// the container running. The write-back below therefore also clears a stale
+	// cached "running" when Docker is unreachable, so a caller reading dc.Status
+	// directly can't be handed a status we failed to confirm.
+	status = DevContainerStatusStopped
+	ip := ""
+
+	if dockerClient, err := dm.getDockerClient(dc.DockerSocket); err == nil {
+		defer dockerClient.Close()
+
+		if inspect, err := dockerClient.ContainerInspect(ctx, dc.ContainerID); err == nil {
+			if inspect.State.Running {
+				status = DevContainerStatusRunning
+			}
+			for _, network := range inspect.NetworkSettings.Networks {
+				if network.IPAddress != "" {
+					ip = network.IPAddress
+					break
+				}
+			}
+			if ip == "" {
+				ip = inspect.NetworkSettings.IPAddress
+			}
+			if inspect.HostConfig != nil {
+				vcpus = int(inspect.HostConfig.NanoCPUs / 1_000_000_000)
+				memoryMB = int(inspect.HostConfig.Memory / (1024 * 1024))
+			}
+		}
+	}
+
+	dm.mu.Lock()
+	dc.Status = status
+	if ip != "" {
+		dc.IPAddress = ip
+	}
+	ipAddress = dc.IPAddress
+	dm.mu.Unlock()
+
+	return status, ipAddress, vcpus, memoryMB
 }
 
 // FindDevContainerBySessionID finds a dev container by session ID

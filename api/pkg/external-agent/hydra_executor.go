@@ -1772,28 +1772,36 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 		}
 	}
 
+	runningContainers := filterRunningContainers(containerList.Containers)
+	if exited := len(containerList.Containers) - len(runningContainers); exited > 0 {
+		log.Info().
+			Str("sandbox_id", sandboxID).
+			Int("exited_containers", exited).
+			Msg("Sandbox reports containers that are no longer running; excluding them from the live set")
+	}
+
 	// Reconcile the inverse of discovery: any session this control-plane still
-	// believes is "running" on this sandbox but that hydra no longer reports is
-	// stale (e.g. a CD redeploy restarted the sandbox and destroyed its dev
-	// containers). Mark those sessions stopped so the Kanban / task page stop
-	// showing a dead container as running. This MUST run even when hydra reports
-	// zero containers (the full-wipe case), so it sits before the empty-list
-	// early return below.
-	liveSessionIDs := make(map[string]bool, len(containerList.Containers))
-	for _, container := range containerList.Containers {
+	// believes is "running" on this sandbox but that hydra no longer reports as
+	// running is stale (e.g. a CD redeploy destroyed its dev containers, or the
+	// container's entrypoint exited on its own). Mark those sessions stopped so
+	// the Kanban / task page stop showing a dead container as running. This MUST
+	// run even when hydra reports zero running containers (the full-wipe case),
+	// so it sits before the empty-list early return below.
+	liveSessionIDs := make(map[string]bool, len(runningContainers))
+	for _, container := range runningContainers {
 		if container.SessionID != "" {
 			liveSessionIDs[container.SessionID] = true
 		}
 	}
 	h.markMissingSessionsStopped(ctx, sandboxID, liveSessionIDs, hydraClient)
 
-	if len(containerList.Containers) == 0 {
+	if len(runningContainers) == 0 {
 		return nil
 	}
 
 	log.Info().
 		Str("sandbox_id", sandboxID).
-		Int("container_count", len(containerList.Containers)).
+		Int("container_count", len(runningContainers)).
 		Msg("Discovered running containers from sandbox")
 
 	// Collect containers that need to be added to our map
@@ -1809,7 +1817,7 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 
 	// Phase 1: Check which containers we don't have tracked (short lock)
 	h.mutex.RLock()
-	for _, container := range containerList.Containers {
+	for _, container := range runningContainers {
 		sessionID := container.SessionID
 		if _, exists := h.sessions[sessionID]; !exists {
 			containerType := "ubuntu" // Default to Ubuntu
@@ -1918,16 +1926,47 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 	return nil
 }
 
+// filterRunningContainers keeps only the containers Docker currently reports as
+// running.
+//
+// hydra tracks a container until it is explicitly removed, so its list includes
+// containers that have exited (workspace-setup FATAL, OOM kill, crashed
+// compositor). Everything downstream of discovery — the "did this session die"
+// reconcile, the recovery of untracked containers into the in-memory map, the
+// `external_agent_status = "running"` DB write — keys off this set. Treating
+// "hydra still tracks it" as "alive" is what left dead sessions showing a green
+// "Sandbox running" dot indefinitely, and what let a reconnect resurrect a
+// session whose container had already exited.
+func filterRunningContainers(containers []hydra.DevContainerResponse) []hydra.DevContainerResponse {
+	running := make([]hydra.DevContainerResponse, 0, len(containers))
+	for _, container := range containers {
+		if container.Status == hydra.DevContainerStatusRunning {
+			running = append(running, container)
+		}
+	}
+	return running
+}
+
+// devContainerProber is the slice of the hydra client that
+// markMissingSessionsStopped needs: an authoritative, per-session liveness
+// check. Narrowing it to an interface lets the reconcile tests exercise the
+// "hydra still tracks the container but Docker says it exited" case, which is
+// exactly the state a crashed sandbox leaves behind.
+type devContainerProber interface {
+	GetDevContainer(ctx context.Context, sessionID string) (*hydra.DevContainerResponse, error)
+}
+
 // markMissingSessionsStopped downgrades sessions on the given sandbox that this
 // control-plane still marks "running" but that are absent from hydra's live set
-// (liveSessionIDs). For each candidate it authoritatively confirms the container
-// is gone with a per-session GetDevContainer probe — taken under the session's
-// creation lock so a concurrent StartDesktop that (re)created the container after
-// hydra's snapshot can't be wrongly torn down. Confirmed-dead sessions have their
-// container metadata cleared, status set to "stopped", and their stale in-memory
-// entry evicted, so the derived SandboxState becomes "absent" instead of showing
-// a dead container as running.
-func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxID string, liveSessionIDs map[string]bool, hydraClient *hydra.RevDialClient) {
+// (liveSessionIDs — containers Docker currently reports as running). For each
+// candidate it authoritatively confirms the container is not running with a
+// per-session GetDevContainer probe — taken under the session's creation lock so
+// a concurrent StartDesktop that (re)created the container after hydra's snapshot
+// can't be wrongly torn down. Confirmed-dead sessions have their container
+// metadata cleared, status set to "stopped", and their stale in-memory entry
+// evicted, so the derived SandboxState becomes "absent" instead of showing a dead
+// container as running.
+func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxID string, liveSessionIDs map[string]bool, prober devContainerProber) {
 	// Unlike the active_sandboxes counter (a multi-tenant autoscaler concern that
 	// skips "local"), session-status reconciliation applies to every sandbox
 	// including the single-node "local" one — a self-hosted CD redeploy destroys
@@ -1976,13 +2015,20 @@ func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxI
 			continue
 		}
 
-		// Authoritatively confirm the container is gone before downgrading.
-		// hydra's list snapshot may pre-date a just-started container, so a
-		// direct live probe is the source of truth for the decision.
-		if hydraClient != nil {
-			if _, err := hydraClient.GetDevContainer(ctx, session.ID); err == nil {
+		// Authoritatively confirm the container is not running before
+		// downgrading. hydra's list snapshot may pre-date a just-started
+		// container, so a direct live probe is the source of truth for the
+		// decision.
+		//
+		// The probe must check the reported status, not merely that the call
+		// succeeded: GetDevContainer returns a container hydra still tracks even
+		// when Docker reports it exited, so an `err == nil` check here treated a
+		// dead container as alive and skipped the downgrade forever.
+		if prober != nil {
+			if container, err := prober.GetDevContainer(ctx, session.ID); err == nil &&
+				container != nil && container.Status == hydra.DevContainerStatusRunning {
 				sessionLock.Unlock()
-				continue // container actually exists; snapshot was just stale
+				continue // container really is running; snapshot was just stale
 			}
 		}
 

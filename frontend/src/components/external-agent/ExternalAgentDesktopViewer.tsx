@@ -28,6 +28,7 @@ import { SESSION_TYPE_TEXT } from "../../types";
 import { Api } from "../../api/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { GET_SESSION_QUERY_KEY, useGetSession } from "../../services/sessionService";
+import { deriveSandboxState } from "./sandboxState";
 
 // Hook to track sandbox container state for external agent sessions
 // Exported for use in SpecTaskDetailContent.tsx toolbar buttons
@@ -39,58 +40,15 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
     refetchInterval: 3000, // Poll every 3 seconds
   });
 
-  const { sandboxState, statusMessage, hasDesktopLifecycleState } = useMemo(() => {
-    if (!sessionResponse?.data) {
-      return {
-        sandboxState: "loading",
-        statusMessage: "",
-        hasDesktopLifecycleState: false,
-      };
-    }
-
-    const session = sessionResponse.data;
-    const status = session.config?.external_agent_status || "";
-    const desiredState = (session.config as (typeof session.config & { desired_state?: string }))?.desired_state || "";
-    const hasContainer = !!session.config?.container_name;
-    const msg = session.config?.status_message || "";
-
-    // Map session metadata to sandbox state
-    // Check stopped status first - it takes priority from the backend check
-    let state: string;
-    if (status === "stopped") {
-      state = "absent";
-    } else if (
-      status === "running" ||
-      (hasContainer && desiredState === "running")
-    ) {
-      state = "running";
-    } else if (status === "starting") {
-      state = "starting";
-    } else if (desiredState === "stopped") {
-      state = "absent";
-    } else if (!hasContainer && desiredState === "running") {
-      state = "starting";
-    } else if (!hasContainer) {
-      state = "absent";
-    } else {
-      state = hasContainer ? "running" : "absent";
-    }
-
-    return {
-      sandboxState: state,
-      statusMessage: msg,
-      // A newly-created spec-task session exists before StartDesktop has written
-      // any lifecycle fields. Keep that state distinct from a desktop that was
-      // provisioned and subsequently stopped so callers can render the launch
-      // transition instead of a misleading "Desktop Paused" action.
-      hasDesktopLifecycleState: !!(status || desiredState || hasContainer),
-    };
-  }, [sessionResponse?.data]);
+  const { sandboxState, statusMessage, hasDesktopLifecycleState } = useMemo(
+    () => deriveSandboxState(sessionResponse?.data?.config),
+    [sessionResponse?.data],
+  );
 
   // Backend now returns 'starting' state for recently-created containers
   // Include 'loading' in isStarting to prevent DesktopStreamViewer from mounting
   // before we know the real state (avoids mount/unmount flicker)
-  const isRunning = sandboxState === "running" || sandboxState === "resumable";
+  const isRunning = sandboxState === "running";
   const isStarting = sandboxState === "starting" || sandboxState === "loading";
   // Show "paused" only if container was previously running but is now absent
   const isPaused = sandboxState === "absent";

@@ -96,6 +96,15 @@ type ServerConfig struct {
 	// reap a healthy Runner.
 	SandboxStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_STALE_THRESHOLD" default:"5m"`
 
+	// SandboxContainerReconcileInterval is how often the control plane asks
+	// every online sandbox which dev containers are actually running, so
+	// sessions whose container died on its own (workspace-setup FATAL, OOM
+	// kill, crashed compositor) stop being reported as running. Container
+	// discovery otherwise only happens when a sandbox registers or its
+	// RevDial connection is (re)established, which never fires for a
+	// container that dies while its sandbox stays connected.
+	SandboxContainerReconcileInterval time.Duration `envconfig:"HELIX_SANDBOX_CONTAINER_RECONCILE_INTERVAL" default:"30s"`
+
 	// SandboxDispatchStaleThreshold is the tighter freshness filter
 	// applied by FindAvailableSandboxInstance when selecting a Runner
 	// for new work. Set lower than SandboxStaleThreshold so freshly-dead
@@ -748,9 +757,10 @@ const RAGProviderName = "kodit"
 // the field was never explicitly configured and envconfig left it
 // unparsed). Keep in sync with the `default:` tags above.
 var (
-	DefaultSandboxReaperInterval         = time.Minute
-	DefaultSandboxStaleThreshold         = 5 * time.Minute
-	DefaultSandboxDispatchStaleThreshold = 90 * time.Second
+	DefaultSandboxReaperInterval             = time.Minute
+	DefaultSandboxStaleThreshold             = 5 * time.Minute
+	DefaultSandboxDispatchStaleThreshold     = 90 * time.Second
+	DefaultSandboxContainerReconcileInterval = 30 * time.Second
 )
 
 type RAG struct {
