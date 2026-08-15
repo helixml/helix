@@ -34,6 +34,58 @@ docker ps | grep helix-sandbox
 
 Create an agent app with `agent_type: "zed_external"` and `desktop_type: "ubuntu"` in the Helix UI.
 
+## Board management
+
+These commands drive the Kanban board the same way the web UI does. They only
+talk to the REST API, so none of them need a sandbox running.
+
+```bash
+# Show the board, grouped into the UI's columns
+helix spectask board --project $HELIX_PROJECT
+helix spectask board --project $HELIX_PROJECT --status spec_review
+helix spectask board --project $HELIX_PROJECT --label bug --json
+
+# One card in detail
+helix spectask get spt_01xxx
+helix spectask progress spt_01xxx
+
+# Put a card on the board without provisioning a sandbox
+helix spectask create --project $HELIX_PROJECT -n "Add dark mode" --prompt "Users want a dark theme"
+helix spectask create --project $HELIX_PROJECT --prompt-file ./brief.md --priority high --auto-start
+
+# Edit / move / label / assign
+helix spectask update spt_01xxx --priority critical --assignee usr_01xxx
+helix spectask move spt_01xxx done
+helix spectask label add spt_01xxx bug
+helix spectask label list $HELIX_PROJECT
+
+# Attachments (the agent reads them at design/tasks/<task>/attachments/<name>)
+helix spectask attach spt_01xxx ./failing-run.log ./screenshot.png
+helix spectask attachments spt_01xxx
+
+# Review gates
+helix spectask approve spt_01xxx                       # approve the specs
+helix spectask approve spt_01xxx --reject --comments "Use the existing middleware"
+helix spectask approve spt_01xxx --implementation      # approve the implementation
+
+# Clean up
+helix spectask archive spt_01xxx      # hides it and stops the agent; --undo restores
+helix spectask delete spt_01xxx -f    # permanent
+```
+
+`move` rewrites the task's status; it does not run the workflow step. Use
+`start` to actually run planning and `approve` to pass the review gates. Moving
+a task back to `backlog` deliberately clears its specs, branch, and session so
+it starts fresh.
+
+`send` and `interact` accept a task ID (`spt_…`) as well as a session ID
+(`ses_…`) — the task's session is resolved for you:
+
+```bash
+helix spectask send spt_01xxx "Run the tests" --wait
+helix spectask interact spt_01xxx --history
+```
+
 ## Commands
 
 ### Start a Sandbox Session

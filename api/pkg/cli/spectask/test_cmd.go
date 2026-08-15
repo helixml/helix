@@ -485,7 +485,7 @@ func newSendCommand() *cobra.Command {
 	var jsonOutput bool
 
 	cmd := &cobra.Command{
-		Use:   "send <session-id> <message>",
+		Use:   "send <session-id|task-id> <message>",
 		Short: "Send a message to a session and optionally wait for completion",
 		Long: `Send a message to a session for scripted testing.
 
@@ -503,10 +503,16 @@ Examples:
 
   # JSON output for scripting
   helix spectask send ses_01xxx "What is 2+2?" --json
+
+  # Address the task directly — its session is resolved for you
+  helix spectask send spt_01xxx "Run the tests" --wait
 `,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sessionID := args[0]
+			sessionID, err := resolveSessionID(args[0])
+			if err != nil {
+				return err
+			}
 			message := args[1]
 			apiURL := getAPIURL()
 			token := getToken()
