@@ -75,7 +75,9 @@ func newInspectCommand() *cobra.Command {
 			if len(project.Technologies) > 0 {
 				fmt.Printf("Technologies: %v\n", project.Technologies)
 			}
-			fmt.Printf("Status: %s\n\n", project.Status)
+			fmt.Printf("Status: %s\n", project.Status)
+			fmt.Printf("Default task environment: %s\n\n",
+				types.EffectiveSpecTaskSandboxRuntime(project.DefaultSandboxRuntime))
 
 			// Group tasks by status
 			backlog := []types.SpecTask{}
@@ -182,6 +184,7 @@ func displayTask(task types.SpecTask) {
 	if task.Type != "" {
 		fmt.Printf(" | Type: %s", task.Type)
 	}
+	fmt.Printf(" | Env: %s", types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime))
 	fmt.Println()
 	if task.Description != "" && task.Description != task.Name {
 		fmt.Printf("    Description: %s\n", task.Description)
