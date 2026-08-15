@@ -1,17 +1,23 @@
 import { useQuery } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
 
-export const llmCallsQueryKey = (session: string, interaction: string) => [
+// Page/pageSize must be part of the key — the query fn closes over them, so
+// with a page-less key a page change would keep serving the cached first page.
+export const llmCallsQueryKey = (session: string, interaction: string, page: number, pageSize: number) => [
   "llm_calls",
   session,
-  interaction
+  interaction,
+  page,
+  pageSize
 ];
 
-export const appLLMCallsQueryKey = (appId: string, session: string, interaction: string) => [
+export const appLLMCallsQueryKey = (appId: string, session: string, interaction: string, page: number, pageSize: number) => [
   "app_llm_calls",
   appId,
   session,
-  interaction
+  interaction,
+  page,
+  pageSize
 ];
 
 export function useListLLMCalls(session: string, interaction: string, page: number, pageSize: number, enabled?: boolean) {
@@ -19,7 +25,7 @@ export function useListLLMCalls(session: string, interaction: string, page: numb
   const apiClient = api.getApiClient()  
 
   return useQuery({
-    queryKey: llmCallsQueryKey(session, interaction),
+    queryKey: llmCallsQueryKey(session, interaction, page, pageSize),
     queryFn: async () => {
       const response = await apiClient.v1LlmCallsList({
         session,
@@ -38,7 +44,7 @@ export function useListAppLLMCalls(appId: string, session: string, interaction: 
   const apiClient = api.getApiClient()  
 
   return useQuery({
-    queryKey: appLLMCallsQueryKey(appId, session, interaction),
+    queryKey: appLLMCallsQueryKey(appId, session, interaction, page, pageSize),
     queryFn: async () => {
       const response = await apiClient.v1AgentsLlmCallsDetail(appId, {
         session,
