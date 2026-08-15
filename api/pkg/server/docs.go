@@ -24456,7 +24456,7 @@ const docTemplate = `{
                 "headless"
             ],
             "x-enum-comments": {
-                "DevContainerTypeHeadless": "No GUI, just agent (future)",
+                "DevContainerTypeHeadless": "No GUI, agent-only runtime",
                 "DevContainerTypeSway": "Sway compositor with Zed",
                 "DevContainerTypeUbuntu": "GNOME with Zed"
             },
@@ -30373,6 +30373,9 @@ const docTemplate = `{
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
+                "sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
+                },
                 "type": {
                     "type": "string"
                 },
@@ -33864,6 +33867,14 @@ const docTemplate = `{
                     "description": "Project-level repository management\nDefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo",
                     "type": "string"
                 },
+                "default_sandbox_runtime": {
+                    "description": "Default sandbox environment for new spec tasks. Empty values from legacy\nprojects resolve to the full desktop runtime.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
                 "deleted_at": {
                     "description": "Soft delete timestamp",
                     "allOf": [
@@ -34170,6 +34181,14 @@ const docTemplate = `{
                 "default_repo_id": {
                     "type": "string"
                 },
+                "default_sandbox_runtime": {
+                    "description": "Default sandbox environment for spec tasks",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
+                },
                 "description": {
                     "type": "string"
                 },
@@ -34382,6 +34401,14 @@ const docTemplate = `{
                 },
                 "default_repo_id": {
                     "type": "string"
+                },
+                "default_sandbox_runtime": {
+                    "description": "Default sandbox environment for spec tasks",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
                 },
                 "description": {
                     "type": "string"
@@ -37374,6 +37401,9 @@ const docTemplate = `{
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
                 },
+                "sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
+                },
                 "sandbox_state": {
                     "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
                     "type": "string"
@@ -38216,6 +38246,9 @@ const docTemplate = `{
                 },
                 "sandbox_resource_overrides": {
                     "$ref": "#/definitions/types.SandboxResourceOverrides"
+                },
+                "sandbox_runtime": {
+                    "$ref": "#/definitions/types.SandboxRuntime"
                 },
                 "sandbox_state": {
                     "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",

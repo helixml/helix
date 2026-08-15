@@ -3,12 +3,16 @@
 # Extracted from Dockerfile.ubuntu-helix for consistency with Sway's startup-app.sh
 source /opt/gow/bash-lib/utils.sh
 
-gow_log "[start] Starting Helix Desktop (Ubuntu GNOME Wayland)..."
+if [ "${HELIX_HEADLESS}" = "1" ]; then
+    gow_log "[start] Starting Helix headless agent..."
+else
+    gow_log "[start] Starting Helix Desktop (Ubuntu GNOME Wayland)..."
+fi
 
 # GPU detection - export HELIX_RENDER_NODE and LIBVA_DRIVER_NAME for GStreamer
 # The udev rule for Mutter was already created by the root init script,
 # but we need the env vars for the GStreamer pipelines in desktop-bridge
-if [ -f /usr/local/bin/detect-render-node.sh ]; then
+if [ "${HELIX_HEADLESS}" != "1" ] && [ -f /usr/local/bin/detect-render-node.sh ]; then
     source /usr/local/bin/detect-render-node.sh
     gow_log "[start] GPU: HELIX_RENDER_NODE=${HELIX_RENDER_NODE:-not set}, LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-not set}"
 fi
@@ -79,6 +83,15 @@ if [ -d ~/.codex ] && [ ! -L ~/.codex ]; then
 fi
 rm -rf ~/.codex && ln -sf $CODEX_STATE_DIR ~/.codex
 gow_log "[start] Codex state directory set: $CODEX_STATE_DIR"
+
+if [ "${HELIX_HEADLESS}" = "1" ]; then
+    gow_log "[start] Starting headless Zed agent without GNOME or streaming services"
+    exec dbus-run-session -- bash -c '
+        /usr/local/bin/start-headless-workspace-bridge.sh &
+        /usr/local/bin/start-settings-sync-daemon.sh &
+        exec /usr/local/bin/start-zed-headless.sh
+    '
+fi
 
 # Note: RevDial client is now integrated into desktop-bridge
 

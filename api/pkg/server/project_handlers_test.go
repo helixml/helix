@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -85,6 +86,43 @@ func (s *ProjectRepositoryHandlersSuite) detachRequest(projectID, repoID string)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/projects/"+projectID+"/repositories/"+repoID+"/detach", http.NoBody)
 	req = req.WithContext(s.authCtx)
 	return mux.SetURLVars(req, map[string]string{"id": projectID, "repo_id": repoID})
+}
+
+func (s *ProjectRepositoryHandlersSuite) updateRequest(projectID, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/projects/"+projectID, strings.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	return mux.SetURLVars(req, map[string]string{"id": projectID})
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectSetsDefaultSandboxRuntime() {
+	project := s.makeProject("proj-runtime", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.Project) error {
+			s.Equal(types.SandboxRuntimeHeadlessUbuntu, updated.DefaultSandboxRuntime)
+			return nil
+		},
+	)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"default_sandbox_runtime":"headless-ubuntu"}`),
+	)
+	s.Nil(httpErr)
+	s.Equal(types.SandboxRuntimeHeadlessUbuntu, resp.DefaultSandboxRuntime)
+}
+
+func (s *ProjectRepositoryHandlersSuite) TestUpdateProjectRejectsInvalidDefaultSandboxRuntime() {
+	project := s.makeProject("proj-runtime-invalid", "repo-1")
+	s.store.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+
+	resp, httpErr := s.server.updateProject(
+		httptest.NewRecorder(),
+		s.updateRequest(project.ID, `{"default_sandbox_runtime":"windows"}`),
+	)
+	s.Nil(resp)
+	s.NotNil(httpErr)
+	s.Equal(http.StatusBadRequest, httpErr.StatusCode)
 }
 
 // ---------------------------------------------------------------------------

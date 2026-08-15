@@ -50,7 +50,7 @@ import HubIcon from "@mui/icons-material/Hub";
 import SettingsIcon from "@mui/icons-material/Settings";
 
 import Skills from "../components/app/Skills";
-import { TypesAssistantSkills, TypesCreateAccessGrantRequest, TypesProject, TypesSecretScope, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
+import { TypesAssistantSkills, TypesCreateAccessGrantRequest, TypesProject, TypesSandboxRuntime, TypesSecretScope, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
 import WebServiceTab from "../components/project/WebServiceTab";
@@ -98,6 +98,10 @@ import {
   useGetProjectGuidelinesHistory,
 } from "../services";
 import { isProjectAccessDeniedError } from "../services/projectService";
+import {
+  effectiveSpecTaskSandboxRuntime,
+  saveSpecTaskSandboxRuntimePreference,
+} from "../utils/specTaskSandboxRuntime";
 
 interface ProjectSettingsProps {
   projectId: string;
@@ -1009,6 +1013,46 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   const renderSandboxTab = () => (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <Box>
+        <Typography variant="h6" gutterBottom>
+          Default Task Environment
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Choose the sandbox environment selected by default for new tasks in
+          this project. It can still be changed before a task starts.
+        </Typography>
+        <Divider sx={{ mb: 3 }} />
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Typography variant="body2">Environment:</Typography>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <Select
+              value={effectiveSpecTaskSandboxRuntime(
+                project.default_sandbox_runtime,
+              )}
+              inputProps={{ "aria-label": "Default task environment" }}
+              onChange={(event) => {
+                const runtime = event.target.value as TypesSandboxRuntime;
+                saveSpecTaskSandboxRuntimePreference(projectId, runtime);
+                updateProjectMutation.mutate({
+                  default_sandbox_runtime: runtime,
+                });
+              }}
+            >
+              <MenuItem
+                value={TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop}
+              >
+                Full Desktop
+              </MenuItem>
+              <MenuItem
+                value={TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu}
+              >
+                Headless
+              </MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+      </Box>
+
       {/* Startup Script */}
       <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
         <Box sx={{ flex: showTestSession ? undefined : 1, width: showTestSession ? 600 : undefined, flexShrink: 0 }}>

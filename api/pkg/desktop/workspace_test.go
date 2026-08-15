@@ -2,7 +2,11 @@ package desktop
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,6 +94,58 @@ func TestHandleWorkspacesIncludesAgentPath(t *testing.T) {
 	assert.Equal(t, "/home/retro/work/testproj", resp.Workspaces[0].AgentPath)
 	assert.Contains(t, rec.Body.String(), `"path":`)
 	assert.NotContains(t, rec.Body.String(), workspaceDir)
+}
+
+// TestWorkspaceOnlyServerServesFilesAndDiffsWithoutDesktop proves the headless
+// runtime can browse its live workspace without starting any compositor,
+// streaming, or input services.
+func TestWorkspaceOnlyServerServesFilesAndDiffsWithoutDesktop(t *testing.T) {
+	workspaceDir, _, _ := setupTestRepoWithRemote(t, "testproj", true)
+	t.Setenv("WORKSPACE_DIR", workspaceDir)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	server := NewServer(Config{
+		HTTPPort:      fmt.Sprintf("%d", port),
+		SessionID:     "ses_headless",
+		WorkspaceOnly: true,
+	}, slog.Default())
+	errCh := make(chan error, 1)
+	go func() { errCh <- server.Run(ctx) }()
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	require.Eventually(t, func() bool {
+		response, requestErr := http.Get(baseURL + "/health")
+		if requestErr != nil {
+			return false
+		}
+		_ = response.Body.Close()
+		return response.StatusCode == http.StatusOK
+	}, 2*time.Second, 20*time.Millisecond)
+
+	for _, path := range []string{
+		"/workspaces",
+		"/workspace/files",
+		"/workspace/review?base=main",
+	} {
+		response, requestErr := http.Get(baseURL + path)
+		require.NoError(t, requestErr)
+		_ = response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode, path)
+	}
+
+	response, err := http.Get(baseURL + "/screenshot")
+	require.NoError(t, err)
+	_ = response.Body.Close()
+	require.Equal(t, http.StatusNotFound, response.StatusCode)
+
+	cancel()
+	require.ErrorIs(t, <-errCh, context.Canceled)
 }
 
 // TestHandleWorkspaceStatus_Dirty covers the happy path of the modal-

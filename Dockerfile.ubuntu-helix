@@ -564,6 +564,11 @@ _USER_INIT
 # 2. Create udev rule for Mutter primary GPU selection on multi-GPU systems
 COPY <<'_GPU_INIT' /etc/cont-init.d/15-detect-gpu.sh
 #!/bin/bash
+if [ "${HELIX_HEADLESS}" = "1" ]; then
+    echo "Headless mode: skipping GPU detection and udev setup"
+    return 0
+fi
+
 echo "**** Fixing GPU device permissions ****"
 # In Docker-in-Docker setups, GPU devices may be mounted as root:root
 # We need to make them accessible to non-root users for Vulkan/CUDA/EGL
@@ -1313,7 +1318,9 @@ ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
+ADD desktop/shared/start-headless-workspace-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
+ADD desktop/shared/start-zed-headless.sh /usr/local/bin/start-zed-headless.sh
 # D-Bus policy for logind-stub (macOS ARM scanout mode)
 ADD desktop/shared/helix-logind.conf /etc/dbus-1/system.d/helix-logind.conf
 # Scanout mode init script (starts system D-Bus for logind-stub)
@@ -1324,8 +1331,9 @@ ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
     /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-run-startup-script.sh \
-    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-settings-sync-daemon.sh \
-    /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
+    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh \
+    /usr/local/bin/start-settings-sync-daemon.sh \
+    /usr/local/bin/start-zed-headless.sh /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
 
 # Ubuntu desktop theming (includes cursor-size=48 for fingerprinting)
 ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini

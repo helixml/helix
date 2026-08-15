@@ -47,6 +47,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 		UserID:                   "test-user",
 		CodeAgentOverrides:       &types.CodeAgentOverrides{Model: "gpt-5.6-sol", ReasoningEffort: "high"},
 		SandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 4, MemoryMB: 8192},
+		SandboxRuntime:           types.SandboxRuntimeHeadlessUbuntu,
 	}
 
 	// Mock expectations
@@ -68,6 +69,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 			assert.Equal(t, types.SpecTaskPriorityHigh, task.Priority)
 			assert.Equal(t, req.CodeAgentOverrides, task.CodeAgentOverrides)
 			assert.Equal(t, req.SandboxResourceOverrides, task.SandboxResourceOverrides)
+			assert.Equal(t, types.SandboxRuntimeHeadlessUbuntu, task.SandboxRuntime)
 			// Task number and design doc path should be assigned at creation
 			assert.Equal(t, 1, task.TaskNumber)
 			assert.NotEmpty(t, task.DesignDocPath)
@@ -93,6 +95,17 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	assert.NotEmpty(t, task.DesignDocPath)
 
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
+}
+
+func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsInvalidSandboxRuntime(t *testing.T) {
+	service := NewSpecDrivenTaskService(
+		nil, nil, "test-helix-agent", nil, nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	task, err := service.CreateTaskFromPrompt(context.Background(), &types.CreateTaskRequest{
+		SandboxRuntime: types.SandboxRuntime("windows-desktop"),
+	})
+	require.EqualError(t, err, `invalid spec task sandbox runtime "windows-desktop"`)
+	require.Nil(t, task)
 }
 
 func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsInvalidSandboxPreset(t *testing.T) {
@@ -123,13 +136,17 @@ func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
 	service.SetTestMode(true)
 
 	ctx := context.Background()
-	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{ID: "test-project"}, nil)
+	mockStore.EXPECT().GetProject(ctx, "test-project").Return(&types.Project{
+		ID:                    "test-project",
+		DefaultSandboxRuntime: types.SandboxRuntimeHeadlessUbuntu,
+	}, nil)
 	mockStore.EXPECT().IncrementGlobalTaskNumber(ctx).Return(1, nil)
 	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
 		func(_ context.Context, task *types.SpecTask) error {
 			require.Equal(t, "starter", task.AssigneeID)
 			require.Equal(t, "starter", task.PlanningStartedBy)
 			require.Equal(t, types.DefaultSpecTaskSandboxResources(), task.SandboxResourceOverrides)
+			require.Equal(t, types.SandboxRuntimeHeadlessUbuntu, task.SandboxRuntime)
 			return nil
 		},
 	)

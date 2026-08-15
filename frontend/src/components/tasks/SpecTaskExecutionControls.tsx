@@ -10,11 +10,12 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { ChevronDown, Cpu } from "lucide-react";
+import { ChevronDown, Cpu, Monitor } from "lucide-react";
 import {
   TypesCodeAgentOverrides,
   TypesSandboxResourceOverrides,
   TypesAgentExecutionConfig,
+  TypesSandboxRuntime,
 } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, IAssistantConfig } from "../../types";
 import useSnackbar from "../../hooks/useSnackbar";
@@ -34,10 +35,12 @@ interface SpecTaskExecutionControlsProps {
   codeAgentOverrides?: TypesCodeAgentOverrides;
   currentExecutionConfig?: TypesAgentExecutionConfig;
   sandboxResourceOverrides?: TypesSandboxResourceOverrides;
+  sandboxRuntime?: TypesSandboxRuntime;
   onAgentModelChange: (agentId: string, value: TypesCodeAgentOverrides) => MaybePromise;
   // Omitted by surfaces that don't own a resizable sandbox (plain chat
   // sessions); the compute control is then hidden rather than inert.
   onSandboxResourceOverridesChange?: (value: TypesSandboxResourceOverrides) => MaybePromise;
+  onSandboxRuntimeChange?: (value: TypesSandboxRuntime) => MaybePromise;
   disabled?: boolean;
   compact?: boolean;
   grouped?: boolean;
@@ -107,8 +110,10 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   codeAgentOverrides = {},
   currentExecutionConfig,
   sandboxResourceOverrides,
+  sandboxRuntime,
   onAgentModelChange,
   onSandboxResourceOverridesChange,
+  onSandboxRuntimeChange,
   disabled = false,
   compact = false,
   grouped = false,
@@ -136,6 +141,10 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
     ? sandboxResourceOverrides
     : DEFAULT_SANDBOX_PRESET;
   const sandboxLabel = `${effectiveSandboxResources.vcpus} vCPU`;
+  const effectiveSandboxRuntime = sandboxRuntime
+    || TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop;
+  const showSandboxRuntime = sandboxRuntime !== undefined || !!onSandboxRuntimeChange;
+  const sandboxRuntimeLocked = showSandboxRuntime && !onSandboxRuntimeChange;
   const effortLabel = effortOptions.find((option) => option.value === effectiveEffort)?.label || effectiveEffort;
   const agentSettingsLabel = runtime === "codex_cli" && effectiveTier === "fast"
     ? `${effortLabel} · Fast`
@@ -168,8 +177,8 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
   };
 
   const selectSandbox = async (preset: typeof SANDBOX_PRESETS[number]) => {
-    setCpuAnchor(null);
     if (!onSandboxResourceOverridesChange) return;
+    setCpuAnchor(null);
     setIsSaving(true);
     try {
       await onSandboxResourceOverridesChange({
@@ -178,6 +187,19 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
       });
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : "Failed to resize sandbox");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const selectSandboxRuntime = async (runtime: TypesSandboxRuntime) => {
+    if (!onSandboxRuntimeChange) return;
+    setCpuAnchor(null);
+    setIsSaving(true);
+    try {
+      await onSandboxRuntimeChange(runtime);
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : "Failed to update sandbox runtime");
     } finally {
       setIsSaving(false);
     }
@@ -228,7 +250,14 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
           disabled={controlsDisabled}
           aria-label="Change sandbox size"
           onClick={(event) => setCpuAnchor(event.currentTarget)}
-          startIcon={<Cpu size={15} />}
+          startIcon={(
+            <Stack direction="row" spacing={0.375} alignItems="center">
+              <Cpu size={15} />
+              {effectiveSandboxRuntime === TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop && (
+                <Monitor size={15} />
+              )}
+            </Stack>
+          )}
           endIcon={<ChevronDown size={13} />}
           sx={compactButtonSx}
         >
@@ -348,20 +377,70 @@ const SpecTaskExecutionControls: FC<SpecTaskExecutionControlsProps> = ({
         anchorOrigin={{ vertical: "top", horizontal: "left" }}
         transformOrigin={{ vertical: "bottom", horizontal: "left" }}
       >
+        <ListSubheader disableSticky>Compute</ListSubheader>
         {SANDBOX_PRESETS.map((preset) => (
           <MenuItem
             key={preset.vcpus}
             selected={preset.vcpus === effectiveSandboxResources.vcpus}
+            disabled={controlsDisabled}
             onClick={() => void selectSandbox(preset)}
+            sx={{ columnGap: 2 }}
           >
-            <Box>
-              <Typography variant="body2">{preset.vcpus} vCPU</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {preset.description}{preset.vcpus === DEFAULT_SANDBOX_PRESET.vcpus ? " · Default" : ""}
-              </Typography>
-            </Box>
+            <Typography variant="body2" sx={{ flex: 1, whiteSpace: "nowrap" }}>{preset.vcpus} vCPU</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+              {preset.description}
+              {preset.vcpus === DEFAULT_SANDBOX_PRESET.vcpus ? " · Default" : ""}
+            </Typography>
           </MenuItem>
         ))}
+
+        {showSandboxRuntime && [
+          <Divider key="runtime-divider" sx={{ my: 0.5 }} />,
+          <ListSubheader key="runtime-heading" disableSticky>Environment</ListSubheader>,
+          ...[
+            {
+              value: TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop,
+              label: "Full Desktop",
+            },
+            {
+              value: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
+              label: "Headless",
+            },
+          ].map((option) => {
+            const selected = option.value === effectiveSandboxRuntime;
+            const item = (
+              <MenuItem
+                key={option.value}
+                selected={selected}
+                disabled={controlsDisabled}
+                aria-disabled={sandboxRuntimeLocked || undefined}
+                onClick={sandboxRuntimeLocked
+                  ? undefined
+                  : () => void selectSandboxRuntime(option.value)}
+                sx={{
+                  columnGap: 2,
+                  ...(sandboxRuntimeLocked ? { cursor: "not-allowed" } : {}),
+                }}
+              >
+                <Typography variant="body2" sx={{ flex: 1 }}>{option.label}</Typography>
+                {selected && (
+                  <Typography variant="caption" color="text.secondary">Selected</Typography>
+                )}
+              </MenuItem>
+            );
+            if (!sandboxRuntimeLocked) return item;
+            return (
+              <Tooltip
+                key={option.value}
+                title="Sandbox environment can't be changed after the task starts. Start a new task to use a different environment."
+                placement="right"
+                describeChild
+              >
+                {item}
+              </Tooltip>
+            );
+          }),
+        ]}
       </Menu>
     </>
   );

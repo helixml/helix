@@ -1117,7 +1117,7 @@ definitions:
     - headless
     type: string
     x-enum-comments:
-      DevContainerTypeHeadless: No GUI, just agent (future)
+      DevContainerTypeHeadless: No GUI, agent-only runtime
       DevContainerTypeSway: Sway compositor with Zed
       DevContainerTypeUbuntu: GNOME with Zed
     x-enum-varnames:
@@ -5379,6 +5379,8 @@ definitions:
         type: string
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
+      sandbox_runtime:
+        $ref: '#/definitions/types.SandboxRuntime'
       type:
         type: string
       user_email:
@@ -7892,6 +7894,12 @@ definitions:
           Project-level repository management
           DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
         type: string
+      default_sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          Default sandbox environment for new spec tasks. Empty values from legacy
+          projects resolve to the full desktop runtime.
       deleted_at:
         allOf:
         - $ref: '#/definitions/gorm.DeletedAt'
@@ -8109,6 +8117,10 @@ definitions:
         type: string
       default_repo_id:
         type: string
+      default_sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: Default sandbox environment for spec tasks
       description:
         type: string
       github_repo_url:
@@ -8249,6 +8261,10 @@ definitions:
         type: string
       default_repo_id:
         type: string
+      default_sandbox_runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: Default sandbox environment for spec tasks
       description:
         type: string
       github_repo_url:
@@ -10586,6 +10602,8 @@ definitions:
         type: string
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
+      sandbox_runtime:
+        $ref: '#/definitions/types.SandboxRuntime'
       sandbox_state:
         description: '"absent", "running", "starting" — derived from session config
           in listTasks'
@@ -11236,6 +11254,8 @@ definitions:
         type: string
       sandbox_resource_overrides:
         $ref: '#/definitions/types.SandboxResourceOverrides'
+      sandbox_runtime:
+        $ref: '#/definitions/types.SandboxRuntime'
       sandbox_state:
         description: '"absent", "running", "starting" — derived from session config
           in listTasks'

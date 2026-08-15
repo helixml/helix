@@ -3429,6 +3429,7 @@ export interface TypesCreateTaskRequest {
   project_id?: string;
   prompt?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  sandbox_runtime?: TypesSandboxRuntime;
   type?: string;
   /** Optional: User email for audit trail */
   user_email?: string;
@@ -4943,6 +4944,11 @@ export interface TypesProject {
    * DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
    */
   default_repo_id?: string;
+  /**
+   * Default sandbox environment for new spec tasks. Empty values from legacy
+   * projects resolve to the full desktop runtime.
+   */
+  default_sandbox_runtime?: TypesSandboxRuntime;
   /** Soft delete timestamp */
   deleted_at?: GormDeletedAt;
   description?: string;
@@ -5084,6 +5090,8 @@ export interface TypesProjectCreateRequest {
   /** Default agent for spec tasks */
   default_helix_app_id?: string;
   default_repo_id?: string;
+  /** Default sandbox environment for spec tasks */
+  default_sandbox_runtime?: TypesSandboxRuntime;
   description?: string;
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
@@ -5168,6 +5176,8 @@ export interface TypesProjectUpdateRequest {
   /** Default agent for spec tasks */
   default_helix_app_id?: string;
   default_repo_id?: string;
+  /** Default sandbox environment for spec tasks */
+  default_sandbox_runtime?: TypesSandboxRuntime;
   description?: string;
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
@@ -6697,6 +6707,7 @@ export interface TypesSpecTask {
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */
@@ -7078,6 +7089,7 @@ export interface TypesSpecTaskWithProject {
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   sandbox_resource_overrides?: TypesSandboxResourceOverrides;
+  sandbox_runtime?: TypesSandboxRuntime;
   /** "absent", "running", "starting" — derived from session config in listTasks */
   sandbox_state?: string;
   /** Transient startup message e.g. "Unpacking build cache" */

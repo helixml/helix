@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { TypesCodeAgentRuntime } from "../../api/api";
+import { TypesCodeAgentRuntime, TypesSandboxRuntime } from "../../api/api";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
 import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
 
@@ -192,6 +192,71 @@ describe("SpecTaskExecutionControls", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /8 vCPU.*16 GB RAM/ }));
 
     await waitFor(() => expect(resize).toHaveBeenCalledWith({ vcpus: 8, memory_mb: 16384 }));
+  });
+
+  it("offers full desktop and headless environments when creating a task", async () => {
+    const setRuntime = vi.fn();
+    render(
+      <SpecTaskExecutionControls
+        agents={[codexAgent]}
+        selectedAgentId={codexAgent.id}
+        sandboxResourceOverrides={{ vcpus: 4, memory_mb: 8192 }}
+        sandboxRuntime={TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+        onSandboxRuntimeChange={setRuntime}
+      />,
+    );
+
+    const computeButton = screen.getByRole("button", { name: "Change sandbox size" });
+    expect(computeButton.querySelector(".lucide-monitor"))
+      .toBeInTheDocument();
+    fireEvent.click(computeButton);
+    expect(screen.getByRole("menuitem", { name: /Full Desktop.*Selected/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Headless" }));
+
+    await waitFor(() => expect(setRuntime).toHaveBeenCalledWith(
+      TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu,
+    ));
+  });
+
+  it("omits the desktop icon from the collapsed control for headless tasks", () => {
+    render(
+      <SpecTaskExecutionControls
+        agents={[codexAgent]}
+        selectedAgentId={codexAgent.id}
+        sandboxResourceOverrides={{ vcpus: 4, memory_mb: 8192 }}
+        sandboxRuntime={TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+        onSandboxRuntimeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Change sandbox size" }).querySelector(".lucide-monitor"))
+      .not.toBeInTheDocument();
+  });
+
+  it("shows a locked environment with guidance after task creation", async () => {
+    render(
+      <SpecTaskExecutionControls
+        agents={[codexAgent]}
+        selectedAgentId={codexAgent.id}
+        sandboxResourceOverrides={{ vcpus: 4, memory_mb: 8192 }}
+        sandboxRuntime={TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu}
+        onAgentModelChange={vi.fn()}
+        onSandboxResourceOverridesChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Change sandbox size" }));
+    const lockedRuntime = screen.getByRole("menuitem", { name: /Headless.*Selected/ });
+    expect(lockedRuntime).toHaveAttribute("aria-disabled", "true");
+    fireEvent.mouseOver(lockedRuntime);
+
+    expect(await screen.findByText(
+      "Sandbox environment can't be changed after the task starts. Start a new task to use a different environment.",
+    )).toBeInTheDocument();
   });
 
   it("shows the effective 4 vCPU default for legacy tasks without an override", () => {

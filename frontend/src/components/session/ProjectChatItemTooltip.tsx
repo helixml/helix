@@ -2,9 +2,11 @@ import type { FC, ReactElement } from 'react'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { BrainCircuit, FolderGit2, GitBranch } from 'lucide-react'
+import { BrainCircuit, Cpu, FolderGit2, GitBranch, Monitor, SquareTerminal } from 'lucide-react'
 
+import { TypesSandboxRuntime } from '../../api/api'
 import useApps from '../../hooks/useApps'
+import { effectiveSpecTaskSandboxRuntime } from '../../utils/specTaskSandboxRuntime'
 import AgentHarness, { getAgentHarnessModel, getAgentHarnessRuntime } from '../agent/AgentHarness'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 
@@ -29,6 +31,22 @@ const runtimeLabel = (runtime?: string): string => {
   }
 }
 
+const sandboxDetails = (item: SidebarItem): { compute?: string; environment?: string } => {
+  if (item.kind !== 'spec-task' || !item.task) return {}
+
+  const vcpus = item.task.sandbox_resource_overrides?.vcpus || 4
+  const memoryMb = item.task.sandbox_resource_overrides?.memory_mb || 8192
+  const memory = memoryMb % 1024 === 0
+    ? `${memoryMb / 1024} GB RAM`
+    : `${memoryMb} MB RAM`
+  const environment = effectiveSpecTaskSandboxRuntime(item.task.sandbox_runtime)
+    === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu
+    ? 'Headless'
+    : 'Full Desktop'
+
+  return { compute: `${vcpus} vCPU · ${memory}`, environment }
+}
+
 const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
   item,
   repository,
@@ -45,6 +63,7 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
   const model = configuredApp
     ? getAgentHarnessModel(configuredApp)
     : item.session?.model_name
+  const { compute, environment } = sandboxDetails(item)
   const rows = [
     repository && { icon: <FolderGit2 size={13} />, value: repository },
     branch && { icon: <GitBranch size={13} />, value: branch },
@@ -55,6 +74,11 @@ const ProjectChatItemTooltip: FC<ProjectChatItemTooltipProps> = ({
       value: harness,
     },
     model && { icon: <BrainCircuit size={13} />, value: model },
+    compute && { icon: <Cpu size={13} />, value: compute },
+    environment && {
+      icon: environment === 'Headless' ? <SquareTerminal size={13} /> : <Monitor size={13} />,
+      value: environment,
+    },
   ].filter(Boolean) as Array<{ icon: ReactElement; value: string }>
 
   return (

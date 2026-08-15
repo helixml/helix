@@ -240,23 +240,21 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	// Check limits for the user/org
+	// Resolve immutable task launch settings before quota checks and placement.
+	// Resume, fork, and design-review paths rebuild DesktopAgent from session
+	// metadata, so the owning task remains the source of truth.
+	if err := h.resolveSpecTaskLaunchConfig(ctx, agent); err != nil {
+		return nil, err
+	}
+
+	// Check legacy external-agent desktop limits for full desktops. Headless
+	// tasks are enforced by the headless sandbox limit in beginSandboxMetering.
 	limitReached, err := h.checkLimits(ctx, agent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check limits: %w", err)
 	}
 	if limitReached != nil && limitReached.LimitReached {
 		return nil, fmt.Errorf("desktop limit reached (%d). Stop some of the existing sessions or upgrade your plan", limitReached.Limit)
-	}
-
-	// A spec task owns a sandbox size the user picked. Only the three launch
-	// paths in spec_driven_task_service set it on the agent; resume, fork and
-	// design-review rebuild the agent from the session and would otherwise
-	// start the desktop uncapped — running bigger than the user asked for and
-	// billing at the default. Resolve it here so every spec-task desktop honours
-	// the task's preset.
-	if err := h.resolveSpecTaskResources(ctx, agent); err != nil {
-		return nil, err
 	}
 
 	// Open the sandbox row that bills and quota-checks this desktop. This
@@ -288,8 +286,14 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// Determine sandbox ID - use agent's preference or find an available one
 	sandboxID := agent.SandboxID
 	if sandboxID == "" {
-		// Find an available sandbox with the required desktop image
-		sandbox, err := h.store.FindAvailableSandboxInstance(ctx, containerType)
+		// Headless agents use the helix-ubuntu toolchain image, so placement must
+		// select a host advertising that image even though the created container
+		// itself has no compositor or display devices.
+		placementImage := containerType
+		if containerType == "headless" {
+			placementImage = "ubuntu"
+		}
+		sandbox, err := h.store.FindAvailableSandboxInstance(ctx, placementImage)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find available sandbox: %w", err)
 		}
@@ -549,8 +553,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// No bridging needed - desktop runs its own dockerd, so all containers
 	// are on the same Docker network inside the desktop container.
 
-	// Wait for desktop-bridge to be ready before returning.
-	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init.
+	// Wait for the container bridge to be ready before returning. Desktop
+	// runtimes initialize D-Bus, Wayland, portals, and GStreamer first; headless
+	// runtimes expose only the workspace API from the same bridge binary.
 	// Uses RevDial for health check since container IP is inside sandbox's DinD network.
 	//
 	// IMPORTANT: use an independent context here (issue #1 from ZFS deployment).
@@ -562,9 +567,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	if err := h.waitForDesktopBridge(bridgeCtx, agent.SessionID); err != nil {
 		log.Warn().Err(err).
 			Str("session_id", agent.SessionID).
-			Msg("Desktop bridge not ready (continuing anyway, frontend may need to retry)")
-		// Don't fail - container is running, just not fully ready yet.
-		// Frontend should handle this gracefully with retry logic.
+			Msg("Container bridge not ready (continuing anyway, frontend may need to retry)")
+		// Don't fail - the container is running, just not fully ready yet.
+		// Frontend callers retry once the service becomes reachable.
 	}
 
 	// Track session
@@ -660,20 +665,25 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	}, nil
 }
 
-// resolveSpecTaskResources fills in the sandbox size from the owning spec task
-// when the caller didn't supply one. A caller that set resources explicitly
-// wins — it already knows what it wants.
-func (h *HydraExecutor) resolveSpecTaskResources(ctx context.Context, agent *types.DesktopAgent) error {
-	if agent.SpecTaskID == "" || (agent.VCPUs > 0 && agent.MemoryMB > 0) {
+// resolveSpecTaskLaunchConfig applies the immutable runtime and fills a missing
+// resource preset from the owning task. It is deliberately centralized here so
+// every start path, including forks and reconciler resumes, behaves identically.
+func (h *HydraExecutor) resolveSpecTaskLaunchConfig(ctx context.Context, agent *types.DesktopAgent) error {
+	if agent.SpecTaskID == "" {
 		return nil
 	}
 	task, err := h.store.GetSpecTask(ctx, agent.SpecTaskID)
 	if err != nil {
-		return fmt.Errorf("load spec task %s for sandbox sizing: %w", agent.SpecTaskID, err)
+		return fmt.Errorf("load spec task %s for sandbox configuration: %w", agent.SpecTaskID, err)
 	}
-	resources := types.EffectiveSpecTaskSandboxResources(task.SandboxResourceOverrides)
-	agent.VCPUs = resources.VCPUs
-	agent.MemoryMB = resources.MemoryMB
+	if agent.VCPUs <= 0 || agent.MemoryMB <= 0 {
+		resources := types.EffectiveSpecTaskSandboxResources(task.SandboxResourceOverrides)
+		agent.VCPUs = resources.VCPUs
+		agent.MemoryMB = resources.MemoryMB
+	}
+	if types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime) == types.SandboxRuntimeHeadlessUbuntu {
+		agent.DesktopType = "headless"
+	}
 	return nil
 }
 
@@ -685,6 +695,10 @@ func (h *HydraExecutor) beginSandboxMetering(ctx context.Context, agent *types.D
 		return false, nil
 	}
 	vcpus, memoryMB := desktopBillingResources(agent)
+	runtime := types.SandboxRuntimeUbuntuDesktop
+	if h.parseContainerType(agent.DesktopType) == "headless" {
+		runtime = types.SandboxRuntimeHeadlessUbuntu
+	}
 	sb, err := h.sandboxMeter.BeginSession(ctx, &types.BeginSandboxSessionRequest{
 		SessionID:      agent.SessionID,
 		OrganizationID: agent.OrganizationID,
@@ -692,7 +706,7 @@ func (h *HydraExecutor) beginSandboxMetering(ctx context.Context, agent *types.D
 		ProjectID:      agent.ProjectID,
 		SpecTaskID:     agent.SpecTaskID,
 		Name:           h.desktopSandboxName(ctx, agent),
-		Runtime:        types.SandboxRuntimeUbuntuDesktop,
+		Runtime:        runtime,
 		VCPUs:          vcpus,
 		MemoryMB:       memoryMB,
 		DisplayWidth:   agent.DisplayWidth,
@@ -1298,6 +1312,11 @@ func (h *HydraExecutor) getContainerImage(ctx context.Context, containerType str
 	case "ubuntu":
 		imageName = "helix-ubuntu"
 		versionKey = "ubuntu"
+	case "headless":
+		// Headless spec tasks still need the Helix agent toolchain baked into
+		// helix-ubuntu; the container type suppresses the compositor and GPU path.
+		imageName = "helix-ubuntu"
+		versionKey = "ubuntu"
 	default:
 		imageName = "helix-sway"
 		versionKey = "sway"
@@ -1334,9 +1353,6 @@ func (h *HydraExecutor) getContainerImage(ctx context.Context, containerType str
 
 // buildEnvVars builds environment variables for the container
 func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, workspaceDir string) []string {
-	// Build GPU devices string
-	gpuDevices := "/dev/dri/card*:/dev/dri/renderD*:/dev/uinput:/dev/input/event*:/dev/input/js*:/dev/input/mice"
-
 	// Determine Helix URL for Zed's WebSocket connection
 	zedHelixURL := strings.TrimPrefix(h.helixAPIURL, "https://")
 	zedHelixURL = strings.TrimPrefix(zedHelixURL, "http://")
@@ -1359,9 +1375,6 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		// RevDial connection - startup-app.sh expects these specific names
 		fmt.Sprintf("HELIX_API_BASE_URL=%s", h.helixAPIURL),
 
-		// GPU/input device passthrough
-		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
-
 		// LLM proxy configuration for Zed's built-in agents
 		// SECURITY: ANTHROPIC_API_KEY, OPENAI_API_KEY are set via agent.Env with session-scoped token
 		// (see addUserAPITokenToAgent). Only set the base URLs here - NOT the runner token.
@@ -1370,14 +1383,12 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 
 		// Zed sync configuration
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
-		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
 		"ZED_HELIX_SKIP_TLS_VERIFY=true", // Enterprise internal CAs
 
 		// Debug logging
-		"RUST_LOG=info,gst_wayland_display=debug",
-		"GST_DEBUG=vsockenc:5", // TODO: Remove after fixing vsockenc receive thread
+		"RUST_LOG=info",
 		"SHOW_ACP_DEBUG_LOGS=true",
 
 		// Settings sync daemon port
@@ -1449,7 +1460,11 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	// Display settings for non-headless containers
 	if containerType != "headless" {
 		width, height, refreshRate := agent.GetEffectiveResolution()
+		env = setContainerEnv(env, "RUST_LOG", "info,gst_wayland_display=debug")
 		env = append(env,
+			"GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*:/dev/uinput:/dev/input/event*:/dev/input/js*:/dev/input/mice",
+			"GST_DEBUG=vsockenc:5",
+			"ZED_ALLOW_EMULATED_GPU=1",
 			fmt.Sprintf("GAMESCOPE_WIDTH=%d", width),
 			fmt.Sprintf("GAMESCOPE_HEIGHT=%d", height),
 			fmt.Sprintf("GAMESCOPE_REFRESH=%d", refreshRate),
@@ -1467,18 +1482,18 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		if agent.DisplayScale > 0 {
 			env = append(env, fmt.Sprintf("HELIX_DISPLAY_SCALE=%d", agent.DisplayScale))
 		}
-	}
 
-	// Add GPU-specific environment variables
-	switch h.gpuVendor {
-	case "nvidia":
-		env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
-		// Use explicit capabilities instead of "all" for GKE/cloud compatibility
-		env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
-	case "amd":
-		env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
-	case "intel":
-		env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
+		// Add GPU-specific environment variables.
+		switch h.gpuVendor {
+		case "nvidia":
+			env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
+			// Use explicit capabilities instead of "all" for GKE/cloud compatibility
+			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
+		case "amd":
+			env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
+		case "intel":
+			env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
+		}
 	}
 
 	// NOTE: BUILDKIT_HOST env var is injected by Hydra server side (devcontainer.go buildEnv)
@@ -1495,15 +1510,17 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	//                       explicitly for the macOS QEMU virtio-gpu path.
 	//   HELIX_GOP_SIZE    - GOP size in frames (default 120 = 2s at 60fps)
 	//   HELIX_RENDER_NODE - VA-API render device (e.g. /dev/dri/renderD129)
-	for _, name := range []string{"HELIX_ENCODER", "HELIX_VIDEO_MODE", "HELIX_GOP_SIZE", "HELIX_RENDER_NODE"} {
-		val := os.Getenv(name)
-		if val == "" {
-			continue
+	if containerType != "headless" {
+		for _, name := range []string{"HELIX_ENCODER", "HELIX_VIDEO_MODE", "HELIX_GOP_SIZE", "HELIX_RENDER_NODE"} {
+			val := os.Getenv(name)
+			if val == "" {
+				continue
+			}
+			if name == "HELIX_VIDEO_MODE" && val == "scanout" {
+				continue
+			}
+			env = append(env, fmt.Sprintf("%s=%s", name, val))
 		}
-		if name == "HELIX_VIDEO_MODE" && val == "scanout" {
-			continue
-		}
-		env = append(env, fmt.Sprintf("%s=%s", name, val))
 	}
 
 	// These come LAST so they can override defaults (e.g., use user's token instead of runner token)
@@ -1521,8 +1538,22 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		Msg("buildEnvVars: Appending agent.Env (USER_API_TOKEN should be present for RevDial)")
 
 	env = append(env, agent.Env...)
+	if containerType == "headless" {
+		env = setContainerEnv(env, "HELIX_HEADLESS", "1")
+	}
 
 	return env
+}
+
+func setContainerEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
 
 // buildMounts builds volume mounts for the container.
@@ -1605,9 +1636,9 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 	return mounts
 }
 
-// waitForDesktopBridge polls the desktop-bridge health endpoint via RevDial until it's ready.
-// Desktop-bridge startup includes: D-Bus wait, Wayland socket wait, portal wait, GStreamer init.
-// This can take 10-30 seconds depending on the compositor and GPU.
+// waitForDesktopBridge polls the bridge health endpoint via RevDial until it's ready.
+// Desktop startup includes D-Bus, Wayland, portal, and GStreamer initialization;
+// headless startup serves the workspace APIs without those dependencies.
 // Uses RevDial connection because the container IP is inside the sandbox's DinD network
 // and not directly reachable from the API container.
 func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, sessionID string) error {
@@ -2008,6 +2039,9 @@ func (h *HydraExecutor) ReconcileSandboxResources(ctx context.Context, sandboxID
 
 // checkLimits checks desktop limits for the user/org
 func (h *HydraExecutor) checkLimits(ctx context.Context, agent *types.DesktopAgent) (*types.QuotaLimitReachedResponse, error) {
+	if h.parseContainerType(agent.DesktopType) == "headless" {
+		return &types.QuotaLimitReachedResponse{LimitReached: false}, nil
+	}
 	// Get system settings
 	systemSettings, err := h.store.GetSystemSettings(ctx)
 	if err != nil {

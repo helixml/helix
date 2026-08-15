@@ -46,6 +46,37 @@ func TestSandboxResourceLimits(t *testing.T) {
 	}
 }
 
+func TestBuildEnvHeadlessOmitsDisplayAndGPU(t *testing.T) {
+	t.Setenv("HELIX_FRAME_EXPORT_PORT", "19000")
+	gpuIndex := 0
+	env := (&DevContainerManager{}).buildEnv(&CreateDevContainerRequest{
+		ContainerType: DevContainerTypeHeadless,
+		DisplayWidth:  1920,
+		DisplayHeight: 1080,
+		DisplayFPS:    60,
+		GPUVendor:     "nvidia",
+		GPUIndex:      &gpuIndex,
+	})
+
+	for _, entry := range env {
+		for _, prefix := range []string{
+			"GAMESCOPE_",
+			"NVIDIA_",
+			"GPU_VENDOR=",
+			"GST_DEBUG=",
+			"CUDA_VISIBLE_DEVICES=",
+			"HELIX_GPU_INDEX=",
+			"HELIX_SCANOUT_MODE=",
+			"HELIX_VIDEO_MODE=",
+			"HELIX_FRAME_EXPORT_PORT=",
+		} {
+			if strings.HasPrefix(entry, prefix) {
+				t.Fatalf("headless environment contains display/GPU setting %q", entry)
+			}
+		}
+	}
+}
+
 func TestResolveRegistryImage(t *testing.T) {
 	// Create a temp dir to act as /opt/images for tests
 	tmpDir := t.TempDir()

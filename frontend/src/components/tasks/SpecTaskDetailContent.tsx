@@ -46,6 +46,7 @@ import UndoIcon from "@mui/icons-material/Undo";
 import {
   TypesCodeAgentOverrides,
   TypesSandboxResourceOverrides,
+  TypesSandboxRuntime,
   TypesSpecTaskStatus,
 } from "../../api/api";
 import ExternalAgentDesktopViewer, {
@@ -107,6 +108,9 @@ import AgentChat from "../session/AgentChat";
 import { getChatColors } from "../session/chatStyles";
 import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
 import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
+import SandboxStatusIndicator, {
+  type SandboxIndicatorState,
+} from "./SandboxStatusIndicator";
 import SharePreviewSection from "./SharePreviewSection";
 import SandboxBrowser from "./SandboxBrowser";
 import SpecTaskLaunchWindow, {
@@ -141,6 +145,7 @@ import SpecTaskViewToolbar, {
 import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
 import { loadPanelLayout, savePanelLayout } from "../../lib/panelLayoutStorage";
 import SpecTaskTerminalDrawer from "./SpecTaskTerminalDrawer";
+import { resolveSpecTaskChatDefaultLayout } from "./specTaskPanelLayout";
 import {
   isSpecTaskTerminalToggleShortcut,
   loadSpecTaskTerminalDrawerState,
@@ -265,6 +270,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!taskId,
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   });
+  const isHeadless = task?.sandbox_runtime === TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu;
   const { data: currentExecutionConfig } = useGetSpecTaskExecutionConfig(
     taskId,
     !!task?.helix_app_id || !!task?.planning_session_id,
@@ -356,10 +362,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [contentCollapsed, setContentCollapsed] = useState(false);
   const contentPanelRef = useRef<PanelImperativeHandle>(null);
   const collapseContentAfterSplitRef = useRef(false);
+  const headlessInitialCollapseTaskRef = useRef<string | null>(null);
 
   const collapseContentPanel = useCallback(() => {
     if (chatCollapsed) {
       collapseContentAfterSplitRef.current = true;
+      setContentCollapsed(true);
       setChatCollapsed(false);
       return;
     }
@@ -377,12 +385,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     panel.expand();
     panel.resize(`${restoredSize}%`);
   }, []);
-
-  useEffect(() => {
-    if (chatCollapsed || !collapseContentAfterSplitRef.current) return;
-    collapseContentAfterSplitRef.current = false;
-    contentPanelRef.current?.collapse();
-  }, [chatCollapsed]);
 
   const [terminalDrawerState, setTerminalDrawerState] = useState(() =>
     loadSpecTaskTerminalDrawerState(taskId),
@@ -630,6 +632,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = selectedThreadSessionId || task?.planning_session_id;
+
+  useEffect(() => {
+    if (!isHeadless || currentView !== "desktop") return;
+    const nextView: TaskView = activeSessionId ? "changes" : "details";
+    setCurrentView(nextView);
+    if (syncViewWithUrl) router.mergeParams({ view: nextView });
+  }, [activeSessionId, currentView, isHeadless, syncViewWithUrl]);
   const [workspaceCommentsBySession, setWorkspaceCommentsBySession] = useState<
     Record<string, WorkspaceReviewComment[]>
   >({});
@@ -694,6 +703,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // immediately after clicking "Start Planning" rather than a confusing flash of the stopped state.
   const isQueuedForPlanning = task?.status === "queued_spec_generation";
   const effectiveIsDesktopPaused = isDesktopPaused && !isQueuedForPlanning;
+  const sandboxIndicatorState: SandboxIndicatorState = isDesktopRunning
+    ? "running"
+    : isDesktopStarting
+      ? "starting"
+      : "stopped";
 
   // Subscribe to WebSocket updates for the active session when chat is visible
   // On big screens: chat is visible unless collapsed
@@ -723,7 +737,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (activeSessionId && currentView === "details") {
       // If there's an active session and we're on details, switch to appropriate view
       // On mobile, default to chat; on desktop, default to desktop (chat is always visible)
-      const newView = isBigScreen ? "desktop" : "chat";
+      const newView = isBigScreen ? (isHeadless ? "changes" : "desktop") : "chat";
       setCurrentView(newView);
       if (syncViewWithUrl) {
         router.mergeParams({ view: newView });
@@ -735,7 +749,27 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         router.mergeParams({ view: "details" });
       }
     }
-  }, [activeSessionId, isBigScreen]);
+  }, [activeSessionId, isBigScreen, isHeadless]);
+
+  useEffect(() => {
+    if (
+      !isHeadless
+      || !allowContentCollapse
+      || !isBigScreen
+      || !activeSessionId
+      || launchPhase
+      || chatCollapsed
+    ) return;
+    headlessInitialCollapseTaskRef.current = taskId;
+  }, [
+    activeSessionId,
+    allowContentCollapse,
+    chatCollapsed,
+    isBigScreen,
+    isHeadless,
+    launchPhase,
+    taskId,
+  ]);
 
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || "", {
@@ -899,7 +933,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       }
 
       snackbar.success("Planning started! Agent session will begin shortly.");
-      handleViewChange("desktop");
+      handleViewChange(isHeadless ? "changes" : "desktop");
     } catch (err: any) {
       console.error("Failed to start planning:", err);
       snackbar.error(
@@ -1870,6 +1904,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           codeAgentOverrides={task?.code_agent_overrides}
           currentExecutionConfig={currentExecutionConfig}
           sandboxResourceOverrides={task?.sandbox_resource_overrides}
+          sandboxRuntime={task?.sandbox_runtime}
           onAgentModelChange={handleAgentModelChange}
           onSandboxResourceOverridesChange={handleSandboxResourcesChange}
           disabled={updateExecutionConfig.isPending || !!task?.archived}
@@ -2373,10 +2408,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           />
         ) : activeSessionId && isBigScreen && !chatCollapsed ? (
           <PanelGroup
-            key="spec-task-chat-layout"
+            id={`spec-task-chat-layout-${taskId}`}
+            key={`spec-task-chat-layout-${taskId}-${isHeadless ? "headless" : "desktop"}`}
             orientation="horizontal"
-            defaultLayout={savedSpecTaskChatLayout ?? { "spec-task-chat": 50, "spec-task-content": 50 }}
+            defaultLayout={resolveSpecTaskChatDefaultLayout(
+              savedSpecTaskChatLayout,
+              allowContentCollapse && (
+                collapseContentAfterSplitRef.current
+                || (isHeadless && headlessInitialCollapseTaskRef.current !== taskId)
+              ),
+            )}
             onLayoutChange={(layout) => {
+              if (layout["spec-task-content"] === 0) {
+                collapseContentAfterSplitRef.current = false;
+                if (isHeadless) headlessInitialCollapseTaskRef.current = taskId;
+              }
               // A collapsed panel is transient UI state; retain the last useful
               // split so restoring or reloading does not produce a zero-width pane.
               if (layout["spec-task-chat"] > 0 && layout["spec-task-content"] > 0) {
@@ -2492,6 +2538,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       );
                     })()}
                   </Box>
+                  <SandboxStatusIndicator state={sandboxIndicatorState} />
                   {contentCollapsed ? (
                     <Tooltip title="Show task panel">
                       <IconButton
@@ -2512,7 +2559,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           setChatCollapsed(true);
                           // Switch to desktop view when collapsing chat
                           if (currentView === "chat") {
-                            handleViewChange("desktop");
+                            handleViewChange(isHeadless ? "changes" : "desktop");
                           }
                         }}
                         sx={taskToolbarIconButtonSx}
@@ -2535,6 +2582,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       codeAgentOverrides={task.code_agent_overrides}
                       currentExecutionConfig={currentExecutionConfig}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
+                      sandboxRuntime={task.sandbox_runtime}
                       onAgentModelChange={handleAgentModelChange}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
                       disabled={updateExecutionConfig.isPending}
@@ -2600,6 +2648,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   currentView={currentView}
                   onViewChange={handleViewChange}
                   hasSession
+                  showDesktop={!isHeadless}
                   renderActions={(density) =>
                     renderTaskActions("inline", density)
                   }
@@ -2630,7 +2679,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
                 {/* In split-view layout, "chat" falls through to desktop since chat
                     is already visible in the left panel */}
-                {(currentView === "desktop" || currentView === "chat") &&
+                {!isHeadless && (currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (
                     <TaskSessionPlaceholder
                       tone="finished"
@@ -2731,6 +2780,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 onViewChange={handleViewChange}
                 hasSession
                 showChatTab
+                showDesktop={!isHeadless}
                 renderActions={(density) =>
                   renderTaskActions("inline", density)
                 }
@@ -2847,6 +2897,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       codeAgentOverrides={task.code_agent_overrides}
                       currentExecutionConfig={currentExecutionConfig}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
+                      sandboxRuntime={task.sandbox_runtime}
                       onAgentModelChange={handleAgentModelChange}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
                       disabled={updateExecutionConfig.isPending}
@@ -2868,7 +2919,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             )}
 
             {/* Desktop View - mobile */}
-            {activeSessionId && currentView === "desktop" && (
+            {activeSessionId && !isHeadless && currentView === "desktop" && (
               <Box
                 sx={{
                   flex: 1,

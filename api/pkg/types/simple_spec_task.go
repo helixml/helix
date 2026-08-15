@@ -122,6 +122,24 @@ func (r SandboxResourceOverrides) ValidPreset() bool {
 	}
 }
 
+// EffectiveSpecTaskSandboxRuntime keeps legacy tasks on the full desktop while
+// allowing newly-created tasks to opt into the headless agent runtime.
+func EffectiveSpecTaskSandboxRuntime(runtime SandboxRuntime) SandboxRuntime {
+	if runtime == "" {
+		return SandboxRuntimeUbuntuDesktop
+	}
+	return runtime
+}
+
+func ValidSpecTaskSandboxRuntime(runtime SandboxRuntime) bool {
+	switch runtime {
+	case "", SandboxRuntimeUbuntuDesktop, SandboxRuntimeHeadlessUbuntu:
+		return true
+	default:
+		return false
+	}
+}
+
 // Request types
 type CreateTaskRequest struct {
 	ProjectID string `json:"project_id"`
@@ -140,6 +158,7 @@ type CreateTaskRequest struct {
 
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
+	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
 
 	// CredentialOwnerID optionally names the user whose Claude subscription should
 	// authenticate this task's agent, for orchestrators dispatching work on a
@@ -198,6 +217,7 @@ type SpecTask struct {
 
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty" gorm:"type:jsonb;serializer:json"`
+	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty" gorm:"size:64"`
 
 	// Git repository attachments: REMOVED - now inherited from parent Project
 	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
@@ -457,7 +477,6 @@ type SpecTaskExecutionConfigUpdateRequest struct {
 	CodeAgentOverrides       *CodeAgentOverrides       `json:"code_agent_overrides,omitempty"`
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 }
-
 
 type SpecTaskExecutionConfigUpdateResponse struct {
 	Task                    *SpecTask `json:"task"`

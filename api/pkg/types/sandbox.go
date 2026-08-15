@@ -7,8 +7,6 @@ import (
 )
 
 // SandboxRuntime identifies the type of sandbox to create.
-// Today only ubuntu-desktop is implemented; later runtimes will spin up
-// lightweight Docker containers.
 type SandboxRuntime string
 
 const (
@@ -17,9 +15,9 @@ const (
 	// user can stream into and exec commands inside.
 	SandboxRuntimeUbuntuDesktop SandboxRuntime = "ubuntu-desktop"
 
-	// SandboxRuntimeHeadlessUbuntu spins up a plain `ubuntu:22.04` container
-	// running `sleep infinity` — no GUI, no agent, just a long-lived shell
-	// to exec into. Useful for CI-style scripted workloads.
+	// SandboxRuntimeHeadlessUbuntu selects an Ubuntu runtime without a GUI.
+	// Standalone sandboxes use the configured lightweight image; spec tasks use
+	// the Helix agent toolchain image without compositor or streaming services.
 	SandboxRuntimeHeadlessUbuntu SandboxRuntime = "headless-ubuntu"
 )
 

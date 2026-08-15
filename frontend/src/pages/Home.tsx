@@ -15,6 +15,7 @@ import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo, MessageCircle } from
 import {
   TypesCodeAgentOverrides,
   TypesSandboxResourceOverrides,
+  TypesSandboxRuntime,
 } from '../api/api'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import RobustPromptInput from '../components/common/RobustPromptInput'
@@ -54,6 +55,10 @@ import {
   projectChatAgentStorageKey,
   readNewChatReasoningEffort,
 } from './newChatLogic'
+import {
+  preferredSpecTaskSandboxRuntime,
+  saveSpecTaskSandboxRuntimePreference,
+} from '../utils/specTaskSandboxRuntime'
 
 const T3_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
 const TASK_ATTACHMENT_ACCEPT = Object.entries(SPEC_TASK_ATTACHMENT_ACCEPTED_MIME)
@@ -137,6 +142,9 @@ const Home: FC = () => {
     vcpus: 4,
     memory_mb: 8192,
   })
+  const [taskSandboxRuntime, setTaskSandboxRuntime] = useState<TypesSandboxRuntime>(() =>
+    preferredSpecTaskSandboxRuntime(requestedProjectId),
+  )
   const [taskMode, setTaskMode] = useState<NewChatTaskMode>('build')
   const [modeMenuAnchor, setModeMenuAnchor] = useState<HTMLElement | null>(null)
   const [effortMenuAnchor, setEffortMenuAnchor] = useState<HTMLElement | null>(null)
@@ -179,7 +187,16 @@ const Home: FC = () => {
   useEffect(() => {
     setTaskCodeAgentOverrides({})
     setTaskSandboxResources({ vcpus: 4, memory_mb: 8192 })
-  }, [selectedProjectId])
+    setTaskSandboxRuntime(preferredSpecTaskSandboxRuntime(
+      selectedProjectId,
+      selectedProject?.default_sandbox_runtime,
+    ))
+  }, [selectedProjectId, selectedProject?.default_sandbox_runtime])
+
+  const handleTaskSandboxRuntimeChange = (runtime: TypesSandboxRuntime) => {
+    setTaskSandboxRuntime(runtime)
+    saveSpecTaskSandboxRuntimePreference(selectedProjectId, runtime)
+  }
 
   const taskAgents = codingAgents.flatMap((summary) => {
     const app = apps.apps.find((candidate) => candidate.id === summary.id)
@@ -250,6 +267,7 @@ const Home: FC = () => {
         prompt: message,
         codeAgentOverrides: taskCodeAgentOverrides,
         sandboxResourceOverrides: taskSandboxResources,
+        sandboxRuntime: taskSandboxRuntime,
       }))
       taskId = task?.id || ''
       if (!taskId) throw new Error('Task creation returned no task ID')
@@ -332,11 +350,13 @@ const Home: FC = () => {
         selectedAgentId={selectedAgentId}
         codeAgentOverrides={taskCodeAgentOverrides}
         sandboxResourceOverrides={taskSandboxResources}
+        sandboxRuntime={taskSandboxRuntime}
         onAgentModelChange={(agentId, overrides) => {
           setSelectedAgentId(agentId)
           setTaskCodeAgentOverrides(overrides)
         }}
         onSandboxResourceOverridesChange={setTaskSandboxResources}
+        onSandboxRuntimeChange={handleTaskSandboxRuntimeChange}
         disabled={submitting}
         compact
       />

@@ -80,7 +80,7 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
 EOF
 
     # Add NVIDIA runtime if GPU available
-    if [ -e /dev/nvidia0 ] && command -v nvidia-container-runtime &>/dev/null; then
+    if [ "${HELIX_HEADLESS}" != "1" ] && [ -e /dev/nvidia0 ] && command -v nvidia-container-runtime &>/dev/null; then
         echo "[dockerd] NVIDIA GPU detected - adding nvidia runtime"
         cat > /etc/docker/daemon.json <<EOF
 {
