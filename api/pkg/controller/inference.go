@@ -15,6 +15,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/data"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -41,9 +42,13 @@ type ChatCompletionOptions struct {
 	RAGSourceID     string
 	Provider        string
 	ReasoningEffort string
-	QueryParams     map[string]string
-	OAuthTokens     map[string]string // OAuth tokens mapped by provider name
-	Conversational  bool              // Whether to send thoughts about tools and decisions
+	// CodeAgentOverrides is set only for session-scoped coding-agent proxy
+	// requests. Applying it to the loaded Agent keeps the controller's
+	// authoritative model selection aligned with the session or SpecTask.
+	CodeAgentOverrides *types.CodeAgentOverrides
+	QueryParams        map[string]string
+	OAuthTokens        map[string]string // OAuth tokens mapped by provider name
+	Conversational     bool              // Whether to send thoughts about tools and decisions
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
@@ -988,6 +993,7 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate secrets: %w", err)
 	}
+	app = external_agent.ApplyCodeAgentOverrides(app, opts.CodeAgentOverrides)
 
 	assistant := data.GetAssistant(app, opts.AssistantID)
 

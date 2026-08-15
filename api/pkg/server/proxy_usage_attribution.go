@@ -8,9 +8,10 @@ import (
 )
 
 type proxyUsageAttribution struct {
-	SessionID        string
-	AppID            string
-	CodeAgentRuntime types.CodeAgentRuntime
+	SessionID          string
+	AppID              string
+	CodeAgentRuntime   types.CodeAgentRuntime
+	CodeAgentOverrides *types.CodeAgentOverrides
 }
 
 func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user *types.User, defaultSessionID string) (*proxyUsageAttribution, error) {
@@ -38,8 +39,22 @@ func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user 
 
 	attribution.SessionID = session.ID
 	attribution.CodeAgentRuntime = session.Metadata.CodeAgentRuntime
+	attribution.CodeAgentOverrides = session.Metadata.CodeAgentOverrides
 	if session.ParentApp != "" {
 		attribution.AppID = session.ParentApp
+	}
+	if session.Metadata.SpecTaskID != "" {
+		task, err := s.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load API key spec task %q: %w", session.Metadata.SpecTaskID, err)
+		}
+		if task.PlanningSessionID != "" && task.PlanningSessionID != session.ID {
+			return nil, fmt.Errorf("API key session %q does not own spec task %q", session.ID, task.ID)
+		}
+		attribution.CodeAgentOverrides = task.CodeAgentOverrides
+		if task.HelixAppID != "" {
+			attribution.AppID = task.HelixAppID
+		}
 	}
 	return attribution, nil
 }
