@@ -274,9 +274,12 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Surface why a queued task hasn't started yet. getTask does not run the
-	// listTasks enrichment, so compute it explicitly here for the detail page.
+	// getTask does not go through the listTasks read path, so compute the same
+	// derived fields explicitly: why a queued task hasn't started yet, and the
+	// live sandbox/agent state. Without the second call sandbox_state comes back
+	// null here while the board reports "running" for the same task.
 	s.populateQueueReasons(ctx, task.ProjectID, []*types.SpecTask{task})
+	s.populateSessionState(ctx, []*types.SpecTask{task})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
@@ -419,7 +422,37 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	// Recomputed each read so it clears as the queue drains.
 	s.populateQueueReasons(ctx, projectID, tasks)
 
-	// Populate SessionUpdatedAt and AgentWorkState for agent activity detection
+	s.populateSessionState(ctx, tasks)
+
+	// ETag support: hash the response to avoid sending unchanged data
+	jsonBytes, err := json.Marshal(tasks)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	h := fnv.New64a()
+	h.Write(jsonBytes)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonBytes) //nolint:errcheck
+}
+
+// populateSessionState fills the computed, non-persisted session fields on each
+// task: SessionUpdatedAt, SandboxState, SandboxStatusMessage and AgentWorkState.
+// Shared by listTasks and getTask so a single-task fetch reports the same
+// sandbox state the board does — callers polling GET /spec-tasks/{id} for
+// sandbox_state used to see null forever while the container was running.
+func (s *HelixAPIServer) populateSessionState(ctx context.Context, tasks []*types.SpecTask) {
 	// Collect all session IDs and batch query for efficiency
 	sessionIDs := make([]string, 0)
 	for _, task := range tasks {
@@ -495,28 +528,6 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
-	// ETag support: hash the response to avoid sending unchanged data
-	jsonBytes, err := json.Marshal(tasks)
-	if err != nil {
-		http.Error(w, "failed to encode response", http.StatusInternalServerError)
-		return
-	}
-
-	h := fnv.New64a()
-	h.Write(jsonBytes)
-	etag := fmt.Sprintf(`"%x"`, h.Sum64())
-
-	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
-
-	if match := r.Header.Get("If-None-Match"); match == etag {
-		w.WriteHeader(http.StatusNotModified)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(jsonBytes) //nolint:errcheck
 }
 
 // approveSpecs godoc
