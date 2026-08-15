@@ -451,9 +451,10 @@ func setAppDefaults(apps ...*types.App) {
 				assistant.FrequencyPenalty = 0
 			}
 
-			if assistant.MaxTokens == 0 {
-				assistant.MaxTokens = 2000
-			}
+			// No MaxTokens default: leaving it unset lets each caller size its
+			// own completion budget. Defaulting it truncated external coding
+			// agents mid-turn, which the proxy applies over the agent's own
+			// max_tokens (see api/pkg/controller/inference.go).
 
 			if assistant.PresencePenalty == 0 {
 				assistant.PresencePenalty = 0

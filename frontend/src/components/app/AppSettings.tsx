@@ -135,7 +135,7 @@ const DEFAULT_VALUES = {
   frequency_penalty: 0,
   presence_penalty: 0,
   top_p: 1,
-  max_tokens: 2000,
+  max_tokens: 0,
   reasoning_effort: 'medium',
   max_iterations: 10,
 } as const
