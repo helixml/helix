@@ -221,11 +221,12 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	})
 
 	options := &controller.ChatCompletionOptions{
-		OrganizationID: user.OrganizationID,
-		AppID:          r.URL.Query().Get("app_id"),
-		AssistantID:    r.URL.Query().Get("assistant_id"),
-		RAGSourceID:    r.URL.Query().Get("rag_source_id"),
-		Provider:       validatedProvider,
+		OrganizationID:     user.OrganizationID,
+		AppID:              r.URL.Query().Get("app_id"),
+		AssistantID:        r.URL.Query().Get("assistant_id"),
+		RAGSourceID:        r.URL.Query().Get("rag_source_id"),
+		Provider:           validatedProvider,
+		CodeAgentOverrides: usageAttribution.CodeAgentOverrides,
 		QueryParams: func() map[string]string {
 			params := make(map[string]string)
 			for key, values := range r.URL.Query() {
