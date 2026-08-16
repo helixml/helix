@@ -28,7 +28,7 @@ Project create/update accepts `code_agent_config` for coding work. A non-empty `
 
 ## Project task defaults
 
-Project Settings exposes provider ID, model, sandbox runtime, and sandbox size together under **Task Defaults**. Provider and model update `Project.CodeAgentConfig`; environment updates `Project.DefaultSandboxRuntime`; size updates `Project.DefaultSandboxResourceOverrides`.
+Project Settings reuses the spec-task execution selector under **Task Defaults**. Users choose a harness, provider-backed model, reasoning effort, sandbox runtime, and sandbox size from constrained menus; they never type provider IDs or model names. The selector persists the resolved values to `Project.CodeAgentConfig`, `Project.DefaultSandboxRuntime`, and `Project.DefaultSandboxResourceOverrides`, never an App ID.
 
 New tasks snapshot these project values when the create request omits a task-level choice. An explicit task value wins. Legacy projects without a sandbox-size default resolve to 4 vCPU / 8 GB.
 
