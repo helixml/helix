@@ -373,7 +373,7 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // active boot substate ("starting" or "running") and the interaction is
 // younger than the cold-start grace period, we skip without touching the
 // budget — the existing boot will either finish (Zed dials home and
-// the reconnect resume path delivers) or trip the StartDesktop hard
+// pickupWaitingInteraction delivers) or trip the StartDesktop hard
 // timeout (20 min) and clear the status.
 //
 // Why "running" counts as "still booting" here: StartDesktop sets status

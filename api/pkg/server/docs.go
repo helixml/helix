@@ -9022,18 +9022,18 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/organizations/{org_id}/code-agent-providers": {
+        "/api/v1/organizations/{org_id}/code-agent-harnesses": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every selectable coding-agent runtime with the organization's setting for it and whether the requesting user can currently run it.",
+                "description": "Returns every selectable coding-agent harness, whether the organization enabled it, and whether the requesting user can use its subscription mode.",
                 "tags": [
                     "organizations"
                 ],
-                "summary": "List an organization's coding-agent providers",
+                "summary": "List an organization's coding-agent harnesses",
                 "parameters": [
                     {
                         "type": "string",
@@ -9049,7 +9049,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/types.OrgCodeAgentProviderStatus"
+                                "$ref": "#/definitions/types.OrgCodeAgentHarnessStatus"
                             }
                         }
                     }
@@ -9061,11 +9061,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Enables or disables coding-agent runtimes for the organization and sets how each authenticates. Runtimes omitted from the request are left unchanged.",
+                "description": "Enables or disables coding-agent harnesses. Harnesses omitted from the request are left unchanged. Providers and models are selected independently.",
                 "tags": [
                     "organizations"
                 ],
-                "summary": "Update an organization's coding-agent providers",
+                "summary": "Update an organization's coding-agent harnesses",
                 "parameters": [
                     {
                         "type": "string",
@@ -9075,12 +9075,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Providers to update",
+                        "description": "Harnesses to update",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/types.OrgCodeAgentProvidersUpdateRequest"
+                            "$ref": "#/definitions/types.OrgCodeAgentHarnessesUpdateRequest"
                         }
                     }
                 ],
@@ -9090,7 +9090,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/types.OrgCodeAgentProviderStatus"
+                                "$ref": "#/definitions/types.OrgCodeAgentHarnessStatus"
                             }
                         }
                     }
@@ -18032,7 +18032,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Persists a Waiting interaction and dispatches it via the external-agent\nWebSocket. If no agent is connected the interaction is held until the\nagent reconnects, at which point the reconnect resume path delivers it —\ncallers do not need to manage WebSocket readiness or retries.\nDistinct from POST /sessions/chat (synchronous SSE chat); use this\nendpoint for fire-and-forget delivery to an external (e.g. desktop) agent.",
+                "description": "Persists a Waiting interaction and dispatches it via the external-agent\nWebSocket. If no agent is connected the interaction is held until the\nagent reconnects, at which point pickupWaitingInteraction delivers it —\ncallers do not need to manage WebSocket readiness or retries.\nDistinct from POST /sessions/chat (synchronous SSE chat); use this\nendpoint for fire-and-forget delivery to an external (e.g. desktop) agent.",
                 "consumes": [
                     "application/json"
                 ],
@@ -33310,97 +33310,41 @@ const docTemplate = `{
                 }
             }
         },
-        "types.OrgCodeAgentProviderRef": {
+        "types.OrgCodeAgentHarnessStatus": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "runtime": {
-                    "$ref": "#/definitions/types.CodeAgentRuntime"
-                }
-            }
-        },
-        "types.OrgCodeAgentProviderStatus": {
-            "type": "object",
-            "properties": {
-                "available": {
-                    "description": "Available is whether this viewer can actually run this runtime right now —\nenabled, and either holding a subscription or having a usable API-key\nprovider. The task picker offers exactly the runtimes where this is true.",
-                    "type": "boolean"
-                },
-                "credential_type": {
-                    "$ref": "#/definitions/types.CodeAgentCredentialType"
-                },
-                "default_model": {
-                    "type": "string"
-                },
                 "enabled": {
                     "type": "boolean"
-                },
-                "is_flavour": {
-                    "description": "IsFlavour marks a row the org added on top of the built-in harness list,\nwhich is what the UI allows deleting. The built-in rows are permanent.",
-                    "type": "boolean"
-                },
-                "name": {
-                    "description": "Name is empty for the built-in row and set for an added flavour.",
-                    "type": "string"
-                },
-                "provider_endpoint_id": {
-                    "type": "string"
                 },
                 "runtime": {
                     "$ref": "#/definitions/types.CodeAgentRuntime"
                 },
                 "supports_subscription": {
-                    "description": "SupportsSubscription is true for runtimes that can authenticate with a\npersonal subscription (Claude Code, Codex). Everything else is API-key only.",
                     "type": "boolean"
                 },
-                "unavailable_reason": {
-                    "description": "UnavailableReason explains a false Available so the UI can say why instead\nof silently hiding the row.",
-                    "type": "string"
-                },
                 "viewer_has_subscription": {
-                    "description": "ViewerHasSubscription reports whether *the requesting user* has a\nsubscription for this runtime. It is deliberately viewer-scoped: with\nper-user resolution, whether the runtime actually works differs per member,\nand an org-wide \"connected\" flag would be a lie for everyone else.",
                     "type": "boolean"
                 }
             }
         },
-        "types.OrgCodeAgentProviderUpdate": {
+        "types.OrgCodeAgentHarnessUpdate": {
             "type": "object",
             "properties": {
-                "credential_type": {
-                    "$ref": "#/definitions/types.CodeAgentCredentialType"
-                },
-                "default_model": {
-                    "type": "string"
-                },
                 "enabled": {
                     "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "provider_endpoint_id": {
-                    "type": "string"
                 },
                 "runtime": {
                     "$ref": "#/definitions/types.CodeAgentRuntime"
                 }
             }
         },
-        "types.OrgCodeAgentProvidersUpdateRequest": {
+        "types.OrgCodeAgentHarnessesUpdateRequest": {
             "type": "object",
             "properties": {
-                "delete": {
+                "harnesses": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/types.OrgCodeAgentProviderRef"
-                    }
-                },
-                "providers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.OrgCodeAgentProviderUpdate"
+                        "$ref": "#/definitions/types.OrgCodeAgentHarnessUpdate"
                     }
                 }
             }

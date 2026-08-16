@@ -56,6 +56,31 @@ func (suite *MultiClientManagerTestSuite) Test_VLLM() {
 	suite.NotNil(client)
 }
 
+func (suite *MultiClientManagerTestSuite) Test_GetClientUsesOrganizationOwnership() {
+	suite.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query *store.ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error) {
+			suite.Equal("org_1", query.Owner)
+			suite.Equal(types.OwnerTypeOrg, query.OwnerType)
+			return []*types.ProviderEndpoint{{
+				ID:           "pe_org",
+				Name:         "org-provider",
+				Owner:        "org_1",
+				OwnerType:    types.OwnerTypeOrg,
+				EndpointType: types.ProviderEndpointTypeOrg,
+				BaseURL:      "http://provider.test/v1",
+			}}, nil
+		})
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	client, err := manager.GetClient(context.Background(), &GetClientRequest{
+		Provider:  "org-provider",
+		Owner:     "org_1",
+		OwnerType: types.OwnerTypeOrg,
+	})
+	suite.NoError(err)
+	suite.NotNil(client)
+}
+
 func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 	// Create a temporary file for testing
 	tmpDir := suite.T().TempDir()

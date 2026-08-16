@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useState } from 'react'
+import React, { FC, useState } from 'react'
 import {
   Box,
   Button,
@@ -21,8 +21,7 @@ import {
 import useSnackbar from '../../hooks/useSnackbar'
 import { useModelReasoningEfforts } from '../../hooks/useModelReasoningEfforts'
 import { getCodeAgentEffortOptions } from './CodeAgentEffortSelect'
-import { useHasAvailableCodeAgents } from '../../services/codeAgentProvidersService'
-import useRememberedCodeAgentConfig from '../../hooks/useRememberedCodeAgentConfig'
+import { useHasEnabledCodeAgentHarnesses } from '../../services/codeAgentHarnessesService'
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
 
 type MaybePromise = void | Promise<unknown>
@@ -103,13 +102,10 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   const sandboxRuntimeLocked = showSandboxRuntime && !onSandboxRuntimeChange
   const controlsDisabled = disabled || isSaving
 
-  const remembered = useRememberedCodeAgentConfig()
-
   const save = async (next: TypesCodeAgentExecutionConfig) => {
     setIsSaving(true)
     try {
       await onChange(next)
-      remembered.write(next)
     } catch (error) {
       snackbar.error(error instanceof Error ? error.message : 'Failed to update coding configuration')
     } finally {
@@ -117,26 +113,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
     }
   }
 
-  // Matches the picker's rule: unconfigured covers both "nothing chosen" and
-  // "nothing runnable", so a surface holding a config from before the org
-  // disabled every harness does not offer settings for an agent that cannot
-  // start. Same query cache as the picker, so this costs no extra request.
-  const { hasAny: hasCodeAgents, loading: loadingCodeAgents } = useHasAvailableCodeAgents()
-
-  // Reapply the agent this user last chose for this org and project. Surfaces
-  // start with no config, so without this every new chat begins by asking again
-  // for a choice already made. The picker's own auto-pick still covers the case
-  // where nothing has been remembered yet.
-  useEffect(() => {
-    if (value?.runtime || value?.model) return
-    if (loadingCodeAgents || !hasCodeAgents) return
-    const stored = remembered.read()
-    if (!stored) return
-    void save(stored)
-    // save/onChange identities are not stable in every consumer; the guards
-    // above make this idempotent.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value?.runtime, value?.model, loadingCodeAgents, hasCodeAgents])
+  const { hasAny: hasCodeAgents, loading: loadingCodeAgents } = useHasEnabledCodeAgentHarnesses()
   const unconfigured = (!value?.runtime && !value?.model)
     || (!loadingCodeAgents && !hasCodeAgents)
 

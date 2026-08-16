@@ -460,10 +460,14 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 			return cached.Models, nil
 		}
 
-		provider, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
+		clientRequest := &manager.GetClientRequest{
 			Provider: providerEndpoint.Name,
 			Owner:    providerEndpoint.Owner,
-		})
+		}
+		if providerEndpoint.OwnerType == types.OwnerTypeOrg {
+			clientRequest.OwnerType = types.OwnerTypeOrg
+		}
+		provider, err := s.providerManager.GetClient(ctx, clientRequest)
 		if err != nil {
 			log.Err(err).
 				Str("provider", providerEndpoint.Name).
@@ -644,7 +648,15 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 
 	// Check for duplicate names
-	existingProviders, err := s.providerManager.ListProviders(r.Context(), endpoint.Owner)
+	var (
+		existingProviders []types.Provider
+		err               error
+	)
+	if endpoint.OwnerType == types.OwnerTypeOrg {
+		existingProviders, err = s.providerManager.ListProvidersForOwner(r.Context(), endpoint.Owner, types.OwnerTypeOrg)
+	} else {
+		existingProviders, err = s.providerManager.ListProviders(r.Context(), endpoint.Owner)
+	}
 	if err != nil {
 		log.Err(err).Msg("error listing providers")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
@@ -813,7 +825,12 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	if updatedEndpoint.Name != "" && updatedEndpoint.Name != existingEndpoint.Name {
 		newName := strings.TrimSpace(updatedEndpoint.Name)
 		// Check for duplicate names with other providers
-		existingProviders, err := s.providerManager.ListProviders(ctx, existingEndpoint.Owner)
+		var existingProviders []types.Provider
+		if existingEndpoint.OwnerType == types.OwnerTypeOrg {
+			existingProviders, err = s.providerManager.ListProvidersForOwner(ctx, existingEndpoint.Owner, types.OwnerTypeOrg)
+		} else {
+			existingProviders, err = s.providerManager.ListProviders(ctx, existingEndpoint.Owner)
+		}
 		if err != nil {
 			log.Err(err).Msg("error listing providers for name validation")
 			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)

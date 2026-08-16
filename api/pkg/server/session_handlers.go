@@ -2508,7 +2508,7 @@ type SessionMessageResponse struct {
 // @Summary Queue a message to a session's external agent
 // @Description Persists a Waiting interaction and dispatches it via the external-agent
 // @Description WebSocket. If no agent is connected the interaction is held until the
-// @Description agent reconnects, at which point the reconnect resume path delivers it —
+// @Description agent reconnects, at which point pickupWaitingInteraction delivers it —
 // @Description callers do not need to manage WebSocket readiness or retries.
 // @Description Distinct from POST /sessions/chat (synchronous SSE chat); use this
 // @Description endpoint for fire-and-forget delivery to an external (e.g. desktop) agent.

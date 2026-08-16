@@ -1255,10 +1255,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/organizations/{id}/api_keys", apiServer.createOrgAPIKey).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/api_keys/{key}", apiServer.deleteOrgAPIKey).Methods(http.MethodDelete)
 
-	// Coding-agent provider allow list — which runtimes an org's members may
-	// pick for a task, and how each authenticates.
-	authRouter.HandleFunc("/organizations/{org_id}/code-agent-providers", system.Wrapper(apiServer.listOrgCodeAgentProviders)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/organizations/{org_id}/code-agent-providers", system.Wrapper(apiServer.updateOrgCodeAgentProviders)).Methods(http.MethodPut)
+	// Coding-agent harness policy. Providers remain independent organization
+	// endpoints; tasks combine an enabled harness with a provider/model.
+	authRouter.HandleFunc("/organizations/{org_id}/code-agent-harnesses", system.Wrapper(apiServer.listOrgCodeAgentHarnesses)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/code-agent-harnesses", system.Wrapper(apiServer.updateOrgCodeAgentHarnesses)).Methods(http.MethodPut)
 
 	// Sandboxes API — ephemeral org-scoped containers (Vercel-style).
 	authRouter.HandleFunc("/sandbox-runtimes", apiServer.listSandboxRuntimes).Methods(http.MethodGet)

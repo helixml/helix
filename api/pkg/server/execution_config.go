@@ -204,6 +204,9 @@ func (s *HelixAPIServer) validateCodeAgentExecutionConfig(
 	default:
 		return fmt.Errorf("unsupported code-agent runtime %q", config.Runtime)
 	}
+	if err := s.validateOrgCodeAgentHarness(ctx, organizationID, config.Runtime); err != nil {
+		return err
+	}
 	if config.CredentialType != types.CodeAgentCredentialTypeAPIKey &&
 		config.CredentialType != types.CodeAgentCredentialTypeSubscription {
 		return fmt.Errorf("unsupported credential type %q", config.CredentialType)

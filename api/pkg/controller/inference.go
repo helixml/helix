@@ -520,13 +520,16 @@ func (c *Controller) getClient(ctx context.Context, organizationID, userID, prov
 		Msg("getting OpenAI API client")
 
 	owner := userID
+	ownerType := types.OwnerTypeUser
 	if organizationID != "" {
 		owner = organizationID
+		ownerType = types.OwnerTypeOrg
 	}
 
 	client, err := c.providerManager.GetClient(ctx, &manager.GetClientRequest{
-		Provider: provider,
-		Owner:    owner,
+		Provider:  provider,
+		Owner:     owner,
+		OwnerType: ownerType,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client: %v", err)

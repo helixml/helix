@@ -54,9 +54,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-// SpecTasks carry a complete execution config and do not resolve a Helix App.
-// General sessions may be App-less; org-agent sessions keep the App as their
-// identity and overlay the session-owned coding execution config.
+	// SpecTasks carry a complete execution config and do not resolve a Helix App.
+	// General sessions may be App-less; org-agent sessions keep the App as their
+	// identity and overlay the session-owned coding execution config.
 	var app *types.App
 	var specTask *types.SpecTask
 	if session.Metadata.SpecTaskID != "" {
@@ -1111,11 +1111,10 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 	if apiServer.providerManager == nil {
 		return nil, nil
 	}
-	owner := actorID
 	if app != nil && app.OrganizationID != "" {
-		owner = app.OrganizationID
+		return apiServer.providerManager.ListProviderEndpointsForOwner(ctx, app.OrganizationID, types.OwnerTypeOrg)
 	}
-	return apiServer.providerManager.ListProviderEndpoints(ctx, owner)
+	return apiServer.providerManager.ListProviderEndpoints(ctx, actorID)
 }
 
 // validateSpecTaskAgentConfig pre-flights the task's provider/model snapshot
@@ -1131,6 +1130,9 @@ func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorI
 // project App links. Startup migration removes those links.
 func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context, task *types.SpecTask, actorID string) (string, error) {
 	if task.CodeAgentConfig != nil {
+		if err := apiServer.validateOrgCodeAgentHarness(ctx, task.OrganizationID, task.CodeAgentConfig.Runtime); err != nil {
+			return err.Error(), nil
+		}
 		app := external_agent.AppFromCodeAgentConfig(task.CodeAgentConfig, task.UserID, task.OrganizationID)
 		snapshot, err := apiServer.getProviderSnapshot(ctx, actorID, app)
 		if err != nil {

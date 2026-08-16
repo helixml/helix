@@ -54,7 +54,7 @@ import {
 } from "../../services/specTaskAttachmentsService";
 import CodeAgentExecutionControls from "../agent/CodeAgentExecutionControls";
 import NoCodeAgentsDialog from "../agent/NoCodeAgentsDialog";
-import { useHasAvailableCodeAgents } from "../../services/codeAgentProvidersService";
+import { useHasEnabledCodeAgentHarnesses } from "../../services/codeAgentHarnessesService";
 import {
   preferredSpecTaskSandboxRuntime,
   saveSpecTaskSandboxRuntimePreference,
@@ -140,7 +140,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   // A task cannot start without a coding agent, so an org with none configured
   // gets an explanation and a route to settings rather than a Create button
   // that is simply dead.
-  const { hasAny: hasCodeAgents, loading: loadingCodeAgents } = useHasAvailableCodeAgents();
+  const { hasAny: hasCodeAgents, loading: loadingCodeAgents } = useHasEnabledCodeAgentHarnesses();
   const [noAgentsOpen, setNoAgentsOpen] = useState(false);
   const missingCodeAgents = !loadingCodeAgents && !hasCodeAgents;
 

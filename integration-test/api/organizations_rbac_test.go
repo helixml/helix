@@ -193,23 +193,17 @@ func (suite *OrganizationsRBACTestSuite) TestProjectVisibilityAndRepositoryAcces
 	ownerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
 	suite.Require().NoError(err)
 
-	// A project needs either a code_agent_config or a default_helix_app_id, and
-	// default_helix_app_id is now reserved for org-agent projects. This App is
-	// therefore AgentKindOrg rather than the coding App the test used to build:
-	// an assistant with AgentType zed_external would be classified
-	// AgentKindCoding and rejected. Using an org agent also keeps this RBAC test
-	// clear of the live provider/model validation a code_agent_config triggers,
-	// which has nothing to do with what is being tested here.
 	defaultApp, err := ownerClient.CreateApp(suite.ctx, &types.App{
 		OrganizationID: suite.organization.ID,
-		AgentKind:      types.AgentKindOrg,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        "project-rbac-agent-" + uuid.New().String(),
 				Description: "project rbac test agent",
 				Assistants: []types.AssistantConfig{{
-					Name:  "assistant",
-					Model: "openai/gpt-oss-20b",
+					Name:             "assistant",
+					Model:            "openai/gpt-oss-20b",
+					AgentType:        types.AgentTypeZedExternal,
+					CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
 				}},
 			},
 		},

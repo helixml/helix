@@ -4712,61 +4712,20 @@ export interface TypesOpenAIUsage {
   total_tokens?: number;
 }
 
-export interface TypesOrgCodeAgentProviderRef {
-  name?: string;
-  runtime?: TypesCodeAgentRuntime;
-}
-
-export interface TypesOrgCodeAgentProviderStatus {
-  /**
-   * Available is whether this viewer can actually run this runtime right now —
-   * enabled, and either holding a subscription or having a usable API-key
-   * provider. The task picker offers exactly the runtimes where this is true.
-   */
-  available?: boolean;
-  credential_type?: TypesCodeAgentCredentialType;
-  default_model?: string;
+export interface TypesOrgCodeAgentHarnessStatus {
   enabled?: boolean;
-  /**
-   * IsFlavour marks a row the org added on top of the built-in harness list,
-   * which is what the UI allows deleting. The built-in rows are permanent.
-   */
-  is_flavour?: boolean;
-  /** Name is empty for the built-in row and set for an added flavour. */
-  name?: string;
-  provider_endpoint_id?: string;
   runtime?: TypesCodeAgentRuntime;
-  /**
-   * SupportsSubscription is true for runtimes that can authenticate with a
-   * personal subscription (Claude Code, Codex). Everything else is API-key only.
-   */
   supports_subscription?: boolean;
-  /**
-   * UnavailableReason explains a false Available so the UI can say why instead
-   * of silently hiding the row.
-   */
-  unavailable_reason?: string;
-  /**
-   * ViewerHasSubscription reports whether *the requesting user* has a
-   * subscription for this runtime. It is deliberately viewer-scoped: with
-   * per-user resolution, whether the runtime actually works differs per member,
-   * and an org-wide "connected" flag would be a lie for everyone else.
-   */
   viewer_has_subscription?: boolean;
 }
 
-export interface TypesOrgCodeAgentProviderUpdate {
-  credential_type?: TypesCodeAgentCredentialType;
-  default_model?: string;
+export interface TypesOrgCodeAgentHarnessUpdate {
   enabled?: boolean;
-  name?: string;
-  provider_endpoint_id?: string;
   runtime?: TypesCodeAgentRuntime;
 }
 
-export interface TypesOrgCodeAgentProvidersUpdateRequest {
-  delete?: TypesOrgCodeAgentProviderRef[];
-  providers?: TypesOrgCodeAgentProviderUpdate[];
+export interface TypesOrgCodeAgentHarnessesUpdateRequest {
+  harnesses?: TypesOrgCodeAgentHarnessUpdate[];
 }
 
 export interface TypesOrgComputeUsage {
@@ -12937,38 +12896,38 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns every selectable coding-agent runtime with the organization's setting for it and whether the requesting user can currently run it.
+     * @description Returns every selectable coding-agent harness, whether the organization enabled it, and whether the requesting user can use its subscription mode.
      *
      * @tags organizations
-     * @name V1OrganizationsCodeAgentProvidersDetail
-     * @summary List an organization's coding-agent providers
-     * @request GET:/api/v1/organizations/{org_id}/code-agent-providers
+     * @name V1OrganizationsCodeAgentHarnessesDetail
+     * @summary List an organization's coding-agent harnesses
+     * @request GET:/api/v1/organizations/{org_id}/code-agent-harnesses
      * @secure
      */
-    v1OrganizationsCodeAgentProvidersDetail: (orgId: string, params: RequestParams = {}) =>
-      this.request<TypesOrgCodeAgentProviderStatus[], any>({
-        path: `/api/v1/organizations/${orgId}/code-agent-providers`,
+    v1OrganizationsCodeAgentHarnessesDetail: (orgId: string, params: RequestParams = {}) =>
+      this.request<TypesOrgCodeAgentHarnessStatus[], any>({
+        path: `/api/v1/organizations/${orgId}/code-agent-harnesses`,
         method: "GET",
         secure: true,
         ...params,
       }),
 
     /**
-     * @description Enables or disables coding-agent runtimes for the organization and sets how each authenticates. Runtimes omitted from the request are left unchanged.
+     * @description Enables or disables coding-agent harnesses. Harnesses omitted from the request are left unchanged. Providers and models are selected independently.
      *
      * @tags organizations
-     * @name V1OrganizationsCodeAgentProvidersUpdate
-     * @summary Update an organization's coding-agent providers
-     * @request PUT:/api/v1/organizations/{org_id}/code-agent-providers
+     * @name V1OrganizationsCodeAgentHarnessesUpdate
+     * @summary Update an organization's coding-agent harnesses
+     * @request PUT:/api/v1/organizations/{org_id}/code-agent-harnesses
      * @secure
      */
-    v1OrganizationsCodeAgentProvidersUpdate: (
+    v1OrganizationsCodeAgentHarnessesUpdate: (
       orgId: string,
-      request: TypesOrgCodeAgentProvidersUpdateRequest,
+      request: TypesOrgCodeAgentHarnessesUpdateRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesOrgCodeAgentProviderStatus[], any>({
-        path: `/api/v1/organizations/${orgId}/code-agent-providers`,
+      this.request<TypesOrgCodeAgentHarnessStatus[], any>({
+        path: `/api/v1/organizations/${orgId}/code-agent-harnesses`,
         method: "PUT",
         body: request,
         secure: true,
