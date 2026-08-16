@@ -12,6 +12,14 @@ import AgentHarness, { getAgentHarnessLabel } from '../agent/AgentHarness'
 
 export type HarnessHealth = 'ready' | 'attention' | 'unavailable'
 
+export const HARNESS_SWITCH_SLOT_SX = {
+  width: 58,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  flexShrink: 0,
+} as const
+
 const HEALTH_COLOR: Record<HarnessHealth, string> = {
   ready: 'success.main',
   attention: 'warning.main',
@@ -39,8 +47,8 @@ const CodeAgentHarnessRow: FC<{
         '&:last-of-type': { borderBottom: 'none' },
       }}
     >
-      <Stack direction="row" alignItems="flex-start" spacing={1.5}>
-        <Box sx={{ position: 'relative', display: 'flex', flexShrink: 0, mt: 0.25 }}>
+      <Stack direction="row" alignItems="center" spacing={1.5}>
+        <Box sx={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
           <AgentHarness runtime={runtime} variant="short" size={22} showTooltip={false} />
           <Box
             aria-hidden="true"
@@ -87,17 +95,20 @@ const CodeAgentHarnessRow: FC<{
               />
             </IconButton>
           </Tooltip>
-          <Switch
-            checked={enabled}
-            disabled={disabled}
-            onChange={(event) => onToggle(event.target.checked)}
-            inputProps={{ 'aria-label': `Enable ${label}` }}
-          />
+          <Box sx={HARNESS_SWITCH_SLOT_SX}>
+            <Switch
+              color="secondary"
+              checked={enabled}
+              disabled={disabled}
+              onChange={(event) => onToggle(event.target.checked)}
+              inputProps={{ 'aria-label': `Enable ${label}` }}
+            />
+          </Box>
         </Stack>
       </Stack>
 
       <Collapse in={expanded} unmountOnExit>
-        <Box sx={{ pl: 4.75, pr: 1, pt: 1.5 }}>{children}</Box>
+        <Box sx={{ pl: 4.75, pt: 1.5 }}>{children}</Box>
       </Collapse>
     </Box>
   )

@@ -13,7 +13,7 @@ import {
   TypesOrgCodeAgentHarnessUpdate,
   TypesProviderEndpoint,
 } from '../../api/api'
-import CodeAgentHarnessRow, { HarnessHealth } from './CodeAgentHarnessRow'
+import CodeAgentHarnessRow, { HARNESS_SWITCH_SLOT_SX, HarnessHealth } from './CodeAgentHarnessRow'
 import { providerRef } from '../create/AdvancedModelPicker'
 import { getAgentHarnessLabel } from '../agent/AgentHarness'
 
@@ -64,9 +64,10 @@ const CodeAgentHarnessesSection: FC<{
           ? runnableEndpoints
           : runnableEndpoints.filter((endpoint) => allowedProviderRefs.has(providerRef(endpoint)))
         const subscriptionEnabled = harness.subscription_enabled !== false
+        const viewerHasSubscription = !!harness.viewer_has_subscription
         const hasSubscription = harness.supports_subscription
           && subscriptionEnabled
-          && harness.viewer_has_subscription
+          && viewerHasSubscription
         const harnessLabel = getAgentHarnessLabel(harness.runtime || '')
         const health: HarnessHealth = !harness.enabled
           ? 'unavailable'
@@ -106,30 +107,34 @@ const CodeAgentHarnessesSection: FC<{
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
                       {subscriptionIdentity?.(harness.runtime || '')
-                        || (harness.viewer_has_subscription ? 'Connected' : 'Not connected')}
+                        || (viewerHasSubscription ? 'Connected' : 'Not connected')}
                     </Typography>
                   </Box>
                   <Stack
                     direction="row"
                     alignItems="center"
-                    spacing={0.75}
-                    sx={{ flexShrink: 0, '& .MuiButton-root': { textTransform: 'none', minWidth: 0, px: 1 } }}
+                    spacing={1}
+                    sx={{
+                      flexShrink: 0,
+                      '& .MuiButton-root': { textTransform: 'none', whiteSpace: 'nowrap' },
+                    }}
                   >
                     {subscriptionActionNode}
-                    <Switch
-                      size="small"
-                      edge="end"
-                      checked={subscriptionEnabled}
-                      disabled={readOnly}
-                      inputProps={{
-                        'aria-label': `${subscriptionEnabled ? 'Disable' : 'Enable'} subscription for ${harnessLabel}`,
-                      }}
-                      onChange={(_, enabled) => onChange({
-                        runtime: harness.runtime!,
-                        enabled: harness.enabled ?? false,
-                        subscription_enabled: enabled,
-                      })}
-                    />
+                    <Box sx={HARNESS_SWITCH_SLOT_SX}>
+                      <Switch
+                        color="secondary"
+                        checked={subscriptionEnabled}
+                        disabled={readOnly}
+                        inputProps={{
+                          'aria-label': `${subscriptionEnabled ? 'Disable' : 'Enable'} subscription for ${harnessLabel}`,
+                        }}
+                        onChange={(_, enabled) => onChange({
+                          runtime: harness.runtime!,
+                          enabled: harness.enabled ?? false,
+                          subscription_enabled: enabled,
+                        })}
+                      />
+                    </Box>
                   </Stack>
                 </Stack>
               )}
@@ -178,31 +183,31 @@ const CodeAgentHarnessesSection: FC<{
                           spacing={1}
                         >
                           <Typography variant="body2">{endpoint.name || 'Unnamed provider'}</Typography>
-                          <Switch
-                            size="small"
-                            edge="end"
-                            checked={checked}
-                            disabled={readOnly}
-                            inputProps={{
-                              'aria-label': `${checked ? 'Disable' : 'Enable'} ${endpoint.name || 'unnamed provider'} for ${harnessLabel}`,
-                            }}
-                            onChange={(_, enabled) => {
-                              const current = harness.provider_refs == null
-                                // Materializing the legacy "all providers"
-                                // policy must retain temporarily unavailable
-                                // endpoints that are not rendered in this list.
-                                ? [...new Set(endpoints.map(providerRef))]
-                                : harness.provider_refs
-                              const next = enabled
-                                ? [...new Set([...current, ref])]
-                                : current.filter((candidate) => candidate !== ref)
-                              onChange({
-                                runtime: harness.runtime!,
-                                enabled: harness.enabled ?? false,
-                                provider_refs: next,
-                              })
-                            }}
-                          />
+                          <Box sx={HARNESS_SWITCH_SLOT_SX}>
+                            <Switch
+                              color="secondary"
+                              checked={checked}
+                              disabled={readOnly}
+                              inputProps={{
+                                'aria-label': `${checked ? 'Disable' : 'Enable'} ${endpoint.name || 'unnamed provider'} for ${harnessLabel}`,
+                              }}
+                              onChange={(_, enabled) => {
+                                const current = harness.provider_refs == null
+                                  // Preserve temporarily unavailable endpoints
+                                  // when materializing the legacy all-providers policy.
+                                  ? [...new Set(endpoints.map(providerRef))]
+                                  : harness.provider_refs
+                                const next = enabled
+                                  ? [...new Set([...current, ref])]
+                                  : current.filter((candidate) => candidate !== ref)
+                                onChange({
+                                  runtime: harness.runtime!,
+                                  enabled: harness.enabled ?? false,
+                                  provider_refs: next,
+                                })
+                              }}
+                            />
+                          </Box>
                         </Stack>
                       )
                     })}

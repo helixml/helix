@@ -135,7 +135,7 @@ describe('CodeAgentHarnessesSection', () => {
     })
   })
 
-  it('places Codex subscription actions beside the subscription switch', () => {
+  it('keeps subscription policy configurable when the owner is disconnected', () => {
     render(
       <CodeAgentHarnessesSection
         harnesses={[{

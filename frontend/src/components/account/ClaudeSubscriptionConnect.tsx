@@ -654,7 +654,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   // --- Button variant ---
   if (variant === 'button') {
-    const connectButtonSx = { textTransform: 'none', minWidth: 0, px: 1 } as const
+    const connectButtonSx = { textTransform: 'none' } as const
     return (
       <>
         {hasSubscription ? (
@@ -673,7 +673,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             <Tooltip title={expiry && !isSetupToken ? expiry.label : ''} disableHoverListener={!expiry || isSetupToken}>
               <Button
                 size="small"
-                variant="text"
+                variant="outlined"
                 color="error"
                 onClick={() => {
                   if (subscriptions?.[0]?.id) {
@@ -690,8 +690,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         ) : (
           <Button
             size="small"
-            variant="text"
-            color="secondary"
+            variant="outlined"
             onClick={handleOpenTokenDialog}
             sx={connectButtonSx}
           >
