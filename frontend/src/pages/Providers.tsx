@@ -209,7 +209,7 @@ const Providers: React.FC = () => {
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             {editAllowed
-              ? "Choose which harnesses tasks in this organization can use. Providers and models are selected when creating a task."
+              ? "Choose which harnesses and credential sources tasks in this organization can use. Models are selected when creating a task."
               : "Harnesses available to tasks in this organization."}
           </Typography>
           <CodeAgentHarnessesSection

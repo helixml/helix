@@ -9061,7 +9061,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Enables or disables coding-agent harnesses. Harnesses omitted from the request are left unchanged. Providers and models are selected independently.",
+                "description": "Enables or disables coding-agent harnesses and controls which subscription and provider sources each harness may use. Harnesses omitted from the request are left unchanged. Models are selected per task.",
                 "tags": [
                     "organizations"
                 ],
@@ -33316,8 +33316,17 @@ const docTemplate = `{
                 "enabled": {
                     "type": "boolean"
                 },
+                "provider_refs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "runtime": {
                     "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "subscription_enabled": {
+                    "type": "boolean"
                 },
                 "supports_subscription": {
                     "type": "boolean"
@@ -33333,8 +33342,17 @@ const docTemplate = `{
                 "enabled": {
                     "type": "boolean"
                 },
+                "provider_refs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "runtime": {
                     "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "subscription_enabled": {
+                    "type": "boolean"
                 }
             }
         },

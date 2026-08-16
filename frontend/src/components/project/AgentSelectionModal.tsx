@@ -56,6 +56,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
         <CodeAgentExecutionControls
           value={config}
           onChange={setConfig}
+          autoSelectSubscriptionDefault
           grouped
         />
       </DialogContent>

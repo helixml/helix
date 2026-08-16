@@ -4714,14 +4714,18 @@ export interface TypesOpenAIUsage {
 
 export interface TypesOrgCodeAgentHarnessStatus {
   enabled?: boolean;
+  provider_refs?: string[];
   runtime?: TypesCodeAgentRuntime;
+  subscription_enabled?: boolean;
   supports_subscription?: boolean;
   viewer_has_subscription?: boolean;
 }
 
 export interface TypesOrgCodeAgentHarnessUpdate {
   enabled?: boolean;
+  provider_refs?: string[];
   runtime?: TypesCodeAgentRuntime;
+  subscription_enabled?: boolean;
 }
 
 export interface TypesOrgCodeAgentHarnessesUpdateRequest {
@@ -12913,7 +12917,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Enables or disables coding-agent harnesses. Harnesses omitted from the request are left unchanged. Providers and models are selected independently.
+     * @description Enables or disables coding-agent harnesses and controls which subscription and provider sources each harness may use. Harnesses omitted from the request are left unchanged. Models are selected per task.
      *
      * @tags organizations
      * @name V1OrganizationsCodeAgentHarnessesUpdate

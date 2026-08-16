@@ -41,7 +41,16 @@ export function useUpdateOrgCodeAgentHarnesses(orgId?: string) {
       queryClient.setQueryData<TypesOrgCodeAgentHarnessStatus[]>(queryKey, (current) =>
         (current || []).map((harness) => {
           const update = updates.find((candidate) => candidate.runtime === harness.runtime)
-          return update ? { ...harness, enabled: update.enabled } : harness
+          return update ? {
+            ...harness,
+            enabled: update.enabled,
+            ...(update.provider_refs === undefined
+              ? {}
+              : { provider_refs: update.provider_refs }),
+            ...(update.subscription_enabled === undefined
+              ? {}
+              : { subscription_enabled: update.subscription_enabled }),
+          } : harness
         }),
       )
       return { previous }

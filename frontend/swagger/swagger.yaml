@@ -7461,8 +7461,14 @@ definitions:
     properties:
       enabled:
         type: boolean
+      provider_refs:
+        items:
+          type: string
+        type: array
       runtime:
         $ref: '#/definitions/types.CodeAgentRuntime'
+      subscription_enabled:
+        type: boolean
       supports_subscription:
         type: boolean
       viewer_has_subscription:
@@ -7472,8 +7478,14 @@ definitions:
     properties:
       enabled:
         type: boolean
+      provider_refs:
+        items:
+          type: string
+        type: array
       runtime:
         $ref: '#/definitions/types.CodeAgentRuntime'
+      subscription_enabled:
+        type: boolean
     type: object
   types.OrgCodeAgentHarnessesUpdateRequest:
     properties:
@@ -19157,8 +19169,9 @@ paths:
       tags:
       - organizations
     put:
-      description: Enables or disables coding-agent harnesses. Harnesses omitted from
-        the request are left unchanged. Providers and models are selected independently.
+      description: Enables or disables coding-agent harnesses and controls which subscription
+        and provider sources each harness may use. Harnesses omitted from the request
+        are left unchanged. Models are selected per task.
       parameters:
       - description: Organization ID or name
         in: path

@@ -1,8 +1,12 @@
 import { FC, ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
+import IconButton from '@mui/material/IconButton'
 import Stack from '@mui/material/Stack'
+import Switch from '@mui/material/Switch'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import { Info } from 'lucide-react'
 
 import {
   TypesOrgCodeAgentHarnessStatus,
@@ -10,11 +14,16 @@ import {
   TypesProviderEndpoint,
 } from '../../api/api'
 import CodeAgentHarnessRow, { HarnessHealth } from './CodeAgentHarnessRow'
+import { providerRef } from '../create/AdvancedModelPicker'
+import { getAgentHarnessLabel } from '../agent/AgentHarness'
 
 function endpointIsRunnable(endpoint: TypesProviderEndpoint): boolean {
   return (endpoint.available_models || []).some((model) => model.enabled
     && (!model.type || model.type === 'chat' || model.type === 'text'))
 }
+
+const PROVIDERS_HELP =
+  'Enabled API providers expose their models in the task chat, where a model is selected.'
 
 const CodeAgentHarnessesSection: FC<{
   harnesses: TypesOrgCodeAgentHarnessStatus[]
@@ -48,17 +57,30 @@ const CodeAgentHarnessesSection: FC<{
     <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
       {harnesses.map((harness) => {
         const runnableEndpoints = endpoints.filter(endpointIsRunnable)
-        const hasSubscription = harness.supports_subscription && harness.viewer_has_subscription
+        const allowedProviderRefs = harness.provider_refs == null
+          ? null
+          : new Set(harness.provider_refs)
+        const allowedEndpoints = allowedProviderRefs == null
+          ? runnableEndpoints
+          : runnableEndpoints.filter((endpoint) => allowedProviderRefs.has(providerRef(endpoint)))
+        const subscriptionEnabled = harness.subscription_enabled !== false
+        const hasSubscription = harness.supports_subscription
+          && subscriptionEnabled
+          && harness.viewer_has_subscription
+        const harnessLabel = getAgentHarnessLabel(harness.runtime || '')
         const health: HarnessHealth = !harness.enabled
           ? 'unavailable'
-          : runnableEndpoints.length > 0 || hasSubscription
+          : allowedEndpoints.length > 0 || hasSubscription
             ? 'ready'
             : 'attention'
         const status = !harness.enabled
-          ? 'Disabled for this organization'
+          ? 'Disabled'
           : health === 'ready'
-            ? 'Ready to configure when creating a task'
-            : 'Enabled, but no provider or subscription is available'
+            ? 'Ready'
+            : 'No providers available'
+        const subscriptionActionNode = harness.supports_subscription
+          ? subscriptionAction?.(harness.runtime || '')
+          : null
 
         return (
           <CodeAgentHarnessRow
@@ -72,44 +94,124 @@ const CodeAgentHarnessesSection: FC<{
           >
             <Stack spacing={2}>
               {harness.supports_subscription && (
-                <Box>
-                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.75 }}>
-                    Subscription
-                  </Typography>
-                  <Typography variant="body2" sx={{ mb: 1 }}>
-                    {subscriptionIdentity?.(harness.runtime || '')
-                      || (harness.viewer_has_subscription
-                        ? 'Connected for your account'
-                        : 'No subscription connected for your account')}
-                  </Typography>
-                  {subscriptionAction?.(harness.runtime || '')}
-                </Box>
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  spacing={1}
+                >
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      {harness.runtime === 'claude_code' ? 'Claude subscription' : 'ChatGPT subscription'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                      {subscriptionIdentity?.(harness.runtime || '')
+                        || (harness.viewer_has_subscription ? 'Connected' : 'Not connected')}
+                    </Typography>
+                  </Box>
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    spacing={0.75}
+                    sx={{ flexShrink: 0, '& .MuiButton-root': { textTransform: 'none', minWidth: 0, px: 1 } }}
+                  >
+                    {subscriptionActionNode}
+                    <Switch
+                      size="small"
+                      edge="end"
+                      checked={subscriptionEnabled}
+                      disabled={readOnly}
+                      inputProps={{
+                        'aria-label': `${subscriptionEnabled ? 'Disable' : 'Enable'} subscription for ${harnessLabel}`,
+                      }}
+                      onChange={(_, enabled) => onChange({
+                        runtime: harness.runtime!,
+                        enabled: harness.enabled ?? false,
+                        subscription_enabled: enabled,
+                      })}
+                    />
+                  </Stack>
+                </Stack>
               )}
 
               <Box>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.75 }}>
-                  API providers available to tasks
-                </Typography>
+                <Stack direction="row" alignItems="center" spacing={0.25} sx={{ mb: 0.5 }}>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    API providers
+                  </Typography>
+                  <Tooltip title={PROVIDERS_HELP}>
+                    <IconButton
+                      size="small"
+                      aria-label={PROVIDERS_HELP}
+                      sx={{
+                        width: 24,
+                        height: 24,
+                        color: 'text.secondary',
+                        '&:hover': { color: 'text.primary' },
+                      }}
+                    >
+                      <Info size={14} />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
                 {runnableEndpoints.length > 0 ? (
-                  <Stack spacing={0.5}>
-                    {runnableEndpoints.map((endpoint) => (
-                      <Stack key={endpoint.id || endpoint.name} direction="row" alignItems="center" spacing={1}>
-                        <Box
-                          aria-hidden="true"
-                          sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'success.main' }}
-                        />
-                        <Typography variant="body2">{endpoint.name || 'Unnamed provider'}</Typography>
-                      </Stack>
-                    ))}
+                  <Stack
+                    sx={{
+                      '& > *': {
+                        py: 1.25,
+                        minHeight: 44,
+                        borderBottom: '1px solid',
+                        borderColor: 'divider',
+                      },
+                      '& > *:last-child': { borderBottom: 'none' },
+                    }}
+                  >
+                    {runnableEndpoints.map((endpoint) => {
+                      const ref = providerRef(endpoint)
+                      const checked = allowedProviderRefs == null || allowedProviderRefs.has(ref)
+                      return (
+                        <Stack
+                          key={ref}
+                          direction="row"
+                          alignItems="center"
+                          justifyContent="space-between"
+                          spacing={1}
+                        >
+                          <Typography variant="body2">{endpoint.name || 'Unnamed provider'}</Typography>
+                          <Switch
+                            size="small"
+                            edge="end"
+                            checked={checked}
+                            disabled={readOnly}
+                            inputProps={{
+                              'aria-label': `${checked ? 'Disable' : 'Enable'} ${endpoint.name || 'unnamed provider'} for ${harnessLabel}`,
+                            }}
+                            onChange={(_, enabled) => {
+                              const current = harness.provider_refs == null
+                                // Materializing the legacy "all providers"
+                                // policy must retain temporarily unavailable
+                                // endpoints that are not rendered in this list.
+                                ? [...new Set(endpoints.map(providerRef))]
+                                : harness.provider_refs
+                              const next = enabled
+                                ? [...new Set([...current, ref])]
+                                : current.filter((candidate) => candidate !== ref)
+                              onChange({
+                                runtime: harness.runtime!,
+                                enabled: harness.enabled ?? false,
+                                provider_refs: next,
+                              })
+                            }}
+                          />
+                        </Stack>
+                      )
+                    })}
                   </Stack>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
                     No API providers with available models are connected.
                   </Typography>
                 )}
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                  The provider and model are selected in the task chat.
-                </Typography>
               </Box>
             </Stack>
           </CodeAgentHarnessRow>

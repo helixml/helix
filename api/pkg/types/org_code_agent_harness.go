@@ -6,9 +6,9 @@ import (
 )
 
 // OrgCodeAgentHarness records whether an organization permits one coding
-// harness. Provider endpoints and models deliberately do not live here:
-// provider endpoints are managed independently, and a task selects a model
-// from their current model lists when it starts.
+// harness and which provider endpoints that harness may use. Models
+// deliberately do not live here: a task selects a model from the allowed
+// providers' current model lists when it starts.
 type OrgCodeAgentHarness struct {
 	ID        string    `json:"id" gorm:"primaryKey"`
 	Created   time.Time `json:"created"`
@@ -19,16 +19,27 @@ type OrgCodeAgentHarness struct {
 	OrganizationID string           `json:"organization_id" gorm:"uniqueIndex:idx_org_code_agent_harness"`
 	Runtime        CodeAgentRuntime `json:"runtime" gorm:"uniqueIndex:idx_org_code_agent_harness"`
 	Enabled        bool             `json:"enabled"`
+	// Nil preserves the pre-source-policy behaviour where subscription mode is
+	// allowed for runtimes that support it. An explicit false disables it.
+	SubscriptionEnabled *bool `json:"subscription_enabled"`
+	// Nil preserves the pre-allow-list behaviour where every provider visible
+	// to the organization is allowed. A non-nil empty list allows none. Once an
+	// owner changes a provider switch, the UI writes an explicit full list so
+	// newly connected providers do not become exposed automatically.
+	ProviderRefs []string `json:"provider_refs" gorm:"type:jsonb;serializer:json"`
 }
 
 func (OrgCodeAgentHarness) TableName() string {
 	return "org_code_agent_harnesses"
 }
 
-// OrgCodeAgentHarnessUpdate replaces one harness's enabled state.
+// OrgCodeAgentHarnessUpdate updates one harness. Nil source fields preserve
+// their existing values.
 type OrgCodeAgentHarnessUpdate struct {
-	Runtime CodeAgentRuntime `json:"runtime"`
-	Enabled bool             `json:"enabled"`
+	Runtime             CodeAgentRuntime `json:"runtime"`
+	Enabled             bool             `json:"enabled"`
+	SubscriptionEnabled *bool            `json:"subscription_enabled"`
+	ProviderRefs        []string         `json:"provider_refs"`
 }
 
 type OrgCodeAgentHarnessesUpdateRequest struct {
@@ -36,14 +47,24 @@ type OrgCodeAgentHarnessesUpdateRequest struct {
 }
 
 // OrgCodeAgentHarnessStatus is the organization policy plus viewer-scoped
-// subscription availability. Subscription availability is informational; it
-// never changes whether the organization enabled the harness, because the
-// task may instead use any configured API provider.
+// subscription availability. ViewerHasSubscription is informational and is
+// combined with SubscriptionEnabled to decide whether subscription models are
+// available to the requesting member.
 type OrgCodeAgentHarnessStatus struct {
 	Runtime               CodeAgentRuntime `json:"runtime"`
 	Enabled               bool             `json:"enabled"`
+	SubscriptionEnabled   *bool            `json:"subscription_enabled"`
+	ProviderRefs          []string         `json:"provider_refs"`
 	SupportsSubscription  bool             `json:"supports_subscription"`
 	ViewerHasSubscription bool             `json:"viewer_has_subscription"`
+}
+
+func (h *OrgCodeAgentHarness) AllowsProvider(providerRef string) bool {
+	return h.ProviderRefs == nil || slices.Contains(h.ProviderRefs, providerRef)
+}
+
+func (h *OrgCodeAgentHarness) AllowsSubscription() bool {
+	return h.SubscriptionEnabled == nil || *h.SubscriptionEnabled
 }
 
 var SubscriptionCodeAgentRuntimes = map[CodeAgentRuntime]bool{

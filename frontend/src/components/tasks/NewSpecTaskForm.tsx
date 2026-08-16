@@ -1093,6 +1093,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 sandboxRuntime={sandboxRuntime}
                 onSandboxResourceOverridesChange={setSandboxResourceOverrides}
                 onSandboxRuntimeChange={handleSandboxRuntimeChange}
+                autoSelectSubscriptionDefault
               />
               {selectedAgentIsGoose && (
                 <GooseRecipeSelector

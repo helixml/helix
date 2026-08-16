@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -66,22 +68,37 @@ func (s *PostgresStore) UpsertOrgCodeAgentHarnesses(ctx context.Context, orgID, 
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, update := range updates {
 			row := types.OrgCodeAgentHarness{
-				ID:             system.GenerateID(),
-				Created:        now,
-				Updated:        now,
-				CreatedBy:      actingUserID,
-				UpdatedBy:      actingUserID,
-				OrganizationID: orgID,
-				Runtime:        update.Runtime,
-				Enabled:        update.Enabled,
+				ID:                  system.GenerateID(),
+				Created:             now,
+				Updated:             now,
+				CreatedBy:           actingUserID,
+				UpdatedBy:           actingUserID,
+				OrganizationID:      orgID,
+				Runtime:             update.Runtime,
+				Enabled:             update.Enabled,
+				SubscriptionEnabled: update.SubscriptionEnabled,
+				ProviderRefs:        update.ProviderRefs,
+			}
+			assignments := map[string]any{
+				"enabled":    row.Enabled,
+				"updated":    now,
+				"updated_by": actingUserID,
+			}
+			// A nil provider_refs field means the caller only changed the harness
+			// switch. Preserve any explicit provider policy already stored.
+			if update.ProviderRefs != nil {
+				providerRefsJSON, err := json.Marshal(update.ProviderRefs)
+				if err != nil {
+					return fmt.Errorf("failed to encode provider refs: %w", err)
+				}
+				assignments["provider_refs"] = datatypes.JSON(providerRefsJSON)
+			}
+			if update.SubscriptionEnabled != nil {
+				assignments["subscription_enabled"] = *update.SubscriptionEnabled
 			}
 			if err := tx.Clauses(clause.OnConflict{
-				Columns: []clause.Column{{Name: "organization_id"}, {Name: "runtime"}},
-				DoUpdates: clause.Assignments(map[string]any{
-					"enabled":    row.Enabled,
-					"updated":    now,
-					"updated_by": actingUserID,
-				}),
+				Columns:   []clause.Column{{Name: "organization_id"}, {Name: "runtime"}},
+				DoUpdates: clause.Assignments(assignments),
 			}).Create(&row).Error; err != nil {
 				return err
 			}

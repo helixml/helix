@@ -25,6 +25,7 @@ import MenuItem from '@mui/material/MenuItem'
 import Switch from '@mui/material/Switch'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
+import Tooltip from '@mui/material/Tooltip'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -653,24 +654,26 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   // --- Button variant ---
   if (variant === 'button') {
+    const connectButtonSx = { textTransform: 'none', minWidth: 0, px: 1 } as const
     return (
       <>
         {hasSubscription ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-            {isExpired && !isSetupToken ? (
+          isExpired && !isSetupToken ? (
+            <Button
+              size="small"
+              variant="contained"
+              color="warning"
+              onClick={handleOpenTokenDialog}
+              startIcon={<ErrorOutlineIcon />}
+              sx={connectButtonSx}
+            >
+              Re-authenticate
+            </Button>
+          ) : (
+            <Tooltip title={expiry && !isSetupToken ? expiry.label : ''} disableHoverListener={!expiry || isSetupToken}>
               <Button
                 size="small"
-                variant="contained"
-                color="warning"
-                onClick={handleOpenTokenDialog}
-                startIcon={<ErrorOutlineIcon />}
-              >
-                Re-authenticate
-              </Button>
-            ) : (
-              <Button
-                size="small"
-                variant="outlined"
+                variant="text"
                 color="error"
                 onClick={() => {
                   if (subscriptions?.[0]?.id) {
@@ -678,24 +681,19 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                     setDisconnectDialogOpen(true)
                   }
                 }}
+                sx={connectButtonSx}
               >
                 Disconnect
               </Button>
-            )}
-            {expiry && !isSetupToken && (
-              <Typography variant="caption" color={`${expiry.color}.main`} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                {expiry.isExpiringSoon && !isExpired && <WarningAmberIcon sx={{ fontSize: 12 }} />}
-                {isExpired && <ErrorOutlineIcon sx={{ fontSize: 12 }} />}
-                {expiry.label}
-              </Typography>
-            )}
-          </Box>
+            </Tooltip>
+          )
         ) : (
           <Button
             size="small"
             variant="text"
             color="secondary"
             onClick={handleOpenTokenDialog}
+            sx={connectButtonSx}
           >
             Connect
           </Button>

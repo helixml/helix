@@ -67,14 +67,17 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
     }
   }
 
+  const connectButtonSx = { textTransform: 'none', minWidth: 0, px: 1 } as const
+
   if (subscription?.id) {
     return (
       <Button
         size="small"
         color="error"
-        variant="outlined"
+        variant="text"
         disabled={deleteSubscription.isPending}
         onClick={() => deleteSubscription.mutate(subscription.id!)}
+        sx={connectButtonSx}
       >
         Disconnect
       </Button>
@@ -93,6 +96,7 @@ export default function CodexSubscriptionConnect({ orgId }: Props) {
           setLoginSessionId(result.session_id || '')
           setOpen(true)
         }}
+        sx={connectButtonSx}
       >
         Connect
       </Button>
