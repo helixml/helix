@@ -1666,6 +1666,20 @@ func (mr *MockStoreMockRecorder) DeleteOldDiskUsageHistory(ctx, olderThan any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOldDiskUsageHistory", reflect.TypeOf((*MockStore)(nil).DeleteOldDiskUsageHistory), ctx, olderThan)
 }
 
+// DeleteOrgCodeAgentProviders mocks base method.
+func (m *MockStore) DeleteOrgCodeAgentProviders(ctx context.Context, orgID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOrgCodeAgentProviders", ctx, orgID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteOrgCodeAgentProviders indicates an expected call of DeleteOrgCodeAgentProviders.
+func (mr *MockStoreMockRecorder) DeleteOrgCodeAgentProviders(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOrgCodeAgentProviders", reflect.TypeOf((*MockStore)(nil).DeleteOrgCodeAgentProviders), ctx, orgID)
+}
+
 // DeleteOrganization mocks base method.
 func (m *MockStore) DeleteOrganization(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -3124,6 +3138,21 @@ func (m *MockStore) GetOrCreateAgentRunner(ctx context.Context, runnerID string)
 func (mr *MockStoreMockRecorder) GetOrCreateAgentRunner(ctx, runnerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateAgentRunner", reflect.TypeOf((*MockStore)(nil).GetOrCreateAgentRunner), ctx, runnerID)
+}
+
+// GetOrgCodeAgentProvider mocks base method.
+func (m *MockStore) GetOrgCodeAgentProvider(ctx context.Context, orgID string, runtime types.CodeAgentRuntime) (*types.OrgCodeAgentProvider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrgCodeAgentProvider", ctx, orgID, runtime)
+	ret0, _ := ret[0].(*types.OrgCodeAgentProvider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrgCodeAgentProvider indicates an expected call of GetOrgCodeAgentProvider.
+func (mr *MockStoreMockRecorder) GetOrgCodeAgentProvider(ctx, orgID, runtime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrgCodeAgentProvider", reflect.TypeOf((*MockStore)(nil).GetOrgCodeAgentProvider), ctx, orgID, runtime)
 }
 
 // GetOrgComputeUsage mocks base method.
@@ -4806,6 +4835,21 @@ func (m *MockStore) ListOrgAuditLogs(ctx context.Context, filters *types.OrgAudi
 func (mr *MockStoreMockRecorder) ListOrgAuditLogs(ctx, filters any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrgAuditLogs", reflect.TypeOf((*MockStore)(nil).ListOrgAuditLogs), ctx, filters)
+}
+
+// ListOrgCodeAgentProviders mocks base method.
+func (m *MockStore) ListOrgCodeAgentProviders(ctx context.Context, orgID string) ([]*types.OrgCodeAgentProvider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOrgCodeAgentProviders", ctx, orgID)
+	ret0, _ := ret[0].([]*types.OrgCodeAgentProvider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOrgCodeAgentProviders indicates an expected call of ListOrgCodeAgentProviders.
+func (mr *MockStoreMockRecorder) ListOrgCodeAgentProviders(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrgCodeAgentProviders", reflect.TypeOf((*MockStore)(nil).ListOrgCodeAgentProviders), ctx, orgID)
 }
 
 // ListOrganizationInvitations mocks base method.
@@ -7214,6 +7258,21 @@ func (m *MockStore) UpdateWebServiceDeploy(ctx context.Context, id string, updat
 func (mr *MockStoreMockRecorder) UpdateWebServiceDeploy(ctx, id, updates any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWebServiceDeploy", reflect.TypeOf((*MockStore)(nil).UpdateWebServiceDeploy), ctx, id, updates)
+}
+
+// UpsertOrgCodeAgentProviders mocks base method.
+func (m *MockStore) UpsertOrgCodeAgentProviders(ctx context.Context, orgID, actingUserID string, updates []types.OrgCodeAgentProviderUpdate) ([]*types.OrgCodeAgentProvider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertOrgCodeAgentProviders", ctx, orgID, actingUserID, updates)
+	ret0, _ := ret[0].([]*types.OrgCodeAgentProvider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertOrgCodeAgentProviders indicates an expected call of UpsertOrgCodeAgentProviders.
+func (mr *MockStoreMockRecorder) UpsertOrgCodeAgentProviders(ctx, orgID, actingUserID, updates any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertOrgCodeAgentProviders", reflect.TypeOf((*MockStore)(nil).UpsertOrgCodeAgentProviders), ctx, orgID, actingUserID, updates)
 }
 
 // UpsertProjectWebServiceState mocks base method.

@@ -7457,6 +7457,62 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.OrgCodeAgentProviderStatus:
+    properties:
+      available:
+        description: |-
+          Available is whether this viewer can actually run this runtime right now —
+          enabled, and either holding a subscription or having a usable API-key
+          provider. The task picker offers exactly the runtimes where this is true.
+        type: boolean
+      credential_type:
+        $ref: '#/definitions/types.CodeAgentCredentialType'
+      default_model:
+        type: string
+      enabled:
+        type: boolean
+      provider_endpoint_id:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      supports_subscription:
+        description: |-
+          SupportsSubscription is true for runtimes that can authenticate with a
+          personal subscription (Claude Code, Codex). Everything else is API-key only.
+        type: boolean
+      unavailable_reason:
+        description: |-
+          UnavailableReason explains a false Available so the UI can say why instead
+          of silently hiding the row.
+        type: string
+      viewer_has_subscription:
+        description: |-
+          ViewerHasSubscription reports whether *the requesting user* has a
+          subscription for this runtime. It is deliberately viewer-scoped: with
+          per-user resolution, whether the runtime actually works differs per member,
+          and an org-wide "connected" flag would be a lie for everyone else.
+        type: boolean
+    type: object
+  types.OrgCodeAgentProviderUpdate:
+    properties:
+      credential_type:
+        $ref: '#/definitions/types.CodeAgentCredentialType'
+      default_model:
+        type: string
+      enabled:
+        type: boolean
+      provider_endpoint_id:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+    type: object
+  types.OrgCodeAgentProvidersUpdateRequest:
+    properties:
+      providers:
+        items:
+          $ref: '#/definitions/types.OrgCodeAgentProviderUpdate'
+        type: array
+    type: object
   types.OrgComputeUsage:
     properties:
       billing_enabled:
@@ -19631,6 +19687,56 @@ paths:
       summary: List sandbox tmux sessions
       tags:
       - Sandboxes
+  /api/v1/orgs/{org_id}/code-agent-providers:
+    get:
+      description: Returns every selectable coding-agent runtime with the organization's
+        setting for it and whether the requesting user can currently run it.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrgCodeAgentProviderStatus'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List an organization's coding-agent providers
+      tags:
+      - organizations
+    put:
+      description: Enables or disables coding-agent runtimes for the organization
+        and sets how each authenticates. Runtimes omitted from the request are left
+        unchanged.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Providers to update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.OrgCodeAgentProvidersUpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrgCodeAgentProviderStatus'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Update an organization's coding-agent providers
+      tags:
+      - organizations
   /api/v1/orgs/{org}/agents:
     get:
       description: List the canonical Agents in an organization, including their instructions,

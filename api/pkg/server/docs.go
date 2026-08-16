@@ -9839,6 +9839,81 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org_id}/code-agent-providers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every selectable coding-agent runtime with the organization's setting for it and whether the requesting user can currently run it.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List an organization's coding-agent providers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OrgCodeAgentProviderStatus"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Enables or disables coding-agent runtimes for the organization and sets how each authenticates. Runtimes omitted from the request are left unchanged.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization's coding-agent providers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Providers to update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.OrgCodeAgentProvidersUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OrgCodeAgentProviderStatus"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/agents": {
             "get": {
                 "security": [
@@ -33232,6 +33307,73 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.OrgCodeAgentProviderStatus": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "description": "Available is whether this viewer can actually run this runtime right now —\nenabled, and either holding a subscription or having a usable API-key\nprovider. The task picker offers exactly the runtimes where this is true.",
+                    "type": "boolean"
+                },
+                "credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "default_model": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "provider_endpoint_id": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "supports_subscription": {
+                    "description": "SupportsSubscription is true for runtimes that can authenticate with a\npersonal subscription (Claude Code, Codex). Everything else is API-key only.",
+                    "type": "boolean"
+                },
+                "unavailable_reason": {
+                    "description": "UnavailableReason explains a false Available so the UI can say why instead\nof silently hiding the row.",
+                    "type": "string"
+                },
+                "viewer_has_subscription": {
+                    "description": "ViewerHasSubscription reports whether *the requesting user* has a\nsubscription for this runtime. It is deliberately viewer-scoped: with\nper-user resolution, whether the runtime actually works differs per member,\nand an org-wide \"connected\" flag would be a lie for everyone else.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "types.OrgCodeAgentProviderUpdate": {
+            "type": "object",
+            "properties": {
+                "credential_type": {
+                    "$ref": "#/definitions/types.CodeAgentCredentialType"
+                },
+                "default_model": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "provider_endpoint_id": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                }
+            }
+        },
+        "types.OrgCodeAgentProvidersUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "providers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.OrgCodeAgentProviderUpdate"
+                    }
                 }
             }
         },

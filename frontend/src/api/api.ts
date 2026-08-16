@@ -4712,6 +4712,49 @@ export interface TypesOpenAIUsage {
   total_tokens?: number;
 }
 
+export interface TypesOrgCodeAgentProviderStatus {
+  /**
+   * Available is whether this viewer can actually run this runtime right now —
+   * enabled, and either holding a subscription or having a usable API-key
+   * provider. The task picker offers exactly the runtimes where this is true.
+   */
+  available?: boolean;
+  credential_type?: TypesCodeAgentCredentialType;
+  default_model?: string;
+  enabled?: boolean;
+  provider_endpoint_id?: string;
+  runtime?: TypesCodeAgentRuntime;
+  /**
+   * SupportsSubscription is true for runtimes that can authenticate with a
+   * personal subscription (Claude Code, Codex). Everything else is API-key only.
+   */
+  supports_subscription?: boolean;
+  /**
+   * UnavailableReason explains a false Available so the UI can say why instead
+   * of silently hiding the row.
+   */
+  unavailable_reason?: string;
+  /**
+   * ViewerHasSubscription reports whether *the requesting user* has a
+   * subscription for this runtime. It is deliberately viewer-scoped: with
+   * per-user resolution, whether the runtime actually works differs per member,
+   * and an org-wide "connected" flag would be a lie for everyone else.
+   */
+  viewer_has_subscription?: boolean;
+}
+
+export interface TypesOrgCodeAgentProviderUpdate {
+  credential_type?: TypesCodeAgentCredentialType;
+  default_model?: string;
+  enabled?: boolean;
+  provider_endpoint_id?: string;
+  runtime?: TypesCodeAgentRuntime;
+}
+
+export interface TypesOrgCodeAgentProvidersUpdateRequest {
+  providers?: TypesOrgCodeAgentProviderUpdate[];
+}
+
 export interface TypesOrgComputeUsage {
   /**
    * BillingEnabled reports whether compute is actually charged. When false
@@ -13292,6 +13335,46 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns every selectable coding-agent runtime with the organization's setting for it and whether the requesting user can currently run it.
+     *
+     * @tags organizations
+     * @name V1OrgsCodeAgentProvidersDetail
+     * @summary List an organization's coding-agent providers
+     * @request GET:/api/v1/orgs/{org_id}/code-agent-providers
+     * @secure
+     */
+    v1OrgsCodeAgentProvidersDetail: (orgId: string, params: RequestParams = {}) =>
+      this.request<TypesOrgCodeAgentProviderStatus[], any>({
+        path: `/api/v1/orgs/${orgId}/code-agent-providers`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Enables or disables coding-agent runtimes for the organization and sets how each authenticates. Runtimes omitted from the request are left unchanged.
+     *
+     * @tags organizations
+     * @name V1OrgsCodeAgentProvidersUpdate
+     * @summary Update an organization's coding-agent providers
+     * @request PUT:/api/v1/orgs/{org_id}/code-agent-providers
+     * @secure
+     */
+    v1OrgsCodeAgentProvidersUpdate: (
+      orgId: string,
+      request: TypesOrgCodeAgentProvidersUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrgCodeAgentProviderStatus[], any>({
+        path: `/api/v1/orgs/${orgId}/code-agent-providers`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
