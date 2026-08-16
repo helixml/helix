@@ -398,12 +398,9 @@ func (apiServer *HelixAPIServer) pollCodexLogin(_ http.ResponseWriter, req *http
 		return &CodexPollLoginResponse{Found: true}, nil
 	}
 	output, _ := apiServer.execInContainer(req.Context(), runnerID, []string{"cat", "/tmp/codex-auth-stdout.txt"})
-	response := &CodexPollLoginResponse{}
+	response := &CodexPollLoginResponse{URL: codexDeviceURL}
 	for _, line := range strings.Split(output, "\n") {
 		clean := ansiEscapePattern.ReplaceAllString(strings.TrimSpace(strings.ReplaceAll(line, "\r", "")), "")
-		if strings.Contains(clean, codexDeviceURL) {
-			response.URL = codexDeviceURL
-		}
 		if code := codexDeviceCodePattern.FindString(clean); code != "" {
 			response.Code = code
 		}

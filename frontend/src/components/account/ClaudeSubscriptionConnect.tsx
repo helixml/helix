@@ -15,7 +15,6 @@ import CircularProgress from '@mui/material/CircularProgress'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/Delete'
 import IconButton from '@mui/material/IconButton'
 import FormControl from '@mui/material/FormControl'
@@ -26,6 +25,7 @@ import Switch from '@mui/material/Switch'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Tooltip from '@mui/material/Tooltip'
+import { Copy } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -33,6 +33,7 @@ import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
 import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
 import { matchesAllTokens } from '../../utils/searchUtils'
+import { APP_MONO_FONT_FAMILY } from '../../styles/typography'
 
 interface ClaudeSubscriptionData {
   id: string
@@ -167,6 +168,28 @@ const DelegationPicker: FC<DelegationPickerProps> = ({
 }
 
 const SETUP_TOKEN_COMMAND = 'claude setup-token'
+
+const StepIndex: FC<{ n: number }> = ({ n }) => (
+  <Box
+    aria-hidden
+    sx={{
+      width: 22,
+      height: 22,
+      mt: '1px',
+      borderRadius: '50%',
+      bgcolor: 'action.selected',
+      color: 'text.primary',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: '0.75rem',
+      fontWeight: 600,
+      flexShrink: 0,
+    }}
+  >
+    {n}
+  </Box>
+)
 
 function validateSetupToken(token: string): string | null {
   const trimmed = token.trim()
@@ -354,7 +377,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   // infer it from the word "organization".
   const replacedSub = ownerLocked ? undefined : subForOwner(ownerType, selectedOrgId)
   const ownerPicker = variant === 'account' && ownableOrgs.length > 0 && (
-    <Box sx={{ mb: 2 }}>
+    <Box>
       <FormControl size="small" fullWidth disabled={ownerLocked}>
         <InputLabel>Subscription owner</InputLabel>
         <Select
@@ -400,76 +423,113 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   // Token dialog (shared across all variants)
   const tokenDialog = (
     <Dialog open={tokenDialogOpen} onClose={() => setTokenDialogOpen(false)} maxWidth="sm" fullWidth>
-      <DialogTitle>{ownerLocked ? 'Update Claude Subscription' : 'Connect Claude Subscription'}</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" sx={{ mb: 2 }}>
+      <DialogTitle sx={{ pb: 0.5 }}>
+        {ownerLocked ? 'Update Claude Subscription' : 'Connect Claude Subscription'}
+      </DialogTitle>
+      <DialogContent sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+        <Typography variant="body2" color="text.secondary">
           Generate a setup token on your local machine, then paste it below.
         </Typography>
 
         {ownerPicker}
 
-        <Alert severity="info" sx={{ mb: 2 }}>
-          <Typography variant="body2" gutterBottom>
-            <strong>Step 1:</strong> Run this command in your terminal:
-          </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'action.hover', borderRadius: 1, px: 1.5, py: 0.5, mt: 0.5, fontFamily: 'monospace', fontSize: '0.875rem' }}>
-            <code style={{ flex: 1 }}>{SETUP_TOKEN_COMMAND}</code>
-            <IconButton size="small" onClick={handleCopyCommand} title="Copy command">
-              <ContentCopyIcon fontSize="small" />
-            </IconButton>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+            <StepIndex n={1} />
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                Run this command in your terminal
+              </Typography>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  bgcolor: 'action.hover',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  px: 1.5,
+                  py: 0.75,
+                }}
+              >
+                <Box
+                  component="code"
+                  sx={{
+                    flex: 1,
+                    fontFamily: APP_MONO_FONT_FAMILY,
+                    fontSize: '0.8125rem',
+                  }}
+                >
+                  {SETUP_TOKEN_COMMAND}
+                </Box>
+                <IconButton size="small" onClick={handleCopyCommand} aria-label="Copy command">
+                  <Copy size={14} />
+                </IconButton>
+              </Box>
+            </Box>
           </Box>
-          <Typography variant="body2" sx={{ mt: 1.5 }}>
-            <strong>Step 2:</strong> Complete the authentication in your browser when prompted.
-          </Typography>
-          <Typography variant="body2" sx={{ mt: 1 }}>
-            <strong>Step 3:</strong> Copy the token that appears and paste it below.
-          </Typography>
-        </Alert>
+          <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+            <StepIndex n={2} />
+            <Typography variant="body2">
+              Complete the authentication in your browser when prompted.
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+            <StepIndex n={3} />
+            <Typography variant="body2">
+              Copy the token that appears and paste it below.
+            </Typography>
+          </Box>
+        </Box>
 
         <TextField
           autoFocus
           fullWidth
           type="password"
-          label="Claude Code Setup Token"
-          placeholder="Paste your Claude Code setup token here..."
+          label="Claude Code setup token"
+          placeholder="Paste your Claude Code setup token here…"
           value={tokenValue}
           onChange={(e) => setTokenValue(e.target.value)}
           variant="outlined"
           InputProps={{
-            sx: { fontFamily: 'monospace', letterSpacing: '0.05em' },
+            sx: { fontFamily: APP_MONO_FONT_FAMILY, letterSpacing: '0.04em' },
           }}
-          sx={{ mb: 1 }}
         />
 
         {tokenValidationError && (
-          <Alert severity="error" sx={{ mb: 1 }}>
-            {tokenValidationError}
-          </Alert>
+          <Alert severity="error">{tokenValidationError}</Alert>
         )}
 
         {submitError && (
-          <Alert severity="error" sx={{ mb: 1 }}>
-            {submitError}
-          </Alert>
+          <Alert severity="error">{submitError}</Alert>
         )}
 
-        <Alert severity="warning" sx={{ mt: 1 }}>
-          <Typography variant="caption">
-            To revoke this token later, visit{' '}
-            <a href="https://claude.ai/settings/claude-code" target="_blank" rel="noopener noreferrer">
-              claude.ai/settings/claude-code
-            </a>
-          </Typography>
-        </Alert>
+        <Typography variant="caption" color="text.secondary">
+          To revoke this token later, visit{' '}
+          <Box
+            component="a"
+            href="https://claude.ai/settings/claude-code"
+            target="_blank"
+            rel="noopener noreferrer"
+            sx={{ color: 'secondary.main' }}
+          >
+            claude.ai/settings/claude-code
+          </Box>
+        </Typography>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setTokenDialogOpen(false)}>Cancel</Button>
+      <DialogActions sx={{ px: 3, py: 2 }}>
+        <Button onClick={() => setTokenDialogOpen(false)} sx={{ textTransform: 'none' }}>
+          Cancel
+        </Button>
         <Button
           onClick={handleSubmitToken}
           variant="contained"
+          color="secondary"
           disabled={submitting || !tokenValue.trim() || !!tokenValidationError}
+          sx={{ textTransform: 'none' }}
         >
-          {submitting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Connecting...</> : 'Connect'}
+          {submitting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Connecting…</> : 'Connect'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -485,13 +545,14 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           {' '}You may also want to revoke the token at claude.ai/settings/claude-code.
         </DialogContentText>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setDisconnectDialogOpen(false)}>Cancel</Button>
+      <DialogActions sx={{ px: 3, py: 2 }}>
+        <Button onClick={() => setDisconnectDialogOpen(false)} sx={{ textTransform: 'none' }}>Cancel</Button>
         <Button
           onClick={handleConfirmDelete}
           color="error"
           variant="contained"
           disabled={disconnectMutation.isPending}
+          sx={{ textTransform: 'none' }}
         >
           {disconnectMutation.isPending ? 'Disconnecting...' : 'Disconnect'}
         </Button>

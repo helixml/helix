@@ -45,6 +45,6 @@ export function usePollCodexLogin(sessionId: string) {
     queryKey: ['codex-subscriptions', 'login', sessionId],
     queryFn: async () => (await apiClient.v1CodexSubscriptionsPollLoginDetail(sessionId)).data,
     enabled: !!sessionId,
-    refetchInterval: sessionId ? 2000 : false,
+    refetchInterval: sessionId ? 1000 : false,
   })
 }

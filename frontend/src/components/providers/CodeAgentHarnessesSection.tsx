@@ -120,21 +120,27 @@ const CodeAgentHarnessesSection: FC<{
                     }}
                   >
                     {subscriptionActionNode}
-                    <Box sx={HARNESS_SWITCH_SLOT_SX}>
-                      <Switch
-                        color="secondary"
-                        checked={subscriptionEnabled}
-                        disabled={readOnly}
-                        inputProps={{
-                          'aria-label': `${subscriptionEnabled ? 'Disable' : 'Enable'} subscription for ${harnessLabel}`,
-                        }}
-                        onChange={(_, enabled) => onChange({
-                          runtime: harness.runtime!,
-                          enabled: harness.enabled ?? false,
-                          subscription_enabled: enabled,
-                        })}
-                      />
-                    </Box>
+                    <Tooltip
+                      title="Connect a subscription first"
+                      disableHoverListener={viewerHasSubscription}
+                      disableFocusListener={viewerHasSubscription}
+                    >
+                      <Box sx={HARNESS_SWITCH_SLOT_SX} component="span">
+                        <Switch
+                          color="secondary"
+                          checked={subscriptionEnabled}
+                          disabled={readOnly || !viewerHasSubscription}
+                          inputProps={{
+                            'aria-label': `${subscriptionEnabled ? 'Disable' : 'Enable'} subscription for ${harnessLabel}`,
+                          }}
+                          onChange={(_, enabled) => onChange({
+                            runtime: harness.runtime!,
+                            enabled: harness.enabled ?? false,
+                            subscription_enabled: enabled,
+                          })}
+                        />
+                      </Box>
+                    </Tooltip>
                   </Stack>
                 </Stack>
               )}

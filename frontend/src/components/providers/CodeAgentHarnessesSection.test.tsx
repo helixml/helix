@@ -135,7 +135,7 @@ describe('CodeAgentHarnessesSection', () => {
     })
   })
 
-  it('keeps subscription policy configurable when the owner is disconnected', () => {
+  it('keeps the subscription switch in its saved state but disabled when disconnected', () => {
     render(
       <CodeAgentHarnessesSection
         harnesses={[{
@@ -158,7 +158,30 @@ describe('CodeAgentHarnessesSection', () => {
     expect(screen.getByText('ChatGPT subscription')).toBeInTheDocument()
     expect(screen.getByText('Not connected')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Connect' })).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: 'Disable subscription for Codex' })).toBeChecked()
+    const subscriptionSwitch = screen.getByRole('checkbox', { name: 'Disable subscription for Codex' })
+    expect(subscriptionSwitch).toBeChecked()
+    expect(subscriptionSwitch).toBeDisabled()
     expect(screen.getByText('Organization OpenAI')).toBeInTheDocument()
+  })
+
+  it('keeps a disabled-off subscription switch when disconnected', () => {
+    render(
+      <CodeAgentHarnessesSection
+        harnesses={[{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+          enabled: true,
+          supports_subscription: true,
+          viewer_has_subscription: false,
+          subscription_enabled: false,
+        }]}
+        endpoints={[]}
+        onChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
+    const subscriptionSwitch = screen.getByRole('checkbox', { name: 'Enable subscription for Claude Code' })
+    expect(subscriptionSwitch).not.toBeChecked()
+    expect(subscriptionSwitch).toBeDisabled()
   })
 })
