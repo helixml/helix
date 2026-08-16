@@ -190,22 +190,43 @@ func (suite *OrganizationsRBACTestSuite) TestOrganizationMemberAndTeamRoutesAcce
 }
 
 func (suite *OrganizationsRBACTestSuite) TestProjectVisibilityAndRepositoryAccess() {
-	// This test covers project visibility and repository grants, not agent
-	// selection. It used to create a coding App and pass it as
-	// default_helix_app_id, which the API now rejects: that field is reserved
-	// for org-agent projects, and spec-task projects carry their own
-	// code_agent_config instead. Neither is needed here, so the project is
-	// created without one.
+	ownerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
+	suite.Require().NoError(err)
+
+	// A project needs either a code_agent_config or a default_helix_app_id, and
+	// default_helix_app_id is now reserved for org-agent projects. This App is
+	// therefore AgentKindOrg rather than the coding App the test used to build:
+	// an assistant with AgentType zed_external would be classified
+	// AgentKindCoding and rejected. Using an org agent also keeps this RBAC test
+	// clear of the live provider/model validation a code_agent_config triggers,
+	// which has nothing to do with what is being tested here.
+	defaultApp, err := ownerClient.CreateApp(suite.ctx, &types.App{
+		OrganizationID: suite.organization.ID,
+		AgentKind:      types.AgentKindOrg,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name:        "project-rbac-agent-" + uuid.New().String(),
+				Description: "project rbac test agent",
+				Assistants: []types.AssistantConfig{{
+					Name:  "assistant",
+					Model: "openai/gpt-oss-20b",
+				}},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+
 	projectRepo := suite.createTestRepository("project-repo", suite.userOrgOwner.ID)
 	directReadRepo := suite.createTestRepository("direct-read-repo", suite.userOrgOwner.ID)
 	directWriteRepo := suite.createTestRepository("direct-write-repo", suite.userOrgOwner.ID)
 
 	var project types.Project
 	status, body := apiJSON(suite.T(), suite.userOrgOwnerAPIKey, http.MethodPost, "/projects", &types.ProjectCreateRequest{
-		OrganizationID: suite.organization.Name,
-		Name:           "project-rbac-" + uuid.New().String(),
-		Description:    "private project",
-		DefaultRepoID:  projectRepo.ID,
+		OrganizationID:    suite.organization.Name,
+		Name:              "project-rbac-" + uuid.New().String(),
+		Description:       "private project",
+		DefaultRepoID:     projectRepo.ID,
+		DefaultHelixAppID: defaultApp.ID,
 	}, &project)
 	suite.Require().Equal(http.StatusOK, status, body)
 	suite.Require().Equal(suite.organization.ID, project.OrganizationID)
