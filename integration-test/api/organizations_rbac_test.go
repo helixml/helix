@@ -190,37 +190,22 @@ func (suite *OrganizationsRBACTestSuite) TestOrganizationMemberAndTeamRoutesAcce
 }
 
 func (suite *OrganizationsRBACTestSuite) TestProjectVisibilityAndRepositoryAccess() {
-	ownerClient, err := getAPIClient(suite.userOrgOwnerAPIKey)
-	suite.Require().NoError(err)
-
-	defaultApp, err := ownerClient.CreateApp(suite.ctx, &types.App{
-		OrganizationID: suite.organization.ID,
-		Config: types.AppConfig{
-			Helix: types.AppHelixConfig{
-				Name:        "project-rbac-agent-" + uuid.New().String(),
-				Description: "project rbac test agent",
-				Assistants: []types.AssistantConfig{{
-					Name:             "assistant",
-					Model:            "openai/gpt-oss-20b",
-					AgentType:        types.AgentTypeZedExternal,
-					CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
-				}},
-			},
-		},
-	})
-	suite.Require().NoError(err)
-
+	// This test covers project visibility and repository grants, not agent
+	// selection. It used to create a coding App and pass it as
+	// default_helix_app_id, which the API now rejects: that field is reserved
+	// for org-agent projects, and spec-task projects carry their own
+	// code_agent_config instead. Neither is needed here, so the project is
+	// created without one.
 	projectRepo := suite.createTestRepository("project-repo", suite.userOrgOwner.ID)
 	directReadRepo := suite.createTestRepository("direct-read-repo", suite.userOrgOwner.ID)
 	directWriteRepo := suite.createTestRepository("direct-write-repo", suite.userOrgOwner.ID)
 
 	var project types.Project
 	status, body := apiJSON(suite.T(), suite.userOrgOwnerAPIKey, http.MethodPost, "/projects", &types.ProjectCreateRequest{
-		OrganizationID:    suite.organization.Name,
-		Name:              "project-rbac-" + uuid.New().String(),
-		Description:       "private project",
-		DefaultRepoID:     projectRepo.ID,
-		DefaultHelixAppID: defaultApp.ID,
+		OrganizationID: suite.organization.Name,
+		Name:           "project-rbac-" + uuid.New().String(),
+		Description:    "private project",
+		DefaultRepoID:  projectRepo.ID,
 	}, &project)
 	suite.Require().Equal(http.StatusOK, status, body)
 	suite.Require().Equal(suite.organization.ID, project.OrganizationID)
