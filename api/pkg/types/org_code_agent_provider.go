@@ -36,7 +36,7 @@ type OrgCodeAgentProvider struct {
 	// row, which is why it is part of the key rather than a separate flag: the
 	// default and its flavours are the same kind of thing and are configured,
 	// listed and selected identically.
-	Name string `json:"name,omitempty" gorm:"index:idx_org_code_agent_provider_named,unique,priority:3"`
+	Name string `json:"name,omitempty" gorm:"not null;default:'';index:idx_org_code_agent_provider_named,unique,priority:3"`
 
 	// Enabled controls whether members may pick this runtime for a task.
 	Enabled bool `json:"enabled"`

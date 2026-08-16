@@ -291,7 +291,9 @@ describe('CodeAgentConfigPicker', () => {
 
     const triggers = screen.getAllByRole('button', { name: 'Change coding agent' })
     expect(triggers).toHaveLength(1)
-    expect(triggers[0]).toHaveTextContent('Zed Agent')
     expect(triggers[0]).toHaveTextContent('api-model')
+    // The mark identifies the harness; spelling it out as well is redundant.
+    expect(triggers[0]).not.toHaveTextContent('Zed Agent')
+    expect(within(triggers[0]).getByRole('img', { name: 'Zed Agent' })).toBeInTheDocument()
   })
 })

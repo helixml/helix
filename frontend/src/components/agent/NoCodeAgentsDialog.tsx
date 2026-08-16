@@ -51,6 +51,7 @@ const NoCodeAgentsDialog: FC<{
       <DialogActions sx={{ px: 3, pb: 2.5, pt: 1 }}>
         <Button
           variant="contained"
+          color="secondary"
           disabled={!orgId}
           onClick={() => {
             onClose()

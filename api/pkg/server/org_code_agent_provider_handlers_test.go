@@ -116,3 +116,33 @@ func TestSelectableRuntimesAreRecognised(t *testing.T) {
 	assert.False(t, types.IsSelectableCodeAgentRuntime(""))
 	assert.False(t, types.IsSelectableCodeAgentRuntime("not_a_runtime"))
 }
+
+// TestBuiltInRowsAreKeyedByEmptyName pins the read-side half of the
+// "could not turn Codex off" bug. Rows written before the name column existed
+// carried NULL, which Postgres treats as distinct from ” in the unique index,
+// so a stale row survived alongside its replacement. Both scan into Go as "",
+// so both landed in the built-in lookup and the later one won — reporting the
+// old enabled value no matter what was saved. The migration collapses NULL to
+// ” and makes the column NOT NULL; this asserts the lookup rule the migration
+// exists to keep honest.
+func TestBuiltInRowsAreKeyedByEmptyName(t *testing.T) {
+	rows := []*types.OrgCodeAgentProvider{
+		{Runtime: types.CodeAgentRuntimeCodexCLI, Name: "", Enabled: false},
+		{Runtime: types.CodeAgentRuntimeCodexCLI, Name: "qwen", Enabled: true},
+	}
+
+	builtIn := map[types.CodeAgentRuntime]*types.OrgCodeAgentProvider{}
+	var flavours []*types.OrgCodeAgentProvider
+	for _, row := range rows {
+		if row.Name == "" {
+			builtIn[row.Runtime] = row
+			continue
+		}
+		flavours = append(flavours, row)
+	}
+
+	assert.False(t, builtIn[types.CodeAgentRuntimeCodexCLI].Enabled,
+		"the built-in row owns the harness's enabled state; a flavour must not override it")
+	assert.Len(t, flavours, 1)
+	assert.Equal(t, "qwen", flavours[0].Name)
+}

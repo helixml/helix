@@ -154,6 +154,38 @@ func (s *PostgresStore) runMigrations() error {
 		return fmt.Errorf("failed to drop legacy org_code_agent_provider index: %w", err)
 	}
 
+	// Rows written before `name` existed have NULL there. Postgres treats NULL
+	// as distinct in a unique index, so such a row never conflicts with the
+	// ''-named row that replaces it: both survive, both scan into Go as "", and
+	// the stale one can win the built-in lookup — which showed up as a harness
+	// that could not be turned off. Collapse NULL to '' and make the column
+	// NOT NULL DEFAULT '' so the key can never be split that way again.
+	if s.gdb.Migrator().HasTable(&types.OrgCodeAgentProvider{}) &&
+		s.gdb.Migrator().HasColumn(&types.OrgCodeAgentProvider{}, "name") {
+		// Deduplicate first: once NULL becomes '', the pair would violate the
+		// unique index. Newest wins, matching what the user last saved.
+		if err := s.gdb.WithContext(context.Background()).Exec(`
+			DELETE FROM org_code_agent_providers a
+			USING org_code_agent_providers b
+			WHERE a.organization_id = b.organization_id
+			  AND a.runtime = b.runtime
+			  AND COALESCE(a.name, '') = COALESCE(b.name, '')
+			  AND (a.updated < b.updated OR (a.updated = b.updated AND a.id < b.id))
+		`).Error; err != nil {
+			return fmt.Errorf("failed to deduplicate org_code_agent_providers: %w", err)
+		}
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			"UPDATE org_code_agent_providers SET name = '' WHERE name IS NULL",
+		).Error; err != nil {
+			return fmt.Errorf("failed to backfill org_code_agent_providers name: %w", err)
+		}
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			"ALTER TABLE org_code_agent_providers ALTER COLUMN name SET DEFAULT '', ALTER COLUMN name SET NOT NULL",
+		).Error; err != nil {
+			return fmt.Errorf("failed to make org_code_agent_providers name non-null: %w", err)
+		}
+	}
+
 	// GORM AutoMigrate doesn't change column defaults, so we do it here manually.
 	// The IF EXISTS + ALTER is idempotent — safe to run on every startup.
 	if s.gdb.Migrator().HasTable(&types.PromptHistoryEntry{}) {

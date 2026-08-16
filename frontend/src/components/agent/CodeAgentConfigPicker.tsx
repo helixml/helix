@@ -75,7 +75,7 @@ export const SELECTABLE_CODE_AGENT_RUNTIMES: ReadonlyArray<Runtime> = [
 const triggerSx = {
   height: 28,
   minWidth: 0,
-  maxWidth: 300,
+  maxWidth: 240,
   px: 0.75,
   gap: 0.625,
   borderRadius: 1,
@@ -342,13 +342,10 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
                   model it runs. They were two buttons opening the same popover,
                   which read as two independent settings.
                 */}
+                {/* The mark identifies the harness, so naming it too is redundant. */}
                 <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
-                  <AgentHarness runtime={value?.runtime || runtime} variant="short" size={16} showTooltip={false} />
+                  <AgentHarness runtime={value?.runtime || runtime} variant="short" size={16} />
                 </Box>
-                <Box component="span" sx={{ flexShrink: 0 }}>
-                  {getAgentHarnessLabel(value?.runtime || runtime)}
-                </Box>
-                <Box component="span" sx={{ flexShrink: 0, opacity: 0.5 }}>·</Box>
                 <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {modelLabel.replace(/ \(.+\)$/, '')}
                 </Box>
