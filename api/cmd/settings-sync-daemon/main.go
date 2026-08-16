@@ -284,8 +284,12 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 
 	case "codex_cli":
-		if err := ensureCodexNonInteractiveConfig(CodexConfigPath); err != nil {
-			log.Printf("Failed to configure Codex non-interactive permissions: %v", err)
+		codexBaseURL := ""
+		if d.codeAgentConfig.BaseURL != "" {
+			codexBaseURL = d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+		}
+		if err := ensureCodexConfig(CodexConfigPath, codexBaseURL); err != nil {
+			log.Printf("Failed to configure Codex: %v", err)
 			return nil
 		}
 		env := map[string]interface{}{
@@ -293,7 +297,6 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			"INITIAL_AGENT_MODE": "agent-full-access",
 		}
 		if d.codeAgentConfig.BaseURL != "" {
-			env["OPENAI_BASE_URL"] = d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
 			if d.userAPIKey != "" {
 				env["OPENAI_API_KEY"] = d.userAPIKey
 			}
@@ -479,7 +482,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	}
 }
 
-func ensureCodexNonInteractiveConfig(path string) error {
+func ensureCodexConfig(path, openAIBaseURL string) error {
 	config := map[string]interface{}{}
 	data, err := os.ReadFile(path)
 	if err == nil {
@@ -492,6 +495,29 @@ func ensureCodexNonInteractiveConfig(path string) error {
 
 	config["approval_policy"] = "never"
 	config["sandbox_mode"] = "danger-full-access"
+	providers, _ := config["model_providers"].(map[string]interface{})
+	if openAIBaseURL == "" {
+		if config["model_provider"] == "helix" {
+			delete(config, "model_provider")
+		}
+		delete(providers, "helix")
+		if len(providers) == 0 {
+			delete(config, "model_providers")
+		}
+	} else {
+		if providers == nil {
+			providers = map[string]interface{}{}
+		}
+		providers["helix"] = map[string]interface{}{
+			"name":                "Helix",
+			"base_url":            openAIBaseURL,
+			"env_key":             "OPENAI_API_KEY",
+			"wire_api":            "responses",
+			"supports_websockets": false,
+		}
+		config["model_provider"] = "helix"
+		config["model_providers"] = providers
+	}
 	data, err = toml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("marshal Codex config: %w", err)

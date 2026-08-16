@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	openai "github.com/helixml/helix/api/pkg/openai"
+	logger "github.com/helixml/helix/api/pkg/openai/logger"
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -153,6 +154,21 @@ func (m *MockProviderManager) ListProvidersForOwner(ctx context.Context, owner s
 func (mr *MockProviderManagerMockRecorder) ListProvidersForOwner(ctx, owner, ownerType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProvidersForOwner", reflect.TypeOf((*MockProviderManager)(nil).ListProvidersForOwner), ctx, owner, ownerType)
+}
+
+// OpenAIResponsesLogStores mocks base method.
+func (m *MockProviderManager) OpenAIResponsesLogStores() ([]logger.LogStore, logger.LogStore) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OpenAIResponsesLogStores")
+	ret0, _ := ret[0].([]logger.LogStore)
+	ret1, _ := ret[1].(logger.LogStore)
+	return ret0, ret1
+}
+
+// OpenAIResponsesLogStores indicates an expected call of OpenAIResponsesLogStores.
+func (mr *MockProviderManagerMockRecorder) OpenAIResponsesLogStores() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenAIResponsesLogStores", reflect.TypeOf((*MockProviderManager)(nil).OpenAIResponsesLogStores))
 }
 
 // SetRunnerController mocks base method.

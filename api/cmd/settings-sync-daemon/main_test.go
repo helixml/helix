@@ -625,13 +625,13 @@ func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
 		"qwen args must include --yolo so the ACP session starts in YOLO mode without depending on the IDE")
 }
 
-func TestEnsureCodexNonInteractiveConfig(t *testing.T) {
+func TestEnsureCodexConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "codex", "config.toml")
-	existing := []byte("model = \"gpt-5.6-sol\"\n\n[projects.\"/workspace\"]\ntrust_level = \"trusted\"\n")
+	existing := []byte("model = \"gpt-5.6-sol\"\nopenai_base_url = \"https://user-proxy.example/v1\"\n\n[model_providers.user_proxy]\nname = \"User proxy\"\nbase_url = \"https://user-proxy.example/v1\"\nenv_key = \"USER_PROXY_KEY\"\nwire_api = \"responses\"\n\n[projects.\"/workspace\"]\ntrust_level = \"trusted\"\n")
 	assert.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
 	assert.NoError(t, os.WriteFile(path, existing, 0644))
 
-	assert.NoError(t, ensureCodexNonInteractiveConfig(path))
+	assert.NoError(t, ensureCodexConfig(path, "http://api:8080/v1"))
 	data, err := os.ReadFile(path)
 	assert.NoError(t, err)
 	var config map[string]interface{}
@@ -639,9 +639,32 @@ func TestEnsureCodexNonInteractiveConfig(t *testing.T) {
 	assert.Equal(t, "never", config["approval_policy"])
 	assert.Equal(t, "danger-full-access", config["sandbox_mode"])
 	assert.Equal(t, "gpt-5.6-sol", config["model"])
+	assert.Equal(t, "https://user-proxy.example/v1", config["openai_base_url"])
+	assert.Equal(t, "helix", config["model_provider"])
+	providers, ok := config["model_providers"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Contains(t, providers, "user_proxy")
+	helixProvider, ok := providers["helix"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "http://api:8080/v1", helixProvider["base_url"])
+	assert.Equal(t, "OPENAI_API_KEY", helixProvider["env_key"])
+	assert.Equal(t, "responses", helixProvider["wire_api"])
+	assert.Equal(t, false, helixProvider["supports_websockets"])
 	projects, ok := config["projects"].(map[string]interface{})
 	assert.True(t, ok)
 	assert.Contains(t, projects, "/workspace")
+
+	assert.NoError(t, ensureCodexConfig(path, ""))
+	data, err = os.ReadFile(path)
+	assert.NoError(t, err)
+	config = map[string]interface{}{}
+	assert.NoError(t, toml.Unmarshal(data, &config))
+	assert.Equal(t, "https://user-proxy.example/v1", config["openai_base_url"])
+	assert.NotContains(t, config, "model_provider")
+	providers, ok = config["model_providers"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Contains(t, providers, "user_proxy")
+	assert.NotContains(t, providers, "helix")
 }
 
 func TestCodexAgentServerUsesFullAccess(t *testing.T) {
@@ -657,6 +680,7 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	env, ok := codex["env"].(map[string]interface{})
 	assert.True(t, ok)
 	assert.Equal(t, "agent-full-access", env["INITIAL_AGENT_MODE"])
+	assert.NotContains(t, env, "OPENAI_BASE_URL")
 
 	data, err := os.ReadFile(CodexConfigPath)
 	assert.NoError(t, err)
@@ -664,6 +688,13 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	assert.NoError(t, toml.Unmarshal(data, &persisted))
 	assert.Equal(t, "never", persisted["approval_policy"])
 	assert.Equal(t, "danger-full-access", persisted["sandbox_mode"])
+	assert.Equal(t, "helix", persisted["model_provider"])
+	providers, ok := persisted["model_providers"].(map[string]interface{})
+	assert.True(t, ok)
+	helixProvider, ok := providers["helix"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "http://api/v1", helixProvider["base_url"])
+	assert.Equal(t, false, helixProvider["supports_websockets"])
 }
 
 func TestClaudeAgentServerUsesConfiguredReasoningEffort(t *testing.T) {

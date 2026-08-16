@@ -43,6 +43,26 @@ function renderPicker(ui: ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
 }
 
+function AutoSelectingPicker({
+  onChange,
+  initial,
+}: {
+  onChange?: (value: TypesCodeAgentExecutionConfig) => void
+  initial?: TypesCodeAgentExecutionConfig
+}) {
+  const [value, setValue] = useState<TypesCodeAgentExecutionConfig | undefined>(initial)
+  return (
+    <CodeAgentConfigPicker
+      value={value}
+      autoSelectSubscriptionDefault
+      onChange={(next) => {
+        onChange?.(next)
+        setValue(next)
+      }}
+    />
+  )
+}
+
 describe('CodeAgentConfigPicker', () => {
   beforeEach(() => {
     navigate.mockClear()
@@ -50,12 +70,18 @@ describe('CodeAgentConfigPicker', () => {
       {
         id: 'provider-1',
         name: 'OpenAI',
-        available_models: [{ id: 'api-model', enabled: true, type: 'text' }],
+        available_models: [
+          { id: 'api-model', enabled: true, type: 'text' },
+          { id: 'gpt-5.6-terra', enabled: true, type: 'text' },
+        ],
       },
       {
         id: 'provider-2',
         name: 'Anthropic',
-        available_models: [{ id: 'claude-api-model', enabled: true, type: 'chat' }],
+        available_models: [
+          { id: 'claude-api-model', enabled: true, type: 'chat' },
+          { id: 'claude-fable-5', enabled: true, type: 'chat' },
+        ],
       },
     ]
     harnessState.harnesses = [
@@ -91,8 +117,8 @@ describe('CodeAgentConfigPicker', () => {
 
     expect(screen.getByText('api-model')).toBeInTheDocument()
     expect(screen.getByText('claude-api-model')).toBeInTheDocument()
-    expect(screen.getByText('OpenAI')).toBeInTheDocument()
-    expect(screen.getByText('Anthropic')).toBeInTheDocument()
+    expect(screen.getAllByText('OpenAI').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Anthropic').length).toBeGreaterThan(0)
   })
 
   it('hides models from providers disabled for the selected harness', () => {
@@ -106,7 +132,7 @@ describe('CodeAgentConfigPicker', () => {
     expect(screen.queryByText('api-model')).not.toBeInTheDocument()
     expect(screen.queryByText('OpenAI')).not.toBeInTheDocument()
     expect(screen.getByText('claude-api-model')).toBeInTheDocument()
-    expect(screen.getByText('Anthropic')).toBeInTheDocument()
+    expect(screen.getAllByText('Anthropic').length).toBeGreaterThan(0)
   })
 
   it('combines models from settings-enabled subscription and API sources', () => {
@@ -116,12 +142,14 @@ describe('CodeAgentConfigPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
     expect(screen.getByText('Claude Opus 5 (1M context, recommended)')).toBeInTheDocument()
     expect(screen.getAllByText('Claude subscription').length).toBeGreaterThan(0)
-    expect(screen.getByText('api-model')).toBeInTheDocument()
+    expect(screen.getAllByText(/Claude Fable 5/).length).toBeGreaterThan(0)
+    expect(screen.queryByText('api-model')).not.toBeInTheDocument()
     expect(screen.queryByText('Credentials')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
     expect(screen.queryByText('GPT-5.6 Sol')).not.toBeInTheDocument()
-    expect(screen.getByText('api-model')).toBeInTheDocument()
+    expect(screen.getByText('gpt-5.6-terra')).toBeInTheDocument()
+    expect(screen.queryByText('claude-fable-5')).not.toBeInTheDocument()
   })
 
   it('hides subscription models when that source is disabled in settings', () => {
@@ -134,7 +162,7 @@ describe('CodeAgentConfigPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
 
     expect(screen.queryByText('Claude Opus 5 (1M context, recommended)')).not.toBeInTheDocument()
-    expect(screen.getByText('api-model')).toBeInTheDocument()
+    expect(screen.getByText('claude-fable-5')).toBeInTheDocument()
   })
 
   it('stores subscription credentials when a subscription model is selected', () => {
@@ -154,20 +182,7 @@ describe('CodeAgentConfigPicker', () => {
 
   it('defaults a new task to Claude Opus when Claude subscription is available', async () => {
     const onChange = vi.fn()
-    const AutoSelectingPicker = () => {
-      const [value, setValue] = useState<TypesCodeAgentExecutionConfig>()
-      return (
-        <CodeAgentConfigPicker
-          value={value}
-          autoSelectSubscriptionDefault
-          onChange={(next) => {
-            onChange(next)
-            setValue(next)
-          }}
-        />
-      )
-    }
-    renderPicker(<AutoSelectingPicker />)
+    renderPicker(<AutoSelectingPicker onChange={onChange} />)
 
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
@@ -183,12 +198,7 @@ describe('CodeAgentConfigPicker', () => {
       viewer_has_subscription: harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
     }))
     const onChange = vi.fn()
-    renderPicker(
-      <CodeAgentConfigPicker
-        autoSelectSubscriptionDefault
-        onChange={onChange}
-      />,
-    )
+    renderPicker(<AutoSelectingPicker onChange={onChange} />)
 
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
@@ -197,24 +207,68 @@ describe('CodeAgentConfigPicker', () => {
     }))
   })
 
-  it('does not auto-select on surfaces that require an explicit choice', async () => {
+  it('does not invent an API default when no subscription is connected', async () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) => ({
+      ...harness,
+      viewer_has_subscription: false,
+    }))
     const onChange = vi.fn()
-    renderPicker(<CodeAgentConfigPicker onChange={onChange} />)
+    renderPicker(<AutoSelectingPicker onChange={onChange} />)
 
     await waitFor(() => expect(onChange).not.toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Configure harness')
+  })
+
+  it('keeps the last known harness when it is still available', async () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) => ({
+      ...harness,
+      viewer_has_subscription: false,
+    }))
+    const onChange = vi.fn()
+    renderPicker(
+      <AutoSelectingPicker
+        onChange={onChange}
+        initial={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+          provider_ref: 'provider-1',
+          model: 'api-model',
+        }}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('api-model')
+    })
+    expect(onChange).not.toHaveBeenCalled()
   })
 
   it('writes the provider and model selected in chat into the task config', () => {
     const onChange = vi.fn()
     renderPicker(<CodeAgentConfigPicker onChange={onChange} />)
     fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
-    fireEvent.click(screen.getByText('claude-api-model'))
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
+    fireEvent.click(screen.getByText('claude-fable-5'))
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
       provider_ref: 'provider-2',
-      model: 'claude-api-model',
+      model: 'claude-fable-5',
     }))
+  })
+
+  it('keeps older native models in a collapsed legacy section', () => {
+    renderPicker(<CodeAgentConfigPicker onChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
+
+    expect(screen.getByText('Claude Opus 5 (1M context, recommended)')).toBeInTheDocument()
+    expect(screen.getAllByText(/Claude Fable 5/).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Claude Opus 4.8 (1M context)')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Legacy models' }))
+    expect(screen.getByText('Claude Opus 4.8 (1M context)')).toBeInTheDocument()
+    expect(screen.getByText('claude-api-model')).toBeInTheDocument()
   })
 
   it('routes to organization settings when no harness is enabled', async () => {
@@ -246,14 +300,15 @@ describe('CodeAgentConfigPicker', () => {
     expect(trigger).not.toHaveTextContent('api-model')
   })
 
-  it('does not advertise a stored config from a disabled provider', () => {
+  it('does not mutate an existing task whose provider is no longer allowed', async () => {
     harnessState.harnesses = harnessState.harnesses.map((harness) =>
       harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
         ? { ...harness, provider_refs: ['provider-2'] }
         : harness)
+    const onChange = vi.fn()
     renderPicker(
       <CodeAgentConfigPicker
-        onChange={vi.fn()}
+        onChange={onChange}
         value={{
           runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
           credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
@@ -263,20 +318,20 @@ describe('CodeAgentConfigPicker', () => {
       />,
     )
 
+    await waitFor(() => expect(onChange).not.toHaveBeenCalled())
     expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Configure harness')
   })
 
-  it('replaces a disabled legacy project default on a new-task surface', async () => {
+  it('picks another harness when the last known one is no longer enabled', async () => {
     harnessState.harnesses = harnessState.harnesses.map((harness) =>
       harness.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent
         ? { ...harness, enabled: false }
         : harness)
     const onChange = vi.fn()
     renderPicker(
-      <CodeAgentConfigPicker
-        autoSelectSubscriptionDefault
+      <AutoSelectingPicker
         onChange={onChange}
-        value={{
+        initial={{
           runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
           credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
           provider_ref: 'provider-1',
@@ -290,5 +345,28 @@ describe('CodeAgentConfigPicker', () => {
       credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
       model: 'claude-opus-5',
     }))
+  })
+
+  it('requires an explicit model choice when only API providers remain', async () => {
+    harnessState.harnesses = harnessState.harnesses.map((harness) => ({
+      ...harness,
+      enabled: harness.runtime !== TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+      viewer_has_subscription: false,
+    }))
+    const onChange = vi.fn()
+    renderPicker(
+      <AutoSelectingPicker
+        onChange={onChange}
+        initial={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+          provider_ref: 'provider-1',
+          model: 'api-model',
+        }}
+      />,
+    )
+
+    await waitFor(() => expect(onChange).not.toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Change coding agent' })).toHaveTextContent('Configure harness')
   })
 })

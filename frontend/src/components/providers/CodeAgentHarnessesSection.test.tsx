@@ -21,7 +21,7 @@ describe('CodeAgentHarnessesSection', () => {
         harnesses={harnesses}
         endpoints={[{
           id: 'provider-1',
-          name: 'Organization OpenAI',
+          name: 'anthropic',
           available_models: [{ id: 'task-selected-model', enabled: true, type: 'chat' }],
         }]}
         subscriptionIdentity={() => 'developer@example.com · Claude Max Subscription'}
@@ -30,15 +30,15 @@ describe('CodeAgentHarnessesSection', () => {
       />,
     )
 
-    expect(screen.queryByText('Organization OpenAI')).not.toBeInTheDocument()
+    expect(screen.queryByText('anthropic')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
 
-    expect(screen.getByText('Organization OpenAI')).toBeInTheDocument()
+    expect(screen.getByText('anthropic')).toBeInTheDocument()
     expect(screen.getByText('developer@example.com · Claude Max Subscription')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Manage subscription' })).toBeInTheDocument()
     expect(screen.queryByText('task-selected-model')).not.toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Disable subscription for Claude Code' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Disable Organization OpenAI for Claude Code' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Disable anthropic for Claude Code' })).toBeChecked()
     expect(screen.getByText('API providers')).toBeInTheDocument()
     expect(screen.getByRole('button', {
       name: 'Enabled API providers expose their models in the task chat, where a model is selected.',
@@ -53,17 +53,17 @@ describe('CodeAgentHarnessesSection', () => {
         endpoints={[
           {
             id: 'provider-1',
-            name: 'Organization OpenAI',
+            name: 'openai',
             available_models: [{ id: 'model-1', enabled: true, type: 'chat' }],
           },
           {
             id: 'provider-2',
-            name: 'Organization Anthropic',
+            name: 'anthropic',
             available_models: [{ id: 'model-2', enabled: true, type: 'chat' }],
           },
           {
             id: 'provider-temporarily-unavailable',
-            name: 'Unavailable provider',
+            name: 'anthropic',
             available_models: [],
           },
         ]}
@@ -72,12 +72,13 @@ describe('CodeAgentHarnessesSection', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Disable Organization OpenAI for Claude Code' }))
+    expect(screen.queryByText('openai')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Disable anthropic for Claude Code' }))
 
     expect(onChange).toHaveBeenCalledWith({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
       enabled: true,
-      provider_refs: ['provider-2', 'provider-temporarily-unavailable'],
+      provider_refs: ['provider-temporarily-unavailable'],
     })
   })
 
@@ -87,7 +88,7 @@ describe('CodeAgentHarnessesSection', () => {
         harnesses={[{ ...harnesses[0], provider_refs: [] }]}
         endpoints={[{
           id: 'provider-1',
-          name: 'Organization OpenAI',
+          name: 'anthropic',
           available_models: [{ id: 'model-1', enabled: true, type: 'chat' }],
         }]}
         onChange={vi.fn()}
@@ -95,7 +96,7 @@ describe('CodeAgentHarnessesSection', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Claude Code settings' }))
-    expect(screen.getByRole('checkbox', { name: 'Enable Organization OpenAI for Claude Code' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Enable anthropic for Claude Code' })).not.toBeChecked()
   })
 
   it('updates subscription eligibility in organization settings', () => {
@@ -146,7 +147,7 @@ describe('CodeAgentHarnessesSection', () => {
         }]}
         endpoints={[{
           id: 'provider-1',
-          name: 'Organization OpenAI',
+          name: 'openai',
           available_models: [{ id: 'model-1', enabled: true, type: 'chat' }],
         }]}
         subscriptionAction={() => <button type="button">Connect</button>}
@@ -161,7 +162,7 @@ describe('CodeAgentHarnessesSection', () => {
     const subscriptionSwitch = screen.getByRole('checkbox', { name: 'Disable subscription for Codex' })
     expect(subscriptionSwitch).toBeChecked()
     expect(subscriptionSwitch).toBeDisabled()
-    expect(screen.getByText('Organization OpenAI')).toBeInTheDocument()
+    expect(screen.getByText('openai')).toBeInTheDocument()
   })
 
   it('keeps a disabled-off subscription switch when disconnected', () => {

@@ -48,6 +48,7 @@ type ProviderManager interface {
 	// for globals) to the current canonical name.
 	ListProviderEndpoints(ctx context.Context, owner string) ([]*types.ProviderEndpoint, error)
 	ListProviderEndpointsForOwner(ctx context.Context, owner string, ownerType types.OwnerType) ([]*types.ProviderEndpoint, error)
+	OpenAIResponsesLogStores() ([]logger.LogStore, logger.LogStore)
 	// SetRunnerController sets the runner controller for checking runner availability
 	SetRunnerController(controller RunnerControllerStatus)
 }
@@ -186,6 +187,13 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 	}
 
 	return mcm
+}
+
+// OpenAIResponsesLogStores exposes the same logging and billing pipeline used
+// by OpenAI-compatible chat clients so protocol adapters do not create a
+// second billing cache or diverge from the server's logging configuration.
+func (m *MultiClientManager) OpenAIResponsesLogStores() ([]logger.LogStore, logger.LogStore) {
+	return append([]logger.LogStore(nil), m.logStores...), m.billingLogger
 }
 
 func (m *MultiClientManager) StartRefresh(ctx context.Context) {

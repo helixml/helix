@@ -38,6 +38,7 @@ import (
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
+	openailogger "github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/opencode"
 	"github.com/helixml/helix/api/pkg/proxy"
@@ -213,6 +214,9 @@ type HelixAPIServer struct {
 	// created. The server only nil-checks it and calls Run. See
 	// api/pkg/sandbox/compute and api/pkg/sandbox/compute/bootstrap.
 	computeManager *compute.PoolSupervisor
+
+	openAIResponsesLogStores     []openailogger.LogStore
+	openAIResponsesBillingLogger openailogger.LogStore
 }
 
 func NewServer(
@@ -301,6 +305,8 @@ func NewServer(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cache: %w", err)
 	}
+
+	responsesLogStores, responsesBillingLogger := providerManager.OpenAIResponsesLogStores()
 
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
@@ -427,6 +433,9 @@ func NewServer(
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
+
+		openAIResponsesLogStores:     responsesLogStores,
+		openAIResponsesBillingLogger: responsesBillingLogger,
 	}
 
 	// Sandboxes API controller — orchestrates user-created sandboxes via hydra.
@@ -1025,6 +1034,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	router.HandleFunc("/.well-known/helix-domain-verify/{token}", apiServer.domainVerificationResponse).Methods(http.MethodGet)
 
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/v1/responses", apiServer.authMiddleware.auth(apiServer.openAIResponsesProxyHandler)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
 	// Anthropic API compatible routes

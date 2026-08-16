@@ -16,6 +16,10 @@ import {
 import CodeAgentHarnessRow, { HARNESS_SWITCH_SLOT_SX, HarnessHealth } from './CodeAgentHarnessRow'
 import { providerRef } from '../create/AdvancedModelPicker'
 import { getAgentHarnessLabel } from '../agent/AgentHarness'
+import {
+  providersForCodeAgentRuntime,
+  requiredProviderNameForRuntime,
+} from '../../utils/codeAgentProviders'
 
 function endpointIsRunnable(endpoint: TypesProviderEndpoint): boolean {
   return (endpoint.available_models || []).some((model) => model.enabled
@@ -56,7 +60,8 @@ const CodeAgentHarnessesSection: FC<{
   return (
     <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
       {harnesses.map((harness) => {
-        const runnableEndpoints = endpoints.filter(endpointIsRunnable)
+        const compatibleEndpoints = providersForCodeAgentRuntime(endpoints, harness.runtime)
+        const runnableEndpoints = compatibleEndpoints.filter(endpointIsRunnable)
         const allowedProviderRefs = harness.provider_refs == null
           ? null
           : new Set(harness.provider_refs)
@@ -82,6 +87,7 @@ const CodeAgentHarnessesSection: FC<{
         const subscriptionActionNode = harness.supports_subscription
           ? subscriptionAction?.(harness.runtime || '')
           : null
+        const requiredProviderName = requiredProviderNameForRuntime(harness.runtime)
 
         return (
           <CodeAgentHarnessRow
@@ -201,8 +207,9 @@ const CodeAgentHarnessesSection: FC<{
                                 const current = harness.provider_refs == null
                                   // Preserve temporarily unavailable endpoints
                                   // when materializing the legacy all-providers policy.
-                                  ? [...new Set(endpoints.map(providerRef))]
-                                  : harness.provider_refs
+                                  ? [...new Set(compatibleEndpoints.map(providerRef))]
+                                  : harness.provider_refs.filter((candidate) =>
+                                    compatibleEndpoints.some((endpoint) => providerRef(endpoint) === candidate))
                                 const next = enabled
                                   ? [...new Set([...current, ref])]
                                   : current.filter((candidate) => candidate !== ref)
@@ -220,7 +227,9 @@ const CodeAgentHarnessesSection: FC<{
                   </Stack>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
-                    No API providers with available models are connected.
+                    {requiredProviderName
+                      ? `Add the ${requiredProviderName} provider with an API key to use API mode.`
+                      : 'No API providers with available models are connected.'}
                   </Typography>
                 )}
               </Box>

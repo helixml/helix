@@ -1,15 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert, Collapse } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
-import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddProviderDialog from '../components/providers/AddProviderDialog';
 
 import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from '../services/providersService';
 import { TypesProviderEndpointType } from '../api/api';
 import CircularProgress from '@mui/material/CircularProgress';
-import { Server } from 'lucide-react';
+import { CheckCircle, ChevronDown, CirclePlus, Server } from 'lucide-react';
 import { useGetOrgByName } from '../services/orgService';
 
 import { PROVIDERS, Provider } from '../components/providers/types';
@@ -35,6 +33,7 @@ const Providers: React.FC = () => {
   const account = useAccount()
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [apiProvidersOpen, setApiProvidersOpen] = useState(false);
   const [localModelsEndpointId, setLocalModelsEndpointId] = useState<string | null>(null);
   const [connectingDetected, setConnectingDetected] = useState<string>("");
   const isMacDesktop = account.serverConfig?.edition === "mac-desktop";
@@ -364,12 +363,66 @@ const Providers: React.FC = () => {
 
         <Divider sx={{ mb: 3 }} />
 
-        <Typography variant="h6" sx={{ mb: 1.5 }}>
-          AI Providers
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Add API keys for chat, Zed Agent, Qwen Code, and other AI features.
-        </Typography>
+        <Box
+          component="button"
+          type="button"
+          aria-expanded={apiProvidersOpen}
+          aria-label={apiProvidersOpen ? 'Hide AI Providers' : 'Show AI Providers'}
+          onClick={() => setApiProvidersOpen((open) => !open)}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            width: '100%',
+            m: 0,
+            mb: apiProvidersOpen ? 2 : 0,
+            p: 0,
+            border: 0,
+            background: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            textAlign: 'left',
+            borderRadius: 1,
+            '&:hover .providers-expand-chevron': { color: 'text.primary' },
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'secondary.main',
+              outlineOffset: 2,
+            },
+          }}
+        >
+          <Box component="span" sx={{ minWidth: 0, flex: 1 }}>
+            <Typography variant="h6" sx={{ mb: 0.5 }}>
+              AI Providers
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Add API keys for chat, Zed Agent, Qwen Code, and other AI features.
+            </Typography>
+          </Box>
+          <Box
+            component="span"
+            className="providers-expand-chevron"
+            aria-hidden="true"
+            sx={{
+              width: 30,
+              height: 30,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              color: 'text.secondary',
+            }}
+          >
+            <ChevronDown
+              size={18}
+              style={{
+                transform: apiProvidersOpen ? 'rotate(180deg)' : undefined,
+                transition: 'transform 120ms ease',
+              }}
+            />
+          </Box>
+        </Box>
+        <Collapse in={apiProvidersOpen} unmountOnExit>
         <Grid container spacing={3} justifyContent="left">
           {PROVIDERS.map((provider) => {
             // The custom provider tile always opens a fresh "Add" dialog — many custom
@@ -447,7 +500,7 @@ const Providers: React.FC = () => {
                           variant={isConfigured ? 'outlined' : 'text'}
                           color={isConfigured ? (existingProvider?.status === 'error' ? 'error' : 'success') : 'secondary'}
                           onClick={() => handleOpenDialog(provider)}
-                          startIcon={isConfigured ? <CheckCircleIcon /> : <AddCircleOutlineIcon />}
+                          startIcon={isConfigured ? <CheckCircle size={18} /> : <CirclePlus size={18} />}
                           disabled={!editAllowed && !isConfigured}
                         >
                           {isConfigured ? (existingProvider?.status === 'error' ? 'Fix Connection' : 'Connected') : 'Connect'}
@@ -524,7 +577,7 @@ const Providers: React.FC = () => {
                       variant="outlined"
                       color={endpoint.status === 'error' ? 'error' : 'success'}
                       onClick={() => handleOpenDialog(customCardProvider)}
-                      startIcon={<CheckCircleIcon />}
+                      startIcon={<CheckCircle size={18} />}
                       disabled={!editAllowed}
                     >
                       {endpoint.status === 'error' ? 'Fix Connection' : 'Connected'}
@@ -535,6 +588,7 @@ const Providers: React.FC = () => {
             );
           })}
         </Grid>
+        </Collapse>
         {selectedProvider && editAllowed && (
           <AddProviderDialog
             orgId={org?.id || ''}
