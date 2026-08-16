@@ -82,6 +82,10 @@ describe("ProjectTaskDefaults", () => {
     );
     expect(controls.props.value.model).toBe("model-1");
     expect(controls.props.grouped).toBe(true);
+    // Which coding agent a project may use is an org decision now (Providers
+    // page), so this tab must render compute only — otherwise a project could
+    // pick a harness the organization has not enabled.
+    expect(controls.props.computeOnly).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Change model" }));
     fireEvent.click(screen.getByRole("button", { name: "Change compute" }));

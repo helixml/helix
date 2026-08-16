@@ -1,6 +1,5 @@
 import React, { FC, useRef, useState } from 'react'
 import {
-  Alert,
   Box,
   Button,
   CircularProgress,
@@ -37,6 +36,10 @@ import {
   CLAUDE_SUBSCRIPTION_MODELS,
   CODEX_SUBSCRIPTION_MODELS,
 } from './CodingAgentForm'
+import {
+  findRuntimeStatus,
+  useOrgCodeAgentProviders,
+} from '../../services/codeAgentProvidersService'
 import AgentHarness, { getAgentHarnessLabel } from './AgentHarness'
 
 type CredentialType = TypesCodeAgentCredentialType
@@ -81,13 +84,22 @@ const triggerSx = {
   '&:hover': { color: 'text.primary', backgroundColor: 'action.hover' },
 } as const
 
-function isSubscriptionRuntime(runtime: Runtime): boolean {
-  return runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
-    || runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI
-}
-
-function apiModelOptions(providers: TypesProviderEndpoint[]): ModelOption[] {
-  return providers.flatMap((provider) => (provider.available_models || [])
+/**
+ * Models offered for API-key mode.
+ *
+ * `pinnedEndpointID` is the provider the organization configured for this
+ * runtime. When set we offer only that provider's models: the org already made
+ * the provider choice, so re-asking here is both redundant and a way to pick a
+ * provider the runtime is not actually routed through.
+ */
+function apiModelOptions(
+  providers: TypesProviderEndpoint[],
+  pinnedEndpointID?: string,
+): ModelOption[] {
+  const scoped = pinnedEndpointID
+    ? providers.filter((provider) => provider.id === pinnedEndpointID)
+    : providers
+  return scoped.flatMap((provider) => (provider.available_models || [])
     .filter((model) => model.enabled
       && (!model.type || model.type === 'chat' || model.type === 'text'))
     .map((model) => ({
@@ -128,6 +140,10 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     orgId: org?.id,
     enabled: !loadingOrg,
   })
+  const { data: orgProviders = [], isLoading: loadingOrgProviders } = useOrgCodeAgentProviders(
+    org?.id,
+    { enabled: !loadingOrg },
+  )
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
   const hasClaudeSubscription = (claudeSubscriptions?.length || 0) > 0
@@ -169,6 +185,17 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     setQuery('')
   }
 
+  // Only runtimes the org enabled AND this viewer can run. Availability is
+  // viewer-scoped on purpose: with per-user subscription resolution, a runtime
+  // the org enabled is still unusable for a member who has not connected their
+  // own account, and offering it here would move that failure into the run.
+  const selectableRuntimes = SELECTABLE_CODE_AGENT_RUNTIMES.filter((option) =>
+    findRuntimeStatus(orgProviders, option)?.available)
+  const runtimeStatus = findRuntimeStatus(orgProviders, runtime)
+  // The org decides how a runtime authenticates; the picker follows it rather
+  // than letting a task silently pick a mode the org did not enable.
+  const orgCredentialType = runtimeStatus?.credential_type
+
   const subscription = credentialType
     === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
   const subscriptionAvailable = runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
@@ -176,7 +203,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     : hasCodexSubscription
   const models = subscription
     ? subscriptionModelOptions(runtime)
-    : apiModelOptions(providers)
+    : apiModelOptions(providers, runtimeStatus?.provider_endpoint_id)
   const visibleModels = models.filter((model) => matchesAllTokens(
     query,
     model.label,
@@ -276,7 +303,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
               overflowY: 'auto',
             }}
           >
-            {SELECTABLE_CODE_AGENT_RUNTIMES.map((option) => (
+            {selectableRuntimes.map((option) => (
               <IconButton
                 key={option}
                 aria-label={getAgentHarnessLabel(option)}
@@ -299,37 +326,6 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
             <Box sx={{ px: 1.5, pt: 1.25 }}>
               <AgentHarness runtime={runtime} variant="long" size={17} showTooltip={false} />
 
-              {isSubscriptionRuntime(runtime) && (
-                <Box sx={{ mt: 1, mb: 0.5, p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                  <Typography variant="caption" color="text.secondary">Credentials</Typography>
-                  <RadioGroup
-                    row
-                    value={credentialType}
-                    onChange={(event) => {
-                      setCredentialType(event.target.value as CredentialType)
-                      setQuery('')
-                    }}
-                  >
-                    <FormControlLabel
-                      value={TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription}
-                      disabled={!subscriptionAvailable}
-                      control={<Radio size="small" />}
-                      label={<Typography variant="body2">Subscription</Typography>}
-                    />
-                    <FormControlLabel
-                      value={TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey}
-                      control={<Radio size="small" />}
-                      label={<Typography variant="body2">API usage</Typography>}
-                    />
-                  </RadioGroup>
-                  {!subscriptionAvailable && (
-                    <Alert severity="info" variant="outlined" sx={{ mt: 0.5, py: 0 }}>
-                      Connect a {runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode ? 'Claude' : 'ChatGPT'} subscription in Providers to use it here.
-                    </Alert>
-                  )}
-                </Box>
-              )}
-
               <Stack
                 direction="row"
                 alignItems="center"
@@ -346,7 +342,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
                   inputProps={{ 'aria-label': 'Search models' }}
                   sx={{ fontSize: '0.875rem' }}
                 />
-                {(loadingOrg || loadingProviders) && <CircularProgress size={15} />}
+                {(loadingOrg || loadingProviders || loadingOrgProviders) && <CircularProgress size={15} />}
               </Stack>
             </Box>
 
@@ -388,10 +384,54 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
               })}
               {!loadingProviders && visibleModels.length === 0 && (
                 <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 2 }}>
-                  No models found
+                  {selectableRuntimes.length === 0
+                    ? 'No coding agents are enabled for this organization yet.'
+                    : 'No models found'}
                 </Typography>
               )}
             </Box>
+
+            {/*
+              Credentials sit under the model, flat, and only for Claude Code —
+              the one runtime where a member can plausibly hold both a personal
+              subscription and API access, so the choice is theirs to make per
+              task. Every other runtime authenticates the single way the org
+              configured, and showing a control with one real option is noise.
+            */}
+            {runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode && (
+              <Box sx={{ px: 1.5, py: 1.25, borderTop: '1px solid', borderColor: 'divider' }}>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
+                  Credentials
+                </Typography>
+                <RadioGroup
+                  row
+                  value={credentialType}
+                  onChange={(event) => {
+                    setCredentialType(event.target.value as CredentialType)
+                    setQuery('')
+                  }}
+                >
+                  <FormControlLabel
+                    value={TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription}
+                    disabled={!subscriptionAvailable}
+                    control={<Radio size="small" />}
+                    label={<Typography variant="body2">Claude Subscription</Typography>}
+                  />
+                  <FormControlLabel
+                    value={TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey}
+                    disabled={orgCredentialType
+                      === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription}
+                    control={<Radio size="small" />}
+                    label={<Typography variant="body2">Anthropic API Key</Typography>}
+                  />
+                </RadioGroup>
+                {!subscriptionAvailable && (
+                  <Typography variant="caption" color="text.secondary">
+                    Connect your own Claude account in Providers to use it here.
+                  </Typography>
+                )}
+              </Box>
+            )}
           </Stack>
         </Stack>
       </Popover>

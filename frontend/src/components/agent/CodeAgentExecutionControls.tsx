@@ -35,6 +35,12 @@ export interface CodeAgentExecutionControlsProps {
   disabled?: boolean
   compact?: boolean
   grouped?: boolean
+  /**
+   * Render the compute controls only. Project settings uses this: which coding
+   * agent an org may use is now an org-level decision on the Providers page, so
+   * the project sandbox tab configures compute and nothing else.
+   */
+  computeOnly?: boolean
 }
 
 const SANDBOX_PRESETS = [
@@ -71,6 +77,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   disabled = false,
   compact = false,
   grouped = false,
+  computeOnly = false,
 }) => {
   const snackbar = useSnackbar()
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(null)
@@ -174,13 +181,17 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
             minWidth: 0,
           }}
         >
-          <Typography variant="body2" color="text.secondary">Harness:</Typography>
-          <Box sx={{ minWidth: 0 }}>{harnessControl}</Box>
-          <Typography variant="body2" color="text.secondary">Model:</Typography>
-          <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
-            {modelControl}
-            {reasoningControl}
-          </Stack>
+          {!computeOnly && (
+            <>
+              <Typography variant="body2" color="text.secondary">Harness:</Typography>
+              <Box sx={{ minWidth: 0 }}>{harnessControl}</Box>
+              <Typography variant="body2" color="text.secondary">Model:</Typography>
+              <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+                {modelControl}
+                {reasoningControl}
+              </Stack>
+            </>
+          )}
           {computeControl && (
             <>
               <Typography variant="body2" color="text.secondary">Compute:</Typography>
@@ -190,9 +201,9 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
         </Box>
       ) : (
         <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: compact ? 'nowrap' : 'wrap' }}>
-          {harnessControl}
-          {modelControl}
-          {reasoningControl}
+          {!computeOnly && harnessControl}
+          {!computeOnly && modelControl}
+          {!computeOnly && reasoningControl}
           {computeControl}
         </Stack>
       )}

@@ -983,8 +983,9 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           Task Defaults
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Configure the code agent and sandbox selected for new tasks in this
-          project. These values can still be changed before a task starts.
+          Configure the compute allocated to new tasks in this project. These
+          values can still be changed before a task starts. Which coding agents
+          are available is configured for the whole organization under Providers.
         </Typography>
         <Divider sx={{ mb: 3 }} />
         <ProjectTaskDefaults

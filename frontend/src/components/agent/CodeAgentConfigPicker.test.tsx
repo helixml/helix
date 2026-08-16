@@ -10,6 +10,9 @@ import {
 import CodeAgentConfigPicker from './CodeAgentConfigPicker'
 
 const subscriptionState = vi.hoisted(() => ({ claude: [] as any[], codex: [] as any[] }))
+// The picker offers only runtimes the org enabled and this viewer can run, so
+// every test needs an allow list. Default: everything available on API keys.
+const orgProviderState = vi.hoisted(() => ({ providers: [] as any[] }))
 
 vi.mock('../../hooks/useRouter', () => ({
   default: () => ({ params: { org_id: 'test-org' } }),
@@ -33,6 +36,10 @@ vi.mock('../account/ClaudeSubscriptionConnect', () => ({
 vi.mock('../../services/codexSubscriptionsService', () => ({
   useCodexSubscriptions: () => ({ data: subscriptionState.codex }),
 }))
+vi.mock('../../services/codeAgentProvidersService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/codeAgentProvidersService')>()),
+  useOrgCodeAgentProviders: () => ({ data: orgProviderState.providers, isLoading: false }),
+}))
 
 function renderPicker(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -43,6 +50,21 @@ describe('CodeAgentConfigPicker', () => {
   beforeEach(() => {
     subscriptionState.claude = []
     subscriptionState.codex = []
+    orgProviderState.providers = [
+      TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
+      TypesCodeAgentRuntime.CodeAgentRuntimeGooseCode,
+      TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+      TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+      TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+    ].map((runtime) => ({
+      runtime,
+      enabled: true,
+      available: true,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_endpoint_id: 'provider-1',
+      supports_subscription: runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
+        || runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
+    }))
   })
 
   it('offers every supported harness independently of Helix Apps', () => {
@@ -67,7 +89,38 @@ describe('CodeAgentConfigPicker', () => {
     expect(screen.getByRole('button', { name: 'opencode' })).toBeInTheDocument()
   })
 
-  it('shows subscription versus API usage for Claude Code and Codex', () => {
+  it('only offers a credentials choice for Claude Code', () => {
+    // Claude Code is the one runtime where a member can plausibly hold both a
+    // personal subscription and API access, so the choice is theirs per task.
+    // Every other runtime authenticates the single way the org configured.
+    renderPicker(
+      <CodeAgentConfigPicker
+        trigger="model"
+        onChange={vi.fn()}
+        value={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
+          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+          provider_ref: 'provider-1',
+          model: 'api-model',
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding model' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
+    expect(screen.getByRole('radio', { name: 'Claude Subscription' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Anthropic API Key' })).toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
+    expect(screen.queryByRole('radio', { name: 'Claude Subscription' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'opencode' }))
+    expect(screen.queryByRole('radio', { name: /Subscription/ })).not.toBeInTheDocument()
+  })
+
+  it('enables the Claude subscription option once the viewer connects their own account', () => {
+    subscriptionState.claude = [{ id: 'claude-subscription' }]
     renderPicker(
       <CodeAgentConfigPicker
         trigger="model"
@@ -83,21 +136,21 @@ describe('CodeAgentConfigPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Change coding model' }))
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
-    expect(screen.getByRole('radio', { name: 'Subscription' })).toBeDisabled()
-    expect(screen.getByRole('radio', { name: 'API usage' })).toBeChecked()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
-    expect(screen.getByRole('radio', { name: 'Subscription' })).toBeDisabled()
-    expect(screen.getByRole('radio', { name: 'API usage' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Claude Subscription' })).not.toBeDisabled()
   })
 
-  it('emits a complete Codex subscription config', () => {
-    subscriptionState.codex = [{ id: 'codex-subscription' }]
-    const onChange = vi.fn()
+  it('offers only runtimes the organization enabled for this viewer', () => {
+    // Codex enabled for the org but unavailable to this member (no subscription
+    // of their own) must not appear — picking it would fail at run time.
+    orgProviderState.providers = orgProviderState.providers.map((provider) =>
+      provider.runtime === TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI
+        ? { ...provider, available: false, unavailable_reason: 'Connect your own subscription to use this agent' }
+        : provider)
+
     renderPicker(
       <CodeAgentConfigPicker
-        trigger="model"
-        onChange={onChange}
+        trigger="harness"
+        onChange={vi.fn()}
         value={{
           runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
           credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
@@ -107,16 +160,37 @@ describe('CodeAgentConfigPicker', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Change coding model' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
-    expect(screen.getByRole('radio', { name: 'Subscription' })).toBeChecked()
-    fireEvent.click(screen.getByRole('button', { name: /GPT-5.6 Sol.*ChatGPT subscription/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding harness' }))
+    expect(screen.getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Codex' })).not.toBeInTheDocument()
+  })
 
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
-      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
-      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
-      model: 'gpt-5.6-sol',
-      provider_ref: undefined,
+  it('offers only the models of the provider the organization pinned', () => {
+    // The org already chose the provider for this runtime, so the picker must
+    // not offer models from a provider the runtime is not routed through.
+    orgProviderState.providers = orgProviderState.providers.map((provider) => ({
+      ...provider,
+      provider_endpoint_id: 'provider-elsewhere',
     }))
+
+    renderPicker(
+      <CodeAgentConfigPicker
+        trigger="model"
+        onChange={vi.fn()}
+        value={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+          provider_ref: 'provider-1',
+          model: 'api-model',
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding model' }))
+    // provider-1 does have api-model, so an empty list is the filter working.
+    // Asserted via the empty state rather than the model string, because the
+    // collapsed trigger still renders the currently-selected model's name.
+    expect(screen.getByText('No models found')).toBeInTheDocument()
+    expect(screen.queryByText('OpenAI')).not.toBeInTheDocument()
   })
 })

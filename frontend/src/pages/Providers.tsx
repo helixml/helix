@@ -23,6 +23,12 @@ import CodexSubscriptionConnect from '../components/account/CodexSubscriptionCon
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
 import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
+import CodeAgentProvidersSection from '../components/providers/CodeAgentProvidersSection';
+import {
+  useOrgCodeAgentProviders,
+  useUpdateOrgCodeAgentProviders,
+} from '../services/codeAgentProvidersService';
+import { TypesOrgCodeAgentProviderUpdate } from '../api/api';
 
 const Providers: React.FC = () => {
   const router = useRouter()
@@ -63,6 +69,18 @@ const Providers: React.FC = () => {
   const claudeIsExpired = claudeExpiry?.isExpired ?? false
   const { data: codexSubscriptions } = useCodexSubscriptions()
   const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
+
+  // Coding-agent allow list. Viewer-scoped: `available` answers "can I run this
+  // now", which differs per member for subscription-backed runtimes.
+  const { data: codeAgentProviders = [], isLoading: isLoadingCodeAgents } = useOrgCodeAgentProviders(
+    org?.id,
+    { enabled: !isLoadingOrg },
+  )
+  const updateCodeAgentProviders = useUpdateOrgCodeAgentProviders(org?.id)
+  const handleCodeAgentChange = (update: TypesOrgCodeAgentProviderUpdate) => {
+    // One row at a time — the API leaves unnamed runtimes untouched.
+    updateCodeAgentProviders.mutate([update])
+  }
 
   const pageProps = {
     breadcrumbTitle: 'AI providers',
@@ -167,6 +185,31 @@ const Providers: React.FC = () => {
             : "View the AI providers configured for your organization. Contact your organization owner to add new providers."
           }
         </Typography>
+
+        {/* Coding agents — the org's allow list for spec-task runtimes. */}
+        <Box sx={{ mb: 5 }}>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
+            Coding agents
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {editAllowed
+              ? "Choose which coding agents tasks in this organization can use, and how each one authenticates."
+              : "Coding agents available to tasks in this organization."}
+          </Typography>
+          <CodeAgentProvidersSection
+            providers={codeAgentProviders}
+            endpoints={allEndpoints}
+            loading={isLoadingCodeAgents || isLoadingOrg}
+            saving={updateCodeAgentProviders.isPending}
+            readOnly={!editAllowed}
+            onChange={handleCodeAgentChange}
+            subscriptionAction={(runtime) => {
+              if (runtime === 'claude_code') return <ClaudeSubscriptionConnect variant="button" />
+              if (runtime === 'codex_cli') return <CodexSubscriptionConnect orgId={org?.id} />
+              return null
+            }}
+          />
+        </Box>
 
         {/* Detected local servers banner */}
         {unconnectedDetected.length > 0 && (
