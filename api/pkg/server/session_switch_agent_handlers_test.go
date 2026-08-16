@@ -95,7 +95,7 @@ func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	require.NotNil(t, seed, "fork_seed interaction must be created")
 	assert.NotEmpty(t, seed.ResponseMessage, "fork_seed must carry the serialized transcript")
 	require.NotNil(t, handoff, "handoff interaction must be created")
-	assert.Equal(t, types.InteractionStateWaiting, handoff.State, "handoff must be Waiting so pickupWaitingInteraction delivers it on reconnect")
+	assert.Equal(t, types.InteractionStateWaiting, handoff.State, "handoff must be Waiting so the reconnect resume path delivers it on reconnect")
 }
 
 func TestSessionUsesAgentRuntime_RejectsStaleAgentName(t *testing.T) {

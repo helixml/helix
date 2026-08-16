@@ -112,7 +112,11 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
     }
   }
 
-  const modelControl = (
+  // Before anything is chosen the picker renders a single "Configure harness"
+  // call to action, so showing both triggers would duplicate it.
+  const unconfigured = !value?.runtime && !value?.model
+
+  const modelControl = unconfigured ? null : (
     <CodeAgentConfigPicker
       value={value}
       disabled={controlsDisabled}
@@ -183,13 +187,19 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
         >
           {!computeOnly && (
             <>
-              <Typography variant="body2" color="text.secondary">Harness:</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {unconfigured ? 'Agent:' : 'Harness:'}
+              </Typography>
               <Box sx={{ minWidth: 0 }}>{harnessControl}</Box>
-              <Typography variant="body2" color="text.secondary">Model:</Typography>
-              <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
-                {modelControl}
-                {reasoningControl}
-              </Stack>
+              {!unconfigured && (
+                <>
+                  <Typography variant="body2" color="text.secondary">Model:</Typography>
+                  <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+                    {modelControl}
+                    {reasoningControl}
+                  </Stack>
+                </>
+              )}
             </>
           )}
           {computeControl && (

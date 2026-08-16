@@ -1,21 +1,20 @@
 import { FC } from 'react'
+import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
-import DialogTitle from '@mui/material/DialogTitle'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import { Settings2 } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 
 /**
  * Shown when a task surface has no coding agent it can start with.
  *
- * The organization either enabled none, or enabled only subscription-backed
- * ones this member has not connected. Both are fixed in the same place, so the
- * dialog links there rather than describing what to do in prose.
+ * Framed as the next onboarding step rather than an error: nothing has gone
+ * wrong, the org simply has not picked a harness yet. One action and no dismiss
+ * button — clicking outside closes it, so the only thing to press is the thing
+ * worth pressing.
  */
 const NoCodeAgentsDialog: FC<{
   open: boolean
@@ -26,34 +25,27 @@ const NoCodeAgentsDialog: FC<{
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>No coding agents available</DialogTitle>
-      <DialogContent>
-        <Stack spacing={1.5}>
+      <DialogContent sx={{ py: 3 }}>
+        <Stack spacing={1}>
+          <Typography variant="h6">Configure harness</Typography>
           <Typography variant="body2" color="text.secondary">
-            Tasks need a coding agent to run. This organization has not enabled one
-            yet — or the ones it enabled use a personal subscription you have not
-            connected.
+            Configure your coding agent like Claude Code, Codex, OpenCode or Zed.
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Enable an agent and give it a provider or subscription, then come back
-            and start your task.
-          </Typography>
+          <Box sx={{ pt: 1.5 }}>
+            <Button
+              variant="contained"
+              color="secondary"
+              disabled={!orgId}
+              onClick={() => {
+                onClose()
+                router.navigate('org_providers', { org_id: orgId })
+              }}
+            >
+              Configure providers
+            </Button>
+          </Box>
         </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-        <Button
-          variant="contained"
-          startIcon={<Settings2 size={16} />}
-          disabled={!orgId}
-          onClick={() => {
-            onClose()
-            router.navigate('org_providers', { org_id: orgId })
-          }}
-        >
-          Configure providers
-        </Button>
-      </DialogActions>
     </Dialog>
   )
 }

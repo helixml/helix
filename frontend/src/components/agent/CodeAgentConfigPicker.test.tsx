@@ -255,10 +255,22 @@ describe('CodeAgentConfigPicker', () => {
     orgProviderState.providers = []
     renderPicker(<CodeAgentConfigPicker trigger="harness" onChange={vi.fn()} />)
 
+    // Unconfigured, so the trigger is the single call to action rather than a
+    // harness chip implying something is already selected.
     fireEvent.click(screen.getByRole('button', { name: 'Change coding harness' }))
-    expect(await screen.findByText('No coding agents available')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Configure harness' })).toBeInTheDocument()
+    expect(screen.getByText(/Claude Code, Codex, OpenCode or Zed/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Configure providers/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Configure providers' }))
     expect(navigate).toHaveBeenCalledWith('org_providers', { org_id: 'test-org' })
+  })
+
+  it('reads as unconfigured rather than defaulting to Zed', () => {
+    // The control used to render the default runtime, which looked like Zed was
+    // already chosen before the user had picked anything.
+    renderPicker(<CodeAgentConfigPicker trigger="harness" onChange={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Change coding harness' }))
+      .toHaveTextContent('Configure harness')
+    expect(screen.queryByText('Zed Agent')).not.toBeInTheDocument()
   })
 })

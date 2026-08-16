@@ -260,6 +260,10 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   // it. Only fires for a genuinely unset value — never overwrites a task's
   // stored config or a choice already made.
   const valueIsUnset = !value?.runtime && !value?.model
+  // Nothing chosen yet. Rendering the default runtime here made the control
+  // look like Zed was already selected, so the unconfigured state gets its own
+  // single call-to-action instead of a harness chip plus a model chip.
+  const unconfigured = valueIsUnset
   useEffect(() => {
     if (!settingsLoaded || !valueIsUnset || startableConfigs.length !== 1) return
     onChange(startableConfigs[0])
@@ -315,8 +319,8 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   return (
     <>
       <Tooltip
-        title={settingsLoaded && !hasAnyRuntime
-          ? 'No coding agents are configured for this organization yet'
+        title={unconfigured
+          ? ''
           : trigger === 'harness' ? 'Change coding harness' : 'Change coding model'}
       >
         <Box component="span" sx={{ display: 'inline-flex', minWidth: 0 }}>
@@ -332,9 +336,13 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
               }
               openPicker(event.currentTarget)
             }}
-            sx={triggerSx}
+            sx={unconfigured
+              ? { ...triggerSx, color: 'secondary.main', fontWeight: 500, '&:hover': { color: 'secondary.main', backgroundColor: 'action.hover' } }
+              : triggerSx}
           >
-            {trigger === 'harness' ? (
+            {unconfigured ? (
+              'Configure harness'
+            ) : trigger === 'harness' ? (
               <AgentHarness runtime={value?.runtime || runtime} variant="long" size={16} showTooltip={false} />
             ) : (
               <>

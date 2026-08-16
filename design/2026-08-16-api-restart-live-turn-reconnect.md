@@ -104,83 +104,145 @@ discovery` and `Stream WebSocket connection established, starting resilient prox
 fire correctly after each restart, and the desktop view kept rendering. The defect is
 confined to agent-turn continuity.
 
-## Plan
+## What was implemented
 
-Ordered by leverage. Phases 1 and 2 are independently shippable; each removes a distinct
-failure mode.
+### The resume protocol (`api/pkg/server/external_agent_resume.go`, new)
 
-### Phase 1 — Stop killing live turns (Helix-only, no Zed change, no version bump)
+Reconnect is now two steps instead of one. `resolveWaitingInteraction` correlates the
+waiting turn to the new connection — request_id maps, the durable
+`ExternalAgentRequestID` binding, the dispatch claim — and sends nothing.
+`applyResumeDecision` runs later, once the agent has had its say, and is the only path
+that may send a `chat_message` on reconnect.
 
-1. **Suppress redelivery of an already-dispatched turn.**
-   In `pickupWaitingInteraction`, skip the `chat_message` when
-   `ExternalAgentDispatchedAt != nil` and the session has a `ZedThreadID`. Still restore
-   `requestToSessionMapping` / `requestToInteractionMapping`, still send `open_thread`
-   with the correlated `request_id`, still return that `request_id`. Re-attach, don't
-   re-prompt.
-   Make `MarkInteractionExternalAgentDispatched` refuse when the column is already set
-   (add `external_agent_dispatched_at IS NULL` to the WHERE), so the invariant is enforced
-   at the store, not only at the call site.
+`decideResume` is the single gate:
 
-2. **Route by `request_id` before dropping content.**
-   In `getOrCreateStreamingContext`, before falling through to "content dropped": if the
-   incoming `request_id` matches an interaction's `external_agent_request_id`, adopt that
-   interaction regardless of state, resetting `error → waiting` when the agent is
-   demonstrably still streaming into it. This alone recovers the session in the report.
+| Agent report | Turn state | Verdict |
+|---|---|---|
+| names this request_id (`queued` or `running`) | any | **attach** — routing only |
+| reported, does not name it | any | **deliver** |
+| absent (legacy agent / readiness timeout) | already dispatched | **attach + verify** |
+| absent | never dispatched | **deliver** |
 
-3. **Don't let an error abort an actively-streaming interaction.**
-   In `handleChatResponseError` and `handleThreadLoadError`, if a streaming context for
-   that interaction has received content within the last few seconds, log and drop the
-   error instead of marking `state = error`. Keep the existing behaviour for genuinely
-   idle turns.
+`pickupWaitingInteraction` is gone; the agent-switch handoff calls
+`deliverWaitingInteractionNow`, which is the same decision with no report available (its
+interaction was created moments earlier, so it resolves to *deliver*).
 
-4. **Fix `handleThreadLoadError`'s target selection.** It scans for "newest waiting
-   interaction" rather than resolving `request_id → interaction`. Resolve by
-   `request_id`, matching `handleChatResponseError`.
+### The authoritative handshake (Zed)
 
-**Verification:** live spec task with a connected Zed, prompt mid-turn, `docker compose
-restart api` (and a second restart 30 s later), confirm — no duplicate `chat_message` in
-logs, interaction stays `waiting`, streaming resumes in the UI, turn completes. Then
-exercise the *next* operation: send a follow-up and confirm it lands.
+`REQUEST_LIFECYCLES` now stores `TrackedRequest { lifecycle, acp_thread_id }` and
+`active_turns_snapshot()` renders it as the `active_turns` array on `agent_ready`.
+`Cancelled` turns are deliberately not reported — those are turns Helix must be free to
+replace. The field is **always serialized**, because absence (an older agent) and an
+empty array (an agent that is running nothing) mean opposite things.
 
-### Phase 2 — Resume handshake (Zed + Helix; needs `sandbox-versions.txt` bump)
+### Idempotency at the Zed ingress
 
-5. **Zed reports live turn state on connect.** Extend `agent_ready` (or add
-   `agent_state`) with `active_turns: [{ acp_thread_id, request_id, state }]`, sourced
-   from `REQUEST_LIFECYCLES`. This replaces the Phase-1 heuristic with an authoritative
-   answer to "is this turn still running?".
+`register_queued_request` returns `RequestAdmission::{Accepted, AlreadyActive}`.
+`request_thread_creation` drops an `AlreadyActive` request instead of calling
+`thread.send()` into a live ACP session. This holds regardless of what Helix decides, so
+an old Helix talking to a new Zed is also protected.
 
-6. **Gate the pickup decision on that report.** Defer `pickupWaitingInteraction`'s send
-   decision until `agent_ready` arrives (bounded by the existing readiness timeout): if
-   the waiting interaction's `request_id` appears in `active_turns`, re-attach only;
-   otherwise deliver. Removes the `ExternalAgentDispatchedAt` heuristic.
+### Errors no longer kill live turns (`api/pkg/server/external_agent_turn_error.go`, new)
 
-7. **Idempotency on Zed ingress.** `start_registered_request` returns a distinct
-   `AlreadyRunning` outcome for a `Running` request_id; the `chat_message` handler acks
-   and returns instead of calling `thread.send()`. Defence in depth — this alone would
-   have prevented the fatal follow-up.
+An error is keyed by request_id, and a request_id names a *turn*, not a *delivery
+attempt* — so a rejected duplicate reports against the turn it duplicated.
+`applyTurnError` therefore decides on evidence rather than message text: if content is
+still flowing into the interaction, the error is deferred one `liveTurnEvidenceWindow`
+and re-examined. A turn that genuinely aborted goes quiet and the error lands seconds
+later; a turn that is alive keeps streaming and the error is discarded.
 
-**Verification:** the 9-phase dockerized E2E (`run_docker_e2e.sh`) plus a new phase that
-drops and re-establishes the Helix WS mid-turn and asserts the turn completes exactly
-once. Per CLAUDE.md, e2e changes are not done until the full dockerized run is green.
+`thread_load_error` is stricter still — it is by definition a *delivery* failure, so
+against a streaming turn it is dropped outright rather than deferred.
 
-### Phase 3 — Hardening
+### Turns are resolved durably, and a live thread can un-stick a dead interaction
 
-8. **Reconnect debounce** per session, so a rebuild storm collapses into one
-   re-attach decision.
+`interactionForRequest` falls back from the in-memory map (which does not survive a
+restart) to `GetInteractionByExternalAgentRequestID`. `handleThreadLoadError` now selects
+its target this way instead of scanning for the newest waiting interaction.
 
-9. **UI honesty.** The RETRY button on a killed-but-live turn currently re-sends the
-   prompt into a running agent — the same bug by hand. Once Phase 1 lands, RETRY should
-   re-attach when the thread is live.
+`getOrCreateStreamingContext` gained the same durable lookup, and revives an interaction
+that is in `error` while its agent is still streaming that request_id — the recovery that
+would have saved the session in this report.
 
-## Open decisions for review
+The revive is deliberately narrow, because Zed replays thread history as `message_added`
+on `open_thread` and those replays carry the thread's current request_id. Reviving on a
+replay would resurrect a dead turn into a spinner that never resolves. Three conditions,
+all required:
 
-- **Phase 1 alone, or straight to Phase 2?** Phase 1 is a heuristic
-  (`dispatched_at != nil` ⇒ assume alive) and would *not* redeliver a prompt that was
-  genuinely lost because Zed itself restarted mid-turn. Phase 2 makes it authoritative.
-  Recommendation: ship Phase 1 now (it is strictly better than today and unblocks the
-  user), then Phase 2 to remove the guess.
-- **Version skew.** A Helix API newer than an already-running Zed in a live sandbox will
-  not receive `active_turns`. Phase 2 needs an explicit answer for that window —
-  either "treat absent `active_turns` as unknown and fall back to the Phase-1 rule"
-  (pragmatic, but a second code path) or "require the bumped Zed" (clean, but strands
-  in-flight sandboxes across a deploy).
+- state is `error` — `complete` is a legitimate terminal state and is never touched;
+- `Completed` is zero — every *deliberate* terminal decision (`message_completed`,
+  `turn_cancelled`, `thread_load_error`) stamps it, so only a turn killed mid-flight
+  without a terminal handshake qualifies, which is exactly the wrongly-errored case;
+- the recorded error is not a known agent crash — if the process died, the turn is over
+  and a replayed entry is not evidence otherwise.
+
+### Selecting a turn from an event
+
+Anything carrying a request_id resolves through `interactionForRequest`. The one
+exception is an **uncorrelated** `thread_load_error` (empty request_id — Zed could not tie
+an `open_thread` failure to a turn), which has no key to select by and keeps the
+newest-waiting behaviour via `newestWaitingInteraction`. Using newest-waiting for a
+*correlated* event is how an unrelated turn ends up wearing another turn's failure, so the
+two selectors are named and separated rather than blended.
+
+## Test coverage
+
+| Test | Pins |
+|---|---|
+| `TestDecideResume` (10 cases) | the full verdict table, including that an *empty* report delivers while an *absent* one does not |
+| `TestParseAgentTurnReport` | absent ≠ empty; malformed entries skipped without losing authority |
+| `TestResumeOnReconnect_*` (3, real WebSocket via the production handler) | reconnect with a dispatched `waiting` turn: owns → no resend; empty report → resend onto the existing thread; legacy → no resend |
+| `TestStreamingContext_RevivesErroredTurnStillStreaming` | the incident's recovery |
+| `TestStreamingContext_DoesNotReviveConcludedOrCrashedTurns` | the two revive guards |
+| Rust `duplicate_ingress_is_rejected_while_active` | ingress idempotency, and that a finished turn's id is admissible again |
+| Rust `active_turns_snapshot_reports_queued_and_running_only` | cancelled turns are not reported as owned |
+
+The three WebSocket tests were checked against a deliberately reverted `decideResume`
+(always-deliver): the "owns" and "legacy" cases fail, the "empty report" case still
+passes. They pin the behaviour, not the implementation.
+
+## Backwards compatibility, and its removal
+
+The legacy branch is one `if` in `decideResume` plus `verifyResumedTurn`, the bounded
+probe that corrects it. It exists only for the deploy window where a new API reconnects
+to an in-flight sandbox running an older Zed. Tracked for deletion in
+<https://github.com/helixml/helix/issues/3047>.
+
+The probe waits `autoWakeStuckThreshold()` (default 180 s, the same budget the auto-wake
+worker uses, because a turn inside a long tool call emits nothing while the tool runs)
+and re-delivers only if *every* signal still says the turn is dead: never left `waiting`,
+no content ever reached the frontend, no cancellation, and the deciding connection is
+still current.
+
+Note the asymmetry that justifies preferring attach when we cannot tell: a turn wrongly
+assumed alive is corrected by the probe minutes later, whereas a turn wrongly re-sent
+corrupts a live ACP session immediately — and the auto-wake worker does **not** replay
+into a connected agent, so it is not a safety net for the delivering mistake.
+
+## Known limitation this does not close
+
+If a turn *finishes* while the API is down, its `message_completed` is written to a dead
+socket and lost. The row stays `waiting`, the agent no longer owns the request_id, and the
+reconnect correctly concludes "the agent does not have this turn" — so it re-sends the
+prompt and the agent redoes the work. That was also the old behaviour (the compat path
+just delays it by the probe budget), so this is not a regression, but it is the next thing
+worth fixing. Closing it needs Zed to replay terminal turn state on reconnect, not just
+thread entries.
+
+## Remaining work
+
+- **Ship the Zed side.** `active_turns` needs `./stack build-zed` → `build-ubuntu`, then a
+  `ZED_COMMIT` bump in `sandbox-versions.txt` following the ordering rule in CLAUDE.md
+  (commit Zed locally → bump the hash → open the Helix PR → push/merge Zed → merge Helix).
+  Until that lands, every reconnect takes the compat branch.
+- **E2E coverage.** Add a phase to the dockerized Zed E2E that drops and re-establishes
+  the Helix WebSocket mid-turn and asserts the turn completes exactly once, with no
+  duplicate `chat_message`. Per CLAUDE.md this is not done until `run_docker_e2e.sh` has
+  actually been run green.
+- **Reconnect debounce.** Not required for correctness now that redelivery is gated, but a
+  rebuild storm still produces one resolve/`open_thread` per reconnect.
+- **UI RETRY on a live turn.** The button re-sends the prompt by hand, which is the
+  original bug performed manually. It should re-attach when the thread is live.
+- **Dead code.** `SessionReadinessState.NeedsContinue` is hardcoded `false`, making
+  `sendContinuePromptIfNeeded` unreachable. Left alone to keep this change scoped; noted
+  in <https://github.com/helixml/helix/issues/3047>.
