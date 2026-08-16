@@ -9022,6 +9022,81 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations/{org_id}/code-agent-providers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every selectable coding-agent runtime with the organization's setting for it and whether the requesting user can currently run it.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List an organization's coding-agent providers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OrgCodeAgentProviderStatus"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Enables or disables coding-agent runtimes for the organization and sets how each authenticates. Runtimes omitted from the request are left unchanged.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization's coding-agent providers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Providers to update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.OrgCodeAgentProvidersUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OrgCodeAgentProviderStatus"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{org_id}/sandboxes": {
             "get": {
                 "security": [
@@ -9834,81 +9909,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.SandboxTerminalSessionsResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org_id}/code-agent-providers": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns every selectable coding-agent runtime with the organization's setting for it and whether the requesting user can currently run it.",
-                "tags": [
-                    "organizations"
-                ],
-                "summary": "List an organization's coding-agent providers",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization ID or name",
-                        "name": "org_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.OrgCodeAgentProviderStatus"
-                            }
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Enables or disables coding-agent runtimes for the organization and sets how each authenticates. Runtimes omitted from the request are left unchanged.",
-                "tags": [
-                    "organizations"
-                ],
-                "summary": "Update an organization's coding-agent providers",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization ID or name",
-                        "name": "org_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Providers to update",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.OrgCodeAgentProvidersUpdateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.OrgCodeAgentProviderStatus"
-                            }
                         }
                     }
                 }
@@ -33310,6 +33310,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.OrgCodeAgentProviderRef": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                }
+            }
+        },
         "types.OrgCodeAgentProviderStatus": {
             "type": "object",
             "properties": {
@@ -33325,6 +33336,14 @@ const docTemplate = `{
                 },
                 "enabled": {
                     "type": "boolean"
+                },
+                "is_flavour": {
+                    "description": "IsFlavour marks a row the org added on top of the built-in harness list,\nwhich is what the UI allows deleting. The built-in rows are permanent.",
+                    "type": "boolean"
+                },
+                "name": {
+                    "description": "Name is empty for the built-in row and set for an added flavour.",
+                    "type": "string"
                 },
                 "provider_endpoint_id": {
                     "type": "string"
@@ -33358,6 +33377,9 @@ const docTemplate = `{
                 "enabled": {
                     "type": "boolean"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "provider_endpoint_id": {
                     "type": "string"
                 },
@@ -33369,6 +33391,12 @@ const docTemplate = `{
         "types.OrgCodeAgentProvidersUpdateRequest": {
             "type": "object",
             "properties": {
+                "delete": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.OrgCodeAgentProviderRef"
+                    }
+                },
                 "providers": {
                     "type": "array",
                     "items": {

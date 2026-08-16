@@ -17,8 +17,11 @@ import (
 // CredentialType "subscription" means "members may use this runtime with their
 // own subscription" — resolution still happens per session owner at run time.
 //
-// One row per (OrganizationID, Runtime). Absence of a row means the runtime has
-// never been configured, which reads as disabled.
+// One row per (OrganizationID, Runtime, Name). Name is empty for the built-in
+// row every supported harness gets; additional named rows are "flavours" — the
+// same harness pointed at a different provider or model, e.g. one opencode on
+// qwen and another on deepseek. Absence of a row means the harness has never
+// been configured, which reads as disabled.
 type OrgCodeAgentProvider struct {
 	ID        string    `json:"id" gorm:"primaryKey"`
 	Created   time.Time `json:"created"`
@@ -26,8 +29,14 @@ type OrgCodeAgentProvider struct {
 	CreatedBy string    `json:"created_by"`
 	UpdatedBy string    `json:"updated_by"`
 
-	OrganizationID string           `json:"organization_id" gorm:"index:idx_org_code_agent_provider,unique,priority:1"`
-	Runtime        CodeAgentRuntime `json:"runtime" gorm:"index:idx_org_code_agent_provider,unique,priority:2"`
+	OrganizationID string           `json:"organization_id" gorm:"index:idx_org_code_agent_provider_named,unique,priority:1"`
+	Runtime        CodeAgentRuntime `json:"runtime" gorm:"index:idx_org_code_agent_provider_named,unique,priority:2"`
+
+	// Name distinguishes flavours of the same harness. Empty is the built-in
+	// row, which is why it is part of the key rather than a separate flag: the
+	// default and its flavours are the same kind of thing and are configured,
+	// listed and selected identically.
+	Name string `json:"name,omitempty" gorm:"index:idx_org_code_agent_provider_named,unique,priority:3"`
 
 	// Enabled controls whether members may pick this runtime for a task.
 	Enabled bool `json:"enabled"`
@@ -55,24 +64,38 @@ func (OrgCodeAgentProvider) TableName() string {
 // the row; the remaining fields replace it wholesale.
 type OrgCodeAgentProviderUpdate struct {
 	Runtime            CodeAgentRuntime        `json:"runtime"`
+	Name               string                  `json:"name,omitempty"`
 	Enabled            bool                    `json:"enabled"`
 	CredentialType     CodeAgentCredentialType `json:"credential_type,omitempty"`
 	ProviderEndpointID string                  `json:"provider_endpoint_id,omitempty"`
 	DefaultModel       string                  `json:"default_model,omitempty"`
 }
 
-// OrgCodeAgentProvidersUpdateRequest replaces the named runtimes' settings.
-// Runtimes absent from Providers are left untouched, so a client can save one
-// row without having to send the whole set.
+// OrgCodeAgentProvidersUpdateRequest replaces the named rows' settings. Rows
+// absent from Providers are left untouched, so a client can save one row
+// without having to send the whole set. Delete names flavours to remove; a
+// built-in row (empty name) cannot be deleted, only disabled.
 type OrgCodeAgentProvidersUpdateRequest struct {
 	Providers []OrgCodeAgentProviderUpdate `json:"providers"`
+	Delete    []OrgCodeAgentProviderRef    `json:"delete,omitempty"`
+}
+
+// OrgCodeAgentProviderRef identifies one row.
+type OrgCodeAgentProviderRef struct {
+	Runtime CodeAgentRuntime `json:"runtime"`
+	Name    string           `json:"name"`
 }
 
 // OrgCodeAgentProviderStatus is one row as the settings UI needs to render it:
 // the stored configuration plus the live availability facts the UI would
 // otherwise have to assemble from three separate endpoints.
 type OrgCodeAgentProviderStatus struct {
-	Runtime            CodeAgentRuntime        `json:"runtime"`
+	Runtime CodeAgentRuntime `json:"runtime"`
+	// Name is empty for the built-in row and set for an added flavour.
+	Name string `json:"name,omitempty"`
+	// IsFlavour marks a row the org added on top of the built-in harness list,
+	// which is what the UI allows deleting. The built-in rows are permanent.
+	IsFlavour          bool                    `json:"is_flavour"`
 	Enabled            bool                    `json:"enabled"`
 	CredentialType     CodeAgentCredentialType `json:"credential_type,omitempty"`
 	ProviderEndpointID string                  `json:"provider_endpoint_id,omitempty"`
@@ -113,13 +136,16 @@ func (r CodeAgentRuntime) SupportsSubscriptionCredentials() bool {
 
 // SelectableCodeAgentRuntimes is the set an organization can enable, in the
 // order the settings UI lists them.
+//
+// Every entry is always returned by the list endpoint, configured or not, so
+// the settings page can show the full set of supported harnesses with an off
+// switch rather than an empty page an owner has no way to act on.
 var SelectableCodeAgentRuntimes = []CodeAgentRuntime{
 	CodeAgentRuntimeClaudeCode,
 	CodeAgentRuntimeCodexCLI,
-	CodeAgentRuntimeOpenCode,
 	CodeAgentRuntimeGooseCode,
 	CodeAgentRuntimeZedAgent,
-	CodeAgentRuntimeQwenCode,
+	CodeAgentRuntimeOpenCode,
 }
 
 // IsSelectableCodeAgentRuntime reports whether a runtime is one an org can

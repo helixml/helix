@@ -24,7 +24,7 @@ func (s *PostgresStore) ListOrgCodeAgentProviders(ctx context.Context, orgID str
 	var providers []*types.OrgCodeAgentProvider
 	err := s.gdb.WithContext(ctx).
 		Where("organization_id = ?", orgID).
-		Order("runtime ASC").
+		Order("runtime ASC, name ASC").
 		Find(&providers).Error
 	if err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func (s *PostgresStore) ListOrgCodeAgentProviders(ctx context.Context, orgID str
 }
 
 // GetOrgCodeAgentProvider returns one runtime's row, or ErrNotFound.
-func (s *PostgresStore) GetOrgCodeAgentProvider(ctx context.Context, orgID string, runtime types.CodeAgentRuntime) (*types.OrgCodeAgentProvider, error) {
+func (s *PostgresStore) GetOrgCodeAgentProvider(ctx context.Context, orgID string, runtime types.CodeAgentRuntime, name string) (*types.OrgCodeAgentProvider, error) {
 	if orgID == "" {
 		return nil, fmt.Errorf("organization_id not specified")
 	}
@@ -43,7 +43,7 @@ func (s *PostgresStore) GetOrgCodeAgentProvider(ctx context.Context, orgID strin
 
 	var provider types.OrgCodeAgentProvider
 	err := s.gdb.WithContext(ctx).
-		Where("organization_id = ? AND runtime = ?", orgID, runtime).
+		Where("organization_id = ? AND runtime = ? AND name = ?", orgID, runtime, name).
 		First(&provider).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -56,14 +56,17 @@ func (s *PostgresStore) GetOrgCodeAgentProvider(ctx context.Context, orgID strin
 
 // UpsertOrgCodeAgentProviders writes the given runtimes in one transaction.
 //
-// It is an upsert on (organization_id, runtime) rather than a delete-and-insert
-// so a partial save — the UI toggling one row — cannot wipe the rest of the
-// org's configuration if the caller sends a short list.
-func (s *PostgresStore) UpsertOrgCodeAgentProviders(ctx context.Context, orgID string, actingUserID string, updates []types.OrgCodeAgentProviderUpdate) ([]*types.OrgCodeAgentProvider, error) {
+// It is an upsert on (organization_id, runtime, name) rather than a
+// delete-and-insert so a partial save — the UI toggling one row — cannot wipe
+// the rest of the org's configuration if the caller sends a short list.
+//
+// deletes remove flavour rows. A built-in row (empty name) is never deleted
+// here; the caller rejects that, because the harness list must stay complete.
+func (s *PostgresStore) UpsertOrgCodeAgentProviders(ctx context.Context, orgID string, actingUserID string, updates []types.OrgCodeAgentProviderUpdate, deletes []types.OrgCodeAgentProviderRef) ([]*types.OrgCodeAgentProvider, error) {
 	if orgID == "" {
 		return nil, fmt.Errorf("organization_id not specified")
 	}
-	if len(updates) == 0 {
+	if len(updates) == 0 && len(deletes) == 0 {
 		return s.ListOrgCodeAgentProviders(ctx, orgID)
 	}
 
@@ -88,6 +91,7 @@ func (s *PostgresStore) UpsertOrgCodeAgentProviders(ctx context.Context, orgID s
 				UpdatedBy:          actingUserID,
 				OrganizationID:     orgID,
 				Runtime:            update.Runtime,
+				Name:               update.Name,
 				Enabled:            update.Enabled,
 				CredentialType:     update.CredentialType,
 				ProviderEndpointID: update.ProviderEndpointID,
@@ -96,7 +100,7 @@ func (s *PostgresStore) UpsertOrgCodeAgentProviders(ctx context.Context, orgID s
 			// On conflict keep the original id/created/created_by so the row's
 			// provenance survives an edit.
 			if err := tx.Clauses(clause.OnConflict{
-				Columns: []clause.Column{{Name: "organization_id"}, {Name: "runtime"}},
+				Columns: []clause.Column{{Name: "organization_id"}, {Name: "runtime"}, {Name: "name"}},
 				DoUpdates: clause.Assignments(map[string]any{
 					"enabled":              row.Enabled,
 					"credential_type":      row.CredentialType,
@@ -106,6 +110,15 @@ func (s *PostgresStore) UpsertOrgCodeAgentProviders(ctx context.Context, orgID s
 					"updated_by":           actingUserID,
 				}),
 			}).Create(&row).Error; err != nil {
+				return err
+			}
+		}
+		for _, ref := range deletes {
+			if ref.Name == "" {
+				continue
+			}
+			if err := tx.Where("organization_id = ? AND runtime = ? AND name = ?", orgID, ref.Runtime, ref.Name).
+				Delete(&types.OrgCodeAgentProvider{}).Error; err != nil {
 				return err
 			}
 		}

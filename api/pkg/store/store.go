@@ -843,8 +843,8 @@ type Store interface {
 
 	// Org coding-agent provider allow list
 	ListOrgCodeAgentProviders(ctx context.Context, orgID string) ([]*types.OrgCodeAgentProvider, error)
-	GetOrgCodeAgentProvider(ctx context.Context, orgID string, runtime types.CodeAgentRuntime) (*types.OrgCodeAgentProvider, error)
-	UpsertOrgCodeAgentProviders(ctx context.Context, orgID string, actingUserID string, updates []types.OrgCodeAgentProviderUpdate) ([]*types.OrgCodeAgentProvider, error)
+	GetOrgCodeAgentProvider(ctx context.Context, orgID string, runtime types.CodeAgentRuntime, name string) (*types.OrgCodeAgentProvider, error)
+	UpsertOrgCodeAgentProviders(ctx context.Context, orgID string, actingUserID string, updates []types.OrgCodeAgentProviderUpdate, deletes []types.OrgCodeAgentProviderRef) ([]*types.OrgCodeAgentProvider, error)
 	DeleteOrgCodeAgentProviders(ctx context.Context, orgID string) error
 	UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
 	SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error

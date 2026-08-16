@@ -1,7 +1,6 @@
 import { FC, ReactNode } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
-import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import FormControl from '@mui/material/FormControl'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -35,11 +34,18 @@ function healthOf(provider: TypesOrgCodeAgentProviderStatus): ProviderHealth {
   return provider.available ? 'ready' : 'attention'
 }
 
-function statusTextOf(provider: TypesOrgCodeAgentProviderStatus): string {
+function statusTextOf(
+  provider: TypesOrgCodeAgentProviderStatus,
+  subscriptionIdentity?: string,
+): string {
   if (!provider.enabled) return 'Disabled for this organization'
   if (!provider.available) return provider.unavailable_reason || 'Needs attention'
   if (provider.credential_type === SUBSCRIPTION) {
-    return 'Ready — authenticating with your own subscription'
+    // Prefer the concrete account and plan over a generic "ready", so an owner
+    // can see *which* account is authenticated without opening the row.
+    return subscriptionIdentity
+      ? `Authenticated as ${subscriptionIdentity}`
+      : 'Ready — authenticating with your own subscription'
   }
   return 'Ready — routed through the organization API key'
 }
@@ -61,14 +67,18 @@ const CodeAgentProvidersSection: FC<{
   // mode. This is where each member connects their own account, so it belongs
   // next to the mode that needs it rather than in a separate card.
   subscriptionAction?: (runtime: string) => ReactNode
+  // "<account> · <plan>" for a runtime whose subscription this viewer holds.
+  subscriptionIdentity?: (runtime: string) => string | undefined
   onChange: (update: TypesOrgCodeAgentProviderUpdate) => void
-}> = ({ providers, endpoints, loading = false, saving = false, readOnly = false, subscriptionAction, onChange }) => {
+  onDelete?: (ref: { runtime: string; name: string }) => void
+}> = ({ providers, endpoints, loading = false, saving = false, readOnly = false, subscriptionAction, subscriptionIdentity, onChange, onDelete }) => {
   const patch = (
     provider: TypesOrgCodeAgentProviderStatus,
     changes: Partial<TypesOrgCodeAgentProviderUpdate>,
   ) => {
     onChange({
       runtime: provider.runtime!,
+      name: provider.name,
       enabled: provider.enabled ?? false,
       credential_type: provider.credential_type,
       provider_endpoint_id: provider.provider_endpoint_id,
@@ -91,7 +101,9 @@ const CodeAgentProvidersSection: FC<{
   return (
     <Box>
       {providers.map((provider) => {
-        const label = getAgentHarnessLabel(provider.runtime)
+        const label = provider.name
+          ? `${getAgentHarnessLabel(provider.runtime)} · ${provider.name}`
+          : getAgentHarnessLabel(provider.runtime)
         // A runtime that cannot use a subscription is API-key only; treat an
         // unset credential_type as API key so the radio has a definite value.
         const credentialType = provider.credential_type === SUBSCRIPTION ? SUBSCRIPTION : API_KEY
@@ -99,15 +111,16 @@ const CodeAgentProvidersSection: FC<{
 
         return (
           <CodeAgentProviderRow
-            key={provider.runtime}
+            key={`${provider.runtime}:${provider.name || ''}`}
             runtime={provider.runtime || ''}
+            label={label}
+            onDelete={provider.is_flavour && !readOnly
+              ? () => onDelete?.({ runtime: provider.runtime!, name: provider.name! })
+              : undefined}
             health={healthOf(provider)}
-            status={statusTextOf(provider)}
+            status={statusTextOf(provider, subscriptionIdentity?.(provider.runtime || ''))}
             enabled={provider.enabled ?? false}
             disabled={readOnly || saving}
-            badge={provider.supports_subscription && subscriptionMode ? (
-              <Chip label="Subscription" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
-            ) : undefined}
             onToggle={(enabled) => patch(provider, { enabled })}
           >
             <Stack spacing={2}>

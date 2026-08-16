@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert, IconButton, Stack } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
@@ -9,21 +9,19 @@ import AddProviderDialog from '../components/providers/AddProviderDialog';
 import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from '../services/providersService';
 import { TypesProviderEndpointType } from '../api/api';
 import CircularProgress from '@mui/material/CircularProgress';
-import { Server } from 'lucide-react';
+import { Plus, Server } from 'lucide-react';
 import { useGetOrgByName } from '../services/orgService';
 
 import { PROVIDERS, Provider } from '../components/providers/types';
 import CustomLogo from '../components/providers/logos/custom';
 import useRouter from '../hooks/useRouter';
 import useAccount from '../hooks/useAccount';
-import AnthropicLogo from '../components/providers/logos/anthropic';
-import OpenAILogo from '../components/providers/logos/openai';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 import CodexSubscriptionConnect from '../components/account/CodexSubscriptionConnect';
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
-import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
 import CodeAgentProvidersSection from '../components/providers/CodeAgentProvidersSection';
+import AddCodeAgentFlavourDialog from '../components/providers/AddCodeAgentFlavourDialog';
 import {
   useOrgCodeAgentProviders,
   useUpdateOrgCodeAgentProviders,
@@ -61,14 +59,7 @@ const Providers: React.FC = () => {
 
   // Claude subscription state (must be called before any early returns)
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const claudeIsSetupToken = hasClaudeSubscription && claudeSubscriptions![0].credential_type === 'setup_token'
-  const claudeExpiry = hasClaudeSubscription && !claudeIsSetupToken
-    ? getTokenExpiryStatus(claudeSubscriptions![0].access_token_expires_at)
-    : null
-  const claudeIsExpired = claudeExpiry?.isExpired ?? false
   const { data: codexSubscriptions } = useCodexSubscriptions()
-  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
 
   // Coding-agent allow list. Viewer-scoped: `available` answers "can I run this
   // now", which differs per member for subscription-backed runtimes.
@@ -77,10 +68,34 @@ const Providers: React.FC = () => {
     { enabled: !isLoadingOrg },
   )
   const updateCodeAgentProviders = useUpdateOrgCodeAgentProviders(org?.id)
-  const handleCodeAgentChange = (update: TypesOrgCodeAgentProviderUpdate) => {
-    // One row at a time — the API leaves unnamed runtimes untouched.
-    updateCodeAgentProviders.mutate([update])
+  // Identity for a runtime's row: which account is authenticated and on what
+  // plan. The subscription lists are already loaded on this page, so this needs
+  // no extra request and no new API field.
+  const subscriptionIdentity = (runtime: string): string | undefined => {
+    if (runtime === 'claude_code') {
+      const sub = claudeSubscriptions?.[0]
+      if (!sub) return undefined
+      const plan = sub.subscription_type
+        ? `Claude ${sub.subscription_type.charAt(0).toUpperCase()}${sub.subscription_type.slice(1)} Subscription`
+        : 'Claude Subscription'
+      return [sub.name, plan].filter(Boolean).join(' · ')
+    }
+    if (runtime === 'codex_cli') {
+      const sub = codexSubscriptions?.[0]
+      if (!sub) return undefined
+      return [sub.name, 'ChatGPT Subscription'].filter(Boolean).join(' · ')
+    }
+    return undefined
   }
+
+  const handleCodeAgentChange = (update: TypesOrgCodeAgentProviderUpdate) => {
+    // One row at a time — the API leaves rows it wasn't sent untouched.
+    updateCodeAgentProviders.mutate({ providers: [update] })
+  }
+  const handleCodeAgentDelete = (ref: { runtime: string; name: string }) => {
+    updateCodeAgentProviders.mutate({ delete: [ref] })
+  }
+  const [addFlavourOpen, setAddFlavourOpen] = useState(false)
 
   const pageProps = {
     breadcrumbTitle: 'AI providers',
@@ -176,21 +191,21 @@ const Providers: React.FC = () => {
   return (
     <Page {...pageProps}>
       <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'left' }}>
-        <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
+        <Typography variant="h4" sx={{ mb: 4, fontWeight: 600 }}>
           AI Providers
         </Typography>
-        <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
+        {/* <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
           {editAllowed
             ? "Add your own API keys to use with your Helix agents."
             : "View the AI providers configured for your organization. Contact your organization owner to add new providers."
           }
-        </Typography>
+        </Typography> */}
 
         {/* Coding agents — the org's allow list for spec-task runtimes. */}
         <Box sx={{ mb: 5 }}>
-          <Typography variant="h6" sx={{ mb: 0.5 }}>
+          {/* <Typography variant="h6" sx={{ mb: 0.5 }}>
             Coding agents
-          </Typography>
+          </Typography> */}
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             {editAllowed
               ? "Choose which coding agents tasks in this organization can use, and how each one authenticates."
@@ -203,6 +218,8 @@ const Providers: React.FC = () => {
             saving={updateCodeAgentProviders.isPending}
             readOnly={!editAllowed}
             onChange={handleCodeAgentChange}
+            onDelete={handleCodeAgentDelete}
+            subscriptionIdentity={subscriptionIdentity}
             subscriptionAction={(runtime) => {
               if (runtime === 'claude_code') return <ClaudeSubscriptionConnect variant="button" />
               if (runtime === 'codex_cli') return <CodexSubscriptionConnect orgId={org?.id} />
@@ -247,74 +264,11 @@ const Providers: React.FC = () => {
           </Box>
         )}
 
-        <Typography variant="h6" sx={{ mb: 1.5 }}>
-          Subscriptions
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Connect an Anthropic or ChatGPT subscription for coding agents in desktop sessions.
-        </Typography>
-        <Grid container spacing={3} justifyContent="left" sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} display="flex" justifyContent="center">
-            <Card
-              sx={{
-                width: 320,
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: 2,
-                borderStyle: 'dashed',
-                borderWidth: 1,
-                borderColor: hasClaudeSubscription
-                  ? (claudeIsExpired ? 'error.main' : claudeExpiry?.isExpiringSoon ? 'warning.main' : 'success.main')
-                  : 'divider',
-                opacity: hasClaudeSubscription ? 1 : 0.85,
-                transition: 'all 0.2s',
-                '&:hover': {
-                  boxShadow: editAllowed ? 4 : 2,
-                  transform: editAllowed ? 'translateY(-4px)' : 'none',
-                  borderColor: editAllowed ? 'primary.main' : 'divider',
-                },
-              }}
-            >
-              <CardHeader
-                avatar={
-                  <Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}>
-                    <AnthropicLogo style={{ width: 40, height: 40 }} />
-                  </Avatar>
-                }
-                title="Anthropic"
-                titleTypographyProps={{ variant: 'h6', align: 'center' }}
-              />
-              <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  Use your Claude account with Claude Code inside desktop agents. Not an API key provider.
-                </Typography>
-              </CardContent>
-              <CardActions sx={{ justifyContent: 'center', pb: 2, minHeight: 52, '& .MuiButton-root': { minWidth: 104, height: 36 } }}>
-                <ClaudeSubscriptionConnect variant="button" />
-              </CardActions>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} display="flex" justifyContent="center">
-            <Card sx={{ width: 320, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: 2, borderStyle: 'dashed', borderWidth: 1, borderColor: hasCodexSubscription ? 'success.main' : 'divider' }}>
-              <CardHeader
-                avatar={<Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}><OpenAILogo style={{ width: 40, height: 40 }} /></Avatar>}
-                title="ChatGPT"
-                titleTypographyProps={{ variant: 'h6', align: 'center' }}
-              />
-              <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  Use your ChatGPT account with Codex CLI inside desktop agents. Not an API key provider.
-                </Typography>
-              </CardContent>
-              <CardActions sx={{ justifyContent: 'center', pb: 2, minHeight: 52, '& .MuiButton-root': { minWidth: 104, height: 36 } }}>
-                <CodexSubscriptionConnect orgId={org?.id} />
-              </CardActions>
-            </Card>
-          </Grid>
-        </Grid>
+        {/*
+          The standalone Anthropic/ChatGPT subscription cards used to live here.
+          Connecting is now done inside the coding-agent row that needs it, so a
+          duplicate section would be a second place to do the same thing.
+        */}
 
         {localEndpoints.length > 0 && (
           <>

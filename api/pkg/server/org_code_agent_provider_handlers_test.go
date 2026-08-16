@@ -98,7 +98,6 @@ func TestSubscriptionRuntimes(t *testing.T) {
 		types.CodeAgentRuntimeOpenCode,
 		types.CodeAgentRuntimeGooseCode,
 		types.CodeAgentRuntimeZedAgent,
-		types.CodeAgentRuntimeQwenCode,
 	} {
 		assert.False(t, runtime.SupportsSubscriptionCredentials(),
 			"%s must not accept subscription credentials", runtime)
@@ -110,8 +109,10 @@ func TestSelectableRuntimesAreRecognised(t *testing.T) {
 	for _, runtime := range types.SelectableCodeAgentRuntimes {
 		assert.True(t, types.IsSelectableCodeAgentRuntime(runtime))
 	}
-	assert.False(t, types.IsSelectableCodeAgentRuntime("gemini_cli"),
-		"a runtime absent from the selectable list must be rejected")
+	for _, runtime := range []types.CodeAgentRuntime{"gemini_cli", "qwen_code"} {
+		assert.False(t, types.IsSelectableCodeAgentRuntime(runtime),
+			"%s is not offered in settings and must be rejected", runtime)
+	}
 	assert.False(t, types.IsSelectableCodeAgentRuntime(""))
 	assert.False(t, types.IsSelectableCodeAgentRuntime("not_a_runtime"))
 }

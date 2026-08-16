@@ -25,7 +25,7 @@ export function useOrgCodeAgentProviders(orgId?: string, options?: { enabled?: b
   return useQuery({
     queryKey: codeAgentProvidersQueryKey(orgId),
     queryFn: async () => {
-      const result = await apiClient.v1OrgsCodeAgentProvidersDetail(orgId!)
+      const result = await apiClient.v1OrganizationsCodeAgentProvidersDetail(orgId!)
       return (result.data || []) as TypesOrgCodeAgentProviderStatus[]
     },
     enabled: !!orgId && (options?.enabled ?? true),
@@ -40,8 +40,11 @@ export function useUpdateOrgCodeAgentProviders(orgId?: string) {
   return useMutation({
     // Sends only the rows being changed — the API leaves unnamed runtimes
     // untouched, so a single toggle cannot clear the rest of the org's config.
-    mutationFn: async (providers: TypesOrgCodeAgentProviderUpdate[]) => {
-      const result = await apiClient.v1OrgsCodeAgentProvidersUpdate(orgId!, { providers })
+    mutationFn: async (body: {
+      providers?: TypesOrgCodeAgentProviderUpdate[]
+      delete?: { runtime: string; name: string }[]
+    }) => {
+      const result = await apiClient.v1OrganizationsCodeAgentProvidersUpdate(orgId!, body as never)
       return (result.data || []) as TypesOrgCodeAgentProviderStatus[]
     },
     onSuccess: () => {

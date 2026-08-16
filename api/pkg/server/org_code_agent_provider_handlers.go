@@ -29,7 +29,7 @@ import (
 // @Tags    organizations
 // @Success 200 {array} types.OrgCodeAgentProviderStatus
 // @Param   org_id path string true "Organization ID or name"
-// @Router  /api/v1/orgs/{org_id}/code-agent-providers [get]
+// @Router  /api/v1/organizations/{org_id}/code-agent-providers [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listOrgCodeAgentProviders(_ http.ResponseWriter, req *http.Request) ([]*types.OrgCodeAgentProviderStatus, *system.HTTPError) {
 	user := getRequestUser(req)
@@ -60,7 +60,7 @@ func (apiServer *HelixAPIServer) listOrgCodeAgentProviders(_ http.ResponseWriter
 // @Success 200 {array} types.OrgCodeAgentProviderStatus
 // @Param   org_id path string true "Organization ID or name"
 // @Param   request body types.OrgCodeAgentProvidersUpdateRequest true "Providers to update"
-// @Router  /api/v1/orgs/{org_id}/code-agent-providers [put]
+// @Router  /api/v1/organizations/{org_id}/code-agent-providers [put]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) updateOrgCodeAgentProviders(_ http.ResponseWriter, req *http.Request) ([]*types.OrgCodeAgentProviderStatus, *system.HTTPError) {
 	user := getRequestUser(req)
@@ -102,7 +102,15 @@ func (apiServer *HelixAPIServer) updateOrgCodeAgentProviders(_ http.ResponseWrit
 		}
 	}
 
-	if _, err := apiServer.Store.UpsertOrgCodeAgentProviders(ctx, org.ID, user.ID, request.Providers); err != nil {
+	for _, ref := range request.Delete {
+		// The built-in harness list must stay complete, so a built-in row can be
+		// disabled but never removed.
+		if ref.Name == "" {
+			return nil, system.NewHTTPError400("built-in coding agents cannot be deleted; disable them instead")
+		}
+	}
+
+	if _, err := apiServer.Store.UpsertOrgCodeAgentProviders(ctx, org.ID, user.ID, request.Providers, request.Delete); err != nil {
 		return nil, system.NewHTTPError500("failed to save providers: " + err.Error())
 	}
 
@@ -140,9 +148,16 @@ func (apiServer *HelixAPIServer) buildOrgCodeAgentProviderStatuses(ctx context.C
 	if err != nil {
 		return nil, fmt.Errorf("failed to list providers: %w", err)
 	}
-	byRuntime := make(map[types.CodeAgentRuntime]*types.OrgCodeAgentProvider, len(stored))
+	// Built-in rows are keyed by runtime alone (empty name); everything else is
+	// a flavour the org added and is listed after them.
+	builtIn := make(map[types.CodeAgentRuntime]*types.OrgCodeAgentProvider, len(stored))
+	var flavours []*types.OrgCodeAgentProvider
 	for _, row := range stored {
-		byRuntime[row.Runtime] = row
+		if row.Name == "" {
+			builtIn[row.Runtime] = row
+			continue
+		}
+		flavours = append(flavours, row)
 	}
 
 	hasClaude := apiServer.viewerHasClaudeSubscription(ctx, orgID, user)
@@ -154,7 +169,7 @@ func (apiServer *HelixAPIServer) buildOrgCodeAgentProviderStatuses(ctx context.C
 			Runtime:              runtime,
 			SupportsSubscription: runtime.SupportsSubscriptionCredentials(),
 		}
-		if row, ok := byRuntime[runtime]; ok {
+		if row, ok := builtIn[runtime]; ok {
 			status.Enabled = row.Enabled
 			status.CredentialType = row.CredentialType
 			status.ProviderEndpointID = row.ProviderEndpointID
@@ -168,6 +183,28 @@ func (apiServer *HelixAPIServer) buildOrgCodeAgentProviderStatuses(ctx context.C
 			status.ViewerHasSubscription = hasCodex
 		}
 
+		status.Available, status.UnavailableReason = codeAgentAvailability(status)
+		statuses = append(statuses, status)
+	}
+
+	// Flavours carry the same viewer-scoped availability as their harness.
+	for _, row := range flavours {
+		status := &types.OrgCodeAgentProviderStatus{
+			Runtime:              row.Runtime,
+			Name:                 row.Name,
+			IsFlavour:            true,
+			Enabled:              row.Enabled,
+			CredentialType:       row.CredentialType,
+			ProviderEndpointID:   row.ProviderEndpointID,
+			DefaultModel:         row.DefaultModel,
+			SupportsSubscription: row.Runtime.SupportsSubscriptionCredentials(),
+		}
+		switch row.Runtime {
+		case types.CodeAgentRuntimeClaudeCode:
+			status.ViewerHasSubscription = hasClaude
+		case types.CodeAgentRuntimeCodexCLI:
+			status.ViewerHasSubscription = hasCodex
+		}
 		status.Available, status.UnavailableReason = codeAgentAvailability(status)
 		statuses = append(statuses, status)
 	}

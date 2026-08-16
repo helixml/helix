@@ -143,6 +143,17 @@ func (s *PostgresStore) runMigrations() error {
 
 	// One-time schema fix: change prompt_history_entries.interrupt default from TRUE to FALSE.
 	// Queue mode (interrupt=false) is the safe default — interrupt mode is the exceptional case.
+	// org_code_agent_providers was first created with a unique index on
+	// (organization_id, runtime). Flavours make the key (organization_id,
+	// runtime, name), and GORM will not narrow an existing unique index, so the
+	// old one is dropped here and AutoMigrate creates the wider one below.
+	// IF EXISTS keeps this idempotent and a no-op for fresh installs.
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		"DROP INDEX IF EXISTS idx_org_code_agent_provider",
+	).Error; err != nil {
+		return fmt.Errorf("failed to drop legacy org_code_agent_provider index: %w", err)
+	}
+
 	// GORM AutoMigrate doesn't change column defaults, so we do it here manually.
 	// The IF EXISTS + ALTER is idempotent — safe to run on every startup.
 	if s.gdb.Migrator().HasTable(&types.PromptHistoryEntry{}) {

@@ -4712,6 +4712,11 @@ export interface TypesOpenAIUsage {
   total_tokens?: number;
 }
 
+export interface TypesOrgCodeAgentProviderRef {
+  name?: string;
+  runtime?: TypesCodeAgentRuntime;
+}
+
 export interface TypesOrgCodeAgentProviderStatus {
   /**
    * Available is whether this viewer can actually run this runtime right now —
@@ -4722,6 +4727,13 @@ export interface TypesOrgCodeAgentProviderStatus {
   credential_type?: TypesCodeAgentCredentialType;
   default_model?: string;
   enabled?: boolean;
+  /**
+   * IsFlavour marks a row the org added on top of the built-in harness list,
+   * which is what the UI allows deleting. The built-in rows are permanent.
+   */
+  is_flavour?: boolean;
+  /** Name is empty for the built-in row and set for an added flavour. */
+  name?: string;
   provider_endpoint_id?: string;
   runtime?: TypesCodeAgentRuntime;
   /**
@@ -4747,11 +4759,13 @@ export interface TypesOrgCodeAgentProviderUpdate {
   credential_type?: TypesCodeAgentCredentialType;
   default_model?: string;
   enabled?: boolean;
+  name?: string;
   provider_endpoint_id?: string;
   runtime?: TypesCodeAgentRuntime;
 }
 
 export interface TypesOrgCodeAgentProvidersUpdateRequest {
+  delete?: TypesOrgCodeAgentProviderRef[];
   providers?: TypesOrgCodeAgentProviderUpdate[];
 }
 
@@ -12923,6 +12937,46 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns every selectable coding-agent runtime with the organization's setting for it and whether the requesting user can currently run it.
+     *
+     * @tags organizations
+     * @name V1OrganizationsCodeAgentProvidersDetail
+     * @summary List an organization's coding-agent providers
+     * @request GET:/api/v1/organizations/{org_id}/code-agent-providers
+     * @secure
+     */
+    v1OrganizationsCodeAgentProvidersDetail: (orgId: string, params: RequestParams = {}) =>
+      this.request<TypesOrgCodeAgentProviderStatus[], any>({
+        path: `/api/v1/organizations/${orgId}/code-agent-providers`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Enables or disables coding-agent runtimes for the organization and sets how each authenticates. Runtimes omitted from the request are left unchanged.
+     *
+     * @tags organizations
+     * @name V1OrganizationsCodeAgentProvidersUpdate
+     * @summary Update an organization's coding-agent providers
+     * @request PUT:/api/v1/organizations/{org_id}/code-agent-providers
+     * @secure
+     */
+    v1OrganizationsCodeAgentProvidersUpdate: (
+      orgId: string,
+      request: TypesOrgCodeAgentProvidersUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesOrgCodeAgentProviderStatus[], any>({
+        path: `/api/v1/organizations/${orgId}/code-agent-providers`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description List sandboxes belonging to an organization
      *
      * @tags Sandboxes
@@ -13335,46 +13389,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Returns every selectable coding-agent runtime with the organization's setting for it and whether the requesting user can currently run it.
-     *
-     * @tags organizations
-     * @name V1OrgsCodeAgentProvidersDetail
-     * @summary List an organization's coding-agent providers
-     * @request GET:/api/v1/orgs/{org_id}/code-agent-providers
-     * @secure
-     */
-    v1OrgsCodeAgentProvidersDetail: (orgId: string, params: RequestParams = {}) =>
-      this.request<TypesOrgCodeAgentProviderStatus[], any>({
-        path: `/api/v1/orgs/${orgId}/code-agent-providers`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Enables or disables coding-agent runtimes for the organization and sets how each authenticates. Runtimes omitted from the request are left unchanged.
-     *
-     * @tags organizations
-     * @name V1OrgsCodeAgentProvidersUpdate
-     * @summary Update an organization's coding-agent providers
-     * @request PUT:/api/v1/orgs/{org_id}/code-agent-providers
-     * @secure
-     */
-    v1OrgsCodeAgentProvidersUpdate: (
-      orgId: string,
-      request: TypesOrgCodeAgentProvidersUpdateRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesOrgCodeAgentProviderStatus[], any>({
-        path: `/api/v1/orgs/${orgId}/code-agent-providers`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 

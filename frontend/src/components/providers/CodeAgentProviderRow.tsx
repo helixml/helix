@@ -5,7 +5,7 @@ import IconButton from '@mui/material/IconButton'
 import Stack from '@mui/material/Stack'
 import Switch from '@mui/material/Switch'
 import Typography from '@mui/material/Typography'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Trash2 } from 'lucide-react'
 
 import AgentHarness, { getAgentHarnessLabel } from '../agent/AgentHarness'
 
@@ -32,10 +32,15 @@ const CodeAgentProviderRow: FC<{
   disabled?: boolean
   badge?: ReactNode
   children?: ReactNode
+  label?: string
+  // Set for flavour rows, which the org added and can remove. Built-in harness
+  // rows have no delete: the list must stay complete so an owner can always
+  // find and enable a supported agent.
+  onDelete?: () => void
   onToggle: (enabled: boolean) => void
-}> = ({ runtime, health, status, enabled, disabled = false, badge, children, onToggle }) => {
+}> = ({ runtime, health, status, enabled, disabled = false, badge, children, label: labelOverride, onDelete, onToggle }) => {
   const [expanded, setExpanded] = useState(false)
-  const label = getAgentHarnessLabel(runtime)
+  const label = labelOverride || getAgentHarnessLabel(runtime)
   const hasDetail = !!children
 
   return (
@@ -77,6 +82,15 @@ const CodeAgentProviderRow: FC<{
         </Box>
 
         <Stack direction="row" alignItems="center" spacing={0.25} sx={{ flexShrink: 0 }}>
+          {onDelete && (
+            <IconButton
+              aria-label={`Remove ${label}`}
+              onClick={onDelete}
+              sx={{ width: 30, height: 30, color: 'text.secondary', '&:hover': { color: 'error.main' } }}
+            >
+              <Trash2 size={16} />
+            </IconButton>
+          )}
           <IconButton
             aria-label={expanded ? `Hide ${label} settings` : `Show ${label} settings`}
             aria-expanded={expanded}

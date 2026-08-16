@@ -7457,6 +7457,13 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.OrgCodeAgentProviderRef:
+    properties:
+      name:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+    type: object
   types.OrgCodeAgentProviderStatus:
     properties:
       available:
@@ -7471,6 +7478,14 @@ definitions:
         type: string
       enabled:
         type: boolean
+      is_flavour:
+        description: |-
+          IsFlavour marks a row the org added on top of the built-in harness list,
+          which is what the UI allows deleting. The built-in rows are permanent.
+        type: boolean
+      name:
+        description: Name is empty for the built-in row and set for an added flavour.
+        type: string
       provider_endpoint_id:
         type: string
       runtime:
@@ -7501,6 +7516,8 @@ definitions:
         type: string
       enabled:
         type: boolean
+      name:
+        type: string
       provider_endpoint_id:
         type: string
       runtime:
@@ -7508,6 +7525,10 @@ definitions:
     type: object
   types.OrgCodeAgentProvidersUpdateRequest:
     properties:
+      delete:
+        items:
+          $ref: '#/definitions/types.OrgCodeAgentProviderRef'
+        type: array
       providers:
         items:
           $ref: '#/definitions/types.OrgCodeAgentProviderUpdate'
@@ -19165,6 +19186,56 @@ paths:
       summary: Look up a user by email within the context of an organization
       tags:
       - organizations
+  /api/v1/organizations/{org_id}/code-agent-providers:
+    get:
+      description: Returns every selectable coding-agent runtime with the organization's
+        setting for it and whether the requesting user can currently run it.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrgCodeAgentProviderStatus'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List an organization's coding-agent providers
+      tags:
+      - organizations
+    put:
+      description: Enables or disables coding-agent runtimes for the organization
+        and sets how each authenticates. Runtimes omitted from the request are left
+        unchanged.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Providers to update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.OrgCodeAgentProvidersUpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrgCodeAgentProviderStatus'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Update an organization's coding-agent providers
+      tags:
+      - organizations
   /api/v1/organizations/{org_id}/sandboxes:
     get:
       description: List sandboxes belonging to an organization
@@ -19687,56 +19758,6 @@ paths:
       summary: List sandbox tmux sessions
       tags:
       - Sandboxes
-  /api/v1/orgs/{org_id}/code-agent-providers:
-    get:
-      description: Returns every selectable coding-agent runtime with the organization's
-        setting for it and whether the requesting user can currently run it.
-      parameters:
-      - description: Organization ID or name
-        in: path
-        name: org_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.OrgCodeAgentProviderStatus'
-            type: array
-      security:
-      - BearerAuth: []
-      summary: List an organization's coding-agent providers
-      tags:
-      - organizations
-    put:
-      description: Enables or disables coding-agent runtimes for the organization
-        and sets how each authenticates. Runtimes omitted from the request are left
-        unchanged.
-      parameters:
-      - description: Organization ID or name
-        in: path
-        name: org_id
-        required: true
-        type: string
-      - description: Providers to update
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.OrgCodeAgentProvidersUpdateRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.OrgCodeAgentProviderStatus'
-            type: array
-      security:
-      - BearerAuth: []
-      summary: Update an organization's coding-agent providers
-      tags:
-      - organizations
   /api/v1/orgs/{org}/agents:
     get:
       description: List the canonical Agents in an organization, including their instructions,

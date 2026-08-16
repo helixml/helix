@@ -211,6 +211,55 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         }),
       },
       components: {
+        // Switches follow the T3 Code shape: a fully-rounded track with an
+        // inset white knob and a solid blue on-state, rather than MUI's default
+        // floating thumb overhanging a thin bar. Defined here so every switch in
+        // the app matches without per-component sx overrides.
+        MuiSwitch: {
+          styleOverrides: {
+            root: {
+              width: 40,
+              height: 22,
+              padding: 0,
+              display: 'flex',
+              overflow: 'visible',
+            },
+            switchBase: {
+              padding: 3,
+              color: '#fff',
+              '&.Mui-checked': {
+                transform: 'translateX(18px)',
+                color: '#fff',
+                '& + .MuiSwitch-track': {
+                  opacity: 1,
+                  backgroundColor: '#2563eb',
+                },
+              },
+              // MUI dims the whole control when disabled, which made an "off and
+              // not yet configured" row look broken. Keep the knob solid and let
+              // the track carry the disabled state instead.
+              '&.Mui-disabled': {
+                color: '#fff',
+                opacity: 0.5,
+              },
+              '&.Mui-disabled + .MuiSwitch-track': {
+                opacity: isLight ? 0.2 : 0.25,
+              },
+              '&:hover': { backgroundColor: 'transparent' },
+            },
+            thumb: {
+              width: 16,
+              height: 16,
+              boxShadow: 'none',
+            },
+            track: {
+              borderRadius: 11,
+              opacity: 1,
+              backgroundColor: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.22)',
+              transition: 'background-color 150ms ease',
+            },
+          },
+        },
         MuiCssBaseline: {
           styleOverrides: {
             // Typography tokens live in styles/typography.ts; they are mirrored
