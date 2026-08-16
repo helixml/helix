@@ -249,13 +249,24 @@ thread entries.
   `ZED_COMMIT` bump in `sandbox-versions.txt` following the ordering rule in CLAUDE.md
   (commit Zed locally → bump the hash → open the Helix PR → push/merge Zed → merge Helix).
   Until that lands, every reconnect takes the compat branch.
-- **E2E is BLOCKED in this environment, not green.** `run_docker_e2e.sh` aborts in PHASE 1
-  with `configured NativeAgent model did not become available within 15s`. Root cause: the
-  `ANTHROPIC_API_KEY` in `.env` returns 401 `authentication_error` against
-  `api.anthropic.com`, so Zed's NativeAgent authenticates no provider and no model ever
-  registers. There is no `.env.usercreds` on this host. This is unrelated to the change —
-  it fails before a thread is ever created — but it means the suite has NOT been run green
-  and cannot be until a working provider credential is available.
+- **E2E: codex lane 17/17 PASSED** with `E2E_AGENTS=codex`, `E2E_MODEL_PROVIDER=openai`,
+  `E2E_CODEX_MODEL=gpt-5.6-terra`. That includes Phase 12 (reconnect), Phase 15
+  (streaming), Phase 16 (queue busy-defer) and Phase 17 (queue interrupt), plus all
+  store-state checks. The `.env` `ANTHROPIC_API_KEY` is dead (401), so the anthropic
+  default and the `claude` lane cannot run here; the OpenAI key works.
+- **Two zed-agent-lane failures are harness artefacts, not regressions.** Phase 16 and 17
+  fail when the native agent is driven from OpenAI. Both wait for the turn to *start*
+  streaming and then assume it is still running: Phase 16's turn A completed 4 s in (FAIL
+  logged the same second), Phase 17's turn X completed ~3 s in and so reached `complete`
+  rather than `interrupted`. GPT-5.6 with `reasoning_effort` forced to `none` (mandatory
+  on `/v1/chat/completions` with function tools) answers in one burst, which is the same
+  property behind the codex `luna[low]` Phase 15 cadence failures. Reproduced identically
+  on `gpt-5.6-luna` and `gpt-5.6-terra`, so it is not model choice within the family.
+  Decisive evidence it is not this change: phases 16/17 exercise the **agent-agnostic**
+  production queue path, and the codex lane passes them with the same Helix build.
+- **CI settings.** Use `gpt-5.6-terra`, not `gpt-5.6-luna[low]` — luna's bursty streaming
+  trips Phase 15's cadence limits (29.8 s gap vs a 20 s budget; 95 % of content in the
+  final 20 % of stream time vs a 90 % limit).
 - **E2E coverage to add once it can run.** A phase that drops and re-establishes the Helix
   WebSocket mid-turn and asserts the turn completes exactly once, with no duplicate
   `chat_message`. Per CLAUDE.md, adding it is not done until the full dockerized run has

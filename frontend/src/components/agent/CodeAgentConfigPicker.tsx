@@ -186,10 +186,11 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     orgId: org?.id,
     enabled: !loadingOrg,
   })
-  const { data: orgProviders = [], isLoading: loadingOrgProviders } = useOrgCodeAgentProviders(
-    org?.id,
-    { enabled: !loadingOrg },
-  )
+  const {
+    data: orgProviders = [],
+    isLoading: loadingOrgProviders,
+    isFetching: refetchingOrgProviders,
+  } = useOrgCodeAgentProviders(org?.id, { enabled: !loadingOrg })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
   const hasClaudeSubscription = (claudeSubscriptions?.length || 0) > 0
@@ -252,6 +253,11 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     [orgProviders, providers],
   )
   const settingsLoaded = !loadingOrg && !loadingOrgProviders && !loadingProviders
+  // A background refetch means the cached answer may already be wrong — coming
+  // back from the Providers page after enabling a harness is exactly that case.
+  // Concluding "nothing is runnable" from stale data would flash the call to
+  // action over a config that is in fact fine.
+  const availabilitySettled = settingsLoaded && !refetchingOrgProviders
   const hasAnyRuntime = settingsLoaded && availableRuntimes(orgProviders).length > 0
 
   // With exactly one usable configuration there is nothing to choose, so choose
@@ -263,7 +269,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   // harness would advertise an agent that cannot start. The stored value is left
   // untouched; only what the trigger displays changes, so re-enabling a harness
   // brings the previous selection straight back.
-  const unconfigured = valueIsUnset || (settingsLoaded && !hasAnyRuntime)
+  const unconfigured = valueIsUnset || (availabilitySettled && !hasAnyRuntime)
   useEffect(() => {
     if (!settingsLoaded || !valueIsUnset || startableConfigs.length !== 1) return
     onChange(startableConfigs[0])
@@ -390,6 +396,10 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
               borderRight: '1px solid',
               borderColor: 'divider',
               overflowY: 'auto',
+              // The 38px buttons plus 6px padding exactly meet the 50px rail, so
+              // a sub-pixel overflow was drawing a themed horizontal scrollbar
+              // across the bottom of the rail.
+              overflowX: 'hidden',
             }}
           >
             {selectableRuntimes.map((option) => (

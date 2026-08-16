@@ -168,9 +168,16 @@ export function useHasAvailableCodeAgents(): { hasAny: boolean; loading: boolean
   const router = useRouter()
   const orgName = router.params.org_id
   const { data: org, isLoading: loadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
-  const { data: providers, isLoading } = useOrgCodeAgentProviders(org?.id, { enabled: !loadingOrg })
+  const { data: providers, isLoading, isFetching } = useOrgCodeAgentProviders(
+    org?.id,
+    { enabled: !loadingOrg },
+  )
   return {
     hasAny: availableRuntimes(providers).length > 0,
-    loading: loadingOrg || isLoading,
+    // Report loading while a background refetch is in flight, not only on the
+    // first load. Coming back from the Providers page renders the cached answer
+    // first, and a caller that treated that as settled would say "no agents"
+    // about an org that just enabled one.
+    loading: loadingOrg || isLoading || isFetching,
   }
 }
