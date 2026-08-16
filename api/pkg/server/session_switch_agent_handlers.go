@@ -300,8 +300,8 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 
 	// Auto-fire a Waiting handoff turn so the new agent warms up with the prior
 	// context. Delivered either live (daemon → /agent-config-applied →
-	// pickupWaitingInteraction over the running Zed WS) or, on the restart
-	// fallback, by pickupWaitingInteraction on reconnect.
+	// deliverWaitingInteractionNow over the running Zed WS) or, on the restart
+	// fallback, by the reconnect resume path.
 	//
 	// Keep the handoff SHORT: the prior transcript is prepended for context
 	// (the model still ingests it), but we explicitly tell the agent NOT to
@@ -552,10 +552,10 @@ func (apiServer *HelixAPIServer) agentConfigApplied(_ http.ResponseWriter, req *
 		return nil, system.NewHTTPError403(err.Error())
 	}
 	// Deliver the pending Waiting handoff to the live Zed connection. This is
-	// the same call the reconnect path makes; here we invoke it on-demand after
-	// the daemon hot-reloaded the new agent's config, so no restart is needed.
-	// If there's no live connection, queueOrSend holds it and the restart
-	// fallback will eventually fire.
-	apiServer.pickupWaitingInteraction(ctx, session.ID, session, "")
+	// the same decision the reconnect path makes; here we invoke it on-demand
+	// after the daemon hot-reloaded the new agent's config, so no restart is
+	// needed. If there's no live connection, queueOrSend holds it and the
+	// restart fallback will eventually fire.
+	apiServer.deliverWaitingInteractionNow(ctx, session)
 	return &AgentConfigAppliedResponse{Status: "ok"}, nil
 }

@@ -384,7 +384,7 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 	// prompts (and the "all the prior text streams in" sensation only
 	// happens because the LLM is reading the prepended transcript on
 	// that first call). Creating it in Waiting state means the existing
-	// pickupWaitingInteraction path delivers it as soon as the agent
+	// reconnect resume path delivers it as soon as the agent
 	// websocket connects; maybePrependTranscript fires on it (same as
 	// any other first-message-on-a-forked-session) and prepends the
 	// transcript. The prompt is short and meaningful so the agent's

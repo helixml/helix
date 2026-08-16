@@ -162,7 +162,7 @@ func serializeAgentResponse(in *types.Interaction) string {
 // actionable error (e.g. "fork from descendant instead"). Returns nil
 // when the session is live.
 //
-// NOT wired into pickupWaitingInteraction: that path delivers an
+// NOT wired into the reconnect resume path: that path delivers an
 // already-Waiting interaction to a freshly-connected agent, which the
 // design explicitly preserves ("in-flight waiting interaction allowed
 // to complete naturally — pausing is no-new-input, not kill-the-agent").
