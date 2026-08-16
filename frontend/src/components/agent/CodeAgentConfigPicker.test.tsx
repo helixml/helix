@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -258,10 +258,16 @@ describe('CodeAgentConfigPicker', () => {
     // Unconfigured, so the trigger is the single call to action rather than a
     // harness chip implying something is already selected.
     fireEvent.click(screen.getByRole('button', { name: 'Change coding harness' }))
-    expect(await screen.findByRole('heading', { name: 'Configure harness' })).toBeInTheDocument()
-    expect(screen.getByText(/Claude Code, Codex, OpenCode or Zed/)).toBeInTheDocument()
+    // Scoped to the dialog: the trigger button carries the same words.
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(dialog.getByText('Configure harness')).toBeInTheDocument()
+    expect(dialog.getByText(/Claude Code, Codex, OpenCode or Zed/)).toBeInTheDocument()
+    // The marks caption the sentence above them, so they must match it.
+    for (const harness of ['Claude Code', 'Codex', 'opencode', 'Zed Agent']) {
+      expect(dialog.getByRole('img', { name: harness })).toBeInTheDocument()
+    }
 
-    fireEvent.click(screen.getByRole('button', { name: 'Configure providers' }))
+    fireEvent.click(dialog.getByRole('button', { name: 'Configure' }))
     expect(navigate).toHaveBeenCalledWith('org_providers', { org_id: 'test-org' })
   })
 

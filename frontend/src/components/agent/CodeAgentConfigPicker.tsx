@@ -13,7 +13,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { ChevronDown, Search } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Search } from 'lucide-react'
 
 import {
   TypesCodeAgentCredentialType,
@@ -336,12 +336,13 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
               }
               openPicker(event.currentTarget)
             }}
-            sx={unconfigured
-              ? { ...triggerSx, color: 'secondary.main', fontWeight: 500, '&:hover': { color: 'secondary.main', backgroundColor: 'action.hover' } }
-              : triggerSx}
+            sx={triggerSx}
           >
             {unconfigured ? (
-              'Configure harness'
+              <>
+                <AlertTriangle size={14} aria-hidden="true" />
+                <Box component="span">Configure harness</Box>
+              </>
             ) : trigger === 'harness' ? (
               <AgentHarness runtime={value?.runtime || runtime} variant="long" size={16} showTooltip={false} />
             ) : (

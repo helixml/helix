@@ -135,6 +135,20 @@ interaction was created moments earlier, so it resolves to *deliver*).
 replace. The field is **always serialized**, because absence (an older agent) and an
 empty array (an agent that is running nothing) mean opposite things.
 
+### Two agent_ready emitters, one shape
+
+Zed emits `agent_ready` from two places: `send_agent_ready()` after the thread service
+loads a thread, and a 5-second fallback timer in the connection loop for when no
+`open_thread` arrives. The fallback hand-rolled its JSON rather than going through
+`SyncEvent::AgentReady`, so instrumenting only the typed path left it silently missing
+`active_turns` — and since Helix reads an ABSENT field as "this agent cannot report", a
+current Zed would have been indistinguishable from an old one on exactly the connect where
+no thread was loaded, pinning the compat branch on forever.
+
+The fallback now builds the same typed event. A hand-built duplicate of a typed protocol
+event is the bug, not the missing field; this was found by running the E2E, not by any
+unit test.
+
 ### Idempotency at the Zed ingress
 
 `register_queued_request` returns `RequestAdmission::{Accepted, AlreadyActive}`.
@@ -235,10 +249,17 @@ thread entries.
   `ZED_COMMIT` bump in `sandbox-versions.txt` following the ordering rule in CLAUDE.md
   (commit Zed locally → bump the hash → open the Helix PR → push/merge Zed → merge Helix).
   Until that lands, every reconnect takes the compat branch.
-- **E2E coverage.** Add a phase to the dockerized Zed E2E that drops and re-establishes
-  the Helix WebSocket mid-turn and asserts the turn completes exactly once, with no
-  duplicate `chat_message`. Per CLAUDE.md this is not done until `run_docker_e2e.sh` has
-  actually been run green.
+- **E2E is BLOCKED in this environment, not green.** `run_docker_e2e.sh` aborts in PHASE 1
+  with `configured NativeAgent model did not become available within 15s`. Root cause: the
+  `ANTHROPIC_API_KEY` in `.env` returns 401 `authentication_error` against
+  `api.anthropic.com`, so Zed's NativeAgent authenticates no provider and no model ever
+  registers. There is no `.env.usercreds` on this host. This is unrelated to the change —
+  it fails before a thread is ever created — but it means the suite has NOT been run green
+  and cannot be until a working provider credential is available.
+- **E2E coverage to add once it can run.** A phase that drops and re-establishes the Helix
+  WebSocket mid-turn and asserts the turn completes exactly once, with no duplicate
+  `chat_message`. Per CLAUDE.md, adding it is not done until the full dockerized run has
+  actually been executed green.
 - **Reconnect debounce.** Not required for correctness now that redelivery is gated, but a
   rebuild storm still produces one resolve/`open_thread` per reconnect.
 - **UI RETRY on a live turn.** The button re-sends the prompt by hand, which is the
