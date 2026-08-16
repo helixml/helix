@@ -296,4 +296,25 @@ describe('CodeAgentConfigPicker', () => {
     expect(triggers[0]).not.toHaveTextContent('Zed Agent')
     expect(within(triggers[0]).getByRole('img', { name: 'Zed Agent' })).toBeInTheDocument()
   })
+
+  it('shows the call to action when a stored config is no longer runnable', () => {
+    // The org disabled every harness after this surface saved a config. Showing
+    // the old agent would advertise something that cannot start.
+    orgProviderState.providers = []
+    renderPicker(
+      <CodeAgentConfigPicker
+        onChange={vi.fn()}
+        value={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+          provider_ref: 'provider-1',
+          model: 'qwen3.8-27b',
+        }}
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Change coding agent' })
+    expect(trigger).toHaveTextContent('Configure harness')
+    expect(trigger).not.toHaveTextContent('qwen3.8-27b')
+  })
 })

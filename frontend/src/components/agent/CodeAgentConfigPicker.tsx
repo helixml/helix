@@ -258,10 +258,12 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   // it. Only fires for a genuinely unset value — never overwrites a task's
   // stored config or a choice already made.
   const valueIsUnset = !value?.runtime && !value?.model
-  // Nothing chosen yet. Rendering the default runtime here made the control
-  // look like Zed was already selected, so the unconfigured state gets its own
-  // single call-to-action instead of a harness chip plus a model chip.
-  const unconfigured = valueIsUnset
+  // Show the call to action when nothing is chosen yet, and also when nothing is
+  // runnable — a surface that kept a config from before the org disabled every
+  // harness would advertise an agent that cannot start. The stored value is left
+  // untouched; only what the trigger displays changes, so re-enabling a harness
+  // brings the previous selection straight back.
+  const unconfigured = valueIsUnset || (settingsLoaded && !hasAnyRuntime)
   useEffect(() => {
     if (!settingsLoaded || !valueIsUnset || startableConfigs.length !== 1) return
     onChange(startableConfigs[0])

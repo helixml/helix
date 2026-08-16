@@ -34,6 +34,64 @@ export function useOrgCodeAgentProviders(orgId?: string, options?: { enabled?: b
   })
 }
 
+/**
+ * Mirrors the server's availability rule (codeAgentAvailability in
+ * api/pkg/server/org_code_agent_provider_handlers.go) so an optimistic row
+ * carries the same status text the server will send back. Any drift is
+ * corrected by the revalidation that follows every mutation; this only has to
+ * be right for the few hundred milliseconds in between.
+ */
+function optimisticAvailability(
+  status: TypesOrgCodeAgentProviderStatus,
+): Pick<TypesOrgCodeAgentProviderStatus, 'available' | 'unavailable_reason'> {
+  if (!status.enabled) {
+    return { available: false, unavailable_reason: 'Not enabled for this organization' }
+  }
+  if (status.credential_type === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription) {
+    return status.viewer_has_subscription
+      ? { available: true, unavailable_reason: undefined }
+      : { available: false, unavailable_reason: 'Connect your own subscription to use this agent' }
+  }
+  if (!status.provider_endpoint_id) {
+    return { available: false, unavailable_reason: 'No provider configured' }
+  }
+  return { available: true, unavailable_reason: undefined }
+}
+
+function applyOptimisticUpdate(
+  current: TypesOrgCodeAgentProviderStatus[],
+  body: {
+    providers?: TypesOrgCodeAgentProviderUpdate[]
+    delete?: { runtime: string; name: string }[]
+  },
+): TypesOrgCodeAgentProviderStatus[] {
+  const removed = new Set((body.delete || []).map((ref) => `${ref.runtime}:${ref.name}`))
+  let next = current.filter((row) => !removed.has(`${row.runtime}:${row.name || ''}`))
+
+  for (const update of body.providers || []) {
+    const key = `${update.runtime}:${update.name || ''}`
+    const existing = next.find((row) => `${row.runtime}:${row.name || ''}` === key)
+    if (existing) {
+      const merged: TypesOrgCodeAgentProviderStatus = { ...existing, ...update }
+      next = next.map((row) => (row === existing
+        ? { ...merged, ...optimisticAvailability(merged) }
+        : row))
+      continue
+    }
+    // A newly added flavour has no row yet; show it immediately rather than
+    // waiting for the refetch to make it appear.
+    const added: TypesOrgCodeAgentProviderStatus = {
+      ...update,
+      is_flavour: !!update.name,
+      supports_subscription: next.find((row) => row.runtime === update.runtime)?.supports_subscription,
+      viewer_has_subscription: next.find((row) => row.runtime === update.runtime)?.viewer_has_subscription,
+    }
+    next = [...next, { ...added, ...optimisticAvailability(added) }]
+  }
+
+  return next
+}
+
 export function useUpdateOrgCodeAgentProviders(orgId?: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -49,7 +107,26 @@ export function useUpdateOrgCodeAgentProviders(orgId?: string) {
       const result = await apiClient.v1OrganizationsCodeAgentProvidersUpdate(orgId!, body as never)
       return (result.data || []) as TypesOrgCodeAgentProviderStatus[]
     },
-    onSuccess: () => {
+    // Optimistic, because a switch that waits for a round-trip before moving
+    // reads as a flicker: click, nothing, then it jumps. The cache is written
+    // immediately, rolled back if the request fails, and revalidated either way
+    // — the server stays the source of truth, it just is not in the critical
+    // path of the animation.
+    onMutate: async (body) => {
+      const queryKey = codeAgentProvidersQueryKey(orgId)
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<TypesOrgCodeAgentProviderStatus[]>(queryKey)
+      queryClient.setQueryData<TypesOrgCodeAgentProviderStatus[]>(
+        queryKey,
+        (current) => applyOptimisticUpdate(current || [], body),
+      )
+      return { previous }
+    },
+    onError: (_error, _body, context) => {
+      const queryKey = codeAgentProvidersQueryKey(orgId)
+      if (context?.previous) queryClient.setQueryData(queryKey, context.previous)
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: codeAgentProvidersQueryKey(orgId) })
     },
   })

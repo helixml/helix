@@ -214,8 +214,7 @@ const Providers: React.FC = () => {
           <CodeAgentProvidersSection
             providers={codeAgentProviders}
             endpoints={allEndpoints}
-            loading={isLoadingCodeAgents || isLoadingOrg}
-            saving={updateCodeAgentProviders.isPending}
+            loading={(isLoadingCodeAgents || isLoadingOrg) && codeAgentProviders.length === 0}
             readOnly={!editAllowed}
             onChange={handleCodeAgentChange}
             onDelete={handleCodeAgentDelete}

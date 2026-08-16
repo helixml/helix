@@ -61,7 +61,6 @@ const CodeAgentProvidersSection: FC<{
   providers: TypesOrgCodeAgentProviderStatus[]
   endpoints: TypesProviderEndpoint[]
   loading?: boolean
-  saving?: boolean
   readOnly?: boolean
   // Rendered inside a runtime's Credentials block when it is in subscription
   // mode. This is where each member connects their own account, so it belongs
@@ -71,7 +70,7 @@ const CodeAgentProvidersSection: FC<{
   subscriptionIdentity?: (runtime: string) => string | undefined
   onChange: (update: TypesOrgCodeAgentProviderUpdate) => void
   onDelete?: (ref: { runtime: string; name: string }) => void
-}> = ({ providers, endpoints, loading = false, saving = false, readOnly = false, subscriptionAction, subscriptionIdentity, onChange, onDelete }) => {
+}> = ({ providers, endpoints, loading = false, readOnly = false, subscriptionAction, subscriptionIdentity, onChange, onDelete }) => {
   const patch = (
     provider: TypesOrgCodeAgentProviderStatus,
     changes: Partial<TypesOrgCodeAgentProviderUpdate>,
@@ -120,7 +119,7 @@ const CodeAgentProvidersSection: FC<{
             health={healthOf(provider)}
             status={statusTextOf(provider, subscriptionIdentity?.(provider.runtime || ''))}
             enabled={provider.enabled ?? false}
-            disabled={readOnly || saving}
+            disabled={readOnly}
             onToggle={(enabled) => patch(provider, { enabled })}
           >
             <Stack spacing={2}>
@@ -143,13 +142,13 @@ const CodeAgentProvidersSection: FC<{
                     >
                       <FormControlLabel
                         value={SUBSCRIPTION}
-                        disabled={readOnly || saving}
+                        disabled={readOnly}
                         control={<Radio size="small" />}
                         label={<Typography variant="body2">Members use their own subscription</Typography>}
                       />
                       <FormControlLabel
                         value={API_KEY}
-                        disabled={readOnly || saving}
+                        disabled={readOnly}
                         control={<Radio size="small" />}
                         label={<Typography variant="body2">Organization API key</Typography>}
                       />
@@ -176,7 +175,7 @@ const CodeAgentProvidersSection: FC<{
                     <Select
                       displayEmpty
                       value={provider.provider_endpoint_id || ''}
-                      disabled={readOnly || saving}
+                      disabled={readOnly}
                       onChange={(event) => patch(provider, {
                         provider_endpoint_id: event.target.value || undefined,
                         // Endpoint changed, so a model pinned from the old one
