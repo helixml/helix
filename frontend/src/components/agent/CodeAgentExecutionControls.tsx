@@ -116,19 +116,12 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   // call to action, so showing both triggers would duplicate it.
   const unconfigured = !value?.runtime && !value?.model
 
-  const modelControl = unconfigured ? null : (
+  // One control for harness and model. They were separate triggers opening the
+  // same popover, which implied two independent settings.
+  const agentControl = (
     <CodeAgentConfigPicker
       value={value}
       disabled={controlsDisabled}
-      trigger="model"
-      onChange={(next) => void save(next)}
-    />
-  )
-  const harnessControl = (
-    <CodeAgentConfigPicker
-      value={value}
-      disabled={controlsDisabled}
-      trigger="harness"
       onChange={(next) => void save(next)}
     />
   )
@@ -187,19 +180,11 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
         >
           {!computeOnly && (
             <>
-              <Typography variant="body2" color="text.secondary">
-                {unconfigured ? 'Agent:' : 'Harness:'}
-              </Typography>
-              <Box sx={{ minWidth: 0 }}>{harnessControl}</Box>
-              {!unconfigured && (
-                <>
-                  <Typography variant="body2" color="text.secondary">Model:</Typography>
-                  <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
-                    {modelControl}
-                    {reasoningControl}
-                  </Stack>
-                </>
-              )}
+              <Typography variant="body2" color="text.secondary">Agent:</Typography>
+              <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+                {agentControl}
+                {reasoningControl}
+              </Stack>
             </>
           )}
           {computeControl && (
@@ -211,8 +196,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
         </Box>
       ) : (
         <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 0, flexWrap: compact ? 'nowrap' : 'wrap' }}>
-          {!computeOnly && harnessControl}
-          {!computeOnly && modelControl}
+          {!computeOnly && agentControl}
           {!computeOnly && reasoningControl}
           {computeControl}
         </Stack>

@@ -53,7 +53,6 @@ type Runtime = TypesCodeAgentRuntime
 interface CodeAgentConfigPickerProps {
   value?: TypesCodeAgentExecutionConfig
   disabled?: boolean
-  trigger: 'harness' | 'model'
   onChange: (value: TypesCodeAgentExecutionConfig) => void
 }
 
@@ -76,7 +75,7 @@ export const SELECTABLE_CODE_AGENT_RUNTIMES: ReadonlyArray<Runtime> = [
 const triggerSx = {
   height: 28,
   minWidth: 0,
-  maxWidth: 210,
+  maxWidth: 300,
   px: 0.75,
   gap: 0.625,
   borderRadius: 1,
@@ -177,7 +176,6 @@ function configFromStatus(
 const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   value,
   disabled = false,
-  trigger,
   onChange,
 }) => {
   const router = useRouter()
@@ -287,8 +285,6 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
     model.providerLabel,
     getAgentHarnessLabel(runtime),
   ))
-  const selectedProvider = providers.find((provider) =>
-    matchesStoredRef(provider, value?.provider_ref || ''))
   const modelLabel = models.find((model) => model.id === value?.model
     && (!model.provider || matchesStoredRef(model.provider, value?.provider_ref || '')))?.label
     || value?.model?.split('/').pop()
@@ -318,14 +314,10 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
 
   return (
     <>
-      <Tooltip
-        title={unconfigured
-          ? ''
-          : trigger === 'harness' ? 'Change coding harness' : 'Change coding model'}
-      >
+      <Tooltip title={unconfigured ? '' : 'Change coding agent and model'}>
         <Box component="span" sx={{ display: 'inline-flex', minWidth: 0 }}>
           <Button
-            aria-label={trigger === 'harness' ? 'Change coding harness' : 'Change coding model'}
+            aria-label="Change coding agent"
             disabled={disabled}
             onClick={(event) => {
               // Nothing to pick from: explain and offer the fix rather than
@@ -343,15 +335,20 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
                 <AlertTriangle size={14} aria-hidden="true" />
                 <Box component="span">Configure harness</Box>
               </>
-            ) : trigger === 'harness' ? (
-              <AgentHarness runtime={value?.runtime || runtime} variant="long" size={16} showTooltip={false} />
             ) : (
               <>
+                {/*
+                  One control for both: the harness mark and name, then the
+                  model it runs. They were two buttons opening the same popover,
+                  which read as two independent settings.
+                */}
                 <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
-                  {selectedProvider
-                    ? <ProviderIcon provider={selectedProvider} size={16} />
-                    : <AgentHarness runtime={value?.runtime || runtime} variant="short" size={16} showTooltip={false} />}
+                  <AgentHarness runtime={value?.runtime || runtime} variant="short" size={16} showTooltip={false} />
                 </Box>
+                <Box component="span" sx={{ flexShrink: 0 }}>
+                  {getAgentHarnessLabel(value?.runtime || runtime)}
+                </Box>
+                <Box component="span" sx={{ flexShrink: 0, opacity: 0.5 }}>·</Box>
                 <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {modelLabel.replace(/ \(.+\)$/, '')}
                 </Box>

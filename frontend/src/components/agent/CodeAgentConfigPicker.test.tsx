@@ -72,7 +72,6 @@ describe('CodeAgentConfigPicker', () => {
   it('offers every supported harness independently of Helix Apps', () => {
     renderPicker(
       <CodeAgentConfigPicker
-        trigger="harness"
         onChange={vi.fn()}
         value={{
           runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
@@ -83,7 +82,7 @@ describe('CodeAgentConfigPicker', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Change coding harness' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     expect(screen.getByRole('button', { name: 'Zed Agent' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Goose' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
@@ -97,7 +96,6 @@ describe('CodeAgentConfigPicker', () => {
     // Every other runtime authenticates the single way the org configured.
     renderPicker(
       <CodeAgentConfigPicker
-        trigger="model"
         onChange={vi.fn()}
         value={{
           runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
@@ -108,7 +106,7 @@ describe('CodeAgentConfigPicker', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Change coding model' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
     expect(screen.getByRole('radio', { name: 'Claude Subscription' })).toBeDisabled()
@@ -125,7 +123,6 @@ describe('CodeAgentConfigPicker', () => {
     subscriptionState.claude = [{ id: 'claude-subscription' }]
     renderPicker(
       <CodeAgentConfigPicker
-        trigger="model"
         onChange={vi.fn()}
         value={{
           runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
@@ -136,7 +133,7 @@ describe('CodeAgentConfigPicker', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Change coding model' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }))
     expect(screen.getByRole('radio', { name: 'Claude Subscription' })).not.toBeDisabled()
   })
@@ -151,7 +148,6 @@ describe('CodeAgentConfigPicker', () => {
 
     renderPicker(
       <CodeAgentConfigPicker
-        trigger="harness"
         onChange={vi.fn()}
         value={{
           runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
@@ -162,7 +158,7 @@ describe('CodeAgentConfigPicker', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Change coding harness' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     expect(screen.getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Codex' })).not.toBeInTheDocument()
   })
@@ -177,7 +173,6 @@ describe('CodeAgentConfigPicker', () => {
 
     renderPicker(
       <CodeAgentConfigPicker
-        trigger="model"
         onChange={vi.fn()}
         value={{
           runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
@@ -188,7 +183,7 @@ describe('CodeAgentConfigPicker', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Change coding model' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     // provider-1 does have api-model, so an empty list is the filter working.
     // Asserted via the empty state rather than the model string, because the
     // collapsed trigger still renders the currently-selected model's name.
@@ -208,7 +203,7 @@ describe('CodeAgentConfigPicker', () => {
       supports_subscription: false,
     }]
     const onChange = vi.fn()
-    renderPicker(<CodeAgentConfigPicker trigger="model" onChange={onChange} />)
+    renderPicker(<CodeAgentConfigPicker onChange={onChange} />)
 
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
@@ -219,7 +214,7 @@ describe('CodeAgentConfigPicker', () => {
 
   it('does not auto-select when more than one configuration is usable', async () => {
     const onChange = vi.fn()
-    renderPicker(<CodeAgentConfigPicker trigger="model" onChange={onChange} />)
+    renderPicker(<CodeAgentConfigPicker onChange={onChange} />)
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(onChange).not.toHaveBeenCalled()
   })
@@ -236,7 +231,6 @@ describe('CodeAgentConfigPicker', () => {
     const onChange = vi.fn()
     renderPicker(
       <CodeAgentConfigPicker
-        trigger="model"
         onChange={onChange}
         value={{
           runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
@@ -253,11 +247,11 @@ describe('CodeAgentConfigPicker', () => {
   it('offers a route to settings when nothing is configured', async () => {
     // An empty popover would leave the user with no idea what to do next.
     orgProviderState.providers = []
-    renderPicker(<CodeAgentConfigPicker trigger="harness" onChange={vi.fn()} />)
+    renderPicker(<CodeAgentConfigPicker onChange={vi.fn()} />)
 
     // Unconfigured, so the trigger is the single call to action rather than a
     // harness chip implying something is already selected.
-    fireEvent.click(screen.getByRole('button', { name: 'Change coding harness' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding agent' }))
     // Scoped to the dialog: the trigger button carries the same words.
     const dialog = within(await screen.findByRole('dialog'))
     expect(dialog.getByText('Configure harness')).toBeInTheDocument()
@@ -274,9 +268,30 @@ describe('CodeAgentConfigPicker', () => {
   it('reads as unconfigured rather than defaulting to Zed', () => {
     // The control used to render the default runtime, which looked like Zed was
     // already chosen before the user had picked anything.
-    renderPicker(<CodeAgentConfigPicker trigger="harness" onChange={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Change coding harness' }))
+    renderPicker(<CodeAgentConfigPicker onChange={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Change coding agent' }))
       .toHaveTextContent('Configure harness')
     expect(screen.queryByText('Zed Agent')).not.toBeInTheDocument()
+  })
+
+  it('is a single control showing both the harness and its model', () => {
+    // Harness and model used to be two buttons opening the same popover, which
+    // read as two independent settings.
+    renderPicker(
+      <CodeAgentConfigPicker
+        onChange={vi.fn()}
+        value={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
+          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+          provider_ref: 'provider-1',
+          model: 'api-model',
+        }}
+      />,
+    )
+
+    const triggers = screen.getAllByRole('button', { name: 'Change coding agent' })
+    expect(triggers).toHaveLength(1)
+    expect(triggers[0]).toHaveTextContent('Zed Agent')
+    expect(triggers[0]).toHaveTextContent('api-model')
   })
 })
