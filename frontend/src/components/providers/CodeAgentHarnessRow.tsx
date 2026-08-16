@@ -1,10 +1,8 @@
 import { FC, ReactNode, useState } from 'react'
 import Box from '@mui/material/Box'
 import Collapse from '@mui/material/Collapse'
-import IconButton from '@mui/material/IconButton'
 import Stack from '@mui/material/Stack'
 import Switch from '@mui/material/Switch'
-import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { ChevronDown } from 'lucide-react'
 
@@ -37,6 +35,7 @@ const CodeAgentHarnessRow: FC<{
 }> = ({ runtime, health, status, enabled, disabled = false, children, onToggle }) => {
   const [expanded, setExpanded] = useState(false)
   const label = getAgentHarnessLabel(runtime)
+  const expandLabel = expanded ? `Hide ${label} settings` : `Show ${label} settings`
 
   return (
     <Box
@@ -47,64 +46,97 @@ const CodeAgentHarnessRow: FC<{
         '&:last-of-type': { borderBottom: 'none' },
       }}
     >
-      <Stack direction="row" alignItems="center" spacing={1.5}>
-        <Box sx={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
-          <AgentHarness runtime={runtime} variant="short" size={22} showTooltip={false} />
-          <Box
-            aria-hidden="true"
-            sx={{
-              position: 'absolute',
-              top: -3,
-              left: -4,
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              bgcolor: HEALTH_COLOR[health],
-            }}
-          />
-        </Box>
-
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            {label}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-            {status}
-          </Typography>
-        </Box>
-
-        <Stack direction="row" alignItems="center" spacing={0.25} sx={{ flexShrink: 0 }}>
-          <Tooltip title={expanded ? `Hide ${label} settings` : `Show ${label} settings`}>
-            <IconButton
-              aria-label={expanded ? `Hide ${label} settings` : `Show ${label} settings`}
-              aria-expanded={expanded}
-              onClick={() => setExpanded((open) => !open)}
+      <Stack direction="row" alignItems="center" spacing={0.25}>
+        <Box
+          component="button"
+          type="button"
+          aria-expanded={expanded}
+          aria-label={expandLabel}
+          onClick={() => setExpanded((open) => !open)}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            flex: 1,
+            minWidth: 0,
+            m: 0,
+            p: 0,
+            border: 0,
+            background: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            textAlign: 'left',
+            borderRadius: 1,
+            '&:hover .harness-expand-chevron': { color: 'text.primary' },
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'secondary.main',
+              outlineOffset: 2,
+            },
+          }}
+        >
+          <Box component="span" sx={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
+            <AgentHarness runtime={runtime} variant="short" size={22} showTooltip={false} />
+            <Box
+              component="span"
+              aria-hidden="true"
               sx={{
-                width: 30,
-                height: 30,
-                color: 'text.secondary',
-                '&:hover': { color: 'text.primary' },
+                position: 'absolute',
+                top: -3,
+                left: -4,
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                bgcolor: HEALTH_COLOR[health],
               }}
-            >
-              <ChevronDown
-                size={18}
-                style={{
-                  transform: expanded ? 'rotate(180deg)' : undefined,
-                  transition: 'transform 120ms ease',
-                }}
-              />
-            </IconButton>
-          </Tooltip>
-          <Box sx={HARNESS_SWITCH_SLOT_SX}>
-            <Switch
-              color="secondary"
-              checked={enabled}
-              disabled={disabled}
-              onChange={(event) => onToggle(event.target.checked)}
-              inputProps={{ 'aria-label': `Enable ${label}` }}
             />
           </Box>
-        </Stack>
+
+          <Box component="span" sx={{ minWidth: 0, flex: 1 }}>
+            <Typography component="span" variant="body2" sx={{ display: 'block', fontWeight: 600 }}>
+              {label}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+              {status}
+            </Typography>
+          </Box>
+
+          <Box
+            component="span"
+            className="harness-expand-chevron"
+            aria-hidden="true"
+            sx={{
+              width: 30,
+              height: 30,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              color: 'text.secondary',
+            }}
+          >
+            <ChevronDown
+              size={18}
+              style={{
+                transform: expanded ? 'rotate(180deg)' : undefined,
+                transition: 'transform 120ms ease',
+              }}
+            />
+          </Box>
+        </Box>
+
+        <Box
+          sx={HARNESS_SWITCH_SLOT_SX}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Switch
+            color="secondary"
+            checked={enabled}
+            disabled={disabled}
+            onChange={(event) => onToggle(event.target.checked)}
+            inputProps={{ 'aria-label': `Enable ${label}` }}
+          />
+        </Box>
       </Stack>
 
       <Collapse in={expanded} unmountOnExit>
