@@ -70,6 +70,23 @@ const Providers: React.FC = () => {
   const { data: codexSubscriptions } = useCodexSubscriptions()
   const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
 
+  const subscriptionIdentity = (runtime: string): string | undefined => {
+    if (runtime === 'claude_code') {
+      const subscription = claudeSubscriptions?.[0]
+      if (!subscription) return undefined
+      const plan = subscription.subscription_type
+        ? `Claude ${subscription.subscription_type.charAt(0).toUpperCase()}${subscription.subscription_type.slice(1)} Subscription`
+        : 'Claude Subscription'
+      return [subscription.name, plan].filter(Boolean).join(' · ')
+    }
+    if (runtime === 'codex_cli') {
+      const subscription = codexSubscriptions?.[0]
+      if (!subscription) return undefined
+      return [subscription.name, 'ChatGPT Subscription'].filter(Boolean).join(' · ')
+    }
+    return undefined
+  }
+
   const { data: codeAgentHarnesses = [], isLoading: isLoadingCodeAgents } = useOrgCodeAgentHarnesses(
     org?.id,
     { enabled: !isLoadingOrg },
@@ -188,7 +205,7 @@ const Providers: React.FC = () => {
 
         {orgName && <Box sx={{ mb: 5 }}>
           <Typography variant="h6" sx={{ mb: 0.5 }}>
-            Coding harnesses
+            Coding agents
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             {editAllowed
@@ -197,9 +214,16 @@ const Providers: React.FC = () => {
           </Typography>
           <CodeAgentHarnessesSection
             harnesses={codeAgentHarnesses}
+            endpoints={allEndpoints}
             loading={(isLoadingCodeAgents || isLoadingOrg) && codeAgentHarnesses.length === 0}
             readOnly={!editAllowed}
             onChange={handleCodeAgentChange}
+            subscriptionIdentity={subscriptionIdentity}
+            subscriptionAction={(runtime) => {
+              if (runtime === 'claude_code') return <ClaudeSubscriptionConnect variant="button" />
+              if (runtime === 'codex_cli') return <CodexSubscriptionConnect orgId={org?.id} />
+              return null
+            }}
           />
         </Box>}
 
@@ -239,13 +263,14 @@ const Providers: React.FC = () => {
           </Box>
         )}
 
-        <Typography variant="h6" sx={{ mb: 1.5 }}>
-          Subscriptions
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Connect an Anthropic or ChatGPT subscription for coding agents in desktop sessions.
-        </Typography>
-        <Grid container spacing={3} justifyContent="left" sx={{ mb: 4 }}>
+        {!orgName && <>
+          <Typography variant="h6" sx={{ mb: 1.5 }}>
+            Subscriptions
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Connect an Anthropic or ChatGPT subscription for coding agents in desktop sessions.
+          </Typography>
+          <Grid container spacing={3} justifyContent="left" sx={{ mb: 4 }}>
           <Grid item xs={12} sm={6} display="flex" justifyContent="center">
             <Card
               sx={{
@@ -306,7 +331,8 @@ const Providers: React.FC = () => {
               </CardActions>
             </Card>
           </Grid>
-        </Grid>
+          </Grid>
+        </>}
 
         {localEndpoints.length > 0 && (
           <>
