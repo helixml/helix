@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -14,9 +14,6 @@ const subscriptionState = vi.hoisted(() => ({ claude: [] as any[], codex: [] as 
 // every test needs an allow list. Default: everything available on API keys.
 const orgProviderState = vi.hoisted(() => ({ providers: [] as any[] }))
 
-vi.mock('../../hooks/useRouter', () => ({
-  default: () => ({ params: { org_id: 'test-org' } }),
-}))
 vi.mock('../../services/orgService', () => ({
   useGetOrgByName: () => ({ data: { id: 'org-1' }, isLoading: false }),
 }))
@@ -29,6 +26,10 @@ vi.mock('../../services/providersService', () => ({
     }],
     isLoading: false,
   }),
+}))
+const navigate = vi.hoisted(() => vi.fn())
+vi.mock('../../hooks/useRouter', () => ({
+  default: () => ({ params: { org_id: 'test-org' }, navigate }),
 }))
 vi.mock('../account/ClaudeSubscriptionConnect', () => ({
   useClaudeSubscriptions: () => ({ data: subscriptionState.claude }),
@@ -48,6 +49,7 @@ function renderPicker(ui: ReactElement) {
 
 describe('CodeAgentConfigPicker', () => {
   beforeEach(() => {
+    navigate.mockClear()
     subscriptionState.claude = []
     subscriptionState.codex = []
     orgProviderState.providers = [
@@ -192,5 +194,71 @@ describe('CodeAgentConfigPicker', () => {
     // collapsed trigger still renders the currently-selected model's name.
     expect(screen.getByText('No models found')).toBeInTheDocument()
     expect(screen.queryByText('OpenAI')).not.toBeInTheDocument()
+  })
+
+  it('auto-selects the only usable configuration', async () => {
+    // Nothing to choose, so the surface should not make the user open a picker
+    // to confirm the single option.
+    orgProviderState.providers = [{
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+      enabled: true,
+      available: true,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_endpoint_id: 'provider-1',
+      supports_subscription: false,
+    }]
+    const onChange = vi.fn()
+    renderPicker(<CodeAgentConfigPicker trigger="model" onChange={onChange} />)
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      model: 'api-model',
+    })))
+  })
+
+  it('does not auto-select when more than one configuration is usable', async () => {
+    const onChange = vi.fn()
+    renderPicker(<CodeAgentConfigPicker trigger="model" onChange={onChange} />)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('does not overwrite a configuration the task already has', async () => {
+    orgProviderState.providers = [{
+      runtime: TypesCodeAgentRuntime.CodeAgentRuntimeOpenCode,
+      enabled: true,
+      available: true,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+      provider_endpoint_id: 'provider-1',
+      supports_subscription: false,
+    }]
+    const onChange = vi.fn()
+    renderPicker(
+      <CodeAgentConfigPicker
+        trigger="model"
+        onChange={onChange}
+        value={{
+          runtime: TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
+          credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+          provider_ref: 'provider-1',
+          model: 'api-model',
+        }}
+      />,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('offers a route to settings when nothing is configured', async () => {
+    // An empty popover would leave the user with no idea what to do next.
+    orgProviderState.providers = []
+    renderPicker(<CodeAgentConfigPicker trigger="harness" onChange={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change coding harness' }))
+    expect(await screen.findByText('No coding agents available')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Configure providers/ }))
+    expect(navigate).toHaveBeenCalledWith('org_providers', { org_id: 'test-org' })
   })
 })

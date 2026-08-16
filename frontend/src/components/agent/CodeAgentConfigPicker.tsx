@@ -1,4 +1,4 @@
-import React, { FC, useRef, useState } from 'react'
+import React, { FC, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Button,
@@ -19,6 +19,7 @@ import {
   TypesCodeAgentCredentialType,
   TypesCodeAgentExecutionConfig,
   TypesCodeAgentRuntime,
+  TypesOrgCodeAgentProviderStatus,
   TypesProviderEndpoint,
 } from '../../api/api'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
@@ -35,11 +36,15 @@ import {
 import {
   CLAUDE_SUBSCRIPTION_MODELS,
   CODEX_SUBSCRIPTION_MODELS,
+  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
 } from './CodingAgentForm'
 import {
+  availableRuntimes,
   findRuntimeStatus,
   useOrgCodeAgentProviders,
 } from '../../services/codeAgentProvidersService'
+import NoCodeAgentsDialog from './NoCodeAgentsDialog'
 import AgentHarness, { getAgentHarnessLabel } from './AgentHarness'
 
 type CredentialType = TypesCodeAgentCredentialType
@@ -126,6 +131,49 @@ function subscriptionModelOptions(runtime: Runtime): ModelOption[] {
   }))
 }
 
+/**
+ * Turns one org provider row into a runnable execution config.
+ *
+ * Returns undefined when the row cannot be resolved to something startable —
+ * an API-key row whose pinned provider has no single obvious model still needs
+ * a human to choose one, and auto-picking a wrong model is worse than asking.
+ */
+function configFromStatus(
+  status: TypesOrgCodeAgentProviderStatus,
+  providers: TypesProviderEndpoint[],
+): TypesCodeAgentExecutionConfig | undefined {
+  const runtime = status.runtime as Runtime
+  if (!runtime) return undefined
+
+  if (status.credential_type === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription) {
+    return {
+      runtime,
+      credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
+      model: status.default_model
+        || (runtime === TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode
+          ? DEFAULT_CLAUDE_SUBSCRIPTION_MODEL
+          : DEFAULT_CODEX_SUBSCRIPTION_MODEL),
+    }
+  }
+
+  const endpoint = providers.find((provider) => provider.id === status.provider_endpoint_id)
+  if (!endpoint) return undefined
+  const usableModels = (endpoint.available_models || [])
+    .filter((model) => model.enabled && (!model.type || model.type === 'chat' || model.type === 'text'))
+  // The org's pinned model wins; otherwise only auto-pick when there is no
+  // ambiguity to resolve.
+  const model = status.default_model
+    || (usableModels.length === 1 ? usableModels[0].id : undefined)
+  if (!model) return undefined
+
+  return {
+    runtime,
+    credential_type: TypesCodeAgentCredentialType.CodeAgentCredentialTypeAPIKey,
+    provider_ref: providerRef(endpoint),
+    model,
+  }
+}
+
 const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   value,
   disabled = false,
@@ -150,6 +198,7 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   const hasCodexSubscription = (codexSubscriptions?.length || 0) > 0
 
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const [noAgentsOpen, setNoAgentsOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [runtime, setRuntime] = useState<Runtime>(
     value?.runtime || TypesCodeAgentRuntime.CodeAgentRuntimeZedAgent,
@@ -195,6 +244,29 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
   // The org decides how a runtime authenticates; the picker follows it rather
   // than letting a task silently pick a mode the org did not enable.
   const orgCredentialType = runtimeStatus?.credential_type
+
+  // Every configuration this viewer could start a task with right now —
+  // built-in harnesses and org-added flavours alike.
+  const startableConfigs = useMemo(
+    () => availableRuntimes(orgProviders)
+      .map((status) => configFromStatus(status, providers))
+      .filter((config): config is TypesCodeAgentExecutionConfig => !!config),
+    [orgProviders, providers],
+  )
+  const settingsLoaded = !loadingOrg && !loadingOrgProviders && !loadingProviders
+  const hasAnyRuntime = settingsLoaded && availableRuntimes(orgProviders).length > 0
+
+  // With exactly one usable configuration there is nothing to choose, so choose
+  // it. Only fires for a genuinely unset value — never overwrites a task's
+  // stored config or a choice already made.
+  const valueIsUnset = !value?.runtime && !value?.model
+  useEffect(() => {
+    if (!settingsLoaded || !valueIsUnset || startableConfigs.length !== 1) return
+    onChange(startableConfigs[0])
+    // onChange identity is not stable across renders in every consumer, so it is
+    // deliberately excluded; the guards above make this idempotent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsLoaded, valueIsUnset, startableConfigs])
 
   const subscription = credentialType
     === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
@@ -242,12 +314,24 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
 
   return (
     <>
-      <Tooltip title={trigger === 'harness' ? 'Change coding harness' : 'Change coding model'}>
+      <Tooltip
+        title={settingsLoaded && !hasAnyRuntime
+          ? 'No coding agents are configured for this organization yet'
+          : trigger === 'harness' ? 'Change coding harness' : 'Change coding model'}
+      >
         <Box component="span" sx={{ display: 'inline-flex', minWidth: 0 }}>
           <Button
             aria-label={trigger === 'harness' ? 'Change coding harness' : 'Change coding model'}
             disabled={disabled}
-            onClick={(event) => openPicker(event.currentTarget)}
+            onClick={(event) => {
+              // Nothing to pick from: explain and offer the fix rather than
+              // opening an empty popover.
+              if (settingsLoaded && !hasAnyRuntime) {
+                setNoAgentsOpen(true)
+                return
+              }
+              openPicker(event.currentTarget)
+            }}
             sx={triggerSx}
           >
             {trigger === 'harness' ? (
@@ -435,6 +519,8 @@ const CodeAgentConfigPicker: FC<CodeAgentConfigPickerProps> = ({
           </Stack>
         </Stack>
       </Popover>
+
+      <NoCodeAgentsDialog open={noAgentsOpen} onClose={() => setNoAgentsOpen(false)} />
     </>
   )
 }

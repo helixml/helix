@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import useApi from '../hooks/useApi'
+import useRouter from '../hooks/useRouter'
+import { useGetOrgByName } from './orgService'
 import {
   TypesCodeAgentCredentialType,
   TypesCodeAgentRuntime,
@@ -76,4 +78,22 @@ export function findRuntimeStatus(
  */
 export function usesSubscription(status?: TypesOrgCodeAgentProviderStatus): boolean {
   return status?.credential_type === TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription
+}
+
+/**
+ * Whether this viewer has any coding agent they could start a task with.
+ *
+ * Resolves the org itself so a caller only needs one import. `loading` matters:
+ * a surface must not claim "nothing configured" while the answer is still in
+ * flight, or it flashes an error state on every load.
+ */
+export function useHasAvailableCodeAgents(): { hasAny: boolean; loading: boolean } {
+  const router = useRouter()
+  const orgName = router.params.org_id
+  const { data: org, isLoading: loadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
+  const { data: providers, isLoading } = useOrgCodeAgentProviders(org?.id, { enabled: !loadingOrg })
+  return {
+    hasAny: availableRuntimes(providers).length > 0,
+    loading: loadingOrg || isLoading,
+  }
 }
