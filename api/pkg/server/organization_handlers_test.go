@@ -197,6 +197,29 @@ func TestDeleteOrganization_OrganizationNotFound(t *testing.T) {
 	require.Contains(t, rr.Body.String(), "Organization not found")
 }
 
+func TestGetOrganization_OrganizationNotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	orgID := "org_missing"
+
+	mockStore.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
+		ID: orgID,
+	}).Return(nil, store.ErrNotFound)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/organizations/"+orgID, nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_1"}))
+
+	rr := httptest.NewRecorder()
+	server.getOrganization(rr, req)
+
+	require.Equal(t, http.StatusNotFound, rr.Code)
+	require.Equal(t, "Organization not found\n", rr.Body.String())
+}
+
 func TestDeleteOrganization_OnlyOwnerCanDelete(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

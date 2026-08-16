@@ -199,6 +199,10 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 	organization, err := apiServer.lookupOrg(r.Context(), reference)
 	if err != nil {
 		log.Err(err).Msg("error getting organization")
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "Organization not found", http.StatusNotFound)
+			return
+		}
 		http.Error(rw, "Could not get organization: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
