@@ -30,6 +30,7 @@ type sessionExecutionConfigSurface struct {
 func (s *HelixAPIServer) sessionExecutionConfigSurface(ctx context.Context, session *types.Session) (*sessionExecutionConfigSurface, error) {
 	surface := &sessionExecutionConfigSurface{
 		session:   session,
+		config:    session.Metadata.CodeAgentConfig,
 		agentID:   session.ParentApp,
 		overrides: session.Metadata.CodeAgentOverrides,
 	}
@@ -84,8 +85,11 @@ func (s *HelixAPIServer) getSessionExecutionConfig(w http.ResponseWriter, r *htt
 		return
 	}
 	var config *types.AgentExecutionConfig
-	if surface.task != nil && surface.config != nil {
+	if surface.config != nil {
 		config = taskAgentExecutionConfig(surface.config)
+		if surface.task == nil {
+			config.AgentID = surface.agentID
+		}
 	} else {
 		config, err = s.resolveExecutionConfig(ctx, surface.agentID, surface.overrides, session.ID)
 	}
@@ -98,7 +102,7 @@ func (s *HelixAPIServer) getSessionExecutionConfig(w http.ResponseWriter, r *htt
 
 // updateSessionExecutionConfig godoc
 // @Summary Update session execution configuration
-// @Description General sessions replace App overrides and may switch Apps. SpecTask sessions instead replace the task-owned code_agent_config. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start.
+// @Description Replaces the complete coding execution config. SpecTask sessions write through to the task; general sessions keep their parent Agent for instructions and tools while storing harness/model configuration on the session. Running sandboxes start a fresh ACP thread with the prior transcript.
 // @Tags Sessions
 // @Accept json
 // @Produce json
@@ -182,7 +186,30 @@ func (s *HelixAPIServer) updateSessionExecutionConfig(w http.ResponseWriter, r *
 		return
 	}
 	if req.CodeAgentConfig != nil {
-		http.Error(w, "code_agent_config is only supported for SpecTask sessions", http.StatusBadRequest)
+		if req.AgentID != "" || req.CodeAgentOverrides != nil {
+			http.Error(w, "agent_id and code_agent_overrides cannot be combined with code_agent_config", http.StatusBadRequest)
+			return
+		}
+		response := &types.SessionExecutionConfigUpdateResponse{
+			SessionID:       session.ID,
+			AgentID:         surface.agentID,
+			CodeAgentConfig: surface.config,
+		}
+		_, restarted, httpErr := s.applySessionCodeAgentExecutionConfig(
+			ctx, user, session, req.CodeAgentConfig,
+			"The coding harness or model configuration changed for this session.",
+		)
+		if httpErr != nil {
+			http.Error(w, httpErr.Message, httpErr.StatusCode)
+			return
+		}
+		response.AgentThreadRestarted = restarted
+		response.CodeAgentConfig = req.CodeAgentConfig
+		writeResponse(w, response, http.StatusOK)
+		return
+	}
+	if surface.config != nil {
+		http.Error(w, "code_agent_config is required for this session", http.StatusBadRequest)
 		return
 	}
 	if req.CodeAgentOverrides == nil {

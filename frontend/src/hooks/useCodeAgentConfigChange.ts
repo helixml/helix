@@ -3,8 +3,8 @@ import { TypesCodeAgentExecutionConfig, TypesCodeAgentOverrides } from '../api/a
 import useSnackbar from './useSnackbar'
 
 // Both execution-config endpoints take the same coding-identity change and
-// report the same way, so the surfaces that mount SpecTaskExecutionControls
-// share one handler rather than each re-deriving the request and the wording.
+// report the same way, so surfaces that mount CodeAgentExecutionControls share
+// one handler rather than each re-deriving the request and the wording.
 interface CodeAgentConfigRequest {
   agent_id?: string
   code_agent_config?: TypesCodeAgentExecutionConfig
@@ -16,7 +16,7 @@ interface CodeAgentConfigResult {
 }
 
 /**
- * Builds the `onAgentModelChange` handler for SpecTaskExecutionControls.
+ * Builds the change handler for CodeAgentExecutionControls.
  *
  * Pass the `mutateAsync` of whichever execution-config mutation owns the
  * surface — useUpdateSpecTaskExecutionConfig on the task page,

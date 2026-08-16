@@ -24,7 +24,6 @@ import useRouter from "../hooks/useRouter";
 import useSnackbar from "../hooks/useSnackbar";
 import { useSettingsDialog } from "../contexts/settingsDialog";
 import useApi from "../hooks/useApi";
-import useApps from "../hooks/useApps";
 import useSubscriptionGate from "../hooks/useSubscriptionGate";
 import Paywall from "../components/subscription/Paywall";
 import HelixOrgTopNav from "../components/helix-org/HelixOrgTopNav";
@@ -40,7 +39,6 @@ import {
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
 import { matchesAllTokens } from "../utils/searchUtils";
-import { codeAgentExecutionConfigFromApp } from "../utils/codeAgentExecutionConfig";
 import type {
   TypesExternalRepositoryType,
   TypesGitRepository,
@@ -54,7 +52,6 @@ const Projects: FC = () => {
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const api = useApi();
-  const apps = useApps();
   const { paywallActive, navigateToBilling } = useSubscriptionGate();
   const { openDialog } = useSettingsDialog();
 
@@ -75,26 +72,6 @@ const Projects: FC = () => {
       account.setShowLoginWindow(true);
     }
   }, [account.initialized, isLoggedIn]);
-
-  // Load apps on mount to get app names for project lozenges
-  React.useEffect(() => {
-    if (account.user?.id) {
-      apps.loadApps();
-    }
-  }, [account.user?.id]);
-
-  // Create a map of app ID -> app name for displaying in project cards
-  const appNamesMap = React.useMemo(() => {
-    const map: Record<string, string> = {};
-    if (apps.apps) {
-      apps.apps.forEach((app) => {
-        if (app.id) {
-          map[app.id] = app.config?.helix?.name || "Unnamed Agent";
-        }
-      });
-    }
-    return map;
-  }, [apps.apps]);
 
   const isOrgResolved =
     !account.organizationTools.orgID ||
@@ -502,7 +479,7 @@ const Projects: FC = () => {
     setCreateDialogOpen(true);
   };
 
-  // Step 1: User clicks on sample project - always show agent selection modal first
+  // Step 1: collect the complete task execution defaults for the sample.
   const handleInstantiateSample = async (
     sampleId: string,
     sampleName: string,
@@ -512,22 +489,14 @@ const Projects: FC = () => {
     // Find the sample project
     const sampleProject = sampleProjects.find((p: any) => p.id === sampleId);
 
-    // Always show agent selection modal first
-    // Store the sample project for later (GitHub auth check happens after agent selection)
+    // Store the sample project for later (GitHub auth happens after config selection).
     setPendingSampleFork({ sampleId, sampleName, sampleProject });
     setAgentModalOpen(true);
   };
 
-  // Step 2: User selects an agent - proceed with fork or show GitHub wizard
-  const handleAgentSelected = async (agentId: string) => {
+  // Step 2: proceed with the selected config or show the GitHub wizard.
+  const handleAgentSelected = async (codeAgentConfig: TypesCodeAgentExecutionConfig) => {
     if (!pendingSampleFork) return;
-
-    const selectedAgent = apps.apps?.find((app) => app.id === agentId);
-    const codeAgentConfig = codeAgentExecutionConfigFromApp(selectedAgent);
-    if (!codeAgentConfig) {
-      snackbar.error("Selected agent has no code-agent configuration");
-      return;
-    }
 
     const { sampleId, sampleName, sampleProject } = pendingSampleFork;
     setPendingSampleFork(null);
@@ -629,7 +598,6 @@ const Projects: FC = () => {
               onCreateFromSample={handleInstantiateSample}
               sampleProjects={sampleProjects}
               isCreating={instantiateSampleMutation.isPending}
-              appNamesMap={appNamesMap}
               pinnedProjectIds={pinnedProjectIds}
               onPinProject={handlePinProject}
               onUnpinProject={handleUnpinProject}
@@ -726,8 +694,8 @@ const Projects: FC = () => {
           setPendingSampleFork(null);
         }}
         onSelect={handleAgentSelected}
-        title="Select Agent for Project"
-        description="Choose a default agent for this project. You can override this when creating individual tasks."
+        title="Select Task Defaults"
+        description="Choose the coding harness, credentials, provider, and model for tasks in this project."
       />
 
       {/* GitHub Auth Wizard for Sample Projects */}

@@ -175,6 +175,16 @@ func (s *HelixAPIServer) codeAgentConfigSnapshot(ctx context.Context, session *t
 
 	appID := session.ParentApp
 	var task *types.SpecTask
+	if session.Metadata.SpecTaskID == "" && session.Metadata.CodeAgentConfig != nil {
+		config := session.Metadata.CodeAgentConfig
+		return &types.InteractionCodeAgentConfigSnapshot{
+			AppID:          appID,
+			Provider:       config.ProviderRef,
+			Model:          config.Model,
+			Runtime:        config.Runtime,
+			CredentialType: config.CredentialType,
+		}, nil
+	}
 	if session.Metadata.SpecTaskID != "" {
 		loaded, err := s.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
 		if err != nil {

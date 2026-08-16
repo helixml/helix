@@ -40,6 +40,15 @@ func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user 
 	attribution.SessionID = session.ID
 	attribution.CodeAgentRuntime = session.Metadata.CodeAgentRuntime
 	attribution.CodeAgentOverrides = session.Metadata.CodeAgentOverrides
+	if session.Metadata.CodeAgentConfig != nil {
+		attribution.CodeAgentRuntime = session.Metadata.CodeAgentConfig.Runtime
+		attribution.CodeAgentOverrides = &types.CodeAgentOverrides{
+			ProviderRef:     session.Metadata.CodeAgentConfig.ProviderRef,
+			Model:           session.Metadata.CodeAgentConfig.Model,
+			ReasoningEffort: session.Metadata.CodeAgentConfig.ReasoningEffort,
+			ServiceTier:     session.Metadata.CodeAgentConfig.ServiceTier,
+		}
+	}
 	if session.ParentApp != "" {
 		attribution.AppID = session.ParentApp
 	}

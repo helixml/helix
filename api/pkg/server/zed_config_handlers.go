@@ -54,8 +54,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// SpecTasks carry a complete execution config and do not resolve a Helix
-	// App. General and org-agent sessions remain App-backed.
+// SpecTasks carry a complete execution config and do not resolve a Helix App.
+// General sessions may be App-less; org-agent sessions keep the App as their
+// identity and overlay the session-owned coding execution config.
 	var app *types.App
 	var specTask *types.SpecTask
 	if session.Metadata.SpecTaskID != "" {
@@ -90,7 +91,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			Config: types.AppConfig{},
 		}
 	}
-	if specTask == nil || specTask.CodeAgentConfig == nil {
+	if (specTask == nil || specTask.CodeAgentConfig == nil) && session.Metadata.CodeAgentConfig != nil {
+		app = external_agent.ApplyCodeAgentExecutionConfig(app, session.Metadata.CodeAgentConfig)
+	} else if specTask == nil || specTask.CodeAgentConfig == nil {
 		app = external_agent.ApplyCodeAgentOverrides(app, effectiveCodeAgentOverrides(session, specTask))
 	}
 
@@ -318,8 +321,11 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		}
 		apiServer.applySpecTaskGooseRecipe(ctx, specTask, codeAgentConfig)
 	}
-	if codeAgentConfig == nil && session.ParentApp != "" {
+	if codeAgentConfig == nil && (session.ParentApp != "" || session.Metadata.CodeAgentConfig != nil) {
 		codeAgentConfig = apiServer.buildCodeAgentConfig(ctx, app, sandboxAPIURL, sessionProjectID)
+		if codeAgentConfig != nil && session.Metadata.CodeAgentConfig != nil {
+			codeAgentConfig.ServiceTier = session.Metadata.CodeAgentConfig.ServiceTier
+		}
 	}
 
 	// Check if user has an active subscription (for credential sync in containers).
@@ -552,7 +558,12 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 		runtimeApp *types.App
 		source     string
 	)
-	if session.Metadata.SpecTaskID != "" {
+	if session.Metadata.CodeAgentConfig != nil && session.Metadata.SpecTaskID == "" {
+		runtimeApp = external_agent.AppFromCodeAgentConfig(
+			session.Metadata.CodeAgentConfig, session.Owner, session.OrganizationID,
+		)
+		source = "session"
+	} else if session.Metadata.SpecTaskID != "" {
 		if specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID); err == nil {
 			if specTask.CodeAgentConfig != nil {
 				runtimeApp = external_agent.AppFromCodeAgentConfig(specTask.CodeAgentConfig, specTask.UserID, specTask.OrganizationID)

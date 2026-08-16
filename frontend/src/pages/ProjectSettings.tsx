@@ -988,7 +988,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         </Typography>
         <Divider sx={{ mb: 3 }} />
         <ProjectTaskDefaults
-          agents={sortedApps}
           project={project}
           disabled={updateProjectMutation.isPending}
           onUpdate={updateProjectMutation.mutateAsync}

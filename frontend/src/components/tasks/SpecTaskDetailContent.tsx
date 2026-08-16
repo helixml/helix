@@ -70,7 +70,6 @@ import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
-import useApps from "../../hooks/useApps";
 import { deriveDisplaySettings } from "../../services/externalAgentDisplay";
 import { useStreaming } from "../../contexts/streaming";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
@@ -78,7 +77,6 @@ import {
   useGetSession,
   GET_SESSION_QUERY_KEY,
 } from "../../services/sessionService";
-import { selectCodingAgents } from "../../utils/apps";
 import {
   useUpdateSpecTask,
   useSpecTask,
@@ -107,7 +105,7 @@ import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSession
 import AgentChat from "../session/AgentChat";
 import { getChatColors } from "../session/chatStyles";
 import type { WorkspaceReviewComment } from "../workspace-inspector/workspaceReviewComments";
-import SpecTaskExecutionControls from "./SpecTaskExecutionControls";
+import CodeAgentExecutionControls from "../agent/CodeAgentExecutionControls";
 import SandboxStatusIndicator, {
   type SandboxIndicatorState,
 } from "./SandboxStatusIndicator";
@@ -242,7 +240,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const snackbar = useSnackbar();
   const account = useAccount();
   const streaming = useStreaming();
-  const apps = useApps();
   const updateSpecTask = useUpdateSpecTask();
   const updateExecutionConfig = useUpdateSpecTaskExecutionConfig(taskId);
   const autoSaveSpecTask = useUpdateSpecTask();
@@ -418,12 +415,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     });
   }, [taskId]);
 
-  // Spec tasks can only select coding agents.
-  const eligibleApps = useMemo(() => {
-    if (!apps.apps) return [];
-    return selectCodingAgents(apps.apps);
-  }, [apps.apps]);
-
   const handleAgentModelChange = useCodeAgentConfigChange(updateExecutionConfig.mutateAsync);
 
   const handleSandboxResourcesChange = useCallback(async (sandboxResourceOverrides: TypesSandboxResourceOverrides) => {
@@ -452,11 +443,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
     return getTokenExpiryStatus(sub.access_token_expires_at);
   }, [task?.code_agent_config?.runtime, task?.code_agent_config?.credential_type, claudeSubscriptions]);
-
-  // Load apps on mount
-  useEffect(() => {
-    apps.loadApps();
-  }, []);
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
   // Initialize from URL query param 'view' if present (only when syncing with URL)
@@ -1891,14 +1877,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
           Execution
         </Typography>
-        <SpecTaskExecutionControls
-          agents={eligibleApps}
-          selectedAgentId={currentExecutionConfig?.agent_id || ""}
-          codeAgentOverrides={currentExecutionConfig?.code_agent_overrides}
-          currentExecutionConfig={currentExecutionConfig}
+        <CodeAgentExecutionControls
+          value={currentExecutionConfig?.code_agent_config || task?.code_agent_config}
           sandboxResourceOverrides={task?.sandbox_resource_overrides}
           sandboxRuntime={task?.sandbox_runtime}
-          onAgentModelChange={handleAgentModelChange}
+          onChange={(config) => handleAgentModelChange("", {}, config)}
           onSandboxResourceOverridesChange={handleSandboxResourcesChange}
           disabled={updateExecutionConfig.isPending || !!task?.archived}
           grouped
@@ -2569,14 +2552,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
                   leadingActions={(
-                    <SpecTaskExecutionControls
-                      agents={eligibleApps}
-                      selectedAgentId={currentExecutionConfig?.agent_id || ""}
-                      codeAgentOverrides={currentExecutionConfig?.code_agent_overrides}
-                      currentExecutionConfig={currentExecutionConfig}
+                    <CodeAgentExecutionControls
+                      value={currentExecutionConfig?.code_agent_config || task.code_agent_config}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
-                      onAgentModelChange={handleAgentModelChange}
+                      onChange={(config) => handleAgentModelChange("", {}, config)}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
                       disabled={updateExecutionConfig.isPending}
                       compact
@@ -2884,14 +2864,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   enableInteractionDebugCopy
                   onWillSend={handleWillSend}
                   leadingActions={(
-                    <SpecTaskExecutionControls
-                      agents={eligibleApps}
-                      selectedAgentId={currentExecutionConfig?.agent_id || ""}
-                      codeAgentOverrides={currentExecutionConfig?.code_agent_overrides}
-                      currentExecutionConfig={currentExecutionConfig}
+                    <CodeAgentExecutionControls
+                      value={currentExecutionConfig?.code_agent_config || task.code_agent_config}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
-                      onAgentModelChange={handleAgentModelChange}
+                      onChange={(config) => handleAgentModelChange("", {}, config)}
                       onSandboxResourceOverridesChange={handleSandboxResourcesChange}
                       disabled={updateExecutionConfig.isPending}
                       compact

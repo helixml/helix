@@ -41,12 +41,12 @@ import {
   IShareSessionInstructions,
 } from '../types'
 
-import { TypesAgentType, TypesCodeAgentOverrides, TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
+import { TypesAgentType, TypesCodeAgentExecutionConfig, TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
 
 import { useStreaming } from '../contexts/streaming'
 
-import { getAssistant, selectCodingAgents } from '../utils/apps'
-import SpecTaskExecutionControls from '../components/tasks/SpecTaskExecutionControls'
+import { getAssistant } from '../utils/apps'
+import CodeAgentExecutionControls from '../components/agent/CodeAgentExecutionControls'
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
@@ -307,16 +307,18 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
   // a stop button, because their turns are long-running.
   const { data: executionConfig } = useGetSessionExecutionConfig(sessionID, isExternalAgent)
   const updateExecutionConfig = useUpdateSessionExecutionConfig(sessionID)
-  const sessionAgentID = executionConfig?.agent_id || session?.data?.parent_app || ''
-  // The session's OWN agent always belongs in the picker, even when it isn't a
-  // coding agent — an org chart's bots run on org_agent apps, and their model
-  // and reasoning are exactly what this composer edits.
-  const executionAgents = useMemo(() => {
-    const coding = selectCodingAgents(apps.apps)
-    const sessionAgent = apps.apps?.find((app) => app.id === sessionAgentID)
-    if (!sessionAgent || coding.some((app) => app.id === sessionAgent.id)) return coding
-    return [sessionAgent, ...coding]
-  }, [apps.apps, sessionAgentID])
+  const selectedCodeAgentConfig: TypesCodeAgentExecutionConfig | undefined =
+    executionConfig?.code_agent_config
+    || (executionConfig?.runtime && executionConfig?.model
+      ? {
+          runtime: executionConfig.runtime,
+          credential_type: executionConfig.credential_type,
+          provider_ref: executionConfig.provider_ref,
+          model: executionConfig.model,
+          reasoning_effort: executionConfig.reasoning_effort,
+          service_tier: executionConfig.service_tier,
+        }
+      : undefined)
 
   const handleAgentModelChange = useCodeAgentConfigChange(updateExecutionConfig.mutateAsync)
 
@@ -1431,12 +1433,9 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false })
                     isCancelling={isCancelling}
                     showContextUsage
                     leadingActions={isExternalAgent ? (
-                      <SpecTaskExecutionControls
-                        agents={executionAgents}
-                        selectedAgentId={sessionAgentID}
-                        codeAgentOverrides={executionConfig?.code_agent_overrides}
-                        currentExecutionConfig={executionConfig}
-                        onAgentModelChange={handleAgentModelChange}
+                      <CodeAgentExecutionControls
+                        value={selectedCodeAgentConfig}
+                        onChange={(config) => handleAgentModelChange('', {}, config)}
                         disabled={updateExecutionConfig.isPending}
                         compact
                       />

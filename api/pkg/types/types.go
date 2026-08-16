@@ -513,6 +513,12 @@ type SessionMetadata struct {
 	// authoritative there, so there is exactly one source of truth per session.
 	CodeAgentOverrides *CodeAgentOverrides `json:"code_agent_overrides,omitempty"`
 
+	// CodeAgentConfig is the complete coding runtime selected for a general
+	// external-agent session. ParentApp remains the Helix Agent identity and
+	// supplies instructions/tools; this value owns harness, credentials, model,
+	// and reasoning. SpecTask sessions keep this nil and read the task instead.
+	CodeAgentConfig *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`
+
 	// Container fields (Hydra executor)
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
 	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID

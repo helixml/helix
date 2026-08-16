@@ -5,19 +5,18 @@ import {
   TypesCodeAgentRuntime,
   TypesSandboxRuntime,
 } from "../../api/api";
-import { IApp } from "../../types";
 import ProjectTaskDefaults from "./ProjectTaskDefaults";
 
 const controls = vi.hoisted(() => ({ props: undefined as any }));
 
-vi.mock("../tasks/SpecTaskExecutionControls", () => ({
+vi.mock("../agent/CodeAgentExecutionControls", () => ({
   default: (props: any) => {
     controls.props = props;
     return (
       <div>
         <button
           onClick={() =>
-            props.onAgentModelChange("app-codex", {}, {
+            props.onChange({
               runtime: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
               credential_type:
                 TypesCodeAgentCredentialType.CodeAgentCredentialTypeSubscription,
@@ -52,31 +51,11 @@ vi.mock("../tasks/SpecTaskExecutionControls", () => ({
   },
 }));
 
-const zedAgent = {
-  id: "app-zed",
-  config: {
-    helix: {
-      name: "Zed Agent",
-      assistants: [
-        {
-          agent_type: "zed_external",
-          code_agent_runtime: "zed_agent",
-          code_agent_credential_type: "api_key",
-          provider: "provider-1",
-          model: "model-1",
-          reasoning_effort: "high",
-        },
-      ],
-    },
-  },
-} as IApp;
-
 describe("ProjectTaskDefaults", () => {
   it("round-trips project-owned execution defaults without an App ID", async () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined);
     render(
       <ProjectTaskDefaults
-        agents={[zedAgent]}
         project={{
           id: "project-1",
           code_agent_config: {
@@ -98,11 +77,10 @@ describe("ProjectTaskDefaults", () => {
       />,
     );
 
-    expect(controls.props.selectedAgentId).toBe("app-zed");
-    expect(controls.props.currentExecutionConfig.provider_ref).toBe(
+    expect(controls.props.value.provider_ref).toBe(
       "provider-1",
     );
-    expect(controls.props.currentExecutionConfig.model).toBe("model-1");
+    expect(controls.props.value.model).toBe("model-1");
     expect(controls.props.grouped).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Change model" }));

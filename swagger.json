@@ -17633,7 +17633,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "General sessions replace App overrides and may switch Apps. SpecTask sessions instead replace the task-owned code_agent_config. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start.",
+                "description": "Replaces the complete coding execution config. SpecTask sessions write through to the task; general sessions keep their parent Agent for instructions and tools while storing harness/model configuration on the session. Running sandboxes start a fresh ACP thread with the prior transcript.",
                 "consumes": [
                     "application/json"
                 ],
@@ -36730,6 +36730,14 @@
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",
                     "type": "string"
+                },
+                "code_agent_config": {
+                    "description": "CodeAgentConfig is the complete coding runtime selected for a general\nexternal-agent session. ParentApp remains the Helix Agent identity and\nsupplies instructions/tools; this value owns harness, credentials, model,\nand reasoning. SpecTask sessions keep this nil and read the task instead.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                        }
+                    ]
                 },
                 "code_agent_overrides": {
                     "description": "CodeAgentOverrides customizes the coding model for THIS session without\nmutating its Agent. Set from the chat composer's execution controls on\nsessions that own their configuration (org bot chat, project chat).\nSpecTask sessions leave this nil — SpecTask.CodeAgentConfig is\nauthoritative there, so there is exactly one source of truth per session.",

@@ -1,12 +1,12 @@
 package types
 
 // Execution configuration shared by every surface that runs an external coding
-// agent. SpecTasks own a complete CodeAgentExecutionConfig; plain chat sessions
-// continue to customize their reusable Agent with CodeAgentOverrides.
+// agent. SpecTasks and plain chat sessions own a complete
+// CodeAgentExecutionConfig; general sessions retain ParentApp separately for
+// Agent instructions and tools.
 
-// CodeAgentOverrides customizes the coding model for a session without mutating
-// the reusable Agent configuration it was created from. Legacy SpecTasks may
-// contain this value only until startup migration materializes their full config.
+// CodeAgentOverrides is retained for historical sessions and SpecTasks until a
+// complete execution config is materialized.
 type CodeAgentOverrides struct {
 	ProviderRef     string `json:"provider_ref,omitempty"`
 	Model           string `json:"model,omitempty"`
@@ -54,8 +54,8 @@ type AgentExecutionConfig struct {
 }
 
 // SessionExecutionConfigUpdateRequest replaces a session's coding identity.
-// SpecTask sessions accept CodeAgentConfig. Other sessions accept AgentID and a
-// full replacement CodeAgentOverrides set.
+// New callers send CodeAgentConfig. AgentID and CodeAgentOverrides remain for
+// historical general-session clients.
 type SessionExecutionConfigUpdateRequest struct {
 	AgentID            string                    `json:"agent_id,omitempty"`
 	CodeAgentConfig    *CodeAgentExecutionConfig `json:"code_agent_config,omitempty"`

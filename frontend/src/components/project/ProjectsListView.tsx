@@ -42,7 +42,6 @@ interface ProjectsListViewProps {
   onCreateFromSample: (sampleId: string, sampleName: string) => Promise<void>
   sampleProjects: ServerSimpleSampleProject[]
   isCreating: boolean
-  appNamesMap?: Record<string, string>
   pinnedProjectIds?: string[]
   onPinProject?: (projectId: string) => void
   onUnpinProject?: (projectId: string) => void
@@ -91,7 +90,6 @@ const ProjectCard: FC<{
   project: TypesProject
   onViewProject: (project: TypesProject) => void
   onMenuOpen: (event: React.MouseEvent<HTMLElement>, project: TypesProject) => void
-  appNamesMap: Record<string, string>
   isPinned?: boolean
   onPin?: (projectId: string) => void
   onUnpin?: (projectId: string) => void
@@ -351,7 +349,6 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
   onCreateFromSample,
   sampleProjects,
   isCreating,
-  appNamesMap = {},
   pinnedProjectIds = [],
   onPinProject,
   onUnpinProject,
@@ -427,7 +424,6 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
                       project={project}
                       onViewProject={onViewProject}
                       onMenuOpen={onMenuOpen}
-                      appNamesMap={appNamesMap}
                       isPinned={true}
                       onPin={onPinProject}
                       onUnpin={onUnpinProject}
@@ -445,7 +441,6 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
                   project={project}
                   onViewProject={onViewProject}
                   onMenuOpen={onMenuOpen}
-                  appNamesMap={appNamesMap}
                   isPinned={project.id ? pinnedSet.has(project.id) : false}
                   onPin={onPinProject}
                   onUnpin={onUnpinProject}

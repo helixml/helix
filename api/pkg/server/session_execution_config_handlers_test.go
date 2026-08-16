@@ -101,6 +101,56 @@ func TestGetSessionExecutionConfigReportsSessionOverrides(t *testing.T) {
 	assert.Equal(t, "gpt-5", config.CodeAgentOverrides.Model)
 }
 
+func TestGetSessionExecutionConfigReportsOwnedConfig(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	session := newOrgChatSession("user_a")
+	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "anthropic",
+		Model:          "claude-sonnet-4-7",
+	}
+	seedParentWithInteractions(t, mem, session, 1)
+
+	rr := callGetSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	var config types.AgentExecutionConfig
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &config))
+	assert.Equal(t, "app_parent", config.AgentID)
+	assert.Equal(t, types.CodeAgentRuntimeOpenCode, config.Runtime)
+	require.NotNil(t, config.CodeAgentConfig)
+	assert.Equal(t, "claude-sonnet-4-7", config.CodeAgentConfig.Model)
+}
+
+func TestUpdateSessionExecutionConfigPersistsCompleteConfigAndKeepsAgent(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	session := newOrgChatSession("user_a")
+	session.Metadata.CodeAgentOverrides = &types.CodeAgentOverrides{ReasoningEffort: "low"}
+	seedParentWithInteractions(t, mem, session, 1)
+
+	config := &types.CodeAgentExecutionConfig{
+		Runtime:         types.CodeAgentRuntimeOpenCode,
+		CredentialType:  types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:     "anthropic",
+		Model:           "claude-sonnet-4-7",
+		ReasoningEffort: "high",
+	}
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "app_parent", updated.ParentApp, "the Helix Agent still owns instructions and tools")
+	assert.Equal(t, config, updated.Metadata.CodeAgentConfig)
+	assert.Nil(t, updated.Metadata.CodeAgentOverrides)
+	assert.Equal(t, types.CodeAgentRuntimeOpenCode, updated.Metadata.CodeAgentRuntime)
+}
+
 // A SpecTask session reports its TASK's configuration, not the session row's:
 // the task is the single source of truth for the sessions it drives.
 func TestGetSessionExecutionConfigPrefersSpecTask(t *testing.T) {

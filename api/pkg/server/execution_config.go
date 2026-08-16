@@ -1,7 +1,8 @@
 package server
 
-// Shared code-agent execution configuration. SpecTasks own complete execution
-// configs; general chat and org-agent sessions continue to use App overrides.
+// Shared code-agent execution configuration. SpecTasks and general sessions
+// own complete execution configs. An org-agent session still keeps its parent
+// App for identity and behavior, while this config selects the coding runtime.
 // Both surfaces share the same Zed/ACP restart lifecycle.
 
 import (
@@ -313,6 +314,65 @@ func (s *HelixAPIServer) applySpecTaskExecutionConfig(
 		deliverLive:    live,
 		clearParentApp: true,
 	}); switchErr != nil {
+		rollback()
+		return false, false, switchErr
+	}
+	return true, live, nil
+}
+
+func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
+	ctx context.Context,
+	user *types.User,
+	session *types.Session,
+	config *types.CodeAgentExecutionConfig,
+	handoffReason string,
+) (changed bool, restarted bool, httpErr *system.HTTPError) {
+	if err := s.validateCodeAgentExecutionConfig(
+		ctx, config, user.ID, session.Owner, session.OrganizationID,
+	); err != nil {
+		return false, false, system.NewHTTPError400(err.Error())
+	}
+	if reflect.DeepEqual(session.Metadata.CodeAgentConfig, config) &&
+		session.Metadata.CodeAgentOverrides == nil {
+		return false, false, nil
+	}
+
+	live := s.hasRunningAgentContainer(ctx, session.ID)
+	var err error
+	if live {
+		err = s.cancelTurnsForSwitch(ctx, session.ID)
+	} else {
+		err = s.cancelOfflineTurnsForSwitch(ctx, session)
+	}
+	if err != nil {
+		return false, false, system.NewHTTPError409(
+			fmt.Sprintf("failed to stop the current agent turn before switching: %v", err))
+	}
+
+	oldConfig := session.Metadata.CodeAgentConfig
+	oldOverrides := session.Metadata.CodeAgentOverrides
+	session.Metadata.CodeAgentConfig = config
+	session.Metadata.CodeAgentOverrides = nil
+	if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+		session.Metadata.CodeAgentConfig = oldConfig
+		session.Metadata.CodeAgentOverrides = oldOverrides
+		return false, false, system.NewHTTPError500(fmt.Sprintf("failed to save code-agent config: %v", err))
+	}
+	rollback := func() {
+		session.Metadata.CodeAgentConfig = oldConfig
+		session.Metadata.CodeAgentOverrides = oldOverrides
+		if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to roll back session code-agent config")
+		}
+	}
+
+	if switchErr := s.switchAgentInPlaceForNextTurn(
+		ctx, session, config.Runtime, session.ParentApp, agentSwitchOptions{
+			createHandoff: live,
+			handoffReason: handoffReason,
+			deliverLive:   live,
+		},
+	); switchErr != nil {
 		rollback()
 		return false, false, switchErr
 	}

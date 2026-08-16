@@ -6388,6 +6388,13 @@ export interface TypesSessionMetadata {
   /** Webhook URL to POST on session completion */
   callback_url?: string;
   /**
+   * CodeAgentConfig is the complete coding runtime selected for a general
+   * external-agent session. ParentApp remains the Helix Agent identity and
+   * supplies instructions/tools; this value owns harness, credentials, model,
+   * and reasoning. SpecTask sessions keep this nil and read the task instead.
+   */
+  code_agent_config?: TypesCodeAgentExecutionConfig;
+  /**
    * CodeAgentOverrides customizes the coding model for THIS session without
    * mutating its Agent. Set from the chat composer's execution controls on
    * sessions that own their configuration (org bot chat, project chat).
@@ -16713,7 +16720,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description General sessions replace App overrides and may switch Apps. SpecTask sessions instead replace the task-owned code_agent_config. Running sandboxes start a fresh ACP thread with the prior transcript; stopped sandboxes record the change for the next start.
+     * @description Replaces the complete coding execution config. SpecTask sessions write through to the task; general sessions keep their parent Agent for instructions and tools while storing harness/model configuration on the session. Running sandboxes start a fresh ACP thread with the prior transcript.
      *
      * @tags Sessions
      * @name V1SessionsExecutionConfigPartialUpdate

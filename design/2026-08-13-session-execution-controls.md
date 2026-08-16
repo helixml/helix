@@ -7,6 +7,12 @@ Date: 2026-08-13
 > complete `CodeAgentExecutionConfig`. Session-owned overrides remain valid for
 > general chat and org-agent sessions.
 
+> Superseded for new general-session edits by
+> `2026-08-16-code-agent-config-picker.md`: general sessions now persist a
+> complete config while retaining their parent Agent identity. Overrides are
+> read only for historical sessions. The implementation and verification below
+> describe the superseded first iteration.
+
 ## Problem
 
 `/orgs/{org}/chat/session/{id}` (the org-chart bot chat, `pages/Session.tsx`
